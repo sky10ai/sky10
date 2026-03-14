@@ -2,4 +2,4 @@
 
 | Month | Summary |
 |-------|---------|
-| [March](03/) | SkyFS V1 + V2: encrypted file storage, multi-device sync, ops log, FastCDC, pack files, SQLite index, key rotation, blob GC |
+| [March](03/) | SkyFS V1-V3: encrypted file storage → multi-device sync → continuous sync daemon, 124 tests |
