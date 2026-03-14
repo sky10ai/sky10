@@ -276,7 +276,7 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 		return nil, fmt.Errorf("generating namespace key: %w", err)
 	}
 
-	wrapped, err := WrapNamespaceKey(nsKey, s.identity.PublicKey, s.identity.PrivateKey)
+	wrapped, err := WrapNamespaceKey(nsKey, s.identity.PublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("wrapping namespace key: %w", err)
 	}

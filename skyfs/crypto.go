@@ -7,10 +7,12 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	cryptosha512 "crypto/sha512"
 	"errors"
 	"fmt"
 	"io"
 
+	"filippo.io/edwards25519"
 	"golang.org/x/crypto/hkdf"
 )
 
@@ -90,37 +92,45 @@ func Decrypt(ciphertext, key []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
-// edToX25519Private converts an Ed25519 private key to an X25519 private key.
-// Ed25519 private keys contain a 32-byte seed; the X25519 private key is
-// derived by hashing that seed with SHA-512 (same as Ed25519 does internally).
-func edToX25519Private(edPriv ed25519.PrivateKey) (*ecdh.PrivateKey, error) {
-	seed := edPriv.Seed()
-	h := sha256.Sum256(seed)
-	return ecdh.X25519().NewPrivateKey(h[:])
-}
-
-// edToX25519Public converts an Ed25519 public key to an X25519 public key.
-// This uses the birational map from the Edwards curve to the Montgomery curve.
+// edPubToX25519 converts an Ed25519 public key to an X25519 public key
+// using the birational map from the Edwards curve to the Montgomery curve.
 //
-// We do this by generating the X25519 public key from the private key's seed.
-// This avoids implementing the Edwards-to-Montgomery point conversion directly.
-func edToX25519Public(edPub ed25519.PublicKey, edPriv ed25519.PrivateKey) (*ecdh.PublicKey, error) {
-	priv, err := edToX25519Private(edPriv)
+// This is the standard conversion: given an Edwards point (x, y), the
+// Montgomery u-coordinate is u = (1 + y) / (1 - y).
+//
+// Uses filippo.io/edwards25519 for the field arithmetic.
+func edPubToX25519(edPub ed25519.PublicKey) (*ecdh.PublicKey, error) {
+	p, err := new(edwards25519.Point).SetBytes(edPub)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid Ed25519 public key: %w", err)
 	}
-	return priv.PublicKey(), nil
+	return ecdh.X25519().NewPublicKey(p.BytesMontgomery())
 }
 
-// WrapKey encrypts a data key so only the holder of recipientPriv can decrypt it.
+// edPrivToX25519 converts an Ed25519 private key to an X25519 private key.
+// Uses SHA-512 of the seed and applies X25519 clamping, matching the standard
+// Ed25519-to-X25519 conversion (RFC 7748 / draft-ietf-core-oscore).
+func edPrivToX25519(edPriv ed25519.PrivateKey) (*ecdh.PrivateKey, error) {
+	seed := edPriv.Seed()
+	h := sha512(seed)
+	// Apply X25519 clamping to the first 32 bytes
+	h[0] &= 248
+	h[31] &= 127
+	h[31] |= 64
+	return ecdh.X25519().NewPrivateKey(h[:32])
+}
+
+// WrapKey encrypts a data key so only the holder of the corresponding
+// private key can decrypt it. Only the recipient's public key is needed.
 //
 // The wrapping uses ephemeral ECDH: generate a throwaway X25519 keypair,
-// compute a shared secret with the recipient's public key, derive a wrapping
-// key via HKDF, and encrypt the data key with AES-256-GCM.
+// compute a shared secret with the recipient's public key (converted from
+// Ed25519 to X25519 via the birational map), derive a wrapping key via
+// HKDF, and encrypt the data key with AES-256-GCM.
 //
 // Output format: [32-byte ephemeral public key | AES-GCM wrapped data key]
-func WrapKey(dataKey []byte, recipientPub ed25519.PublicKey, recipientPriv ed25519.PrivateKey) ([]byte, error) {
-	recipientX, err := edToX25519Public(recipientPub, recipientPriv)
+func WrapKey(dataKey []byte, recipientPub ed25519.PublicKey) ([]byte, error) {
+	recipientX, err := edPubToX25519(recipientPub)
 	if err != nil {
 		return nil, fmt.Errorf("converting recipient key: %w", err)
 	}
@@ -170,7 +180,7 @@ func UnwrapKey(wrapped []byte, recipientPriv ed25519.PrivateKey) ([]byte, error)
 		return nil, fmt.Errorf("parsing ephemeral public key: %w", err)
 	}
 
-	recipientX, err := edToX25519Private(recipientPriv)
+	recipientX, err := edPrivToX25519(recipientPriv)
 	if err != nil {
 		return nil, fmt.Errorf("converting recipient key: %w", err)
 	}
@@ -193,6 +203,12 @@ func UnwrapKey(wrapped []byte, recipientPriv ed25519.PrivateKey) ([]byte, error)
 	}
 
 	return dataKey, nil
+}
+
+// sha512 computes SHA-512 and returns the full 64-byte hash.
+func sha512(data []byte) []byte {
+	h := cryptosha512.Sum512(data)
+	return h[:]
 }
 
 // deriveKey uses HKDF-SHA256 to derive a 32-byte key.
