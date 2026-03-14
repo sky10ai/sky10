@@ -2,6 +2,8 @@
 
 | Date | Title | Summary |
 |------|-------|---------|
+| 14 | [skyshare macOS](14-Skyshare-macOS.md) | SwiftUI desktop app: menu bar, file browser, settings, Go RPC server — 131 tests |
+| 14 | [skyshare macOS Plan](../../../work/current/skyshare-macos-plan.md) | Implementation plan (9 milestones, 6 complete) |
 | 14 | [SkyFS V3](14-SkyFS-V3.md) | Continuous sync: daemon, watcher, poller, compression, versioning, ignore patterns — 124 tests |
 | 14 | [SkyFS V3 Plan](14-SkyFS-V3-Plan.md) | Implementation plan (10 milestones, all complete) |
 | 14 | [SkyFS V2](14-SkyFS-V2.md) | Multi-device sync: FastCDC, ops log, compaction, pack files, SQLite index, key rotation, blob GC — 96 tests |
