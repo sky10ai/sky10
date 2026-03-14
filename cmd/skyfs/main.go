@@ -44,10 +44,16 @@ func main() {
 		err = cmdRemove(os.Args[2:])
 	case "info":
 		err = cmdInfo(os.Args[2:])
+	case "sync":
+		err = cmdSync(os.Args[2:])
 	case "compact":
 		err = cmdCompact(os.Args[2:])
 	case "gc":
 		err = cmdGC(os.Args[2:])
+	case "versions":
+		err = cmdVersions(os.Args[2:])
+	case "snapshots":
+		err = cmdSnapshots(os.Args[2:])
 	case "help", "--help", "-h":
 		printUsage()
 		return
@@ -336,6 +342,130 @@ func cmdGC(args []string) error {
 	return nil
 }
 
+func cmdSync(args []string) error {
+	fs := flag.NewFlagSet("sync", flag.ExitOnError)
+	once := fs.Bool("once", false, "sync once and exit")
+	ns := fs.String("namespace", "", "sync only this namespace")
+	prefix := fs.String("prefix", "", "sync only paths with this prefix")
+	fs.Parse(args)
+
+	if fs.NArg() < 1 {
+		return fmt.Errorf("usage: skyfs sync <directory> [--once] [--namespace ns] [--prefix p]")
+	}
+
+	dir := fs.Arg(0)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	store, err := openStore(ctx)
+	if err != nil {
+		return err
+	}
+
+	ignoreMatcher := skyfs.NewIgnoreMatcher(dir)
+
+	cfg := skyfs.SyncConfig{
+		LocalRoot:  dir,
+		IgnoreFunc: ignoreMatcher.IgnoreFunc(),
+	}
+	if *ns != "" {
+		cfg.Namespaces = []string{*ns}
+	}
+	if *prefix != "" {
+		cfg.Prefixes = []string{*prefix}
+	}
+
+	engine := skyfs.NewSyncEngine(store, cfg)
+
+	if *once {
+		result, err := engine.SyncOnce(ctx)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("synced: %d uploaded, %d downloaded, %d errors\n",
+			result.Uploaded, result.Downloaded, len(result.Errors))
+		return nil
+	}
+
+	// Continuous mode — daemon not fully wired in CLI yet, do sync once
+	result, err := engine.SyncOnce(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("synced: %d uploaded, %d downloaded, %d errors\n",
+		result.Uploaded, result.Downloaded, len(result.Errors))
+	return nil
+}
+
+func cmdVersions(args []string) error {
+	fs := flag.NewFlagSet("versions", flag.ExitOnError)
+	fs.Parse(args)
+
+	if fs.NArg() < 1 {
+		return fmt.Errorf("usage: skyfs versions <path>")
+	}
+
+	ctx := context.Background()
+	store, err := openStore(ctx)
+	if err != nil {
+		return err
+	}
+
+	versions, err := skyfs.ListVersions(ctx, store, fs.Arg(0))
+	if err != nil {
+		return err
+	}
+
+	if len(versions) == 0 {
+		fmt.Println("no versions found")
+		return nil
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintf(w, "TIMESTAMP\tDEVICE\tSIZE\tCHECKSUM\n")
+	for _, v := range versions {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+			v.Timestamp.Format("2006-01-02 15:04:05"),
+			v.Device,
+			formatSize(v.Size),
+			v.Checksum[:12],
+		)
+	}
+	w.Flush()
+	return nil
+}
+
+func cmdSnapshots(_ []string) error {
+	ctx := context.Background()
+	store, err := openStore(ctx)
+	if err != nil {
+		return err
+	}
+
+	snapshots, err := skyfs.ListSnapshots(ctx, store)
+	if err != nil {
+		return err
+	}
+
+	if len(snapshots) == 0 {
+		fmt.Println("no snapshots")
+		return nil
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintf(w, "TIMESTAMP\tFILES\tSIZE\n")
+	for _, s := range snapshots {
+		fmt.Fprintf(w, "%s\t%d\t%s\n",
+			s.Timestamp.Format("2006-01-02 15:04:05"),
+			s.FileCount,
+			formatSize(s.TotalSize),
+		)
+	}
+	w.Flush()
+	return nil
+}
+
 func openStore(ctx context.Context) (*skyfs.Store, error) {
 	cfg, err := config.Load()
 	if err != nil {
@@ -391,8 +521,11 @@ Usage:
   skyfs ls [prefix]
   skyfs rm <path>
   skyfs info
+  skyfs sync <dir> [--once] [--namespace ns] [--prefix p]
   skyfs compact [--keep <n>]
   skyfs gc [--dry-run]
+  skyfs versions <path>
+  skyfs snapshots
   skyfs version
 
 Environment:
