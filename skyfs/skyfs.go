@@ -414,10 +414,10 @@ func (s *Store) SaveSnapshot(ctx context.Context) error {
 
 // StoreInfo contains summary information about a Store.
 type StoreInfo struct {
-	ID         string
-	FileCount  int
-	TotalSize  int64
-	Namespaces []string
+	ID         string   `json:"id"`
+	FileCount  int      `json:"file_count"`
+	TotalSize  int64    `json:"total_size"`
+	Namespaces []string `json:"namespaces"`
 }
 
 // getOrCreateNamespaceKey returns the namespace key, loading from S3 or
