@@ -29,9 +29,9 @@ func GenerateNamespaceKey() ([]byte, error) {
 	return GenerateKey()
 }
 
-// WrapNamespaceKey encrypts a namespace key for a user's keypair.
-func WrapNamespaceKey(nsKey []byte, pub ed25519.PublicKey, priv ed25519.PrivateKey) ([]byte, error) {
-	return WrapKey(nsKey, pub, priv)
+// WrapNamespaceKey encrypts a namespace key for a user's public key.
+func WrapNamespaceKey(nsKey []byte, pub ed25519.PublicKey) ([]byte, error) {
+	return WrapKey(nsKey, pub)
 }
 
 // UnwrapNamespaceKey decrypts a namespace key using the user's private key.

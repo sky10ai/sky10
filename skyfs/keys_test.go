@@ -106,7 +106,7 @@ func TestWrapUnwrapNamespaceKey(t *testing.T) {
 		t.Fatalf("GenerateNamespaceKey: %v", err)
 	}
 
-	wrapped, err := WrapNamespaceKey(nsKey, id.PublicKey, id.PrivateKey)
+	wrapped, err := WrapNamespaceKey(nsKey, id.PublicKey)
 	if err != nil {
 		t.Fatalf("WrapNamespaceKey: %v", err)
 	}

@@ -3,6 +3,7 @@ module github.com/sky10/sky10
 go 1.26.1
 
 require (
+	filippo.io/edwards25519 v1.2.0
 	github.com/aws/aws-sdk-go-v2 v1.41.4
 	github.com/aws/aws-sdk-go-v2/config v1.32.12
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.12

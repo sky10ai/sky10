@@ -172,12 +172,12 @@ func TestWrapUnwrapKey(t *testing.T) {
 		t.Fatalf("GenerateKey: %v", err)
 	}
 
-	wrapped, err := WrapKey(dataKey, id.PublicKey, id.PrivateKey)
+	// WrapKey needs only the public key
+	wrapped, err := WrapKey(dataKey, id.PublicKey)
 	if err != nil {
 		t.Fatalf("WrapKey: %v", err)
 	}
 
-	// Wrapped key should not contain the plaintext data key
 	if bytes.Contains(wrapped, dataKey) {
 		t.Error("wrapped output contains plaintext data key")
 	}
@@ -200,7 +200,8 @@ func TestWrapUnwrapDifferentIdentities(t *testing.T) {
 
 	dataKey, _ := GenerateKey()
 
-	wrapped, err := WrapKey(dataKey, id1.PublicKey, id1.PrivateKey)
+	// Wrap for id1 using only id1's public key
+	wrapped, err := WrapKey(dataKey, id1.PublicKey)
 	if err != nil {
 		t.Fatalf("WrapKey: %v", err)
 	}
@@ -209,6 +210,72 @@ func TestWrapUnwrapDifferentIdentities(t *testing.T) {
 	_, err = UnwrapKey(wrapped, id2.PrivateKey)
 	if err == nil {
 		t.Error("expected error unwrapping with wrong private key")
+	}
+}
+
+func TestWrapCrossIdentity(t *testing.T) {
+	t.Parallel()
+
+	alice, _ := GenerateIdentity()
+	bob, _ := GenerateIdentity()
+	dataKey, _ := GenerateKey()
+
+	// Alice wraps a key for Bob using only Bob's public key
+	wrapped, err := WrapKey(dataKey, bob.PublicKey)
+	if err != nil {
+		t.Fatalf("WrapKey for Bob: %v", err)
+	}
+
+	// Bob unwraps with his private key
+	unwrapped, err := UnwrapKey(wrapped, bob.PrivateKey)
+	if err != nil {
+		t.Fatalf("Bob UnwrapKey: %v", err)
+	}
+	if !bytes.Equal(unwrapped, dataKey) {
+		t.Error("Bob got wrong key")
+	}
+
+	// Alice cannot unwrap (it was wrapped for Bob)
+	_, err = UnwrapKey(wrapped, alice.PrivateKey)
+	if err == nil {
+		t.Error("Alice should not be able to unwrap key wrapped for Bob")
+	}
+}
+
+func TestWrapSameKeyForMultipleIdentities(t *testing.T) {
+	t.Parallel()
+
+	alice, _ := GenerateIdentity()
+	bob, _ := GenerateIdentity()
+	dataKey, _ := GenerateKey()
+
+	// Wrap the same key for both Alice and Bob
+	wrappedForAlice, err := WrapKey(dataKey, alice.PublicKey)
+	if err != nil {
+		t.Fatalf("WrapKey for Alice: %v", err)
+	}
+	wrappedForBob, err := WrapKey(dataKey, bob.PublicKey)
+	if err != nil {
+		t.Fatalf("WrapKey for Bob: %v", err)
+	}
+
+	// Both can unwrap independently
+	aliceKey, err := UnwrapKey(wrappedForAlice, alice.PrivateKey)
+	if err != nil {
+		t.Fatalf("Alice UnwrapKey: %v", err)
+	}
+	bobKey, err := UnwrapKey(wrappedForBob, bob.PrivateKey)
+	if err != nil {
+		t.Fatalf("Bob UnwrapKey: %v", err)
+	}
+
+	if !bytes.Equal(aliceKey, dataKey) || !bytes.Equal(bobKey, dataKey) {
+		t.Error("unwrapped keys don't match original")
+	}
+
+	// They got the same key
+	if !bytes.Equal(aliceKey, bobKey) {
+		t.Error("Alice and Bob got different keys")
 	}
 }
 
