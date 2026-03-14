@@ -15,26 +15,53 @@ LDFLAGS  := -s -w \
 	-X 'main.commit=$(COMMIT)' \
 	-X 'main.buildDate=$(DATE)'
 
+XCODE_PROJECT := skyshare/skyshare.xcodeproj
+XCODE_SCHEME  := skyshare
+
 export CGO_ENABLED := 0
 
-.PHONY: build test lint vet fmt check verify clean install all reproduce
+.PHONY: build test test-go test-swift test-v check vet fmt verify clean install all reproduce platforms checksums
 
 # Default target
 all: check test build
 
-# Build the skyfs binary
-build:
+# ─── Build ──────────────────────────────────────────────────
+
+build: build-go
+
+build-go:
 	go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o bin/skyfs ./cmd/skyfs
 
-# Run all tests
-test:
+build-swift:
+	xcodebuild -project $(XCODE_PROJECT) -scheme $(XCODE_SCHEME) -configuration Release build 2>&1 | tail -5
+
+# ─── Test ───────────────────────────────────────────────────
+
+# Run all tests (Go + Swift)
+test: test-go test-swift
+
+# Go tests only
+test-go:
+	@echo "=== Go tests ==="
 	go test ./... -count=1
 
-# Run tests with verbose output
-test-v:
+# Swift tests only (requires Xcode project)
+test-swift:
+	@echo "=== Swift tests ==="
+	@if [ -d "$(XCODE_PROJECT)" ]; then \
+		xcodebuild test -project $(XCODE_PROJECT) -scheme $(XCODE_SCHEME) \
+			-destination 'platform=macOS' -quiet 2>&1 | tail -20; \
+	else \
+		echo "Xcode project not found at $(XCODE_PROJECT) — skipping Swift tests"; \
+		echo "Swift test files are at skyshare/skyshare-tests/"; \
+	fi
+
+# Verbose Go tests
+test-go-v:
 	go test ./... -v -count=1
 
-# Static analysis
+# ─── Lint / Check ──────────────────────────────────────────
+
 vet:
 	go vet ./...
 
@@ -42,22 +69,28 @@ vet:
 fmt:
 	@test -z "$$(gofmt -l .)" || (echo "Files need formatting:" && gofmt -l . && exit 1)
 
-# All checks: format, vet, test
+# All checks: format, vet
 check: fmt vet
 
 # Verify module dependencies haven't been tampered with
 verify:
 	go mod verify
 
-# Remove build artifacts
+# ─── Clean ──────────────────────────────────────────────────
+
 clean:
 	rm -rf bin/
+	@if [ -d "$(XCODE_PROJECT)" ]; then \
+		xcodebuild -project $(XCODE_PROJECT) -scheme $(XCODE_SCHEME) clean 2>/dev/null || true; \
+	fi
 
-# Install to GOPATH/bin
+# ─── Install ───────────────────────────────────────────────
+
 install:
 	go install $(GOFLAGS) -ldflags "$(LDFLAGS)" ./cmd/skyfs
 
-# Build for all target platforms
+# ─── Cross-compilation ─────────────────────────────────────
+
 platforms: bin/skyfs-linux-amd64 bin/skyfs-linux-arm64 bin/skyfs-darwin-amd64 bin/skyfs-darwin-arm64
 
 bin/skyfs-linux-amd64:
@@ -72,12 +105,12 @@ bin/skyfs-darwin-amd64:
 bin/skyfs-darwin-arm64:
 	GOOS=darwin GOARCH=arm64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ ./cmd/skyfs
 
-# Generate SHA-256 checksums for all binaries
+# ─── Checksums + Reproducibility ───────────────────────────
+
 checksums: platforms
 	cd bin && shasum -a 256 skyfs-* > checksums.txt
 	@cat bin/checksums.txt
 
-# Verify build is deterministic: build twice, compare checksums
 reproduce:
 	@echo "Build 1..."
 	@go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o /tmp/skyfs-build1 ./cmd/skyfs
