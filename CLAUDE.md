@@ -31,7 +31,17 @@ updated: 2026-03-14
   tradeoff, a library evaluation — write it up in `docs/learned/`. These are
   short, focused files that capture institutional knowledge for future
   reference.
-- Implementation plans and work tracking go in `docs/work/`.
+- Work tracking uses `docs/work/`:
+  - `docs/work/current/` — active plans and in-progress work
+  - `docs/work/past/{year}/{month}/{dd}-{Title}.md` — completed work log
+    - Each file has frontmatter: `created` date and `model` used
+    - Contains: problems solved, decisions made, files created
+  - `docs/work/past/{year}/{month}/README.md` — table of entries for that month
+    (current day at top)
+  - `docs/work/past/{year}/README.md` — table of months (current month at top)
+  - `docs/work/README.md` — top-level index linking to current and past
+  - When work is completed, move plans from `current/` to
+    `past/{year}/{month}/` and update all READMEs.
 
 ## Testing
 - All code must be well tested. Write tests as you write code, not after.
