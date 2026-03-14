@@ -37,37 +37,42 @@ class SkyClient {
 
     struct PutParams: Codable {
         let path: String
-        let local_path: String
+        let localPath: String
+
+        enum CodingKeys: String, CodingKey {
+            case path
+            case localPath = "local_path"
+        }
+    }
+
+    struct GenericResult: Codable {
+        let status: String?
+        let size: Int64?
     }
 
     func putFile(path: String, localPath: String) async throws {
-        let _: [String: Any] = try await rpc.call("skyfs.put", params: PutParams(path: path, local_path: localPath))
+        let _: GenericResult = try await rpc.call("skyfs.put", params: PutParams(path: path, localPath: localPath))
     }
 
     struct GetParams: Codable {
         let path: String
-        let out_path: String
+        let outPath: String
+
+        enum CodingKeys: String, CodingKey {
+            case path
+            case outPath = "out_path"
+        }
     }
 
     func getFile(path: String, outPath: String) async throws {
-        let _: [String: Any] = try await rpc.call("skyfs.get", params: GetParams(path: path, out_path: outPath))
+        let _: GenericResult = try await rpc.call("skyfs.get", params: GetParams(path: path, outPath: outPath))
     }
 
     func removeFile(path: String) async throws {
-        let _: [String: Any] = try await rpc.call("skyfs.remove", params: ["path": path])
+        let _: GenericResult = try await rpc.call("skyfs.remove", params: ["path": path])
     }
 
     func getInfo() async throws -> StoreInfo {
         return try await rpc.call("skyfs.info")
-    }
-}
-
-// Make dictionary decodable for generic responses
-extension Dictionary: @retroactive Decodable where Key == String, Value == Any {
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let data = try container.decode(Data.self)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        self = json ?? [:]
     }
 }

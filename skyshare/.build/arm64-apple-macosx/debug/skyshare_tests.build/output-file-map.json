@@ -1,0 +1,54 @@
+{
+  "": {
+    "swift-dependencies": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/master.swiftdeps"
+  },
+  "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/AppStateTests.swift": {
+    "dependencies": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/AppStateTests.d",
+    "object": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/AppStateTests.swift.o",
+    "swiftmodule": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/AppStateTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/AppStateTests.swiftdeps",
+    "diagnostics": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/AppStateTests.dia"
+  },
+  "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/FileNodeTests.swift": {
+    "dependencies": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/FileNodeTests.d",
+    "object": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/FileNodeTests.swift.o",
+    "swiftmodule": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/FileNodeTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/FileNodeTests.swiftdeps",
+    "diagnostics": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/FileNodeTests.dia"
+  },
+  "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/MockSkyClient.swift": {
+    "dependencies": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/MockSkyClient.d",
+    "object": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/MockSkyClient.swift.o",
+    "swiftmodule": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/MockSkyClient~partial.swiftmodule",
+    "swift-dependencies": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/MockSkyClient.swiftdeps",
+    "diagnostics": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/MockSkyClient.dia"
+  },
+  "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/MockSkyClientTests.swift": {
+    "dependencies": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/MockSkyClientTests.d",
+    "object": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/MockSkyClientTests.swift.o",
+    "swiftmodule": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/MockSkyClientTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/MockSkyClientTests.swiftdeps",
+    "diagnostics": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/MockSkyClientTests.dia"
+  },
+  "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/RPCErrorTests.swift": {
+    "dependencies": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/RPCErrorTests.d",
+    "object": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/RPCErrorTests.swift.o",
+    "swiftmodule": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/RPCErrorTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/RPCErrorTests.swiftdeps",
+    "diagnostics": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/RPCErrorTests.dia"
+  },
+  "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/StoreInfoTests.swift": {
+    "dependencies": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/StoreInfoTests.d",
+    "object": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/StoreInfoTests.swift.o",
+    "swiftmodule": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/StoreInfoTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/StoreInfoTests.swiftdeps",
+    "diagnostics": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/StoreInfoTests.dia"
+  },
+  "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/SyncStateTests.swift": {
+    "dependencies": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/SyncStateTests.d",
+    "object": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/SyncStateTests.swift.o",
+    "swiftmodule": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/SyncStateTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/SyncStateTests.swiftdeps",
+    "diagnostics": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/SyncStateTests.dia"
+  }
+}

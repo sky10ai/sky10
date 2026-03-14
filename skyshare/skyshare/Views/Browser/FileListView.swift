@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// File list table with sortable columns.

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Main file browser with three-column Finder-like layout.

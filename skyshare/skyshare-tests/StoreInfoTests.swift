@@ -1,52 +1,37 @@
-import XCTest
+import Foundation
+import Testing
 @testable import skyshare
 
-final class StoreInfoTests: XCTestCase {
+@Suite("StoreInfo")
+struct StoreInfoTests {
 
-    func testDecodable() throws {
+    @Test("Decodes full JSON")
+    func decodeFull() throws {
         let json = """
-        {
-            "id": "sky://k1_abc123",
-            "file_count": 42,
-            "total_size": 1048576,
-            "namespaces": ["journal", "financial"]
-        }
+        {"id":"sky://k1_abc123","file_count":42,"total_size":1048576,"namespaces":["journal","financial"]}
         """
-        let data = json.data(using: .utf8)!
-        let info = try JSONDecoder().decode(StoreInfo.self, from: data)
-
-        XCTAssertEqual(info.id, "sky://k1_abc123")
-        XCTAssertEqual(info.fileCount, 42)
-        XCTAssertEqual(info.totalSize, 1048576)
-        XCTAssertEqual(info.namespaces, ["journal", "financial"])
+        let info = try JSONDecoder().decode(StoreInfo.self, from: json.data(using: .utf8)!)
+        #expect(info.id == "sky://k1_abc123")
+        #expect(info.fileCount == 42)
+        #expect(info.totalSize == 1048576)
+        #expect(info.namespaces == ["journal", "financial"])
     }
 
-    func testDecodableNullNamespaces() throws {
+    @Test("Decodes null namespaces")
+    func decodeNullNamespaces() throws {
         let json = """
-        {
-            "id": "sky://k1_abc",
-            "file_count": 0,
-            "total_size": 0,
-            "namespaces": null
-        }
+        {"id":"sky://k1_abc","file_count":0,"total_size":0,"namespaces":null}
         """
-        let data = json.data(using: .utf8)!
-        let info = try JSONDecoder().decode(StoreInfo.self, from: data)
-
-        XCTAssertNil(info.namespaces)
+        let info = try JSONDecoder().decode(StoreInfo.self, from: json.data(using: .utf8)!)
+        #expect(info.namespaces == nil)
     }
 
-    func testDecodableMissingNamespaces() throws {
+    @Test("Decodes missing namespaces")
+    func decodeMissingNamespaces() throws {
         let json = """
-        {
-            "id": "sky://k1_abc",
-            "file_count": 0,
-            "total_size": 0
-        }
+        {"id":"sky://k1_abc","file_count":0,"total_size":0}
         """
-        let data = json.data(using: .utf8)!
-        let info = try JSONDecoder().decode(StoreInfo.self, from: data)
-
-        XCTAssertNil(info.namespaces)
+        let info = try JSONDecoder().decode(StoreInfo.self, from: json.data(using: .utf8)!)
+        #expect(info.namespaces == nil)
     }
 }

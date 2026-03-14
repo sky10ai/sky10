@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Detail panel showing file information.
