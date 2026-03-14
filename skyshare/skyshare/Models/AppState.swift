@@ -11,16 +11,16 @@ class AppState: ObservableObject {
     @Published var isLoading = false
     @Published var error: String?
 
-    let client = SkyClient()
-    let daemonManager = DaemonManager()
+    let client: SkyClientProtocol
+    let daemonManager: DaemonManager
 
-    init() {
-        Task { await start() }
+    init(client: SkyClientProtocol = SkyClient(), daemonManager: DaemonManager = DaemonManager()) {
+        self.client = client
+        self.daemonManager = daemonManager
     }
 
     func start() async {
         daemonManager.start()
-        // Wait briefly for daemon to be ready
         try? await Task.sleep(for: .milliseconds(500))
         await refresh()
     }
