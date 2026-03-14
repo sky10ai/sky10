@@ -17,9 +17,9 @@ updated: 2026-03-14
 - Use `rg` for search when possible.
 - Avoid destructive commands unless explicitly requested.
 - Do not revert unrelated changes.
-- Commit and push regularly. Don't let work pile up uncommitted. After
-  completing a milestone, meaningful feature, or logical unit of work, commit
-  and push.
+- Commit and push after every completed task. Don't let work pile up. After
+  each command the user gives you, commit and push immediately. Never commit
+  without pushing.
 
 ## Workflow
 - Inspect existing files before editing.
