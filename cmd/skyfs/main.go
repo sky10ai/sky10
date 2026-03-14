@@ -44,6 +44,10 @@ func main() {
 		err = cmdRemove(os.Args[2:])
 	case "info":
 		err = cmdInfo(os.Args[2:])
+	case "compact":
+		err = cmdCompact(os.Args[2:])
+	case "gc":
+		err = cmdGC(os.Args[2:])
 	case "help", "--help", "-h":
 		printUsage()
 		return
@@ -71,13 +75,11 @@ func cmdInit(args []string) error {
 		return fmt.Errorf("--bucket is required")
 	}
 
-	// Generate identity
 	id, err := skyfs.GenerateIdentity()
 	if err != nil {
 		return fmt.Errorf("generating identity: %w", err)
 	}
 
-	// Save identity
 	idPath, err := config.DefaultIdentityPath()
 	if err != nil {
 		return err
@@ -90,7 +92,6 @@ func cmdInit(args []string) error {
 		return fmt.Errorf("saving identity: %w", err)
 	}
 
-	// Save config
 	cfg := &config.Config{
 		Bucket:         *bucket,
 		Region:         *region,
@@ -100,18 +101,6 @@ func cmdInit(args []string) error {
 	}
 	if err := config.Save(cfg); err != nil {
 		return fmt.Errorf("saving config: %w", err)
-	}
-
-	// Create initial empty manifest
-	ctx := context.Background()
-	backend, err := makeBackend(ctx, cfg)
-	if err != nil {
-		return err
-	}
-
-	manifest := skyfs.NewManifest()
-	if err := skyfs.SaveManifest(ctx, backend, manifest, id); err != nil {
-		return fmt.Errorf("creating initial manifest: %w", err)
 	}
 
 	fmt.Printf("Initialized skyfs\n")
@@ -191,7 +180,7 @@ func cmdGet(args []string) error {
 	defer f.Close()
 
 	if err := store.Get(ctx, remotePath, f); err != nil {
-		os.Remove(out) // clean up partial file
+		os.Remove(out)
 		return fmt.Errorf("retrieving %s: %w", remotePath, err)
 	}
 
@@ -236,7 +225,6 @@ func cmdList(args []string) error {
 		)
 	}
 	w.Flush()
-
 	return nil
 }
 
@@ -248,19 +236,17 @@ func cmdRemove(args []string) error {
 		return fmt.Errorf("usage: skyfs rm <path>")
 	}
 
-	remotePath := fs.Arg(0)
-
 	ctx := context.Background()
 	store, err := openStore(ctx)
 	if err != nil {
 		return err
 	}
 
-	if err := store.Remove(ctx, remotePath); err != nil {
+	if err := store.Remove(ctx, fs.Arg(0)); err != nil {
 		return err
 	}
 
-	fmt.Printf("removed %s\n", remotePath)
+	fmt.Printf("removed %s\n", fs.Arg(0))
 	return nil
 }
 
@@ -282,6 +268,71 @@ func cmdInfo(_ []string) error {
 	if len(info.Namespaces) > 0 {
 		fmt.Printf("Namespaces: %v\n", info.Namespaces)
 	}
+	return nil
+}
+
+func cmdCompact(args []string) error {
+	fs := flag.NewFlagSet("compact", flag.ExitOnError)
+	maxSnapshots := fs.Int("keep", 3, "number of snapshots to keep")
+	fs.Parse(args)
+
+	ctx := context.Background()
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	id, err := skyfs.LoadIdentity(cfg.IdentityFile)
+	if err != nil {
+		return fmt.Errorf("loading identity: %w", err)
+	}
+	backend, err := makeBackend(ctx, cfg)
+	if err != nil {
+		return err
+	}
+
+	result, err := skyfs.Compact(ctx, backend, id, *maxSnapshots)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Compacted %d ops into snapshot\n", result.OpsCompacted)
+	fmt.Printf("  Ops deleted:       %d\n", result.OpsDeleted)
+	fmt.Printf("  Snapshots kept:    %d\n", result.SnapshotsKept)
+	fmt.Printf("  Snapshots deleted: %d\n", result.SnapshotsDeleted)
+	return nil
+}
+
+func cmdGC(args []string) error {
+	fs := flag.NewFlagSet("gc", flag.ExitOnError)
+	dryRun := fs.Bool("dry-run", false, "show what would be deleted without deleting")
+	fs.Parse(args)
+
+	ctx := context.Background()
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	id, err := skyfs.LoadIdentity(cfg.IdentityFile)
+	if err != nil {
+		return fmt.Errorf("loading identity: %w", err)
+	}
+	backend, err := makeBackend(ctx, cfg)
+	if err != nil {
+		return err
+	}
+
+	result, err := skyfs.GC(ctx, backend, id, *dryRun)
+	if err != nil {
+		return err
+	}
+
+	if *dryRun {
+		fmt.Println("Dry run (no changes made):")
+	}
+	fmt.Printf("Blobs referenced: %d\n", result.BlobsReferenced)
+	fmt.Printf("Blobs found:      %d\n", result.BlobsFound)
+	fmt.Printf("Blobs deleted:    %d\n", result.BlobsDeleted)
+	fmt.Printf("Bytes reclaimed:  %s\n", formatSize(result.BytesReclaimed))
 	return nil
 }
 
@@ -340,6 +391,8 @@ Usage:
   skyfs ls [prefix]
   skyfs rm <path>
   skyfs info
+  skyfs compact [--keep <n>]
+  skyfs gc [--dry-run]
   skyfs version
 
 Environment:
