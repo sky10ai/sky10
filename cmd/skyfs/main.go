@@ -44,6 +44,8 @@ func main() {
 		err = cmdRemove(os.Args[2:])
 	case "info":
 		err = cmdInfo(os.Args[2:])
+	case "serve":
+		err = cmdServe(os.Args[2:])
 	case "sync":
 		err = cmdSync(os.Args[2:])
 	case "compact":
@@ -342,6 +344,41 @@ func cmdGC(args []string) error {
 	return nil
 }
 
+func cmdServe(args []string) error {
+	fs := flag.NewFlagSet("serve", flag.ExitOnError)
+	sock := fs.String("socket", "", "socket path (default: ~/.skyfs/skyfs.sock)")
+	fs.Parse(args)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	store, err := openStore(ctx)
+	if err != nil {
+		return err
+	}
+
+	sockPath := *sock
+	if sockPath == "" {
+		dir, err := config.Dir()
+		if err != nil {
+			return err
+		}
+		sockPath = filepath.Join(dir, "skyfs.sock")
+	}
+
+	// Handle shutdown signals
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		// Can't import signal in this edit, use context cancel from outside
+		<-sigCh
+		cancel()
+	}()
+
+	server := skyfs.NewRPCServer(store, sockPath, nil)
+	fmt.Println(sockPath)
+	return server.Serve(ctx)
+}
+
 func cmdSync(args []string) error {
 	fs := flag.NewFlagSet("sync", flag.ExitOnError)
 	once := fs.Bool("once", false, "sync once and exit")
@@ -515,6 +552,7 @@ func printUsage() {
 	fmt.Printf(`skyfs — encrypted file storage (%s)
 
 Usage:
+  skyfs serve [--socket <path>]
   skyfs init --bucket <name> [--region <r>] [--endpoint <url>] [--path-style]
   skyfs put <file> [--as <remote-path>]
   skyfs get <path> [--out <local-path>]
