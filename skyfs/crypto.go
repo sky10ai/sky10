@@ -6,10 +6,11 @@ import (
 	"crypto/ecdh"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
+	"crypto/sha3"
 	cryptosha512 "crypto/sha512"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 
 	"filippo.io/edwards25519"
@@ -110,9 +111,12 @@ func edPubToX25519(edPub ed25519.PublicKey) (*ecdh.PublicKey, error) {
 // edPrivToX25519 converts an Ed25519 private key to an X25519 private key.
 // Uses SHA-512 of the seed and applies X25519 clamping, matching the standard
 // Ed25519-to-X25519 conversion (RFC 7748 / draft-ietf-core-oscore).
+//
+// Note: SHA-512 is required here by the Ed25519 spec (RFC 8032). This is the
+// one place where the hash algorithm is not our choice.
 func edPrivToX25519(edPriv ed25519.PrivateKey) (*ecdh.PrivateKey, error) {
 	seed := edPriv.Seed()
-	h := sha512(seed)
+	h := sha512sum(seed)
 	// Apply X25519 clamping to the first 32 bytes
 	h[0] &= 248
 	h[31] &= 127
@@ -126,7 +130,7 @@ func edPrivToX25519(edPriv ed25519.PrivateKey) (*ecdh.PrivateKey, error) {
 // The wrapping uses ephemeral ECDH: generate a throwaway X25519 keypair,
 // compute a shared secret with the recipient's public key (converted from
 // Ed25519 to X25519 via the birational map), derive a wrapping key via
-// HKDF, and encrypt the data key with AES-256-GCM.
+// HKDF-SHA3-256, and encrypt the data key with AES-256-GCM.
 //
 // Output format: [32-byte ephemeral public key | AES-GCM wrapped data key]
 func WrapKey(dataKey []byte, recipientPub ed25519.PublicKey) ([]byte, error) {
@@ -147,7 +151,7 @@ func WrapKey(dataKey []byte, recipientPub ed25519.PublicKey) ([]byte, error) {
 		return nil, fmt.Errorf("computing shared secret: %w", err)
 	}
 
-	// HKDF derive wrapping key
+	// HKDF-SHA3-256 derive wrapping key
 	wrappingKey, err := deriveKey(shared, ephemeral.PublicKey().Bytes(), "sky10-key-wrap")
 	if err != nil {
 		return nil, fmt.Errorf("deriving wrapping key: %w", err)
@@ -191,7 +195,7 @@ func UnwrapKey(wrapped []byte, recipientPriv ed25519.PrivateKey) ([]byte, error)
 		return nil, fmt.Errorf("computing shared secret: %w", err)
 	}
 
-	// HKDF derive wrapping key (same params as WrapKey)
+	// HKDF-SHA3-256 derive wrapping key (same params as WrapKey)
 	wrappingKey, err := deriveKey(shared, ephemeralPubBytes, "sky10-key-wrap")
 	if err != nil {
 		return nil, fmt.Errorf("deriving wrapping key: %w", err)
@@ -205,15 +209,21 @@ func UnwrapKey(wrapped []byte, recipientPriv ed25519.PrivateKey) ([]byte, error)
 	return dataKey, nil
 }
 
-// sha512 computes SHA-512 and returns the full 64-byte hash.
-func sha512(data []byte) []byte {
+// sha512sum computes SHA-512 and returns the full 64-byte hash.
+// Used only for Ed25519→X25519 conversion (required by RFC 8032).
+func sha512sum(data []byte) []byte {
 	h := cryptosha512.Sum512(data)
 	return h[:]
 }
 
-// deriveKey uses HKDF-SHA256 to derive a 32-byte key.
+// newSHA3256 returns a new SHA3-256 hash as a hash.Hash interface.
+func newSHA3256() hash.Hash { return sha3.New256() }
+
+// deriveKey uses HKDF-SHA3-256 to derive a 32-byte key.
+// SHA-3 (Keccak sponge construction) provides stronger collision resistance
+// than SHA-2 and is immune to length-extension attacks by design.
 func deriveKey(secret, salt []byte, info string) ([]byte, error) {
-	r := hkdf.New(sha256.New, secret, salt, []byte(info))
+	r := hkdf.New(newSHA3256, secret, salt, []byte(info))
 	key := make([]byte, KeySize)
 	if _, err := io.ReadFull(r, key); err != nil {
 		return nil, fmt.Errorf("deriving key: %w", err)
