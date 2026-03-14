@@ -2,6 +2,7 @@
 
 | Date | Title | Summary |
 |------|-------|---------|
+| 14 | [Schema Versioning](14-Schema-Versioning.md) | Storage schema v1.0.0: semver, SKY blob header, algorithm registry, validation rules |
 | 14 | [skyshare macOS](14-Skyshare-macOS.md) | SwiftUI desktop app: menu bar, file browser, settings, Go RPC server — 131 tests |
 | 14 | [skyshare macOS Plan](../../../work/current/skyshare-macos-plan.md) | Implementation plan (9 milestones, 6 complete) |
 | 14 | [SkyFS V3](14-SkyFS-V3.md) | Continuous sync: daemon, watcher, poller, compression, versioning, ignore patterns — 124 tests |
