@@ -8,8 +8,8 @@ struct ExternalLinksTests {
     @Test("All external URLs return HTTP 200", arguments: ExternalLinks.all)
     func urlReturns200(url: URL) async throws {
         var request = URLRequest(url: url)
-        request.httpMethod = "HEAD"
-        request.timeoutInterval = 10
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
 
         let (_, response) = try await URLSession.shared.data(for: request)
 
