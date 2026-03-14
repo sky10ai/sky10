@@ -29,28 +29,37 @@ type Store struct {
 	identity *Identity
 	deviceID string
 
-	mu     sync.Mutex
-	nsKeys map[string][]byte // cached namespace keys
-	opSeq  int               // per-session op sequence counter
+	mu         sync.Mutex
+	nsKeys     map[string][]byte // cached namespace keys
+	opSeq      int               // per-session op sequence counter
+	packWriter *PackWriter
+	packIndex  *PackIndex
+	packing    bool // when true, small chunks are bundled into pack files
 }
 
 // New creates a Store backed by the given storage backend and identity.
 func New(backend skyadapter.Backend, identity *Identity) *Store {
+	idx := NewPackIndex()
 	return &Store{
-		backend:  backend,
-		identity: identity,
-		deviceID: generateDeviceID(),
-		nsKeys:   make(map[string][]byte),
+		backend:    backend,
+		identity:   identity,
+		deviceID:   generateDeviceID(),
+		nsKeys:     make(map[string][]byte),
+		packIndex:  idx,
+		packWriter: NewPackWriter(backend, identity, idx),
 	}
 }
 
 // NewWithDevice creates a Store with an explicit device ID (for multi-device scenarios).
 func NewWithDevice(backend skyadapter.Backend, identity *Identity, deviceID string) *Store {
+	idx := NewPackIndex()
 	return &Store{
-		backend:  backend,
-		identity: identity,
-		deviceID: deviceID,
-		nsKeys:   make(map[string][]byte),
+		backend:    backend,
+		identity:   identity,
+		deviceID:   deviceID,
+		nsKeys:     make(map[string][]byte),
+		packIndex:  idx,
+		packWriter: NewPackWriter(backend, identity, idx),
 	}
 }
 
@@ -237,9 +246,24 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 		}
 
 		blob := PrependBlobHeader(encrypted)
-		cr := bytes.NewReader(blob)
-		if err := s.backend.Put(ctx, chunk.BlobKey(), cr, int64(len(blob))); err != nil {
-			return fmt.Errorf("uploading chunk %s: %w", chunk.Hash[:12], err)
+
+		// Use pack writer if enabled, otherwise store individually
+		if s.packing {
+			packed, err := s.packWriter.Add(ctx, chunk.Hash, blob)
+			if err != nil {
+				return fmt.Errorf("packing chunk %s: %w", chunk.Hash[:12], err)
+			}
+			if !packed {
+				cr := bytes.NewReader(blob)
+				if err := s.backend.Put(ctx, chunk.BlobKey(), cr, int64(len(blob))); err != nil {
+					return fmt.Errorf("uploading chunk %s: %w", chunk.Hash[:12], err)
+				}
+			}
+		} else {
+			cr := bytes.NewReader(blob)
+			if err := s.backend.Put(ctx, chunk.BlobKey(), cr, int64(len(blob))); err != nil {
+				return fmt.Errorf("uploading chunk %s: %w", chunk.Hash[:12], err)
+			}
 		}
 
 		chunkHashes = append(chunkHashes, chunk.Hash)
@@ -289,17 +313,26 @@ func (s *Store) Get(ctx context.Context, path string, w io.Writer) error {
 	}
 
 	for i, chunkHash := range entry.Chunks {
-		blobKey := (&Chunk{Hash: chunkHash}).BlobKey()
+		var raw []byte
 
-		rc, err := s.backend.Get(ctx, blobKey)
-		if err != nil {
-			return fmt.Errorf("downloading chunk %d (%s): %w", i, chunkHash[:12], err)
-		}
-
-		raw, err := io.ReadAll(rc)
-		rc.Close()
-		if err != nil {
-			return fmt.Errorf("reading chunk %d: %w", i, err)
+		// Check pack index first, fall back to individual blob
+		if loc, ok := s.packIndex.Entries[chunkHash]; ok {
+			packed, err := ReadPackedChunk(ctx, s.backend, loc)
+			if err != nil {
+				return fmt.Errorf("reading packed chunk %d (%s): %w", i, chunkHash[:12], err)
+			}
+			raw = packed
+		} else {
+			blobKey := (&Chunk{Hash: chunkHash}).BlobKey()
+			rc, err := s.backend.Get(ctx, blobKey)
+			if err != nil {
+				return fmt.Errorf("downloading chunk %d (%s): %w", i, chunkHash[:12], err)
+			}
+			raw, err = io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				return fmt.Errorf("reading chunk %d: %w", i, err)
+			}
 		}
 
 		encrypted, _, err := StripBlobHeader(raw)
@@ -421,6 +454,41 @@ func (s *Store) SaveSnapshot(ctx context.Context) error {
 		return fmt.Errorf("uploading snapshot: %w", err)
 	}
 
+	return nil
+}
+
+// EnablePacking turns on pack file bundling for small chunks.
+// Call LoadPackState first to load existing pack index from the backend.
+func (s *Store) EnablePacking(ctx context.Context) error {
+	if err := s.LoadPackState(ctx); err != nil {
+		return err
+	}
+	s.packing = true
+	return nil
+}
+
+// Close flushes any buffered pack data and saves the pack index.
+// Should be called when done writing to ensure all data is persisted.
+func (s *Store) Close(ctx context.Context) error {
+	if err := s.packWriter.Flush(ctx); err != nil {
+		return fmt.Errorf("flushing pack writer: %w", err)
+	}
+	if len(s.packIndex.Entries) > 0 {
+		if err := SavePackIndex(ctx, s.backend, s.packIndex, s.identity); err != nil {
+			return fmt.Errorf("saving pack index: %w", err)
+		}
+	}
+	return nil
+}
+
+// LoadPackState loads the pack index from the backend for reading packed chunks.
+func (s *Store) LoadPackState(ctx context.Context) error {
+	idx, err := LoadPackIndex(ctx, s.backend, s.identity)
+	if err != nil {
+		return err
+	}
+	s.packIndex = idx
+	s.packWriter = NewPackWriter(s.backend, s.identity, s.packIndex)
 	return nil
 }
 
