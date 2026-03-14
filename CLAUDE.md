@@ -27,14 +27,15 @@ updated: 2026-03-14
 - Call out any commands you could not run.
 
 ## Documentation
-- `docs/learned/` and `docs/work/` are for the **coding agent** (you), not
-  for humans. Do not put user-facing documentation there.
-  - `docs/learned/` — agent institutional knowledge: decisions, gotchas,
-    design tradeoffs, library evaluations. Written by you, for future you.
-  - `docs/work/` — agent work tracking: plans, milestones, completed work logs.
-- `docs/guides/` is for **human-facing documentation** — setup guides, provider
-  comparisons, user-facing explanations. This is what "Learn More" links
-  point to.
+- `docs/learned/` — **AGENT ONLY.** This is YOUR memory so you don't repeat
+  mistakes. Decisions you made, gotchas you hit, tradeoffs you evaluated.
+  NOT for consumers of the project. NOT for setup guides. NOT for anything
+  a human would read as documentation. If you're writing something a user
+  or contributor would reference, it does NOT go here.
+- `docs/work/` — **AGENT ONLY.** Work tracking: plans, milestones, completed
+  work logs. Not for human consumption.
+- `docs/guides/` — **Human-facing documentation.** Setup guides, provider
+  comparisons, user-facing explanations. "Learn More" links point here.
 - Work tracking uses `docs/work/`:
   - `docs/work/current/` — active plans and in-progress work
   - `docs/work/past/{year}/{month}/{dd}-{Title}.md` — completed work log
