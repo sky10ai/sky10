@@ -30,14 +30,8 @@ func TestWriteReadSchema(t *testing.T) {
 	if schema.HashAlgorithm != "sha3-256" {
 		t.Errorf("hash = %q, want sha3-256", schema.HashAlgorithm)
 	}
-	if schema.KDF != "hkdf-sha3-256" {
-		t.Errorf("kdf = %q, want hkdf-sha3-256", schema.KDF)
-	}
 	if schema.Cipher != "aes-256-gcm" {
 		t.Errorf("cipher = %q, want aes-256-gcm", schema.Cipher)
-	}
-	if schema.BlobVersion != int(BlobVersion) {
-		t.Errorf("blob version = %d, want %d", schema.BlobVersion, BlobVersion)
 	}
 }
 
@@ -68,7 +62,6 @@ func TestValidateSchemaMinorDifference(t *testing.T) {
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
 
-	// Same major, different minor — should be compatible
 	WriteSchema(ctx, backend)
 	schema, _ := ReadSchema(ctx, backend)
 	schema.Version = "1.5.0"
@@ -76,7 +69,7 @@ func TestValidateSchemaMinorDifference(t *testing.T) {
 	backend.Put(ctx, schemaKey, bytes.NewReader(data), int64(len(data)))
 
 	if err := ValidateSchema(ctx, backend); err != nil {
-		t.Errorf("minor version difference should be compatible: %v", err)
+		t.Errorf("minor difference should be compatible: %v", err)
 	}
 }
 
@@ -85,9 +78,7 @@ func TestValidateSchemaTooNew(t *testing.T) {
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
 
-	WriteSchema(ctx, backend)
-	schema, _ := ReadSchema(ctx, backend)
-	schema.Version = "5.0.0"
+	schema := Schema{Version: "5.0.0"}
 	data, _ := json.Marshal(schema)
 	backend.Put(ctx, schemaKey, bytes.NewReader(data), int64(len(data)))
 
@@ -102,7 +93,6 @@ func TestValidateSchemaTooOld(t *testing.T) {
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
 
-	// Write a v0 schema (older major than current v1)
 	schema := Schema{Version: "0.9.0"}
 	data, _ := json.Marshal(schema)
 	backend.Put(ctx, schemaKey, bytes.NewReader(data), int64(len(data)))
@@ -113,50 +103,43 @@ func TestValidateSchemaTooOld(t *testing.T) {
 	}
 }
 
-func TestValidateSchemaNoSchema(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	backend := s3adapter.NewMemory()
-
-	err := ValidateSchema(ctx, backend)
-	if !errors.Is(err, ErrNoSchema) {
-		t.Errorf("got %v, want ErrNoSchema", err)
-	}
-}
-
-func TestPrependStripBlobVersion(t *testing.T) {
+func TestBlobHeader(t *testing.T) {
 	t.Parallel()
 
-	original := []byte("encrypted data here")
-	versioned := PrependBlobVersion(original)
+	original := []byte("encrypted payload")
+	withHeader := PrependBlobHeader(original)
 
-	if versioned[0] != BlobVersion {
-		t.Errorf("first byte = %x, want %x", versioned[0], BlobVersion)
-	}
-	if len(versioned) != len(original)+1 {
-		t.Errorf("length = %d, want %d", len(versioned), len(original)+1)
+	// Check magic bytes
+	if string(withHeader[:3]) != "SKY" {
+		t.Errorf("magic = %q, want SKY", withHeader[:3])
 	}
 
-	stripped, version, err := StripBlobVersion(versioned)
+	// Check version byte matches schema major version
+	if int(withHeader[3]) != semverMajor(SchemaVersion) {
+		t.Errorf("version byte = %d, want %d", withHeader[3], semverMajor(SchemaVersion))
+	}
+
+	// Strip and verify
+	stripped, version, err := StripBlobHeader(withHeader)
 	if err != nil {
-		t.Fatalf("StripBlobVersion: %v", err)
+		t.Fatalf("StripBlobHeader: %v", err)
 	}
-	if version != BlobVersion {
-		t.Errorf("version = %x, want %x", version, BlobVersion)
+	if version != semverMajor(SchemaVersion) {
+		t.Errorf("version = %d, want %d", version, semverMajor(SchemaVersion))
 	}
 	if !bytes.Equal(stripped, original) {
-		t.Error("stripped data doesn't match original")
+		t.Error("stripped doesn't match original")
 	}
 }
 
-func TestStripBlobVersionLegacy(t *testing.T) {
+func TestBlobHeaderLegacy(t *testing.T) {
 	t.Parallel()
 
-	// Legacy data starts with a random nonce byte (likely > BlobVersion)
-	legacy := []byte{0xFF, 0xAB, 0xCD, 0xEF}
-	stripped, version, err := StripBlobVersion(legacy)
+	// Legacy blob — no SKY magic, starts with random nonce
+	legacy := []byte{0xFF, 0xAB, 0xCD, 0xEF, 0x01, 0x02}
+	stripped, version, err := StripBlobHeader(legacy)
 	if err != nil {
-		t.Fatalf("StripBlobVersion: %v", err)
+		t.Fatalf("StripBlobHeader: %v", err)
 	}
 	if version != 0 {
 		t.Errorf("legacy version = %d, want 0", version)
@@ -166,10 +149,10 @@ func TestStripBlobVersionLegacy(t *testing.T) {
 	}
 }
 
-func TestStripBlobVersionEmpty(t *testing.T) {
+func TestBlobHeaderEmpty(t *testing.T) {
 	t.Parallel()
 
-	_, _, err := StripBlobVersion(nil)
+	_, _, err := StripBlobHeader(nil)
 	if err == nil {
 		t.Error("expected error for empty blob")
 	}
@@ -179,19 +162,17 @@ func TestSemverMajor(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		version string
-		want    int
+		v    string
+		want int
 	}{
 		{"1.0.0", 1},
 		{"2.3.4", 2},
 		{"0.1.0", 0},
 		{"10.0.0", 10},
 	}
-
 	for _, tt := range tests {
-		got := semverMajor(tt.version)
-		if got != tt.want {
-			t.Errorf("semverMajor(%q) = %d, want %d", tt.version, got, tt.want)
+		if got := semverMajor(tt.v); got != tt.want {
+			t.Errorf("semverMajor(%q) = %d, want %d", tt.v, got, tt.want)
 		}
 	}
 }

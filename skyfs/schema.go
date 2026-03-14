@@ -14,6 +14,9 @@ import (
 )
 
 // SchemaVersion is the current storage schema version (semver).
+// This version appears in sky10.schema AND as a prefix on every blob.
+// One version. Everywhere.
+//
 // Major: breaking changes (cipher, hash, key derivation, blob format)
 // Minor: backward-compatible additions (new optional manifest fields)
 // Patch: bug fixes that don't change data format
@@ -21,19 +24,16 @@ const SchemaVersion = "1.0.0"
 
 const schemaKey = "sky10.schema"
 
-// BlobVersion is prepended to every encrypted blob. Allows any tool to
-// identify the encryption format without the schema file.
-const BlobVersion byte = 0x01
-
 // Schema describes the algorithms and format versions used in a bucket.
-// Written once on init, read on every open.
+// Written once on init, read on every open. The same version string is
+// embedded in every encrypted blob so any blob can self-describe its
+// encryption format.
 type Schema struct {
 	Version       string `json:"version"`
 	HashAlgorithm string `json:"hash_algorithm"`
 	KDF           string `json:"kdf"`
 	Cipher        string `json:"cipher"`
 	KeyWrap       string `json:"key_wrap"`
-	BlobVersion   int    `json:"blob_version"`
 }
 
 // CurrentSchema returns the schema for the current code version.
@@ -44,17 +44,12 @@ func CurrentSchema() Schema {
 		KDF:           "hkdf-sha3-256",
 		Cipher:        "aes-256-gcm",
 		KeyWrap:       "ephemeral-ecdh-x25519-hkdf-sha3-256-aes-256-gcm",
-		BlobVersion:   int(BlobVersion),
 	}
 }
 
 var (
-	// ErrIncompatibleSchema is returned when a bucket's schema major version
-	// doesn't match the current code.
 	ErrIncompatibleSchema = errors.New("incompatible schema version")
-
-	// ErrNoSchema is returned when a bucket has no schema file.
-	ErrNoSchema = errors.New("no schema found")
+	ErrNoSchema           = errors.New("no schema found")
 )
 
 // WriteSchema writes the current schema to the bucket.
@@ -90,8 +85,7 @@ func ReadSchema(ctx context.Context, backend skyadapter.Backend) (*Schema, error
 	return &schema, nil
 }
 
-// ValidateSchema checks that the bucket's schema major version matches
-// the current code. Minor/patch differences are compatible.
+// ValidateSchema checks that the bucket's schema major version matches.
 func ValidateSchema(ctx context.Context, backend skyadapter.Backend) error {
 	schema, err := ReadSchema(ctx, backend)
 	if err != nil {
@@ -121,26 +115,34 @@ func semverMajor(v string) int {
 	return n
 }
 
-// PrependBlobVersion adds the blob version byte to encrypted data.
-func PrependBlobVersion(encrypted []byte) []byte {
-	out := make([]byte, 1+len(encrypted))
-	out[0] = BlobVersion
-	copy(out[1:], encrypted)
+// blobPrefix is the binary header prepended to every encrypted blob.
+// Format: "SKY" magic (3 bytes) + schema major version (1 byte).
+// Total: 4 bytes. Every blob is self-describing.
+var blobPrefix = []byte{'S', 'K', 'Y', byte(semverMajor(SchemaVersion))}
+
+// PrependBlobHeader adds the schema header to encrypted data.
+// Format: [S K Y <major_version> | encrypted_data]
+func PrependBlobHeader(encrypted []byte) []byte {
+	out := make([]byte, len(blobPrefix)+len(encrypted))
+	copy(out, blobPrefix)
+	copy(out[len(blobPrefix):], encrypted)
 	return out
 }
 
-// StripBlobVersion removes and returns the blob version byte.
-// Legacy data (no version prefix) is detected by checking if the first
-// byte is a known version — AES-GCM nonces are random so collisions
-// with low version numbers are handled by the caller.
-func StripBlobVersion(data []byte) ([]byte, byte, error) {
+// StripBlobHeader removes and validates the blob header.
+// Returns the encrypted data and the schema major version.
+// Legacy blobs (no header) are detected by the absence of the "SKY" magic.
+func StripBlobHeader(data []byte) ([]byte, int, error) {
 	if len(data) == 0 {
 		return nil, 0, errors.New("empty blob")
 	}
-	version := data[0]
-	if version >= 0x01 && version <= BlobVersion {
-		return data[1:], version, nil
+
+	// Check for "SKY" magic bytes
+	if len(data) >= 4 && data[0] == 'S' && data[1] == 'K' && data[2] == 'Y' {
+		version := int(data[3])
+		return data[4:], version, nil
 	}
-	// Not a known version byte — treat as legacy unversioned data
+
+	// No magic — legacy unversioned blob
 	return data, 0, nil
 }
