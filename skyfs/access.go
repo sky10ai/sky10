@@ -126,10 +126,16 @@ func RotateNamespaceKey(ctx context.Context, backend skyadapter.Backend, identit
 			if err != nil {
 				return fmt.Errorf("downloading chunk %s: %w", chunkHash[:12], err)
 			}
-			encrypted, err := io.ReadAll(blobRC)
+			raw, err := io.ReadAll(blobRC)
 			blobRC.Close()
 			if err != nil {
 				return fmt.Errorf("reading chunk %s: %w", chunkHash[:12], err)
+			}
+
+			// Strip blob header, decrypt with old key
+			encrypted, _, err := StripBlobHeader(raw)
+			if err != nil {
+				return fmt.Errorf("parsing chunk %s header: %w", chunkHash[:12], err)
 			}
 
 			plaintext, err := Decrypt(encrypted, oldFileKey)
@@ -137,7 +143,7 @@ func RotateNamespaceKey(ctx context.Context, backend skyadapter.Backend, identit
 				return fmt.Errorf("decrypting chunk %s: %w", chunkHash[:12], err)
 			}
 
-			// Re-encrypt with new key
+			// Re-encrypt with new key, prepend header
 			newFileKey, err := DeriveFileKey(newNsKey, []byte(chunkHash))
 			if err != nil {
 				return fmt.Errorf("deriving new file key for %s: %w", path, err)
@@ -148,8 +154,9 @@ func RotateNamespaceKey(ctx context.Context, backend skyadapter.Backend, identit
 				return fmt.Errorf("re-encrypting chunk %s: %w", chunkHash[:12], err)
 			}
 
-			r := bytes.NewReader(newEncrypted)
-			if err := backend.Put(ctx, blobKey, r, int64(len(newEncrypted))); err != nil {
+			blob := PrependBlobHeader(newEncrypted)
+			r := bytes.NewReader(blob)
+			if err := backend.Put(ctx, blobKey, r, int64(len(blob))); err != nil {
 				return fmt.Errorf("uploading re-encrypted chunk %s: %w", chunkHash[:12], err)
 			}
 		}
