@@ -1,0 +1,27 @@
+import SwiftUI
+
+@main
+struct SkyshareApp: App {
+    @StateObject private var appState = AppState()
+
+    var body: some Scene {
+        MenuBarExtra {
+            MenuBarView()
+                .environmentObject(appState)
+        } label: {
+            Image(systemName: appState.syncState.icon)
+        }
+
+        WindowGroup("Sky Browser") {
+            BrowserView()
+                .environmentObject(appState)
+                .frame(minWidth: 800, minHeight: 500)
+        }
+        .defaultSize(width: 1000, height: 600)
+
+        Settings {
+            SettingsView()
+                .environmentObject(appState)
+        }
+    }
+}
