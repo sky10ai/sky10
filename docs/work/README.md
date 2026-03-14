@@ -2,7 +2,9 @@
 
 ## Current
 
-Nothing in progress.
+| Plan | Status | Summary |
+|------|--------|---------|
+| [skyshare macOS](current/skyshare-macos-plan.md) | not started | SwiftUI desktop app: menu bar, file browser, File Provider, Go backend over JSON-RPC |
 
 ## Past
 
