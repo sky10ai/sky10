@@ -68,9 +68,10 @@ struct StorageSettingsView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        Grid(alignment: .leading, verticalSpacing: 10) {
             // Provider
-            row("Provider") {
+            GridRow {
+                label("Provider")
                 Picker("", selection: $providerID) {
                     ForEach(StorageProvider.all) { p in
                         Label(p.name, systemImage: p.icon).tag(p.id)
@@ -83,53 +84,50 @@ struct StorageSettingsView: View {
             }
 
             // Bucket
-            row("Bucket") {
+            GridRow {
+                label("Bucket")
                 TextField("my-bucket", text: $bucket)
                     .textFieldStyle(.roundedBorder)
             }
 
-            // Region
-            row("Region") {
-                if provider.regions.count > 1 {
-                    Picker("", selection: $region) {
-                        ForEach(provider.regions) { r in
-                            Text(r.label).tag(r.id)
-                        }
+            // Region — always a Picker, single-region providers get one disabled option
+            GridRow {
+                label("Region")
+                Picker("", selection: $region) {
+                    ForEach(provider.regions) { r in
+                        Text(r.label).tag(r.id)
                     }
-                    .labelsHidden()
-                } else {
-                    Text(provider.regions.first?.label ?? "—")
-                        .foregroundStyle(.secondary)
                 }
+                .labelsHidden()
+                .disabled(provider.regions.count <= 1)
             }
 
-            // Account ID (Cloudflare) / Endpoint (MinIO) / computed endpoint (others)
-            row("Endpoint") {
-                if provider.needsAccountID {
-                    TextField("Account ID", text: $accountID)
-                        .textFieldStyle(.roundedBorder)
-                } else if provider.id == "minio" {
-                    TextField("http://localhost:9000", text: $endpoint)
-                        .textFieldStyle(.roundedBorder)
-                } else {
-                    Text(provider.endpoint(region: region, accountID: accountID))
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
+            // Endpoint — always a TextField. Pre-filled and disabled for auto-computed providers.
+            GridRow {
+                label(provider.needsAccountID ? "Account ID" : "Endpoint")
+                TextField(
+                    provider.id == "minio" ? "http://localhost:9000" : "auto",
+                    text: endpointBinding
+                )
+                .textFieldStyle(.roundedBorder)
+                .disabled(!isEndpointEditable)
             }
 
-            Divider()
+            GridRow {
+                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                Divider()
+            }
 
-            HStack {
-                Button("Test Connection") {
-                    // TODO: call skyfs.info via RPC to verify
+            GridRow {
+                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                HStack {
+                    Button("Test Connection") {
+                        // TODO: call skyfs.info via RPC
+                    }
+                    Spacer()
+                    Link("Setup Guide", destination: URL(string: provider.helpURL)!)
+                        .font(.caption)
                 }
-
-                Spacer()
-
-                Link("Setup Guide", destination: URL(string: provider.helpURL)!)
-                    .font(.caption)
             }
         }
         .padding()
@@ -138,15 +136,34 @@ struct StorageSettingsView: View {
                 region = first.id
             }
             forcePathStyle = provider.forcePathStyle
+            updateComputedEndpoint()
         }
     }
 
-    private func row<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(label)
-                .frame(width: labelWidth, alignment: .trailing)
-                .foregroundStyle(.secondary)
-            content()
+    private func label(_ text: String) -> some View {
+        Text(text)
+            .frame(width: labelWidth, alignment: .trailing)
+            .foregroundStyle(.secondary)
+    }
+
+    private var isEndpointEditable: Bool {
+        provider.id == "minio" || provider.needsAccountID
+    }
+
+    private var endpointBinding: Binding<String> {
+        if provider.needsAccountID {
+            return $accountID
+        }
+        if provider.id == "minio" {
+            return $endpoint
+        }
+        // Read-only: show computed endpoint
+        return .constant(provider.endpoint(region: region, accountID: accountID))
+    }
+
+    private func updateComputedEndpoint() {
+        if !isEndpointEditable {
+            endpoint = provider.endpoint(region: region, accountID: accountID)
         }
     }
 
