@@ -230,7 +230,8 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 			return fmt.Errorf("checking chunk %s: %w", chunk.Hash[:12], headErr)
 		}
 
-		encrypted, err := Encrypt(chunk.Data, fileKey)
+		compressed := CompressChunk(chunk.Data)
+		encrypted, err := Encrypt(compressed, fileKey)
 		if err != nil {
 			return fmt.Errorf("encrypting chunk %s: %w", chunk.Hash[:12], err)
 		}
@@ -311,9 +312,14 @@ func (s *Store) Get(ctx context.Context, path string, w io.Writer) error {
 			return fmt.Errorf("deriving file key for chunk %d: %w", i, err)
 		}
 
-		plaintext, err := Decrypt(encrypted, fileKey)
+		compressed, err := Decrypt(encrypted, fileKey)
 		if err != nil {
 			return fmt.Errorf("decrypting chunk %d: %w", i, err)
+		}
+
+		plaintext, err := DecompressChunk(compressed)
+		if err != nil {
+			return fmt.Errorf("decompressing chunk %d: %w", i, err)
 		}
 
 		if ContentHash(plaintext) != chunkHash {

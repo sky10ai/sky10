@@ -138,18 +138,19 @@ func RotateNamespaceKey(ctx context.Context, backend skyadapter.Backend, identit
 				return fmt.Errorf("parsing chunk %s header: %w", chunkHash[:12], err)
 			}
 
-			plaintext, err := Decrypt(encrypted, oldFileKey)
+			compressed, err := Decrypt(encrypted, oldFileKey)
 			if err != nil {
 				return fmt.Errorf("decrypting chunk %s: %w", chunkHash[:12], err)
 			}
 
 			// Re-encrypt with new key, prepend header
+			// Keep the same compressed payload — no need to decompress/recompress
 			newFileKey, err := DeriveFileKey(newNsKey, []byte(chunkHash))
 			if err != nil {
 				return fmt.Errorf("deriving new file key for %s: %w", path, err)
 			}
 
-			newEncrypted, err := Encrypt(plaintext, newFileKey)
+			newEncrypted, err := Encrypt(compressed, newFileKey)
 			if err != nil {
 				return fmt.Errorf("re-encrypting chunk %s: %w", chunkHash[:12], err)
 			}

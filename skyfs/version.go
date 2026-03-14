@@ -113,9 +113,14 @@ func RestoreVersion(ctx context.Context, store *Store, path string, timestamp ti
 			return fmt.Errorf("deriving file key: %w", err)
 		}
 
-		plaintext, err := Decrypt(encrypted, fileKey)
+		compressed, err := Decrypt(encrypted, fileKey)
 		if err != nil {
 			return fmt.Errorf("decrypting chunk %d: %w", i, err)
+		}
+
+		plaintext, err := DecompressChunk(compressed)
+		if err != nil {
+			return fmt.Errorf("decompressing chunk %d: %w", i, err)
 		}
 
 		if _, err := w.Write(plaintext); err != nil {
