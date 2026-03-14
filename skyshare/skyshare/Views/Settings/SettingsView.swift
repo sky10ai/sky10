@@ -17,7 +17,7 @@ struct SettingsView: View {
                 .environmentObject(appState)
                 .tabItem { Label("Account", systemImage: "person") }
         }
-        .frame(width: 500, height: 380)
+        .frame(width: 500, height: 340)
     }
 }
 
@@ -148,8 +148,10 @@ struct StorageSettingsView: View {
                 }
             }
         } // Grid
+            Spacer()
         } // VStack
-        .padding()
+        .padding(.horizontal)
+        .padding(.top, 8)
         .onAppear {
             if region.isEmpty, let first = provider.regions.first {
                 region = first.id
