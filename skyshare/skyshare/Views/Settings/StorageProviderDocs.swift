@@ -2,9 +2,6 @@ import Foundation
 
 /// Documentation content for the storage provider settings view.
 ///
-/// If this file moves, update the "Learn More" link in StorageSettingsView
-/// to point to the new location in the GitHub repo.
-///
 /// Current GitHub path: skyshare/skyshare/Views/Settings/StorageProviderDocs.swift
 /// Provider model:      skyshare/skyshare/Models/StorageProvider.swift
 enum StorageProviderDocs {
@@ -16,7 +13,6 @@ enum StorageProviderDocs {
     Pick any S3-compatible provider. You can switch providers later without re-encrypting.
     """
 
-    /// Points to the provider docs in the sky10 GitHub repo.
-    /// UPDATE THIS if the docs file moves.
-    static let learnMoreURL = URL(string: "https://github.com/sky10ai/sky10/blob/main/docs/learned/dependencies.md")!
+    /// URL managed in ExternalLinks.swift — update there if the docs file moves.
+    static let learnMoreURL = ExternalLinks.storageProviders
 }

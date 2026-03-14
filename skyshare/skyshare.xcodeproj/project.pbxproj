@@ -10,6 +10,7 @@
 		031236ECEF9878F185D12B69 /* SkyClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6544B32E027903DBB70492A /* SkyClient.swift */; };
 		06D4E87D4DAB82B0CDE830C3 /* MockSkyClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73CEF19248FB93D341838F50 /* MockSkyClient.swift */; };
 		0721298A11A91DD99D020141 /* DetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49F57B996625B83D5F3699A4 /* DetailView.swift */; };
+		15E6A484591DDB6347714DCD /* ExternalLinksTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 581543296B8596BE8FF373EF /* ExternalLinksTests.swift */; };
 		1674F0CE68BF0BCBEC365D9F /* StorageProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 860B29FC09E3D059828A1F45 /* StorageProvider.swift */; };
 		2328C24C9BBCEB9C27ECB154 /* StoreInfoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F0A414FE140B8FF5B9F6D52 /* StoreInfoTests.swift */; };
 		2CBFCEBDDB2A7B3CDB9AC730 /* Previews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E597548965FC79D28C34A9DF /* Previews.swift */; };
@@ -26,6 +27,7 @@
 		7C730F8A3DAF042159EE5F41 /* DaemonManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0066276867DE72BFE652744B /* DaemonManager.swift */; };
 		7F52CC13BBE9A1D5DF5D0A5D /* FileRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B615E7F3341B158382FBCFF /* FileRowView.swift */; };
 		820DB93E5EB9FC34560D20F5 /* FileListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 522757BD7DD6D2FFE665FAD5 /* FileListView.swift */; };
+		92FA541A2666B0FE00FA20F6 /* ExternalLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16CDA6224701171224117382 /* ExternalLinks.swift */; };
 		93A0112C97AE9D40F3A1DD96 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E8A2FB3DDEB28F79B72602 /* MenuBarView.swift */; };
 		A245363C89FBA25A0EED489D /* AppStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79F43EDFF5F0C829DD617654 /* AppStateTests.swift */; };
 		C290E747C1502A8595AF667B /* FileNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BCBCEE4BEE3DA98BE42A4B6 /* FileNode.swift */; };
@@ -48,6 +50,7 @@
 		0066276867DE72BFE652744B /* DaemonManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonManager.swift; sourceTree = "<group>"; };
 		05E8A2FB3DDEB28F79B72602 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		083D4A3852ED93D43EA7B00F /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		16CDA6224701171224117382 /* ExternalLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalLinks.swift; sourceTree = "<group>"; };
 		1C438ADDC96CE1D4A8DF0768 /* SyncState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncState.swift; sourceTree = "<group>"; };
 		394EEFBBCD09DB85F4AB114C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		480BB140F5B5310FEA3560D7 /* RPCErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RPCErrorTests.swift; sourceTree = "<group>"; };
@@ -56,6 +59,7 @@
 		4F0A414FE140B8FF5B9F6D52 /* StoreInfoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreInfoTests.swift; sourceTree = "<group>"; };
 		505DD87C19E024B8A4CCF2D8 /* StorageProviderDocs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageProviderDocs.swift; sourceTree = "<group>"; };
 		522757BD7DD6D2FFE665FAD5 /* FileListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileListView.swift; sourceTree = "<group>"; };
+		581543296B8596BE8FF373EF /* ExternalLinksTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalLinksTests.swift; sourceTree = "<group>"; };
 		5E0D76AC4674A153095D7B76 /* BrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserView.swift; sourceTree = "<group>"; };
 		621757BC1D6BE01A69E2306E /* SyncStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStateTests.swift; sourceTree = "<group>"; };
 		69D4E3A28B2F6EBE19E18419 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
@@ -89,6 +93,7 @@
 			isa = PBXGroup;
 			children = (
 				0066276867DE72BFE652744B /* DaemonManager.swift */,
+				16CDA6224701171224117382 /* ExternalLinks.swift */,
 				77DA1D07CCA437B300499784 /* RPCClient.swift */,
 				C6544B32E027903DBB70492A /* SkyClient.swift */,
 				DD2EAA90C7A65160255C318A /* SkyClientProtocol.swift */,
@@ -100,6 +105,7 @@
 			isa = PBXGroup;
 			children = (
 				79F43EDFF5F0C829DD617654 /* AppStateTests.swift */,
+				581543296B8596BE8FF373EF /* ExternalLinksTests.swift */,
 				851E3FE0946130CBA9864B9A /* FileNodeTests.swift */,
 				73CEF19248FB93D341838F50 /* MockSkyClient.swift */,
 				D461FF07A256F3F4F2A56940 /* MockSkyClientTests.swift */,
@@ -265,6 +271,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A245363C89FBA25A0EED489D /* AppStateTests.swift in Sources */,
+				15E6A484591DDB6347714DCD /* ExternalLinksTests.swift in Sources */,
 				48F297124E8BB6947A0BA859 /* FileNodeTests.swift in Sources */,
 				06D4E87D4DAB82B0CDE830C3 /* MockSkyClient.swift in Sources */,
 				63DFE100B8B94F2FA22DB739 /* MockSkyClientTests.swift in Sources */,
@@ -283,6 +290,7 @@
 				51AFED2C7A75291706B2D872 /* BrowserView.swift in Sources */,
 				7C730F8A3DAF042159EE5F41 /* DaemonManager.swift in Sources */,
 				0721298A11A91DD99D020141 /* DetailView.swift in Sources */,
+				92FA541A2666B0FE00FA20F6 /* ExternalLinks.swift in Sources */,
 				820DB93E5EB9FC34560D20F5 /* FileListView.swift in Sources */,
 				C290E747C1502A8595AF667B /* FileNode.swift in Sources */,
 				7F52CC13BBE9A1D5DF5D0A5D /* FileRowView.swift in Sources */,
