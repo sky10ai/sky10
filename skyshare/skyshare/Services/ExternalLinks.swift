@@ -6,8 +6,8 @@ import Foundation
 /// The test suite validates that every URL returns HTTP 200.
 enum ExternalLinks {
     /// Storage provider guide — linked from Settings → Storage → "Learn More"
-    /// Source: docs/learned/storage-providers.md
-    static let storageProviders = URL(string: "https://github.com/sky10ai/sky10/blob/main/docs/learned/storage-providers.md")!
+    /// Source: docs/guides/storage-providers.md
+    static let storageProviders = URL(string: "https://github.com/sky10ai/sky10/blob/main/docs/guides/storage-providers.md")!
 
     /// Dependency decisions — linked from developer docs
     /// Source: docs/learned/dependencies.md

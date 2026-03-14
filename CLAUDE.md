@@ -27,10 +27,14 @@ updated: 2026-03-14
 - Call out any commands you could not run.
 
 ## Documentation
-- When you learn something worth preserving — a decision, a gotcha, a design
-  tradeoff, a library evaluation — write it up in `docs/learned/`. These are
-  short, focused files that capture institutional knowledge for future
-  reference.
+- `docs/learned/` and `docs/work/` are for the **coding agent** (you), not
+  for humans. Do not put user-facing documentation there.
+  - `docs/learned/` — agent institutional knowledge: decisions, gotchas,
+    design tradeoffs, library evaluations. Written by you, for future you.
+  - `docs/work/` — agent work tracking: plans, milestones, completed work logs.
+- `docs/guides/` is for **human-facing documentation** — setup guides, provider
+  comparisons, user-facing explanations. This is what "Learn More" links
+  point to.
 - Work tracking uses `docs/work/`:
   - `docs/work/current/` — active plans and in-progress work
   - `docs/work/past/{year}/{month}/{dd}-{Title}.md` — completed work log
