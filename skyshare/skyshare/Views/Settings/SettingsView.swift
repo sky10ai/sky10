@@ -17,7 +17,7 @@ struct SettingsView: View {
                 .environmentObject(appState)
                 .tabItem { Label("Account", systemImage: "person") }
         }
-        .frame(width: 450, height: 300)
+        .frame(width: 500, height: 380)
     }
 }
 
@@ -54,21 +54,103 @@ struct GeneralSettingsView: View {
 }
 
 struct StorageSettingsView: View {
+    @AppStorage("s3Provider") private var providerID = "backblaze"
     @AppStorage("s3Bucket") private var bucket = ""
-    @AppStorage("s3Region") private var region = "us-east-1"
+    @AppStorage("s3Region") private var region = ""
     @AppStorage("s3Endpoint") private var endpoint = ""
+    @AppStorage("s3AccountID") private var accountID = ""
+    @AppStorage("s3ForcePathStyle") private var forcePathStyle = false
+
+    private var provider: StorageProvider {
+        StorageProvider.all.first { $0.id == providerID } ?? .backblaze
+    }
 
     var body: some View {
         Form {
-            TextField("Bucket", text: $bucket)
-            TextField("Region", text: $region)
-            TextField("Endpoint (optional)", text: $endpoint)
+            // Provider picker
+            Picker("Provider", selection: $providerID) {
+                ForEach(StorageProvider.all) { p in
+                    Label(p.name, systemImage: p.icon).tag(p.id)
+                }
+            }
+            .onChange(of: providerID) { _, newValue in
+                applyProviderDefaults(newValue)
+            }
 
-            Button("Test Connection") {
-                // TODO: call skyfs.info via RPC to verify
+            // Bucket name (always shown)
+            TextField("Bucket", text: $bucket)
+                .textFieldStyle(.roundedBorder)
+
+            // Region picker (provider-specific)
+            if provider.regions.count > 1 {
+                Picker("Region", selection: $region) {
+                    ForEach(provider.regions) { r in
+                        Text(r.label).tag(r.id)
+                    }
+                }
+            }
+
+            // Account ID (Cloudflare R2)
+            if provider.needsAccountID {
+                TextField("Account ID", text: $accountID)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            // Custom endpoint (MinIO)
+            if provider.id == "minio" {
+                TextField("Endpoint URL", text: $endpoint)
+                    .textFieldStyle(.roundedBorder)
+                    .help("e.g. http://localhost:9000")
+            }
+
+            // Computed endpoint display (read-only, for non-MinIO)
+            if provider.id != "minio" && !region.isEmpty {
+                LabeledContent("Endpoint") {
+                    Text(provider.endpoint(region: region, accountID: accountID))
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+
+            Divider()
+
+            HStack {
+                Button("Test Connection") {
+                    // TODO: call skyfs.info via RPC to verify
+                }
+
+                Spacer()
+
+                Link("Setup Guide", destination: URL(string: provider.helpURL)!)
+                    .font(.caption)
             }
         }
         .padding()
+        .onAppear {
+            // Set default region if empty
+            if region.isEmpty, let first = provider.regions.first {
+                region = first.id
+            }
+            forcePathStyle = provider.forcePathStyle
+        }
+    }
+
+    private func applyProviderDefaults(_ newProviderID: String) {
+        guard let newProvider = StorageProvider.all.first(where: { $0.id == newProviderID }) else { return }
+
+        // Set first region as default
+        if let firstRegion = newProvider.regions.first {
+            region = firstRegion.id
+        }
+
+        // Auto-compute endpoint for non-MinIO providers
+        if newProvider.id != "minio" {
+            endpoint = newProvider.endpoint(region: region, accountID: accountID)
+        }
+
+        forcePathStyle = newProvider.forcePathStyle
+        accountID = ""
     }
 }
 

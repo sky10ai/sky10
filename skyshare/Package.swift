@@ -8,7 +8,7 @@ let package = Package(
         .target(
             name: "skyshare",
             path: "skyshare",
-            exclude: ["Resources", "App_main.swift.bak"]
+            exclude: ["Resources", "App.swift"]
         ),
         .testTarget(
             name: "skyshare-tests",
