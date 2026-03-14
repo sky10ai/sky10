@@ -45,23 +45,24 @@ Montgomery curve: u = (1 + y) / (1 - y). Implemented by
 | Step | Algorithm | Input entropy | Purpose |
 |------|-----------|--------------|---------|
 | Ed25519 seed → X25519 scalar | SHA-512 | 32 bytes (random seed) | Standard conversion per RFC 8032 |
-| ECDH shared secret → wrapping key | HKDF-SHA256 | 32 bytes (ECDH output) | Key derivation |
+| ECDH shared secret → wrapping key | HKDF-SHA3-256 | 32 bytes (ECDH output) | Key derivation |
 | Wrapping key → encrypted data key | AES-256-GCM | 32 bytes (HKDF output) | Authenticated encryption |
 
-### Why SHA-256/SHA-512 is correct here
+### Why SHA-3 for key derivation and content hashing
 
-All inputs are high-entropy random values (32-byte keys, ECDH outputs).
-Brute-force is already infeasible (2^256 operations). The hash function's
-job is to be a PRF (pseudorandom function), not to be slow. SHA-256 in
-HMAC (which HKDF uses internally) is a well-analyzed PRF used by:
+We use SHA3-256 (Keccak sponge construction) for all key derivation
+(HKDF) and content addressing (chunk hashes). SHA-3 provides:
 
-- TLS 1.3 (HKDF-SHA256 for all key derivation)
-- Signal Protocol (HKDF-SHA256)
-- Noise Protocol Framework (SHA-256 or BLAKE2)
-- WireGuard (BLAKE2s, but same security level)
+- **Different construction from SHA-2** — if SHA-2 is ever broken, SHA-3
+  almost certainly isn't. Hedges against algorithmic breakthroughs.
+- **Immune to length-extension attacks** — sponge construction absorbs
+  then squeezes, no Merkle-Damgård vulnerability.
+- **Stronger collision resistance guarantees** — same 128-bit collision
+  resistance as SHA-256, but with a fundamentally different internal state.
+- **stdlib in Go 1.24+** — `crypto/sha3`, no external dependency.
 
-SHA-3 or BLAKE2 would work equivalently but add no practical security.
-Switching would diverge from established practice for zero gain.
+SHA-512 is retained ONLY for Ed25519→X25519 conversion where RFC 8032
+requires it.
 
 ### Where slow hashes WOULD be needed
 

@@ -1,7 +1,7 @@
 package skyfs
 
 import (
-	"crypto/sha256"
+	"crypto/sha3"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// ScanResult maps relative paths to their SHA-256 checksums.
+// ScanResult maps relative paths to their SHA3-256 checksums.
 type ScanResult map[string]string
 
 // ScanDirectory walks a directory and computes checksums for all files.
@@ -64,7 +64,7 @@ func ScanDirectory(root string, ignore func(string) bool) (ScanResult, error) {
 	return result, nil
 }
 
-// fileChecksum computes SHA-256 of a file by streaming (not loading into memory).
+// fileChecksum computes SHA3-256 of a file by streaming (not loading into memory).
 func fileChecksum(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -72,7 +72,7 @@ func fileChecksum(path string) (string, error) {
 	}
 	defer f.Close()
 
-	h := sha256.New()
+	h := sha3.New256()
 	if _, err := io.Copy(h, f); err != nil {
 		return "", err
 	}

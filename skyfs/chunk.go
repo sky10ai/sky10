@@ -1,7 +1,7 @@
 package skyfs
 
 import (
-	"crypto/sha256"
+	"crypto/sha3"
 	"encoding/hex"
 	"io"
 
@@ -22,7 +22,7 @@ const (
 
 // Chunk is a content-addressed piece of a file.
 type Chunk struct {
-	Hash   string // hex-encoded SHA-256
+	Hash   string // hex-encoded SHA3-256
 	Data   []byte
 	Offset int64
 	Length int
@@ -80,7 +80,7 @@ func (c *Chunker) Next() (Chunk, error) {
 	data := make([]byte, len(cdcChunk.Data))
 	copy(data, cdcChunk.Data)
 
-	hash := sha256.Sum256(data)
+	hash := sha3.Sum256(data)
 	chunk := Chunk{
 		Hash:   hex.EncodeToString(hash[:]),
 		Data:   data,
@@ -92,8 +92,8 @@ func (c *Chunker) Next() (Chunk, error) {
 	return chunk, nil
 }
 
-// ContentHash computes the SHA-256 hash of data and returns it hex-encoded.
+// ContentHash computes the SHA3-256 hash of data and returns it hex-encoded.
 func ContentHash(data []byte) string {
-	h := sha256.Sum256(data)
+	h := sha3.Sum256(data)
 	return hex.EncodeToString(h[:])
 }

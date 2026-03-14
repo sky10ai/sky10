@@ -2,7 +2,6 @@ package skyfs
 
 import (
 	"crypto/ed25519"
-	"crypto/sha256"
 	"fmt"
 	"io"
 	"strings"
@@ -46,7 +45,7 @@ func DeriveFileKey(nsKey []byte, contentHash []byte) ([]byte, error) {
 	if len(nsKey) != KeySize {
 		return nil, fmt.Errorf("invalid namespace key size: %d, want %d", len(nsKey), KeySize)
 	}
-	r := hkdf.New(sha256.New, nsKey, contentHash, []byte("sky10-file-key"))
+	r := hkdf.New(newSHA3256, nsKey, contentHash, []byte("sky10-file-key"))
 	key := make([]byte, KeySize)
 	if _, err := io.ReadFull(r, key); err != nil {
 		return nil, fmt.Errorf("deriving file key: %w", err)
