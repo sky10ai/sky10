@@ -68,6 +68,24 @@ struct StorageSettingsView: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            VStack(alignment: .leading, spacing: 4) {
+                Text(StorageProviderDocs.headline)
+                    .font(.headline)
+                HStack(spacing: 0) {
+                    Text(StorageProviderDocs.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                    Text(" ")
+                        .font(.caption)
+                    Link("Learn More...", destination: StorageProviderDocs.learnMoreURL)
+                        .font(.caption)
+                }
+            }
+            .padding(.bottom, 12)
+
         Grid(alignment: .leading, verticalSpacing: 10) {
             // Provider
             GridRow {
@@ -129,7 +147,8 @@ struct StorageSettingsView: View {
                         .font(.caption)
                 }
             }
-        }
+        } // Grid
+        } // VStack
         .padding()
         .onAppear {
             if region.isEmpty, let first = provider.regions.first {

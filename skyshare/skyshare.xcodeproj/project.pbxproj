@@ -13,6 +13,7 @@
 		1674F0CE68BF0BCBEC365D9F /* StorageProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 860B29FC09E3D059828A1F45 /* StorageProvider.swift */; };
 		2328C24C9BBCEB9C27ECB154 /* StoreInfoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F0A414FE140B8FF5B9F6D52 /* StoreInfoTests.swift */; };
 		2CBFCEBDDB2A7B3CDB9AC730 /* Previews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E597548965FC79D28C34A9DF /* Previews.swift */; };
+		3699BD8D31E744353DAB0A85 /* StorageProviderDocs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 505DD87C19E024B8A4CCF2D8 /* StorageProviderDocs.swift */; };
 		48F297124E8BB6947A0BA859 /* FileNodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 851E3FE0946130CBA9864B9A /* FileNodeTests.swift */; };
 		51AFED2C7A75291706B2D872 /* BrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E0D76AC4674A153095D7B76 /* BrowserView.swift */; };
 		55158C1D1B7889ED307198E6 /* SkyClientProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD2EAA90C7A65160255C318A /* SkyClientProtocol.swift */; };
@@ -53,6 +54,7 @@
 		49F57B996625B83D5F3699A4 /* DetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailView.swift; sourceTree = "<group>"; };
 		4B615E7F3341B158382FBCFF /* FileRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileRowView.swift; sourceTree = "<group>"; };
 		4F0A414FE140B8FF5B9F6D52 /* StoreInfoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreInfoTests.swift; sourceTree = "<group>"; };
+		505DD87C19E024B8A4CCF2D8 /* StorageProviderDocs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageProviderDocs.swift; sourceTree = "<group>"; };
 		522757BD7DD6D2FFE665FAD5 /* FileListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileListView.swift; sourceTree = "<group>"; };
 		5E0D76AC4674A153095D7B76 /* BrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserView.swift; sourceTree = "<group>"; };
 		621757BC1D6BE01A69E2306E /* SyncStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStateTests.swift; sourceTree = "<group>"; };
@@ -175,6 +177,7 @@
 			isa = PBXGroup;
 			children = (
 				394EEFBBCD09DB85F4AB114C /* SettingsView.swift */,
+				505DD87C19E024B8A4CCF2D8 /* StorageProviderDocs.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -291,6 +294,7 @@
 				031236ECEF9878F185D12B69 /* SkyClient.swift in Sources */,
 				55158C1D1B7889ED307198E6 /* SkyClientProtocol.swift in Sources */,
 				1674F0CE68BF0BCBEC365D9F /* StorageProvider.swift in Sources */,
+				3699BD8D31E744353DAB0A85 /* StorageProviderDocs.swift in Sources */,
 				74C136C572AEC507F073829D /* SyncState.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
