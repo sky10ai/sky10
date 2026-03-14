@@ -17,9 +17,10 @@ LDFLAGS  := -s -w \
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-go build-swift test test-go test-swift test-go-v check vet fmt verify clean install reproduce platforms checksums
+.PHONY: all build build-go build-swift test test-skyfs test-skyfs-cli test-skyfs-cli-v test-skyfs-ui-macos check vet fmt verify clean install reproduce platforms checksums
 
-# Default
+# --- Default ---
+
 all: check test build
 
 # --- Build ---
@@ -33,26 +34,34 @@ build-swift:
 	cd skyshare && swift build
 
 # --- Test ---
+#
+# Hierarchy:
+#   make test                     run all tests
+#   make test-skyfs               run all skyfs tests (cli + ui)
+#   make test-skyfs-cli           Go library + CLI tests
+#   make test-skyfs-cli-v         Go tests verbose
+#   make test-skyfs-ui-macos      Swift macOS UI tests
 
-test: test-go test-swift
+test: test-skyfs
 
-test-go:
-	@echo "=== Go tests ==="
+test-skyfs: test-skyfs-cli test-skyfs-ui-macos
+
+test-skyfs-cli:
+	@echo "=== test-skyfs-cli (Go) ==="
 	go test ./... -count=1
 
-test-swift:
-	@echo "=== Swift tests ==="
+test-skyfs-cli-v:
+	go test ./... -v -count=1
+
+test-skyfs-ui-macos:
+	@echo "=== test-skyfs-ui-macos (Swift) ==="
 	@if xcode-select -p 2>/dev/null | grep -q "Xcode.app"; then \
 		cd skyshare && swift test 2>&1 | tail -20; \
 	else \
-		echo "Full Xcode required for Swift tests (XCTest/Testing framework)"; \
-		echo "Install Xcode, then: xcode-select -s /Applications/Xcode.app"; \
-		echo "Swift library builds OK: cd skyshare && swift build"; \
-		echo "37 test cases ready at skyshare/skyshare-tests/"; \
+		echo "Requires full Xcode (xcode-select -s /Applications/Xcode.app)"; \
+		echo "Swift library builds OK: make build-swift"; \
+		echo "37 test cases at skyshare/skyshare-tests/"; \
 	fi
-
-test-go-v:
-	go test ./... -v -count=1
 
 # --- Lint ---
 
