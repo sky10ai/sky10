@@ -44,4 +44,9 @@ type Backend interface {
 	// Head returns metadata for the object at key without downloading its
 	// contents. Returns ErrNotFound if the key does not exist.
 	Head(ctx context.Context, key string) (ObjectMeta, error)
+
+	// GetRange returns a reader for a byte range within the object at key.
+	// The range is [offset, offset+length). Returns ErrNotFound if the key
+	// does not exist.
+	GetRange(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error)
 }
