@@ -39,8 +39,7 @@ Files appear on all devices, encrypted, automatically.
 
 - FUSE mount (v4 — different I/O model, needs dedicated caching layer)
 - Relay push notifications (skylink — separate package)
-- Web UI (skyshare-web — separate repo)
-- Mobile (skyshare-mobile — Tauri/Capacitor)
+- Native UI (skyshare — SwiftUI macOS app, separate repo)
 - Agent hooks (skylink concern)
 
 ---
@@ -531,10 +530,12 @@ Milestones 5-7 add power features. Milestones 8-10 are production polish.
 - **Relay push** — skylink WebSocket notifications to replace S3 polling.
   Sub-second sync latency. Fallback to polling when relay is down.
 
-- **Web UI** — browser-based file manager. Decrypt via WebCrypto API.
-  Static site + presigned URLs. Separate repo.
+- **Native macOS app** — SwiftUI desktop app (skyshare). Tray icon, sync
+  status, sharing UI. Go backend as sidecar process via XPC or stdin/stdout.
+  Separate repo.
 
-- **Mobile** — Tauri/Capacitor app. Selective sync only.
+- **iOS app** — SwiftUI, shares core UI with macOS. Selective sync only.
+  Decrypts locally on device.
 
 - **Multi-region replication** — replicate ops to multiple S3 buckets.
   Disaster recovery. Each region replays independently.
