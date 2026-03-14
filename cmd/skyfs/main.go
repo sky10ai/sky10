@@ -5,9 +5,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"text/tabwriter"
+	"time"
 
 	"github.com/sky10/sky10/internal/config"
 	s3backend "github.com/sky10/sky10/skyadapter/s3"
@@ -54,6 +58,8 @@ func main() {
 		err = cmdGC(os.Args[2:])
 	case "versions":
 		err = cmdVersions(os.Args[2:])
+	case "restore":
+		err = cmdRestore(os.Args[2:])
 	case "snapshots":
 		err = cmdSnapshots(os.Args[2:])
 	case "help", "--help", "-h":
@@ -151,10 +157,17 @@ func cmdPut(args []string) error {
 		return err
 	}
 
-	if err := store.Put(ctx, remote, f); err != nil {
+	pr := skyfs.NewProgressReader(f, info.Size(), func(transferred, total int64) {
+		pct := int(float64(transferred) / float64(total) * 100)
+		fmt.Fprintf(os.Stderr, "\ruploading %s  %d%%  %s / %s", remote, pct,
+			formatSize(transferred), formatSize(total))
+	})
+
+	if err := store.Put(ctx, remote, pr); err != nil {
 		return fmt.Errorf("storing %s: %w", remote, err)
 	}
 
+	fmt.Fprintf(os.Stderr, "\r\033[K") // clear progress line
 	fmt.Printf("stored %s (%s)\n", remote, formatSize(info.Size()))
 	return nil
 }
@@ -187,13 +200,19 @@ func cmdGet(args []string) error {
 	}
 	defer f.Close()
 
-	if err := store.Get(ctx, remotePath, f); err != nil {
+	var downloaded int64
+	pw := skyfs.NewProgressWriter(f, 0, func(transferred, _ int64) {
+		downloaded = transferred
+		fmt.Fprintf(os.Stderr, "\rdownloading %s  %s", remotePath, formatSize(transferred))
+	})
+
+	if err := store.Get(ctx, remotePath, pw); err != nil {
 		os.Remove(out)
 		return fmt.Errorf("retrieving %s: %w", remotePath, err)
 	}
 
-	info, _ := f.Stat()
-	fmt.Printf("retrieved %s → %s (%s)\n", remotePath, out, formatSize(info.Size()))
+	fmt.Fprintf(os.Stderr, "\r\033[K") // clear progress line
+	fmt.Printf("retrieved %s → %s (%s)\n", remotePath, out, formatSize(downloaded))
 	return nil
 }
 
@@ -366,10 +385,9 @@ func cmdServe(args []string) error {
 		sockPath = filepath.Join(dir, "skyfs.sock")
 	}
 
-	// Handle shutdown signals
 	go func() {
 		sigCh := make(chan os.Signal, 1)
-		// Can't import signal in this edit, use context cancel from outside
+		signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 		<-sigCh
 		cancel()
 	}()
@@ -384,16 +402,26 @@ func cmdSync(args []string) error {
 	once := fs.Bool("once", false, "sync once and exit")
 	ns := fs.String("namespace", "", "sync only this namespace")
 	prefix := fs.String("prefix", "", "sync only paths with this prefix")
+	poll := fs.Int("poll", 30, "poll interval in seconds")
 	fs.Parse(args)
 
 	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: skyfs sync <directory> [--once] [--namespace ns] [--prefix p]")
+		return fmt.Errorf("usage: skyfs sync <directory> [--once] [--namespace ns] [--prefix p] [--poll sec]")
 	}
 
 	dir := fs.Arg(0)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Graceful shutdown on Ctrl+C
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+		<-sigCh
+		fmt.Fprintln(os.Stderr, "\nshutting down...")
+		cancel()
+	}()
 
 	store, err := openStore(ctx)
 	if err != nil {
@@ -402,20 +430,19 @@ func cmdSync(args []string) error {
 
 	ignoreMatcher := skyfs.NewIgnoreMatcher(dir)
 
-	cfg := skyfs.SyncConfig{
+	syncCfg := skyfs.SyncConfig{
 		LocalRoot:  dir,
 		IgnoreFunc: ignoreMatcher.IgnoreFunc(),
 	}
 	if *ns != "" {
-		cfg.Namespaces = []string{*ns}
+		syncCfg.Namespaces = []string{*ns}
 	}
 	if *prefix != "" {
-		cfg.Prefixes = []string{*prefix}
+		syncCfg.Prefixes = []string{*prefix}
 	}
 
-	engine := skyfs.NewSyncEngine(store, cfg)
-
 	if *once {
+		engine := skyfs.NewSyncEngine(store, syncCfg)
 		result, err := engine.SyncOnce(ctx)
 		if err != nil {
 			return err
@@ -425,14 +452,21 @@ func cmdSync(args []string) error {
 		return nil
 	}
 
-	// Continuous mode — daemon not fully wired in CLI yet, do sync once
-	result, err := engine.SyncOnce(ctx)
-	if err != nil {
-		return err
+	// Continuous mode — run the daemon
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	daemonCfg := skyfs.DaemonConfig{
+		SyncConfig:  syncCfg,
+		PollSeconds: *poll,
 	}
-	fmt.Printf("synced: %d uploaded, %d downloaded, %d errors\n",
-		result.Uploaded, result.Downloaded, len(result.Errors))
-	return nil
+
+	daemon, err := skyfs.NewDaemon(store, nil, daemonCfg, logger)
+	if err != nil {
+		return fmt.Errorf("creating daemon: %w", err)
+	}
+
+	fmt.Printf("syncing %s (poll every %ds, Ctrl+C to stop)\n", dir, *poll)
+	return daemon.Run(ctx)
 }
 
 func cmdVersions(args []string) error {
@@ -470,6 +504,55 @@ func cmdVersions(args []string) error {
 		)
 	}
 	w.Flush()
+	return nil
+}
+
+func cmdRestore(args []string) error {
+	fs := flag.NewFlagSet("restore", flag.ExitOnError)
+	outPath := fs.String("out", "", "output path (default: filename in current dir)")
+	at := fs.String("at", "", "restore version at this timestamp (RFC3339)")
+	fs.Parse(args)
+
+	if fs.NArg() < 1 {
+		return fmt.Errorf("usage: skyfs restore <path> --at <timestamp> [--out <file>]")
+	}
+
+	remotePath := fs.Arg(0)
+
+	if *at == "" {
+		return fmt.Errorf("--at <timestamp> is required (RFC3339 format, e.g. 2026-03-14T10:00:00Z)")
+	}
+
+	timestamp, err := time.Parse(time.RFC3339, *at)
+	if err != nil {
+		return fmt.Errorf("invalid timestamp %q: %w (use RFC3339 format)", *at, err)
+	}
+
+	out := *outPath
+	if out == "" {
+		out = filepath.Base(remotePath)
+	}
+
+	ctx := context.Background()
+	store, err := openStore(ctx)
+	if err != nil {
+		return err
+	}
+
+	f, err := os.Create(out)
+	if err != nil {
+		return fmt.Errorf("creating %s: %w", out, err)
+	}
+
+	if err := skyfs.RestoreVersion(ctx, store, remotePath, timestamp, f); err != nil {
+		f.Close()
+		os.Remove(out)
+		return fmt.Errorf("restoring %s: %w", remotePath, err)
+	}
+
+	info, _ := f.Stat()
+	f.Close()
+	fmt.Printf("restored %s @ %s → %s (%s)\n", remotePath, timestamp.Format("2006-01-02 15:04:05"), out, formatSize(info.Size()))
 	return nil
 }
 
@@ -563,6 +646,7 @@ Usage:
   skyfs compact [--keep <n>]
   skyfs gc [--dry-run]
   skyfs versions <path>
+  skyfs restore <path> --at <timestamp> [--out <file>]
   skyfs snapshots
   skyfs version
 
