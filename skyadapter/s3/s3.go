@@ -179,6 +179,23 @@ func (b *Backend) Head(ctx context.Context, key string) (skyadapter.ObjectMeta, 
 	return meta, nil
 }
 
+// GetRange returns a reader for a byte range within the object.
+func (b *Backend) GetRange(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	rangeHeader := fmt.Sprintf("bytes=%d-%d", offset, offset+length-1)
+	out, err := b.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(b.bucket),
+		Key:    aws.String(key),
+		Range:  aws.String(rangeHeader),
+	})
+	if err != nil {
+		if isNotFound(err) {
+			return nil, skyadapter.ErrNotFound
+		}
+		return nil, fmt.Errorf("s3: get-range %q: %w", key, err)
+	}
+	return out.Body, nil
+}
+
 // isNotFound checks if an error indicates the object doesn't exist.
 func isNotFound(err error) bool {
 	var nsk *types.NoSuchKey
@@ -257,6 +274,22 @@ func (m *MemoryBackend) Head(_ context.Context, key string) (skyadapter.ObjectMe
 		Key:  key,
 		Size: int64(len(data)),
 	}, nil
+}
+
+// GetRange returns a reader for a byte range.
+func (m *MemoryBackend) GetRange(_ context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	data, ok := m.objects[key]
+	if !ok {
+		return nil, skyadapter.ErrNotFound
+	}
+	end := offset + length
+	if end > int64(len(data)) {
+		end = int64(len(data))
+	}
+	if offset >= int64(len(data)) {
+		return io.NopCloser(bytes.NewReader(nil)), nil
+	}
+	return io.NopCloser(bytes.NewReader(data[offset:end])), nil
 }
 
 var _ skyadapter.Backend = (*MemoryBackend)(nil)
