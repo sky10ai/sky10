@@ -2,9 +2,7 @@
 
 ## Current
 
-| Plan | Status | Summary |
-|------|--------|---------|
-| [skyfs v2](current/skyfs-v2-plan.md) | not started | Multi-device sync: FastCDC, ops log, pack files, SQLite index, key rotation, blob GC |
+Nothing in progress.
 
 ## Past
 
