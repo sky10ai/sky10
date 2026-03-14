@@ -3,9 +3,14 @@ package skyfs
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,14 +22,16 @@ import (
 var ErrFileNotFound = errors.New("file not found")
 
 // Store provides encrypted file storage. It encrypts files locally, uploads
-// encrypted chunks to a storage backend, and tracks file metadata in an
-// encrypted manifest.
+// encrypted chunks to a storage backend, and tracks file metadata via an
+// append-only ops log with periodic manifest snapshots.
 type Store struct {
 	backend  skyadapter.Backend
 	identity *Identity
+	deviceID string
 
 	mu     sync.Mutex
 	nsKeys map[string][]byte // cached namespace keys
+	opSeq  int               // per-session op sequence counter
 }
 
 // New creates a Store backed by the given storage backend and identity.
@@ -32,8 +39,144 @@ func New(backend skyadapter.Backend, identity *Identity) *Store {
 	return &Store{
 		backend:  backend,
 		identity: identity,
+		deviceID: generateDeviceID(),
 		nsKeys:   make(map[string][]byte),
 	}
+}
+
+// NewWithDevice creates a Store with an explicit device ID (for multi-device scenarios).
+func NewWithDevice(backend skyadapter.Backend, identity *Identity, deviceID string) *Store {
+	return &Store{
+		backend:  backend,
+		identity: identity,
+		deviceID: deviceID,
+		nsKeys:   make(map[string][]byte),
+	}
+}
+
+// generateDeviceID creates a random 8-character hex device identifier.
+func generateDeviceID() string {
+	b := make([]byte, 4)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// loadCurrentState loads the latest snapshot and replays any ops on top.
+func (s *Store) loadCurrentState(ctx context.Context) (*Manifest, error) {
+	encKey, err := deriveManifestKey(s.identity)
+	if err != nil {
+		return nil, fmt.Errorf("deriving manifest key: %w", err)
+	}
+
+	// Try to load latest snapshot
+	snapshot, snapshotTimestamp, err := s.loadLatestSnapshot(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("loading snapshot: %w", err)
+	}
+
+	// Read ops since the snapshot
+	ops, err := ReadOps(ctx, s.backend, snapshotTimestamp, encKey)
+	if err != nil {
+		return nil, fmt.Errorf("reading ops: %w", err)
+	}
+
+	// Build current state
+	return BuildState(snapshot, ops), nil
+}
+
+// loadLatestSnapshot finds and loads the most recent manifest snapshot.
+// Returns (nil, 0, nil) if no snapshot exists.
+func (s *Store) loadLatestSnapshot(ctx context.Context) (*Manifest, int64, error) {
+	// Check for v2 snapshots first
+	keys, err := s.backend.List(ctx, "manifests/snapshot-")
+	if err != nil {
+		return nil, 0, fmt.Errorf("listing snapshots: %w", err)
+	}
+
+	if len(keys) > 0 {
+		// Pick the latest snapshot (highest timestamp in key name)
+		sort.Strings(keys)
+		latestKey := keys[len(keys)-1]
+
+		m, err := s.loadManifestFromKey(ctx, latestKey)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		ts := parseSnapshotTimestamp(latestKey)
+		return m, ts, nil
+	}
+
+	// Fall back to v1 manifest (manifests/current.enc)
+	m, err := LoadManifest(ctx, s.backend, s.identity)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(m.Tree) == 0 {
+		return nil, 0, nil
+	}
+	return m, 0, nil
+}
+
+// loadManifestFromKey downloads and decrypts a manifest from a specific S3 key.
+func (s *Store) loadManifestFromKey(ctx context.Context, key string) (*Manifest, error) {
+	rc, err := s.backend.Get(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("downloading %s: %w", key, err)
+	}
+	defer rc.Close()
+
+	encrypted, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", key, err)
+	}
+
+	manifestEncKey, err := deriveManifestKey(s.identity)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := Decrypt(encrypted, manifestEncKey)
+	if err != nil {
+		return nil, fmt.Errorf("decrypting %s: %w", key, err)
+	}
+
+	var m Manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", key, err)
+	}
+	if m.Tree == nil {
+		m.Tree = make(map[string]FileEntry)
+	}
+	return &m, nil
+}
+
+// parseSnapshotTimestamp extracts the timestamp from a snapshot key.
+func parseSnapshotTimestamp(key string) int64 {
+	name := key
+	name = strings.TrimPrefix(name, "manifests/snapshot-")
+	name = strings.TrimSuffix(name, ".enc")
+	var ts int64
+	fmt.Sscanf(name, "%d", &ts)
+	return ts
+}
+
+// writeOp writes an operation to the ops log.
+func (s *Store) writeOp(ctx context.Context, op *Op) error {
+	s.mu.Lock()
+	s.opSeq++
+	op.Seq = s.opSeq
+	s.mu.Unlock()
+
+	op.Device = s.deviceID
+	op.Timestamp = time.Now().Unix()
+
+	encKey, err := deriveManifestKey(s.identity)
+	if err != nil {
+		return fmt.Errorf("deriving manifest key: %w", err)
+	}
+
+	return WriteOp(ctx, s.backend, op, encKey)
 }
 
 // Put encrypts and stores file data read from r at the given path.
@@ -45,6 +188,16 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 	nsKey, err := s.getOrCreateNamespaceKey(ctx, namespace)
 	if err != nil {
 		return fmt.Errorf("namespace key for %q: %w", namespace, err)
+	}
+
+	// Get prev_checksum for conflict detection
+	state, err := s.loadCurrentState(ctx)
+	if err != nil {
+		return fmt.Errorf("loading state: %w", err)
+	}
+	prevChecksum := ""
+	if existing, ok := state.Tree[path]; ok {
+		prevChecksum = existing.Checksum
 	}
 
 	chunker := NewChunker(r)
@@ -60,17 +213,15 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 			return fmt.Errorf("chunking: %w", err)
 		}
 
-		// Derive file key from namespace key + chunk content hash
 		hashBytes := []byte(chunk.Hash)
 		fileKey, err := DeriveFileKey(nsKey, hashBytes)
 		if err != nil {
 			return fmt.Errorf("deriving file key: %w", err)
 		}
 
-		// Check if chunk already exists (dedup)
+		// Dedup check
 		_, headErr := s.backend.Head(ctx, chunk.BlobKey())
 		if headErr == nil {
-			// Already exists, skip upload
 			chunkHashes = append(chunkHashes, chunk.Hash)
 			totalSize += int64(chunk.Length)
 			continue
@@ -79,7 +230,6 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 			return fmt.Errorf("checking chunk %s: %w", chunk.Hash[:12], headErr)
 		}
 
-		// Encrypt and upload chunk
 		encrypted, err := Encrypt(chunk.Data, fileKey)
 		if err != nil {
 			return fmt.Errorf("encrypting chunk %s: %w", chunk.Hash[:12], err)
@@ -94,43 +244,39 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 		totalSize += int64(chunk.Length)
 	}
 
-	// Compute overall file checksum from ordered chunk hashes
+	// File checksum from ordered chunk hashes
 	allHashes := ""
 	for _, h := range chunkHashes {
 		allHashes += h
 	}
 	fileChecksum := ContentHash([]byte(allHashes))
 
-	// Update manifest
-	manifest, err := LoadManifest(ctx, s.backend, s.identity)
-	if err != nil {
-		return fmt.Errorf("loading manifest: %w", err)
+	// Write op (all chunks uploaded first, op is atomic)
+	op := &Op{
+		Type:         OpPut,
+		Path:         path,
+		Chunks:       chunkHashes,
+		Size:         totalSize,
+		Checksum:     fileChecksum,
+		PrevChecksum: prevChecksum,
+		Namespace:    namespace,
 	}
 
-	manifest.Set(path, FileEntry{
-		Chunks:    chunkHashes,
-		Size:      totalSize,
-		Modified:  time.Now().UTC(),
-		Checksum:  fileChecksum,
-		Namespace: namespace,
-	})
-
-	if err := SaveManifest(ctx, s.backend, manifest, s.identity); err != nil {
-		return fmt.Errorf("saving manifest: %w", err)
+	if err := s.writeOp(ctx, op); err != nil {
+		return fmt.Errorf("writing op: %w", err)
 	}
 
 	return nil
 }
 
 // Get retrieves and decrypts a file, streaming the plaintext to w.
-// It processes one chunk at a time, never holding more than 4MB in memory.
 func (s *Store) Get(ctx context.Context, path string, w io.Writer) error {
-	manifest, err := LoadManifest(ctx, s.backend, s.identity)
+	state, err := s.loadCurrentState(ctx)
 	if err != nil {
-		return fmt.Errorf("loading manifest: %w", err)
+		return fmt.Errorf("loading state: %w", err)
 	}
 
-	entry, ok := manifest.Tree[path]
+	entry, ok := state.Tree[path]
 	if !ok {
 		return ErrFileNotFound
 	}
@@ -164,7 +310,6 @@ func (s *Store) Get(ctx context.Context, path string, w io.Writer) error {
 			return fmt.Errorf("decrypting chunk %d: %w", i, err)
 		}
 
-		// Verify chunk hash
 		if ContentHash(plaintext) != chunkHash {
 			return fmt.Errorf("chunk %d: hash mismatch (data corrupted)", i)
 		}
@@ -179,28 +324,34 @@ func (s *Store) Get(ctx context.Context, path string, w io.Writer) error {
 
 // List returns all file entries matching the prefix.
 func (s *Store) List(ctx context.Context, prefix string) ([]ManifestEntry, error) {
-	manifest, err := LoadManifest(ctx, s.backend, s.identity)
+	state, err := s.loadCurrentState(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("loading manifest: %w", err)
+		return nil, fmt.Errorf("loading state: %w", err)
 	}
-	return manifest.ListPrefix(prefix), nil
+	return state.ListPrefix(prefix), nil
 }
 
-// Remove deletes a file entry from the manifest. It does not delete the
-// underlying blobs (they may be shared via dedup). Blob garbage collection
-// is a separate concern.
+// Remove deletes a file entry. Writes a delete op to the log.
 func (s *Store) Remove(ctx context.Context, path string) error {
-	manifest, err := LoadManifest(ctx, s.backend, s.identity)
+	state, err := s.loadCurrentState(ctx)
 	if err != nil {
-		return fmt.Errorf("loading manifest: %w", err)
+		return fmt.Errorf("loading state: %w", err)
 	}
 
-	if !manifest.Remove(path) {
+	entry, ok := state.Tree[path]
+	if !ok {
 		return ErrFileNotFound
 	}
 
-	if err := SaveManifest(ctx, s.backend, manifest, s.identity); err != nil {
-		return fmt.Errorf("saving manifest: %w", err)
+	op := &Op{
+		Type:         OpDelete,
+		Path:         path,
+		PrevChecksum: entry.Checksum,
+		Namespace:    entry.Namespace,
+	}
+
+	if err := s.writeOp(ctx, op); err != nil {
+		return fmt.Errorf("writing delete op: %w", err)
 	}
 
 	return nil
@@ -208,18 +359,18 @@ func (s *Store) Remove(ctx context.Context, path string) error {
 
 // Info returns summary information about the store.
 func (s *Store) Info(ctx context.Context) (*StoreInfo, error) {
-	manifest, err := LoadManifest(ctx, s.backend, s.identity)
+	state, err := s.loadCurrentState(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("loading manifest: %w", err)
+		return nil, fmt.Errorf("loading state: %w", err)
 	}
 
 	info := &StoreInfo{
 		ID:        s.identity.ID(),
-		FileCount: len(manifest.Tree),
+		FileCount: len(state.Tree),
 	}
 
 	namespaces := make(map[string]bool)
-	for _, entry := range manifest.Tree {
+	for _, entry := range state.Tree {
 		info.TotalSize += entry.Size
 		namespaces[entry.Namespace] = true
 	}
@@ -228,6 +379,37 @@ func (s *Store) Info(ctx context.Context) (*StoreInfo, error) {
 	}
 
 	return info, nil
+}
+
+// SaveSnapshot writes the current state as a manifest snapshot.
+func (s *Store) SaveSnapshot(ctx context.Context) error {
+	state, err := s.loadCurrentState(ctx)
+	if err != nil {
+		return fmt.Errorf("loading state: %w", err)
+	}
+
+	encKey, err := deriveManifestKey(s.identity)
+	if err != nil {
+		return fmt.Errorf("deriving manifest key: %w", err)
+	}
+
+	data, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("marshaling snapshot: %w", err)
+	}
+
+	encrypted, err := Encrypt(data, encKey)
+	if err != nil {
+		return fmt.Errorf("encrypting snapshot: %w", err)
+	}
+
+	key := fmt.Sprintf("manifests/snapshot-%d.enc", time.Now().Unix())
+	r := bytes.NewReader(encrypted)
+	if err := s.backend.Put(ctx, key, r, int64(len(encrypted))); err != nil {
+		return fmt.Errorf("uploading snapshot: %w", err)
+	}
+
+	return nil
 }
 
 // StoreInfo contains summary information about a Store.
@@ -244,14 +426,12 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Check cache
 	if key, ok := s.nsKeys[namespace]; ok {
 		return key, nil
 	}
 
 	nsKeyPath := "keys/namespaces/" + namespace + ".ns.enc"
 
-	// Try to load from backend
 	rc, err := s.backend.Get(ctx, nsKeyPath)
 	if err == nil {
 		defer rc.Close()
@@ -270,7 +450,6 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 		return nil, fmt.Errorf("loading namespace key: %w", err)
 	}
 
-	// Create new namespace key
 	nsKey, err := GenerateNamespaceKey()
 	if err != nil {
 		return nil, fmt.Errorf("generating namespace key: %w", err)
