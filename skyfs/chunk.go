@@ -4,12 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+
+	fastcdc "github.com/jotfs/fastcdc-go"
 )
 
 const (
-	// ChunkThreshold is the file size above which FastCDC splitting kicks in.
-	ChunkThreshold = 1 << 20 // 1MB
-
 	// MinChunkSize is the minimum chunk size for CDC.
 	MinChunkSize = 256 << 10 // 256KB
 
@@ -37,21 +36,24 @@ func (c *Chunk) BlobKey() string {
 }
 
 // Chunker reads from an io.Reader and produces content-addressed chunks.
-// Files smaller than ChunkThreshold are returned as a single chunk.
-// Larger files are split using a simple fixed-size chunking strategy.
-//
-// TODO: Replace fixed-size chunking with FastCDC (jotfs/fastcdc-go) for
-// content-defined boundaries. Fixed-size works correctly but doesn't give
-// dedup benefits on insertions/edits within large files.
+// It uses FastCDC (content-defined chunking) to find split points based
+// on content. This means edits in the middle of a large file only affect
+// nearby chunks — everything else deduplicates automatically.
 type Chunker struct {
-	r      io.Reader
+	cdc    *fastcdc.Chunker
 	offset int64
 	done   bool
 }
 
-// NewChunker creates a chunker that reads from r.
+// NewChunker creates a chunker that reads from r using FastCDC.
 func NewChunker(r io.Reader) *Chunker {
-	return &Chunker{r: r}
+	opts := fastcdc.Options{
+		MinSize:     MinChunkSize,
+		AverageSize: AvgChunkSize,
+		MaxSize:     MaxChunkSize,
+	}
+	cdc, _ := fastcdc.NewChunker(r, opts)
+	return &Chunker{cdc: cdc}
 }
 
 // Next returns the next chunk. Returns io.EOF when all data has been read.
@@ -61,34 +63,31 @@ func (c *Chunker) Next() (Chunk, error) {
 		return Chunk{}, io.EOF
 	}
 
-	buf := make([]byte, MaxChunkSize)
-	n, err := io.ReadFull(c.r, buf)
-
-	if n == 0 {
-		if err == io.EOF || err == io.ErrUnexpectedEOF {
+	cdcChunk, err := c.cdc.Next()
+	if err != nil {
+		if err == io.EOF {
 			c.done = true
-			return Chunk{}, io.EOF
 		}
 		return Chunk{}, err
 	}
 
-	buf = buf[:n]
-
-	// If we got less than MaxChunkSize, this is the last chunk
-	if err == io.ErrUnexpectedEOF || err == io.EOF {
+	if len(cdcChunk.Data) == 0 {
 		c.done = true
-	} else if err != nil {
-		return Chunk{}, err
+		return Chunk{}, io.EOF
 	}
 
-	hash := sha256.Sum256(buf)
+	// Copy data — the CDC library reuses its internal buffer between calls.
+	data := make([]byte, len(cdcChunk.Data))
+	copy(data, cdcChunk.Data)
+
+	hash := sha256.Sum256(data)
 	chunk := Chunk{
 		Hash:   hex.EncodeToString(hash[:]),
-		Data:   buf,
+		Data:   data,
 		Offset: c.offset,
-		Length: n,
+		Length: len(data),
 	}
-	c.offset += int64(n)
+	c.offset += int64(len(data))
 
 	return chunk, nil
 }

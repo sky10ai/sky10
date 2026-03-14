@@ -185,6 +185,94 @@ func TestBlobKey(t *testing.T) {
 	}
 }
 
+func TestChunkerInsertMiddle(t *testing.T) {
+	t.Parallel()
+
+	// Create a large file, chunk it, insert bytes in the middle, re-chunk.
+	// With CDC, only chunks near the insertion should change.
+	size := 10 * 1024 * 1024
+	original := make([]byte, size)
+	for i := range original {
+		original[i] = byte(i % 251)
+	}
+
+	chunks1 := allChunks(t, original)
+
+	// Insert 1KB in the middle
+	mid := size / 2
+	insertion := bytes.Repeat([]byte("INSERTED"), 128)
+	modified := make([]byte, 0, len(original)+len(insertion))
+	modified = append(modified, original[:mid]...)
+	modified = append(modified, insertion...)
+	modified = append(modified, original[mid:]...)
+
+	chunks2 := allChunks(t, modified)
+
+	// Count how many chunk hashes are shared (dedup)
+	hashSet := make(map[string]bool)
+	for _, c := range chunks1 {
+		hashSet[c.Hash] = true
+	}
+	shared := 0
+	for _, c := range chunks2 {
+		if hashSet[c.Hash] {
+			shared++
+		}
+	}
+
+	// With CDC, most chunks far from the insertion should be identical.
+	// At least 50% of chunks should be shared (in practice much higher).
+	minShared := len(chunks1) / 2
+	if shared < minShared {
+		t.Errorf("only %d/%d chunks shared after middle insertion (want >= %d)",
+			shared, len(chunks1), minShared)
+	}
+}
+
+func TestChunkerAppend(t *testing.T) {
+	t.Parallel()
+
+	size := 8 * 1024 * 1024
+	original := make([]byte, size)
+	for i := range original {
+		original[i] = byte(i % 199)
+	}
+
+	chunks1 := allChunks(t, original)
+
+	// Append 1MB
+	appended := make([]byte, size+1024*1024)
+	copy(appended, original)
+	for i := size; i < len(appended); i++ {
+		appended[i] = byte(i % 197)
+	}
+
+	chunks2 := allChunks(t, appended)
+
+	// All original chunks should appear in the appended version
+	hashSet := make(map[string]bool)
+	for _, c := range chunks2 {
+		hashSet[c.Hash] = true
+	}
+	preserved := 0
+	for _, c := range chunks1 {
+		if hashSet[c.Hash] {
+			preserved++
+		}
+	}
+
+	// All or nearly all original chunks should be preserved
+	// (the last chunk of the original might differ due to boundary shift)
+	minPreserved := len(chunks1) - 2
+	if minPreserved < 0 {
+		minPreserved = 0
+	}
+	if preserved < minPreserved {
+		t.Errorf("only %d/%d original chunks preserved after append (want >= %d)",
+			preserved, len(chunks1), minPreserved)
+	}
+}
+
 func allChunks(t *testing.T, data []byte) []Chunk {
 	t.Helper()
 	chunker := NewChunker(bytes.NewReader(data))
