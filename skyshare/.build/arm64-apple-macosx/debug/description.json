@@ -1,0 +1,946 @@
+{
+  "builtTestProducts" : [
+    {
+      "binaryPath" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.xctest/Contents/MacOS/skysharePackageTests",
+      "packagePath" : "/Users/bf/Documents/projects/sky10/skyshare",
+      "productName" : "skysharePackageTests"
+    }
+  ],
+  "copyCommands" : {
+
+  },
+  "explicitTargetDependencyImportCheckingMode" : {
+    "none" : {
+
+    }
+  },
+  "generatedSourceTargetSet" : [
+
+  ],
+  "pluginDescriptions" : [
+
+  ],
+  "swiftCommands" : {
+    "C.skyshare-arm64-apple-macosx26.0-debug.module" : {
+      "executable" : "/Library/Developer/CommandLineTools/usr/bin/swiftc",
+      "fileList" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/sources",
+      "importPath" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Models/AppState.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Models/FileNode.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Models/SyncState.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/DaemonManager.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/RPCClient.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/SkyClient.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/SkyClientProtocol.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/BrowserView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/DetailView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/FileListView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/FileRowView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/SidebarView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/MenuBar/MenuBarView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Settings/SettingsView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Shared/Previews.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/swift-version--1AB21518FC5DEDBE.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/sources"
+        }
+      ],
+      "isLibrary" : true,
+      "moduleName" : "skyshare",
+      "moduleOutputPath" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/Modules/skyshare.swiftmodule",
+      "objects" : [
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/AppState.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/FileNode.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/SyncState.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/DaemonManager.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/RPCClient.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/SkyClient.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/SkyClientProtocol.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/BrowserView.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/DetailView.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/FileListView.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/FileRowView.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/SidebarView.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/MenuBarView.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/SettingsView.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/Previews.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx14.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-j10",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-parse-as-library",
+        "-emit-objc-header",
+        "-emit-objc-header-path",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/include/skyshare-Swift.h",
+        "-swift-version",
+        "5",
+        "-I",
+        "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+        "-L",
+        "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+        "-plugin-path",
+        "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "skyshare"
+      ],
+      "outputFileMapPath" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/AppState.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/FileNode.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/SyncState.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/DaemonManager.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/RPCClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/SkyClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/SkyClientProtocol.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/BrowserView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/DetailView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/FileListView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/FileRowView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/SidebarView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/MenuBarView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/SettingsView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/Previews.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/Modules/skyshare.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Models/AppState.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Models/FileNode.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Models/SyncState.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/DaemonManager.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/RPCClient.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/SkyClient.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/SkyClientProtocol.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/BrowserView.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/DetailView.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/FileListView.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/FileRowView.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/SidebarView.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/MenuBar/MenuBarView.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Settings/SettingsView.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Shared/Previews.swift"
+      ],
+      "tempsPath" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build",
+      "wholeModuleOptimization" : false
+    },
+    "C.skyshare-tests-arm64-apple-macosx26.0-debug.module" : {
+      "executable" : "/Library/Developer/CommandLineTools/usr/bin/swiftc",
+      "fileList" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/sources",
+      "importPath" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/AppStateTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/FileNodeTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/MockSkyClient.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/MockSkyClientTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/RPCErrorTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/StoreInfoTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/SyncStateTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/swift-version--1AB21518FC5DEDBE.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/Modules/skyshare.swiftmodule"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/sources"
+        }
+      ],
+      "isLibrary" : true,
+      "moduleName" : "skyshare_tests",
+      "moduleOutputPath" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/Modules/skyshare_tests.swiftmodule",
+      "objects" : [
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/AppStateTests.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/FileNodeTests.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/MockSkyClient.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/MockSkyClientTests.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/RPCErrorTests.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/StoreInfoTests.swift.o",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/SyncStateTests.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx14.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-Xfrontend",
+        "-enable-cross-import-overlays",
+        "-j10",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-parse-as-library",
+        "-swift-version",
+        "5",
+        "-I",
+        "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+        "-L",
+        "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+        "-plugin-path",
+        "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "skyshare"
+      ],
+      "outputFileMapPath" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/AppStateTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/FileNodeTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/MockSkyClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/MockSkyClientTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/RPCErrorTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/StoreInfoTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/SyncStateTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/Modules/skyshare_tests.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/AppStateTests.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/FileNodeTests.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/MockSkyClient.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/MockSkyClientTests.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/RPCErrorTests.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/StoreInfoTests.swift",
+        "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/SyncStateTests.swift"
+      ],
+      "tempsPath" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build",
+      "wholeModuleOptimization" : false
+    },
+    "C.skysharePackageTests-arm64-apple-macosx26.0-debug.module" : {
+      "executable" : "/Library/Developer/CommandLineTools/usr/bin/swiftc",
+      "fileList" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.build/sources",
+      "importPath" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.derived/runner.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/swift-version--1AB21518FC5DEDBE.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/Modules/skyshare_tests.swiftmodule"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.build/sources"
+        }
+      ],
+      "isLibrary" : true,
+      "moduleName" : "skysharePackageTests",
+      "moduleOutputPath" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/Modules/skysharePackageTests.swiftmodule",
+      "objects" : [
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.build/runner.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx14.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-Xfrontend",
+        "-enable-cross-import-overlays",
+        "-j10",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-parse-as-library",
+        "-emit-objc-header",
+        "-emit-objc-header-path",
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.build/include/skysharePackageTests-Swift.h",
+        "-I",
+        "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+        "-L",
+        "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+        "-plugin-path",
+        "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "skyshare"
+      ],
+      "outputFileMapPath" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.build/runner.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/Modules/skysharePackageTests.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.derived/runner.swift"
+      ],
+      "tempsPath" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.build",
+      "wholeModuleOptimization" : false
+    }
+  },
+  "swiftFrontendCommands" : {
+
+  },
+  "swiftTargetScanArgs" : {
+    "skyshare" : [
+      "/Library/Developer/CommandLineTools/usr/bin/swiftc",
+      "-module-name",
+      "skyshare",
+      "-package-name",
+      "skyshare",
+      "-c",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Models/AppState.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Models/FileNode.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Models/SyncState.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/DaemonManager.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/RPCClient.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/SkyClient.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/SkyClientProtocol.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/BrowserView.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/DetailView.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/FileListView.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/FileRowView.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/SidebarView.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/MenuBar/MenuBarView.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Settings/SettingsView.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Shared/Previews.swift",
+      "-I",
+      "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx14.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-j10",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-parse-as-library",
+      "-emit-objc-header",
+      "-emit-objc-header-path",
+      "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/include/skyshare-Swift.h",
+      "-swift-version",
+      "5",
+      "-I",
+      "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+      "-L",
+      "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+      "-plugin-path",
+      "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "skyshare",
+      "-driver-use-frontend-path",
+      "/Library/Developer/CommandLineTools/usr/bin/swiftc"
+    ],
+    "skysharePackageTests" : [
+      "/Library/Developer/CommandLineTools/usr/bin/swiftc",
+      "-module-name",
+      "skysharePackageTests",
+      "-package-name",
+      "skyshare",
+      "-c",
+      "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.derived/runner.swift",
+      "-I",
+      "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx14.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-Xfrontend",
+      "-enable-cross-import-overlays",
+      "-j10",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-parse-as-library",
+      "-emit-objc-header",
+      "-emit-objc-header-path",
+      "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.build/include/skysharePackageTests-Swift.h",
+      "-I",
+      "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+      "-L",
+      "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+      "-plugin-path",
+      "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "skyshare",
+      "-driver-use-frontend-path",
+      "/Library/Developer/CommandLineTools/usr/bin/swiftc"
+    ],
+    "skyshare_tests" : [
+      "/Library/Developer/CommandLineTools/usr/bin/swiftc",
+      "-module-name",
+      "skyshare_tests",
+      "-package-name",
+      "skyshare",
+      "-c",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/AppStateTests.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/FileNodeTests.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/MockSkyClient.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/MockSkyClientTests.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/RPCErrorTests.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/StoreInfoTests.swift",
+      "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/SyncStateTests.swift",
+      "-I",
+      "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx14.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-Xfrontend",
+      "-enable-cross-import-overlays",
+      "-j10",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-parse-as-library",
+      "-swift-version",
+      "5",
+      "-I",
+      "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+      "-L",
+      "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+      "-plugin-path",
+      "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "skyshare",
+      "-driver-use-frontend-path",
+      "/Library/Developer/CommandLineTools/usr/bin/swiftc"
+    ]
+  },
+  "targetDependencyMap" : {
+    "skyshare" : [
+
+    ],
+    "skysharePackageTests" : [
+      "skyshare_tests",
+      "skyshare"
+    ],
+    "skyshare_tests" : [
+      "skyshare"
+    ]
+  },
+  "testDiscoveryCommands" : {
+
+  },
+  "testEntryPointCommands" : {
+    "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.derived/runner.swift" : {
+      "inputs" : [
+
+      ],
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.derived/runner.swift"
+        }
+      ]
+    }
+  },
+  "traitConfiguration" : {
+    "default" : {
+
+    }
+  },
+  "writeCommands" : {
+    "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Models/AppState.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Models/FileNode.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Models/SyncState.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/DaemonManager.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/RPCClient.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/SkyClient.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/SkyClientProtocol.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/BrowserView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/DetailView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/FileListView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/FileRowView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/SidebarView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/MenuBar/MenuBarView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Settings/SettingsView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Shared/Previews.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/sources"
+    },
+    "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.derived/runner.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.build/sources"
+    },
+    "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.product/Objects.LinkFileList" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<link-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/AppState.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/BrowserView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/DaemonManager.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/DetailView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/FileListView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/FileNode.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/FileRowView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/MenuBarView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/Previews.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/RPCClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/SettingsView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/SidebarView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/SkyClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/SkyClientProtocol.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare.build/SyncState.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.build/runner.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/AppStateTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/FileNodeTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/MockSkyClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/MockSkyClientTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/RPCErrorTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/StoreInfoTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/SyncStateTests.swift.o"
+        }
+      ],
+      "outputFilePath" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.product/Objects.LinkFileList"
+    },
+    "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/AppStateTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/FileNodeTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/MockSkyClient.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/MockSkyClientTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/RPCErrorTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/StoreInfoTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bf/Documents/projects/sky10/skyshare/skyshare-tests/SyncStateTests.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skyshare_tests.build/sources"
+    },
+    "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/swift-version--1AB21518FC5DEDBE.txt" : {
+      "alwaysOutOfDate" : true,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<swift-get-version>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Library/Developer/CommandLineTools/usr/bin/swiftc"
+        }
+      ],
+      "outputFilePath" : "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/swift-version--1AB21518FC5DEDBE.txt"
+    }
+  }
+}

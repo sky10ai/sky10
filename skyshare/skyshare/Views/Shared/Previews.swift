@@ -27,87 +27,44 @@ extension FileNode {
     ]
 }
 
+// Preview-only mock that lives in the main target (not test target)
+private class PreviewSkyClient: SkyClientProtocol {
+    func listFiles(prefix: String) async throws -> [FileNode] { FileNode.sampleFiles }
+    func putFile(path: String, localPath: String) async throws {}
+    func getFile(path: String, outPath: String) async throws {}
+    func removeFile(path: String) async throws {}
+    func getInfo() async throws -> StoreInfo {
+        StoreInfo(id: "sky://k1_preview", fileCount: 5, totalSize: 5_914_680,
+                  namespaces: ["default", "financial", "journal", "photos"])
+    }
+}
+
 extension AppState {
     static var preview: AppState {
-        let mock = MockSkyClient()
-        mock.files = FileNode.sampleFiles
-        mock.info = StoreInfo(
-            id: "sky://k1_preview1234567890",
-            fileCount: 5,
-            totalSize: 5_914_680,
+        let state = AppState(client: PreviewSkyClient())
+        state.files = FileNode.sampleFiles
+        state.storeInfo = StoreInfo(
+            id: "sky://k1_preview1234567890", fileCount: 5, totalSize: 5_914_680,
             namespaces: ["default", "financial", "journal", "photos"]
         )
-        let state = AppState(client: mock)
-        state.files = FileNode.sampleFiles
-        state.storeInfo = mock.info
         state.syncState = .synced
         return state
     }
 
-    static var previewSyncing: AppState {
-        let state = preview
-        state.syncState = .syncing
-        return state
-    }
-
     static var previewError: AppState {
-        let state = AppState(client: MockSkyClient())
+        let state = AppState(client: PreviewSkyClient())
         state.syncState = .error
         state.error = "Connection to S3 failed"
         return state
     }
 
     static var previewEmpty: AppState {
-        let state = AppState(client: MockSkyClient())
+        let state = AppState(client: PreviewSkyClient())
         state.syncState = .synced
         state.storeInfo = StoreInfo(id: "sky://k1_empty", fileCount: 0, totalSize: 0, namespaces: nil)
         return state
     }
 }
 
-// MARK: - View Previews
-
-#Preview("Menu Bar - Synced") {
-    MenuBarView()
-        .environmentObject(AppState.preview)
-        .frame(width: 220)
-}
-
-#Preview("Menu Bar - Error") {
-    MenuBarView()
-        .environmentObject(AppState.previewError)
-        .frame(width: 220)
-}
-
-#Preview("Browser - Populated") {
-    BrowserView()
-        .environmentObject(AppState.preview)
-        .frame(width: 1000, height: 600)
-}
-
-#Preview("Browser - Empty") {
-    BrowserView()
-        .environmentObject(AppState.previewEmpty)
-        .frame(width: 1000, height: 600)
-}
-
-#Preview("File Row") {
-    VStack(alignment: .leading) {
-        ForEach(FileNode.sampleFiles) { file in
-            FileRowView(file: file)
-        }
-    }
-    .padding()
-}
-
-#Preview("Detail View") {
-    DetailView(file: FileNode.sampleFiles[2])
-        .environmentObject(AppState.preview)
-        .frame(width: 300, height: 400)
-}
-
-#Preview("Sidebar") {
-    SidebarView(selectedNamespace: .constant(nil))
-        .environmentObject(AppState.preview)
-        .frame(width: 200, height: 400)
-}
+// #Preview macros require Xcode — they don't compile under SPM.
+// When using Xcode, add previews in a separate file or enable here.

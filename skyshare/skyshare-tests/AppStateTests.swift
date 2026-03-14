@@ -1,20 +1,23 @@
-import XCTest
+import Testing
 @testable import skyshare
 
+@Suite("AppState")
 @MainActor
-final class AppStateTests: XCTestCase {
+struct AppStateTests {
 
-    func testInitialState() {
+    @Test("Initial state")
+    func initialState() {
         let state = AppState(client: MockSkyClient())
-        XCTAssertEqual(state.syncState, .offline)
-        XCTAssertTrue(state.files.isEmpty)
-        XCTAssertNil(state.storeInfo)
-        XCTAssertNil(state.selectedNamespace)
-        XCTAssertFalse(state.isLoading)
-        XCTAssertNil(state.error)
+        #expect(state.syncState == .offline)
+        #expect(state.files.isEmpty)
+        #expect(state.storeInfo == nil)
+        #expect(state.selectedNamespace == nil)
+        #expect(state.isLoading == false)
+        #expect(state.error == nil)
     }
 
-    func testRefreshSuccess() async {
+    @Test("Refresh loads files and info")
+    func refreshSuccess() async {
         let mock = MockSkyClient()
         mock.files = [
             FileNode(id: "a.md", path: "a.md", name: "a.md", size: 100,
@@ -29,15 +32,16 @@ final class AppStateTests: XCTestCase {
         let state = AppState(client: mock)
         await state.refresh()
 
-        XCTAssertEqual(state.syncState, .synced)
-        XCTAssertEqual(state.files.count, 2)
-        XCTAssertEqual(state.storeInfo?.fileCount, 2)
-        XCTAssertEqual(state.storeInfo?.totalSize, 300)
-        XCTAssertNil(state.error)
-        XCTAssertFalse(state.isLoading)
+        #expect(state.syncState == .synced)
+        #expect(state.files.count == 2)
+        #expect(state.storeInfo?.fileCount == 2)
+        #expect(state.storeInfo?.totalSize == 300)
+        #expect(state.error == nil)
+        #expect(state.isLoading == false)
     }
 
-    func testRefreshError() async {
+    @Test("Refresh error sets error state")
+    func refreshError() async {
         let mock = MockSkyClient()
         mock.shouldError = true
         mock.errorMessage = "connection refused"
@@ -45,56 +49,59 @@ final class AppStateTests: XCTestCase {
         let state = AppState(client: mock)
         await state.refresh()
 
-        XCTAssertEqual(state.syncState, .error)
-        XCTAssertNotNil(state.error)
-        XCTAssertTrue(state.error!.contains("connection refused"))
+        #expect(state.syncState == .error)
+        #expect(state.error != nil)
+        #expect(state.error!.contains("connection refused"))
     }
 
-    func testUploadFile() async {
+    @Test("Upload file calls put")
+    func upload() async {
         let mock = MockSkyClient()
         let state = AppState(client: mock)
-
         await state.uploadFile(localPath: "/tmp/test.md", remotePath: "docs/test.md")
 
-        XCTAssertEqual(mock.putCalls.count, 1)
-        XCTAssertEqual(mock.putCalls[0].path, "docs/test.md")
-        XCTAssertEqual(mock.putCalls[0].localPath, "/tmp/test.md")
+        #expect(mock.putCalls.count == 1)
+        #expect(mock.putCalls[0].path == "docs/test.md")
+        #expect(mock.putCalls[0].localPath == "/tmp/test.md")
     }
 
-    func testUploadError() async {
+    @Test("Upload error sets error state")
+    func uploadError() async {
         let mock = MockSkyClient()
         mock.shouldError = true
 
         let state = AppState(client: mock)
         await state.uploadFile(localPath: "/tmp/test.md", remotePath: "test.md")
 
-        XCTAssertEqual(state.syncState, .error)
-        XCTAssertNotNil(state.error)
+        #expect(state.syncState == .error)
+        #expect(state.error != nil)
     }
 
-    func testDownloadFile() async {
+    @Test("Download file calls get")
+    func download() async {
         let mock = MockSkyClient()
         let state = AppState(client: mock)
-
         await state.downloadFile(remotePath: "docs/readme.md", localPath: "/tmp/readme.md")
 
-        XCTAssertEqual(mock.getCalls.count, 1)
-        XCTAssertEqual(mock.getCalls[0].path, "docs/readme.md")
-        XCTAssertEqual(state.syncState, .synced)
+        #expect(mock.getCalls.count == 1)
+        #expect(mock.getCalls[0].path == "docs/readme.md")
+        #expect(state.syncState == .synced)
     }
 
-    func testDownloadError() async {
+    @Test("Download error sets error state")
+    func downloadError() async {
         let mock = MockSkyClient()
         mock.shouldError = true
 
         let state = AppState(client: mock)
         await state.downloadFile(remotePath: "file.md", localPath: "/tmp/file.md")
 
-        XCTAssertEqual(state.syncState, .error)
-        XCTAssertNotNil(state.error)
+        #expect(state.syncState == .error)
+        #expect(state.error != nil)
     }
 
-    func testRemoveFile() async {
+    @Test("Remove file calls remove and refreshes")
+    func removeFile() async {
         let mock = MockSkyClient()
         mock.files = [
             FileNode(id: "rm.md", path: "rm.md", name: "rm.md", size: 50,
@@ -105,15 +112,15 @@ final class AppStateTests: XCTestCase {
 
         let state = AppState(client: mock)
         await state.refresh()
-        XCTAssertEqual(state.files.count, 1)
+        #expect(state.files.count == 1)
 
         await state.removeFile(path: "rm.md")
-
-        XCTAssertEqual(mock.removeCalls, ["rm.md"])
-        XCTAssertEqual(state.files.count, 0)
+        #expect(mock.removeCalls == ["rm.md"])
+        #expect(state.files.count == 0)
     }
 
-    func testFilteredFiles() async {
+    @Test("Filtered files by namespace")
+    func filteredFiles() async {
         let mock = MockSkyClient()
         mock.files = [
             FileNode(id: "a.md", path: "a.md", name: "a.md", size: 10,
@@ -127,24 +134,21 @@ final class AppStateTests: XCTestCase {
         let state = AppState(client: mock)
         await state.refresh()
 
-        // No filter — all files
-        XCTAssertEqual(state.filteredFiles.count, 3)
+        #expect(state.filteredFiles.count == 3)
 
-        // Filter by journal
         state.selectedNamespace = "journal"
-        XCTAssertEqual(state.filteredFiles.count, 2)
-        XCTAssertTrue(state.filteredFiles.allSatisfy { $0.namespace == "journal" })
+        #expect(state.filteredFiles.count == 2)
+        #expect(state.filteredFiles.allSatisfy { $0.namespace == "journal" })
 
-        // Filter by default
         state.selectedNamespace = "default"
-        XCTAssertEqual(state.filteredFiles.count, 1)
+        #expect(state.filteredFiles.count == 1)
 
-        // Clear filter
         state.selectedNamespace = nil
-        XCTAssertEqual(state.filteredFiles.count, 3)
+        #expect(state.filteredFiles.count == 3)
     }
 
-    func testNamespaces() async {
+    @Test("Namespaces computed and sorted")
+    func namespaces() async {
         let mock = MockSkyClient()
         mock.files = [
             FileNode(id: "1", path: "a.md", name: "a.md", size: 0, modified: "",
@@ -160,6 +164,6 @@ final class AppStateTests: XCTestCase {
         let state = AppState(client: mock)
         await state.refresh()
 
-        XCTAssertEqual(state.namespaces, ["default", "financial", "journal"])
+        #expect(state.namespaces == ["default", "financial", "journal"])
     }
 }

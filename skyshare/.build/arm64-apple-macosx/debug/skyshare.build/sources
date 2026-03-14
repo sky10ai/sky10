@@ -1,0 +1,15 @@
+/Users/bf/Documents/projects/sky10/skyshare/skyshare/Models/AppState.swift
+/Users/bf/Documents/projects/sky10/skyshare/skyshare/Models/FileNode.swift
+/Users/bf/Documents/projects/sky10/skyshare/skyshare/Models/SyncState.swift
+/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/DaemonManager.swift
+/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/RPCClient.swift
+/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/SkyClient.swift
+/Users/bf/Documents/projects/sky10/skyshare/skyshare/Services/SkyClientProtocol.swift
+/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/BrowserView.swift
+/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/DetailView.swift
+/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/FileListView.swift
+/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/FileRowView.swift
+/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Browser/SidebarView.swift
+/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/MenuBar/MenuBarView.swift
+/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Settings/SettingsView.swift
+/Users/bf/Documents/projects/sky10/skyshare/skyshare/Views/Shared/Previews.swift

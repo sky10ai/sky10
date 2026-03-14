@@ -1,17 +1,20 @@
-import XCTest
+import Testing
 @testable import skyshare
 
-final class RPCErrorTests: XCTestCase {
+@Suite("RPCError")
+struct RPCErrorTests {
 
-    func testErrorDescriptions() {
-        XCTAssertEqual(RPCError.connectionFailed.errorDescription, "Cannot connect to skyfs daemon")
-        XCTAssertEqual(RPCError.readFailed.errorDescription, "Failed to read from daemon")
-        XCTAssertEqual(RPCError.invalidResponse.errorDescription, "Invalid response from daemon")
-        XCTAssertEqual(RPCError.serverError("file not found").errorDescription, "file not found")
+    @Test("Error descriptions")
+    func descriptions() {
+        #expect(RPCError.connectionFailed.errorDescription == "Cannot connect to skyfs daemon")
+        #expect(RPCError.readFailed.errorDescription == "Failed to read from daemon")
+        #expect(RPCError.invalidResponse.errorDescription == "Invalid response from daemon")
+        #expect(RPCError.serverError("file not found").errorDescription == "file not found")
     }
 
-    func testServerErrorPreservesMessage() {
+    @Test("Server error preserves message")
+    func serverError() {
         let err = RPCError.serverError("namespace key expired")
-        XCTAssertEqual(err.errorDescription, "namespace key expired")
+        #expect(err.errorDescription == "namespace key expired")
     }
 }

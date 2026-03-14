@@ -1,0 +1,12 @@
+{
+  "": {
+    "swift-dependencies": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.build/master.swiftdeps"
+  },
+  "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.derived/runner.swift": {
+    "dependencies": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.build/runner.d",
+    "object": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.build/runner.swift.o",
+    "swiftmodule": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.build/runner~partial.swiftmodule",
+    "swift-dependencies": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.build/runner.swiftdeps",
+    "diagnostics": "/Users/bf/Documents/projects/sky10/skyshare/.build/arm64-apple-macosx/debug/skysharePackageTests.build/runner.dia"
+  }
+}
