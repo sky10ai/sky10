@@ -117,7 +117,18 @@ func cmdInit(args []string) error {
 		return fmt.Errorf("saving config: %w", err)
 	}
 
+	// Write schema to bucket
+	ctx := context.Background()
+	backend, err := makeBackend(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	if err := skyfs.WriteSchema(ctx, backend); err != nil {
+		return fmt.Errorf("writing schema: %w", err)
+	}
+
 	fmt.Printf("Initialized skyfs\n")
+	fmt.Printf("  Schema:   v%s\n", skyfs.SchemaVersion)
 	fmt.Printf("  Identity: %s\n", id.ID())
 	fmt.Printf("  Bucket:   %s\n", cfg.Bucket)
 	fmt.Printf("  Config:   %s\n", dir)
@@ -599,6 +610,11 @@ func openStore(ctx context.Context) (*skyfs.Store, error) {
 
 	backend, err := makeBackend(ctx, cfg)
 	if err != nil {
+		return nil, err
+	}
+
+	// Validate schema compatibility
+	if err := skyfs.ValidateSchema(ctx, backend); err != nil {
 		return nil, err
 	}
 
