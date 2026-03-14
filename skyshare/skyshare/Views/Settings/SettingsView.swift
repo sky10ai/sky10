@@ -61,51 +61,57 @@ struct StorageSettingsView: View {
     @AppStorage("s3AccountID") private var accountID = ""
     @AppStorage("s3ForcePathStyle") private var forcePathStyle = false
 
+    private let labelWidth: CGFloat = 90
+
     private var provider: StorageProvider {
         StorageProvider.all.first { $0.id == providerID } ?? .backblaze
     }
 
     var body: some View {
-        Form {
-            // Provider picker
-            Picker("Provider", selection: $providerID) {
-                ForEach(StorageProvider.all) { p in
-                    Label(p.name, systemImage: p.icon).tag(p.id)
-                }
-            }
-            .onChange(of: providerID) { _, newValue in
-                applyProviderDefaults(newValue)
-            }
-
-            // Bucket name (always shown)
-            TextField("Bucket", text: $bucket)
-                .textFieldStyle(.roundedBorder)
-
-            // Region picker (provider-specific)
-            if provider.regions.count > 1 {
-                Picker("Region", selection: $region) {
-                    ForEach(provider.regions) { r in
-                        Text(r.label).tag(r.id)
+        VStack(alignment: .leading, spacing: 12) {
+            // Provider
+            row("Provider") {
+                Picker("", selection: $providerID) {
+                    ForEach(StorageProvider.all) { p in
+                        Label(p.name, systemImage: p.icon).tag(p.id)
                     }
                 }
+                .labelsHidden()
+                .onChange(of: providerID) { _, newValue in
+                    applyProviderDefaults(newValue)
+                }
             }
 
-            // Account ID (Cloudflare R2)
-            if provider.needsAccountID {
-                TextField("Account ID", text: $accountID)
+            // Bucket
+            row("Bucket") {
+                TextField("my-bucket", text: $bucket)
                     .textFieldStyle(.roundedBorder)
             }
 
-            // Custom endpoint (MinIO)
-            if provider.id == "minio" {
-                TextField("Endpoint URL", text: $endpoint)
-                    .textFieldStyle(.roundedBorder)
-                    .help("e.g. http://localhost:9000")
+            // Region
+            row("Region") {
+                if provider.regions.count > 1 {
+                    Picker("", selection: $region) {
+                        ForEach(provider.regions) { r in
+                            Text(r.label).tag(r.id)
+                        }
+                    }
+                    .labelsHidden()
+                } else {
+                    Text(provider.regions.first?.label ?? "—")
+                        .foregroundStyle(.secondary)
+                }
             }
 
-            // Computed endpoint display (read-only, for non-MinIO)
-            if provider.id != "minio" && !region.isEmpty {
-                LabeledContent("Endpoint") {
+            // Account ID (Cloudflare) / Endpoint (MinIO) / computed endpoint (others)
+            row("Endpoint") {
+                if provider.needsAccountID {
+                    TextField("Account ID", text: $accountID)
+                        .textFieldStyle(.roundedBorder)
+                } else if provider.id == "minio" {
+                    TextField("http://localhost:9000", text: $endpoint)
+                        .textFieldStyle(.roundedBorder)
+                } else {
                     Text(provider.endpoint(region: region, accountID: accountID))
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
@@ -128,7 +134,6 @@ struct StorageSettingsView: View {
         }
         .padding()
         .onAppear {
-            // Set default region if empty
             if region.isEmpty, let first = provider.regions.first {
                 region = first.id
             }
@@ -136,15 +141,22 @@ struct StorageSettingsView: View {
         }
     }
 
+    private func row<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+                .frame(width: labelWidth, alignment: .trailing)
+                .foregroundStyle(.secondary)
+            content()
+        }
+    }
+
     private func applyProviderDefaults(_ newProviderID: String) {
         guard let newProvider = StorageProvider.all.first(where: { $0.id == newProviderID }) else { return }
 
-        // Set first region as default
         if let firstRegion = newProvider.regions.first {
             region = firstRegion.id
         }
 
-        // Auto-compute endpoint for non-MinIO providers
         if newProvider.id != "minio" {
             endpoint = newProvider.endpoint(region: region, accountID: accountID)
         }
