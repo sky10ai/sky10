@@ -37,8 +37,9 @@ updated: 2026-03-14
     - Each file has frontmatter: `created` date and `model` used
     - Contains: problems solved, decisions made, files created
   - `docs/work/past/{year}/{month}/README.md` — table of entries for that month
-    (current day at top)
-  - `docs/work/past/{year}/README.md` — table of months (current month at top)
+    (current day at top, links to individual files)
+  - `docs/work/past/{year}/README.md` — one-line summary per month
+    (current month at top, no individual entry details)
   - `docs/work/README.md` — top-level index linking to current and past
   - When work is completed, move plans from `current/` to
     `past/{year}/{month}/` and update all READMEs.
