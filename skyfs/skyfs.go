@@ -235,8 +235,9 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 			return fmt.Errorf("encrypting chunk %s: %w", chunk.Hash[:12], err)
 		}
 
-		cr := bytes.NewReader(encrypted)
-		if err := s.backend.Put(ctx, chunk.BlobKey(), cr, int64(len(encrypted))); err != nil {
+		blob := PrependBlobHeader(encrypted)
+		cr := bytes.NewReader(blob)
+		if err := s.backend.Put(ctx, chunk.BlobKey(), cr, int64(len(blob))); err != nil {
 			return fmt.Errorf("uploading chunk %s: %w", chunk.Hash[:12], err)
 		}
 
@@ -294,10 +295,15 @@ func (s *Store) Get(ctx context.Context, path string, w io.Writer) error {
 			return fmt.Errorf("downloading chunk %d (%s): %w", i, chunkHash[:12], err)
 		}
 
-		encrypted, err := io.ReadAll(rc)
+		raw, err := io.ReadAll(rc)
 		rc.Close()
 		if err != nil {
 			return fmt.Errorf("reading chunk %d: %w", i, err)
+		}
+
+		encrypted, _, err := StripBlobHeader(raw)
+		if err != nil {
+			return fmt.Errorf("parsing chunk %d header: %w", i, err)
 		}
 
 		fileKey, err := DeriveFileKey(nsKey, []byte(chunkHash))

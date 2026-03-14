@@ -97,10 +97,15 @@ func RestoreVersion(ctx context.Context, store *Store, path string, timestamp ti
 			return fmt.Errorf("downloading chunk %d: %w", i, err)
 		}
 
-		encrypted, err := io.ReadAll(rc)
+		raw, err := io.ReadAll(rc)
 		rc.Close()
 		if err != nil {
 			return fmt.Errorf("reading chunk %d: %w", i, err)
+		}
+
+		encrypted, _, err := StripBlobHeader(raw)
+		if err != nil {
+			return fmt.Errorf("parsing chunk %d header: %w", i, err)
 		}
 
 		fileKey, err := DeriveFileKey(nsKey, []byte(chunkHash))
