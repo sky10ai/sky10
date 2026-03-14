@@ -8,7 +8,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.12
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.12
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.97.1
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/jotfs/fastcdc-go v0.2.0
+	github.com/klauspost/compress v1.18.4
 	golang.org/x/crypto v0.49.0
 	modernc.org/sqlite v1.46.1
 )
