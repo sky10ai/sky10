@@ -69,6 +69,35 @@ class MockSkyClient: SkyClientProtocol {
     func syncStatus() async throws -> SyncStatusInfo {
         return SyncStatusInfo(syncing: isSyncing, syncDir: isSyncing ? syncDir : nil)
     }
+
+    var mockDrives: [SkyClient.DriveInfoResult] = []
+
+    func createDrive(name: String, path: String, namespace: String?) async throws -> SkyClient.DriveInfoResult {
+        if shouldError { throw MockError.simulated(errorMessage) }
+        let drive = SkyClient.DriveInfoResult(
+            id: "drive_\(name)", name: name, localPath: path,
+            namespace: namespace ?? name, enabled: true, running: true
+        )
+        mockDrives.append(drive)
+        return drive
+    }
+
+    func removeDrive(id: String) async throws {
+        if shouldError { throw MockError.simulated(errorMessage) }
+        mockDrives.removeAll { $0.id == id }
+    }
+
+    func listDrives() async throws -> [SkyClient.DriveInfoResult] {
+        return mockDrives
+    }
+
+    func startDrive(id: String) async throws {
+        if shouldError { throw MockError.simulated(errorMessage) }
+    }
+
+    func stopDrive(id: String) async throws {
+        if shouldError { throw MockError.simulated(errorMessage) }
+    }
 }
 
 enum MockError: Error, LocalizedError {

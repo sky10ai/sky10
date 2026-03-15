@@ -10,19 +10,22 @@ struct MenuBarView: View {
         Label(statusText, systemImage: appState.syncState.icon)
             .disabled(true)
 
-        if appState.isSyncing {
-            Label("Syncing \(appState.syncDir)", systemImage: "folder.badge.gearshape")
-                .disabled(true)
+        let activeDrives = appState.drives.filter { $0.running }
+        if !activeDrives.isEmpty {
+            ForEach(activeDrives, id: \.id) { drive in
+                Label(drive.name, systemImage: "folder.fill")
+                    .disabled(true)
+            }
         }
 
         Divider()
 
-        Button("Open Sky Browser") {
+        Button("Open Cirrus") {
             openWindow(id: "browser")
         }
         .keyboardShortcut("b")
 
-        Button("Sync Now") {
+        Button("Refresh") {
             Task { await appState.refresh() }
         }
         .keyboardShortcut("r")
@@ -42,8 +45,7 @@ struct MenuBarView: View {
 
         Divider()
 
-        Button("Quit cirrus") {
-            Task { await appState.stopSync() }
+        Button("Quit Cirrus") {
             appState.daemonManager.stop()
             NSApplication.shared.terminate(nil)
         }
@@ -53,6 +55,10 @@ struct MenuBarView: View {
     private var statusText: String {
         if let err = appState.error {
             return err
+        }
+        let running = appState.drives.filter { $0.running }.count
+        if running > 0 {
+            return "Syncing \(running) drive\(running == 1 ? "" : "s")"
         }
         return appState.syncState.label
     }
