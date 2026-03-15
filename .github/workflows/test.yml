@@ -20,6 +20,95 @@ jobs:
       - run: make check
       - run: make test-skyfs-cli
 
+  test-integration:
+    name: Integration tests (MinIO)
+    runs-on: ubuntu-latest
+    services:
+      minio:
+        image: minio/minio
+        ports:
+          - 9000:9000
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+          --entrypoint "minio server /data"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: make build
+
+      - name: Create test bucket
+        run: |
+          curl -s https://dl.min.io/client/mc/release/linux-amd64/mc -o /tmp/mc
+          chmod +x /tmp/mc
+          /tmp/mc alias set local http://localhost:9000 minioadmin minioadmin
+          /tmp/mc mb local/sky10-test
+
+      - name: Init
+        env:
+          S3_ACCESS_KEY_ID: minioadmin
+          S3_SECRET_ACCESS_KEY: minioadmin
+        run: bin/sky10 fs init --bucket sky10-test --endpoint http://localhost:9000 --path-style
+
+      - name: Put file
+        env:
+          S3_ACCESS_KEY_ID: minioadmin
+          S3_SECRET_ACCESS_KEY: minioadmin
+        run: |
+          echo "integration test data" > /tmp/test-file.txt
+          bin/sky10 fs put /tmp/test-file.txt --as test/hello.txt
+
+      - name: List files
+        env:
+          S3_ACCESS_KEY_ID: minioadmin
+          S3_SECRET_ACCESS_KEY: minioadmin
+        run: bin/sky10 fs ls
+
+      - name: Get file and verify
+        env:
+          S3_ACCESS_KEY_ID: minioadmin
+          S3_SECRET_ACCESS_KEY: minioadmin
+        run: |
+          bin/sky10 fs get test/hello.txt --out /tmp/test-output.txt
+          diff /tmp/test-file.txt /tmp/test-output.txt
+
+      - name: Sync test (two directories)
+        env:
+          S3_ACCESS_KEY_ID: minioadmin
+          S3_SECRET_ACCESS_KEY: minioadmin
+        run: |
+          mkdir -p /tmp/sync-a /tmp/sync-b
+          echo "from device A" > /tmp/sync-a/doc.txt
+          bin/sky10 fs sync /tmp/sync-a --once
+          bin/sky10 fs sync /tmp/sync-b --once
+          cat /tmp/sync-b/doc.txt
+          diff /tmp/sync-a/doc.txt /tmp/sync-b/doc.txt
+
+      - name: Remove and verify
+        env:
+          S3_ACCESS_KEY_ID: minioadmin
+          S3_SECRET_ACCESS_KEY: minioadmin
+        run: |
+          bin/sky10 fs rm test/hello.txt
+          bin/sky10 fs ls | grep -c "no files" || bin/sky10 fs ls
+
+      - name: GC dry run
+        env:
+          S3_ACCESS_KEY_ID: minioadmin
+          S3_SECRET_ACCESS_KEY: minioadmin
+        run: bin/sky10 fs gc --dry-run
+
   test-swift:
     name: Swift tests (macOS)
     runs-on: macos-latest
