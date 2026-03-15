@@ -37,7 +37,7 @@ the same S3 bucket, with no data loss and no coordination server.
 
 ## Out of Scope (v2)
 
-- File watching / sync daemon (v3 / skyshare)
+- File watching / sync daemon (v3 / cirrus)
 - FUSE mount (v3)
 - Compression before encryption (v3 — evaluate zstd per-chunk)
 - Relay push notifications (skylink concern)
@@ -612,7 +612,7 @@ unchanged:
 Things that don't belong in v2 but should be on the radar:
 
 - **Sync daemon** — `skyfs watch ~/Documents` with fsnotify. Background process
-  that auto-syncs on file changes. This is essentially skyshare without the GUI.
+  that auto-syncs on file changes. This is essentially cirrus without the GUI.
   Needs: ops log (v2), local index (v2), change detection (fsnotify).
 
 - **FUSE mount** — `skyfs mount ~/Sky` exposes encrypted storage as a local
@@ -642,7 +642,7 @@ Things that don't belong in v2 but should be on the radar:
 
 - **Web UI** — browser-based file manager for encrypted storage. Decrypt in the
   browser via WebCrypto API. No server sees plaintext. Could be a static site
-  that talks directly to S3 with presigned URLs. Separate repo (skyshare-web).
+  that talks directly to S3 with presigned URLs. Separate repo (cirrus-web).
 
 - **Agent hooks** — skylink integration. Notify agents when files change.
   Agent reads via skyfs library, processes, writes results back. The ops log

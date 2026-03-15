@@ -31,7 +31,7 @@ build-go:
 	go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o bin/sky10 .
 
 build-swift:
-	cd skyshare && swift build
+	cd cirrus && swift build
 
 # --- Test ---
 #
@@ -56,7 +56,7 @@ test-skyfs-cli-v:
 test-skyfs-ui-macos:
 	@echo "=== test-skyfs-ui-macos (Swift) ==="
 	@if xcode-select -p 2>/dev/null | grep -q "Xcode.app"; then \
-		cd skyshare && swift test 2>&1 | tail -20; \
+		cd cirrus && swift test 2>&1 | tail -20; \
 	else \
 		echo "Requires full Xcode (xcode-select -s /Applications/Xcode.app)"; \
 		echo "Swift library builds OK: make build-swift"; \

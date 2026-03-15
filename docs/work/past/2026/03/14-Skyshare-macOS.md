@@ -3,7 +3,7 @@ created: 2026-03-14
 model: claude-opus-4-6
 ---
 
-# skyshare macOS — SwiftUI Desktop App
+# cirrus macOS — SwiftUI Desktop App
 
 ## Problems Solved
 
@@ -63,20 +63,20 @@ Go:
   skyfs/rpc.go, rpc_test.go         JSON-RPC server + tests
 
 Swift:
-  skyshare/skyshare/App.swift                         app entry point
-  skyshare/skyshare/Models/AppState.swift              central observable state
-  skyshare/skyshare/Models/SyncState.swift             sync state enum
-  skyshare/skyshare/Models/FileNode.swift              file model + StoreInfo
-  skyshare/skyshare/Services/DaemonManager.swift       Go process lifecycle
-  skyshare/skyshare/Services/RPCClient.swift           JSON-RPC client
-  skyshare/skyshare/Services/SkyClient.swift           high-level API
-  skyshare/skyshare/Views/MenuBar/MenuBarView.swift    tray dropdown
-  skyshare/skyshare/Views/Browser/BrowserView.swift    three-column layout
-  skyshare/skyshare/Views/Browser/SidebarView.swift    namespace sidebar
-  skyshare/skyshare/Views/Browser/FileListView.swift   sortable file table
-  skyshare/skyshare/Views/Browser/FileRowView.swift    file row with icon
-  skyshare/skyshare/Views/Browser/DetailView.swift     file detail panel
-  skyshare/skyshare/Views/Settings/SettingsView.swift  preferences
+  cirrus/cirrus/App.swift                         app entry point
+  cirrus/cirrus/Models/AppState.swift              central observable state
+  cirrus/cirrus/Models/SyncState.swift             sync state enum
+  cirrus/cirrus/Models/FileNode.swift              file model + StoreInfo
+  cirrus/cirrus/Services/DaemonManager.swift       Go process lifecycle
+  cirrus/cirrus/Services/RPCClient.swift           JSON-RPC client
+  cirrus/cirrus/Services/SkyClient.swift           high-level API
+  cirrus/cirrus/Views/MenuBar/MenuBarView.swift    tray dropdown
+  cirrus/cirrus/Views/Browser/BrowserView.swift    three-column layout
+  cirrus/cirrus/Views/Browser/SidebarView.swift    namespace sidebar
+  cirrus/cirrus/Views/Browser/FileListView.swift   sortable file table
+  cirrus/cirrus/Views/Browser/FileRowView.swift    file row with icon
+  cirrus/cirrus/Views/Browser/DetailView.swift     file detail panel
+  cirrus/cirrus/Views/Settings/SettingsView.swift  preferences
 ```
 
 ## Test Count

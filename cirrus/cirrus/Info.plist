@@ -5,15 +5,15 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Sky</string>
+	<string>Cirrus</string>
 	<key>CFBundleExecutable</key>
-	<string>skyshare</string>
+	<string>cirrus</string>
 	<key>CFBundleIdentifier</key>
-	<string>ai.sky10.skyshare</string>
+	<string>ai.sky10.cirrus</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>skyshare</string>
+	<string>cirrus</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

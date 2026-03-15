@@ -1,5 +1,5 @@
 import Testing
-@testable import skyshare
+@testable import cirrus
 
 @Suite("AppState")
 @MainActor

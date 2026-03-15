@@ -26,7 +26,7 @@ These are real features but belong in later versions:
 - Ops log + concurrent writes (multi-device, v2)
 - Pack files (optimization, v2)
 - Local SQLite index (sync state, v2)
-- File watching / sync daemon (skyshare, v3)
+- File watching / sync daemon (cirrus, v3)
 - Presigned URLs (skylink concern)
 - FUSE mount
 - Mobile

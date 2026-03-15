@@ -12,7 +12,7 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         self.domain = domain
         self.rpc = RPCClient()
         self.tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("skyshare-fileprovider", isDirectory: true)
+            .appendingPathComponent("cirrus-fileprovider", isDirectory: true)
         super.init()
 
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)

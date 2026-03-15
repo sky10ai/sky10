@@ -2,18 +2,18 @@
 import PackageDescription
 
 let package = Package(
-    name: "skyshare",
+    name: "cirrus",
     platforms: [.macOS(.v14)],
     targets: [
         .target(
-            name: "skyshare",
-            path: "skyshare",
+            name: "cirrus",
+            path: "cirrus",
             exclude: ["Resources", "App.swift", "Services/NotificationManager.swift", "Services/FileProviderManager.swift"]
         ),
         .testTarget(
-            name: "skyshare-tests",
-            dependencies: ["skyshare"],
-            path: "skyshare-tests"
+            name: "cirrus-tests",
+            dependencies: ["cirrus"],
+            path: "cirrus-tests"
         ),
     ]
 )

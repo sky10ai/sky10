@@ -1,5 +1,5 @@
 import Foundation
-@testable import skyshare
+@testable import cirrus
 
 /// Mock client for testing without a Go backend.
 class MockSkyClient: SkyClientProtocol {

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import skyshare
+@testable import cirrus
 
 @Suite("ExternalLinks")
 struct ExternalLinksTests {
