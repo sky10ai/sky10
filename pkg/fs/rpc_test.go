@@ -20,7 +20,7 @@ func startTestRPC(t *testing.T) (*RPCServer, net.Conn, context.CancelFunc) {
 	store := New(backend, id)
 
 	sockPath := filepath.Join(t.TempDir(), "test.sock")
-	server := NewRPCServer(store, sockPath, nil)
+	server := NewRPCServer(store, sockPath, filepath.Join(t.TempDir(), "drives.json"), nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 

@@ -36,6 +36,7 @@ func FsCmd() *cobra.Command {
 	cmd.AddCommand(fsVersionsCmd())
 	cmd.AddCommand(fsRestoreCmd())
 	cmd.AddCommand(fsSnapshotsCmd())
+	cmd.AddCommand(fsDriveCmd())
 
 	return cmd
 }
@@ -273,7 +274,7 @@ func fsServeCmd() *cobra.Command {
 				}
 				sockPath = filepath.Join(dir, "fs.sock")
 			}
-			server := skyfs.NewRPCServer(store, sockPath, nil)
+			server := skyfs.NewRPCServer(store, sockPath, filepath.Join(filepath.Dir(sockPath), "drives.json"), nil)
 			fmt.Println(sockPath)
 			return server.Serve(ctx)
 		},
@@ -542,6 +543,97 @@ func makeBackend(ctx context.Context, cfg *config.Config) (*s3backend.Backend, e
 		Bucket: cfg.Bucket, Region: cfg.Region,
 		Endpoint: cfg.Endpoint, ForcePathStyle: cfg.ForcePathStyle,
 	})
+}
+
+func fsDriveCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "drive",
+		Short: "Manage sync drives (~/Cirrus/ folders)",
+	}
+	cmd.AddCommand(fsDriveCreateCmd())
+	cmd.AddCommand(fsDriveListCmd())
+	cmd.AddCommand(fsDriveRemoveCmd())
+	return cmd
+}
+
+func fsDriveCreateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "create <name>",
+		Short: "Create a new sync drive in ~/Cirrus/",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			store, err := openStore(ctx)
+			if err != nil {
+				return err
+			}
+			cfgDir, _ := config.Dir()
+			dm := skyfs.NewDriveManager(store, filepath.Join(cfgDir, "drives.json"))
+			ns, _ := cmd.Flags().GetString("namespace")
+			if ns == "" {
+				ns = args[0]
+			}
+			drive, err := dm.CreateDrive(args[0], ns)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Created drive %q → %s (namespace: %s)\n", drive.Name, drive.LocalPath, drive.Namespace)
+			return nil
+		},
+	}
+	cmd.Flags().String("namespace", "", "Remote namespace (default: drive name)")
+	return cmd
+}
+
+func fsDriveListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List all drives",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			store, err := openStore(ctx)
+			if err != nil {
+				return err
+			}
+			cfgDir, _ := config.Dir()
+			dm := skyfs.NewDriveManager(store, filepath.Join(cfgDir, "drives.json"))
+			drives := dm.ListDrives()
+			if len(drives) == 0 {
+				fmt.Println("No drives. Create one with: sky10 fs drive create <name>")
+				return nil
+			}
+			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+			fmt.Fprintf(w, "NAME\tPATH\tNAMESPACE\n")
+			for _, d := range drives {
+				fmt.Fprintf(w, "%s\t%s\t%s\n", d.Name, d.LocalPath, d.Namespace)
+			}
+			w.Flush()
+			return nil
+		},
+	}
+}
+
+func fsDriveRemoveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove <name>",
+		Short: "Remove a drive (does not delete local files)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			store, err := openStore(ctx)
+			if err != nil {
+				return err
+			}
+			cfgDir, _ := config.Dir()
+			dm := skyfs.NewDriveManager(store, filepath.Join(cfgDir, "drives.json"))
+			id := "drive_" + args[0]
+			if err := dm.RemoveDrive(id); err != nil {
+				return err
+			}
+			fmt.Printf("Removed drive %q\n", args[0])
+			return nil
+		},
+	}
 }
 
 func formatSize(bytes int64) string {
