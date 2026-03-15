@@ -42,7 +42,7 @@ struct MenuBarView: View {
 
         Divider()
 
-        Button("Quit skyshare") {
+        Button("Quit cirrus") {
             Task { await appState.stopSync() }
             appState.daemonManager.stop()
             NSApplication.shared.terminate(nil)

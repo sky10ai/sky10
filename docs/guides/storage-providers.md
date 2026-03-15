@@ -1,8 +1,8 @@
 # Storage Providers
 
-> **NOTE:** The skyshare macOS app links to this file from the "Learn More" button
+> **NOTE:** The cirrus macOS app links to this file from the "Learn More" button
 > in Settings → Storage. If this file moves, update the URL in:
-> `skyshare/skyshare/Services/ExternalLinks.swift`
+> `cirrus/cirrus/Services/ExternalLinks.swift`
 
 skyfs works with any S3-compatible storage provider. Your files are encrypted
 locally before upload — the provider only sees opaque encrypted blobs.
@@ -93,7 +93,7 @@ export S3_ACCESS_KEY_ID=your-key
 export S3_SECRET_ACCESS_KEY=your-secret
 ```
 
-The skyshare app stores credentials in the macOS Keychain — they never
+The cirrus app stores credentials in the macOS Keychain — they never
 touch the filesystem.
 
 ## Switching Providers
@@ -101,7 +101,7 @@ touch the filesystem.
 You can switch providers at any time. Your data is encrypted with your
 identity key, not the provider's infrastructure. To migrate:
 
-1. Set up the new provider in skyshare settings
+1. Set up the new provider in cirrus settings
 2. Upload your files to the new bucket
 3. Remove the old bucket when ready
 

@@ -1,4 +1,4 @@
-# skyshare macOS — SwiftUI Desktop App
+# cirrus macOS — SwiftUI Desktop App
 
 Status: not started
 Created: 2026-03-14
@@ -16,7 +16,7 @@ it over a Unix domain socket using JSON-RPC.
 
 ```
 ┌─────────────────────────────────────────────────┐
-│ skyshare.app (SwiftUI)                          │
+│ cirrus.app (SwiftUI)                          │
 │                                                  │
 │  MenuBarExtra        — tray icon, sync status    │
 │  NavigationSplitView — file browser, sharing     │
@@ -48,9 +48,9 @@ it over a Unix domain socket using JSON-RPC.
 ## Project Structure
 
 ```
-skyshare/                           separate repo or sky10/skyshare/
-├── skyshare.xcodeproj
-├── skyshare/
+cirrus/                           separate repo or sky10/cirrus/
+├── cirrus.xcodeproj
+├── cirrus/
 │   ├── App.swift                   @main, MenuBarExtra + WindowGroup
 │   ├── Models/
 │   │   ├── SkyClient.swift         JSON-RPC client to Go backend
@@ -84,7 +84,7 @@ skyshare/                           separate repo or sky10/skyshare/
 │   ├── FileProviderExtension.swift
 │   ├── FileProviderItem.swift
 │   └── FileProviderEnumerator.swift
-└── skyshare-tests/
+└── cirrus-tests/
 ```
 
 ## Go Backend RPC Interface
@@ -166,7 +166,7 @@ just the tray icon and basic status.
 
 ### Tasks
 
-- [ ] Create Xcode project: `skyshare`
+- [ ] Create Xcode project: `cirrus`
   - [ ] macOS app target, SwiftUI lifecycle
   - [ ] Minimum deployment: macOS 14 (Sonoma)
   - [ ] Signing: Developer ID (direct distribution, not App Store)
@@ -183,7 +183,7 @@ just the tray icon and basic status.
     - [ ] "Sync Now" → trigger manual sync
     - [ ] "Preferences..." → open settings
     - [ ] Separator
-    - [ ] "Quit skyshare"
+    - [ ] "Quit cirrus"
 - [ ] `SyncStatus.swift` model:
   - [ ] `enum SyncState { case synced, syncing, error, offline }`
   - [ ] Observable object for SwiftUI binding
@@ -374,7 +374,7 @@ First-run setup and preferences.
     - [ ] Public key display
     - [ ] Export identity (save key file)
 - [ ] First-run onboarding flow:
-  - [ ] Step 1: "Welcome to skyshare" — explain encrypted sync
+  - [ ] Step 1: "Welcome to cirrus" — explain encrypted sync
   - [ ] Step 2: Storage setup — bucket, region, endpoint, credentials
   - [ ] Step 3: Identity — generate or import keypair
   - [ ] Step 4: Sync folder — pick local directory
@@ -396,7 +396,7 @@ First-run setup and preferences.
 
 ### Acceptance
 
-New user can set up skyshare from scratch via onboarding. Settings persist.
+New user can set up cirrus from scratch via onboarding. Settings persist.
 Credentials stored securely in Keychain.
 
 ---
@@ -579,5 +579,5 @@ file browser. Milestones 6-9 are polish and platform integration.
 - **Spotlight integration** — search encrypted file names via Core Spotlight
 - **Touch Bar support** (if still relevant)
 - **iOS companion app** — shared SwiftUI views, selective sync only
-- **Drag from skyshare to other apps** — drag a file out of the browser
+- **Drag from cirrus to other apps** — drag a file out of the browser
   to Desktop, Mail, etc. (download on drag, provide NSItemProvider)

@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct SkyshareApp: App {
+struct CirrusApp: App {
     @StateObject private var appState = AppState()
 
     init() {

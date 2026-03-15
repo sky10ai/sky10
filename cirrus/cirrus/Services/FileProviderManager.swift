@@ -4,7 +4,7 @@ import Foundation
 /// Manages the File Provider domain registration.
 /// Registers "Sky" as a location in Finder's sidebar.
 class FileProviderManager {
-    static let domainIdentifier = NSFileProviderDomainIdentifier("ai.sky10.skyshare.fileprovider")
+    static let domainIdentifier = NSFileProviderDomainIdentifier("ai.sky10.cirrus.fileprovider")
     static let domainName = "Sky"
 
     /// Register the file provider domain so "Sky" appears in Finder sidebar.

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import skyshare
+@testable import cirrus
 
 @Suite("StoreInfo")
 struct StoreInfoTests {

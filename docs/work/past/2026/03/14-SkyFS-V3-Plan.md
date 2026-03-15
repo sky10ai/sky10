@@ -40,7 +40,7 @@ Files appear on all devices, encrypted, automatically.
 
 - FUSE mount (v4 — different I/O model, needs dedicated caching layer)
 - Relay push notifications (skylink — separate package)
-- Native UI (skyshare — SwiftUI macOS app, separate repo)
+- Native UI (cirrus — SwiftUI macOS app, separate repo)
 - Agent hooks (skylink concern)
 
 ---
@@ -531,7 +531,7 @@ Milestones 5-7 add power features. Milestones 8-10 are production polish.
 - **Relay push** — skylink WebSocket notifications to replace S3 polling.
   Sub-second sync latency. Fallback to polling when relay is down.
 
-- **Native macOS app** — SwiftUI desktop app (skyshare). Tray icon, sync
+- **Native macOS app** — SwiftUI desktop app (cirrus). Tray icon, sync
   status, sharing UI. Go backend as sidecar process via XPC or stdin/stdout.
   Separate repo.
 

@@ -37,7 +37,7 @@ stdlib first. Only add external deps when the stdlib genuinely can't do it.
 | Tool | Why not |
 |------|---------|
 | cobra | Three CLI subcommands don't justify a framework. `flag` + manual dispatch. |
-| fsnotify | Sync daemon is v3 (skyshare). Don't import for v1. |
+| fsnotify | Sync daemon is v3 (cirrus). Don't import for v1. |
 | errgroup | Useful later for concurrent chunk uploads. `sync` is fine for v1. |
 | testify | CLAUDE.md says use stdlib `testing`. Table-driven tests. |
 | gin/echo/chi | No HTTP server in skyfs. |

@@ -51,7 +51,7 @@ model: claude-opus-4-6
 ### Milestone 8: Config Migration
 - ~/.skyfs/ → ~/.sky10/ with auto-migration
 - identity.key → key.json
-- skyshare updated: launches "sky10 fs serve", connects to ~/.sky10/skyfs.sock
+- cirrus updated: launches "sky10 fs serve", connects to ~/.sky10/skyfs.sock
 
 ## Files Created
 

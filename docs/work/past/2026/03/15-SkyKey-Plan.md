@@ -192,7 +192,7 @@ Remove all crypto from skyfs. Import skykey instead.
   - [ ] Keep AES-256-GCM Encrypt/Decrypt in skykey (used for chunk encryption)
   - [ ] Keep DeriveFileKey — calls skykey's HKDF
 - [ ] Update all tests to use `skykey.Generate()` etc.
-- [ ] Update skyshare Swift code if Key type names changed
+- [ ] Update cirrus Swift code if Key type names changed
 - [ ] All existing tests pass — zero behavior change
 
 ### Acceptance
@@ -233,12 +233,12 @@ Merge `cmd/skyfs/` into `cmd/sky10/` with subcommand groups.
   - [ ] `build` target produces `bin/sky10` instead of `bin/skyfs`
   - [ ] Cross-compilation targets updated
 - [ ] Update README with new CLI syntax
-- [ ] Update skyshare DaemonManager to launch `sky10 fs serve`
+- [ ] Update cirrus DaemonManager to launch `sky10 fs serve`
 
 ### Acceptance
 
 `sky10 key generate` and `sky10 fs put` both work. Old `skyfs` binary
-gone. Makefile, README, skyshare all updated.
+gone. Makefile, README, cirrus all updated.
 
 ---
 
@@ -255,7 +255,7 @@ Move config from `~/.skyfs/` to `~/.sky10/`.
   - [ ] `~/.sky10/index.db` — local index
 - [ ] Auto-migration: if `~/.skyfs/` exists and `~/.sky10/` doesn't, move it
 - [ ] Update all paths in `internal/config/`
-- [ ] Update skyshare RPCClient socket path
+- [ ] Update cirrus RPCClient socket path
 - [ ] Tests:
   - [ ] New paths work
   - [ ] Migration from old paths works

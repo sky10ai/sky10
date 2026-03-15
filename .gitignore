@@ -20,7 +20,7 @@ profile.cov
 # Build output
 bin/
 .build/
-skyshare/.build/
+cirrus/.build/
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
