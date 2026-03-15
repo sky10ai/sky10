@@ -28,7 +28,7 @@ all: check test build
 build: build-go
 
 build-go:
-	go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o bin/sky10 ./cmd/sky10
+	go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o bin/sky10 .
 
 build-swift:
 	cd skyshare && swift build
@@ -84,23 +84,23 @@ clean:
 # --- Install ---
 
 install:
-	go install $(GOFLAGS) -ldflags "$(LDFLAGS)" ./cmd/sky10
+	go install $(GOFLAGS) -ldflags "$(LDFLAGS)" .
 
 # --- Cross-compilation ---
 
 platforms: bin/sky10-linux-amd64 bin/sky10-linux-arm64 bin/sky10-darwin-amd64 bin/sky10-darwin-arm64
 
 bin/sky10-linux-amd64:
-	GOOS=linux GOARCH=amd64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ ./cmd/sky10
+	GOOS=linux GOARCH=amd64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ .
 
 bin/sky10-linux-arm64:
-	GOOS=linux GOARCH=arm64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ ./cmd/sky10
+	GOOS=linux GOARCH=arm64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ .
 
 bin/sky10-darwin-amd64:
-	GOOS=darwin GOARCH=amd64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ ./cmd/sky10
+	GOOS=darwin GOARCH=amd64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ .
 
 bin/sky10-darwin-arm64:
-	GOOS=darwin GOARCH=arm64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ ./cmd/sky10
+	GOOS=darwin GOARCH=arm64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ .
 
 # --- Checksums + Reproducibility ---
 
@@ -110,9 +110,9 @@ checksums: platforms
 
 reproduce:
 	@echo "Build 1..."
-	@go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o /tmp/sky10-build1 ./cmd/sky10
+	@go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o /tmp/sky10-build1 .
 	@echo "Build 2..."
-	@go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o /tmp/sky10-build2 ./cmd/sky10
+	@go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o /tmp/sky10-build2 .
 	@if cmp -s /tmp/sky10-build1 /tmp/sky10-build2; then \
 		echo "Deterministic: both builds are identical"; \
 		shasum -a 256 /tmp/sky10-build1 /tmp/sky10-build2; \

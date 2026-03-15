@@ -1,0 +1,295 @@
+// Package s3 implements adapter.Backend for S3-compatible storage.
+//
+// It works with any S3-compatible provider: AWS S3, Backblaze B2,
+// Cloudflare R2, MinIO, etc. Configure via endpoint URL.
+package s3
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"sort"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/sky10/sky10/pkg/adapter"
+)
+
+// Backend stores encrypted blobs in an S3-compatible bucket.
+type Backend struct {
+	client *s3.Client
+	bucket string
+}
+
+// Config holds S3 connection parameters.
+type Config struct {
+	Bucket          string
+	Region          string
+	Endpoint        string // custom endpoint for B2/R2/MinIO
+	AccessKeyID     string
+	SecretAccessKey string
+	ForcePathStyle  bool // required for MinIO and some S3-compatible stores
+}
+
+// New creates an S3 backend from the given config.
+func New(ctx context.Context, cfg Config) (*Backend, error) {
+	if cfg.Bucket == "" {
+		return nil, fmt.Errorf("s3: bucket is required")
+	}
+	if cfg.Region == "" {
+		cfg.Region = "us-east-1"
+	}
+
+	opts := []func(*config.LoadOptions) error{
+		config.WithRegion(cfg.Region),
+	}
+
+	// Resolve credentials: Config fields → S3_* env vars → AWS_* env vars (SDK default)
+	accessKey := cfg.AccessKeyID
+	secretKey := cfg.SecretAccessKey
+	if accessKey == "" {
+		accessKey = os.Getenv("S3_ACCESS_KEY_ID")
+	}
+	if secretKey == "" {
+		secretKey = os.Getenv("S3_SECRET_ACCESS_KEY")
+	}
+
+	if accessKey != "" && secretKey != "" {
+		opts = append(opts, config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
+		))
+	}
+
+	awsCfg, err := config.LoadDefaultConfig(ctx, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("s3: loading config: %w", err)
+	}
+
+	var s3Opts []func(*s3.Options)
+	if cfg.Endpoint != "" {
+		s3Opts = append(s3Opts, func(o *s3.Options) {
+			o.BaseEndpoint = aws.String(cfg.Endpoint)
+			o.UsePathStyle = cfg.ForcePathStyle
+		})
+	}
+
+	client := s3.NewFromConfig(awsCfg, s3Opts...)
+
+	return &Backend{
+		client: client,
+		bucket: cfg.Bucket,
+	}, nil
+}
+
+// Put stores data from r under the given key.
+func (b *Backend) Put(ctx context.Context, key string, r io.Reader, size int64) error {
+	_, err := b.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:        aws.String(b.bucket),
+		Key:           aws.String(key),
+		Body:          r,
+		ContentLength: aws.Int64(size),
+	})
+	if err != nil {
+		return fmt.Errorf("s3: put %q: %w", key, err)
+	}
+	return nil
+}
+
+// Get returns a reader for the data stored at key.
+func (b *Backend) Get(ctx context.Context, key string) (io.ReadCloser, error) {
+	out, err := b.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(b.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		if isNotFound(err) {
+			return nil, adapter.ErrNotFound
+		}
+		return nil, fmt.Errorf("s3: get %q: %w", key, err)
+	}
+	return out.Body, nil
+}
+
+// Delete removes the object at key.
+func (b *Backend) Delete(ctx context.Context, key string) error {
+	// Check existence first — S3 DeleteObject is idempotent and won't error
+	// on missing keys, but our interface requires ErrNotFound.
+	if _, err := b.Head(ctx, key); err != nil {
+		return err
+	}
+
+	_, err := b.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(b.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return fmt.Errorf("s3: delete %q: %w", key, err)
+	}
+	return nil
+}
+
+// List returns all keys with the given prefix.
+func (b *Backend) List(ctx context.Context, prefix string) ([]string, error) {
+	var keys []string
+	paginator := s3.NewListObjectsV2Paginator(b.client, &s3.ListObjectsV2Input{
+		Bucket: aws.String(b.bucket),
+		Prefix: aws.String(prefix),
+	})
+
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("s3: list %q: %w", prefix, err)
+		}
+		for _, obj := range page.Contents {
+			keys = append(keys, aws.ToString(obj.Key))
+		}
+	}
+
+	sort.Strings(keys)
+	return keys, nil
+}
+
+// Head returns metadata for the object at key.
+func (b *Backend) Head(ctx context.Context, key string) (adapter.ObjectMeta, error) {
+	out, err := b.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(b.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		if isNotFound(err) {
+			return adapter.ObjectMeta{}, adapter.ErrNotFound
+		}
+		return adapter.ObjectMeta{}, fmt.Errorf("s3: head %q: %w", key, err)
+	}
+
+	meta := adapter.ObjectMeta{
+		Key:  key,
+		Size: aws.ToInt64(out.ContentLength),
+	}
+	if out.LastModified != nil {
+		meta.LastModified = *out.LastModified
+	}
+	return meta, nil
+}
+
+// GetRange returns a reader for a byte range within the object.
+func (b *Backend) GetRange(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	rangeHeader := fmt.Sprintf("bytes=%d-%d", offset, offset+length-1)
+	out, err := b.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(b.bucket),
+		Key:    aws.String(key),
+		Range:  aws.String(rangeHeader),
+	})
+	if err != nil {
+		if isNotFound(err) {
+			return nil, adapter.ErrNotFound
+		}
+		return nil, fmt.Errorf("s3: get-range %q: %w", key, err)
+	}
+	return out.Body, nil
+}
+
+// isNotFound checks if an error indicates the object doesn't exist.
+func isNotFound(err error) bool {
+	var nsk *types.NoSuchKey
+	if errors.As(err, &nsk) {
+		return true
+	}
+	var nsb *types.NotFound
+	if errors.As(err, &nsb) {
+		return true
+	}
+	return false
+}
+
+// Ensure Backend implements adapter.Backend at compile time.
+var _ adapter.Backend = (*Backend)(nil)
+
+// NewMemory creates an in-memory backend for testing.
+func NewMemory() *MemoryBackend {
+	return &MemoryBackend{
+		objects: make(map[string][]byte),
+	}
+}
+
+// MemoryBackend is an in-memory implementation of adapter.Backend for tests.
+type MemoryBackend struct {
+	objects map[string][]byte
+}
+
+// Put stores data in memory.
+func (m *MemoryBackend) Put(_ context.Context, key string, r io.Reader, _ int64) error {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return fmt.Errorf("memory: reading data: %w", err)
+	}
+	m.objects[key] = data
+	return nil
+}
+
+// Get returns data from memory.
+func (m *MemoryBackend) Get(_ context.Context, key string) (io.ReadCloser, error) {
+	data, ok := m.objects[key]
+	if !ok {
+		return nil, adapter.ErrNotFound
+	}
+	return io.NopCloser(bytes.NewReader(data)), nil
+}
+
+// Delete removes data from memory.
+func (m *MemoryBackend) Delete(_ context.Context, key string) error {
+	if _, ok := m.objects[key]; !ok {
+		return adapter.ErrNotFound
+	}
+	delete(m.objects, key)
+	return nil
+}
+
+// List returns keys matching the prefix.
+func (m *MemoryBackend) List(_ context.Context, prefix string) ([]string, error) {
+	var keys []string
+	for k := range m.objects {
+		if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	return keys, nil
+}
+
+// Head returns metadata for a key.
+func (m *MemoryBackend) Head(_ context.Context, key string) (adapter.ObjectMeta, error) {
+	data, ok := m.objects[key]
+	if !ok {
+		return adapter.ObjectMeta{}, adapter.ErrNotFound
+	}
+	return adapter.ObjectMeta{
+		Key:  key,
+		Size: int64(len(data)),
+	}, nil
+}
+
+// GetRange returns a reader for a byte range.
+func (m *MemoryBackend) GetRange(_ context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	data, ok := m.objects[key]
+	if !ok {
+		return nil, adapter.ErrNotFound
+	}
+	end := offset + length
+	if end > int64(len(data)) {
+		end = int64(len(data))
+	}
+	if offset >= int64(len(data)) {
+		return io.NopCloser(bytes.NewReader(nil)), nil
+	}
+	return io.NopCloser(bytes.NewReader(data[offset:end])), nil
+}
+
+var _ adapter.Backend = (*MemoryBackend)(nil)
