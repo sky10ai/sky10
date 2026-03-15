@@ -19,6 +19,8 @@ class AppState: ObservableObject {
     init(client: SkyClientProtocol = SkyClient(), daemonManager: DaemonManager = DaemonManager()) {
         self.client = client
         self.daemonManager = daemonManager
+        // Start backend immediately on init
+        Task { await start() }
     }
 
     func start() async {

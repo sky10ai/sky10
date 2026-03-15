@@ -272,7 +272,7 @@ func fsServeCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				sockPath = filepath.Join(dir, "fs.sock")
+				sockPath = filepath.Join(dir, "sky10.sock")
 			}
 			server := skyfs.NewRPCServer(store, sockPath, filepath.Join(filepath.Dir(sockPath), "drives.json"), nil)
 			fmt.Println(sockPath)
