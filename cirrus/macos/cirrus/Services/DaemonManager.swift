@@ -95,8 +95,10 @@ class DaemonManager: ObservableObject {
             process = proc
             isRunning = true
             error = nil
+            try? "Process started PID=\(proc.processIdentifier)".write(toFile: "/tmp/cirrus-daemon.log", atomically: true, encoding: .utf8)
         } catch {
             self.error = "Failed to start sky10: \(error.localizedDescription)"
+            try? "Failed: \(error.localizedDescription)".write(toFile: "/tmp/cirrus-daemon.log", atomically: true, encoding: .utf8)
         }
     }
 

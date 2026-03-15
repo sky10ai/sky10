@@ -24,11 +24,10 @@ class AppState: ObservableObject {
 
     func start() async {
         daemonManager.start()
-        try? await Task.sleep(for: .seconds(1))
+        // Backend takes ~5-6 seconds on first launch (S3 config loading)
+        try? await Task.sleep(for: .seconds(7))
         await refresh()
         await loadDrives()
-
-        // Poll every 10 seconds to keep UI in sync with backend
         startPolling()
     }
 
