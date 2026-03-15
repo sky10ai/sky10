@@ -17,10 +17,6 @@ struct SettingsView: View {
             GeneralSettingsView()
                 .environmentObject(appState)
                 .tabItem { Label("General", systemImage: "gear") }
-
-            AccountSettingsView()
-                .environmentObject(appState)
-                .tabItem { Label("Account", systemImage: "person") }
         }
         .frame(width: 500, height: 400)
     }
@@ -28,44 +24,11 @@ struct SettingsView: View {
 
 struct GeneralSettingsView: View {
     @EnvironmentObject var appState: AppState
-    @AppStorage("syncDirectory") private var syncDirectory = ""
     @AppStorage("launchAtLogin") private var launchAtLogin = false
     @AppStorage("pollInterval") private var pollInterval = 30
 
     var body: some View {
         Form {
-            HStack {
-                TextField("Sync Directory", text: $syncDirectory)
-                Button("Choose...") {
-                    let panel = NSOpenPanel()
-                    panel.canChooseFiles = false
-                    panel.canChooseDirectories = true
-                    if panel.runModal() == .OK, let url = panel.url {
-                        syncDirectory = url.path
-                    }
-                }
-            }
-
-            HStack {
-                if appState.isSyncing {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                    Text("Syncing \(appState.syncDir)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Stop") {
-                        Task { await appState.stopSync() }
-                    }
-                } else {
-                    Button("Start Sync") {
-                        guard !syncDirectory.isEmpty else { return }
-                        Task { await appState.startSync(dir: syncDirectory) }
-                    }
-                    .disabled(syncDirectory.isEmpty)
-                }
-            }
-
             Toggle("Launch at Login", isOn: $launchAtLogin)
 
             Picker("Poll Interval", selection: $pollInterval) {
@@ -73,6 +36,29 @@ struct GeneralSettingsView: View {
                 Text("30 seconds").tag(30)
                 Text("60 seconds").tag(60)
                 Text("5 minutes").tag(300)
+            }
+
+            Divider()
+
+            if let info = appState.storeInfo {
+                LabeledContent("Identity") {
+                    Text(info.id)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+                LabeledContent("Files") {
+                    Text("\(info.fileCount)")
+                }
+                LabeledContent("Total Size") {
+                    Text(ByteCountFormatter.string(fromByteCount: info.totalSize, countStyle: .file))
+                }
+            } else {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                    Text("Not connected to backend")
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding()
@@ -95,7 +81,6 @@ struct StorageSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header
             VStack(alignment: .leading, spacing: 4) {
                 Text(StorageProviderDocs.headline)
                     .font(.headline)
@@ -112,70 +97,66 @@ struct StorageSettingsView: View {
             }
             .padding(.bottom, 12)
 
-        Grid(alignment: .leading, verticalSpacing: 10) {
-            // Provider
-            GridRow {
-                label("Provider")
-                Picker("", selection: $providerID) {
-                    ForEach(StorageProvider.all) { p in
-                        Label(p.name, systemImage: p.icon).tag(p.id)
+            Grid(alignment: .leading, verticalSpacing: 10) {
+                GridRow {
+                    label("Provider")
+                    Picker("", selection: $providerID) {
+                        ForEach(StorageProvider.all) { p in
+                            Label(p.name, systemImage: p.icon).tag(p.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .onChange(of: providerID) { _, newValue in
+                        applyProviderDefaults(newValue)
                     }
                 }
-                .labelsHidden()
-                .onChange(of: providerID) { _, newValue in
-                    applyProviderDefaults(newValue)
-                }
-            }
 
-            // Bucket
-            GridRow {
-                label("Bucket")
-                TextField("my-bucket", text: $bucket)
+                GridRow {
+                    label("Bucket")
+                    TextField("my-bucket", text: $bucket)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                GridRow {
+                    label("Region")
+                    Picker("", selection: $region) {
+                        ForEach(provider.regions) { r in
+                            Text(r.label).tag(r.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .disabled(provider.regions.count <= 1)
+                }
+
+                GridRow {
+                    label(provider.needsAccountID ? "Account ID" : "Endpoint")
+                    TextField(
+                        provider.id == "minio" ? "http://localhost:9000" : "auto",
+                        text: endpointBinding
+                    )
                     .textFieldStyle(.roundedBorder)
-            }
+                    .disabled(!isEndpointEditable)
+                }
 
-            // Region — always a Picker, single-region providers get one disabled option
-            GridRow {
-                label("Region")
-                Picker("", selection: $region) {
-                    ForEach(provider.regions) { r in
-                        Text(r.label).tag(r.id)
+                GridRow {
+                    Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                    Divider()
+                }
+
+                GridRow {
+                    Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                    HStack {
+                        Button("Test Connection") {
+                            // TODO: call skyfs.info via RPC
+                        }
+                        Spacer()
+                        Link("Setup Guide", destination: URL(string: provider.helpURL)!)
+                            .font(.caption)
                     }
                 }
-                .labelsHidden()
-                .disabled(provider.regions.count <= 1)
             }
-
-            // Endpoint — always a TextField. Pre-filled and disabled for auto-computed providers.
-            GridRow {
-                label(provider.needsAccountID ? "Account ID" : "Endpoint")
-                TextField(
-                    provider.id == "minio" ? "http://localhost:9000" : "auto",
-                    text: endpointBinding
-                )
-                .textFieldStyle(.roundedBorder)
-                .disabled(!isEndpointEditable)
-            }
-
-            GridRow {
-                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                Divider()
-            }
-
-            GridRow {
-                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                HStack {
-                    Button("Test Connection") {
-                        // TODO: call skyfs.info via RPC
-                    }
-                    Spacer()
-                    Link("Setup Guide", destination: URL(string: provider.helpURL)!)
-                        .font(.caption)
-                }
-            }
-        } // Grid
             Spacer()
-        } // VStack
+        }
         .padding(.horizontal)
         .padding(.top, 8)
         .onAppear {
@@ -204,7 +185,6 @@ struct StorageSettingsView: View {
         if provider.id == "minio" {
             return $endpoint
         }
-        // Read-only: show computed endpoint
         return .constant(provider.endpoint(region: region, accountID: accountID))
     }
 
@@ -216,44 +196,13 @@ struct StorageSettingsView: View {
 
     private func applyProviderDefaults(_ newProviderID: String) {
         guard let newProvider = StorageProvider.all.first(where: { $0.id == newProviderID }) else { return }
-
         if let firstRegion = newProvider.regions.first {
             region = firstRegion.id
         }
-
         if newProvider.id != "minio" {
             endpoint = newProvider.endpoint(region: region, accountID: accountID)
         }
-
         forcePathStyle = newProvider.forcePathStyle
         accountID = ""
-    }
-}
-
-struct AccountSettingsView: View {
-    @EnvironmentObject var appState: AppState
-
-    var body: some View {
-        Form {
-            if let info = appState.storeInfo {
-                LabeledContent("Identity") {
-                    Text(info.id)
-                        .font(.system(.body, design: .monospaced))
-                        .textSelection(.enabled)
-                }
-
-                LabeledContent("Files") {
-                    Text("\(info.fileCount)")
-                }
-
-                LabeledContent("Total Size") {
-                    Text(ByteCountFormatter.string(fromByteCount: info.totalSize, countStyle: .file))
-                }
-            } else {
-                Text("Not connected to backend")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding()
     }
 }

@@ -24,6 +24,19 @@ struct DrivesView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            if appState.syncState == .error || appState.syncState == .offline {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(appState.error ?? "Backend not connected. Run: sky10 fs serve")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(8)
+                .background(Color.orange.opacity(0.1))
+                .cornerRadius(6)
+            }
+
             if appState.drives.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "externaldrive.badge.plus")
