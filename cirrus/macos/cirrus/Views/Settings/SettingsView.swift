@@ -72,6 +72,8 @@ struct StorageSettingsView: View {
     @AppStorage("s3Endpoint") private var endpoint = ""
     @AppStorage("s3AccountID") private var accountID = ""
     @AppStorage("s3ForcePathStyle") private var forcePathStyle = false
+    @AppStorage("s3AccessKeyID") private var accessKeyID = ""
+    @AppStorage("s3SecretAccessKey") private var secretAccessKey = ""
 
     private let labelWidth: CGFloat = 90
 
@@ -136,6 +138,18 @@ struct StorageSettingsView: View {
                     )
                     .textFieldStyle(.roundedBorder)
                     .disabled(!isEndpointEditable)
+                }
+
+                GridRow {
+                    label("Access Key")
+                    SecureField("S3_ACCESS_KEY_ID", text: $accessKeyID)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                GridRow {
+                    label("Secret Key")
+                    SecureField("S3_SECRET_ACCESS_KEY", text: $secretAccessKey)
+                        .textFieldStyle(.roundedBorder)
                 }
 
                 GridRow {

@@ -16,14 +16,10 @@ struct CirrusApp: App {
             Image(systemName: appState.syncState.icon)
         }
 
-        WindowGroup("Sky Browser", id: "browser") {
+        WindowGroup("Cirrus", id: "browser") {
             BrowserView()
                 .environmentObject(appState)
                 .frame(minWidth: 800, minHeight: 500)
-                .task {
-                    await appState.refresh()
-                    await appState.loadDrives()
-                }
         }
         .defaultSize(width: 1000, height: 600)
 
