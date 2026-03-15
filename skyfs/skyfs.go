@@ -410,7 +410,7 @@ func (s *Store) Info(ctx context.Context) (*StoreInfo, error) {
 	}
 
 	info := &StoreInfo{
-		ID:        s.identity.ID(),
+		ID:        s.identity.Address(),
 		FileCount: len(state.Tree),
 	}
 

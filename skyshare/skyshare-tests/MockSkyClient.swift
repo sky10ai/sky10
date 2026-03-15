@@ -4,7 +4,7 @@ import Foundation
 /// Mock client for testing without a Go backend.
 class MockSkyClient: SkyClientProtocol {
     var files: [FileNode] = []
-    var info = StoreInfo(id: "sky10://k1_testkey123", fileCount: 0, totalSize: 0, namespaces: [])
+    var info = StoreInfo(id: "sky10qtestkey123", fileCount: 0, totalSize: 0, namespaces: [])
     var putCalls: [(path: String, localPath: String)] = []
     var getCalls: [(path: String, outPath: String)] = []
     var removeCalls: [String] = []

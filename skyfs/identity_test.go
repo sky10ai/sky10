@@ -30,9 +30,9 @@ func TestIdentityID(t *testing.T) {
 		t.Fatalf("GenerateIdentity: %v", err)
 	}
 
-	skyID := id.ID()
-	if !strings.HasPrefix(skyID, "sky10://k1_") {
-		t.Errorf("ID = %q, want prefix sky10://k1_", skyID)
+	skyID := id.Address()
+	if !strings.HasPrefix(skyID, "sky10q") {
+		t.Errorf("ID = %q, want prefix sky10q", skyID)
 	}
 }
 
@@ -47,7 +47,7 @@ func TestIdentityUniqueness(t *testing.T) {
 		t.Fatalf("GenerateIdentity 2: %v", err)
 	}
 
-	if id1.ID() == id2.ID() {
+	if id1.Address() == id2.Address() {
 		t.Error("two generated identities have the same ID")
 	}
 }
@@ -84,8 +84,8 @@ func TestSaveLoadIdentity(t *testing.T) {
 	if !id.PrivateKey.Equal(loaded.PrivateKey) {
 		t.Error("private keys don't match after save/load")
 	}
-	if id.ID() != loaded.ID() {
-		t.Errorf("IDs don't match: %q != %q", id.ID(), loaded.ID())
+	if id.Address() != loaded.Address() {
+		t.Errorf("IDs don't match: %q != %q", id.Address(), loaded.Address())
 	}
 }
 

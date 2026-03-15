@@ -3,10 +3,9 @@ package skyfs
 import (
 	"crypto/ed25519"
 	"fmt"
-	"io"
 	"strings"
 
-	"golang.org/x/crypto/hkdf"
+	"github.com/sky10/sky10/skykey"
 )
 
 // NamespaceFromPath derives a namespace name from a file path.
@@ -25,30 +24,24 @@ func NamespaceFromPath(path string) string {
 
 // GenerateNamespaceKey creates a random AES-256 key for a namespace.
 func GenerateNamespaceKey() ([]byte, error) {
-	return GenerateKey()
+	return skykey.GenerateSymmetricKey()
 }
 
 // WrapNamespaceKey encrypts a namespace key for a user's public key.
 func WrapNamespaceKey(nsKey []byte, pub ed25519.PublicKey) ([]byte, error) {
-	return WrapKey(nsKey, pub)
+	return skykey.WrapKey(nsKey, pub)
 }
 
 // UnwrapNamespaceKey decrypts a namespace key using the user's private key.
 func UnwrapNamespaceKey(wrapped []byte, priv ed25519.PrivateKey) ([]byte, error) {
-	return UnwrapKey(wrapped, priv)
+	return skykey.UnwrapKey(wrapped, priv)
 }
 
 // DeriveFileKey derives a deterministic file key from a namespace key and
-// content hash using HKDF. Same content in the same namespace always produces
-// the same file key.
+// content hash using HKDF-SHA3-256.
 func DeriveFileKey(nsKey []byte, contentHash []byte) ([]byte, error) {
-	if len(nsKey) != KeySize {
-		return nil, fmt.Errorf("invalid namespace key size: %d, want %d", len(nsKey), KeySize)
+	if len(nsKey) != skykey.KeySize {
+		return nil, fmt.Errorf("invalid namespace key size: %d, want %d", len(nsKey), skykey.KeySize)
 	}
-	r := hkdf.New(newSHA3256, nsKey, contentHash, []byte("sky10-file-key"))
-	key := make([]byte, KeySize)
-	if _, err := io.ReadFull(r, key); err != nil {
-		return nil, fmt.Errorf("deriving file key: %w", err)
-	}
-	return key, nil
+	return skykey.DeriveKey(nsKey, contentHash, "sky10-file-key")
 }
