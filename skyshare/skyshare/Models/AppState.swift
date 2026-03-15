@@ -10,9 +10,11 @@ class AppState: ObservableObject {
     @Published var selectedNamespace: String? = nil
     @Published var isLoading = false
     @Published var error: String?
+    @Published var conflictPath: String? = nil
 
     let client: SkyClientProtocol
     let daemonManager: DaemonManager
+    let activityLog = ActivityLog()
 
     init(client: SkyClientProtocol = SkyClient(), daemonManager: DaemonManager = DaemonManager()) {
         self.client = client
@@ -45,10 +47,12 @@ class AppState: ObservableObject {
         syncState = .syncing
         do {
             try await client.putFile(path: remotePath, localPath: localPath)
+            activityLog.logUpload(path: remotePath, size: 0)
             await refresh()
         } catch {
             self.error = error.localizedDescription
             syncState = .error
+            activityLog.logError(path: remotePath, message: error.localizedDescription)
         }
     }
 
@@ -56,20 +60,29 @@ class AppState: ObservableObject {
         syncState = .syncing
         do {
             try await client.getFile(path: remotePath, outPath: localPath)
+            activityLog.logDownload(path: remotePath, size: 0)
             syncState = .synced
         } catch {
             self.error = error.localizedDescription
             syncState = .error
+            activityLog.logError(path: remotePath, message: error.localizedDescription)
         }
     }
 
     func removeFile(path: String) async {
         do {
             try await client.removeFile(path: path)
+            activityLog.logDelete(path: path)
             await refresh()
         } catch {
             self.error = error.localizedDescription
+            activityLog.logError(path: path, message: error.localizedDescription)
         }
+    }
+
+    func handleConflict(path: String) {
+        conflictPath = path
+        activityLog.logConflict(path: path)
     }
 
     var filteredFiles: [FileNode] {
