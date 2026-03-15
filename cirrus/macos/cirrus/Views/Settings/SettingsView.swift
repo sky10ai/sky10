@@ -134,14 +134,18 @@ struct StorageSettingsView: View {
                     .disabled(provider.regions.count <= 1)
                 }
 
-                GridRow {
-                    label(provider.needsAccountID ? "Account ID" : "Endpoint")
-                    TextField(
-                        provider.id == "minio" ? "http://localhost:9000" : "auto",
-                        text: endpointBinding
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(!isEndpointEditable)
+                if provider.needsAccountID {
+                    GridRow {
+                        label("Account ID")
+                        TextField("Cloudflare Account ID", text: $accountID)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                } else if provider.id == "minio" {
+                    GridRow {
+                        label("Endpoint")
+                        TextField("http://localhost:9000", text: $endpoint)
+                            .textFieldStyle(.roundedBorder)
+                    }
                 }
 
                 GridRow {
