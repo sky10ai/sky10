@@ -34,7 +34,7 @@ private class PreviewSkyClient: SkyClientProtocol {
     func getFile(path: String, outPath: String) async throws {}
     func removeFile(path: String) async throws {}
     func getInfo() async throws -> StoreInfo {
-        StoreInfo(id: "sky://k1_preview", fileCount: 5, totalSize: 5_914_680,
+        StoreInfo(id: "sky10://k1_preview", fileCount: 5, totalSize: 5_914_680,
                   namespaces: ["default", "financial", "journal", "photos"])
     }
 }
@@ -44,7 +44,7 @@ extension AppState {
         let state = AppState(client: PreviewSkyClient())
         state.files = FileNode.sampleFiles
         state.storeInfo = StoreInfo(
-            id: "sky://k1_preview1234567890", fileCount: 5, totalSize: 5_914_680,
+            id: "sky10://k1_preview1234567890", fileCount: 5, totalSize: 5_914_680,
             namespaces: ["default", "financial", "journal", "photos"]
         )
         state.syncState = .synced
@@ -61,7 +61,7 @@ extension AppState {
     static var previewEmpty: AppState {
         let state = AppState(client: PreviewSkyClient())
         state.syncState = .synced
-        state.storeInfo = StoreInfo(id: "sky://k1_empty", fileCount: 0, totalSize: 0, namespaces: nil)
+        state.storeInfo = StoreInfo(id: "sky10://k1_empty", fileCount: 0, totalSize: 0, namespaces: nil)
         return state
     }
 }

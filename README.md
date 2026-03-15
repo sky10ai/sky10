@@ -25,7 +25,7 @@ Every user is an Ed25519 keypair. No usernames, no passwords.
 
 ```
 skyfs init
-  Identity: sky://k1_abc123def456...
+  Identity: sky10://k1_abc123def456...
 ```
 
 ### Build
