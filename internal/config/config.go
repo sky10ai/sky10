@@ -1,4 +1,4 @@
-// Package config handles skyfs configuration loading and storage.
+// Package config handles sky10 configuration loading and storage.
 package config
 
 import (
@@ -9,12 +9,13 @@ import (
 )
 
 const (
-	configDir  = ".skyfs"
-	configFile = "config.json"
-	keyFile    = "identity.key"
+	configDir    = ".sky10"
+	oldConfigDir = ".skyfs" // auto-migrate from old location
+	configFile   = "config.json"
+	keyFile      = "key.json"
 )
 
-// Config holds skyfs storage configuration.
+// Config holds storage configuration.
 type Config struct {
 	Bucket         string `json:"bucket"`
 	Region         string `json:"region,omitempty"`
@@ -23,16 +24,28 @@ type Config struct {
 	IdentityFile   string `json:"identity_file,omitempty"`
 }
 
-// Dir returns the skyfs configuration directory path.
+// Dir returns the sky10 configuration directory path (~/.sky10/).
+// Auto-migrates from ~/.skyfs/ if it exists and ~/.sky10/ doesn't.
 func Dir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("finding home directory: %w", err)
 	}
-	return filepath.Join(home, configDir), nil
+
+	newDir := filepath.Join(home, configDir)
+	oldDir := filepath.Join(home, oldConfigDir)
+
+	// Auto-migrate if old dir exists and new doesn't
+	if _, err := os.Stat(newDir); os.IsNotExist(err) {
+		if _, err := os.Stat(oldDir); err == nil {
+			os.Rename(oldDir, newDir)
+		}
+	}
+
+	return newDir, nil
 }
 
-// DefaultIdentityPath returns the default path for the identity key file.
+// DefaultIdentityPath returns the default path for the key file.
 func DefaultIdentityPath() (string, error) {
 	dir, err := Dir()
 	if err != nil {
@@ -41,7 +54,7 @@ func DefaultIdentityPath() (string, error) {
 	return filepath.Join(dir, keyFile), nil
 }
 
-// Load reads the config from the default location (~/.skyfs/config.json).
+// Load reads the config from the default location (~/.sky10/config.json).
 func Load() (*Config, error) {
 	dir, err := Dir()
 	if err != nil {
@@ -52,7 +65,7 @@ func Load() (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("no config found — run 'skyfs init' first")
+			return nil, fmt.Errorf("no config found — run 'sky10 fs init' first")
 		}
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
@@ -62,7 +75,6 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 
-	// Default identity path
 	if cfg.IdentityFile == "" {
 		cfg.IdentityFile = filepath.Join(dir, keyFile)
 	}
