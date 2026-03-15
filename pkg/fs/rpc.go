@@ -18,6 +18,11 @@ type RPCServer struct {
 	listener net.Listener
 	logger   *slog.Logger
 
+	syncMu     sync.Mutex
+	syncCancel context.CancelFunc
+	syncDir    string
+	syncing    bool
+
 	mu      sync.Mutex
 	clients map[net.Conn]bool
 	events  chan RPCEvent
@@ -183,6 +188,12 @@ func (s *RPCServer) dispatch(ctx context.Context, req *RPCRequest) *RPCResponse 
 		result, err = s.rpcCompact(ctx, req.Params)
 	case "skyfs.gc":
 		result, err = s.rpcGC(ctx, req.Params)
+	case "skyfs.syncStart":
+		result, err = s.rpcSyncStart(ctx, req.Params)
+	case "skyfs.syncStop":
+		result, err = s.rpcSyncStop(ctx)
+	case "skyfs.syncStatus":
+		result, err = s.rpcSyncStatus(ctx)
 	default:
 		resp.Error = &RPCError{Code: -32601, Message: "method not found: " + req.Method}
 		return resp
@@ -331,13 +342,14 @@ func (s *RPCServer) rpcRemove(ctx context.Context, params json.RawMessage) (inte
 }
 
 type statusResult struct {
-	Syncing    bool   `json:"syncing"`
-	LastSync   string `json:"last_sync,omitempty"`
-	PendingOps int    `json:"pending_ops"`
+	Syncing bool   `json:"syncing"`
+	SyncDir string `json:"sync_dir,omitempty"`
 }
 
 func (s *RPCServer) rpcStatus(_ context.Context) (interface{}, error) {
-	return statusResult{Syncing: false, PendingOps: 0}, nil
+	s.syncMu.Lock()
+	defer s.syncMu.Unlock()
+	return statusResult{Syncing: s.syncing, SyncDir: s.syncDir}, nil
 }
 
 type versionsParams struct {
@@ -391,4 +403,86 @@ func (s *RPCServer) rpcGC(ctx context.Context, params json.RawMessage) (interfac
 		return nil, err
 	}
 	return result, nil
+}
+
+// --- Sync control ---
+
+type syncStartParams struct {
+	Dir         string `json:"dir"`
+	PollSeconds int    `json:"poll_seconds"`
+}
+
+func (s *RPCServer) rpcSyncStart(_ context.Context, params json.RawMessage) (interface{}, error) {
+	var p syncStartParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.Dir == "" {
+		return nil, fmt.Errorf("dir is required")
+	}
+	if p.PollSeconds <= 0 {
+		p.PollSeconds = 30
+	}
+
+	s.syncMu.Lock()
+	defer s.syncMu.Unlock()
+
+	// Stop existing sync if running
+	if s.syncCancel != nil {
+		s.syncCancel()
+	}
+
+	syncCtx, cancel := context.WithCancel(context.Background())
+	s.syncCancel = cancel
+	s.syncDir = p.Dir
+	s.syncing = true
+
+	ignoreMatcher := NewIgnoreMatcher(p.Dir)
+	cfg := SyncConfig{
+		LocalRoot:  p.Dir,
+		IgnoreFunc: ignoreMatcher.IgnoreFunc(),
+	}
+	daemonCfg := DaemonConfig{
+		SyncConfig:  cfg,
+		PollSeconds: p.PollSeconds,
+	}
+
+	daemon, err := NewDaemon(s.store, nil, daemonCfg, s.logger)
+	if err != nil {
+		s.syncing = false
+		s.syncCancel = nil
+		return nil, fmt.Errorf("creating daemon: %w", err)
+	}
+
+	go func() {
+		daemon.Run(syncCtx)
+		s.syncMu.Lock()
+		s.syncing = false
+		s.syncDir = ""
+		s.syncCancel = nil
+		s.syncMu.Unlock()
+		s.logger.Info("sync stopped", "dir", p.Dir)
+	}()
+
+	s.logger.Info("sync started", "dir", p.Dir, "poll", p.PollSeconds)
+	return map[string]string{"status": "started", "dir": p.Dir}, nil
+}
+
+func (s *RPCServer) rpcSyncStop(_ context.Context) (interface{}, error) {
+	s.syncMu.Lock()
+	defer s.syncMu.Unlock()
+
+	if s.syncCancel == nil {
+		return map[string]string{"status": "not syncing"}, nil
+	}
+
+	s.syncCancel()
+	s.syncCancel = nil
+	return map[string]string{"status": "stopping"}, nil
+}
+
+func (s *RPCServer) rpcSyncStatus(_ context.Context) (interface{}, error) {
+	s.syncMu.Lock()
+	defer s.syncMu.Unlock()
+	return statusResult{Syncing: s.syncing, SyncDir: s.syncDir}, nil
 }

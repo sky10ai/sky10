@@ -37,6 +37,11 @@ private class PreviewSkyClient: SkyClientProtocol {
         StoreInfo(id: "sky10qpreview", fileCount: 5, totalSize: 5_914_680,
                   namespaces: ["default", "financial", "journal", "photos"])
     }
+    func startSync(dir: String, pollSeconds: Int) async throws {}
+    func stopSync() async throws {}
+    func syncStatus() async throws -> SyncStatusInfo {
+        SyncStatusInfo(syncing: false, syncDir: nil)
+    }
 }
 
 extension AppState {

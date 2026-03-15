@@ -7,7 +7,19 @@ protocol SkyClientProtocol {
     func getFile(path: String, outPath: String) async throws
     func removeFile(path: String) async throws
     func getInfo() async throws -> StoreInfo
+    func startSync(dir: String, pollSeconds: Int) async throws
+    func stopSync() async throws
+    func syncStatus() async throws -> SyncStatusInfo
 }
 
-// Conform the real client
+struct SyncStatusInfo: Codable {
+    let syncing: Bool
+    let syncDir: String?
+
+    enum CodingKeys: String, CodingKey {
+        case syncing
+        case syncDir = "sync_dir"
+    }
+}
+
 extension SkyClient: SkyClientProtocol {}

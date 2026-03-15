@@ -7,9 +7,13 @@ struct MenuBarView: View {
     @Environment(\.openWindow) var openWindow
 
     var body: some View {
-        // Status line
         Label(statusText, systemImage: appState.syncState.icon)
             .disabled(true)
+
+        if appState.isSyncing {
+            Label("Syncing \(appState.syncDir)", systemImage: "folder.badge.gearshape")
+                .disabled(true)
+        }
 
         Divider()
 
@@ -26,9 +30,8 @@ struct MenuBarView: View {
         Divider()
 
         if let info = appState.storeInfo {
-            Text("\(info.fileCount) files · \(ByteCountFormatter.string(fromByteCount: info.totalSize, countStyle: .file))")
+            Text("\(info.fileCount) files")
                 .disabled(true)
-
             Divider()
         }
 
@@ -40,6 +43,7 @@ struct MenuBarView: View {
         Divider()
 
         Button("Quit skyshare") {
+            Task { await appState.stopSync() }
             appState.daemonManager.stop()
             NSApplication.shared.terminate(nil)
         }

@@ -8,6 +8,7 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             GeneralSettingsView()
+                .environmentObject(appState)
                 .tabItem { Label("General", systemImage: "gear") }
 
             StorageSettingsView()
@@ -22,6 +23,7 @@ struct SettingsView: View {
 }
 
 struct GeneralSettingsView: View {
+    @EnvironmentObject var appState: AppState
     @AppStorage("syncDirectory") private var syncDirectory = ""
     @AppStorage("launchAtLogin") private var launchAtLogin = false
     @AppStorage("pollInterval") private var pollInterval = 30
@@ -37,6 +39,26 @@ struct GeneralSettingsView: View {
                     if panel.runModal() == .OK, let url = panel.url {
                         syncDirectory = url.path
                     }
+                }
+            }
+
+            HStack {
+                if appState.isSyncing {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("Syncing \(appState.syncDir)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Stop") {
+                        Task { await appState.stopSync() }
+                    }
+                } else {
+                    Button("Start Sync") {
+                        guard !syncDirectory.isEmpty else { return }
+                        Task { await appState.startSync(dir: syncDirectory) }
+                    }
+                    .disabled(syncDirectory.isEmpty)
                 }
             }
 

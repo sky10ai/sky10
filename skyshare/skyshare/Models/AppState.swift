@@ -85,6 +85,48 @@ class AppState: ObservableObject {
         activityLog.logConflict(path: path)
     }
 
+    // MARK: - Sync
+
+    @Published var isSyncing = false
+    @Published var syncDir: String = ""
+
+    func startSync(dir: String) async {
+        syncState = .syncing
+        do {
+            try await client.startSync(dir: dir, pollSeconds: 30)
+            isSyncing = true
+            syncDir = dir
+            syncState = .synced
+        } catch {
+            self.error = error.localizedDescription
+            syncState = .error
+        }
+    }
+
+    func stopSync() async {
+        do {
+            try await client.stopSync()
+            isSyncing = false
+            syncDir = ""
+            syncState = .offline
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func checkSyncStatus() async {
+        do {
+            let status = try await client.syncStatus()
+            isSyncing = status.syncing
+            syncDir = status.syncDir ?? ""
+            if status.syncing {
+                syncState = .synced
+            }
+        } catch {
+            // Ignore — status check is best-effort
+        }
+    }
+
     var filteredFiles: [FileNode] {
         guard let ns = selectedNamespace else { return files }
         return files.filter { $0.namespace == ns }
