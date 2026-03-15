@@ -61,6 +61,10 @@ extension StorageProvider {
             .init(id: "sgp1", label: "Singapore 1"),
             .init(id: "fra1", label: "Frankfurt 1"),
             .init(id: "syd1", label: "Sydney 1"),
+            .init(id: "atl1", label: "Atlanta 1"),
+            .init(id: "blr1", label: "Bangalore 1"),
+            .init(id: "lon1", label: "London 1"),
+            .init(id: "tor1", label: "Toronto 1"),
         ],
         helpURL: "https://docs.digitalocean.com/products/spaces/",
         needsAccountID: false
