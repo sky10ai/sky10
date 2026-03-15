@@ -1,4 +1,3 @@
-// Command skyfs is the CLI for encrypted file storage.
 package main
 
 import (
@@ -18,62 +17,44 @@ import (
 	"github.com/sky10/sky10/skyfs"
 )
 
-// Set by -ldflags at build time. See Makefile.
-var (
-	version   = "dev"
-	commit    = "unknown"
-	buildDate = "unknown"
-)
-
-func main() {
-	if len(os.Args) < 2 {
-		printUsage()
-		os.Exit(1)
+func runFS(args []string) error {
+	if len(args) == 0 {
+		printFSUsage()
+		return nil
 	}
 
-	var err error
-	switch os.Args[1] {
-	case "version", "--version":
-		fmt.Printf("skyfs %s (%s) built %s\n", version, commit, buildDate)
-		return
+	switch args[0] {
 	case "init":
-		err = cmdInit(os.Args[2:])
+		return cmdInit(args[1:])
 	case "put":
-		err = cmdPut(os.Args[2:])
+		return cmdPut(args[1:])
 	case "get":
-		err = cmdGet(os.Args[2:])
+		return cmdGet(args[1:])
 	case "ls":
-		err = cmdList(os.Args[2:])
+		return cmdList(args[1:])
 	case "rm":
-		err = cmdRemove(os.Args[2:])
+		return cmdRemove(args[1:])
 	case "info":
-		err = cmdInfo(os.Args[2:])
+		return cmdInfo(args[1:])
 	case "serve":
-		err = cmdServe(os.Args[2:])
+		return cmdServe(args[1:])
 	case "sync":
-		err = cmdSync(os.Args[2:])
+		return cmdSync(args[1:])
 	case "compact":
-		err = cmdCompact(os.Args[2:])
+		return cmdCompact(args[1:])
 	case "gc":
-		err = cmdGC(os.Args[2:])
+		return cmdGC(args[1:])
 	case "versions":
-		err = cmdVersions(os.Args[2:])
+		return cmdVersions(args[1:])
 	case "restore":
-		err = cmdRestore(os.Args[2:])
+		return cmdRestore(args[1:])
 	case "snapshots":
-		err = cmdSnapshots(os.Args[2:])
+		return cmdSnapshots(args[1:])
 	case "help", "--help", "-h":
-		printUsage()
-		return
+		printFSUsage()
+		return nil
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
-		printUsage()
-		os.Exit(1)
-	}
-
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("unknown fs command: %s", args[0])
 	}
 }
 
@@ -647,27 +628,21 @@ func formatSize(bytes int64) string {
 	}
 }
 
-func printUsage() {
-	fmt.Printf(`skyfs — encrypted file storage (%s)
+func printFSUsage() {
+	fmt.Println(`sky10 fs — encrypted file storage
 
-Usage:
-  skyfs serve [--socket <path>]
-  skyfs init --bucket <name> [--region <r>] [--endpoint <url>] [--path-style]
-  skyfs put <file> [--as <remote-path>]
-  skyfs get <path> [--out <local-path>]
-  skyfs ls [prefix]
-  skyfs rm <path>
-  skyfs info
-  skyfs sync <dir> [--once] [--namespace ns] [--prefix p]
-  skyfs compact [--keep <n>]
-  skyfs gc [--dry-run]
-  skyfs versions <path>
-  skyfs restore <path> --at <timestamp> [--out <file>]
-  skyfs snapshots
-  skyfs version
-
-Environment:
-  S3_ACCESS_KEY_ID        S3 access key
-  S3_SECRET_ACCESS_KEY    S3 secret key
-`, version)
+Commands:
+  init --bucket <name> [--region <r>] [--endpoint <url>] [--path-style]
+  put <file> [--as <remote-path>]
+  get <path> [--out <local-path>]
+  ls [prefix]
+  rm <path>
+  info
+  serve [--socket <path>]
+  sync <dir> [--once] [--namespace ns] [--prefix p] [--poll sec]
+  compact [--keep <n>]
+  gc [--dry-run]
+  versions <path>
+  restore <path> --at <timestamp> [--out <file>]
+  snapshots`)
 }

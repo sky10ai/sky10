@@ -28,7 +28,7 @@ all: check test build
 build: build-go
 
 build-go:
-	go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o bin/skyfs ./cmd/skyfs
+	go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o bin/sky10 ./cmd/sky10
 
 build-swift:
 	cd skyshare && swift build
@@ -84,41 +84,41 @@ clean:
 # --- Install ---
 
 install:
-	go install $(GOFLAGS) -ldflags "$(LDFLAGS)" ./cmd/skyfs
+	go install $(GOFLAGS) -ldflags "$(LDFLAGS)" ./cmd/sky10
 
 # --- Cross-compilation ---
 
-platforms: bin/skyfs-linux-amd64 bin/skyfs-linux-arm64 bin/skyfs-darwin-amd64 bin/skyfs-darwin-arm64
+platforms: bin/sky10-linux-amd64 bin/sky10-linux-arm64 bin/sky10-darwin-amd64 bin/sky10-darwin-arm64
 
-bin/skyfs-linux-amd64:
-	GOOS=linux GOARCH=amd64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ ./cmd/skyfs
+bin/sky10-linux-amd64:
+	GOOS=linux GOARCH=amd64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ ./cmd/sky10
 
-bin/skyfs-linux-arm64:
-	GOOS=linux GOARCH=arm64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ ./cmd/skyfs
+bin/sky10-linux-arm64:
+	GOOS=linux GOARCH=arm64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ ./cmd/sky10
 
-bin/skyfs-darwin-amd64:
-	GOOS=darwin GOARCH=amd64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ ./cmd/skyfs
+bin/sky10-darwin-amd64:
+	GOOS=darwin GOARCH=amd64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ ./cmd/sky10
 
-bin/skyfs-darwin-arm64:
-	GOOS=darwin GOARCH=arm64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ ./cmd/skyfs
+bin/sky10-darwin-arm64:
+	GOOS=darwin GOARCH=arm64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ ./cmd/sky10
 
 # --- Checksums + Reproducibility ---
 
 checksums: platforms
-	cd bin && shasum -a 256 skyfs-* > checksums.txt
+	cd bin && shasum -a 256 sky10-* > checksums.txt
 	@cat bin/checksums.txt
 
 reproduce:
 	@echo "Build 1..."
-	@go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o /tmp/skyfs-build1 ./cmd/skyfs
+	@go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o /tmp/sky10-build1 ./cmd/sky10
 	@echo "Build 2..."
-	@go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o /tmp/skyfs-build2 ./cmd/skyfs
-	@if cmp -s /tmp/skyfs-build1 /tmp/skyfs-build2; then \
+	@go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o /tmp/sky10-build2 ./cmd/sky10
+	@if cmp -s /tmp/sky10-build1 /tmp/sky10-build2; then \
 		echo "Deterministic: both builds are identical"; \
-		shasum -a 256 /tmp/skyfs-build1 /tmp/skyfs-build2; \
+		shasum -a 256 /tmp/sky10-build1 /tmp/sky10-build2; \
 	else \
 		echo "NOT deterministic: builds differ"; \
-		shasum -a 256 /tmp/skyfs-build1 /tmp/skyfs-build2; \
+		shasum -a 256 /tmp/sky10-build1 /tmp/sky10-build2; \
 		exit 1; \
 	fi
-	@rm -f /tmp/skyfs-build1 /tmp/skyfs-build2
+	@rm -f /tmp/sky10-build1 /tmp/sky10-build2
