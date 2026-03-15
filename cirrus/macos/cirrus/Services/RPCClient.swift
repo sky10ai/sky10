@@ -1,10 +1,8 @@
 import Foundation
 
 /// JSON-RPC 2.0 client over Unix domain socket.
-/// Uses raw POSIX sockets + FileHandle for reliability.
 actor RPCClient {
     private let socketPath: String
-    private var fileHandle: FileHandle?
     private var requestID = 0
 
     init(socketPath: String? = nil) {
@@ -37,15 +35,15 @@ actor RPCClient {
 
         let requestData = try JSONSerialization.data(withJSONObject: request)
 
-        let fh = try connect()
+        // Fresh connection every call — no stale socket issues after daemon restart
+        let fh = try newConnection()
 
-        // Write request + newline
         var payload = requestData
         payload.append(0x0A)
         fh.write(payload)
 
-        // Read response (line-delimited JSON)
         let responseData = try readLine(from: fh)
+        fh.closeFile()
 
         guard let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
             throw RPCError.invalidResponse
@@ -63,12 +61,7 @@ actor RPCClient {
         return try JSONSerialization.data(withJSONObject: result)
     }
 
-    private func connect() throws -> FileHandle {
-        // Reuse existing connection if valid
-        if let fh = fileHandle {
-            return fh
-        }
-
+    private func newConnection() throws -> FileHandle {
         let sock = socket(AF_UNIX, SOCK_STREAM, 0)
         guard sock >= 0 else { throw RPCError.connectionFailed }
 
@@ -91,9 +84,7 @@ actor RPCClient {
             throw RPCError.connectionFailed
         }
 
-        let fh = FileHandle(fileDescriptor: sock, closeOnDealloc: true)
-        self.fileHandle = fh
-        return fh
+        return FileHandle(fileDescriptor: sock, closeOnDealloc: true)
     }
 
     private func readLine(from fh: FileHandle) throws -> Data {
@@ -113,8 +104,7 @@ actor RPCClient {
     }
 
     func disconnect() {
-        fileHandle?.closeFile()
-        fileHandle = nil
+        // No-op — connections are per-call now
     }
 }
 
