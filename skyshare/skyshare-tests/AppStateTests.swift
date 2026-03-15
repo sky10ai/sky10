@@ -27,7 +27,7 @@ struct AppStateTests {
                      size: 200, modified: "2026-03-14T11:00:00Z", checksum: "h2",
                      namespace: "journal", chunks: 1),
         ]
-        mock.info = StoreInfo(id: "sky10://k1_test", fileCount: 2, totalSize: 300, namespaces: ["default", "journal"])
+        mock.info = StoreInfo(id: "sky10qtest", fileCount: 2, totalSize: 300, namespaces: ["default", "journal"])
 
         let state = AppState(client: mock)
         await state.refresh()
@@ -108,7 +108,7 @@ struct AppStateTests {
                      modified: "2026-03-14T10:00:00Z", checksum: "h1",
                      namespace: "default", chunks: 1)
         ]
-        mock.info = StoreInfo(id: "sky10://k1_test", fileCount: 1, totalSize: 50, namespaces: ["default"])
+        mock.info = StoreInfo(id: "sky10qtest", fileCount: 1, totalSize: 50, namespaces: ["default"])
 
         let state = AppState(client: mock)
         await state.refresh()

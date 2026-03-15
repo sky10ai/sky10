@@ -129,7 +129,7 @@ func cmdInit(args []string) error {
 
 	fmt.Printf("Initialized skyfs\n")
 	fmt.Printf("  Schema:   v%s\n", skyfs.SchemaVersion)
-	fmt.Printf("  Identity: %s\n", id.ID())
+	fmt.Printf("  Identity: %s\n", id.Address())
 	fmt.Printf("  Bucket:   %s\n", cfg.Bucket)
 	fmt.Printf("  Config:   %s\n", dir)
 	return nil

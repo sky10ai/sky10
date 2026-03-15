@@ -174,8 +174,8 @@ func TestRPCInfo(t *testing.T) {
 	if info.FileCount != 1 {
 		t.Errorf("FileCount = %d, want 1", info.FileCount)
 	}
-	if !strings.HasPrefix(info.ID, "sky10://k1_") {
-		t.Errorf("ID = %q, want sky10://k1_ prefix", info.ID)
+	if !strings.HasPrefix(info.ID, "sky10q") {
+		t.Errorf("ID = %q, want sky10q prefix", info.ID)
 	}
 }
 
