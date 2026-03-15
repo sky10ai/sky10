@@ -262,15 +262,29 @@ func fsServeCmd() *cobra.Command {
 				<-sigCh
 				cancel()
 			}()
-			store, err := openStore(ctx)
-			if err != nil {
-				return err
-			}
+
 			sockPath, _ := cmd.Flags().GetString("socket")
 			if sockPath == "" {
 				sockPath = "/tmp/sky10.sock"
 			}
 			cfgDir, _ := config.Dir()
+
+			// Create store without schema validation — serve starts fast,
+			// validates lazily when commands actually hit S3.
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			id, err := skyfs.LoadIdentity(cfg.IdentityFile)
+			if err != nil {
+				return err
+			}
+			backend, err := makeBackend(ctx, cfg)
+			if err != nil {
+				return err
+			}
+			store := skyfs.New(backend, id)
+
 			server := skyfs.NewRPCServer(store, sockPath, filepath.Join(cfgDir, "drives.json"), nil)
 			fmt.Println(sockPath)
 			return server.Serve(ctx)
