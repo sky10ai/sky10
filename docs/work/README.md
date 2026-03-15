@@ -4,7 +4,8 @@
 
 | Plan | Status | Summary |
 |------|--------|---------|
-| [skyshare macOS](current/skyshare-macos-plan.md) | not started | SwiftUI desktop app: menu bar, file browser, File Provider, Go backend over JSON-RPC |
+| [skykey](current/skykey-plan.md) | not started | Crypto primitive: Bech32m addresses, Seal/Open, Sign/Verify, unified sky10 CLI |
+| [skyshare macOS](current/skyshare-macos-plan.md) | in progress | SwiftUI desktop app: menu bar, file browser, File Provider, Go backend over JSON-RPC |
 
 ## Past
 
