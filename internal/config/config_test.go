@@ -41,7 +41,7 @@ func TestSaveAndLoad(t *testing.T) {
 
 	// Default identity path should be set
 	if loaded.IdentityFile == "" {
-		t.Error("IdentityFile should default to ~/.skyfs/identity.key")
+		t.Error("IdentityFile should have a default path")
 	}
 }
 
@@ -51,6 +51,41 @@ func TestLoadNoConfig(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Error("expected error when config doesn't exist")
+	}
+}
+
+func TestMigrateFromOldDir(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	// Create old .skyfs directory with a config
+	oldDir := filepath.Join(tmp, ".skyfs")
+	os.MkdirAll(oldDir, 0700)
+	os.WriteFile(filepath.Join(oldDir, "config.json"),
+		[]byte(`{"bucket":"migrated"}`), 0600)
+
+	// Dir() should auto-migrate to .sky10
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("Dir: %v", err)
+	}
+
+	if filepath.Base(dir) != ".sky10" {
+		t.Errorf("dir = %q, want .sky10", dir)
+	}
+
+	// Old dir should be gone
+	if _, err := os.Stat(oldDir); !os.IsNotExist(err) {
+		t.Error(".skyfs should be renamed to .sky10")
+	}
+
+	// Config should be loadable from new location
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load after migration: %v", err)
+	}
+	if cfg.Bucket != "migrated" {
+		t.Errorf("bucket = %q, want migrated", cfg.Bucket)
 	}
 }
 

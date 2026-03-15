@@ -13,7 +13,7 @@ actor RPCClient {
             self.socketPath = path
         } else {
             let home = FileManager.default.homeDirectoryForCurrentUser.path
-            self.socketPath = "\(home)/.skyfs/skyfs.sock"
+            self.socketPath = "\(home)/.sky10/skyfs.sock"
         }
     }
 
