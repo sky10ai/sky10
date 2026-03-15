@@ -115,34 +115,65 @@ func semverMajor(v string) int {
 	return n
 }
 
-// blobPrefix is the binary header prepended to every encrypted blob.
-// Format: "SKY" magic (3 bytes) + schema major version (1 byte).
-// Total: 4 bytes. Every blob is self-describing.
-var blobPrefix = []byte{'S', 'K', 'Y', byte(semverMajor(SchemaVersion))}
+// BlobHeaderSize is the fixed size of the blob header: "SKY" + major + minor + patch.
+const BlobHeaderSize = 6
 
-// PrependBlobHeader adds the schema header to encrypted data.
-// Format: [S K Y <major_version> | encrypted_data]
+// BlobHeader is prepended to every encrypted blob.
+// Format: [S K Y major minor patch | encrypted_data]
+// 6 bytes. The version tells you everything — algorithms, format, how to parse.
+type BlobHeader struct {
+	Major byte
+	Minor byte
+	Patch byte
+}
+
+// CurrentBlobHeader returns the header for the current schema version.
+func CurrentBlobHeader() BlobHeader {
+	parts := strings.SplitN(SchemaVersion, ".", 3)
+	var major, minor, patch int
+	if len(parts) >= 1 {
+		major, _ = strconv.Atoi(parts[0])
+	}
+	if len(parts) >= 2 {
+		minor, _ = strconv.Atoi(parts[1])
+	}
+	if len(parts) >= 3 {
+		patch, _ = strconv.Atoi(parts[2])
+	}
+	return BlobHeader{Major: byte(major), Minor: byte(minor), Patch: byte(patch)}
+}
+
+// PrependBlobHeader adds the 6-byte schema header to encrypted data.
 func PrependBlobHeader(encrypted []byte) []byte {
-	out := make([]byte, len(blobPrefix)+len(encrypted))
-	copy(out, blobPrefix)
-	copy(out[len(blobPrefix):], encrypted)
+	h := CurrentBlobHeader()
+	out := make([]byte, BlobHeaderSize+len(encrypted))
+	out[0] = 'S'
+	out[1] = 'K'
+	out[2] = 'Y'
+	out[3] = h.Major
+	out[4] = h.Minor
+	out[5] = h.Patch
+	copy(out[BlobHeaderSize:], encrypted)
 	return out
 }
 
-// StripBlobHeader removes and validates the blob header.
-// Returns the encrypted data and the schema major version.
-// Legacy blobs (no header) are detected by the absence of the "SKY" magic.
-func StripBlobHeader(data []byte) ([]byte, int, error) {
+// StripBlobHeader removes and parses the 6-byte header.
+// Returns the encrypted data and the parsed header.
+// Legacy blobs (no "SKY" magic) return a zero header.
+func StripBlobHeader(data []byte) ([]byte, BlobHeader, error) {
 	if len(data) == 0 {
-		return nil, 0, errors.New("empty blob")
+		return nil, BlobHeader{}, errors.New("empty blob")
 	}
 
-	// Check for "SKY" magic bytes
-	if len(data) >= 4 && data[0] == 'S' && data[1] == 'K' && data[2] == 'Y' {
-		version := int(data[3])
-		return data[4:], version, nil
+	if len(data) >= BlobHeaderSize && data[0] == 'S' && data[1] == 'K' && data[2] == 'Y' {
+		h := BlobHeader{
+			Major: data[3],
+			Minor: data[4],
+			Patch: data[5],
+		}
+		return data[BlobHeaderSize:], h, nil
 	}
 
 	// No magic — legacy unversioned blob
-	return data, 0, nil
+	return data, BlobHeader{}, nil
 }

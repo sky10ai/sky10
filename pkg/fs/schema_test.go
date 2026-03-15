@@ -114,18 +114,25 @@ func TestBlobHeader(t *testing.T) {
 		t.Errorf("magic = %q, want SKY", withHeader[:3])
 	}
 
-	// Check version byte matches schema major version
-	if int(withHeader[3]) != semverMajor(SchemaVersion) {
-		t.Errorf("version byte = %d, want %d", withHeader[3], semverMajor(SchemaVersion))
+	// Check header size
+	if len(withHeader) != BlobHeaderSize+len(original) {
+		t.Errorf("header+data = %d, want %d", len(withHeader), BlobHeaderSize+len(original))
+	}
+
+	// Check version bytes
+	h := CurrentBlobHeader()
+	if withHeader[3] != h.Major || withHeader[4] != h.Minor || withHeader[5] != h.Patch {
+		t.Errorf("version = %d.%d.%d, want %d.%d.%d",
+			withHeader[3], withHeader[4], withHeader[5], h.Major, h.Minor, h.Patch)
 	}
 
 	// Strip and verify
-	stripped, version, err := StripBlobHeader(withHeader)
+	stripped, parsed, err := StripBlobHeader(withHeader)
 	if err != nil {
 		t.Fatalf("StripBlobHeader: %v", err)
 	}
-	if version != semverMajor(SchemaVersion) {
-		t.Errorf("version = %d, want %d", version, semverMajor(SchemaVersion))
+	if parsed.Major != h.Major || parsed.Minor != h.Minor || parsed.Patch != h.Patch {
+		t.Errorf("parsed version mismatch")
 	}
 	if !bytes.Equal(stripped, original) {
 		t.Error("stripped doesn't match original")
@@ -135,14 +142,13 @@ func TestBlobHeader(t *testing.T) {
 func TestBlobHeaderLegacy(t *testing.T) {
 	t.Parallel()
 
-	// Legacy blob — no SKY magic, starts with random nonce
 	legacy := []byte{0xFF, 0xAB, 0xCD, 0xEF, 0x01, 0x02}
-	stripped, version, err := StripBlobHeader(legacy)
+	stripped, h, err := StripBlobHeader(legacy)
 	if err != nil {
 		t.Fatalf("StripBlobHeader: %v", err)
 	}
-	if version != 0 {
-		t.Errorf("legacy version = %d, want 0", version)
+	if h.Major != 0 || h.Minor != 0 || h.Patch != 0 {
+		t.Errorf("legacy should have zero header, got %d.%d.%d", h.Major, h.Minor, h.Patch)
 	}
 	if !bytes.Equal(stripped, legacy) {
 		t.Error("legacy data should pass through unchanged")
