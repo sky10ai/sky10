@@ -4,8 +4,6 @@ import Foundation
 class SkyClient {
     private let rpc = RPCClient()
 
-    // MARK: - File Operations
-
     struct ListResult: Codable {
         let files: [FileResult]
     }
@@ -23,14 +21,10 @@ class SkyClient {
         let result: ListResult = try await rpc.call("skyfs.list", params: ["prefix": prefix])
         return result.files.map { f in
             FileNode(
-                id: f.path,
-                path: f.path,
+                id: f.path, path: f.path,
                 name: (f.path as NSString).lastPathComponent,
-                size: f.size,
-                modified: f.modified,
-                checksum: f.checksum,
-                namespace: f.namespace,
-                chunks: f.chunks
+                size: f.size, modified: f.modified, checksum: f.checksum,
+                namespace: f.namespace, chunks: f.chunks
             )
         }
     }
@@ -38,7 +32,6 @@ class SkyClient {
     struct PutParams: Codable {
         let path: String
         let localPath: String
-
         enum CodingKeys: String, CodingKey {
             case path
             case localPath = "local_path"
@@ -57,7 +50,6 @@ class SkyClient {
     struct GetParams: Codable {
         let path: String
         let outPath: String
-
         enum CodingKeys: String, CodingKey {
             case path
             case outPath = "out_path"
@@ -74,5 +66,29 @@ class SkyClient {
 
     func getInfo() async throws -> StoreInfo {
         return try await rpc.call("skyfs.info")
+    }
+
+    // MARK: - Sync
+
+    struct SyncStartParams: Codable {
+        let dir: String
+        let pollSeconds: Int
+        enum CodingKeys: String, CodingKey {
+            case dir
+            case pollSeconds = "poll_seconds"
+        }
+    }
+
+    func startSync(dir: String, pollSeconds: Int = 30) async throws {
+        let _: GenericResult = try await rpc.call("skyfs.syncStart",
+            params: SyncStartParams(dir: dir, pollSeconds: pollSeconds))
+    }
+
+    func stopSync() async throws {
+        let _: GenericResult = try await rpc.call("skyfs.syncStop")
+    }
+
+    func syncStatus() async throws -> SyncStatusInfo {
+        return try await rpc.call("skyfs.syncStatus")
     }
 }

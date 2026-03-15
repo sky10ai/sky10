@@ -50,6 +50,25 @@ class MockSkyClient: SkyClientProtocol {
         if shouldError { throw MockError.simulated(errorMessage) }
         return info
     }
+
+    var isSyncing = false
+    var syncDir = ""
+
+    func startSync(dir: String, pollSeconds: Int) async throws {
+        if shouldError { throw MockError.simulated(errorMessage) }
+        isSyncing = true
+        syncDir = dir
+    }
+
+    func stopSync() async throws {
+        if shouldError { throw MockError.simulated(errorMessage) }
+        isSyncing = false
+        syncDir = ""
+    }
+
+    func syncStatus() async throws -> SyncStatusInfo {
+        return SyncStatusInfo(syncing: isSyncing, syncDir: isSyncing ? syncDir : nil)
+    }
 }
 
 enum MockError: Error, LocalizedError {
