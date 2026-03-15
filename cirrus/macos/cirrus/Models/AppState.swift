@@ -19,14 +19,27 @@ class AppState: ObservableObject {
     init(client: SkyClientProtocol = SkyClient(), daemonManager: DaemonManager = DaemonManager()) {
         self.client = client
         self.daemonManager = daemonManager
-        // Start backend immediately on init
         Task { await start() }
     }
 
     func start() async {
         daemonManager.start()
-        try? await Task.sleep(for: .milliseconds(500))
+        try? await Task.sleep(for: .seconds(1))
         await refresh()
+        await loadDrives()
+
+        // Poll every 10 seconds to keep UI in sync with backend
+        startPolling()
+    }
+
+    private func startPolling() {
+        Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(10))
+                await refresh()
+                await loadDrives()
+            }
+        }
     }
 
     func refresh() async {

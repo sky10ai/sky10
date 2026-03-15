@@ -54,8 +54,10 @@ class DaemonManager: ObservableObject {
 
         guard let path = binaryPath else {
             self.error = "sky10 binary not found. Run 'make build' first."
+            try? "sky10 not found".write(toFile: "/tmp/cirrus-daemon.log", atomically: true, encoding: .utf8)
             return
         }
+        try? "Found sky10 at: \(path)".write(toFile: "/tmp/cirrus-daemon.log", atomically: true, encoding: .utf8)
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: path)

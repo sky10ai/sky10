@@ -268,13 +268,10 @@ func fsServeCmd() *cobra.Command {
 			}
 			sockPath, _ := cmd.Flags().GetString("socket")
 			if sockPath == "" {
-				dir, err := config.Dir()
-				if err != nil {
-					return err
-				}
-				sockPath = filepath.Join(dir, "sky10.sock")
+				sockPath = "/tmp/sky10.sock"
 			}
-			server := skyfs.NewRPCServer(store, sockPath, filepath.Join(filepath.Dir(sockPath), "drives.json"), nil)
+			cfgDir, _ := config.Dir()
+			server := skyfs.NewRPCServer(store, sockPath, filepath.Join(cfgDir, "drives.json"), nil)
 			fmt.Println(sockPath)
 			return server.Serve(ctx)
 		},
