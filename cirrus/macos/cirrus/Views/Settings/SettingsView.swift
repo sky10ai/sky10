@@ -68,22 +68,16 @@ struct GeneralSettingsView: View {
 
 struct StorageSettingsView: View {
     @EnvironmentObject var appState: AppState
-    @AppStorage("s3Provider") private var providerID = "backblaze"
-    @AppStorage("s3Bucket") private var bucket = ""
-    @AppStorage("s3Region") private var region = ""
     @AppStorage("s3Endpoint") private var endpoint = ""
-    @AppStorage("s3AccountID") private var accountID = ""
-    @AppStorage("s3ForcePathStyle") private var forcePathStyle = false
+    @AppStorage("s3Bucket") private var bucket = ""
     @AppStorage("s3AccessKeyID") private var accessKeyID = ""
     @AppStorage("s3SecretAccessKey") private var secretAccessKey = ""
-    @State private var connectionStatus: String?
-    @State private var connectionOK = false
+    @AppStorage("s3ForcePathStyle") private var forcePathStyle = false
+    @State private var testing = false
+    @State private var testResult: String?
+    @State private var testOK = false
 
     private let labelWidth: CGFloat = 90
-
-    private var provider: StorageProvider {
-        StorageProvider.all.first { $0.id == providerID } ?? .backblaze
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -105,16 +99,9 @@ struct StorageSettingsView: View {
 
             Grid(alignment: .leading, verticalSpacing: 10) {
                 GridRow {
-                    label("Provider")
-                    Picker("", selection: $providerID) {
-                        ForEach(StorageProvider.all) { p in
-                            Label(p.name, systemImage: p.icon).tag(p.id)
-                        }
-                    }
-                    .labelsHidden()
-                    .onChange(of: providerID) { _, newValue in
-                        applyProviderDefaults(newValue)
-                    }
+                    label("Endpoint")
+                    TextField("https://atl1.digitaloceanspaces.com", text: $endpoint)
+                        .textFieldStyle(.roundedBorder)
                 }
 
                 GridRow {
@@ -124,40 +111,21 @@ struct StorageSettingsView: View {
                 }
 
                 GridRow {
-                    label("Region")
-                    Picker("", selection: $region) {
-                        ForEach(provider.regions) { r in
-                            Text(r.label).tag(r.id)
-                        }
-                    }
-                    .labelsHidden()
-                    .disabled(provider.regions.count <= 1)
-                }
-
-                if provider.needsAccountID {
-                    GridRow {
-                        label("Account ID")
-                        TextField("Cloudflare Account ID", text: $accountID)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                } else if provider.id == "minio" {
-                    GridRow {
-                        label("Endpoint")
-                        TextField("http://localhost:9000", text: $endpoint)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                }
-
-                GridRow {
                     label("Access Key")
-                    SecureField("S3_ACCESS_KEY_ID", text: $accessKeyID)
+                    SecureField("access key", text: $accessKeyID)
                         .textFieldStyle(.roundedBorder)
                 }
 
                 GridRow {
                     label("Secret Key")
-                    SecureField("S3_SECRET_ACCESS_KEY", text: $secretAccessKey)
+                    SecureField("secret key", text: $secretAccessKey)
                         .textFieldStyle(.roundedBorder)
+                }
+
+                GridRow {
+                    label("")
+                    Toggle("Path-style addressing (MinIO)", isOn: $forcePathStyle)
+                        .font(.caption)
                 }
 
                 GridRow {
@@ -167,40 +135,29 @@ struct StorageSettingsView: View {
 
                 GridRow {
                     Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                    HStack {
+                    HStack(spacing: 8) {
                         Button("Save & Test") {
-                            // Restart daemon with new credentials
-                            appState.daemonManager.restart()
-                            connectionStatus = nil
-                            connectionOK = false
-
-                            Task {
-                                try? await Task.sleep(for: .seconds(8))
-                                do {
-                                    let info = try await appState.client.getInfo()
-                                    connectionStatus = "Connected — \(info.fileCount) files"
-                                    connectionOK = true
-                                    await appState.refresh()
-                                } catch {
-                                    connectionStatus = error.localizedDescription
-                                    connectionOK = false
-                                }
-                            }
+                            saveAndTest()
                         }
-                        .disabled(bucket.isEmpty || accessKeyID.isEmpty || secretAccessKey.isEmpty)
+                        .disabled(endpoint.isEmpty || bucket.isEmpty || accessKeyID.isEmpty || secretAccessKey.isEmpty)
 
-                        if let status = connectionStatus {
-                            Image(systemName: connectionOK ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .foregroundStyle(connectionOK ? .green : .red)
-                            Text(status)
+                        if testing {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                                .frame(width: 16, height: 16)
+                            Text("Connecting...")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else if let result = testResult {
+                            Image(systemName: testOK ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundStyle(testOK ? .green : .red)
+                            Text(result)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
 
                         Spacer()
-                        Link("Setup Guide", destination: URL(string: provider.helpURL)!)
-                            .font(.caption)
                     }
                 }
             }
@@ -208,13 +165,6 @@ struct StorageSettingsView: View {
         }
         .padding(.horizontal)
         .padding(.top, 8)
-        .onAppear {
-            if region.isEmpty, let first = provider.regions.first {
-                region = first.id
-            }
-            forcePathStyle = provider.forcePathStyle
-            updateComputedEndpoint()
-        }
     }
 
     private func label(_ text: String) -> some View {
@@ -223,35 +173,28 @@ struct StorageSettingsView: View {
             .foregroundStyle(.secondary)
     }
 
-    private var isEndpointEditable: Bool {
-        provider.id == "minio" || provider.needsAccountID
-    }
+    private func saveAndTest() {
+        testing = true
+        testResult = nil
+        testOK = false
 
-    private var endpointBinding: Binding<String> {
-        if provider.needsAccountID {
-            return $accountID
-        }
-        if provider.id == "minio" {
-            return $endpoint
-        }
-        return .constant(provider.endpoint(region: region, accountID: accountID))
-    }
+        // Restart daemon with new credentials
+        appState.daemonManager.restart()
 
-    private func updateComputedEndpoint() {
-        if !isEndpointEditable {
-            endpoint = provider.endpoint(region: region, accountID: accountID)
-        }
-    }
+        Task {
+            // Wait for daemon to start
+            try? await Task.sleep(for: .seconds(8))
 
-    private func applyProviderDefaults(_ newProviderID: String) {
-        guard let newProvider = StorageProvider.all.first(where: { $0.id == newProviderID }) else { return }
-        if let firstRegion = newProvider.regions.first {
-            region = firstRegion.id
+            do {
+                let info = try await appState.client.getInfo()
+                testResult = "Connected — \(info.fileCount) files"
+                testOK = true
+                await appState.refresh()
+            } catch {
+                testResult = error.localizedDescription
+                testOK = false
+            }
+            testing = false
         }
-        if newProvider.id != "minio" {
-            endpoint = newProvider.endpoint(region: region, accountID: accountID)
-        }
-        forcePathStyle = newProvider.forcePathStyle
-        accountID = ""
     }
 }

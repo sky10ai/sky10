@@ -65,11 +65,14 @@ class DaemonManager: ObservableObject {
         }
         try? "Found sky10 at: \(path)".write(toFile: "/tmp/cirrus-daemon.log", atomically: true, encoding: .utf8)
 
+        // Write config from UI settings before starting daemon
+        writeConfig()
+
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: path)
         proc.arguments = ["fs", "serve"]
 
-        // Pass S3 credentials — check UserDefaults, then inherit from parent env
+        // Pass S3 credentials via environment
         var env = ProcessInfo.processInfo.environment
         let defaults = UserDefaults.standard
         if let key = defaults.string(forKey: "s3AccessKeyID"), !key.isEmpty {
@@ -119,6 +122,48 @@ class DaemonManager: ObservableObject {
 
     deinit {
         stop()
+    }
+
+    /// Write ~/.sky10/config.json from UserDefaults settings.
+    private func writeConfig() {
+        let defaults = UserDefaults.standard
+        let bucket = defaults.string(forKey: "s3Bucket") ?? ""
+        let endpoint = defaults.string(forKey: "s3Endpoint") ?? ""
+        let pathStyle = defaults.bool(forKey: "s3ForcePathStyle")
+
+        guard !bucket.isEmpty else { return }
+
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let configDir = "\(home)/.sky10"
+        try? FileManager.default.createDirectory(atPath: configDir, withIntermediateDirectories: true)
+
+        // Extract region from endpoint if possible, default to us-east-1
+        let region = "us-east-1"
+
+        let config: [String: Any] = [
+            "bucket": bucket,
+            "region": region,
+            "endpoint": endpoint,
+            "force_path_style": pathStyle,
+            "identity_file": "\(configDir)/key.json"
+        ]
+
+        if let data = try? JSONSerialization.data(withJSONObject: config, options: .prettyPrinted) {
+            try? data.write(to: URL(fileURLWithPath: "\(configDir)/config.json"))
+        }
+
+        // Generate key if it doesn't exist
+        let keyPath = "\(configDir)/key.json"
+        if !FileManager.default.fileExists(atPath: keyPath) {
+            // Run sky10 key generate
+            if let binary = binaryPath {
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: binary)
+                proc.arguments = ["key", "generate"]
+                try? proc.run()
+                proc.waitUntilExit()
+            }
+        }
     }
 
     /// Try to find the sky10 repo root by walking up from known paths.
