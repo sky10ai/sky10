@@ -23,6 +23,8 @@ type RPCServer struct {
 	syncDir    string
 	syncing    bool
 
+	driveManager *DriveManager
+
 	mu      sync.Mutex
 	clients map[net.Conn]bool
 	events  chan RPCEvent
@@ -57,16 +59,17 @@ type RPCError struct {
 }
 
 // NewRPCServer creates an RPC server for the given store.
-func NewRPCServer(store *Store, sockPath string, logger *slog.Logger) *RPCServer {
+func NewRPCServer(store *Store, sockPath string, driveCfgPath string, logger *slog.Logger) *RPCServer {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &RPCServer{
-		store:    store,
-		sockPath: sockPath,
-		logger:   logger,
-		clients:  make(map[net.Conn]bool),
-		events:   make(chan RPCEvent, 100),
+		store:        store,
+		sockPath:     sockPath,
+		logger:       logger,
+		clients:      make(map[net.Conn]bool),
+		events:       make(chan RPCEvent, 100),
+		driveManager: NewDriveManager(store, driveCfgPath),
 	}
 }
 
@@ -194,6 +197,16 @@ func (s *RPCServer) dispatch(ctx context.Context, req *RPCRequest) *RPCResponse 
 		result, err = s.rpcSyncStop(ctx)
 	case "skyfs.syncStatus":
 		result, err = s.rpcSyncStatus(ctx)
+	case "skyfs.driveCreate":
+		result, err = s.rpcDriveCreate(ctx, req.Params)
+	case "skyfs.driveRemove":
+		result, err = s.rpcDriveRemove(ctx, req.Params)
+	case "skyfs.driveList":
+		result, err = s.rpcDriveList(ctx)
+	case "skyfs.driveStart":
+		result, err = s.rpcDriveStart(ctx, req.Params)
+	case "skyfs.driveStop":
+		result, err = s.rpcDriveStop(ctx, req.Params)
 	default:
 		resp.Error = &RPCError{Code: -32601, Message: "method not found: " + req.Method}
 		return resp
@@ -485,4 +498,88 @@ func (s *RPCServer) rpcSyncStatus(_ context.Context) (interface{}, error) {
 	s.syncMu.Lock()
 	defer s.syncMu.Unlock()
 	return statusResult{Syncing: s.syncing, SyncDir: s.syncDir}, nil
+}
+
+// --- Drive management ---
+
+type driveCreateParams struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+}
+
+type driveInfo struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	LocalPath string `json:"local_path"`
+	Namespace string `json:"namespace"`
+	Enabled   bool   `json:"enabled"`
+	Running   bool   `json:"running"`
+}
+
+func (s *RPCServer) rpcDriveCreate(_ context.Context, params json.RawMessage) (interface{}, error) {
+	var p driveCreateParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.Name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+	if p.Namespace == "" {
+		p.Namespace = p.Name
+	}
+
+	drive, err := s.driveManager.CreateDrive(p.Name, p.Namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	// Auto-start
+	s.driveManager.StartDrive(drive.ID, s.logger)
+
+	return driveInfo{
+		ID: drive.ID, Name: drive.Name, LocalPath: drive.LocalPath,
+		Namespace: drive.Namespace, Enabled: drive.Enabled, Running: true,
+	}, nil
+}
+
+type driveIDParams struct {
+	ID string `json:"id"`
+}
+
+func (s *RPCServer) rpcDriveRemove(_ context.Context, params json.RawMessage) (interface{}, error) {
+	var p driveIDParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	return map[string]string{"status": "ok"}, s.driveManager.RemoveDrive(p.ID)
+}
+
+func (s *RPCServer) rpcDriveList(_ context.Context) (interface{}, error) {
+	drives := s.driveManager.ListDrives()
+	result := make([]driveInfo, len(drives))
+	for i, d := range drives {
+		result[i] = driveInfo{
+			ID: d.ID, Name: d.Name, LocalPath: d.LocalPath,
+			Namespace: d.Namespace, Enabled: d.Enabled,
+			Running: s.driveManager.IsRunning(d.ID),
+		}
+	}
+	return map[string]interface{}{"drives": result}, nil
+}
+
+func (s *RPCServer) rpcDriveStart(_ context.Context, params json.RawMessage) (interface{}, error) {
+	var p driveIDParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	return map[string]string{"status": "started"}, s.driveManager.StartDrive(p.ID, s.logger)
+}
+
+func (s *RPCServer) rpcDriveStop(_ context.Context, params json.RawMessage) (interface{}, error) {
+	var p driveIDParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	s.driveManager.StopDrive(p.ID)
+	return map[string]string{"status": "stopped"}, nil
 }
