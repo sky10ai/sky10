@@ -45,7 +45,7 @@ model: claude-opus-4-6
 - Tabbed settings: General, Storage, Account
 - General: sync directory picker, launch at login, poll interval
 - Storage: bucket, region, endpoint, test connection
-- Account: identity display (sky://k1_...), file count, total size
+- Account: identity display (sky10://k1_...), file count, total size
 - `@AppStorage` for persistence
 
 ## Decisions Made

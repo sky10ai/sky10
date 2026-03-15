@@ -118,7 +118,7 @@ The skeleton. Prove we can talk to S3.
   - `GenerateIdentity() (*Identity, error)`
   - `LoadIdentity(path string) (*Identity, error)`
   - `SaveIdentity(id *Identity, path string) error`
-  - `ID()` returns `sky://k1_...` format
+  - `ID()` returns `sky10://k1_...` format
 - [x] `skyfs/crypto.go` — symmetric encryption
   - `Encrypt(plaintext, key []byte) ([]byte, error)` — AES-256-GCM, random nonce prepended
   - `Decrypt(ciphertext, key []byte) ([]byte, error)` — extract nonce, decrypt

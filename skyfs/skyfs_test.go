@@ -293,7 +293,7 @@ func TestStoreInfo(t *testing.T) {
 	if info.TotalSize != 6 {
 		t.Errorf("TotalSize = %d, want 6", info.TotalSize)
 	}
-	if !strings.HasPrefix(info.ID, "sky://k1_") {
-		t.Errorf("ID = %q, want sky://k1_ prefix", info.ID)
+	if !strings.HasPrefix(info.ID, "sky10://k1_") {
+		t.Errorf("ID = %q, want sky10://k1_ prefix", info.ID)
 	}
 }

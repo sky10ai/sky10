@@ -29,10 +29,10 @@ func GenerateIdentity() (*Identity, error) {
 	return &Identity{PublicKey: pub, PrivateKey: priv}, nil
 }
 
-// ID returns the sky:// URI for this identity's public key.
+// ID returns the sky10:// URI for this identity's public key.
 func (id *Identity) ID() string {
 	encoded := base64.RawURLEncoding.EncodeToString(id.PublicKey)
-	return "sky://k1_" + encoded
+	return "sky10://k1_" + encoded
 }
 
 // identityFile is the JSON representation stored on disk.

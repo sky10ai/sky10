@@ -31,8 +31,8 @@ func TestIdentityID(t *testing.T) {
 	}
 
 	skyID := id.ID()
-	if !strings.HasPrefix(skyID, "sky://k1_") {
-		t.Errorf("ID = %q, want prefix sky://k1_", skyID)
+	if !strings.HasPrefix(skyID, "sky10://k1_") {
+		t.Errorf("ID = %q, want prefix sky10://k1_", skyID)
 	}
 }
 

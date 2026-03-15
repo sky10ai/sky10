@@ -370,7 +370,7 @@ First-run setup and preferences.
     - [ ] Endpoint URL
     - [ ] Test connection button
   - [ ] Tab: Account
-    - [ ] Identity: sky://k1_... (copyable)
+    - [ ] Identity: sky10://k1_... (copyable)
     - [ ] Public key display
     - [ ] Export identity (save key file)
 - [ ] First-run onboarding flow:

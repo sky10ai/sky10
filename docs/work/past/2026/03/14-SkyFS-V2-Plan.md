@@ -447,8 +447,8 @@ access for other identities.
   - [ ] `ListAuthorizedKeys(ctx, backend, namespace) ([]string, error)`
 - [ ] CLI commands:
   - [ ] `skyfs rotate-ns <namespace>`
-  - [ ] `skyfs grant <namespace> <sky://k1_...>`
-  - [ ] `skyfs revoke <namespace> <sky://k1_...>`
+  - [ ] `skyfs grant <namespace> <sky10://k1_...>`
+  - [ ] `skyfs revoke <namespace> <sky10://k1_...>`
   - [ ] `skyfs access <namespace>` — list who has access
 - [ ] Tests:
   - [ ] Rotate: authorized keys can still read after rotation
