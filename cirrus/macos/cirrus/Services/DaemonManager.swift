@@ -48,9 +48,15 @@ class DaemonManager: ObservableObject {
         return nil
     }
 
+    /// Restart the daemon (e.g., after credentials change).
+    func restart() {
+        stop()
+        start()
+    }
+
     /// Start the sky10 fs serve process.
     func start() {
-        guard !isRunning else { return }
+        if isRunning { return }
 
         guard let path = binaryPath else {
             self.error = "sky10 binary not found. Run 'make build' first."

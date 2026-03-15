@@ -12,6 +12,7 @@ struct SettingsView: View {
                 .tabItem { Label("Drives", systemImage: "folder.badge.gearshape") }
 
             StorageSettingsView()
+                .environmentObject(appState)
                 .tabItem { Label("Storage", systemImage: "externaldrive") }
 
             GeneralSettingsView()
@@ -66,6 +67,7 @@ struct GeneralSettingsView: View {
 }
 
 struct StorageSettingsView: View {
+    @EnvironmentObject var appState: AppState
     @AppStorage("s3Provider") private var providerID = "backblaze"
     @AppStorage("s3Bucket") private var bucket = ""
     @AppStorage("s3Region") private var region = ""
@@ -74,6 +76,8 @@ struct StorageSettingsView: View {
     @AppStorage("s3ForcePathStyle") private var forcePathStyle = false
     @AppStorage("s3AccessKeyID") private var accessKeyID = ""
     @AppStorage("s3SecretAccessKey") private var secretAccessKey = ""
+    @State private var connectionStatus: String?
+    @State private var connectionOK = false
 
     private let labelWidth: CGFloat = 90
 
@@ -160,9 +164,36 @@ struct StorageSettingsView: View {
                 GridRow {
                     Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
                     HStack {
-                        Button("Test Connection") {
-                            // TODO: call skyfs.info via RPC
+                        Button("Save & Test") {
+                            // Restart daemon with new credentials
+                            appState.daemonManager.restart()
+                            connectionStatus = nil
+                            connectionOK = false
+
+                            Task {
+                                try? await Task.sleep(for: .seconds(8))
+                                do {
+                                    let info = try await appState.client.getInfo()
+                                    connectionStatus = "Connected — \(info.fileCount) files"
+                                    connectionOK = true
+                                    await appState.refresh()
+                                } catch {
+                                    connectionStatus = error.localizedDescription
+                                    connectionOK = false
+                                }
+                            }
                         }
+                        .disabled(bucket.isEmpty || accessKeyID.isEmpty || secretAccessKey.isEmpty)
+
+                        if let status = connectionStatus {
+                            Image(systemName: connectionOK ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundStyle(connectionOK ? .green : .red)
+                            Text(status)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+
                         Spacer()
                         Link("Setup Guide", destination: URL(string: provider.helpURL)!)
                             .font(.caption)
