@@ -504,6 +504,7 @@ func (s *RPCServer) rpcSyncStatus(_ context.Context) (interface{}, error) {
 
 type driveCreateParams struct {
 	Name      string `json:"name"`
+	Path      string `json:"path"`
 	Namespace string `json:"namespace"`
 }
 
@@ -521,14 +522,14 @@ func (s *RPCServer) rpcDriveCreate(_ context.Context, params json.RawMessage) (i
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
-	if p.Name == "" {
-		return nil, fmt.Errorf("name is required")
+	if p.Name == "" || p.Path == "" {
+		return nil, fmt.Errorf("name and path are required")
 	}
 	if p.Namespace == "" {
 		p.Namespace = p.Name
 	}
 
-	drive, err := s.driveManager.CreateDrive(p.Name, p.Namespace)
+	drive, err := s.driveManager.CreateDrive(p.Name, p.Path, p.Namespace)
 	if err != nil {
 		return nil, err
 	}

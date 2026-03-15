@@ -5,12 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 )
-
-// DefaultCirrusDir is the default root for all drives.
-const DefaultCirrusDir = "Cirrus"
 
 // Drive represents a named sync folder mapped to a remote namespace.
 type Drive struct {
@@ -42,28 +38,12 @@ func NewDriveManager(store *Store, cfgPath string) *DriveManager {
 	return dm
 }
 
-// CirrusRoot returns ~/Cirrus, creating it if needed.
-func CirrusRoot() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	root := filepath.Join(home, DefaultCirrusDir)
-	os.MkdirAll(root, 0755)
-	return root, nil
-}
-
 // CreateDrive adds a new drive. Creates the local directory if needed.
-func (dm *DriveManager) CreateDrive(name, namespace string) (*Drive, error) {
+// The caller provides the full local path — no default assumed.
+func (dm *DriveManager) CreateDrive(name, localPath, namespace string) (*Drive, error) {
 	dm.mu.Lock()
 	defer dm.mu.Unlock()
 
-	root, err := CirrusRoot()
-	if err != nil {
-		return nil, err
-	}
-
-	localPath := filepath.Join(root, name)
 	if err := os.MkdirAll(localPath, 0755); err != nil {
 		return nil, fmt.Errorf("creating drive directory: %w", err)
 	}

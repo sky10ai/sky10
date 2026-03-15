@@ -558,9 +558,9 @@ func fsDriveCmd() *cobra.Command {
 
 func fsDriveCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "create <name>",
-		Short: "Create a new sync drive in ~/Cirrus/",
-		Args:  cobra.ExactArgs(1),
+		Use:   "create <name> <path>",
+		Short: "Create a new sync drive",
+		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 			store, err := openStore(ctx)
@@ -573,7 +573,7 @@ func fsDriveCreateCmd() *cobra.Command {
 			if ns == "" {
 				ns = args[0]
 			}
-			drive, err := dm.CreateDrive(args[0], ns)
+			drive, err := dm.CreateDrive(args[0], args[1], ns)
 			if err != nil {
 				return err
 			}
