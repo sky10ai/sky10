@@ -127,6 +127,54 @@ class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Drives
+
+    @Published var drives: [SkyClient.DriveInfoResult] = []
+
+    func loadDrives() async {
+        do {
+            drives = try await client.listDrives()
+            if drives.contains(where: { $0.running }) {
+                syncState = .synced
+            }
+        } catch {
+            // Best effort
+        }
+    }
+
+    func createDrive(name: String, path: String) async {
+        do {
+            let drive = try await client.createDrive(name: name, path: path, namespace: nil)
+            drives.append(drive)
+            activityLog.logUpload(path: "Drive \(name) created", size: 0)
+            syncState = .synced
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func removeDrive(id: String) async {
+        do {
+            try await client.removeDrive(id: id)
+            drives.removeAll { $0.id == id }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func toggleDrive(id: String, running: Bool) async {
+        do {
+            if running {
+                try await client.stopDrive(id: id)
+            } else {
+                try await client.startDrive(id: id)
+            }
+            await loadDrives()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
     var filteredFiles: [FileNode] {
         guard let ns = selectedNamespace else { return files }
         return files.filter { $0.namespace == ns }

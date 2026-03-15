@@ -42,6 +42,13 @@ private class PreviewSkyClient: SkyClientProtocol {
     func syncStatus() async throws -> SyncStatusInfo {
         SyncStatusInfo(syncing: false, syncDir: nil)
     }
+    func createDrive(name: String, path: String, namespace: String?) async throws -> SkyClient.DriveInfoResult {
+        SkyClient.DriveInfoResult(id: "drive_\(name)", name: name, localPath: path, namespace: namespace ?? name, enabled: true, running: true)
+    }
+    func removeDrive(id: String) async throws {}
+    func listDrives() async throws -> [SkyClient.DriveInfoResult] { [] }
+    func startDrive(id: String) async throws {}
+    func stopDrive(id: String) async throws {}
 }
 
 extension AppState {

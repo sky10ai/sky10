@@ -7,18 +7,22 @@ struct SettingsView: View {
 
     var body: some View {
         TabView {
-            GeneralSettingsView()
+            DrivesView()
                 .environmentObject(appState)
-                .tabItem { Label("General", systemImage: "gear") }
+                .tabItem { Label("Drives", systemImage: "folder.badge.gearshape") }
 
             StorageSettingsView()
                 .tabItem { Label("Storage", systemImage: "externaldrive") }
+
+            GeneralSettingsView()
+                .environmentObject(appState)
+                .tabItem { Label("General", systemImage: "gear") }
 
             AccountSettingsView()
                 .environmentObject(appState)
                 .tabItem { Label("Account", systemImage: "person") }
         }
-        .frame(width: 500, height: 340)
+        .frame(width: 500, height: 400)
     }
 }
 

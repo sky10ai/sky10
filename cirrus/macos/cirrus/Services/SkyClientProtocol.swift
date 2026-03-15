@@ -10,6 +10,11 @@ protocol SkyClientProtocol {
     func startSync(dir: String, pollSeconds: Int) async throws
     func stopSync() async throws
     func syncStatus() async throws -> SyncStatusInfo
+    func createDrive(name: String, path: String, namespace: String?) async throws -> SkyClient.DriveInfoResult
+    func removeDrive(id: String) async throws
+    func listDrives() async throws -> [SkyClient.DriveInfoResult]
+    func startDrive(id: String) async throws
+    func stopDrive(id: String) async throws
 }
 
 struct SyncStatusInfo: Codable {

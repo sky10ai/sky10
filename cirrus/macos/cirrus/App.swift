@@ -22,6 +22,7 @@ struct CirrusApp: App {
                 .frame(minWidth: 800, minHeight: 500)
                 .task {
                     await appState.refresh()
+                    await appState.loadDrives()
                 }
         }
         .defaultSize(width: 1000, height: 600)

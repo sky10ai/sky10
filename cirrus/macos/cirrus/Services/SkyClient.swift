@@ -91,4 +91,56 @@ class SkyClient {
     func syncStatus() async throws -> SyncStatusInfo {
         return try await rpc.call("skyfs.syncStatus")
     }
+
+    // MARK: - Drives
+
+    struct DriveCreateParams: Codable {
+        let name: String
+        let path: String
+        let namespace: String
+    }
+
+    struct DriveIDParams: Codable {
+        let id: String
+    }
+
+    struct DriveListResult: Codable {
+        let drives: [DriveInfoResult]
+    }
+
+    struct DriveInfoResult: Codable {
+        let id: String
+        let name: String
+        let localPath: String
+        let namespace: String
+        let enabled: Bool
+        let running: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case id, name, namespace, enabled, running
+            case localPath = "local_path"
+        }
+    }
+
+    func createDrive(name: String, path: String, namespace: String? = nil) async throws -> DriveInfoResult {
+        return try await rpc.call("skyfs.driveCreate",
+            params: DriveCreateParams(name: name, path: path, namespace: namespace ?? name))
+    }
+
+    func removeDrive(id: String) async throws {
+        let _: GenericResult = try await rpc.call("skyfs.driveRemove", params: DriveIDParams(id: id))
+    }
+
+    func listDrives() async throws -> [DriveInfoResult] {
+        let result: DriveListResult = try await rpc.call("skyfs.driveList")
+        return result.drives
+    }
+
+    func startDrive(id: String) async throws {
+        let _: GenericResult = try await rpc.call("skyfs.driveStart", params: DriveIDParams(id: id))
+    }
+
+    func stopDrive(id: String) async throws {
+        let _: GenericResult = try await rpc.call("skyfs.driveStop", params: DriveIDParams(id: id))
+    }
 }
