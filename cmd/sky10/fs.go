@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -15,604 +14,534 @@ import (
 	"github.com/sky10/sky10/internal/config"
 	s3backend "github.com/sky10/sky10/skyadapter/s3"
 	"github.com/sky10/sky10/skyfs"
+	"github.com/spf13/cobra"
 )
 
-func runFS(args []string) error {
-	if len(args) == 0 {
-		printFSUsage()
-		return nil
+func fsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "fs",
+		Short: "Encrypted file storage",
 	}
 
-	switch args[0] {
-	case "init":
-		return cmdInit(args[1:])
-	case "put":
-		return cmdPut(args[1:])
-	case "get":
-		return cmdGet(args[1:])
-	case "ls":
-		return cmdList(args[1:])
-	case "rm":
-		return cmdRemove(args[1:])
-	case "info":
-		return cmdInfo(args[1:])
-	case "serve":
-		return cmdServe(args[1:])
-	case "sync":
-		return cmdSync(args[1:])
-	case "compact":
-		return cmdCompact(args[1:])
-	case "gc":
-		return cmdGC(args[1:])
-	case "versions":
-		return cmdVersions(args[1:])
-	case "restore":
-		return cmdRestore(args[1:])
-	case "snapshots":
-		return cmdSnapshots(args[1:])
-	case "help", "--help", "-h":
-		printFSUsage()
-		return nil
-	default:
-		return fmt.Errorf("unknown fs command: %s", args[0])
+	cmd.AddCommand(fsInitCmd())
+	cmd.AddCommand(fsPutCmd())
+	cmd.AddCommand(fsGetCmd())
+	cmd.AddCommand(fsListCmd())
+	cmd.AddCommand(fsRemoveCmd())
+	cmd.AddCommand(fsInfoCmd())
+	cmd.AddCommand(fsServeCmd())
+	cmd.AddCommand(fsSyncCmd())
+	cmd.AddCommand(fsCompactCmd())
+	cmd.AddCommand(fsGCCmd())
+	cmd.AddCommand(fsVersionsCmd())
+	cmd.AddCommand(fsRestoreCmd())
+	cmd.AddCommand(fsSnapshotsCmd())
+
+	return cmd
+}
+
+func fsInitCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Initialize encrypted storage",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			bucket, _ := cmd.Flags().GetString("bucket")
+			region, _ := cmd.Flags().GetString("region")
+			endpoint, _ := cmd.Flags().GetString("endpoint")
+			pathStyle, _ := cmd.Flags().GetBool("path-style")
+
+			id, err := skyfs.GenerateIdentity()
+			if err != nil {
+				return err
+			}
+			idPath, err := config.DefaultIdentityPath()
+			if err != nil {
+				return err
+			}
+			os.MkdirAll(filepath.Dir(idPath), 0700)
+			if err := skyfs.SaveIdentity(id, idPath); err != nil {
+				return err
+			}
+			cfg := &config.Config{
+				Bucket: bucket, Region: region, Endpoint: endpoint,
+				ForcePathStyle: pathStyle, IdentityFile: idPath,
+			}
+			if err := config.Save(cfg); err != nil {
+				return err
+			}
+			ctx := context.Background()
+			backend, err := makeBackend(ctx, cfg)
+			if err != nil {
+				return err
+			}
+			if err := skyfs.WriteSchema(ctx, backend); err != nil {
+				return err
+			}
+			fmt.Printf("Initialized skyfs\n  Schema:   v%s\n  Identity: %s\n  Bucket:   %s\n",
+				skyfs.SchemaVersion, id.Address(), cfg.Bucket)
+			return nil
+		},
+	}
+	cmd.Flags().String("bucket", "", "S3 bucket name")
+	cmd.Flags().String("region", "us-east-1", "S3 region")
+	cmd.Flags().String("endpoint", "", "Custom S3 endpoint")
+	cmd.Flags().Bool("path-style", false, "Use path-style S3 addressing")
+	cmd.MarkFlagRequired("bucket")
+	return cmd
+}
+
+func fsPutCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "put <file>",
+		Short: "Encrypt and store a file",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			f, err := os.Open(args[0])
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			info, _ := f.Stat()
+
+			remotePath, _ := cmd.Flags().GetString("as")
+			if remotePath == "" {
+				remotePath = filepath.Base(args[0])
+			}
+
+			ctx := context.Background()
+			store, err := openStore(ctx)
+			if err != nil {
+				return err
+			}
+
+			pr := skyfs.NewProgressReader(f, info.Size(), func(transferred, total int64) {
+				pct := int(float64(transferred) / float64(total) * 100)
+				fmt.Fprintf(os.Stderr, "\ruploading %s  %d%%  %s / %s",
+					remotePath, pct, formatSize(transferred), formatSize(total))
+			})
+			if err := store.Put(ctx, remotePath, pr); err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "\r\033[K")
+			fmt.Printf("stored %s (%s)\n", remotePath, formatSize(info.Size()))
+			return nil
+		},
+	}
+	cmd.Flags().String("as", "", "Remote path")
+	return cmd
+}
+
+func fsGetCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "get <path>",
+		Short: "Retrieve and decrypt a file",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			out, _ := cmd.Flags().GetString("out")
+			if out == "" {
+				out = filepath.Base(args[0])
+			}
+			ctx := context.Background()
+			store, err := openStore(ctx)
+			if err != nil {
+				return err
+			}
+			f, err := os.Create(out)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			var downloaded int64
+			pw := skyfs.NewProgressWriter(f, 0, func(transferred, _ int64) {
+				downloaded = transferred
+				fmt.Fprintf(os.Stderr, "\rdownloading %s  %s", args[0], formatSize(transferred))
+			})
+			if err := store.Get(ctx, args[0], pw); err != nil {
+				os.Remove(out)
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "\r\033[K")
+			fmt.Printf("retrieved %s → %s (%s)\n", args[0], out, formatSize(downloaded))
+			return nil
+		},
+	}
+	cmd.Flags().String("out", "", "Output path")
+	return cmd
+}
+
+func fsListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "ls [prefix]",
+		Short: "List stored files",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			prefix := ""
+			if len(args) > 0 {
+				prefix = args[0]
+			}
+			ctx := context.Background()
+			store, err := openStore(ctx)
+			if err != nil {
+				return err
+			}
+			entries, err := store.List(ctx, prefix)
+			if err != nil {
+				return err
+			}
+			if len(entries) == 0 {
+				fmt.Println("no files found")
+				return nil
+			}
+			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+			fmt.Fprintf(w, "PATH\tSIZE\tMODIFIED\tNAMESPACE\n")
+			for _, e := range entries {
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+					e.Path, formatSize(e.Size),
+					e.Modified.Format("2006-01-02 15:04"), e.Namespace)
+			}
+			w.Flush()
+			return nil
+		},
 	}
 }
 
-func cmdInit(args []string) error {
-	fs := flag.NewFlagSet("init", flag.ExitOnError)
-	bucket := fs.String("bucket", "", "S3 bucket name (required)")
-	region := fs.String("region", "us-east-1", "S3 region")
-	endpoint := fs.String("endpoint", "", "custom S3 endpoint (for B2/R2/MinIO)")
-	pathStyle := fs.Bool("path-style", false, "use path-style S3 addressing")
-	fs.Parse(args)
-
-	if *bucket == "" {
-		return fmt.Errorf("--bucket is required")
+func fsRemoveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "rm <path>",
+		Short: "Remove a file",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			store, err := openStore(ctx)
+			if err != nil {
+				return err
+			}
+			if err := store.Remove(ctx, args[0]); err != nil {
+				return err
+			}
+			fmt.Printf("removed %s\n", args[0])
+			return nil
+		},
 	}
-
-	id, err := skyfs.GenerateIdentity()
-	if err != nil {
-		return fmt.Errorf("generating identity: %w", err)
-	}
-
-	idPath, err := config.DefaultIdentityPath()
-	if err != nil {
-		return err
-	}
-	dir := filepath.Dir(idPath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("creating config directory: %w", err)
-	}
-	if err := skyfs.SaveIdentity(id, idPath); err != nil {
-		return fmt.Errorf("saving identity: %w", err)
-	}
-
-	cfg := &config.Config{
-		Bucket:         *bucket,
-		Region:         *region,
-		Endpoint:       *endpoint,
-		ForcePathStyle: *pathStyle,
-		IdentityFile:   idPath,
-	}
-	if err := config.Save(cfg); err != nil {
-		return fmt.Errorf("saving config: %w", err)
-	}
-
-	// Write schema to bucket
-	ctx := context.Background()
-	backend, err := makeBackend(ctx, cfg)
-	if err != nil {
-		return err
-	}
-	if err := skyfs.WriteSchema(ctx, backend); err != nil {
-		return fmt.Errorf("writing schema: %w", err)
-	}
-
-	fmt.Printf("Initialized skyfs\n")
-	fmt.Printf("  Schema:   v%s\n", skyfs.SchemaVersion)
-	fmt.Printf("  Identity: %s\n", id.Address())
-	fmt.Printf("  Bucket:   %s\n", cfg.Bucket)
-	fmt.Printf("  Config:   %s\n", dir)
-	return nil
 }
 
-func cmdPut(args []string) error {
-	fs := flag.NewFlagSet("put", flag.ExitOnError)
-	remotePath := fs.String("as", "", "remote path (default: filename)")
-	fs.Parse(args)
-
-	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: skyfs put <file> [--as <remote-path>]")
+func fsInfoCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "info",
+		Short: "Show configuration and stats",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			store, err := openStore(ctx)
+			if err != nil {
+				return err
+			}
+			info, err := store.Info(ctx)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Identity:   %s\nFiles:      %d\nTotal size: %s\n",
+				info.ID, info.FileCount, formatSize(info.TotalSize))
+			if len(info.Namespaces) > 0 {
+				fmt.Printf("Namespaces: %v\n", info.Namespaces)
+			}
+			return nil
+		},
 	}
-
-	localPath := fs.Arg(0)
-
-	f, err := os.Open(localPath)
-	if err != nil {
-		return fmt.Errorf("opening %s: %w", localPath, err)
-	}
-	defer f.Close()
-
-	info, err := f.Stat()
-	if err != nil {
-		return fmt.Errorf("stat %s: %w", localPath, err)
-	}
-
-	remote := *remotePath
-	if remote == "" {
-		remote = filepath.Base(localPath)
-	}
-
-	ctx := context.Background()
-	store, err := openStore(ctx)
-	if err != nil {
-		return err
-	}
-
-	pr := skyfs.NewProgressReader(f, info.Size(), func(transferred, total int64) {
-		pct := int(float64(transferred) / float64(total) * 100)
-		fmt.Fprintf(os.Stderr, "\ruploading %s  %d%%  %s / %s", remote, pct,
-			formatSize(transferred), formatSize(total))
-	})
-
-	if err := store.Put(ctx, remote, pr); err != nil {
-		return fmt.Errorf("storing %s: %w", remote, err)
-	}
-
-	fmt.Fprintf(os.Stderr, "\r\033[K") // clear progress line
-	fmt.Printf("stored %s (%s)\n", remote, formatSize(info.Size()))
-	return nil
 }
 
-func cmdGet(args []string) error {
-	fs := flag.NewFlagSet("get", flag.ExitOnError)
-	outPath := fs.String("out", "", "output path (default: filename in current dir)")
-	fs.Parse(args)
-
-	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: skyfs get <path> [--out <file>]")
+func fsServeCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Start JSON-RPC server",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			go func() {
+				sigCh := make(chan os.Signal, 1)
+				signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+				<-sigCh
+				cancel()
+			}()
+			store, err := openStore(ctx)
+			if err != nil {
+				return err
+			}
+			sockPath, _ := cmd.Flags().GetString("socket")
+			if sockPath == "" {
+				dir, err := config.Dir()
+				if err != nil {
+					return err
+				}
+				sockPath = filepath.Join(dir, "skyfs.sock")
+			}
+			server := skyfs.NewRPCServer(store, sockPath, nil)
+			fmt.Println(sockPath)
+			return server.Serve(ctx)
+		},
 	}
-
-	remotePath := fs.Arg(0)
-
-	out := *outPath
-	if out == "" {
-		out = filepath.Base(remotePath)
-	}
-
-	ctx := context.Background()
-	store, err := openStore(ctx)
-	if err != nil {
-		return err
-	}
-
-	f, err := os.Create(out)
-	if err != nil {
-		return fmt.Errorf("creating %s: %w", out, err)
-	}
-	defer f.Close()
-
-	var downloaded int64
-	pw := skyfs.NewProgressWriter(f, 0, func(transferred, _ int64) {
-		downloaded = transferred
-		fmt.Fprintf(os.Stderr, "\rdownloading %s  %s", remotePath, formatSize(transferred))
-	})
-
-	if err := store.Get(ctx, remotePath, pw); err != nil {
-		os.Remove(out)
-		return fmt.Errorf("retrieving %s: %w", remotePath, err)
-	}
-
-	fmt.Fprintf(os.Stderr, "\r\033[K") // clear progress line
-	fmt.Printf("retrieved %s → %s (%s)\n", remotePath, out, formatSize(downloaded))
-	return nil
+	cmd.Flags().String("socket", "", "Socket path")
+	return cmd
 }
 
-func cmdList(args []string) error {
-	fs := flag.NewFlagSet("ls", flag.ExitOnError)
-	fs.Parse(args)
+func fsSyncCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "sync <directory>",
+		Short: "Sync a directory",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir := args[0]
+			once, _ := cmd.Flags().GetBool("once")
+			ns, _ := cmd.Flags().GetString("namespace")
+			prefix, _ := cmd.Flags().GetString("prefix")
+			poll, _ := cmd.Flags().GetInt("poll")
 
-	prefix := ""
-	if fs.NArg() > 0 {
-		prefix = fs.Arg(0)
-	}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			go func() {
+				sigCh := make(chan os.Signal, 1)
+				signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+				<-sigCh
+				fmt.Fprintln(os.Stderr, "\nshutting down...")
+				cancel()
+			}()
 
-	ctx := context.Background()
-	store, err := openStore(ctx)
-	if err != nil {
-		return err
-	}
+			store, err := openStore(ctx)
+			if err != nil {
+				return err
+			}
+			ignoreMatcher := skyfs.NewIgnoreMatcher(dir)
+			syncCfg := skyfs.SyncConfig{LocalRoot: dir, IgnoreFunc: ignoreMatcher.IgnoreFunc()}
+			if ns != "" {
+				syncCfg.Namespaces = []string{ns}
+			}
+			if prefix != "" {
+				syncCfg.Prefixes = []string{prefix}
+			}
 
-	entries, err := store.List(ctx, prefix)
-	if err != nil {
-		return err
-	}
+			if once {
+				engine := skyfs.NewSyncEngine(store, syncCfg)
+				result, err := engine.SyncOnce(ctx)
+				if err != nil {
+					return err
+				}
+				fmt.Printf("synced: %d uploaded, %d downloaded, %d errors\n",
+					result.Uploaded, result.Downloaded, len(result.Errors))
+				return nil
+			}
 
-	if len(entries) == 0 {
-		fmt.Println("no files found")
-		return nil
+			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+			daemonCfg := skyfs.DaemonConfig{SyncConfig: syncCfg, PollSeconds: poll}
+			daemon, err := skyfs.NewDaemon(store, nil, daemonCfg, logger)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("syncing %s (poll every %ds, Ctrl+C to stop)\n", dir, poll)
+			return daemon.Run(ctx)
+		},
 	}
-
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintf(w, "PATH\tSIZE\tMODIFIED\tNAMESPACE\n")
-	for _, e := range entries {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-			e.Path,
-			formatSize(e.Size),
-			e.Modified.Format("2006-01-02 15:04"),
-			e.Namespace,
-		)
-	}
-	w.Flush()
-	return nil
+	cmd.Flags().Bool("once", false, "Sync once and exit")
+	cmd.Flags().String("namespace", "", "Sync only this namespace")
+	cmd.Flags().String("prefix", "", "Sync only paths with this prefix")
+	cmd.Flags().Int("poll", 30, "Poll interval in seconds")
+	return cmd
 }
 
-func cmdRemove(args []string) error {
-	fs := flag.NewFlagSet("rm", flag.ExitOnError)
-	fs.Parse(args)
-
-	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: skyfs rm <path>")
+func fsCompactCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "compact",
+		Short: "Compact ops log into snapshot",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			keep, _ := cmd.Flags().GetInt("keep")
+			ctx := context.Background()
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			id, err := skyfs.LoadIdentity(cfg.IdentityFile)
+			if err != nil {
+				return err
+			}
+			backend, err := makeBackend(ctx, cfg)
+			if err != nil {
+				return err
+			}
+			result, err := skyfs.Compact(ctx, backend, id, keep)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Compacted %d ops\n  Deleted: %d ops, %d snapshots\n  Kept: %d snapshots\n",
+				result.OpsCompacted, result.OpsDeleted, result.SnapshotsDeleted, result.SnapshotsKept)
+			return nil
+		},
 	}
-
-	ctx := context.Background()
-	store, err := openStore(ctx)
-	if err != nil {
-		return err
-	}
-
-	if err := store.Remove(ctx, fs.Arg(0)); err != nil {
-		return err
-	}
-
-	fmt.Printf("removed %s\n", fs.Arg(0))
-	return nil
+	cmd.Flags().Int("keep", 3, "Number of snapshots to keep")
+	return cmd
 }
 
-func cmdInfo(_ []string) error {
-	ctx := context.Background()
-	store, err := openStore(ctx)
-	if err != nil {
-		return err
+func fsGCCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "gc",
+		Short: "Garbage collect orphaned blobs",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			ctx := context.Background()
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			id, err := skyfs.LoadIdentity(cfg.IdentityFile)
+			if err != nil {
+				return err
+			}
+			backend, err := makeBackend(ctx, cfg)
+			if err != nil {
+				return err
+			}
+			result, err := skyfs.GC(ctx, backend, id, dryRun)
+			if err != nil {
+				return err
+			}
+			if dryRun {
+				fmt.Println("Dry run (no changes made):")
+			}
+			fmt.Printf("Blobs referenced: %d\nBlobs found:      %d\nBlobs deleted:    %d\nBytes reclaimed:  %s\n",
+				result.BlobsReferenced, result.BlobsFound, result.BlobsDeleted, formatSize(result.BytesReclaimed))
+			return nil
+		},
 	}
-
-	info, err := store.Info(ctx)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("Identity:   %s\n", info.ID)
-	fmt.Printf("Files:      %d\n", info.FileCount)
-	fmt.Printf("Total size: %s\n", formatSize(info.TotalSize))
-	if len(info.Namespaces) > 0 {
-		fmt.Printf("Namespaces: %v\n", info.Namespaces)
-	}
-	return nil
+	cmd.Flags().Bool("dry-run", false, "Show what would be deleted")
+	return cmd
 }
 
-func cmdCompact(args []string) error {
-	fs := flag.NewFlagSet("compact", flag.ExitOnError)
-	maxSnapshots := fs.Int("keep", 3, "number of snapshots to keep")
-	fs.Parse(args)
-
-	ctx := context.Background()
-	cfg, err := config.Load()
-	if err != nil {
-		return err
+func fsVersionsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "versions <path>",
+		Short: "Show file version history",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			store, err := openStore(ctx)
+			if err != nil {
+				return err
+			}
+			versions, err := skyfs.ListVersions(ctx, store, args[0])
+			if err != nil {
+				return err
+			}
+			if len(versions) == 0 {
+				fmt.Println("no versions found")
+				return nil
+			}
+			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+			fmt.Fprintf(w, "TIMESTAMP\tDEVICE\tSIZE\tCHECKSUM\n")
+			for _, v := range versions {
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+					v.Timestamp.Format("2006-01-02 15:04:05"),
+					v.Device, formatSize(v.Size), v.Checksum[:12])
+			}
+			w.Flush()
+			return nil
+		},
 	}
-	id, err := skyfs.LoadIdentity(cfg.IdentityFile)
-	if err != nil {
-		return fmt.Errorf("loading identity: %w", err)
-	}
-	backend, err := makeBackend(ctx, cfg)
-	if err != nil {
-		return err
-	}
-
-	result, err := skyfs.Compact(ctx, backend, id, *maxSnapshots)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("Compacted %d ops into snapshot\n", result.OpsCompacted)
-	fmt.Printf("  Ops deleted:       %d\n", result.OpsDeleted)
-	fmt.Printf("  Snapshots kept:    %d\n", result.SnapshotsKept)
-	fmt.Printf("  Snapshots deleted: %d\n", result.SnapshotsDeleted)
-	return nil
 }
 
-func cmdGC(args []string) error {
-	fs := flag.NewFlagSet("gc", flag.ExitOnError)
-	dryRun := fs.Bool("dry-run", false, "show what would be deleted without deleting")
-	fs.Parse(args)
-
-	ctx := context.Background()
-	cfg, err := config.Load()
-	if err != nil {
-		return err
+func fsRestoreCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "restore <path>",
+		Short: "Restore a file version",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			at, _ := cmd.Flags().GetString("at")
+			timestamp, err := time.Parse(time.RFC3339, at)
+			if err != nil {
+				return fmt.Errorf("invalid timestamp: %w (use RFC3339)", err)
+			}
+			out, _ := cmd.Flags().GetString("out")
+			if out == "" {
+				out = filepath.Base(args[0])
+			}
+			ctx := context.Background()
+			store, err := openStore(ctx)
+			if err != nil {
+				return err
+			}
+			f, err := os.Create(out)
+			if err != nil {
+				return err
+			}
+			if err := skyfs.RestoreVersion(ctx, store, args[0], timestamp, f); err != nil {
+				f.Close()
+				os.Remove(out)
+				return err
+			}
+			info, _ := f.Stat()
+			f.Close()
+			fmt.Printf("restored %s @ %s → %s (%s)\n",
+				args[0], timestamp.Format("2006-01-02 15:04:05"), out, formatSize(info.Size()))
+			return nil
+		},
 	}
-	id, err := skyfs.LoadIdentity(cfg.IdentityFile)
-	if err != nil {
-		return fmt.Errorf("loading identity: %w", err)
-	}
-	backend, err := makeBackend(ctx, cfg)
-	if err != nil {
-		return err
-	}
-
-	result, err := skyfs.GC(ctx, backend, id, *dryRun)
-	if err != nil {
-		return err
-	}
-
-	if *dryRun {
-		fmt.Println("Dry run (no changes made):")
-	}
-	fmt.Printf("Blobs referenced: %d\n", result.BlobsReferenced)
-	fmt.Printf("Blobs found:      %d\n", result.BlobsFound)
-	fmt.Printf("Blobs deleted:    %d\n", result.BlobsDeleted)
-	fmt.Printf("Bytes reclaimed:  %s\n", formatSize(result.BytesReclaimed))
-	return nil
+	cmd.Flags().String("at", "", "Restore at this timestamp (RFC3339)")
+	cmd.Flags().String("out", "", "Output path")
+	cmd.MarkFlagRequired("at")
+	return cmd
 }
 
-func cmdServe(args []string) error {
-	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	sock := fs.String("socket", "", "socket path (default: ~/.skyfs/skyfs.sock)")
-	fs.Parse(args)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	store, err := openStore(ctx)
-	if err != nil {
-		return err
+func fsSnapshotsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "snapshots",
+		Short: "List compacted snapshots",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			store, err := openStore(ctx)
+			if err != nil {
+				return err
+			}
+			snapshots, err := skyfs.ListSnapshots(ctx, store)
+			if err != nil {
+				return err
+			}
+			if len(snapshots) == 0 {
+				fmt.Println("no snapshots")
+				return nil
+			}
+			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+			fmt.Fprintf(w, "TIMESTAMP\tFILES\tSIZE\n")
+			for _, s := range snapshots {
+				fmt.Fprintf(w, "%s\t%d\t%s\n",
+					s.Timestamp.Format("2006-01-02 15:04:05"), s.FileCount, formatSize(s.TotalSize))
+			}
+			w.Flush()
+			return nil
+		},
 	}
-
-	sockPath := *sock
-	if sockPath == "" {
-		dir, err := config.Dir()
-		if err != nil {
-			return err
-		}
-		sockPath = filepath.Join(dir, "skyfs.sock")
-	}
-
-	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
-		<-sigCh
-		cancel()
-	}()
-
-	server := skyfs.NewRPCServer(store, sockPath, nil)
-	fmt.Println(sockPath)
-	return server.Serve(ctx)
 }
 
-func cmdSync(args []string) error {
-	fs := flag.NewFlagSet("sync", flag.ExitOnError)
-	once := fs.Bool("once", false, "sync once and exit")
-	ns := fs.String("namespace", "", "sync only this namespace")
-	prefix := fs.String("prefix", "", "sync only paths with this prefix")
-	poll := fs.Int("poll", 30, "poll interval in seconds")
-	fs.Parse(args)
-
-	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: skyfs sync <directory> [--once] [--namespace ns] [--prefix p] [--poll sec]")
-	}
-
-	dir := fs.Arg(0)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Graceful shutdown on Ctrl+C
-	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
-		<-sigCh
-		fmt.Fprintln(os.Stderr, "\nshutting down...")
-		cancel()
-	}()
-
-	store, err := openStore(ctx)
-	if err != nil {
-		return err
-	}
-
-	ignoreMatcher := skyfs.NewIgnoreMatcher(dir)
-
-	syncCfg := skyfs.SyncConfig{
-		LocalRoot:  dir,
-		IgnoreFunc: ignoreMatcher.IgnoreFunc(),
-	}
-	if *ns != "" {
-		syncCfg.Namespaces = []string{*ns}
-	}
-	if *prefix != "" {
-		syncCfg.Prefixes = []string{*prefix}
-	}
-
-	if *once {
-		engine := skyfs.NewSyncEngine(store, syncCfg)
-		result, err := engine.SyncOnce(ctx)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("synced: %d uploaded, %d downloaded, %d errors\n",
-			result.Uploaded, result.Downloaded, len(result.Errors))
-		return nil
-	}
-
-	// Continuous mode — run the daemon
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-
-	daemonCfg := skyfs.DaemonConfig{
-		SyncConfig:  syncCfg,
-		PollSeconds: *poll,
-	}
-
-	daemon, err := skyfs.NewDaemon(store, nil, daemonCfg, logger)
-	if err != nil {
-		return fmt.Errorf("creating daemon: %w", err)
-	}
-
-	fmt.Printf("syncing %s (poll every %ds, Ctrl+C to stop)\n", dir, *poll)
-	return daemon.Run(ctx)
-}
-
-func cmdVersions(args []string) error {
-	fs := flag.NewFlagSet("versions", flag.ExitOnError)
-	fs.Parse(args)
-
-	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: skyfs versions <path>")
-	}
-
-	ctx := context.Background()
-	store, err := openStore(ctx)
-	if err != nil {
-		return err
-	}
-
-	versions, err := skyfs.ListVersions(ctx, store, fs.Arg(0))
-	if err != nil {
-		return err
-	}
-
-	if len(versions) == 0 {
-		fmt.Println("no versions found")
-		return nil
-	}
-
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintf(w, "TIMESTAMP\tDEVICE\tSIZE\tCHECKSUM\n")
-	for _, v := range versions {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-			v.Timestamp.Format("2006-01-02 15:04:05"),
-			v.Device,
-			formatSize(v.Size),
-			v.Checksum[:12],
-		)
-	}
-	w.Flush()
-	return nil
-}
-
-func cmdRestore(args []string) error {
-	fs := flag.NewFlagSet("restore", flag.ExitOnError)
-	outPath := fs.String("out", "", "output path (default: filename in current dir)")
-	at := fs.String("at", "", "restore version at this timestamp (RFC3339)")
-	fs.Parse(args)
-
-	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: skyfs restore <path> --at <timestamp> [--out <file>]")
-	}
-
-	remotePath := fs.Arg(0)
-
-	if *at == "" {
-		return fmt.Errorf("--at <timestamp> is required (RFC3339 format, e.g. 2026-03-14T10:00:00Z)")
-	}
-
-	timestamp, err := time.Parse(time.RFC3339, *at)
-	if err != nil {
-		return fmt.Errorf("invalid timestamp %q: %w (use RFC3339 format)", *at, err)
-	}
-
-	out := *outPath
-	if out == "" {
-		out = filepath.Base(remotePath)
-	}
-
-	ctx := context.Background()
-	store, err := openStore(ctx)
-	if err != nil {
-		return err
-	}
-
-	f, err := os.Create(out)
-	if err != nil {
-		return fmt.Errorf("creating %s: %w", out, err)
-	}
-
-	if err := skyfs.RestoreVersion(ctx, store, remotePath, timestamp, f); err != nil {
-		f.Close()
-		os.Remove(out)
-		return fmt.Errorf("restoring %s: %w", remotePath, err)
-	}
-
-	info, _ := f.Stat()
-	f.Close()
-	fmt.Printf("restored %s @ %s → %s (%s)\n", remotePath, timestamp.Format("2006-01-02 15:04:05"), out, formatSize(info.Size()))
-	return nil
-}
-
-func cmdSnapshots(_ []string) error {
-	ctx := context.Background()
-	store, err := openStore(ctx)
-	if err != nil {
-		return err
-	}
-
-	snapshots, err := skyfs.ListSnapshots(ctx, store)
-	if err != nil {
-		return err
-	}
-
-	if len(snapshots) == 0 {
-		fmt.Println("no snapshots")
-		return nil
-	}
-
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintf(w, "TIMESTAMP\tFILES\tSIZE\n")
-	for _, s := range snapshots {
-		fmt.Fprintf(w, "%s\t%d\t%s\n",
-			s.Timestamp.Format("2006-01-02 15:04:05"),
-			s.FileCount,
-			formatSize(s.TotalSize),
-		)
-	}
-	w.Flush()
-	return nil
-}
+// --- shared helpers ---
 
 func openStore(ctx context.Context) (*skyfs.Store, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
 	}
-
 	id, err := skyfs.LoadIdentity(cfg.IdentityFile)
 	if err != nil {
 		return nil, fmt.Errorf("loading identity: %w", err)
 	}
-
 	backend, err := makeBackend(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-
-	// Validate schema compatibility
 	if err := skyfs.ValidateSchema(ctx, backend); err != nil {
 		return nil, err
 	}
-
 	return skyfs.New(backend, id), nil
 }
 
 func makeBackend(ctx context.Context, cfg *config.Config) (*s3backend.Backend, error) {
-	backend, err := s3backend.New(ctx, s3backend.Config{
-		Bucket:         cfg.Bucket,
-		Region:         cfg.Region,
-		Endpoint:       cfg.Endpoint,
-		ForcePathStyle: cfg.ForcePathStyle,
+	return s3backend.New(ctx, s3backend.Config{
+		Bucket: cfg.Bucket, Region: cfg.Region,
+		Endpoint: cfg.Endpoint, ForcePathStyle: cfg.ForcePathStyle,
 	})
-	if err != nil {
-		return nil, fmt.Errorf("connecting to S3: %w", err)
-	}
-	return backend, nil
 }
 
 func formatSize(bytes int64) string {
@@ -626,23 +555,4 @@ func formatSize(bytes int64) string {
 	default:
 		return fmt.Sprintf("%d B", bytes)
 	}
-}
-
-func printFSUsage() {
-	fmt.Println(`sky10 fs — encrypted file storage
-
-Commands:
-  init --bucket <name> [--region <r>] [--endpoint <url>] [--path-style]
-  put <file> [--as <remote-path>]
-  get <path> [--out <local-path>]
-  ls [prefix]
-  rm <path>
-  info
-  serve [--socket <path>]
-  sync <dir> [--once] [--namespace ns] [--prefix p] [--poll sec]
-  compact [--keep <n>]
-  gc [--dry-run]
-  versions <path>
-  restore <path> --at <timestamp> [--out <file>]
-  snapshots`)
 }

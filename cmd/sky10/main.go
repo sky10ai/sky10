@@ -2,8 +2,9 @@
 package main
 
 import (
-	"fmt"
 	"os"
+
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -13,48 +14,18 @@ var (
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		printUsage()
-		os.Exit(1)
+	root := &cobra.Command{
+		Use:     "sky10",
+		Short:   "Encrypted storage & agent coordination",
+		Version: version + " (" + commit + ") built " + buildDate,
 	}
 
-	var err error
-	switch os.Args[1] {
-	case "key":
-		err = runKey(os.Args[2:])
-	case "fs":
-		err = runFS(os.Args[2:])
-	case "version", "--version":
-		fmt.Printf("sky10 %s (%s) built %s\n", version, commit, buildDate)
-		return
-	case "help", "--help", "-h":
-		printUsage()
-		return
-	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
-		printUsage()
+	root.AddCommand(keyCmd())
+	root.AddCommand(fsCmd())
+
+	root.CompletionOptions.HiddenDefaultCmd = true
+
+	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
-
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-}
-
-func printUsage() {
-	fmt.Printf(`sky10 — encrypted storage & agent coordination (%s)
-
-Usage:
-  sky10 key <command>     Key management
-  sky10 fs <command>      Encrypted file storage
-  sky10 version           Show version
-  sky10 help              Show this help
-
-Run 'sky10 key help' or 'sky10 fs help' for subcommand details.
-
-Environment:
-  S3_ACCESS_KEY_ID        S3 access key
-  S3_SECRET_ACCESS_KEY    S3 secret key
-`, version)
 }
