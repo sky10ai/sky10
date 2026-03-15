@@ -69,7 +69,8 @@ sky10/
 │   ├── fs/                encrypted file storage (chunking, encryption, sync, ops log)
 │   ├── adapter/           storage backend interface + S3 implementation
 │   └── config/            ~/.sky10/ configuration
-├── cirrus/              macOS desktop app (SwiftUI)
+├── cirrus/              desktop apps
+│   └── macos/           SwiftUI macOS app
 └── docs/                  guides, work logs
 ```
 
