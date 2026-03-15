@@ -4,6 +4,10 @@ import SwiftUI
 struct SkyshareApp: App {
     @StateObject private var appState = AppState()
 
+    init() {
+        FileProviderManager.register()
+    }
+
     var body: some Scene {
         MenuBarExtra {
             MenuBarView()
