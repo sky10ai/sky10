@@ -45,6 +45,9 @@ struct MenuBarView: View {
 
         Divider()
 
+        Text("Cirrus v\(appVersion)")
+            .disabled(true)
+
         Button("Quit Cirrus") {
             appState.daemonManager.stop()
             NSApplication.shared.terminate(nil)
@@ -61,5 +64,9 @@ struct MenuBarView: View {
             return "Syncing \(running) drive\(running == 1 ? "" : "s")"
         }
         return appState.syncState.label
+    }
+
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
     }
 }
