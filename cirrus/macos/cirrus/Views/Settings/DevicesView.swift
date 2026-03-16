@@ -44,32 +44,7 @@ struct DevicesView: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(devices, id: \.pubkey) { device in
-                        HStack(spacing: 10) {
-                            Image(systemName: iconName(for: device))
-                                .foregroundStyle(device.pubkey == thisDevice ? .blue : .secondary)
-                                .frame(width: 24)
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 6) {
-                                    Text(device.name)
-                                        .fontWeight(.medium)
-                                    if device.pubkey == thisDevice {
-                                        Text("(this device)")
-                                            .font(.caption2)
-                                            .foregroundStyle(.blue)
-                                    }
-                                }
-                                Text(String(device.pubkey.prefix(24)) + "...")
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                                    .monospaced()
-                            }
-                            Spacer()
-                            Text("Joined " + String(device.joined.prefix(10)))
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 4)
+                        deviceRow(device)
                         if device.pubkey != devices.last?.pubkey {
                             Divider()
                         }
@@ -115,12 +90,64 @@ struct DevicesView: View {
         }
     }
 
+    @ViewBuilder
+    private func deviceRow(_ device: DeviceInfo) -> some View {
+        let isSelf = device.pubkey == thisDevice
+        HStack(spacing: 10) {
+            Image(systemName: iconName(for: device))
+                .font(.system(size: 20))
+                .foregroundStyle(isSelf ? .blue : .secondary)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(device.name)
+                        .fontWeight(.medium)
+                    if isSelf {
+                        Text("(this device)")
+                            .font(.caption2)
+                            .foregroundStyle(.blue)
+                    }
+                }
+                HStack(spacing: 8) {
+                    if let ip = device.ip, !ip.isEmpty {
+                        Text(ip)
+                            .monospaced()
+                    }
+                    if let location = device.location, !location.isEmpty {
+                        Text(location)
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                Text("Joined " + formatDate(device.joined))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer()
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 4)
+    }
+
     private func iconName(for device: DeviceInfo) -> String {
         switch device.platform {
         case "macOS": return "laptopcomputer"
         case "Linux": return "server.rack"
         default: return "desktopcomputer"
         }
+    }
+
+    private func formatDate(_ dateStr: String) -> String {
+        // Try RFC3339 first, fall back to raw prefix
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: dateStr) {
+            let display = DateFormatter()
+            display.dateStyle = .medium
+            return display.string(from: date)
+        }
+        // Fallback: just show first 10 chars (YYYY-MM-DD)
+        return String(dateStr.prefix(10))
     }
 
     private func loadDevices() async {

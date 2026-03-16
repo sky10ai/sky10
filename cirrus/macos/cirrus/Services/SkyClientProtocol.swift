@@ -24,6 +24,8 @@ struct DeviceInfo: Codable {
     let name: String
     let joined: String
     let platform: String?
+    let ip: String?
+    let location: String?
 }
 
 struct DeviceListResponse {
