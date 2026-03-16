@@ -13,6 +13,7 @@ targets:
       - path: cirrus
         excludes:
           - Resources
+      - path: cirrus/Resources/Assets.xcassets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.sky10.cirrus
@@ -22,6 +23,7 @@ targets:
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         SWIFT_VERSION: "5.10"
         INFOPLIST_KEY_LSUIElement: true
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     info:
       path: cirrus/Info.plist
       properties:
@@ -34,6 +36,7 @@ targets:
         CFBundleExecutable: Cirrus
         LSMinimumSystemVersion: "14.0"
         LSUIElement: true
+        CFBundleIconFile: Cirrus
 
   Cirrus-Tests:
     type: bundle.unit-test
