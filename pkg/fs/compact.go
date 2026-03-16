@@ -27,13 +27,13 @@ func Compact(ctx context.Context, backend adapter.Backend, identity *Identity, m
 		maxSnapshots = 3
 	}
 
-	encKey, err := deriveManifestKey(identity)
-	if err != nil {
-		return nil, fmt.Errorf("deriving manifest key: %w", err)
-	}
-
 	// Build current state from latest snapshot + ops
 	store := New(backend, identity)
+
+	encKey, err := store.opsKey(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("ops key: %w", err)
+	}
 	state, err := store.loadCurrentState(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("loading current state: %w", err)

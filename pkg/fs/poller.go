@@ -29,9 +29,9 @@ func NewPoller(store *Store, index *Index, interval time.Duration) *Poller {
 // PollOnce checks for new ops since the last known timestamp.
 // Returns the new ops found, or nil if nothing changed.
 func (p *Poller) PollOnce(ctx context.Context) ([]Op, error) {
-	encKey, err := deriveManifestKey(p.store.identity)
+	encKey, err := p.store.opsKey(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("deriving manifest key: %w", err)
+		return nil, fmt.Errorf("ops key: %w", err)
 	}
 
 	var since int64

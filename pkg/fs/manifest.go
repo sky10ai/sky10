@@ -84,20 +84,13 @@ type ManifestEntry struct {
 const manifestKeyEnc = "keys/manifest.key.enc"
 
 // SaveManifest encrypts and uploads the manifest to the backend.
-// The manifest is encrypted with a key derived from the user's identity.
-func SaveManifest(ctx context.Context, backend adapter.Backend, m *Manifest, id *Identity) error {
+func SaveManifest(ctx context.Context, backend adapter.Backend, m *Manifest, encKey []byte) error {
 	data, err := json.Marshal(m)
 	if err != nil {
 		return fmt.Errorf("marshaling manifest: %w", err)
 	}
 
-	// Derive a deterministic manifest key from the identity
-	manifestEncKey, err := deriveManifestKey(id)
-	if err != nil {
-		return fmt.Errorf("deriving manifest key: %w", err)
-	}
-
-	encrypted, err := Encrypt(data, manifestEncKey)
+	encrypted, err := Encrypt(data, encKey)
 	if err != nil {
 		return fmt.Errorf("encrypting manifest: %w", err)
 	}
@@ -112,7 +105,7 @@ func SaveManifest(ctx context.Context, backend adapter.Backend, m *Manifest, id 
 
 // LoadManifest downloads and decrypts the manifest from the backend.
 // Returns a new empty manifest if none exists yet.
-func LoadManifest(ctx context.Context, backend adapter.Backend, id *Identity) (*Manifest, error) {
+func LoadManifest(ctx context.Context, backend adapter.Backend, encKey []byte) (*Manifest, error) {
 	rc, err := backend.Get(ctx, manifestKey)
 	if err != nil {
 		if errors.Is(err, adapter.ErrNotFound) {
@@ -127,12 +120,7 @@ func LoadManifest(ctx context.Context, backend adapter.Backend, id *Identity) (*
 		return nil, fmt.Errorf("reading manifest: %w", err)
 	}
 
-	manifestEncKey, err := deriveManifestKey(id)
-	if err != nil {
-		return nil, fmt.Errorf("deriving manifest key: %w", err)
-	}
-
-	data, err := Decrypt(encrypted, manifestEncKey)
+	data, err := Decrypt(encrypted, encKey)
 	if err != nil {
 		return nil, fmt.Errorf("decrypting manifest: %w", err)
 	}

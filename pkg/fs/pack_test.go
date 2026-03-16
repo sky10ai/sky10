@@ -86,17 +86,17 @@ func TestPackIndexSaveLoad(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	encKey, _ := GenerateNamespaceKey()
 
 	idx := NewPackIndex()
 	idx.Entries["abc123"] = PackLocation{Pack: "packs/pack_0001.enc", Offset: 0, Length: 1000}
 	idx.Entries["def456"] = PackLocation{Pack: "packs/pack_0001.enc", Offset: 1000, Length: 2000}
 
-	if err := SavePackIndex(ctx, backend, idx, id); err != nil {
+	if err := SavePackIndex(ctx, backend, idx, encKey); err != nil {
 		t.Fatalf("SavePackIndex: %v", err)
 	}
 
-	loaded, err := LoadPackIndex(ctx, backend, id)
+	loaded, err := LoadPackIndex(ctx, backend, encKey)
 	if err != nil {
 		t.Fatalf("LoadPackIndex: %v", err)
 	}
@@ -121,9 +121,9 @@ func TestPackIndexEmpty(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	encKey, _ := GenerateNamespaceKey()
 
-	idx, err := LoadPackIndex(ctx, backend, id)
+	idx, err := LoadPackIndex(ctx, backend, encKey)
 	if err != nil {
 		t.Fatalf("LoadPackIndex: %v", err)
 	}

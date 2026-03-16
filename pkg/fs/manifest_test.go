@@ -98,10 +98,11 @@ func TestManifestSaveLoad(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, err := GenerateIdentity()
+	_, err := GenerateIdentity()
 	if err != nil {
 		t.Fatalf("GenerateIdentity: %v", err)
 	}
+	encKey, _ := GenerateNamespaceKey()
 
 	m := NewManifest()
 	m.Set("journal/test.md", FileEntry{
@@ -119,11 +120,11 @@ func TestManifestSaveLoad(t *testing.T) {
 		Namespace: "default",
 	})
 
-	if err := SaveManifest(ctx, backend, m, id); err != nil {
+	if err := SaveManifest(ctx, backend, m, encKey); err != nil {
 		t.Fatalf("SaveManifest: %v", err)
 	}
 
-	loaded, err := LoadManifest(ctx, backend, id)
+	loaded, err := LoadManifest(ctx, backend, encKey)
 	if err != nil {
 		t.Fatalf("LoadManifest: %v", err)
 	}
@@ -157,9 +158,9 @@ func TestLoadManifestEmpty(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	encKey, _ := GenerateNamespaceKey()
 
-	m, err := LoadManifest(ctx, backend, id)
+	m, err := LoadManifest(ctx, backend, encKey)
 	if err != nil {
 		t.Fatalf("LoadManifest: %v", err)
 	}
@@ -172,12 +173,12 @@ func TestManifestEncrypted(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	encKey, _ := GenerateNamespaceKey()
 
 	m := NewManifest()
 	m.Set("secret.md", FileEntry{Size: 42, Checksum: "sha256:secret"})
 
-	if err := SaveManifest(ctx, backend, m, id); err != nil {
+	if err := SaveManifest(ctx, backend, m, encKey); err != nil {
 		t.Fatalf("SaveManifest: %v", err)
 	}
 
@@ -202,21 +203,21 @@ func TestManifestEncrypted(t *testing.T) {
 	}
 }
 
-func TestManifestWrongIdentity(t *testing.T) {
+func TestManifestWrongKey(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id1, _ := GenerateIdentity()
-	id2, _ := GenerateIdentity()
+	encKey, _ := GenerateNamespaceKey()
+	encKey2, _ := GenerateNamespaceKey()
 
 	m := NewManifest()
 	m.Set("test.md", FileEntry{Size: 1})
 
-	if err := SaveManifest(ctx, backend, m, id1); err != nil {
+	if err := SaveManifest(ctx, backend, m, encKey); err != nil {
 		t.Fatalf("SaveManifest: %v", err)
 	}
 
-	_, err := LoadManifest(ctx, backend, id2)
+	_, err := LoadManifest(ctx, backend, encKey2)
 	if err == nil {
 		t.Error("expected error loading manifest with wrong identity")
 	}

@@ -42,7 +42,7 @@ func NewPackIndex() *PackIndex {
 
 // LoadPackIndex downloads and decrypts the pack index.
 // Returns an empty index if none exists.
-func LoadPackIndex(ctx context.Context, backend adapter.Backend, id *Identity) (*PackIndex, error) {
+func LoadPackIndex(ctx context.Context, backend adapter.Backend, encKey []byte) (*PackIndex, error) {
 	rc, err := backend.Get(ctx, packIndexKey)
 	if err != nil {
 		if errors.Is(err, adapter.ErrNotFound) {
@@ -55,11 +55,6 @@ func LoadPackIndex(ctx context.Context, backend adapter.Backend, id *Identity) (
 	encrypted, err := io.ReadAll(rc)
 	if err != nil {
 		return nil, fmt.Errorf("reading pack index: %w", err)
-	}
-
-	encKey, err := deriveManifestKey(id)
-	if err != nil {
-		return nil, err
 	}
 
 	data, err := Decrypt(encrypted, encKey)
@@ -78,15 +73,10 @@ func LoadPackIndex(ctx context.Context, backend adapter.Backend, id *Identity) (
 }
 
 // SavePackIndex encrypts and uploads the pack index.
-func SavePackIndex(ctx context.Context, backend adapter.Backend, idx *PackIndex, id *Identity) error {
+func SavePackIndex(ctx context.Context, backend adapter.Backend, idx *PackIndex, encKey []byte) error {
 	data, err := json.Marshal(idx)
 	if err != nil {
 		return fmt.Errorf("marshaling pack index: %w", err)
-	}
-
-	encKey, err := deriveManifestKey(id)
-	if err != nil {
-		return err
 	}
 
 	encrypted, err := Encrypt(data, encKey)

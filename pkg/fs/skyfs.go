@@ -69,6 +69,12 @@ func (s *Store) SetClient(client string) {
 	s.clientID = client
 }
 
+// opsKey returns the shared encryption key for ops and manifests.
+// This is the "default" namespace key — shared across all devices.
+func (s *Store) opsKey(ctx context.Context) ([]byte, error) {
+	return s.getOrCreateNamespaceKey(ctx, "default")
+}
+
 // generateDeviceID creates a random 8-character hex device identifier.
 func generateDeviceID() string {
 	b := make([]byte, 4)
@@ -78,13 +84,13 @@ func generateDeviceID() string {
 
 // loadCurrentState loads the latest snapshot and replays any ops on top.
 func (s *Store) loadCurrentState(ctx context.Context) (*Manifest, error) {
-	encKey, err := deriveManifestKey(s.identity)
+	encKey, err := s.opsKey(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("deriving manifest key: %w", err)
+		return nil, fmt.Errorf("ops key: %w", err)
 	}
 
 	// Try to load latest snapshot
-	snapshot, snapshotTimestamp, err := s.loadLatestSnapshot(ctx)
+	snapshot, snapshotTimestamp, err := s.loadLatestSnapshot(ctx, encKey)
 	if err != nil {
 		return nil, fmt.Errorf("loading snapshot: %w", err)
 	}
@@ -101,7 +107,7 @@ func (s *Store) loadCurrentState(ctx context.Context) (*Manifest, error) {
 
 // loadLatestSnapshot finds and loads the most recent manifest snapshot.
 // Returns (nil, 0, nil) if no snapshot exists.
-func (s *Store) loadLatestSnapshot(ctx context.Context) (*Manifest, int64, error) {
+func (s *Store) loadLatestSnapshot(ctx context.Context, encKey []byte) (*Manifest, int64, error) {
 	// Check for v2 snapshots first
 	keys, err := s.backend.List(ctx, "manifests/snapshot-")
 	if err != nil {
@@ -123,7 +129,7 @@ func (s *Store) loadLatestSnapshot(ctx context.Context) (*Manifest, int64, error
 	}
 
 	// Fall back to v1 manifest (manifests/current.enc)
-	m, err := LoadManifest(ctx, s.backend, s.identity)
+	m, err := LoadManifest(ctx, s.backend, encKey)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -146,12 +152,12 @@ func (s *Store) loadManifestFromKey(ctx context.Context, key string) (*Manifest,
 		return nil, fmt.Errorf("reading %s: %w", key, err)
 	}
 
-	manifestEncKey, err := deriveManifestKey(s.identity)
+	opsEncKey, err := s.opsKey(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	data, err := Decrypt(encrypted, manifestEncKey)
+	data, err := Decrypt(encrypted, opsEncKey)
 	if err != nil {
 		return nil, fmt.Errorf("decrypting %s: %w", key, err)
 	}
@@ -187,9 +193,9 @@ func (s *Store) writeOp(ctx context.Context, op *Op) error {
 	op.Timestamp = time.Now().Unix()
 	op.Client = s.clientID
 
-	encKey, err := deriveManifestKey(s.identity)
+	encKey, err := s.opsKey(ctx)
 	if err != nil {
-		return fmt.Errorf("deriving manifest key: %w", err)
+		return fmt.Errorf("ops key: %w", err)
 	}
 
 	return WriteOp(ctx, s.backend, op, encKey)
@@ -440,9 +446,9 @@ func (s *Store) SaveSnapshot(ctx context.Context) error {
 		return fmt.Errorf("loading state: %w", err)
 	}
 
-	encKey, err := deriveManifestKey(s.identity)
+	encKey, err := s.opsKey(ctx)
 	if err != nil {
-		return fmt.Errorf("deriving manifest key: %w", err)
+		return fmt.Errorf("ops key: %w", err)
 	}
 
 	data, err := json.Marshal(state)
@@ -481,7 +487,11 @@ func (s *Store) Close(ctx context.Context) error {
 		return fmt.Errorf("flushing pack writer: %w", err)
 	}
 	if len(s.packIndex.Entries) > 0 {
-		if err := SavePackIndex(ctx, s.backend, s.packIndex, s.identity); err != nil {
+		encKey, err := s.opsKey(ctx)
+		if err != nil {
+			return fmt.Errorf("ops key: %w", err)
+		}
+		if err := SavePackIndex(ctx, s.backend, s.packIndex, encKey); err != nil {
 			return fmt.Errorf("saving pack index: %w", err)
 		}
 	}
@@ -490,7 +500,11 @@ func (s *Store) Close(ctx context.Context) error {
 
 // LoadPackState loads the pack index from the backend for reading packed chunks.
 func (s *Store) LoadPackState(ctx context.Context) error {
-	idx, err := LoadPackIndex(ctx, s.backend, s.identity)
+	encKey, err := s.opsKey(ctx)
+	if err != nil {
+		return err
+	}
+	idx, err := LoadPackIndex(ctx, s.backend, encKey)
 	if err != nil {
 		return err
 	}
