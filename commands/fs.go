@@ -291,6 +291,9 @@ func fsServeCmd() *cobra.Command {
 			}
 			store := skyfs.New(backend, id)
 
+			// Register this device on startup (idempotent — overwrites if exists)
+			skyfs.RegisterDevice(ctx, backend, id.Address(), skyfs.GetDeviceName())
+
 			server := skyfs.NewRPCServer(store, sockPath, filepath.Join(cfgDir, "drives.json"), nil)
 			fmt.Println(sockPath)
 			return server.Serve(ctx)
@@ -774,6 +777,8 @@ func fsJoinCmd() *cobra.Command {
 					return err
 				}
 				if granted {
+					// Register this device now that we're approved
+					skyfs.RegisterDevice(ctx, backend, id.Address(), skyfs.GetDeviceName())
 					fmt.Println("Approved! You can now sync.")
 					return nil
 				}
@@ -848,8 +853,8 @@ func fsApproveCmd() *cobra.Command {
 				fmt.Println("  Approved!")
 				approved++
 
-				// Cleanup invite
-				skyfs.CleanupInvite(ctx, backend, inviteID)
+				// Don't cleanup yet — joiner needs to poll and see the granted marker.
+				// Invite artifacts are small and harmless; cleanup can happen later.
 			}
 
 			if approved == 0 {
