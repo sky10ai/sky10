@@ -15,7 +15,7 @@ func TestSyncUploadNewFiles(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	dir := t.TempDir()
@@ -44,7 +44,7 @@ func TestSyncDownloadNewFiles(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	// Put files via store (simulating another device)
@@ -81,7 +81,7 @@ func TestSyncSkipsUnchanged(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	dir := t.TempDir()
@@ -109,7 +109,7 @@ func TestSyncBidirectional(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	// Remote has file A
@@ -150,7 +150,7 @@ func TestSyncModifiedLocalFile(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	dir := t.TempDir()
@@ -180,7 +180,7 @@ func TestSyncSelectiveNamespace(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	// Remote has files in two namespaces
@@ -211,7 +211,7 @@ func TestSyncSelectivePrefix(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	store.Put(ctx, "docs/readme.md", strings.NewReader("readme"))
@@ -233,7 +233,7 @@ func TestSyncIgnoreDotfiles(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	dir := t.TempDir()
@@ -318,7 +318,7 @@ func TestDownloadAll(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	store.Put(ctx, "a.md", strings.NewReader("aaa"))

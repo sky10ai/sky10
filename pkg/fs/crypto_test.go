@@ -162,9 +162,9 @@ func TestEncryptNonDeterministic(t *testing.T) {
 func TestWrapUnwrapKey(t *testing.T) {
 	t.Parallel()
 
-	id, err := GenerateIdentity()
+	id, err := GenerateDeviceKey()
 	if err != nil {
-		t.Fatalf("GenerateIdentity: %v", err)
+		t.Fatalf("GenerateDeviceKey: %v", err)
 	}
 
 	dataKey, err := GenerateKey()
@@ -195,8 +195,8 @@ func TestWrapUnwrapKey(t *testing.T) {
 func TestWrapUnwrapDifferentIdentities(t *testing.T) {
 	t.Parallel()
 
-	id1, _ := GenerateIdentity()
-	id2, _ := GenerateIdentity()
+	id1, _ := GenerateDeviceKey()
+	id2, _ := GenerateDeviceKey()
 
 	dataKey, _ := GenerateKey()
 
@@ -216,8 +216,8 @@ func TestWrapUnwrapDifferentIdentities(t *testing.T) {
 func TestWrapCrossIdentity(t *testing.T) {
 	t.Parallel()
 
-	alice, _ := GenerateIdentity()
-	bob, _ := GenerateIdentity()
+	alice, _ := GenerateDeviceKey()
+	bob, _ := GenerateDeviceKey()
 	dataKey, _ := GenerateKey()
 
 	// Alice wraps a key for Bob using only Bob's public key
@@ -245,8 +245,8 @@ func TestWrapCrossIdentity(t *testing.T) {
 func TestWrapSameKeyForMultipleIdentities(t *testing.T) {
 	t.Parallel()
 
-	alice, _ := GenerateIdentity()
-	bob, _ := GenerateIdentity()
+	alice, _ := GenerateDeviceKey()
+	bob, _ := GenerateDeviceKey()
 	dataKey, _ := GenerateKey()
 
 	// Wrap the same key for both Alice and Bob
@@ -282,7 +282,7 @@ func TestWrapSameKeyForMultipleIdentities(t *testing.T) {
 func TestUnwrapKeyTooShort(t *testing.T) {
 	t.Parallel()
 
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	_, err := UnwrapKey([]byte("short"), id.PrivateKey)
 	if err == nil {
 		t.Error("expected error for short wrapped key")

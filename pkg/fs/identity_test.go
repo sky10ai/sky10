@@ -8,11 +8,11 @@ import (
 	"testing"
 )
 
-func TestGenerateIdentity(t *testing.T) {
+func TestGenerateDeviceKey(t *testing.T) {
 	t.Parallel()
-	id, err := GenerateIdentity()
+	id, err := GenerateDeviceKey()
 	if err != nil {
-		t.Fatalf("GenerateIdentity: %v", err)
+		t.Fatalf("GenerateKey: %v", err)
 	}
 
 	if len(id.PublicKey) != ed25519.PublicKeySize {
@@ -25,9 +25,9 @@ func TestGenerateIdentity(t *testing.T) {
 
 func TestIdentityID(t *testing.T) {
 	t.Parallel()
-	id, err := GenerateIdentity()
+	id, err := GenerateDeviceKey()
 	if err != nil {
-		t.Fatalf("GenerateIdentity: %v", err)
+		t.Fatalf("GenerateKey: %v", err)
 	}
 
 	skyID := id.Address()
@@ -38,13 +38,13 @@ func TestIdentityID(t *testing.T) {
 
 func TestIdentityUniqueness(t *testing.T) {
 	t.Parallel()
-	id1, err := GenerateIdentity()
+	id1, err := GenerateDeviceKey()
 	if err != nil {
-		t.Fatalf("GenerateIdentity 1: %v", err)
+		t.Fatalf("GenerateKey 1: %v", err)
 	}
-	id2, err := GenerateIdentity()
+	id2, err := GenerateDeviceKey()
 	if err != nil {
-		t.Fatalf("GenerateIdentity 2: %v", err)
+		t.Fatalf("GenerateKey 2: %v", err)
 	}
 
 	if id1.Address() == id2.Address() {
@@ -52,16 +52,16 @@ func TestIdentityUniqueness(t *testing.T) {
 	}
 }
 
-func TestSaveLoadIdentity(t *testing.T) {
+func TestSaveLoadKey(t *testing.T) {
 	t.Parallel()
-	id, err := GenerateIdentity()
+	id, err := GenerateDeviceKey()
 	if err != nil {
-		t.Fatalf("GenerateIdentity: %v", err)
+		t.Fatalf("GenerateKey: %v", err)
 	}
 
 	path := filepath.Join(t.TempDir(), "identity.key")
-	if err := SaveIdentity(id, path); err != nil {
-		t.Fatalf("SaveIdentity: %v", err)
+	if err := SaveKey(id, path); err != nil {
+		t.Fatalf("SaveKey: %v", err)
 	}
 
 	// Check file permissions
@@ -73,9 +73,9 @@ func TestSaveLoadIdentity(t *testing.T) {
 		t.Errorf("file permissions = %o, want 0600", perm)
 	}
 
-	loaded, err := LoadIdentity(path)
+	loaded, err := LoadKey(path)
 	if err != nil {
-		t.Fatalf("LoadIdentity: %v", err)
+		t.Fatalf("LoadKey: %v", err)
 	}
 
 	if !id.PublicKey.Equal(loaded.PublicKey) {
@@ -89,12 +89,12 @@ func TestSaveLoadIdentity(t *testing.T) {
 	}
 }
 
-func TestLoadIdentityErrors(t *testing.T) {
+func TestLoadKeyErrors(t *testing.T) {
 	t.Parallel()
 
 	t.Run("file not found", func(t *testing.T) {
 		t.Parallel()
-		_, err := LoadIdentity("/nonexistent/path")
+		_, err := LoadKey("/nonexistent/path")
 		if err == nil {
 			t.Error("expected error for missing file")
 		}
@@ -106,7 +106,7 @@ func TestLoadIdentityErrors(t *testing.T) {
 		if err := os.WriteFile(path, []byte("not json"), 0600); err != nil {
 			t.Fatal(err)
 		}
-		_, err := LoadIdentity(path)
+		_, err := LoadKey(path)
 		if err == nil {
 			t.Error("expected error for invalid JSON")
 		}
@@ -119,7 +119,7 @@ func TestLoadIdentityErrors(t *testing.T) {
 		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
 			t.Fatal(err)
 		}
-		_, err := LoadIdentity(path)
+		_, err := LoadKey(path)
 		if err == nil {
 			t.Error("expected error for short keys")
 		}

@@ -98,9 +98,9 @@ func TestManifestSaveLoad(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	_, err := GenerateIdentity()
+	_, err := GenerateDeviceKey()
 	if err != nil {
-		t.Fatalf("GenerateIdentity: %v", err)
+		t.Fatalf("GenerateKey: %v", err)
 	}
 	encKey, _ := GenerateNamespaceKey()
 

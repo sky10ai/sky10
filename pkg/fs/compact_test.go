@@ -13,7 +13,7 @@ func TestCompact(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	// Write several files
@@ -80,7 +80,7 @@ func TestCompactSnapshotRetention(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	// Create multiple compaction cycles
@@ -104,7 +104,7 @@ func TestCompactEmpty(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 
 	// Compact with no ops should work (no-op)
 	result, err := Compact(ctx, backend, id, 2)
@@ -120,7 +120,7 @@ func TestCompactPreservesState(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	// Put, delete, put pattern

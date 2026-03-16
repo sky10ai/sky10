@@ -12,7 +12,7 @@ func TestPackWriterAndRead(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	index := NewPackIndex()
 
 	pw := NewPackWriter(backend, id, index)
@@ -66,7 +66,7 @@ func TestPackWriterLargeChunkRejected(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	index := NewPackIndex()
 
 	pw := NewPackWriter(backend, id, index)
@@ -136,7 +136,7 @@ func TestPackWriterAutoFlush(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	index := NewPackIndex()
 
 	pw := NewPackWriter(backend, id, index)

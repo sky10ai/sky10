@@ -49,8 +49,8 @@ func TestMultiDeviceCrossReadWrite(t *testing.T) {
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
 
-	idA, _ := GenerateIdentity()
-	idB, _ := GenerateIdentity()
+	idA, _ := GenerateDeviceKey()
+	idB, _ := GenerateDeviceKey()
 
 	storeA := NewWithDevice(backend, idA, "device-a")
 	if err := storeA.Put(ctx, "file1.md", strings.NewReader("from A")); err != nil {
@@ -100,8 +100,8 @@ func TestUnauthorizedDeviceCannotOverwriteKey(t *testing.T) {
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
 
-	idA, _ := GenerateIdentity()
-	idB, _ := GenerateIdentity()
+	idA, _ := GenerateDeviceKey()
+	idB, _ := GenerateDeviceKey()
 
 	storeA := NewWithDevice(backend, idA, "device-a")
 	if err := storeA.Put(ctx, "secret.md", strings.NewReader("important data")); err != nil {
@@ -135,8 +135,8 @@ func TestFullInviteFlowEndToEnd(t *testing.T) {
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
 
-	idA, _ := GenerateIdentity()
-	idB, _ := GenerateIdentity()
+	idA, _ := GenerateDeviceKey()
+	idB, _ := GenerateDeviceKey()
 
 	storeA := NewWithDevice(backend, idA, "device-a")
 	if err := storeA.Put(ctx, "from-a.md", strings.NewReader("hello from A")); err != nil {
@@ -195,8 +195,8 @@ func TestSubfoldersShareDriveNamespace(t *testing.T) {
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
 
-	idA, _ := GenerateIdentity()
-	idB, _ := GenerateIdentity()
+	idA, _ := GenerateDeviceKey()
+	idB, _ := GenerateDeviceKey()
 
 	// Device A with a fixed namespace (simulating a drive)
 	storeA := NewWithDevice(backend, idA, "device-a")
@@ -253,8 +253,8 @@ func TestNewNamespaceWrappedForAllDevices(t *testing.T) {
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
 
-	idA, _ := GenerateIdentity()
-	idB, _ := GenerateIdentity()
+	idA, _ := GenerateDeviceKey()
+	idB, _ := GenerateDeviceKey()
 
 	// Device A writes initial file (creates "default" namespace)
 	storeA := NewWithDevice(backend, idA, "device-a")
@@ -298,9 +298,9 @@ func TestThreeDevices(t *testing.T) {
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
 
-	idA, _ := GenerateIdentity()
-	idB, _ := GenerateIdentity()
-	idC, _ := GenerateIdentity()
+	idA, _ := GenerateDeviceKey()
+	idB, _ := GenerateDeviceKey()
+	idC, _ := GenerateDeviceKey()
 
 	// A writes
 	storeA := NewWithDevice(backend, idA, "device-a")
@@ -341,8 +341,8 @@ func TestOpsUseSharedKeyNotPerDevice(t *testing.T) {
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
 
-	idA, _ := GenerateIdentity()
-	idB, _ := GenerateIdentity()
+	idA, _ := GenerateDeviceKey()
+	idB, _ := GenerateDeviceKey()
 
 	storeA := NewWithDevice(backend, idA, "device-a")
 	storeA.Put(ctx, "test.md", strings.NewReader("hello"))
@@ -406,9 +406,9 @@ func TestDeviceRejoinWithNewKey(t *testing.T) {
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
 
-	idA, _ := GenerateIdentity()
-	idB1, _ := GenerateIdentity() // B's first key
-	idB2, _ := GenerateIdentity() // B's second key (after reset)
+	idA, _ := GenerateDeviceKey()
+	idB1, _ := GenerateDeviceKey() // B's first key
+	idB2, _ := GenerateDeviceKey() // B's second key (after reset)
 
 	// A creates store
 	storeA := NewWithDevice(backend, idA, "device-a")

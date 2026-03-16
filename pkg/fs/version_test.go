@@ -13,7 +13,7 @@ func TestListVersions(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	// Write 3 versions of the same file
@@ -40,7 +40,7 @@ func TestRestoreVersion(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	store.Put(ctx, "doc.md", strings.NewReader("version 1"))
@@ -67,7 +67,7 @@ func TestListSnapshots(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	store.Put(ctx, "a.md", strings.NewReader("aaa"))
@@ -92,7 +92,7 @@ func TestListVersionsNoVersions(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	versions, err := ListVersions(ctx, store, "nonexistent.md")

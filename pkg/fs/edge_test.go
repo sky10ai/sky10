@@ -200,7 +200,7 @@ func TestStoreNamespaceKeyCaching(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	// Put two files in the same namespace
