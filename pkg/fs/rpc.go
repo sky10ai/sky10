@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -727,9 +728,7 @@ func (s *RPCServer) rpcApprove(ctx context.Context) (interface{}, error) {
 		}
 		granted, _ := IsGranted(ctx, s.store.backend, inviteID)
 		if granted {
-			joinerID := shortPubkeyID(joinerAddr)
-			keyPath := "keys/namespaces/default." + joinerID + ".ns.enc"
-			if _, err := s.store.backend.Head(ctx, keyPath); err == nil {
+			if s.joinerHasAllKeys(ctx, joinerAddr) {
 				continue
 			}
 		}
@@ -784,14 +783,12 @@ func (s *RPCServer) tryAutoApprove(ctx context.Context) {
 		}
 		granted, _ := IsGranted(ctx, s.store.backend, inviteID)
 		if granted {
-			// Check if the device key was actually written — a crash between
-			// granting and key-writing leaves the joiner locked out.
-			joinerID := shortPubkeyID(joinerAddr)
-			keyPath := "keys/namespaces/default." + joinerID + ".ns.enc"
-			if _, err := s.store.backend.Head(ctx, keyPath); err == nil {
-				continue // key exists, truly done
+			// Check if ALL namespace keys were wrapped for the joiner.
+			// A partial approve (crash, or new namespace created after join)
+			// needs to be retried.
+			if s.joinerHasAllKeys(ctx, joinerAddr) {
+				continue
 			}
-			// Key missing — fall through to re-run ApproveJoin
 		}
 		if err := ApproveJoin(ctx, s.store.backend, s.store.identity, joinerAddr, inviteID); err != nil {
 			s.logger.Warn("auto-approve failed", "invite", inviteID, "error", err)
@@ -800,6 +797,38 @@ func (s *RPCServer) tryAutoApprove(ctx context.Context) {
 		RegisterDevice(ctx, s.store.backend, joinerAddr, "Pending Device")
 		s.logger.Info("auto-approved device", "address", joinerAddr)
 	}
+}
+
+// joinerHasAllKeys checks if the joiner has a wrapped key for every
+// namespace that this device (the approver) has access to.
+func (s *RPCServer) joinerHasAllKeys(ctx context.Context, joinerAddr string) bool {
+	joinerID := shortPubkeyID(joinerAddr)
+	myID := shortPubkeyID(s.store.identity.Address())
+
+	allKeys, err := s.store.backend.List(ctx, "keys/namespaces/")
+	if err != nil {
+		return false
+	}
+
+	// Find namespaces we have access to (our device-specific key or the base key)
+	myNamespaces := make(map[string]bool)
+	for _, k := range allKeys {
+		ns := extractNamespaceName(k)
+		// Check if we can unwrap this key (it's ours)
+		if strings.Contains(k, "."+myID+".") || strings.HasSuffix(k, ns+".ns.enc") {
+			myNamespaces[ns] = true
+		}
+	}
+
+	// Check joiner has a key for each namespace
+	for ns := range myNamespaces {
+		joinerKeyPath := "keys/namespaces/" + ns + "." + joinerID + ".ns.enc"
+		if _, err := s.store.backend.Head(ctx, joinerKeyPath); err != nil {
+			return false
+		}
+	}
+
+	return true
 }
 
 func splitInvitePath2(key string) string {
