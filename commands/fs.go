@@ -37,6 +37,9 @@ func FsCmd() *cobra.Command {
 	cmd.AddCommand(fsRestoreCmd())
 	cmd.AddCommand(fsSnapshotsCmd())
 	cmd.AddCommand(fsDriveCmd())
+	cmd.AddCommand(fsInviteCmd())
+	cmd.AddCommand(fsJoinCmd())
+	cmd.AddCommand(fsApproveCmd())
 
 	return cmd
 }
@@ -645,6 +648,227 @@ func fsDriveRemoveCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func fsInviteCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "invite",
+		Short: "Generate an invite code for another device",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			id, err := skyfs.LoadIdentity(cfg.IdentityFile)
+			if err != nil {
+				return err
+			}
+			ctx := context.Background()
+			backend, err := makeBackend(ctx, cfg)
+			if err != nil {
+				return err
+			}
+
+			// Read S3 credentials from environment
+			accessKey := os.Getenv("S3_ACCESS_KEY_ID")
+			secretKey := os.Getenv("S3_SECRET_ACCESS_KEY")
+			if accessKey == "" || secretKey == "" {
+				return fmt.Errorf("S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY must be set")
+			}
+
+			code, err := skyfs.CreateInvite(ctx, backend, skyfs.InviteConfig{
+				Endpoint:       cfg.Endpoint,
+				Bucket:         cfg.Bucket,
+				Region:         cfg.Region,
+				AccessKey:      accessKey,
+				SecretKey:      secretKey,
+				ForcePathStyle: cfg.ForcePathStyle,
+				DevicePubKey:   id.Address(),
+			})
+			if err != nil {
+				return err
+			}
+
+			fmt.Println("\nShare this invite code with the other device:")
+			fmt.Println(code)
+			fmt.Println("\nThe other device runs: sky10 fs join <code>")
+			return nil
+		},
+	}
+}
+
+func fsJoinCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "join <invite-code>",
+		Short: "Join a bucket using an invite code",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			invite, err := skyfs.DecodeInvite(args[0])
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("Joining bucket %s at %s\n", invite.Bucket, invite.Endpoint)
+
+			// Generate new key for this device
+			cfgDir, err := config.Dir()
+			if err != nil {
+				return err
+			}
+			keyPath := filepath.Join(cfgDir, "key.json")
+
+			var id *skyfs.Identity
+			if _, err := os.Stat(keyPath); os.IsNotExist(err) {
+				id, err = skyfs.GenerateIdentity()
+				if err != nil {
+					return err
+				}
+				os.MkdirAll(cfgDir, 0700)
+				if err := skyfs.SaveIdentity(id, keyPath); err != nil {
+					return err
+				}
+				fmt.Printf("Generated key: %s\n", id.Address())
+			} else {
+				id, err = skyfs.LoadIdentity(keyPath)
+				if err != nil {
+					return err
+				}
+				fmt.Printf("Using existing key: %s\n", id.Address())
+			}
+
+			// Write config (WITHOUT reinitializing — don't overwrite existing schema)
+			cfg := &config.Config{
+				Bucket:         invite.Bucket,
+				Region:         invite.Region,
+				Endpoint:       invite.Endpoint,
+				ForcePathStyle: invite.ForcePathStyle,
+				IdentityFile:   keyPath,
+			}
+			if err := config.Save(cfg); err != nil {
+				return err
+			}
+
+			// Connect to S3 and submit our public key
+			ctx := context.Background()
+			os.Setenv("S3_ACCESS_KEY_ID", invite.AccessKey)
+			os.Setenv("S3_SECRET_ACCESS_KEY", invite.SecretKey)
+			backend, err := makeBackend(ctx, cfg)
+			if err != nil {
+				return err
+			}
+
+			if err := skyfs.SubmitJoin(ctx, backend, invite.InviteID, id.Address()); err != nil {
+				return fmt.Errorf("submitting join request: %w", err)
+			}
+
+			fmt.Println("Join request submitted. Waiting for approval...")
+			fmt.Println("The inviting device needs to run: sky10 fs approve")
+
+			// Poll for approval
+			for i := 0; i < 60; i++ { // wait up to 5 minutes
+				granted, err := skyfs.IsGranted(ctx, backend, invite.InviteID)
+				if err != nil {
+					return err
+				}
+				if granted {
+					fmt.Println("Approved! You can now sync.")
+					return nil
+				}
+				fmt.Print(".")
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(5 * time.Second):
+				}
+			}
+
+			fmt.Println("\nTimed out waiting for approval. Run 'sky10 fs join' again later.")
+			return nil
+		},
+	}
+}
+
+func fsApproveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "approve",
+		Short: "Approve a pending join request",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			id, err := skyfs.LoadIdentity(cfg.IdentityFile)
+			if err != nil {
+				return err
+			}
+			ctx := context.Background()
+			backend, err := makeBackend(ctx, cfg)
+			if err != nil {
+				return err
+			}
+
+			// Find pending invites
+			inviteKeys, err := backend.List(ctx, "invites/")
+			if err != nil {
+				return err
+			}
+
+			// Group by invite ID and find ones with pubkey but no granted
+			inviteIDs := make(map[string]bool)
+			for _, k := range inviteKeys {
+				// Extract invite ID from path: invites/<id>/...
+				parts := splitInvitePath(k)
+				if parts != "" {
+					inviteIDs[parts] = true
+				}
+			}
+
+			approved := 0
+			for inviteID := range inviteIDs {
+				// Check if there's a pubkey submission
+				joinerAddr, err := skyfs.CheckJoinRequest(ctx, backend, inviteID)
+				if err != nil || joinerAddr == "" {
+					continue
+				}
+
+				// Check if already granted
+				granted, _ := skyfs.IsGranted(ctx, backend, inviteID)
+				if granted {
+					continue
+				}
+
+				fmt.Printf("Approving device: %s\n", joinerAddr)
+				if err := skyfs.ApproveJoin(ctx, backend, id, joinerAddr, inviteID); err != nil {
+					fmt.Fprintf(os.Stderr, "  error: %v\n", err)
+					continue
+				}
+				fmt.Println("  Approved!")
+				approved++
+
+				// Cleanup invite
+				skyfs.CleanupInvite(ctx, backend, inviteID)
+			}
+
+			if approved == 0 {
+				fmt.Println("No pending join requests found.")
+			}
+			return nil
+		},
+	}
+}
+
+// splitInvitePath extracts invite ID from "invites/<id>/..." path.
+func splitInvitePath(key string) string {
+	if len(key) < 9 || key[:8] != "invites/" {
+		return ""
+	}
+	rest := key[8:]
+	for i, c := range rest {
+		if c == '/' {
+			return rest[:i]
+		}
+	}
+	return ""
 }
 
 func formatSize(bytes int64) string {
