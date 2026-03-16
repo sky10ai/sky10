@@ -666,8 +666,10 @@ func (s *RPCServer) rpcApprove(ctx context.Context) (interface{}, error) {
 		if err := ApproveJoin(ctx, s.store.backend, s.store.identity, joinerAddr, inviteID); err != nil {
 			continue
 		}
+		// Register the joiner as a device
+		RegisterDevice(ctx, s.store.backend, joinerAddr, "Pending Device")
 		approved++
-		CleanupInvite(ctx, s.store.backend, inviteID)
+		// Don't cleanup — joiner needs to poll and see the granted marker
 	}
 
 	return map[string]int{"approved": approved}, nil
