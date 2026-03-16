@@ -605,7 +605,7 @@ func (s *RPCServer) rpcDeviceList(ctx context.Context) (interface{}, error) {
 		return nil, err
 	}
 	return map[string]interface{}{
-		"devices":    devices,
+		"devices":     devices,
 		"this_device": s.store.identity.Address(),
 	}, nil
 }
