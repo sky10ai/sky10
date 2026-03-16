@@ -211,9 +211,9 @@ func TestStoreNamespaceKeyCaching(t *testing.T) {
 		t.Fatalf("Put b: %v", err)
 	}
 
-	// Should have exactly one namespace key in storage
+	// journal + default (used for ops encryption)
 	keys, _ := backend.List(ctx, "keys/namespaces/")
-	if len(keys) != 1 {
-		t.Errorf("expected 1 namespace key, got %d", len(keys))
+	if len(keys) != 2 {
+		t.Errorf("expected 2 namespace keys, got %d", len(keys))
 	}
 }

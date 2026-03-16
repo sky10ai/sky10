@@ -28,7 +28,7 @@ type Snapshot struct {
 
 // ListVersions returns all historical versions of a file from the ops log.
 func ListVersions(ctx context.Context, store *Store, path string) ([]Version, error) {
-	encKey, err := deriveManifestKey(store.identity)
+	encKey, err := store.opsKey(ctx)
 	if err != nil {
 		return nil, err
 	}

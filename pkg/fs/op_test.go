@@ -25,8 +25,7 @@ func TestWriteReadOps(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
-	encKey, _ := deriveManifestKey(id)
+	encKey, _ := GenerateNamespaceKey()
 
 	ops := []Op{
 		{Type: OpPut, Path: "file1.md", Chunks: []string{"aaa"}, Size: 100, Checksum: "c1", Device: "dev-a", Timestamp: 1000, Seq: 1},
