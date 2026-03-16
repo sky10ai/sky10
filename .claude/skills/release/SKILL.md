@@ -38,21 +38,22 @@ git tag v$VERSION
 git push origin v$VERSION
 ```
 
-### 4. Build cross-platform binaries
+### 4. Build binary
+
+Currently only building for macOS ARM64. TODO: add other platforms later.
 
 ```bash
-rm -f bin/sky10-*
-make platforms checksums
+rm -f bin/sky10-darwin-arm64
+GOOS=darwin GOARCH=arm64 go build -trimpath -buildvcs=false \
+  -ldflags "-s -w -X 'main.version=v$VERSION'" -o bin/sky10-darwin-arm64 .
+cd bin && shasum -a 256 sky10-darwin-arm64 > checksums.txt && cat checksums.txt
 ```
-
-Verify checksums output shows 4 binaries with unique hashes.
 
 ### 5. Create GitHub release
 
 ```bash
 gh release create v$VERSION \
-  bin/sky10-darwin-amd64 bin/sky10-darwin-arm64 \
-  bin/sky10-linux-amd64 bin/sky10-linux-arm64 \
+  bin/sky10-darwin-arm64 \
   bin/checksums.txt \
   --title "v$VERSION — <short summary>" \
   --notes "<release notes>"
@@ -67,12 +68,13 @@ The tap repo is at `/tmp/homebrew-tap`. If it doesn't exist, clone it:
 git clone https://github.com/sky10ai/homebrew-tap.git /tmp/homebrew-tap
 ```
 
-Update these files using the checksums from step 4:
+Update these files using the checksum from step 4:
 
 **`/tmp/homebrew-tap/Formula/sky10.rb`:**
 - `version` field
-- All 4 `url` fields (darwin-arm64, darwin-amd64, linux-arm64, linux-amd64) — update the tag in the URL
-- All 4 `sha256` fields — from checksums.txt
+- The darwin-arm64 `url` field — update the tag in the URL
+- The darwin-arm64 `sha256` field — from checksums.txt
+- Keep other platform entries as-is (they'll 404 but that's fine — TODO: add them later)
 
 **`/tmp/homebrew-tap/Formula/sky10-cirrus.rb`:**
 - The `tag:` value in the `url` line

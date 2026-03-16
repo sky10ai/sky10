@@ -6,7 +6,7 @@ struct RPCErrorTests {
 
     @Test("Error descriptions")
     func descriptions() {
-        #expect(RPCError.connectionFailed.errorDescription == "Cannot connect to skyfs daemon")
+        #expect(RPCError.connectionFailed.errorDescription == "Cannot connect to sky10 daemon")
         #expect(RPCError.readFailed.errorDescription == "Failed to read from daemon")
         #expect(RPCError.invalidResponse.errorDescription == "Invalid response from daemon")
         #expect(RPCError.serverError("file not found").errorDescription == "file not found")
