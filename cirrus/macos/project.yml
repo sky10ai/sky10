@@ -18,7 +18,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.sky10.cirrus
         PRODUCT_NAME: Cirrus
-        MARKETING_VERSION: "0.4.7"
+        MARKETING_VERSION: "0.4.8"
         CURRENT_PROJECT_VERSION: "1"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         SWIFT_VERSION: "5.10"
@@ -31,7 +31,7 @@ targets:
         CFBundleDisplayName: Cirrus
         CFBundleIdentifier: ai.sky10.cirrus
         CFBundleVersion: "1"
-        CFBundleShortVersionString: "0.4.7"
+        CFBundleShortVersionString: "0.4.8"
         CFBundlePackageType: APPL
         CFBundleExecutable: Cirrus
         LSMinimumSystemVersion: "14.0"
