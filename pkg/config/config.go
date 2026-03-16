@@ -34,9 +34,10 @@ func Dir() (string, error) {
 
 	newDir := filepath.Join(home, configDir)
 
-	// Auto-migrate: if ~/.sky10/fs/ doesn't exist but ~/.sky10/config.json does,
+	// Auto-migrate: if ~/.sky10/fs/config.json doesn't exist but ~/.sky10/config.json does,
 	// move fs-related files into the fs/ subdirectory and keys to ~/.sky10/keys/.
-	if _, err := os.Stat(newDir); os.IsNotExist(err) {
+	newConfig := filepath.Join(newDir, configFile)
+	if _, err := os.Stat(newConfig); os.IsNotExist(err) {
 		oldDir := filepath.Join(home, oldConfigDir)
 		oldConfig := filepath.Join(oldDir, configFile)
 		if _, err := os.Stat(oldConfig); err == nil {
@@ -64,7 +65,7 @@ func Dir() (string, error) {
 
 		// Also check for ancient ~/.skyfs/ layout
 		ancientDir := filepath.Join(home, ".skyfs")
-		if _, err := os.Stat(newDir); os.IsNotExist(err) {
+		if _, err := os.Stat(newConfig); os.IsNotExist(err) {
 			if _, err := os.Stat(ancientDir); err == nil {
 				os.Rename(ancientDir, newDir)
 			}
@@ -113,8 +114,14 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 
-	if cfg.IdentityFile == "" {
-		cfg.IdentityFile = filepath.Join(dir, keyFile)
+	if cfg.IdentityFile == "" || !fileExists(cfg.IdentityFile) {
+		keysDir, _ := KeysDir()
+		newPath := filepath.Join(keysDir, keyFile)
+		if fileExists(newPath) {
+			cfg.IdentityFile = newPath
+		} else if cfg.IdentityFile == "" {
+			cfg.IdentityFile = newPath
+		}
 	}
 
 	return &cfg, nil
@@ -142,4 +149,9 @@ func Save(cfg *Config) error {
 	}
 
 	return nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
