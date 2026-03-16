@@ -112,6 +112,10 @@ class MockSkyClient: SkyClientProtocol {
         return "sky10invite_mock_invite_code"
     }
 
+    func joinInvite(inviteID: String) async throws -> String {
+        return "approved"
+    }
+
 }
 
 enum MockError: Error, LocalizedError {

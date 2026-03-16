@@ -174,4 +174,13 @@ class SkyClient {
         return result.code
     }
 
+    struct JoinResult: Codable {
+        let status: String
+    }
+
+    func joinInvite(inviteID: String) async throws -> String {
+        let result: JoinResult = try await rpc.call("skyfs.join", params: ["invite_id": inviteID])
+        return result.status
+    }
+
 }

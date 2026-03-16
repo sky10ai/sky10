@@ -57,6 +57,7 @@ private class PreviewSkyClient: SkyClientProtocol {
         ], thisDevice: "sky10qpreviewdevice1234")
     }
     func generateInvite() async throws -> String { "sky10invite_preview" }
+    func joinInvite(inviteID: String) async throws -> String { "approved" }
 }
 
 extension AppState {
