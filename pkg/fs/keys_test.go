@@ -35,7 +35,7 @@ func TestNamespaceFromPath(t *testing.T) {
 func TestDeriveFileKey(t *testing.T) {
 	t.Parallel()
 
-	nsKey, err := GenerateKey()
+	nsKey, err := GenerateNamespaceKey()
 	if err != nil {
 		t.Fatalf("GenerateKey: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestDeriveFileKey(t *testing.T) {
 
 	t.Run("different namespace different key", func(t *testing.T) {
 		t.Parallel()
-		nsKey2, _ := GenerateKey()
+		nsKey2, _ := GenerateNamespaceKey()
 		k1, _ := DeriveFileKey(nsKey, hash1)
 		k2, _ := DeriveFileKey(nsKey2, hash1)
 		if bytes.Equal(k1, k2) {
@@ -96,9 +96,9 @@ func TestDeriveFileKey(t *testing.T) {
 func TestWrapUnwrapNamespaceKey(t *testing.T) {
 	t.Parallel()
 
-	id, err := GenerateIdentity()
+	id, err := GenerateDeviceKey()
 	if err != nil {
-		t.Fatalf("GenerateIdentity: %v", err)
+		t.Fatalf("GenerateKey: %v", err)
 	}
 
 	nsKey, err := GenerateNamespaceKey()

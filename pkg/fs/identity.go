@@ -13,22 +13,22 @@ import (
 // Identity is a type alias for skykey.Key.
 type Identity = skykey.Key
 
-// GenerateIdentity creates a new random Ed25519 keypair.
-func GenerateIdentity() (*Identity, error) {
+// GenerateKey creates a new random Ed25519 keypair.
+func GenerateDeviceKey() (*Identity, error) {
 	return skykey.Generate()
 }
 
-// SaveIdentity writes the identity to path with restricted permissions.
-func SaveIdentity(id *Identity, path string) error {
+// SaveKey writes the identity to path with restricted permissions.
+func SaveKey(id *Identity, path string) error {
 	return skykey.Save(id, path)
 }
 
-// SaveIdentityWithDescription writes the identity with a description field.
-func SaveIdentityWithDescription(id *Identity, path string, description string) error {
+// SaveKeyWithDescription writes the identity with a description field.
+func SaveKeyWithDescription(id *Identity, path string, description string) error {
 	return skykey.SaveWithDescription(id, path, description)
 }
 
-// LoadIdentity reads an identity from path.
-func LoadIdentity(path string) (*Identity, error) {
+// LoadKey reads an identity from path.
+func LoadKey(path string) (*Identity, error) {
 	return skykey.Load(path)
 }

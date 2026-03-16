@@ -13,9 +13,9 @@ import (
 func newTestStore(t *testing.T) (*Store, *s3adapter.MemoryBackend) {
 	t.Helper()
 	backend := s3adapter.NewMemory()
-	id, err := GenerateIdentity()
+	id, err := GenerateDeviceKey()
 	if err != nil {
-		t.Fatalf("GenerateIdentity: %v", err)
+		t.Fatalf("GenerateKey: %v", err)
 	}
 	return New(backend, id), backend
 }

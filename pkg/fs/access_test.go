@@ -13,8 +13,8 @@ func TestGrantAndReadAccess(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	alice, _ := GenerateIdentity()
-	bob, _ := GenerateIdentity()
+	alice, _ := GenerateDeviceKey()
+	bob, _ := GenerateDeviceKey()
 
 	// Alice creates a store and puts a file
 	storeA := New(backend, alice)
@@ -39,8 +39,8 @@ func TestRevokeAccess(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	alice, _ := GenerateIdentity()
-	bob, _ := GenerateIdentity()
+	alice, _ := GenerateDeviceKey()
+	bob, _ := GenerateDeviceKey()
 
 	storeA := New(backend, alice)
 	if err := storeA.Put(ctx, "private/secret.md", strings.NewReader("secret")); err != nil {
@@ -76,7 +76,7 @@ func TestRotateNamespaceKey(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 
 	store := New(backend, id)
 	if err := store.Put(ctx, "docs/a.md", strings.NewReader("content a")); err != nil {
@@ -119,9 +119,9 @@ func TestListAuthorizedKeys(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	alice, _ := GenerateIdentity()
-	bob, _ := GenerateIdentity()
-	carol, _ := GenerateIdentity()
+	alice, _ := GenerateDeviceKey()
+	bob, _ := GenerateDeviceKey()
+	carol, _ := GenerateDeviceKey()
 
 	store := New(backend, alice)
 	store.Put(ctx, "team/doc.md", strings.NewReader("team doc"))

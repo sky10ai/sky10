@@ -162,7 +162,7 @@ func TestStoreOpsLogIntegration(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	// Put via ops log
@@ -218,7 +218,7 @@ func TestStoreSnapshotAndReplay(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	// Write some files
@@ -258,7 +258,7 @@ func TestOpsEncryptedAtRest(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	secret := "this-is-secret-data"

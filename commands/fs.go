@@ -54,7 +54,7 @@ func fsInitCmd() *cobra.Command {
 			endpoint, _ := cmd.Flags().GetString("endpoint")
 			pathStyle, _ := cmd.Flags().GetBool("path-style")
 
-			id, err := skyfs.GenerateIdentity()
+			id, err := skyfs.GenerateDeviceKey()
 			if err != nil {
 				return err
 			}
@@ -63,7 +63,7 @@ func fsInitCmd() *cobra.Command {
 				return err
 			}
 			os.MkdirAll(filepath.Dir(idPath), 0700)
-			if err := skyfs.SaveIdentityWithDescription(id, idPath, "skyfs device key"); err != nil {
+			if err := skyfs.SaveKeyWithDescription(id, idPath, "skyfs device key"); err != nil {
 				return err
 			}
 			cfg := &config.Config{
@@ -281,7 +281,7 @@ func fsServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			id, err := skyfs.LoadIdentity(cfg.IdentityFile)
+			id, err := skyfs.LoadKey(cfg.IdentityFile)
 			if err != nil {
 				return err
 			}
@@ -378,7 +378,7 @@ func fsCompactCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			id, err := skyfs.LoadIdentity(cfg.IdentityFile)
+			id, err := skyfs.LoadKey(cfg.IdentityFile)
 			if err != nil {
 				return err
 			}
@@ -410,7 +410,7 @@ func fsGCCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			id, err := skyfs.LoadIdentity(cfg.IdentityFile)
+			id, err := skyfs.LoadKey(cfg.IdentityFile)
 			if err != nil {
 				return err
 			}
@@ -545,7 +545,7 @@ func openStore(ctx context.Context) (*skyfs.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	id, err := skyfs.LoadIdentity(cfg.IdentityFile)
+	id, err := skyfs.LoadKey(cfg.IdentityFile)
 	if err != nil {
 		return nil, fmt.Errorf("loading identity: %w", err)
 	}
@@ -668,7 +668,7 @@ func fsInviteCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			id, err := skyfs.LoadIdentity(cfg.IdentityFile)
+			id, err := skyfs.LoadKey(cfg.IdentityFile)
 			if err != nil {
 				return err
 			}
@@ -727,17 +727,17 @@ func fsJoinCmd() *cobra.Command {
 
 			var id *skyfs.Identity
 			if _, err := os.Stat(keyPath); os.IsNotExist(err) {
-				id, err = skyfs.GenerateIdentity()
+				id, err = skyfs.GenerateDeviceKey()
 				if err != nil {
 					return err
 				}
 				os.MkdirAll(filepath.Dir(keyPath), 0700)
-				if err := skyfs.SaveIdentityWithDescription(id, keyPath, "skyfs device key"); err != nil {
+				if err := skyfs.SaveKeyWithDescription(id, keyPath, "skyfs device key"); err != nil {
 					return err
 				}
 				fmt.Printf("Generated key: %s\n", id.Address())
 			} else {
-				id, err = skyfs.LoadIdentity(keyPath)
+				id, err = skyfs.LoadKey(keyPath)
 				if err != nil {
 					return err
 				}
@@ -807,7 +807,7 @@ func fsApproveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			id, err := skyfs.LoadIdentity(cfg.IdentityFile)
+			id, err := skyfs.LoadKey(cfg.IdentityFile)
 			if err != nil {
 				return err
 			}

@@ -16,7 +16,7 @@ import (
 func startTestRPC(t *testing.T) (*RPCServer, net.Conn, context.CancelFunc) {
 	t.Helper()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	sockPath := filepath.Join(t.TempDir(), "test.sock")

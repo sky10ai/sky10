@@ -12,7 +12,7 @@ func TestGCDeletesOrphans(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	// Put a file, then remove it
@@ -49,7 +49,7 @@ func TestGCPreservesReferenced(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	// Put a file and keep it
@@ -77,7 +77,7 @@ func TestGCDedupPreservesShared(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	// Two files with identical content (dedup = same blob)
@@ -102,7 +102,7 @@ func TestGCDryRun(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	store.Put(ctx, "temp.md", strings.NewReader("temp"))
@@ -130,7 +130,7 @@ func TestGCEmpty(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
+	id, _ := GenerateDeviceKey()
 
 	result, err := GC(ctx, backend, id, false)
 	if err != nil {
