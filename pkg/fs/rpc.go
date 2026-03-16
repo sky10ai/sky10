@@ -727,7 +727,11 @@ func (s *RPCServer) rpcApprove(ctx context.Context) (interface{}, error) {
 		}
 		granted, _ := IsGranted(ctx, s.store.backend, inviteID)
 		if granted {
-			continue
+			joinerID := shortPubkeyID(joinerAddr)
+			keyPath := "keys/namespaces/default." + joinerID + ".ns.enc"
+			if _, err := s.store.backend.Head(ctx, keyPath); err == nil {
+				continue
+			}
 		}
 		if err := ApproveJoin(ctx, s.store.backend, s.store.identity, joinerAddr, inviteID); err != nil {
 			continue
@@ -780,7 +784,14 @@ func (s *RPCServer) tryAutoApprove(ctx context.Context) {
 		}
 		granted, _ := IsGranted(ctx, s.store.backend, inviteID)
 		if granted {
-			continue
+			// Check if the device key was actually written — a crash between
+			// granting and key-writing leaves the joiner locked out.
+			joinerID := shortPubkeyID(joinerAddr)
+			keyPath := "keys/namespaces/default." + joinerID + ".ns.enc"
+			if _, err := s.store.backend.Head(ctx, keyPath); err == nil {
+				continue // key exists, truly done
+			}
+			// Key missing — fall through to re-run ApproveJoin
 		}
 		if err := ApproveJoin(ctx, s.store.backend, s.store.identity, joinerAddr, inviteID); err != nil {
 			s.logger.Warn("auto-approve failed", "invite", inviteID, "error", err)
