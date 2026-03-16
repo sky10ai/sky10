@@ -216,40 +216,72 @@ func TestStoreMultiDeviceOps(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateIdentity()
 
-	// Two stores simulating two devices
-	storeA := NewWithDevice(backend, id, "device-a")
-	storeB := NewWithDevice(backend, id, "device-b")
+	// Two DIFFERENT identities — simulating two real devices
+	idA, _ := GenerateIdentity()
+	idB, _ := GenerateIdentity()
 
-	// Device A writes file1
+	// Device A initializes the store and creates the namespace key
+	storeA := NewWithDevice(backend, idA, "device-a")
 	if err := storeA.Put(ctx, "file1.md", strings.NewReader("from A")); err != nil {
 		t.Fatalf("A Put: %v", err)
 	}
 
-	// Device B writes file2
+	// Simulate invite flow: wrap the default namespace key for Device B
+	nsKey, err := storeA.opsKey(ctx)
+	if err != nil {
+		t.Fatalf("getting ops key: %v", err)
+	}
+	wrappedForB, err := WrapNamespaceKey(nsKey, idB.PublicKey)
+	if err != nil {
+		t.Fatalf("wrapping for B: %v", err)
+	}
+	deviceBID := shortPubkeyID(idB.Address())
+	bKeyPath := "keys/namespaces/default." + deviceBID + ".ns.enc"
+	r := bytes.NewReader(wrappedForB)
+	if err := backend.Put(ctx, bKeyPath, r, int64(len(wrappedForB))); err != nil {
+		t.Fatalf("storing B's wrapped key: %v", err)
+	}
+
+	// Device B writes with its OWN identity
+	storeB := NewWithDevice(backend, idB, "device-b")
 	if err := storeB.Put(ctx, "file2.md", strings.NewReader("from B")); err != nil {
 		t.Fatalf("B Put: %v", err)
 	}
 
-	// Both devices should see both files
-	for _, store := range []*Store{storeA, storeB} {
-		entries, err := store.List(ctx, "")
-		if err != nil {
-			t.Fatalf("List: %v", err)
-		}
-		if len(entries) != 2 {
-			t.Errorf("expected 2 files, got %d", len(entries))
-		}
+	// Device A should see both files (including B's)
+	entriesA, err := storeA.List(ctx, "")
+	if err != nil {
+		t.Fatalf("A List: %v", err)
+	}
+	if len(entriesA) != 2 {
+		t.Errorf("A: expected 2 files, got %d", len(entriesA))
 	}
 
-	// Both files should be readable
+	// Device B should see both files (including A's)
+	entriesB, err := storeB.List(ctx, "")
+	if err != nil {
+		t.Fatalf("B List: %v", err)
+	}
+	if len(entriesB) != 2 {
+		t.Errorf("B: expected 2 files, got %d", len(entriesB))
+	}
+
+	// Cross-device reads
 	var buf bytes.Buffer
 	if err := storeA.Get(ctx, "file2.md", &buf); err != nil {
 		t.Fatalf("A reading B's file: %v", err)
 	}
 	if buf.String() != "from B" {
 		t.Errorf("got %q, want %q", buf.String(), "from B")
+	}
+
+	buf.Reset()
+	if err := storeB.Get(ctx, "file1.md", &buf); err != nil {
+		t.Fatalf("B reading A's file: %v", err)
+	}
+	if buf.String() != "from A" {
+		t.Errorf("got %q, want %q", buf.String(), "from A")
 	}
 }
 
