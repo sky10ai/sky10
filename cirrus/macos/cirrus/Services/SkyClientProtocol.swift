@@ -16,6 +16,7 @@ protocol SkyClientProtocol {
     func startDrive(id: String) async throws
     func stopDrive(id: String) async throws
     func listDevices() async throws -> DeviceListResponse
+    func removeDevice(pubkey: String) async throws
     func generateInvite() async throws -> String
 }
 

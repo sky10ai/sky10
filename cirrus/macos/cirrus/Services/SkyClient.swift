@@ -161,6 +161,10 @@ class SkyClient {
         return DeviceListResponse(devices: result.devices ?? [], thisDevice: result.thisDevice)
     }
 
+    func removeDevice(pubkey: String) async throws {
+        let _: GenericResult = try await rpc.call("skyfs.deviceRemove", params: ["pubkey": pubkey])
+    }
+
     struct InviteResult: Codable {
         let code: String
     }
