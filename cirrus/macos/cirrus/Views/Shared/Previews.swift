@@ -51,8 +51,8 @@ private class PreviewSkyClient: SkyClientProtocol {
     func stopDrive(id: String) async throws {}
     func listDevices() async throws -> DeviceListResponse {
         DeviceListResponse(devices: [
-            DeviceInfo(pubkey: "sky10qpreviewdevice1234", name: "MacBook Pro", joined: "2026-03-10", platform: "macOS"),
-            DeviceInfo(pubkey: "sky10qpreviewdevice5678", name: "Mac Studio", joined: "2026-03-14", platform: "macOS"),
+            DeviceInfo(pubkey: "sky10qpreviewdevice1234", name: "MacBook Pro", joined: "2026-03-10", platform: "macOS", ip: "73.12.45.67", location: "Austin, Texas, United States"),
+            DeviceInfo(pubkey: "sky10qpreviewdevice5678", name: "Mac Studio", joined: "2026-03-14", platform: "macOS", ip: "98.45.12.34", location: "Brooklyn, New York, United States"),
         ], thisDevice: "sky10qpreviewdevice1234")
     }
     func generateInvite() async throws -> String { "sky10invite_preview" }
