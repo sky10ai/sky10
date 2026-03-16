@@ -164,12 +164,4 @@ class SkyClient {
         return result.code
     }
 
-    struct ApproveResult: Codable {
-        let approved: Int
-    }
-
-    func approveJoinRequests() async throws -> Int {
-        let result: ApproveResult = try await rpc.call("skyfs.approve")
-        return result.approved
-    }
 }

@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"time"
 )
 
 // RPCServer exposes skyfs operations over a Unix domain socket using JSON-RPC 2.0.
@@ -92,6 +93,9 @@ func (s *RPCServer) Serve(ctx context.Context) error {
 
 	// Broadcast events to clients
 	go s.broadcastLoop()
+
+	// Auto-approve pending join requests every 20 seconds
+	go s.autoApproveLoop(ctx)
 
 	// Accept connections
 	go func() {
@@ -673,6 +677,56 @@ func (s *RPCServer) rpcApprove(ctx context.Context) (interface{}, error) {
 	}
 
 	return map[string]int{"approved": approved}, nil
+}
+
+// autoApproveLoop polls for pending join requests and approves them automatically.
+// The invite code itself is the authorization — no manual step needed.
+func (s *RPCServer) autoApproveLoop(ctx context.Context) {
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+
+	// Run once immediately on startup
+	s.tryAutoApprove(ctx)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.tryAutoApprove(ctx)
+		}
+	}
+}
+
+func (s *RPCServer) tryAutoApprove(ctx context.Context) {
+	inviteKeys, err := s.store.backend.List(ctx, "invites/")
+	if err != nil {
+		return
+	}
+
+	inviteIDs := make(map[string]bool)
+	for _, k := range inviteKeys {
+		if id := splitInvitePath2(k); id != "" {
+			inviteIDs[id] = true
+		}
+	}
+
+	for inviteID := range inviteIDs {
+		joinerAddr, err := CheckJoinRequest(ctx, s.store.backend, inviteID)
+		if err != nil || joinerAddr == "" {
+			continue
+		}
+		granted, _ := IsGranted(ctx, s.store.backend, inviteID)
+		if granted {
+			continue
+		}
+		if err := ApproveJoin(ctx, s.store.backend, s.store.identity, joinerAddr, inviteID); err != nil {
+			s.logger.Warn("auto-approve failed", "invite", inviteID, "error", err)
+			continue
+		}
+		RegisterDevice(ctx, s.store.backend, joinerAddr, "Pending Device")
+		s.logger.Info("auto-approved device", "address", joinerAddr)
+	}
 }
 
 func splitInvitePath2(key string) string {
