@@ -292,8 +292,8 @@ func fsServeCmd() *cobra.Command {
 			store := skyfs.New(backend, id)
 			store.SetClient("cli/" + cmd.Root().Version)
 
-			// Register this device on startup (idempotent — overwrites if exists)
-			skyfs.RegisterDevice(ctx, backend, id.Address(), skyfs.GetDeviceName())
+			// Register this device in background (ip-api.com can be slow)
+			go skyfs.RegisterDevice(ctx, backend, id.Address(), skyfs.GetDeviceName())
 
 			server := skyfs.NewRPCServer(store, sockPath, filepath.Join(cfgDir, "drives.json"), nil)
 			fmt.Println(sockPath)
