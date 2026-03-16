@@ -3,7 +3,9 @@ package fs
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -33,13 +35,24 @@ type Op struct {
 	Device       string   `json:"device"`
 	Timestamp    int64    `json:"timestamp"`
 	Seq          int      `json:"seq"`
+	Client       string   `json:"client,omitempty"` // e.g. "cirrus/0.4.1", "cli/0.4.1"
 }
 
-// OpKey returns the S3 key for this op.
-// Format: ops/{timestamp}-{device}-{seq}.enc
-func (o *Op) OpKey() string {
-	return fmt.Sprintf("ops/%d-%s-%04d.enc", o.Timestamp, o.Device, o.Seq)
-}
+// OpEnvelope is the plaintext header prepended to every op blob.
+// It allows version checking and compatibility decisions without decryption.
+//
+// Wire format (22 bytes):
+//
+//	[0:3]  magic     "OPS"
+//	[3]    format    envelope format version (currently 1)
+//	[4:7]  schema    skyfs schema version [major, minor, patch]
+//	[7:15] timestamp unix timestamp (big-endian int64)
+//	[15:21] device   first 6 bytes of device ID
+//	[21]   op_type   0=put, 1=delete
+//	[22:]  encrypted op payload
+const OpEnvelopeSize = 22
+
+var opMagic = [3]byte{'O', 'P', 'S'}
 
 // WriteOp encrypts and uploads an op to the ops/ prefix.
 func WriteOp(ctx context.Context, backend adapter.Backend, op *Op, encKey []byte) error {
@@ -53,12 +66,61 @@ func WriteOp(ctx context.Context, backend adapter.Backend, op *Op, encKey []byte
 		return fmt.Errorf("encrypting op: %w", err)
 	}
 
-	r := bytes.NewReader(encrypted)
-	if err := backend.Put(ctx, op.OpKey(), r, int64(len(encrypted))); err != nil {
+	blob := makeOpEnvelope(op, encrypted)
+
+	r := bytes.NewReader(blob)
+	if err := backend.Put(ctx, op.OpKey(), r, int64(len(blob))); err != nil {
 		return fmt.Errorf("uploading op: %w", err)
 	}
 
 	return nil
+}
+
+func makeOpEnvelope(op *Op, encrypted []byte) []byte {
+	header := CurrentBlobHeader()
+	buf := make([]byte, OpEnvelopeSize+len(encrypted))
+
+	// Magic
+	copy(buf[0:3], opMagic[:])
+	// Format version
+	buf[3] = 1
+	// Schema version
+	buf[4] = header.Major
+	buf[5] = header.Minor
+	buf[6] = header.Patch
+	// Timestamp
+	binary.BigEndian.PutUint64(buf[7:15], uint64(op.Timestamp))
+	// Device ID (first 6 bytes)
+	devBytes := []byte(op.Device)
+	n := 6
+	if len(devBytes) < n {
+		n = len(devBytes)
+	}
+	copy(buf[15:21], devBytes[:n])
+	// Op type
+	if op.Type == OpDelete {
+		buf[21] = 1
+	}
+	// Encrypted payload
+	copy(buf[OpEnvelopeSize:], encrypted)
+
+	return buf
+}
+
+// parseOpEnvelope splits an op blob into header metadata and encrypted payload.
+// Returns the encrypted payload and whether the blob has the new envelope format.
+// Legacy blobs (no "OPS" magic) return the raw data as the encrypted payload.
+func parseOpEnvelope(data []byte) (encrypted []byte, schemaVersion [3]byte, isNew bool) {
+	if len(data) >= OpEnvelopeSize &&
+		data[0] == opMagic[0] && data[1] == opMagic[1] && data[2] == opMagic[2] {
+		var sv [3]byte
+		sv[0] = data[4]
+		sv[1] = data[5]
+		sv[2] = data[6]
+		return data[OpEnvelopeSize:], sv, true
+	}
+	// Legacy format — entire blob is encrypted
+	return data, [3]byte{}, false
 }
 
 // ReadOps reads and decrypts all ops with timestamps after since.
@@ -82,10 +144,22 @@ func ReadOps(ctx context.Context, backend adapter.Backend, since int64, encKey [
 			return nil, fmt.Errorf("downloading op %s: %w", key, err)
 		}
 
-		encrypted, err := io.ReadAll(rc)
+		raw, err := io.ReadAll(rc)
 		rc.Close()
 		if err != nil {
 			return nil, fmt.Errorf("reading op %s: %w", key, err)
+		}
+
+		// Parse envelope (handles both new and legacy format)
+		encrypted, schemaVer, isNew := parseOpEnvelope(raw)
+
+		// Check schema compatibility before decrypting
+		if isNew {
+			codeMajor := semverMajor(SchemaVersion)
+			if int(schemaVer[0]) > codeMajor {
+				return nil, fmt.Errorf("op %s requires skyfs v%d.x (have v%s) — upgrade skyfs",
+					key, schemaVer[0], SchemaVersion)
+			}
 		}
 
 		data, err := Decrypt(encrypted, encKey)
@@ -121,6 +195,12 @@ func sortOps(ops []Op) {
 		}
 		return ops[i].Seq < ops[j].Seq
 	})
+}
+
+// OpKey returns the S3 key for this op.
+// Format: ops/{timestamp}-{device}-{seq}.enc
+func (o *Op) OpKey() string {
+	return fmt.Sprintf("ops/%d-%s-%04d.enc", o.Timestamp, o.Device, o.Seq)
 }
 
 // BuildState replays ops on top of a base manifest to produce current state.
@@ -215,3 +295,5 @@ func parseOpTimestamp(key string) int64 {
 	fmt.Sscanf(parts[0], "%d", &ts)
 	return ts
 }
+
+var ErrIncompatibleOp = errors.New("incompatible op version")

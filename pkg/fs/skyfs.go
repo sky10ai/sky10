@@ -28,6 +28,7 @@ type Store struct {
 	backend  adapter.Backend
 	identity *Identity
 	deviceID string
+	clientID string // e.g. "cli/0.4.1", "cirrus/0.4.1"
 
 	mu         sync.Mutex
 	nsKeys     map[string][]byte // cached namespace keys
@@ -61,6 +62,11 @@ func NewWithDevice(backend adapter.Backend, identity *Identity, deviceID string)
 		packIndex:  idx,
 		packWriter: NewPackWriter(backend, identity, idx),
 	}
+}
+
+// SetClient sets the client identifier embedded in ops (e.g. "cli/0.4.1").
+func (s *Store) SetClient(client string) {
+	s.clientID = client
 }
 
 // generateDeviceID creates a random 8-character hex device identifier.
@@ -179,6 +185,7 @@ func (s *Store) writeOp(ctx context.Context, op *Op) error {
 
 	op.Device = s.deviceID
 	op.Timestamp = time.Now().Unix()
+	op.Client = s.clientID
 
 	encKey, err := deriveManifestKey(s.identity)
 	if err != nil {
