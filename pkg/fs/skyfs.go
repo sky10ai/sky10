@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -522,7 +524,8 @@ type StoreInfo struct {
 }
 
 // getOrCreateNamespaceKey returns the namespace key, loading from S3 or
-// creating a new one if it doesn't exist yet.
+// creating a new one if it doesn't exist yet. Successfully loaded keys
+// are cached locally in ~/.sky10/keys/ as a recovery backup.
 func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -558,13 +561,25 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 			continue // wrong key for this device, try next path
 		}
 		s.nsKeys[namespace] = nsKey
+		s.cacheNamespaceKey(namespace, nsKey)
 		return nsKey, nil
 	}
 
 	// If a key exists but we couldn't unwrap it, this device doesn't have access.
 	// Do NOT create a new key — that would overwrite the existing one.
+	// Try the local cache as a last resort (S3 key may have been corrupted).
 	if keyExists {
+		if cached, err := s.loadCachedNamespaceKey(namespace); err == nil {
+			s.nsKeys[namespace] = cached
+			return cached, nil
+		}
 		return nil, fmt.Errorf("namespace %q: access denied (key exists but cannot be unwrapped — join via invite first)", namespace)
+	}
+
+	// Also check local cache before creating — the S3 key may have been deleted
+	if cached, err := s.loadCachedNamespaceKey(namespace); err == nil {
+		s.nsKeys[namespace] = cached
+		return cached, nil
 	}
 
 	nsKey, err := GenerateNamespaceKey()
@@ -584,5 +599,39 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 	}
 
 	s.nsKeys[namespace] = nsKey
+	s.cacheNamespaceKey(namespace, nsKey)
 	return nsKey, nil
+}
+
+// cacheNamespaceKey writes the raw namespace key to ~/.sky10/keys/<id>/<namespace>.key.
+// Scoped by identity so different devices on the same machine don't collide.
+// This is a local-only backup — if S3 gets corrupted, we can recover from here.
+func (s *Store) cacheNamespaceKey(namespace string, key []byte) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	id := shortPubkeyID(s.identity.Address())
+	dir := filepath.Join(home, ".sky10", "keys", id)
+	os.MkdirAll(dir, 0700)
+	path := filepath.Join(dir, namespace+".key")
+	os.WriteFile(path, key, 0600)
+}
+
+// loadCachedNamespaceKey reads a locally cached namespace key.
+func (s *Store) loadCachedNamespaceKey(namespace string) ([]byte, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	id := shortPubkeyID(s.identity.Address())
+	path := filepath.Join(home, ".sky10", "keys", id, namespace+".key")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) != 32 {
+		return nil, fmt.Errorf("cached key wrong size: %d", len(data))
+	}
+	return data, nil
 }
