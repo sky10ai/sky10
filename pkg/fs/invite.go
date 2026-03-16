@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/sky10/sky10/pkg/adapter"
@@ -139,7 +140,7 @@ func ApproveJoin(ctx context.Context, backend adapter.Backend, identity *Identit
 	}
 
 	for _, nsKeyPath := range nsKeys {
-		// Read the namespace key (wrapped for our identity)
+		// Only process keys we can unwrap (skip other devices' wrapped keys)
 		rc, err := backend.Get(ctx, nsKeyPath)
 		if err != nil {
 			continue
@@ -150,10 +151,9 @@ func ApproveJoin(ctx context.Context, backend adapter.Backend, identity *Identit
 			continue
 		}
 
-		// Unwrap with our private key
 		nsKey, err := UnwrapNamespaceKey(wrapped, identity.PrivateKey)
 		if err != nil {
-			continue
+			continue // not our key, skip
 		}
 
 		// Re-wrap for the joiner's public key
@@ -162,9 +162,11 @@ func ApproveJoin(ctx context.Context, backend adapter.Backend, identity *Identit
 			continue
 		}
 
-		// Write joiner's wrapped key alongside ours
-		// Extract namespace name from path: keys/namespaces/foo.ns.enc → foo
-		joinerKeyPath := nsKeyPath[:len(nsKeyPath)-7] + ".joiner.ns.enc"
+		// Write joiner's wrapped key using their device ID
+		// Path: keys/namespaces/<namespace>.<deviceID>.ns.enc
+		joinerID := shortPubkeyID(joinerAddress)
+		nsName := extractNamespaceName(nsKeyPath)
+		joinerKeyPath := "keys/namespaces/" + nsName + "." + joinerID + ".ns.enc"
 		r := bytes.NewReader(joinerWrapped)
 		backend.Put(ctx, joinerKeyPath, r, int64(len(joinerWrapped)))
 	}
@@ -208,6 +210,22 @@ type InviteConfig struct {
 	SecretKey      string
 	ForcePathStyle bool
 	DevicePubKey   string
+}
+
+// extractNamespaceName gets the namespace from a key path.
+// "keys/namespaces/default.ns.enc" → "default"
+// "keys/namespaces/journal.abc123.ns.enc" → "journal"
+func extractNamespaceName(path string) string {
+	// Strip prefix
+	name := path
+	if i := strings.LastIndex(path, "/"); i >= 0 {
+		name = path[i+1:]
+	}
+	// Take everything before the first dot
+	if i := strings.IndexByte(name, '.'); i > 0 {
+		return name[:i]
+	}
+	return name
 }
 
 // parseAddressToPublicKey converts a sky10q... address to an ed25519.PublicKey.
