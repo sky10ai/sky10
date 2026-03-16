@@ -285,6 +285,160 @@ func TestStoreMultiDeviceOps(t *testing.T) {
 	}
 }
 
+// Regression: device without access must NOT overwrite the namespace key.
+// Before the fix, an unauthorized device would call getOrCreateNamespaceKey,
+// fail to unwrap the existing key, then create a NEW key at the same path —
+// destroying the original and making all data unreadable by any device.
+func TestUnauthorizedDeviceCannotOverwriteKey(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	backend := s3adapter.NewMemory()
+
+	idA, _ := GenerateIdentity()
+	idB, _ := GenerateIdentity()
+
+	// Device A creates the store and writes data
+	storeA := NewWithDevice(backend, idA, "device-a")
+	if err := storeA.Put(ctx, "secret.md", strings.NewReader("important data")); err != nil {
+		t.Fatalf("A Put: %v", err)
+	}
+
+	// Verify A can read its data
+	var buf bytes.Buffer
+	if err := storeA.Get(ctx, "secret.md", &buf); err != nil {
+		t.Fatalf("A Get before: %v", err)
+	}
+	if buf.String() != "important data" {
+		t.Fatalf("A got %q", buf.String())
+	}
+
+	// Device B connects WITHOUT being granted access (no invite flow)
+	storeB := NewWithDevice(backend, idB, "device-b")
+
+	// B trying to write should fail with access denied, NOT overwrite the key
+	err := storeB.Put(ctx, "evil.md", strings.NewReader("overwrite attempt"))
+	if err == nil {
+		t.Fatal("expected error from unauthorized device, got nil")
+	}
+	if !strings.Contains(err.Error(), "access denied") {
+		t.Fatalf("expected 'access denied' error, got: %v", err)
+	}
+
+	// Device A's data must still be readable after B's failed attempt
+	buf.Reset()
+	storeA2 := NewWithDevice(backend, idA, "device-a")
+	if err := storeA2.Get(ctx, "secret.md", &buf); err != nil {
+		t.Fatalf("A Get after B's attempt: %v", err)
+	}
+	if buf.String() != "important data" {
+		t.Fatalf("A's data corrupted: got %q", buf.String())
+	}
+
+	// The namespace key in S3 should still be unwrappable by A
+	nsKeys, _ := backend.List(ctx, "keys/namespaces/")
+	found := false
+	for _, k := range nsKeys {
+		if k == "keys/namespaces/default.ns.enc" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("default.ns.enc missing from S3")
+	}
+}
+
+// Regression: the full invite flow must work end-to-end.
+// Device A creates store, generates invite, Device B joins,
+// auto-approve wraps keys, then both devices read/write.
+func TestFullInviteFlowEndToEnd(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	backend := s3adapter.NewMemory()
+
+	idA, _ := GenerateIdentity()
+	idB, _ := GenerateIdentity()
+
+	// Step 1: Device A initializes and writes a file
+	storeA := NewWithDevice(backend, idA, "device-a")
+	if err := storeA.Put(ctx, "from-a.md", strings.NewReader("hello from A")); err != nil {
+		t.Fatalf("A Put: %v", err)
+	}
+
+	// Step 2: Device B tries WITHOUT invite — must fail
+	storeB := NewWithDevice(backend, idB, "device-b")
+	err := storeB.Put(ctx, "from-b.md", strings.NewReader("hello from B"))
+	if err == nil {
+		t.Fatal("B should not be able to write without invite")
+	}
+
+	// Step 3: Simulate approve — wrap all namespace keys for B
+	nsKeys, _ := backend.List(ctx, "keys/namespaces/")
+	for _, nsKeyPath := range nsKeys {
+		rc, err := backend.Get(ctx, nsKeyPath)
+		if err != nil {
+			continue
+		}
+		wrapped, _ := io.ReadAll(rc)
+		rc.Close()
+
+		nsKey, err := UnwrapNamespaceKey(wrapped, idA.PrivateKey)
+		if err != nil {
+			continue
+		}
+		wrappedForB, err := WrapNamespaceKey(nsKey, idB.PublicKey)
+		if err != nil {
+			t.Fatalf("wrapping for B: %v", err)
+		}
+
+		bID := shortPubkeyID(idB.Address())
+		nsName := strings.TrimPrefix(nsKeyPath, "keys/namespaces/")
+		nsName = strings.TrimSuffix(nsName, ".ns.enc")
+		bKeyPath := "keys/namespaces/" + nsName + "." + bID + ".ns.enc"
+		r := bytes.NewReader(wrappedForB)
+		backend.Put(ctx, bKeyPath, r, int64(len(wrappedForB)))
+	}
+
+	// Step 4: Device B should now be able to write (fresh store to clear cache)
+	storeB2 := NewWithDevice(backend, idB, "device-b")
+	if err := storeB2.Put(ctx, "from-b.md", strings.NewReader("hello from B")); err != nil {
+		t.Fatalf("B Put after invite: %v", err)
+	}
+
+	// Step 5: Both devices see both files
+	entriesA, err := storeA.List(ctx, "")
+	if err != nil {
+		t.Fatalf("A List: %v", err)
+	}
+	if len(entriesA) != 2 {
+		t.Errorf("A sees %d files, want 2", len(entriesA))
+	}
+
+	entriesB, err := storeB2.List(ctx, "")
+	if err != nil {
+		t.Fatalf("B List: %v", err)
+	}
+	if len(entriesB) != 2 {
+		t.Errorf("B sees %d files, want 2", len(entriesB))
+	}
+
+	// Step 6: Cross-reads work
+	var buf bytes.Buffer
+	if err := storeB2.Get(ctx, "from-a.md", &buf); err != nil {
+		t.Fatalf("B reading A's file: %v", err)
+	}
+	if buf.String() != "hello from A" {
+		t.Errorf("B got %q, want %q", buf.String(), "hello from A")
+	}
+
+	buf.Reset()
+	if err := storeA.Get(ctx, "from-b.md", &buf); err != nil {
+		t.Fatalf("A reading B's file: %v", err)
+	}
+	if buf.String() != "hello from B" {
+		t.Errorf("A got %q, want %q", buf.String(), "hello from B")
+	}
+}
+
 func TestStoreSnapshotAndReplay(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
