@@ -5,6 +5,7 @@ import SwiftUI
 struct DevicesView: View {
     @EnvironmentObject var appState: AppState
     @State private var devices: [DeviceInfo] = []
+    @State private var thisDevice: String = ""
     @State private var inviteCode: String?
     @State private var generating = false
     @State private var copied = false
@@ -35,33 +36,45 @@ struct DevicesView: View {
                     Image(systemName: "desktopcomputer")
                         .font(.system(size: 28))
                         .foregroundStyle(.secondary)
-                    Text("Only this device")
+                    Text("No devices registered yet")
                         .foregroundStyle(.secondary)
                         .font(.caption)
                 }
                 .frame(maxWidth: .infinity, minHeight: 60)
             } else {
-                List(devices, id: \.pubkey) { device in
-                    HStack(spacing: 10) {
-                        Image(systemName: device.platform == "macOS" ? "laptopcomputer" : "desktopcomputer")
-                            .foregroundStyle(.blue)
-                            .frame(width: 24)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(device.name)
-                                .fontWeight(.medium)
-                            Text(String(device.pubkey.prefix(24)) + "...")
+                VStack(spacing: 0) {
+                    ForEach(devices, id: \.pubkey) { device in
+                        HStack(spacing: 10) {
+                            Image(systemName: iconName(for: device))
+                                .foregroundStyle(device.pubkey == thisDevice ? .blue : .secondary)
+                                .frame(width: 24)
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text(device.name)
+                                        .fontWeight(.medium)
+                                    if device.pubkey == thisDevice {
+                                        Text("(this device)")
+                                            .font(.caption2)
+                                            .foregroundStyle(.blue)
+                                    }
+                                }
+                                Text(String(device.pubkey.prefix(24)) + "...")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                                    .monospaced()
+                            }
+                            Spacer()
+                            Text("Joined " + String(device.joined.prefix(10)))
                                 .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .monospaced()
+                                .foregroundStyle(.tertiary)
                         }
-                        Spacer()
-                        Text(device.joined.prefix(10))
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 4)
+                        if device.pubkey != devices.last?.pubkey {
+                            Divider()
+                        }
                     }
-                    .padding(.vertical, 2)
                 }
-                .listStyle(.inset)
             }
 
             if let code = inviteCode {
@@ -102,9 +115,19 @@ struct DevicesView: View {
         }
     }
 
+    private func iconName(for device: DeviceInfo) -> String {
+        switch device.platform {
+        case "macOS": return "laptopcomputer"
+        case "Linux": return "server.rack"
+        default: return "desktopcomputer"
+        }
+    }
+
     private func loadDevices() async {
         do {
-            devices = try await appState.client.listDevices()
+            let response = try await appState.client.listDevices()
+            devices = response.devices
+            thisDevice = response.thisDevice
         } catch {
             // silently fail — backend might not be ready
         }
