@@ -602,16 +602,36 @@ func (s *RPCServer) rpcDeviceList(ctx context.Context) (interface{}, error) {
 }
 
 func (s *RPCServer) rpcInvite(ctx context.Context) (interface{}, error) {
-	// Read credentials from environment
 	accessKey := os.Getenv("S3_ACCESS_KEY_ID")
 	secretKey := os.Getenv("S3_SECRET_ACCESS_KEY")
 
+	// Read endpoint/bucket from config file
+	home, _ := os.UserHomeDir()
+	cfgData, err := os.ReadFile(home + "/.sky10/config.json")
+	var endpoint, bucket, region string
+	var pathStyle bool
+	if err == nil {
+		var cfg struct {
+			Endpoint       string `json:"endpoint"`
+			Bucket         string `json:"bucket"`
+			Region         string `json:"region"`
+			ForcePathStyle bool   `json:"force_path_style"`
+		}
+		json.Unmarshal(cfgData, &cfg)
+		endpoint = cfg.Endpoint
+		bucket = cfg.Bucket
+		region = cfg.Region
+		pathStyle = cfg.ForcePathStyle
+	}
+
 	code, err := CreateInvite(ctx, s.store.backend, InviteConfig{
-		Endpoint:     "", // will be read from config by the caller
-		Bucket:       "", // same
-		AccessKey:    accessKey,
-		SecretKey:    secretKey,
-		DevicePubKey: s.store.identity.Address(),
+		Endpoint:       endpoint,
+		Bucket:         bucket,
+		Region:         region,
+		AccessKey:      accessKey,
+		SecretKey:      secretKey,
+		ForcePathStyle: pathStyle,
+		DevicePubKey:   s.store.identity.Address(),
 	})
 	if err != nil {
 		return nil, err
