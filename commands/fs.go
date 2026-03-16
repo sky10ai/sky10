@@ -63,7 +63,7 @@ func fsInitCmd() *cobra.Command {
 				return err
 			}
 			os.MkdirAll(filepath.Dir(idPath), 0700)
-			if err := skyfs.SaveIdentity(id, idPath); err != nil {
+			if err := skyfs.SaveIdentityWithDescription(id, idPath, "skyfs device key"); err != nil {
 				return err
 			}
 			cfg := &config.Config{
@@ -720,11 +720,10 @@ func fsJoinCmd() *cobra.Command {
 			fmt.Printf("Joining bucket %s at %s\n", invite.Bucket, invite.Endpoint)
 
 			// Generate new key for this device
-			cfgDir, err := config.Dir()
+			keyPath, err := config.DefaultIdentityPath()
 			if err != nil {
 				return err
 			}
-			keyPath := filepath.Join(cfgDir, "key.json")
 
 			var id *skyfs.Identity
 			if _, err := os.Stat(keyPath); os.IsNotExist(err) {
@@ -732,8 +731,8 @@ func fsJoinCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				os.MkdirAll(cfgDir, 0700)
-				if err := skyfs.SaveIdentity(id, keyPath); err != nil {
+				os.MkdirAll(filepath.Dir(keyPath), 0700)
+				if err := skyfs.SaveIdentityWithDescription(id, keyPath, "skyfs device key"); err != nil {
 					return err
 				}
 				fmt.Printf("Generated key: %s\n", id.Address())

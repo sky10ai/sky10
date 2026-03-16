@@ -43,7 +43,7 @@ func keyGenerateCmd() *cobra.Command {
 				return err
 			}
 			os.MkdirAll(filepath.Dir(keyPath), 0700)
-			if err := key.Save(k, keyPath); err != nil {
+			if err := key.SaveWithDescription(k, keyPath, "skyfs device key"); err != nil {
 				return err
 			}
 			fmt.Printf("Generated key\n  Address: %s\n  Saved:   %s\n", k.Address(), keyPath)
@@ -261,9 +261,5 @@ func loadKey() (*key.Key, error) {
 }
 
 func defaultKeyPath() (string, error) {
-	dir, err := config.Dir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "key.json"), nil
+	return config.DefaultIdentityPath()
 }

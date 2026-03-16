@@ -85,9 +85,10 @@ func TestMigrateFromFlatLayout(t *testing.T) {
 		t.Errorf("bucket = %q, want migrated", cfg.Bucket)
 	}
 
-	// key.json should be migrated too
-	if _, err := os.Stat(filepath.Join(dir, "key.json")); err != nil {
-		t.Error("key.json should be migrated to fs/")
+	// key.json should be migrated to ~/.sky10/keys/
+	expectedKeyPath := filepath.Join(tmp, ".sky10", "keys", "key.json")
+	if _, err := os.Stat(expectedKeyPath); err != nil {
+		t.Errorf("key.json should be at %s, err: %v", expectedKeyPath, err)
 	}
 }
 

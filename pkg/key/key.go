@@ -68,13 +68,22 @@ func ParseAddress(address string) (*Key, error) {
 
 // keyFile is the JSON representation stored on disk.
 type keyFile struct {
-	PublicKey  []byte `json:"public_key"`
-	PrivateKey []byte `json:"private_key,omitempty"`
+	Description string `json:"description,omitempty"`
+	PublicKey   []byte `json:"public_key"`
+	PrivateKey  []byte `json:"private_key,omitempty"`
 }
 
 // Save writes the key to path with restricted permissions.
 func Save(k *Key, path string) error {
-	f := keyFile{PublicKey: k.PublicKey}
+	return SaveWithDescription(k, path, "")
+}
+
+// SaveWithDescription writes the key to path with a description field.
+func SaveWithDescription(k *Key, path string, description string) error {
+	f := keyFile{
+		Description: description,
+		PublicKey:   k.PublicKey,
+	}
 	if k.PrivateKey != nil {
 		f.PrivateKey = k.PrivateKey
 	}
