@@ -143,4 +143,33 @@ class SkyClient {
     func stopDrive(id: String) async throws {
         let _: GenericResult = try await rpc.call("skyfs.driveStop", params: DriveIDParams(id: id))
     }
+
+    // MARK: - Devices
+
+    struct DeviceListResult: Codable {
+        let devices: [DeviceInfo]
+    }
+
+    func listDevices() async throws -> [DeviceInfo] {
+        let result: DeviceListResult = try await rpc.call("skyfs.deviceList")
+        return result.devices
+    }
+
+    struct InviteResult: Codable {
+        let code: String
+    }
+
+    func generateInvite() async throws -> String {
+        let result: InviteResult = try await rpc.call("skyfs.invite")
+        return result.code
+    }
+
+    struct ApproveResult: Codable {
+        let approved: Int
+    }
+
+    func approveJoinRequests() async throws -> Int {
+        let result: ApproveResult = try await rpc.call("skyfs.approve")
+        return result.approved
+    }
 }

@@ -4,10 +4,11 @@ import SwiftUI
 /// Shows registered devices and allows generating invite codes.
 struct DevicesView: View {
     @EnvironmentObject var appState: AppState
-    @State private var devices: [DeviceResult] = []
+    @State private var devices: [DeviceInfo] = []
     @State private var inviteCode: String?
     @State private var generating = false
     @State private var copied = false
+    @State private var approving = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -16,7 +17,14 @@ struct DevicesView: View {
                     .font(.headline)
                 Spacer()
                 Button {
-                    generateInvite()
+                    Task { await approve() }
+                } label: {
+                    Text("Approve Pending")
+                }
+                .disabled(approving)
+
+                Button {
+                    Task { await generateInvite() }
                 } label: {
                     HStack(spacing: 4) {
                         if generating {
@@ -76,7 +84,7 @@ struct DevicesView: View {
                             .lineLimit(2)
                             .textSelection(.enabled)
                         Spacer()
-                        Button(copied ? "Copied" : "Copy") {
+                        Button(copied ? "Copied!" : "Copy") {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(code, forType: .string)
                             copied = true
@@ -87,6 +95,12 @@ struct DevicesView: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                     }
+                    Text("On the new device, open Cirrus and choose \"Sync With Existing Device\", or run:")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Text("sky10 fs join <code>")
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.tertiary)
                 }
             }
         }
@@ -97,24 +111,34 @@ struct DevicesView: View {
     }
 
     private func loadDevices() async {
-        // Uses RPC via a method we'll add to SkyClient
-        // For now, just show empty until wired
-    }
-
-    private func generateInvite() {
-        generating = true
-        inviteCode = nil
-        // Uses RPC via SkyClient — for now show placeholder
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            self.inviteCode = "Run in terminal: sky10 fs invite"
-            self.generating = false
+        do {
+            devices = try await appState.client.listDevices()
+        } catch {
+            // silently fail — backend might not be ready
         }
     }
-}
 
-private struct DeviceResult: Codable, Hashable {
-    let pubkey: String
-    let name: String
-    let joined: String
-    let platform: String?
+    private func generateInvite() async {
+        generating = true
+        inviteCode = nil
+        do {
+            inviteCode = try await appState.client.generateInvite()
+        } catch {
+            inviteCode = "Error: \(error.localizedDescription)"
+        }
+        generating = false
+    }
+
+    private func approve() async {
+        approving = true
+        do {
+            let count = try await appState.client.approveJoinRequests()
+            if count > 0 {
+                await loadDevices()
+            }
+        } catch {
+            // silently fail
+        }
+        approving = false
+    }
 }

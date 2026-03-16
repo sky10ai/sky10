@@ -98,6 +98,18 @@ class MockSkyClient: SkyClientProtocol {
     func stopDrive(id: String) async throws {
         if shouldError { throw MockError.simulated(errorMessage) }
     }
+
+    func listDevices() async throws -> [DeviceInfo] {
+        return [DeviceInfo(pubkey: "sky10qtest", name: "Test Mac", joined: "2026-03-15", platform: "macOS")]
+    }
+
+    func generateInvite() async throws -> String {
+        return "sky10invite_mock_invite_code"
+    }
+
+    func approveJoinRequests() async throws -> Int {
+        return 0
+    }
 }
 
 enum MockError: Error, LocalizedError {
