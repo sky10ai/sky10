@@ -287,29 +287,12 @@ struct JoinInviteView: View {
                 return
             }
 
-            status = "Submitting join request..."
+            status = "Connecting..."
             do {
-                let result = try await appState.client.joinInvite(inviteID: inviteId)
-                if result == "approved" {
-                    status = "Approved!"
-                    await appState.start()
-                    onComplete()
-                } else {
-                    status = "Waiting for approval from the other device..."
-                    // Poll a few more times
-                    for _ in 0..<6 {
-                        try? await Task.sleep(for: .seconds(5))
-                        let retry = try await appState.client.joinInvite(inviteID: inviteId)
-                        if retry == "approved" {
-                            status = "Approved!"
-                            await appState.start()
-                            onComplete()
-                            joining = false
-                            return
-                        }
-                    }
-                    error = "Timed out waiting for approval"
-                }
+                // Submit pubkey and wait for auto-approve (up to 60s on the RPC side)
+                let _ = try await appState.client.joinInvite(inviteID: inviteId)
+                await appState.start()
+                onComplete()
             } catch {
                 self.error = "Join failed: \(error.localizedDescription)"
             }
