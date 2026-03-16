@@ -53,7 +53,11 @@ updated: 2026-03-14
 - All code must be well tested. Write tests as you write code, not after.
 - Use table-driven tests for functions with multiple input/output cases.
 - Every exported function needs test coverage.
-- Run `go test ./...` before committing. Tests must pass.
+- **Before every commit**, run ALL tests and lint:
+  - `make check` (gofmt + go vet)
+  - `go test ./... -count=1`
+  - `cd cirrus/macos && swift test` (Swift/UI tests)
+  - Do NOT commit if any test fails. Fix first.
 - Integration tests that require external services (S3, etc.) should be
   skippable via build tags or environment checks, but must exist.
 - If tests are skipped, state why.
