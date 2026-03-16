@@ -543,12 +543,17 @@ type StoreInfo struct {
 // creating a new one if it doesn't exist yet. Successfully loaded keys
 // are cached locally in ~/.sky10/keys/ as a recovery backup.
 func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) ([]byte, error) {
+	// Fast path: check in-memory cache under lock
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if key, ok := s.nsKeys[namespace]; ok {
+		s.mu.Unlock()
 		return key, nil
 	}
+	s.mu.Unlock()
+
+	// Slow path: S3 + disk I/O without holding the lock.
+	// Multiple goroutines may race here for the same namespace — that's fine,
+	// they'll all compute the same key and the last write to the cache wins.
 
 	// Try device-specific key first (for joined devices), then the original path
 	deviceID := shortPubkeyID(s.identity.Address())
@@ -576,7 +581,9 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 		if err != nil {
 			continue // wrong key for this device, try next path
 		}
+		s.mu.Lock()
 		s.nsKeys[namespace] = nsKey
+		s.mu.Unlock()
 		s.cacheNamespaceKey(namespace, nsKey)
 		return nsKey, nil
 	}
@@ -586,7 +593,9 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 	// Try the local cache as a last resort (S3 key may have been corrupted).
 	if keyExists {
 		if cached, err := s.loadCachedNamespaceKey(namespace); err == nil {
+			s.mu.Lock()
 			s.nsKeys[namespace] = cached
+			s.mu.Unlock()
 			return cached, nil
 		}
 		return nil, fmt.Errorf("namespace %q: access denied (key exists but cannot be unwrapped — join via invite first)", namespace)
@@ -594,7 +603,9 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 
 	// Also check local cache before creating — the S3 key may have been deleted
 	if cached, err := s.loadCachedNamespaceKey(namespace); err == nil {
+		s.mu.Lock()
 		s.nsKeys[namespace] = cached
+		s.mu.Unlock()
 		return cached, nil
 	}
 
@@ -617,7 +628,9 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 	// Also wrap for all other registered devices so they can access new namespaces
 	s.wrapKeyForAllDevices(ctx, namespace, nsKey)
 
+	s.mu.Lock()
 	s.nsKeys[namespace] = nsKey
+	s.mu.Unlock()
 	s.cacheNamespaceKey(namespace, nsKey)
 	return nsKey, nil
 }
