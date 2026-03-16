@@ -34,18 +34,15 @@ type SyncResult struct {
 type SyncEngine struct {
 	store  *Store
 	config SyncConfig
-
-	// synced tracks local checksums that are known to match remote state.
-	// Prevents re-uploading files that haven't changed since last sync.
-	synced map[string]string // path → local checksum at last sync
+	state  *SyncState
 }
 
-// NewSyncEngine creates a sync engine.
+// NewSyncEngine creates a sync engine with persistent sync state.
 func NewSyncEngine(store *Store, config SyncConfig) *SyncEngine {
 	return &SyncEngine{
 		store:  store,
 		config: config,
-		synced: make(map[string]string),
+		state:  LoadSyncState(),
 	}
 }
 
@@ -71,7 +68,7 @@ func (se *SyncEngine) SyncOnce(ctx context.Context) (*SyncResult, error) {
 	// 4. Filter out files already synced with same checksum
 	filteredLocal := make(map[string]string)
 	for path, checksum := range localFiles {
-		if prev, ok := se.synced[path]; ok && prev == checksum {
+		if prev, ok := se.state.LocalChecksums[path]; ok && prev == checksum {
 			// File hasn't changed since last sync — check if remote has it
 			if _, inRemote := remoteFiles[path]; inRemote {
 				continue // skip, already synced
@@ -83,7 +80,7 @@ func (se *SyncEngine) SyncOnce(ctx context.Context) (*SyncResult, error) {
 	// Also filter remote files that we know are synced locally
 	filteredRemote := make(map[string]FileEntry)
 	for path, entry := range remoteFiles {
-		if _, ok := se.synced[path]; ok {
+		if _, ok := se.state.LocalChecksums[path]; ok {
 			// We have this file synced — only include if local has changed
 			if _, inLocal := filteredLocal[path]; !inLocal {
 				continue // skip, already synced and local unchanged
@@ -109,7 +106,7 @@ func (se *SyncEngine) SyncOnce(ctx context.Context) (*SyncResult, error) {
 				result.Errors = append(result.Errors, fmt.Errorf("upload %s: %w", d.Path, err))
 				continue
 			}
-			se.synced[d.Path] = d.LocalChecksum
+			se.state.LocalChecksums[d.Path] = d.LocalChecksum
 			result.Uploaded++
 
 		case DiffDownload:
@@ -120,7 +117,7 @@ func (se *SyncEngine) SyncOnce(ctx context.Context) (*SyncResult, error) {
 			// After download, compute local checksum and mark as synced
 			localPath := filepath.Join(se.config.LocalRoot, filepath.FromSlash(d.Path))
 			if cksum, err := fileChecksum(localPath); err == nil {
-				se.synced[d.Path] = cksum
+				se.state.LocalChecksums[d.Path] = cksum
 			}
 			result.Downloaded++
 

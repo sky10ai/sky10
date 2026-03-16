@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	configDir    = ".sky10"
-	oldConfigDir = ".skyfs" // auto-migrate from old location
+	configDir    = ".sky10/fs"
+	oldConfigDir = ".sky10" // auto-migrate from flat layout
 	configFile   = "config.json"
 	keyFile      = "key.json"
 )
@@ -24,8 +24,8 @@ type Config struct {
 	IdentityFile   string `json:"identity_file,omitempty"`
 }
 
-// Dir returns the sky10 configuration directory path (~/.sky10/).
-// Auto-migrates from ~/.skyfs/ if it exists and ~/.sky10/ doesn't.
+// Dir returns the skyfs configuration directory path (~/.sky10/fs/).
+// Auto-migrates from ~/.sky10/ flat layout if config.json exists there.
 func Dir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -33,12 +33,34 @@ func Dir() (string, error) {
 	}
 
 	newDir := filepath.Join(home, configDir)
-	oldDir := filepath.Join(home, oldConfigDir)
 
-	// Auto-migrate if old dir exists and new doesn't
+	// Auto-migrate: if ~/.sky10/fs/ doesn't exist but ~/.sky10/config.json does,
+	// move fs-related files into the fs/ subdirectory.
 	if _, err := os.Stat(newDir); os.IsNotExist(err) {
-		if _, err := os.Stat(oldDir); err == nil {
-			os.Rename(oldDir, newDir)
+		oldDir := filepath.Join(home, oldConfigDir)
+		oldConfig := filepath.Join(oldDir, configFile)
+		if _, err := os.Stat(oldConfig); err == nil {
+			os.MkdirAll(newDir, 0700)
+			// Move fs-specific files
+			for _, f := range []string{configFile, keyFile, "drives.json"} {
+				old := filepath.Join(oldDir, f)
+				if _, err := os.Stat(old); err == nil {
+					os.Rename(old, filepath.Join(newDir, f))
+				}
+			}
+			// Move keys/ directory
+			oldKeys := filepath.Join(oldDir, "keys")
+			if _, err := os.Stat(oldKeys); err == nil {
+				os.Rename(oldKeys, filepath.Join(newDir, "keys"))
+			}
+		}
+
+		// Also check for ancient ~/.skyfs/ layout
+		ancientDir := filepath.Join(home, ".skyfs")
+		if _, err := os.Stat(newDir); os.IsNotExist(err) {
+			if _, err := os.Stat(ancientDir); err == nil {
+				os.Rename(ancientDir, newDir)
+			}
 		}
 	}
 
@@ -54,7 +76,7 @@ func DefaultIdentityPath() (string, error) {
 	return filepath.Join(dir, keyFile), nil
 }
 
-// Load reads the config from the default location (~/.sky10/config.json).
+// Load reads the config from the default location (~/.sky10/fs/config.json).
 func Load() (*Config, error) {
 	dir, err := Dir()
 	if err != nil {

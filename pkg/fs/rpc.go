@@ -636,7 +636,7 @@ func (s *RPCServer) rpcInvite(ctx context.Context) (interface{}, error) {
 
 	// Read endpoint/bucket from config file
 	home, _ := os.UserHomeDir()
-	cfgData, err := os.ReadFile(home + "/.sky10/config.json")
+	cfgData, err := os.ReadFile(home + "/.sky10/fs/config.json")
 	var endpoint, bucket, region string
 	var pathStyle bool
 	if err == nil {

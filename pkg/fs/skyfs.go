@@ -659,7 +659,7 @@ func (s *Store) cacheNamespaceKey(namespace string, key []byte) {
 		return
 	}
 	id := shortPubkeyID(s.identity.Address())
-	dir := filepath.Join(home, ".sky10", "keys", id)
+	dir := filepath.Join(home, ".sky10", "fs", "keys", id)
 	os.MkdirAll(dir, 0700)
 	path := filepath.Join(dir, namespace+".key")
 	os.WriteFile(path, key, 0600)
@@ -672,7 +672,7 @@ func (s *Store) loadCachedNamespaceKey(namespace string) ([]byte, error) {
 		return nil, err
 	}
 	id := shortPubkeyID(s.identity.Address())
-	path := filepath.Join(home, ".sky10", "keys", id, namespace+".key")
+	path := filepath.Join(home, ".sky10", "fs", "keys", id, namespace+".key")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

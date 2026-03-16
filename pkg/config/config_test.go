@@ -54,38 +54,40 @@ func TestLoadNoConfig(t *testing.T) {
 	}
 }
 
-func TestMigrateFromOldDir(t *testing.T) {
+func TestMigrateFromFlatLayout(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 
-	// Create old .skyfs directory with a config
-	oldDir := filepath.Join(tmp, ".skyfs")
+	// Create old flat .sky10/ layout (config.json at top level)
+	oldDir := filepath.Join(tmp, ".sky10")
 	os.MkdirAll(oldDir, 0700)
 	os.WriteFile(filepath.Join(oldDir, "config.json"),
 		[]byte(`{"bucket":"migrated"}`), 0600)
+	os.WriteFile(filepath.Join(oldDir, "key.json"),
+		[]byte(`{"seed":"test"}`), 0600)
 
-	// Dir() should auto-migrate to .sky10
+	// Dir() should auto-migrate to .sky10/fs/
 	dir, err := Dir()
 	if err != nil {
 		t.Fatalf("Dir: %v", err)
 	}
 
-	if filepath.Base(dir) != ".sky10" {
-		t.Errorf("dir = %q, want .sky10", dir)
+	if filepath.Base(dir) != "fs" {
+		t.Errorf("dir = %q, want to end with /fs", dir)
 	}
 
-	// Old dir should be gone
-	if _, err := os.Stat(oldDir); !os.IsNotExist(err) {
-		t.Error(".skyfs should be renamed to .sky10")
-	}
-
-	// Config should be loadable from new location
+	// Config should be in fs/ now
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load after migration: %v", err)
 	}
 	if cfg.Bucket != "migrated" {
 		t.Errorf("bucket = %q, want migrated", cfg.Bucket)
+	}
+
+	// key.json should be migrated too
+	if _, err := os.Stat(filepath.Join(dir, "key.json")); err != nil {
+		t.Error("key.json should be migrated to fs/")
 	}
 }
 

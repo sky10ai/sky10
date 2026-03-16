@@ -136,7 +136,7 @@ func (d *Daemon) syncLocalChanges(ctx context.Context, events []FileEvent) {
 			f.Close()
 
 			if cksum, err := fileChecksum(localPath); err == nil {
-				d.engine.synced[e.Path] = cksum
+				d.engine.state.LocalChecksums[e.Path] = cksum
 			}
 			uploaded++
 
@@ -145,7 +145,7 @@ func (d *Daemon) syncLocalChanges(ctx context.Context, events []FileEvent) {
 				d.logger.Warn("delete failed", "path", e.Path, "error", err)
 				continue
 			}
-			delete(d.engine.synced, e.Path)
+			delete(d.engine.state.LocalChecksums, e.Path)
 			deleted++
 		}
 	}
@@ -184,14 +184,14 @@ func (d *Daemon) syncRemoteChanges(ctx context.Context, ops []Op) {
 			f.Close()
 
 			if cksum, err := fileChecksum(localPath); err == nil {
-				d.engine.synced[op.Path] = cksum
+				d.engine.state.LocalChecksums[op.Path] = cksum
 			}
 			downloaded++
 
 		case OpDelete:
 			localPath := filepath.Join(d.config.LocalRoot, filepath.FromSlash(op.Path))
 			os.Remove(localPath)
-			delete(d.engine.synced, op.Path)
+			delete(d.engine.state.LocalChecksums, op.Path)
 			deleted++
 		}
 	}
