@@ -124,7 +124,7 @@ class DaemonManager: ObservableObject {
         stop()
     }
 
-    /// Write ~/.sky10/config.json from UserDefaults settings.
+    /// Write ~/.sky10/fs/config.json from UserDefaults settings.
     private func writeConfig() {
         let defaults = UserDefaults.standard
         let bucket = defaults.string(forKey: "s3Bucket") ?? ""
@@ -134,7 +134,7 @@ class DaemonManager: ObservableObject {
         guard !bucket.isEmpty else { return }
 
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let configDir = "\(home)/.sky10"
+        let configDir = "\(home)/.sky10/fs"
         try? FileManager.default.createDirectory(atPath: configDir, withIntermediateDirectories: true)
 
         // Extract region from endpoint if possible, default to us-east-1

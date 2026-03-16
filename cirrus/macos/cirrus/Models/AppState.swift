@@ -23,7 +23,7 @@ class AppState: ObservableObject {
 
         // Check if config exists
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let configExists = FileManager.default.fileExists(atPath: "\(home)/.sky10/config.json")
+        let configExists = FileManager.default.fileExists(atPath: "\(home)/.sky10/fs/config.json")
         self.onboardingComplete = configExists
 
         if configExists {
