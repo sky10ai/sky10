@@ -32,6 +32,7 @@
 		9C468B2568C829B49F969DBB /* FileRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47B1A09BB0B9C75B296D1B69 /* FileRowView.swift */; };
 		9C4A6BD37CA95AF37935EC07 /* ExternalLinksTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB10EF2BB1DA3EFE128BFB0C /* ExternalLinksTests.swift */; };
 		A499BFA0989447166AD97266 /* StorageProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA09D24F51FDBDB2919672A8 /* StorageProvider.swift */; };
+		A7D9CAFB494EFB1CEFBC6FF1 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 135D17C416DBA401935DB7A6 /* OnboardingView.swift */; };
 		A9F8016A7A8E083AEA519634 /* DaemonManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 235D4271E6DFB4322930B172 /* DaemonManager.swift */; };
 		ADBDED462F314EED97B3FC85 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B13E97031A6CA550C9778E7D /* Assets.xcassets */; };
 		B17E9FE702B77CB3B6A64BDE /* SkyClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF39E6117D7F1C1794D0DE32 /* SkyClient.swift */; };
@@ -60,6 +61,7 @@
 		0A4D350BB8AAC38A5D003485 /* SyncStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStatusBar.swift; sourceTree = "<group>"; };
 		113946527F894B036639F017 /* FileNodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNodeTests.swift; sourceTree = "<group>"; };
 		1320A932BA12FB87FF12CEFF /* ActivityLogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityLogTests.swift; sourceTree = "<group>"; };
+		135D17C416DBA401935DB7A6 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		1E81498E7DD63129FA6FA525 /* SkyClientProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkyClientProtocol.swift; sourceTree = "<group>"; };
 		230940FF47FF0EA80168145D /* ActivityLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityLogView.swift; sourceTree = "<group>"; };
 		235D4271E6DFB4322930B172 /* DaemonManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonManager.swift; sourceTree = "<group>"; };
@@ -114,6 +116,14 @@
 			path = "cirrus-tests";
 			sourceTree = "<group>";
 		};
+		0CA5DE81346D0C2B3CC6C651 /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				135D17C416DBA401935DB7A6 /* OnboardingView.swift */,
+			);
+			path = Onboarding;
+			sourceTree = "<group>";
+		};
 		28FAE89D56CED3579AD0E4D6 /* Services */ = {
 			isa = PBXGroup;
 			children = (
@@ -142,6 +152,7 @@
 			children = (
 				6EC02BBE7E76649956CDDA65 /* Browser */,
 				C9857B9C163628FC006B2EC8 /* MenuBar */,
+				0CA5DE81346D0C2B3CC6C651 /* Onboarding */,
 				74C1E6FB6B551D13D598318C /* Settings */,
 				7154FFC61421E4B2E7F7D12D /* Shared */,
 			);
@@ -334,6 +345,7 @@
 				9C468B2568C829B49F969DBB /* FileRowView.swift in Sources */,
 				DFE0E90CE49C21D6E38C3CDC /* MenuBarView.swift in Sources */,
 				4A2A12B8607E9683AD7DAB43 /* NotificationManager.swift in Sources */,
+				A7D9CAFB494EFB1CEFBC6FF1 /* OnboardingView.swift in Sources */,
 				231AC68C6781A145A22E93B3 /* Previews.swift in Sources */,
 				8A66546137AD1C2882BF1E2F /* RPCClient.swift in Sources */,
 				69EA8A292621094500F1A393 /* SettingsView.swift in Sources */,
