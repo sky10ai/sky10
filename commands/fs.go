@@ -290,6 +290,7 @@ func fsServeCmd() *cobra.Command {
 				return err
 			}
 			store := skyfs.New(backend, id)
+			store.SetClient("cli/" + cmd.Root().Version)
 
 			// Register this device on startup (idempotent — overwrites if exists)
 			skyfs.RegisterDevice(ctx, backend, id.Address(), skyfs.GetDeviceName())
@@ -555,7 +556,9 @@ func openStore(ctx context.Context) (*skyfs.Store, error) {
 	if err := skyfs.ValidateSchema(ctx, backend); err != nil {
 		return nil, err
 	}
-	return skyfs.New(backend, id), nil
+	store := skyfs.New(backend, id)
+	store.SetClient("cli")
+	return store, nil
 }
 
 func makeBackend(ctx context.Context, cfg *config.Config) (*s3backend.Backend, error) {
