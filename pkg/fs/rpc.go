@@ -217,6 +217,8 @@ func (s *RPCServer) dispatch(ctx context.Context, req *RPCRequest) *RPCResponse 
 		result, err = s.rpcDeviceRemove(ctx, req.Params)
 	case "skyfs.invite":
 		result, err = s.rpcInvite(ctx)
+	case "skyfs.join":
+		result, err = s.rpcJoin(ctx, req.Params)
 	case "skyfs.approve":
 		result, err = s.rpcApprove(ctx)
 	default:
@@ -664,6 +666,43 @@ func (s *RPCServer) rpcInvite(ctx context.Context) (interface{}, error) {
 		return nil, err
 	}
 	return map[string]string{"code": code}, nil
+}
+
+func (s *RPCServer) rpcJoin(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p struct {
+		InviteID string `json:"invite_id"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.InviteID == "" {
+		return nil, fmt.Errorf("invite_id required")
+	}
+
+	// Submit this device's pubkey to the invite mailbox
+	if err := SubmitJoin(ctx, s.store.backend, p.InviteID, s.store.identity.Address()); err != nil {
+		return nil, fmt.Errorf("submitting join: %w", err)
+	}
+
+	// Poll for approval (up to 60 seconds)
+	for i := 0; i < 12; i++ {
+		granted, err := IsGranted(ctx, s.store.backend, p.InviteID)
+		if err != nil {
+			return nil, err
+		}
+		if granted {
+			// Register this device
+			RegisterDevice(ctx, s.store.backend, s.store.identity.Address(), GetDeviceName())
+			return map[string]string{"status": "approved"}, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(5 * time.Second):
+		}
+	}
+
+	return map[string]string{"status": "pending"}, nil
 }
 
 func (s *RPCServer) rpcApprove(ctx context.Context) (interface{}, error) {

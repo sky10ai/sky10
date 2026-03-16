@@ -278,10 +278,41 @@ struct JoinInviteView: View {
         appState.daemonManager.restart()
 
         Task {
-            try? await Task.sleep(for: .seconds(8))
-            await appState.start()
-            status = "Connected! Complete the join in terminal:\n  sky10 fs join <invite-code>"
-            onComplete()
+            // Wait for daemon to start
+            try? await Task.sleep(for: .seconds(6))
+
+            guard let inviteId = invite.inviteId, !inviteId.isEmpty else {
+                error = "Invite code missing invite ID"
+                joining = false
+                return
+            }
+
+            status = "Submitting join request..."
+            do {
+                let result = try await appState.client.joinInvite(inviteID: inviteId)
+                if result == "approved" {
+                    status = "Approved!"
+                    await appState.start()
+                    onComplete()
+                } else {
+                    status = "Waiting for approval from the other device..."
+                    // Poll a few more times
+                    for _ in 0..<6 {
+                        try? await Task.sleep(for: .seconds(5))
+                        let retry = try await appState.client.joinInvite(inviteID: inviteId)
+                        if retry == "approved" {
+                            status = "Approved!"
+                            await appState.start()
+                            onComplete()
+                            joining = false
+                            return
+                        }
+                    }
+                    error = "Timed out waiting for approval"
+                }
+            } catch {
+                self.error = "Join failed: \(error.localizedDescription)"
+            }
             joining = false
         }
     }
