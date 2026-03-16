@@ -246,6 +246,72 @@ func TestSubfoldersShareDriveNamespace(t *testing.T) {
 	}
 }
 
+// Device B joins when multiple namespaces exist. ApproveJoin must wrap
+// ALL namespace keys for the joiner, not just "default". Before fix:
+// only default was wrapped, leaving the joiner locked out of other
+// namespaces like drive-specific ones.
+func TestApproveWrapsAllNamespaces(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	backend := s3adapter.NewMemory()
+
+	idA, _ := GenerateDeviceKey()
+	idB, _ := GenerateDeviceKey()
+
+	// Device A creates files in multiple namespaces using path-derived namespaces
+	// (no SetNamespace — simulates CLI usage where top-level dir = namespace)
+	storeA := NewWithDevice(backend, idA, "device-a")
+	storeA.Put(ctx, "root.md", strings.NewReader("default ns"))
+	storeA.Put(ctx, "photos/cat.jpg", strings.NewReader("meow"))
+	storeA.Put(ctx, "docs/notes.md", strings.NewReader("my notes"))
+
+	// Verify multiple namespace keys exist
+	nsKeys, _ := backend.List(ctx, "keys/namespaces/")
+	nsNames := make(map[string]bool)
+	for _, k := range nsKeys {
+		nsNames[extractNamespaceName(k)] = true
+	}
+	if !nsNames["default"] || !nsNames["photos"] || !nsNames["docs"] {
+		t.Fatalf("expected default, photos, docs namespaces, got: %v", nsKeys)
+	}
+
+	// Approve B — must wrap ALL namespaces
+	simulateApprove(t, ctx, backend, idA, idB)
+
+	// B must be able to read from ALL namespaces
+	storeB := NewWithDevice(backend, idB, "device-b")
+
+	// B must see all 3 files across all namespaces
+	entries, err := storeB.List(ctx, "")
+	if err != nil {
+		t.Fatalf("B List: %v", err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("B sees %d files, want 3", len(entries))
+	}
+
+	var buf bytes.Buffer
+	if err := storeB.Get(ctx, "root.md", &buf); err != nil {
+		t.Fatalf("B Get root.md (default ns): %v", err)
+	}
+
+	buf.Reset()
+	if err := storeB.Get(ctx, "photos/cat.jpg", &buf); err != nil {
+		t.Fatalf("B Get photos/cat.jpg: %v", err)
+	}
+	if buf.String() != "meow" {
+		t.Errorf("got %q", buf.String())
+	}
+
+	buf.Reset()
+	if err := storeB.Get(ctx, "docs/notes.md", &buf); err != nil {
+		t.Fatalf("B Get docs/notes.md: %v", err)
+	}
+	if buf.String() != "my notes" {
+		t.Errorf("got %q", buf.String())
+	}
+}
+
 // When device A creates a new namespace, the key must be wrapped for
 // all registered devices, not just device A.
 func TestNewNamespaceWrappedForAllDevices(t *testing.T) {
