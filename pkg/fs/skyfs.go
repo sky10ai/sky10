@@ -587,20 +587,51 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 		return nil, fmt.Errorf("generating namespace key: %w", err)
 	}
 
+	// Wrap for this device
 	wrapped, err := WrapNamespaceKey(nsKey, s.identity.PublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("wrapping namespace key: %w", err)
 	}
-
 	newKeyPath := "keys/namespaces/" + namespace + ".ns.enc"
 	r := bytes.NewReader(wrapped)
 	if err := s.backend.Put(ctx, newKeyPath, r, int64(len(wrapped))); err != nil {
 		return nil, fmt.Errorf("storing namespace key: %w", err)
 	}
 
+	// Also wrap for all other registered devices so they can access new namespaces
+	s.wrapKeyForAllDevices(ctx, namespace, nsKey)
+
 	s.nsKeys[namespace] = nsKey
 	s.cacheNamespaceKey(namespace, nsKey)
 	return nsKey, nil
+}
+
+// wrapKeyForAllDevices wraps a namespace key for every registered device
+// (except this one, which already has it). This ensures new namespaces
+// created by one device are accessible to all other devices.
+func (s *Store) wrapKeyForAllDevices(ctx context.Context, namespace string, nsKey []byte) {
+	devices, err := ListDevices(ctx, s.backend)
+	if err != nil {
+		return
+	}
+	myAddr := s.identity.Address()
+	for _, dev := range devices {
+		if dev.PubKey == myAddr {
+			continue
+		}
+		pubKey, err := parseAddressToPublicKey(dev.PubKey)
+		if err != nil {
+			continue
+		}
+		wrapped, err := WrapNamespaceKey(nsKey, pubKey)
+		if err != nil {
+			continue
+		}
+		devID := shortPubkeyID(dev.PubKey)
+		keyPath := "keys/namespaces/" + namespace + "." + devID + ".ns.enc"
+		r := bytes.NewReader(wrapped)
+		s.backend.Put(ctx, keyPath, r, int64(len(wrapped)))
+	}
 }
 
 // cacheNamespaceKey writes the raw namespace key to ~/.sky10/keys/<id>/<namespace>.key.
