@@ -28,7 +28,7 @@ var ErrFileNotFound = errors.New("file not found")
 // append-only ops log with periodic manifest snapshots.
 type Store struct {
 	backend   adapter.Backend
-	identity  *Identity
+	identity  *DeviceKey
 	deviceID  string
 	clientID  string // e.g. "cli/0.4.1", "cirrus/0.4.1"
 	namespace string // if set, all files use this namespace instead of path-derived
@@ -42,7 +42,7 @@ type Store struct {
 }
 
 // New creates a Store backed by the given storage backend and identity.
-func New(backend adapter.Backend, identity *Identity) *Store {
+func New(backend adapter.Backend, identity *DeviceKey) *Store {
 	idx := NewPackIndex()
 	return &Store{
 		backend:    backend,
@@ -55,7 +55,7 @@ func New(backend adapter.Backend, identity *Identity) *Store {
 }
 
 // NewWithDevice creates a Store with an explicit device ID (for multi-device scenarios).
-func NewWithDevice(backend adapter.Backend, identity *Identity, deviceID string) *Store {
+func NewWithDevice(backend adapter.Backend, identity *DeviceKey, deviceID string) *Store {
 	idx := NewPackIndex()
 	return &Store{
 		backend:    backend,

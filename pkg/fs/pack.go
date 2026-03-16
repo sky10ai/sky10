@@ -91,7 +91,7 @@ func SavePackIndex(ctx context.Context, backend adapter.Backend, idx *PackIndex,
 // PackWriter accumulates encrypted chunks and writes them as pack files.
 type PackWriter struct {
 	backend  adapter.Backend
-	identity *Identity
+	identity *DeviceKey
 	index    *PackIndex
 
 	mu      sync.Mutex
@@ -107,7 +107,7 @@ type pendingEntry struct {
 }
 
 // NewPackWriter creates a pack writer that will flush packs to the backend.
-func NewPackWriter(backend adapter.Backend, identity *Identity, index *PackIndex) *PackWriter {
+func NewPackWriter(backend adapter.Backend, identity *DeviceKey, index *PackIndex) *PackWriter {
 	return &PackWriter{
 		backend:  backend,
 		identity: identity,

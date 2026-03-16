@@ -138,7 +138,7 @@ func LoadManifest(ctx context.Context, backend adapter.Backend, encKey []byte) (
 
 // deriveManifestKey derives a deterministic encryption key for the manifest
 // from the user's Ed25519 private key seed.
-func deriveManifestKey(id *Identity) ([]byte, error) {
+func deriveManifestKey(id *DeviceKey) ([]byte, error) {
 	seed := id.PrivateKey.Seed()
 	return deriveKey(seed, []byte("sky10-manifest"), "sky10-manifest-key")
 }

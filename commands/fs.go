@@ -725,7 +725,7 @@ func fsJoinCmd() *cobra.Command {
 				return err
 			}
 
-			var id *skyfs.Identity
+			var id *skyfs.DeviceKey
 			if _, err := os.Stat(keyPath); os.IsNotExist(err) {
 				id, err = skyfs.GenerateDeviceKey()
 				if err != nil {

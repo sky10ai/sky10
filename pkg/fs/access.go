@@ -15,7 +15,7 @@ import (
 
 // GrantAccess wraps the namespace key for a recipient's public key,
 // allowing them to decrypt files in that namespace.
-func GrantAccess(ctx context.Context, backend adapter.Backend, identity *Identity, namespace string, recipientPub ed25519.PublicKey) error {
+func GrantAccess(ctx context.Context, backend adapter.Backend, identity *DeviceKey, namespace string, recipientPub ed25519.PublicKey) error {
 	// Load namespace key (unwrap with our private key)
 	nsKeyPath := "keys/namespaces/" + namespace + ".ns.enc"
 	rc, err := backend.Get(ctx, nsKeyPath)
@@ -52,7 +52,7 @@ func GrantAccess(ctx context.Context, backend adapter.Backend, identity *Identit
 
 // RevokeAccess removes a recipient's wrapped namespace key and rotates
 // the namespace key so the revoked party cannot decrypt future data.
-func RevokeAccess(ctx context.Context, backend adapter.Backend, identity *Identity, namespace string, recipientPub ed25519.PublicKey) error {
+func RevokeAccess(ctx context.Context, backend adapter.Backend, identity *DeviceKey, namespace string, recipientPub ed25519.PublicKey) error {
 	recipientID := shortID(recipientPub)
 	recipientKeyPath := "keys/namespaces/" + namespace + "." + recipientID + ".ns.enc"
 
@@ -69,7 +69,7 @@ func RevokeAccess(ctx context.Context, backend adapter.Backend, identity *Identi
 // RotateNamespaceKey generates a new namespace key and re-wraps it for
 // all authorized identities. File data is NOT re-encrypted — only the
 // tiny key metadata changes.
-func RotateNamespaceKey(ctx context.Context, backend adapter.Backend, identity *Identity, namespace string) error {
+func RotateNamespaceKey(ctx context.Context, backend adapter.Backend, identity *DeviceKey, namespace string) error {
 	// Load old namespace key
 	nsKeyPath := "keys/namespaces/" + namespace + ".ns.enc"
 	rc, err := backend.Get(ctx, nsKeyPath)

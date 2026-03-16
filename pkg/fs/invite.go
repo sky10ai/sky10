@@ -126,7 +126,7 @@ func CheckJoinRequest(ctx context.Context, backend adapter.Backend, inviteID str
 }
 
 // ApproveJoin grants the joining device access to all namespaces and writes the granted marker.
-func ApproveJoin(ctx context.Context, backend adapter.Backend, identity *Identity, joinerAddress string, inviteID string) error {
+func ApproveJoin(ctx context.Context, backend adapter.Backend, identity *DeviceKey, joinerAddress string, inviteID string) error {
 	// Parse joiner's public key from address
 	joinerKey, err := parseAddressToPublicKey(joinerAddress)
 	if err != nil {

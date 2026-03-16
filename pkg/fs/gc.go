@@ -18,7 +18,7 @@ type GCResult struct {
 // GC removes orphaned blobs that are no longer referenced by any file in
 // the current manifest state. If dryRun is true, it reports what would be
 // deleted without deleting anything.
-func GC(ctx context.Context, backend adapter.Backend, identity *Identity, dryRun bool) (*GCResult, error) {
+func GC(ctx context.Context, backend adapter.Backend, identity *DeviceKey, dryRun bool) (*GCResult, error) {
 	store := New(backend, identity)
 	state, err := store.loadCurrentState(ctx)
 	if err != nil {
