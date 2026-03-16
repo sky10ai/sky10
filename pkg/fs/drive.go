@@ -126,7 +126,15 @@ func (dm *DriveManager) StartDrive(id string, logger interface{ Info(string, ...
 		PollSeconds: 30,
 	}
 
-	daemon, err := NewDaemon(dm.store, nil, daemonCfg, nil)
+	// Each drive gets its own store with the drive's namespace set,
+	// so all files uploaded through this drive use one namespace key.
+	driveStore := NewWithDevice(dm.store.backend, dm.store.identity, dm.store.deviceID)
+	driveStore.SetClient(dm.store.clientID)
+	if drive.Namespace != "" {
+		driveStore.SetNamespace(drive.Namespace)
+	}
+
+	daemon, err := NewDaemon(driveStore, nil, daemonCfg, nil)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("creating daemon for %s: %w", drive.Name, err)

@@ -84,7 +84,7 @@ func RestoreVersion(ctx context.Context, store *Store, path string, timestamp ti
 	}
 
 	// Download using the version's chunks
-	nsKey, err := store.getOrCreateNamespaceKey(ctx, NamespaceFromPath(path))
+	nsKey, err := store.getOrCreateNamespaceKey(ctx, store.namespaceFor(path))
 	if err != nil {
 		return err
 	}

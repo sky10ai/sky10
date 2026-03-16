@@ -27,10 +27,11 @@ var ErrFileNotFound = errors.New("file not found")
 // encrypted chunks to a storage backend, and tracks file metadata via an
 // append-only ops log with periodic manifest snapshots.
 type Store struct {
-	backend  adapter.Backend
-	identity *Identity
-	deviceID string
-	clientID string // e.g. "cli/0.4.1", "cirrus/0.4.1"
+	backend   adapter.Backend
+	identity  *Identity
+	deviceID  string
+	clientID  string // e.g. "cli/0.4.1", "cirrus/0.4.1"
+	namespace string // if set, all files use this namespace instead of path-derived
 
 	mu         sync.Mutex
 	nsKeys     map[string][]byte // cached namespace keys
@@ -69,6 +70,21 @@ func NewWithDevice(backend adapter.Backend, identity *Identity, deviceID string)
 // SetClient sets the client identifier embedded in ops (e.g. "cli/0.4.1").
 func (s *Store) SetClient(client string) {
 	s.clientID = client
+}
+
+// SetNamespace forces all files to use this namespace instead of
+// deriving it from the path. Use for drives where everything in the
+// synced folder should share one key.
+func (s *Store) SetNamespace(ns string) {
+	s.namespace = ns
+}
+
+// namespaceFor returns the namespace for a given path.
+func (s *Store) namespaceFor(path string) string {
+	if s.namespace != "" {
+		return s.namespace
+	}
+	return NamespaceFromPath(path)
 }
 
 // opsKey returns the shared encryption key for ops and manifests.
@@ -207,7 +223,7 @@ func (s *Store) writeOp(ctx context.Context, op *Op) error {
 // It streams through the data chunk by chunk, never holding more than
 // one chunk (max 4MB) in memory.
 func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
-	namespace := NamespaceFromPath(path)
+	namespace := s.namespaceFor(path)
 
 	nsKey, err := s.getOrCreateNamespaceKey(ctx, namespace)
 	if err != nil {
