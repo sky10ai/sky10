@@ -538,6 +538,7 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 		"keys/namespaces/" + namespace + ".ns.enc",
 	}
 
+	keyExists := false
 	for _, nsKeyPath := range keyPaths {
 		rc, err := s.backend.Get(ctx, nsKeyPath)
 		if err != nil {
@@ -546,6 +547,7 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 			}
 			return nil, fmt.Errorf("loading namespace key: %w", err)
 		}
+		keyExists = true
 		wrapped, err := io.ReadAll(rc)
 		rc.Close()
 		if err != nil {
@@ -557,6 +559,12 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 		}
 		s.nsKeys[namespace] = nsKey
 		return nsKey, nil
+	}
+
+	// If a key exists but we couldn't unwrap it, this device doesn't have access.
+	// Do NOT create a new key — that would overwrite the existing one.
+	if keyExists {
+		return nil, fmt.Errorf("namespace %q: access denied (key exists but cannot be unwrapped — join via invite first)", namespace)
 	}
 
 	nsKey, err := GenerateNamespaceKey()
