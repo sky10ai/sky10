@@ -11,6 +11,10 @@ struct SettingsView: View {
                 .environmentObject(appState)
                 .tabItem { Label("Drives", systemImage: "folder.badge.gearshape") }
 
+            DevicesView()
+                .environmentObject(appState)
+                .tabItem { Label("Devices", systemImage: "desktopcomputer") }
+
             StorageSettingsView()
                 .environmentObject(appState)
                 .tabItem { Label("Storage", systemImage: "externaldrive") }
@@ -19,7 +23,7 @@ struct SettingsView: View {
                 .environmentObject(appState)
                 .tabItem { Label("General", systemImage: "gear") }
         }
-        .frame(width: 500, height: 400)
+        .frame(width: 500, height: 420)
     }
 }
 
