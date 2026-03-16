@@ -99,6 +99,8 @@ class MockSkyClient: SkyClientProtocol {
         if shouldError { throw MockError.simulated(errorMessage) }
     }
 
+    func removeDevice(pubkey: String) async throws {}
+
     func listDevices() async throws -> DeviceListResponse {
         return DeviceListResponse(
             devices: [DeviceInfo(pubkey: "sky10qtest", name: "Test Mac", joined: "2026-03-15", platform: "macOS", ip: "73.12.45.67", location: "Austin, Texas, United States")],

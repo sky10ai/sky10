@@ -49,6 +49,7 @@ private class PreviewSkyClient: SkyClientProtocol {
     func listDrives() async throws -> [SkyClient.DriveInfoResult] { [] }
     func startDrive(id: String) async throws {}
     func stopDrive(id: String) async throws {}
+    func removeDevice(pubkey: String) async throws {}
     func listDevices() async throws -> DeviceListResponse {
         DeviceListResponse(devices: [
             DeviceInfo(pubkey: "sky10qpreviewdevice1234", name: "MacBook Pro", joined: "2026-03-10", platform: "macOS", ip: "73.12.45.67", location: "Austin, Texas, United States"),

@@ -213,6 +213,8 @@ func (s *RPCServer) dispatch(ctx context.Context, req *RPCRequest) *RPCResponse 
 		result, err = s.rpcDriveStop(ctx, req.Params)
 	case "skyfs.deviceList":
 		result, err = s.rpcDeviceList(ctx)
+	case "skyfs.deviceRemove":
+		result, err = s.rpcDeviceRemove(ctx, req.Params)
 	case "skyfs.invite":
 		result, err = s.rpcInvite(ctx)
 	case "skyfs.approve":
@@ -606,6 +608,24 @@ func (s *RPCServer) rpcDeviceList(ctx context.Context) (interface{}, error) {
 		"devices":    devices,
 		"this_device": s.store.identity.Address(),
 	}, nil
+}
+
+func (s *RPCServer) rpcDeviceRemove(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p struct {
+		Pubkey string `json:"pubkey"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.Pubkey == s.store.identity.Address() {
+		return nil, fmt.Errorf("cannot remove this device")
+	}
+	id := shortPubkeyID(p.Pubkey)
+	key := "devices/" + id + ".json"
+	if err := s.store.backend.Delete(ctx, key); err != nil {
+		return nil, err
+	}
+	return map[string]string{"status": "ok"}, nil
 }
 
 func (s *RPCServer) rpcInvite(ctx context.Context) (interface{}, error) {

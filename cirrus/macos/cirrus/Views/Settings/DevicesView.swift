@@ -127,6 +127,16 @@ struct DevicesView: View {
                     .foregroundStyle(.tertiary)
             }
             Spacer()
+            if !isSelf {
+                Button {
+                    Task { await removeDevice(device) }
+                } label: {
+                    Image(systemName: "xmark.circle")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Remove device")
+            }
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 4)
@@ -175,6 +185,15 @@ struct DevicesView: View {
             }
         } catch {
             // silently fail — backend might not be ready
+        }
+    }
+
+    private func removeDevice(_ device: DeviceInfo) async {
+        do {
+            try await appState.client.removeDevice(pubkey: device.pubkey)
+            devices.removeAll { $0.pubkey == device.pubkey }
+        } catch {
+            // silently fail
         }
     }
 
