@@ -9,6 +9,7 @@ struct DevicesView: View {
     @State private var inviteCode: String?
     @State private var generating = false
     @State private var copied = false
+    @State private var pollTimer: Timer?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -88,6 +89,8 @@ struct DevicesView: View {
         .task {
             await loadDevices()
         }
+        .onAppear { startPolling() }
+        .onDisappear { stopPolling() }
     }
 
     @ViewBuilder
@@ -138,23 +141,38 @@ struct DevicesView: View {
     }
 
     private func formatDate(_ dateStr: String) -> String {
-        // Try RFC3339 first, fall back to raw prefix
         let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.formatOptions = [.withInternetDateTime]
         if let date = formatter.date(from: dateStr) {
             let display = DateFormatter()
             display.dateStyle = .medium
             return display.string(from: date)
         }
-        // Fallback: just show first 10 chars (YYYY-MM-DD)
         return String(dateStr.prefix(10))
+    }
+
+    private func startPolling() {
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { _ in
+            Task { await loadDevices() }
+        }
+    }
+
+    private func stopPolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
     }
 
     private func loadDevices() async {
         do {
             let response = try await appState.client.listDevices()
+            let oldCount = devices.count
             devices = response.devices
             thisDevice = response.thisDevice
+
+            // New device appeared — dismiss the invite code
+            if devices.count > oldCount && oldCount > 0 && inviteCode != nil {
+                inviteCode = nil
+            }
         } catch {
             // silently fail — backend might not be ready
         }
