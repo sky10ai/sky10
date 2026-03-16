@@ -68,7 +68,7 @@ struct ChooseView: View {
                 } label: {
                     HStack {
                         Image(systemName: "link.circle.fill")
-                        Text("Join With Invite Code")
+                        Text("Sync With Existing Device")
                     }
                     .frame(maxWidth: .infinity)
                 }

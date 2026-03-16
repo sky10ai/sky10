@@ -81,6 +81,9 @@ func fsInitCmd() *cobra.Command {
 			if err := skyfs.WriteSchema(ctx, backend); err != nil {
 				return err
 			}
+			// Register this device
+			skyfs.RegisterDevice(ctx, backend, id.Address(), skyfs.GetDeviceName())
+
 			fmt.Printf("Initialized skyfs\n  Schema:   v%s\n  Identity: %s\n  Bucket:   %s\n",
 				skyfs.SchemaVersion, id.Address(), cfg.Bucket)
 			return nil

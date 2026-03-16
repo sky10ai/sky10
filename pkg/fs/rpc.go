@@ -207,6 +207,12 @@ func (s *RPCServer) dispatch(ctx context.Context, req *RPCRequest) *RPCResponse 
 		result, err = s.rpcDriveStart(ctx, req.Params)
 	case "skyfs.driveStop":
 		result, err = s.rpcDriveStop(ctx, req.Params)
+	case "skyfs.deviceList":
+		result, err = s.rpcDeviceList(ctx)
+	case "skyfs.invite":
+		result, err = s.rpcInvite(ctx)
+	case "skyfs.approve":
+		result, err = s.rpcApprove(ctx)
 	default:
 		resp.Error = &RPCError{Code: -32601, Message: "method not found: " + req.Method}
 		return resp
@@ -583,4 +589,79 @@ func (s *RPCServer) rpcDriveStop(_ context.Context, params json.RawMessage) (int
 	}
 	s.driveManager.StopDrive(p.ID)
 	return map[string]string{"status": "stopped"}, nil
+}
+
+// --- Device registry ---
+
+func (s *RPCServer) rpcDeviceList(ctx context.Context) (interface{}, error) {
+	devices, err := ListDevices(ctx, s.store.backend)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"devices": devices}, nil
+}
+
+func (s *RPCServer) rpcInvite(ctx context.Context) (interface{}, error) {
+	// Read credentials from environment
+	accessKey := os.Getenv("S3_ACCESS_KEY_ID")
+	secretKey := os.Getenv("S3_SECRET_ACCESS_KEY")
+
+	code, err := CreateInvite(ctx, s.store.backend, InviteConfig{
+		Endpoint:     "", // will be read from config by the caller
+		Bucket:       "", // same
+		AccessKey:    accessKey,
+		SecretKey:    secretKey,
+		DevicePubKey: s.store.identity.Address(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{"code": code}, nil
+}
+
+func (s *RPCServer) rpcApprove(ctx context.Context) (interface{}, error) {
+	// Find pending invites
+	inviteKeys, err := s.store.backend.List(ctx, "invites/")
+	if err != nil {
+		return nil, err
+	}
+
+	inviteIDs := make(map[string]bool)
+	for _, k := range inviteKeys {
+		if id := splitInvitePath2(k); id != "" {
+			inviteIDs[id] = true
+		}
+	}
+
+	approved := 0
+	for inviteID := range inviteIDs {
+		joinerAddr, err := CheckJoinRequest(ctx, s.store.backend, inviteID)
+		if err != nil || joinerAddr == "" {
+			continue
+		}
+		granted, _ := IsGranted(ctx, s.store.backend, inviteID)
+		if granted {
+			continue
+		}
+		if err := ApproveJoin(ctx, s.store.backend, s.store.identity, joinerAddr, inviteID); err != nil {
+			continue
+		}
+		approved++
+		CleanupInvite(ctx, s.store.backend, inviteID)
+	}
+
+	return map[string]int{"approved": approved}, nil
+}
+
+func splitInvitePath2(key string) string {
+	if len(key) < 9 || key[:8] != "invites/" {
+		return ""
+	}
+	rest := key[8:]
+	for i, c := range rest {
+		if c == '/' {
+			return rest[:i]
+		}
+	}
+	return ""
 }
