@@ -510,24 +510,32 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 		return key, nil
 	}
 
-	nsKeyPath := "keys/namespaces/" + namespace + ".ns.enc"
+	// Try device-specific key first (for joined devices), then the original path
+	deviceID := shortPubkeyID(s.identity.Address())
+	keyPaths := []string{
+		"keys/namespaces/" + namespace + "." + deviceID + ".ns.enc",
+		"keys/namespaces/" + namespace + ".ns.enc",
+	}
 
-	rc, err := s.backend.Get(ctx, nsKeyPath)
-	if err == nil {
-		defer rc.Close()
+	for _, nsKeyPath := range keyPaths {
+		rc, err := s.backend.Get(ctx, nsKeyPath)
+		if err != nil {
+			if errors.Is(err, adapter.ErrNotFound) {
+				continue
+			}
+			return nil, fmt.Errorf("loading namespace key: %w", err)
+		}
 		wrapped, err := io.ReadAll(rc)
+		rc.Close()
 		if err != nil {
 			return nil, fmt.Errorf("reading namespace key: %w", err)
 		}
 		nsKey, err := UnwrapNamespaceKey(wrapped, s.identity.PrivateKey)
 		if err != nil {
-			return nil, fmt.Errorf("unwrapping namespace key: %w", err)
+			continue // wrong key for this device, try next path
 		}
 		s.nsKeys[namespace] = nsKey
 		return nsKey, nil
-	}
-	if !errors.Is(err, adapter.ErrNotFound) {
-		return nil, fmt.Errorf("loading namespace key: %w", err)
 	}
 
 	nsKey, err := GenerateNamespaceKey()
@@ -540,8 +548,9 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 		return nil, fmt.Errorf("wrapping namespace key: %w", err)
 	}
 
+	newKeyPath := "keys/namespaces/" + namespace + ".ns.enc"
 	r := bytes.NewReader(wrapped)
-	if err := s.backend.Put(ctx, nsKeyPath, r, int64(len(wrapped))); err != nil {
+	if err := s.backend.Put(ctx, newKeyPath, r, int64(len(wrapped))); err != nil {
 		return nil, fmt.Errorf("storing namespace key: %w", err)
 	}
 
