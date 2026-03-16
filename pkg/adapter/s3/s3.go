@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -220,7 +221,9 @@ func NewMemory() *MemoryBackend {
 }
 
 // MemoryBackend is an in-memory implementation of adapter.Backend for tests.
+// Thread-safe — all methods are protected by a mutex.
 type MemoryBackend struct {
+	mu      sync.RWMutex
 	objects map[string][]byte
 }
 
@@ -230,13 +233,17 @@ func (m *MemoryBackend) Put(_ context.Context, key string, r io.Reader, _ int64)
 	if err != nil {
 		return fmt.Errorf("memory: reading data: %w", err)
 	}
+	m.mu.Lock()
 	m.objects[key] = data
+	m.mu.Unlock()
 	return nil
 }
 
 // Get returns data from memory.
 func (m *MemoryBackend) Get(_ context.Context, key string) (io.ReadCloser, error) {
+	m.mu.RLock()
 	data, ok := m.objects[key]
+	m.mu.RUnlock()
 	if !ok {
 		return nil, adapter.ErrNotFound
 	}
@@ -245,6 +252,8 @@ func (m *MemoryBackend) Get(_ context.Context, key string) (io.ReadCloser, error
 
 // Delete removes data from memory.
 func (m *MemoryBackend) Delete(_ context.Context, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if _, ok := m.objects[key]; !ok {
 		return adapter.ErrNotFound
 	}
@@ -254,19 +263,23 @@ func (m *MemoryBackend) Delete(_ context.Context, key string) error {
 
 // List returns keys matching the prefix.
 func (m *MemoryBackend) List(_ context.Context, prefix string) ([]string, error) {
+	m.mu.RLock()
 	var keys []string
 	for k := range m.objects {
 		if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
 			keys = append(keys, k)
 		}
 	}
+	m.mu.RUnlock()
 	sort.Strings(keys)
 	return keys, nil
 }
 
 // Head returns metadata for a key.
 func (m *MemoryBackend) Head(_ context.Context, key string) (adapter.ObjectMeta, error) {
+	m.mu.RLock()
 	data, ok := m.objects[key]
+	m.mu.RUnlock()
 	if !ok {
 		return adapter.ObjectMeta{}, adapter.ErrNotFound
 	}
