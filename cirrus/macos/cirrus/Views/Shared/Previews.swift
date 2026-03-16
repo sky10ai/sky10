@@ -51,7 +51,6 @@ private class PreviewSkyClient: SkyClientProtocol {
     func stopDrive(id: String) async throws {}
     func listDevices() async throws -> [DeviceInfo] { [] }
     func generateInvite() async throws -> String { "sky10invite_preview" }
-    func approveJoinRequests() async throws -> Int { 0 }
 }
 
 extension AppState {

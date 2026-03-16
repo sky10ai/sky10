@@ -17,7 +17,6 @@ protocol SkyClientProtocol {
     func stopDrive(id: String) async throws
     func listDevices() async throws -> [DeviceInfo]
     func generateInvite() async throws -> String
-    func approveJoinRequests() async throws -> Int
 }
 
 struct DeviceInfo: Codable {

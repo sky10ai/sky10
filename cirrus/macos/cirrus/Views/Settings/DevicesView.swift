@@ -8,7 +8,6 @@ struct DevicesView: View {
     @State private var inviteCode: String?
     @State private var generating = false
     @State private var copied = false
-    @State private var approving = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -16,13 +15,6 @@ struct DevicesView: View {
                 Text("Synced Devices")
                     .font(.headline)
                 Spacer()
-                Button {
-                    Task { await approve() }
-                } label: {
-                    Text("Approve Pending")
-                }
-                .disabled(approving)
-
                 Button {
                     Task { await generateInvite() }
                 } label: {
@@ -95,7 +87,7 @@ struct DevicesView: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                     }
-                    Text("On the new device, open Cirrus and choose \"Sync With Existing Device\", or run:")
+                    Text("On the new device, run:")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                     Text("sky10 fs join <code>")
@@ -127,18 +119,5 @@ struct DevicesView: View {
             inviteCode = "Error: \(error.localizedDescription)"
         }
         generating = false
-    }
-
-    private func approve() async {
-        approving = true
-        do {
-            let count = try await appState.client.approveJoinRequests()
-            if count > 0 {
-                await loadDevices()
-            }
-        } catch {
-            // silently fail
-        }
-        approving = false
     }
 }
