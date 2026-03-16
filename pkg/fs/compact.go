@@ -22,7 +22,7 @@ type CompactResult struct {
 // Compaction is idempotent: two devices compacting simultaneously read
 // the same ops, replay in the same order, and produce logically identical
 // snapshots.
-func Compact(ctx context.Context, backend adapter.Backend, identity *Identity, maxSnapshots int) (*CompactResult, error) {
+func Compact(ctx context.Context, backend adapter.Backend, identity *DeviceKey, maxSnapshots int) (*CompactResult, error) {
 	if maxSnapshots < 1 {
 		maxSnapshots = 3
 	}

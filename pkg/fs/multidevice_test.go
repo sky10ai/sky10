@@ -13,7 +13,7 @@ import (
 )
 
 // helper: simulate the invite approve flow — unwrap A's namespace keys, wrap for B
-func simulateApprove(t *testing.T, ctx context.Context, backend adapter.Backend, idA, idB *Identity) {
+func simulateApprove(t *testing.T, ctx context.Context, backend adapter.Backend, idA, idB *DeviceKey) {
 	t.Helper()
 	nsKeys, _ := backend.List(ctx, "keys/namespaces/")
 	bID := shortPubkeyID(idB.Address())
