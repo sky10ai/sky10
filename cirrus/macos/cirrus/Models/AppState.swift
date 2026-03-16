@@ -11,6 +11,7 @@ class AppState: ObservableObject {
     @Published var isLoading = false
     @Published var error: String?
     @Published var conflictPath: String? = nil
+    @Published var onboardingComplete: Bool
 
     let client: SkyClientProtocol
     let daemonManager: DaemonManager
@@ -19,7 +20,15 @@ class AppState: ObservableObject {
     init(client: SkyClientProtocol = SkyClient(), daemonManager: DaemonManager = DaemonManager()) {
         self.client = client
         self.daemonManager = daemonManager
-        Task { await start() }
+
+        // Check if config exists
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let configExists = FileManager.default.fileExists(atPath: "\(home)/.sky10/config.json")
+        self.onboardingComplete = configExists
+
+        if configExists {
+            Task { await start() }
+        }
     }
 
     func start() async {

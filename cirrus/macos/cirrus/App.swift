@@ -17,11 +17,17 @@ struct CirrusApp: App {
         }
 
         WindowGroup("Cirrus", id: "browser") {
-            BrowserView()
-                .environmentObject(appState)
-                .frame(minWidth: 800, minHeight: 500)
+            if appState.onboardingComplete {
+                BrowserView()
+                    .environmentObject(appState)
+                    .frame(minWidth: 800, minHeight: 500)
+            } else {
+                OnboardingView()
+                    .environmentObject(appState)
+            }
         }
-        .defaultSize(width: 1000, height: 600)
+        .defaultSize(width: appState.onboardingComplete ? 1000 : 480,
+                     height: appState.onboardingComplete ? 600 : 400)
 
         Settings {
             SettingsView()
