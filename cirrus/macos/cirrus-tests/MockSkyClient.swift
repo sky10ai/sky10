@@ -99,8 +99,11 @@ class MockSkyClient: SkyClientProtocol {
         if shouldError { throw MockError.simulated(errorMessage) }
     }
 
-    func listDevices() async throws -> [DeviceInfo] {
-        return [DeviceInfo(pubkey: "sky10qtest", name: "Test Mac", joined: "2026-03-15", platform: "macOS")]
+    func listDevices() async throws -> DeviceListResponse {
+        return DeviceListResponse(
+            devices: [DeviceInfo(pubkey: "sky10qtest", name: "Test Mac", joined: "2026-03-15", platform: "macOS")],
+            thisDevice: "sky10qtest"
+        )
     }
 
     func generateInvite() async throws -> String {

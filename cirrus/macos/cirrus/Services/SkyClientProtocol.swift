@@ -15,7 +15,7 @@ protocol SkyClientProtocol {
     func listDrives() async throws -> [SkyClient.DriveInfoResult]
     func startDrive(id: String) async throws
     func stopDrive(id: String) async throws
-    func listDevices() async throws -> [DeviceInfo]
+    func listDevices() async throws -> DeviceListResponse
     func generateInvite() async throws -> String
 }
 
@@ -24,6 +24,11 @@ struct DeviceInfo: Codable {
     let name: String
     let joined: String
     let platform: String?
+}
+
+struct DeviceListResponse {
+    let devices: [DeviceInfo]
+    let thisDevice: String
 }
 
 struct SyncStatusInfo: Codable {

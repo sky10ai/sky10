@@ -602,7 +602,10 @@ func (s *RPCServer) rpcDeviceList(ctx context.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{"devices": devices}, nil
+	return map[string]interface{}{
+		"devices":    devices,
+		"this_device": s.store.identity.Address(),
+	}, nil
 }
 
 func (s *RPCServer) rpcInvite(ctx context.Context) (interface{}, error) {

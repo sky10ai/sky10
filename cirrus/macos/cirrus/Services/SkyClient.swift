@@ -147,12 +147,18 @@ class SkyClient {
     // MARK: - Devices
 
     struct DeviceListResult: Codable {
-        let devices: [DeviceInfo]
+        let devices: [DeviceInfo]?
+        let thisDevice: String
+
+        enum CodingKeys: String, CodingKey {
+            case devices
+            case thisDevice = "this_device"
+        }
     }
 
-    func listDevices() async throws -> [DeviceInfo] {
+    func listDevices() async throws -> DeviceListResponse {
         let result: DeviceListResult = try await rpc.call("skyfs.deviceList")
-        return result.devices
+        return DeviceListResponse(devices: result.devices ?? [], thisDevice: result.thisDevice)
     }
 
     struct InviteResult: Codable {
