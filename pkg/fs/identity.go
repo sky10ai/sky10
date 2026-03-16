@@ -23,6 +23,11 @@ func SaveIdentity(id *Identity, path string) error {
 	return skykey.Save(id, path)
 }
 
+// SaveIdentityWithDescription writes the identity with a description field.
+func SaveIdentityWithDescription(id *Identity, path string, description string) error {
+	return skykey.SaveWithDescription(id, path, description)
+}
+
 // LoadIdentity reads an identity from path.
 func LoadIdentity(path string) (*Identity, error) {
 	return skykey.Load(path)

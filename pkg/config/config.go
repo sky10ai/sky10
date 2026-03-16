@@ -35,23 +35,30 @@ func Dir() (string, error) {
 	newDir := filepath.Join(home, configDir)
 
 	// Auto-migrate: if ~/.sky10/fs/ doesn't exist but ~/.sky10/config.json does,
-	// move fs-related files into the fs/ subdirectory.
+	// move fs-related files into the fs/ subdirectory and keys to ~/.sky10/keys/.
 	if _, err := os.Stat(newDir); os.IsNotExist(err) {
 		oldDir := filepath.Join(home, oldConfigDir)
 		oldConfig := filepath.Join(oldDir, configFile)
 		if _, err := os.Stat(oldConfig); err == nil {
 			os.MkdirAll(newDir, 0700)
-			// Move fs-specific files
-			for _, f := range []string{configFile, keyFile, "drives.json"} {
+			// Move fs-specific files (not key.json — that goes to keys/)
+			for _, f := range []string{configFile, "drives.json"} {
 				old := filepath.Join(oldDir, f)
 				if _, err := os.Stat(old); err == nil {
 					os.Rename(old, filepath.Join(newDir, f))
 				}
 			}
-			// Move keys/ directory
-			oldKeys := filepath.Join(oldDir, "keys")
-			if _, err := os.Stat(oldKeys); err == nil {
-				os.Rename(oldKeys, filepath.Join(newDir, "keys"))
+			// Move namespace key cache to fs/keys/ FIRST (before creating ~/.sky10/keys/)
+			oldNsKeys := filepath.Join(oldDir, "keys")
+			if _, err := os.Stat(oldNsKeys); err == nil {
+				os.Rename(oldNsKeys, filepath.Join(newDir, "keys"))
+			}
+			// Move key.json to ~/.sky10/keys/
+			keysDir := filepath.Join(home, ".sky10", "keys")
+			os.MkdirAll(keysDir, 0700)
+			oldKey := filepath.Join(oldDir, keyFile)
+			if _, err := os.Stat(oldKey); err == nil {
+				os.Rename(oldKey, filepath.Join(keysDir, keyFile))
 			}
 		}
 
@@ -67,9 +74,18 @@ func Dir() (string, error) {
 	return newDir, nil
 }
 
-// DefaultIdentityPath returns the default path for the key file.
+// KeysDir returns the directory for keys (~/.sky10/keys/).
+func KeysDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("finding home directory: %w", err)
+	}
+	return filepath.Join(home, ".sky10", "keys"), nil
+}
+
+// DefaultIdentityPath returns the default path for the skyfs device key.
 func DefaultIdentityPath() (string, error) {
-	dir, err := Dir()
+	dir, err := KeysDir()
 	if err != nil {
 		return "", err
 	}

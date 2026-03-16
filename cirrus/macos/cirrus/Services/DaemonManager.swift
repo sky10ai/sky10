@@ -135,7 +135,9 @@ class DaemonManager: ObservableObject {
 
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let configDir = "\(home)/.sky10/fs"
+        let keysDir = "\(home)/.sky10/keys"
         try? FileManager.default.createDirectory(atPath: configDir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(atPath: keysDir, withIntermediateDirectories: true)
 
         // Extract region from endpoint if possible, default to us-east-1
         let region = "us-east-1"
@@ -145,7 +147,7 @@ class DaemonManager: ObservableObject {
             "region": region,
             "endpoint": endpoint,
             "force_path_style": pathStyle,
-            "identity_file": "\(configDir)/key.json"
+            "identity_file": "\(keysDir)/key.json"
         ]
 
         if let data = try? JSONSerialization.data(withJSONObject: config, options: .prettyPrinted) {
@@ -153,7 +155,7 @@ class DaemonManager: ObservableObject {
         }
 
         // Generate key if it doesn't exist
-        let keyPath = "\(configDir)/key.json"
+        let keyPath = "\(keysDir)/key.json"
         if !FileManager.default.fileExists(atPath: keyPath) {
             // Run sky10 key generate
             if let binary = binaryPath {
