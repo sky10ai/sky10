@@ -4,13 +4,13 @@ import SwiftUI
 struct CirrusApp: App {
     @StateObject private var appState = AppState()
     @State private var animationFrame = 0
-    private let animationTimer = Timer.publish(every: 0.6, on: .main, in: .common).autoconnect()
+    private let animationTimer = Timer.publish(every: 0.8, on: .main, in: .common).autoconnect()
 
+    // Subtle 3-frame animation: cloud with arrow cycling up/down
     private let syncFrames = [
-        "cloud",
-        "arrow.up.arrow.down.cloud",
-        "cloud.fill",
-        "arrow.up.arrow.down.cloud.fill",
+        "icloud.and.arrow.up.fill",
+        "icloud.fill",
+        "icloud.and.arrow.down.fill",
     ]
 
     init() {
