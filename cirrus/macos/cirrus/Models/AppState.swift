@@ -7,7 +7,6 @@ class AppState: ObservableObject {
     @Published var syncState: SyncState = .offline
     @Published var files: [FileNode] = []
     @Published var storeInfo: StoreInfo?
-    @Published var selectedNamespace: String? = nil
     @Published var isLoading = false
     @Published var error: String?
     @Published var conflictPath: String? = nil
@@ -205,11 +204,6 @@ class AppState: ObservableObject {
         } catch {
             self.error = error.localizedDescription
         }
-    }
-
-    var filteredFiles: [FileNode] {
-        guard let ns = selectedNamespace else { return files }
-        return files.filter { $0.namespace == ns }
     }
 
     var namespaces: [String] {

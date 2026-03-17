@@ -1,69 +1,67 @@
 import AppKit
 import SwiftUI
 
-/// Detail panel showing file information.
-struct DetailView: View {
+/// Slim inspector panel for selected file info.
+struct InspectorView: View {
     let file: FileNode
     @EnvironmentObject var appState: AppState
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                // File icon + name
-                HStack {
-                    Image(systemName: file.icon)
-                        .font(.system(size: 48))
-                        .foregroundStyle(.blue)
-                    VStack(alignment: .leading) {
-                        Text(file.name)
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                        Text(file.path)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Divider()
-
-                // Metadata
-                Group {
-                    detailRow("Size", file.formattedSize)
-                    detailRow("Modified", file.formattedDate)
-                    detailRow("Namespace", file.namespace)
-                    detailRow("Chunks", "\(file.chunks)")
-                    detailRow("Checksum", String(file.checksum.prefix(16)) + "...")
-                }
-
-                Divider()
-
-                // Actions
-                HStack(spacing: 12) {
-                    Button("Download") {
-                        downloadFile()
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    Button("Delete", role: .destructive) {
-                        Task { await appState.removeFile(path: file.path) }
-                    }
-                    .buttonStyle(.bordered)
+        VStack(alignment: .leading, spacing: 12) {
+            // Icon + name
+            HStack(spacing: 10) {
+                Image(systemName: file.icon)
+                    .font(.system(size: 32))
+                    .foregroundStyle(.blue)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(file.name)
+                        .font(.headline)
+                        .lineLimit(2)
+                    Text(file.path)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
                 }
             }
-            .padding()
-        }
-        .frame(minWidth: 250)
-    }
 
-    private func detailRow(_ label: String, _ value: String) -> some View {
-        HStack {
-            Text(label)
-                .foregroundStyle(.secondary)
-                .frame(width: 80, alignment: .leading)
-            Text(value)
-                .textSelection(.enabled)
+            Divider()
+
+            Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 6) {
+                GridRow {
+                    Text("Size").foregroundStyle(.secondary)
+                    Text(file.formattedSize)
+                }
+                GridRow {
+                    Text("Modified").foregroundStyle(.secondary)
+                    Text(file.formattedDate)
+                }
+                GridRow {
+                    Text("Chunks").foregroundStyle(.secondary)
+                    Text("\(file.chunks)")
+                }
+                GridRow {
+                    Text("Checksum").foregroundStyle(.secondary)
+                    Text(String(file.checksum.prefix(16)) + "...")
+                        .font(.caption2)
+                        .monospaced()
+                }
+            }
+            .font(.caption)
+
             Spacer()
+
+            HStack(spacing: 8) {
+                Button("Download") { downloadFile() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                Button("Delete", role: .destructive) {
+                    Task { await appState.removeFile(path: file.path) }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
         }
+        .padding()
     }
 
     private func downloadFile() {
@@ -71,10 +69,7 @@ struct DetailView: View {
         panel.nameFieldStringValue = file.name
         if panel.runModal() == .OK, let url = panel.url {
             Task {
-                await appState.downloadFile(
-                    remotePath: file.path,
-                    localPath: url.path
-                )
+                await appState.downloadFile(remotePath: file.path, localPath: url.path)
             }
         }
     }
