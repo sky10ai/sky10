@@ -112,20 +112,35 @@ func (b *Backend) Put(ctx context.Context, key string, r io.Reader, size int64) 
 }
 
 // Get returns a reader for the data stored at key.
+// The caller must close the returned ReadCloser.
 func (b *Backend) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	ctx, cancel := withTimeout(ctx)
-	defer cancel()
+	// Don't defer cancel — the caller needs the context alive to read the body.
+	// The cancel is attached to the returned closer instead.
 	out, err := b.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(b.bucket),
 		Key:    aws.String(key),
 	})
 	if err != nil {
+		cancel()
 		if isNotFound(err) {
 			return nil, adapter.ErrNotFound
 		}
 		return nil, fmt.Errorf("s3: get %q: %w", key, err)
 	}
-	return out.Body, nil
+	return &cancelOnClose{ReadCloser: out.Body, cancel: cancel}, nil
+}
+
+// cancelOnClose wraps a ReadCloser and cancels a context on Close.
+type cancelOnClose struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (c *cancelOnClose) Close() error {
+	err := c.ReadCloser.Close()
+	c.cancel()
+	return err
 }
 
 // Delete removes the object at key.
