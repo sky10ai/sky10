@@ -122,10 +122,22 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 		return
 	}
 
-	// Watch new directories
+	// Watch new directories and emit events for any files already inside
 	if event.Has(fsnotify.Create) {
 		if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
 			w.watcher.Add(event.Name)
+			// Scan for files that were created before the watch was registered
+			entries, _ := os.ReadDir(event.Name)
+			for _, e := range entries {
+				if !e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+					childRel := rel + "/" + e.Name()
+					if w.ignore == nil || !w.ignore(childRel) {
+						w.mu.Lock()
+						w.pending[childRel] = time.Now()
+						w.mu.Unlock()
+					}
+				}
+			}
 			return
 		}
 	}
