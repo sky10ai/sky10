@@ -14,7 +14,7 @@ struct BrowserView: View {
     @State private var showActivityLog = false
     @State private var selectedDrive: String? = nil
     @State private var showInspector = false
-    @State private var viewMode: ViewMode = .tree
+    @AppStorage("viewMode") private var viewMode: ViewMode = .tree
 
     var body: some View {
         NavigationSplitView {
