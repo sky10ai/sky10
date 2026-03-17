@@ -332,7 +332,7 @@ func TestNewNamespaceWrappedForAllDevices(t *testing.T) {
 	simulateApprove(t, ctx, backend, idA, idB)
 
 	// Register Device B so Device A knows about it
-	RegisterDevice(ctx, backend, idB.Address(), "Device B")
+	RegisterDevice(ctx, backend, idB.Address(), "Device B", "test")
 
 	// Device A creates a file in a NEW namespace (no drive namespace set, uses path-derived)
 	if err := storeA.Put(ctx, "photos/cat.jpg", strings.NewReader("meow")); err != nil {
