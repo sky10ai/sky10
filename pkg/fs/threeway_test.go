@@ -122,13 +122,20 @@ func TestThreeWayDiff(t *testing.T) {
 			wantCount:  0,
 		},
 		{
-			name:       "conflict: both added same path",
+			name:       "conflict: both added same path, different content",
 			localFiles: map[string]string{"new.txt": "local-version"},
 			manifest:   map[string]SyncedFile{},
 			remoteOps:  []Op{{Type: OpPut, Path: "new.txt", Checksum: "remote-version", Size: 10}},
 			wantCount:  1,
 			wantType:   ActionConflict,
 			wantPath:   "new.txt",
+		},
+		{
+			name:       "both added same path, same content → no action",
+			localFiles: map[string]string{"new.txt": "same-checksum"},
+			manifest:   map[string]SyncedFile{},
+			remoteOps:  []Op{{Type: OpPut, Path: "new.txt", Checksum: "same-checksum", Size: 10}},
+			wantCount:  0,
 		},
 		{
 			name:       "file unchanged locally, no remote change",

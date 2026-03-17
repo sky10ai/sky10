@@ -17,7 +17,6 @@ import (
 // Before fix: StartAll was defined but never called — drives
 // required a manual driveStart RPC after every daemon restart.
 func TestDrivesAutoStartOnServe(t *testing.T) {
-	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -27,6 +26,7 @@ func TestDrivesAutoStartOnServe(t *testing.T) {
 
 	// Create drives config with an enabled drive
 	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
 	driveCfgPath := filepath.Join(tmpDir, "drives.json")
 	localDir := filepath.Join(tmpDir, "sync-folder")
 	os.MkdirAll(localDir, 0755)
@@ -97,7 +97,6 @@ func TestDrivesAutoStartOnServe(t *testing.T) {
 
 // Drive sync should upload local files to S3 after auto-start.
 func TestDriveAutoStartSyncsFiles(t *testing.T) {
-	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -106,6 +105,7 @@ func TestDriveAutoStartSyncsFiles(t *testing.T) {
 	store := New(backend, id)
 
 	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir) // isolate manifest from real HOME
 	driveCfgPath := filepath.Join(tmpDir, "drives.json")
 	localDir := filepath.Join(tmpDir, "sync-folder")
 	os.MkdirAll(localDir, 0755)

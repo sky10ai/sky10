@@ -124,6 +124,7 @@ func (dm *DriveManager) StartDrive(id string, logger interface{ Info(string, ...
 
 	daemonCfg := DaemonConfig{
 		SyncConfig:  cfg,
+		DriveID:     id,
 		PollSeconds: 30,
 	}
 
