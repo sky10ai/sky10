@@ -18,11 +18,12 @@ type DaemonConfig struct {
 // Daemon runs continuous bidirectional sync: local file watcher +
 // remote S3 poller + sync engine.
 type Daemon struct {
-	engine  *SyncEngine
-	watcher *Watcher
-	poller  *Poller
-	config  DaemonConfig
-	logger  *slog.Logger
+	engine     *SyncEngine
+	watcher    *Watcher
+	poller     *Poller
+	config     DaemonConfig
+	logger     *slog.Logger
+	onActivity func() // called when sync I/O happens
 
 	// work queue — watcher feeds events, worker goroutine processes them
 	localWork chan []FileEvent
@@ -51,12 +52,13 @@ func NewDaemon(store *Store, index *Index, config DaemonConfig, logger *slog.Log
 	poller := NewPoller(store, index, pollInterval)
 
 	return &Daemon{
-		engine:    engine,
-		watcher:   watcher,
-		poller:    poller,
-		config:    config,
-		logger:    logger,
-		localWork: make(chan []FileEvent, 50),
+		engine:     engine,
+		watcher:    watcher,
+		poller:     poller,
+		config:     config,
+		logger:     logger,
+		onActivity: func() {},
+		localWork:  make(chan []FileEvent, 50),
 	}, nil
 }
 
@@ -153,6 +155,7 @@ func (d *Daemon) syncLocalChanges(ctx context.Context, events []FileEvent) {
 
 		switch e.Type {
 		case FileCreated, FileModified:
+			d.onActivity()
 			localPath := filepath.Join(d.config.LocalRoot, filepath.FromSlash(e.Path))
 			f, err := os.Open(localPath)
 			if err != nil {
@@ -197,6 +200,7 @@ func (d *Daemon) syncRemoteChanges(ctx context.Context, ops []Op) {
 
 		switch op.Type {
 		case OpPut:
+			d.onActivity()
 			localPath := filepath.Join(d.config.LocalRoot, filepath.FromSlash(op.Path))
 			dir := filepath.Dir(localPath)
 			os.MkdirAll(dir, 0755)
