@@ -185,6 +185,8 @@ func (s *RPCServer) dispatch(ctx context.Context, req *RPCRequest) *RPCResponse 
 	var err error
 
 	switch req.Method {
+	case "skyfs.ping":
+		return &RPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]string{"status": "ok"}}
 	case "skyfs.list":
 		result, err = s.rpcList(ctx, req.Params)
 	case "skyfs.info":
