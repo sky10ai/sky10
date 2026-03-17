@@ -22,7 +22,9 @@ struct MenuBarView: View {
 
         Button("Open Cirrus") {
             openWindow(id: "browser")
-            NSApplication.shared.activate(ignoringOtherApps: true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                NSApplication.shared.activate(ignoringOtherApps: true)
+            }
         }
         .keyboardShortcut("b")
 
@@ -39,8 +41,11 @@ struct MenuBarView: View {
             Divider()
         }
 
-        SettingsLink {
-            Text("Preferences...")
+        Button("Preferences...") {
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                NSApplication.shared.activate(ignoringOtherApps: true)
+            }
         }
         .keyboardShortcut(",")
 
