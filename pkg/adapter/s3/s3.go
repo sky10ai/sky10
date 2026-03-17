@@ -13,6 +13,7 @@ import (
 	"os"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -88,8 +89,16 @@ func New(ctx context.Context, cfg Config) (*Backend, error) {
 	}, nil
 }
 
+const s3Timeout = 30 * time.Second
+
+func withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, s3Timeout)
+}
+
 // Put stores data from r under the given key.
 func (b *Backend) Put(ctx context.Context, key string, r io.Reader, size int64) error {
+	ctx, cancel := withTimeout(ctx)
+	defer cancel()
 	_, err := b.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(b.bucket),
 		Key:           aws.String(key),
@@ -104,6 +113,8 @@ func (b *Backend) Put(ctx context.Context, key string, r io.Reader, size int64) 
 
 // Get returns a reader for the data stored at key.
 func (b *Backend) Get(ctx context.Context, key string) (io.ReadCloser, error) {
+	ctx, cancel := withTimeout(ctx)
+	defer cancel()
 	out, err := b.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(b.bucket),
 		Key:    aws.String(key),
@@ -125,6 +136,8 @@ func (b *Backend) Delete(ctx context.Context, key string) error {
 		return err
 	}
 
+	ctx, cancel := withTimeout(ctx)
+	defer cancel()
 	_, err := b.client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String(b.bucket),
 		Key:    aws.String(key),
@@ -137,6 +150,8 @@ func (b *Backend) Delete(ctx context.Context, key string) error {
 
 // List returns all keys with the given prefix.
 func (b *Backend) List(ctx context.Context, prefix string) ([]string, error) {
+	ctx, cancel := withTimeout(ctx)
+	defer cancel()
 	var keys []string
 	paginator := s3.NewListObjectsV2Paginator(b.client, &s3.ListObjectsV2Input{
 		Bucket: aws.String(b.bucket),
@@ -159,6 +174,8 @@ func (b *Backend) List(ctx context.Context, prefix string) ([]string, error) {
 
 // Head returns metadata for the object at key.
 func (b *Backend) Head(ctx context.Context, key string) (adapter.ObjectMeta, error) {
+	ctx, cancel := withTimeout(ctx)
+	defer cancel()
 	out, err := b.client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(b.bucket),
 		Key:    aws.String(key),
