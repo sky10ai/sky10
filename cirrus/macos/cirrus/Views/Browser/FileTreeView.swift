@@ -110,16 +110,12 @@ struct FileTreeView: View {
             }
         }
         .overlay {
-            if root.isEmpty {
-                if appState.isLoading || appState.storeInfo == nil {
-                    ProgressView("Connecting...")
-                } else {
-                    ContentUnavailableView(
-                        "No Files",
-                        systemImage: "doc",
-                        description: Text("Upload files or sync a directory to get started.")
-                    )
-                }
+            if root.isEmpty && appState.storeInfo != nil && !appState.isLoading {
+                ContentUnavailableView(
+                    "No Files",
+                    systemImage: "doc",
+                    description: Text("Upload files or sync a directory to get started.")
+                )
             }
         }
     }
