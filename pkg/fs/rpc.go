@@ -17,6 +17,7 @@ import (
 type RPCServer struct {
 	store    *Store
 	sockPath string
+	version  string
 	listener net.Listener
 	logger   *slog.Logger
 
@@ -61,13 +62,14 @@ type RPCError struct {
 }
 
 // NewRPCServer creates an RPC server for the given store.
-func NewRPCServer(store *Store, sockPath string, driveCfgPath string, logger *slog.Logger) *RPCServer {
+func NewRPCServer(store *Store, sockPath string, driveCfgPath string, version string, logger *slog.Logger) *RPCServer {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &RPCServer{
 		store:        store,
 		sockPath:     sockPath,
+		version:      version,
 		logger:       logger,
 		clients:      make(map[net.Conn]bool),
 		events:       make(chan RPCEvent, 100),
@@ -693,7 +695,7 @@ func (s *RPCServer) rpcJoin(ctx context.Context, params json.RawMessage) (interf
 		}
 		if granted {
 			// Register this device
-			RegisterDevice(ctx, s.store.backend, s.store.identity.Address(), GetDeviceName())
+			RegisterDevice(ctx, s.store.backend, s.store.identity.Address(), GetDeviceName(), s.version)
 			return map[string]string{"status": "approved"}, nil
 		}
 		select {
@@ -736,7 +738,7 @@ func (s *RPCServer) rpcApprove(ctx context.Context) (interface{}, error) {
 			continue
 		}
 		// Register the joiner as a device
-		RegisterDevice(ctx, s.store.backend, joinerAddr, "Pending Device")
+		RegisterDevice(ctx, s.store.backend, joinerAddr, "Pending Device", "")
 		approved++
 		// Don't cleanup — joiner needs to poll and see the granted marker
 	}
@@ -794,7 +796,7 @@ func (s *RPCServer) tryAutoApprove(ctx context.Context) {
 			s.logger.Warn("auto-approve failed", "invite", inviteID, "error", err)
 			continue
 		}
-		RegisterDevice(ctx, s.store.backend, joinerAddr, "Pending Device")
+		RegisterDevice(ctx, s.store.backend, joinerAddr, "Pending Device", "")
 		s.logger.Info("auto-approved device", "address", joinerAddr)
 	}
 }

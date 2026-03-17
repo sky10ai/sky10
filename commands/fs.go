@@ -82,7 +82,7 @@ func fsInitCmd() *cobra.Command {
 				return err
 			}
 			// Register this device
-			skyfs.RegisterDevice(ctx, backend, id.Address(), skyfs.GetDeviceName())
+			skyfs.RegisterDevice(ctx, backend, id.Address(), skyfs.GetDeviceName(), cmd.Root().Version)
 
 			fmt.Printf("Initialized skyfs\n  Schema:   v%s\n  Identity: %s\n  Bucket:   %s\n",
 				skyfs.SchemaVersion, id.Address(), cfg.Bucket)
@@ -293,9 +293,9 @@ func fsServeCmd() *cobra.Command {
 			store.SetClient("cli/" + cmd.Root().Version)
 
 			// Register this device in background (ip-api.com can be slow)
-			go skyfs.RegisterDevice(ctx, backend, id.Address(), skyfs.GetDeviceName())
+			go skyfs.RegisterDevice(ctx, backend, id.Address(), skyfs.GetDeviceName(), cmd.Root().Version)
 
-			server := skyfs.NewRPCServer(store, sockPath, filepath.Join(cfgDir, "drives.json"), nil)
+			server := skyfs.NewRPCServer(store, sockPath, filepath.Join(cfgDir, "drives.json"), cmd.Root().Version, nil)
 			fmt.Println(sockPath)
 			return server.Serve(ctx)
 		},
@@ -780,7 +780,7 @@ func fsJoinCmd() *cobra.Command {
 				}
 				if granted {
 					// Register this device now that we're approved
-					skyfs.RegisterDevice(ctx, backend, id.Address(), skyfs.GetDeviceName())
+					skyfs.RegisterDevice(ctx, backend, id.Address(), skyfs.GetDeviceName(), cmd.Root().Version)
 					fmt.Println("Approved! You can now sync.")
 					return nil
 				}

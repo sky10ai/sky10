@@ -16,24 +16,31 @@ import (
 // DeviceInfo represents a registered device in the S3 registry.
 type DeviceInfo struct {
 	PubKey   string `json:"pubkey"`
-	Name     string `json:"name"`
+	Name     string `json:"name"`            // hostname
+	Alias    string `json:"alias,omitempty"` // user-chosen display name (e.g. "Dev A", "Living Room Mac")
 	Joined   string `json:"joined"`
 	Platform string `json:"platform,omitempty"`
 	IP       string `json:"ip,omitempty"`
 	Location string `json:"location,omitempty"`
+	Version  string `json:"version,omitempty"`
+	LastSeen string `json:"last_seen,omitempty"`
 }
 
 // RegisterDevice writes this device's info to the S3 registry.
 // On re-registration (daemon restart), it preserves the original join date
 // but refreshes the IP and location.
-func RegisterDevice(ctx context.Context, backend adapter.Backend, pubkey string, name string) error {
+func RegisterDevice(ctx context.Context, backend adapter.Backend, pubkey string, name string, version string) error {
 	id := shortPubkeyID(pubkey)
 	key := "devices/" + id + ".json"
 
-	// Preserve original join date if device already registered
+	// Preserve original join date and alias if device already registered
 	joined := time.Now().UTC().Format(time.RFC3339)
-	if existing, err := readDevice(ctx, backend, key); err == nil && existing.Joined != "" {
-		joined = existing.Joined
+	alias := ""
+	if existing, err := readDevice(ctx, backend, key); err == nil {
+		if existing.Joined != "" {
+			joined = existing.Joined
+		}
+		alias = existing.Alias
 	}
 
 	ip, location := fetchIPLocation()
@@ -41,10 +48,13 @@ func RegisterDevice(ctx context.Context, backend adapter.Backend, pubkey string,
 	info := DeviceInfo{
 		PubKey:   pubkey,
 		Name:     name,
+		Alias:    alias,
 		Joined:   joined,
 		Platform: detectPlatform(),
 		IP:       ip,
 		Location: location,
+		Version:  version,
+		LastSeen: time.Now().UTC().Format(time.RFC3339),
 	}
 
 	data, err := json.MarshalIndent(info, "", "  ")
