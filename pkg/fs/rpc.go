@@ -102,6 +102,9 @@ func (s *RPCServer) Serve(ctx context.Context) error {
 	// Broadcast events to clients
 	go s.broadcastLoop()
 
+	// Auto-start all enabled drives
+	s.driveManager.StartAll(s.logger)
+
 	// Auto-approve pending join requests every 20 seconds
 	go s.autoApproveLoop(ctx)
 
