@@ -510,3 +510,46 @@ func TestDeviceRejoinWithNewKey(t *testing.T) {
 		t.Fatalf("B1 still works: %v", err)
 	}
 }
+
+// Empty local file must NOT overwrite remote file with content.
+// Before fix: sync would see local differs from remote, assume
+// "local wins", and upload the 0-byte file — wiping remote data.
+func TestEmptyLocalFileDoesNotWipeRemote(t *testing.T) {
+	t.Parallel()
+
+	localFiles := map[string]string{
+		// SHA3-256 of empty file
+		"secret.txt": "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a",
+	}
+	remoteFiles := map[string]FileEntry{
+		"secret.txt": {Size: 25, Checksum: "abc123", Namespace: "default"},
+	}
+
+	diffs := DiffLocalRemote(localFiles, remoteFiles)
+	if len(diffs) != 1 {
+		t.Fatalf("expected 1 diff, got %d", len(diffs))
+	}
+	if diffs[0].Type != DiffDownload {
+		t.Errorf("expected DiffDownload (remote wins), got %v", diffs[0].Type)
+	}
+}
+
+// Non-empty local file that differs from remote should still upload.
+func TestModifiedLocalFileUploads(t *testing.T) {
+	t.Parallel()
+
+	localFiles := map[string]string{
+		"notes.txt": "localchecksum123",
+	}
+	remoteFiles := map[string]FileEntry{
+		"notes.txt": {Size: 100, Checksum: "remotechecksum456", Namespace: "default"},
+	}
+
+	diffs := DiffLocalRemote(localFiles, remoteFiles)
+	if len(diffs) != 1 {
+		t.Fatalf("expected 1 diff, got %d", len(diffs))
+	}
+	if diffs[0].Type != DiffUpload {
+		t.Errorf("expected DiffUpload (local wins for real edits), got %v", diffs[0].Type)
+	}
+}

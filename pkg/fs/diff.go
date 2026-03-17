@@ -50,17 +50,29 @@ func DiffLocalRemote(localFiles map[string]string, remoteFiles map[string]FileEn
 		}
 
 		if localChecksum != remote.Checksum {
-			// Both exist but differ → need to decide direction
-			// For now, treat as upload (local wins in sync-from-local context).
-			// The sync engine handles conflict detection separately using ops.
-			diffs = append(diffs, DiffEntry{
-				Path:           path,
-				Type:           DiffUpload,
-				LocalChecksum:  localChecksum,
-				RemoteChecksum: remote.Checksum,
-				RemoteSize:     remote.Size,
-				Namespace:      remote.Namespace,
-			})
+			// Both exist but differ — decide direction.
+			// If local is empty (SHA3 of "") but remote has content, the local
+			// file is a broken download. Download remote instead of uploading
+			// the empty file (which would wipe remote data).
+			emptyHash := "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a"
+			if localChecksum == emptyHash && remote.Size > 0 {
+				diffs = append(diffs, DiffEntry{
+					Path:           path,
+					Type:           DiffDownload,
+					RemoteChecksum: remote.Checksum,
+					RemoteSize:     remote.Size,
+					Namespace:      remote.Namespace,
+				})
+			} else {
+				diffs = append(diffs, DiffEntry{
+					Path:           path,
+					Type:           DiffUpload,
+					LocalChecksum:  localChecksum,
+					RemoteChecksum: remote.Checksum,
+					RemoteSize:     remote.Size,
+					Namespace:      remote.Namespace,
+				})
+			}
 		}
 		// If checksums match → no diff, skip
 	}
