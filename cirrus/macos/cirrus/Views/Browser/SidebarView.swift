@@ -1,15 +1,18 @@
 import SwiftUI
 
+private let allFilesTag = "__all__"
+
 /// Sidebar showing synced drives and storage info.
 struct SidebarView: View {
     @EnvironmentObject var appState: AppState
     @Binding var selectedDrive: String?
+    @State private var selection: String = allFilesTag
 
     var body: some View {
-        List(selection: $selectedDrive) {
+        List(selection: $selection) {
             Section("Drives") {
                 Label("All Files", systemImage: "externaldrive.fill")
-                    .tag(nil as String?)
+                    .tag(allFilesTag)
 
                 ForEach(appState.drives, id: \.id) { drive in
                     HStack(spacing: 8) {
@@ -23,7 +26,7 @@ struct SidebarView: View {
                                 .lineLimit(1)
                         }
                     }
-                    .tag(drive.namespace as String?)
+                    .tag(drive.namespace)
                 }
             }
 
@@ -46,5 +49,8 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .frame(minWidth: 180)
+        .onChange(of: selection) { _, newValue in
+            selectedDrive = (newValue == allFilesTag) ? nil : newValue
+        }
     }
 }
