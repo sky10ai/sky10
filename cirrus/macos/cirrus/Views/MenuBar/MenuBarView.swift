@@ -5,6 +5,7 @@ import SwiftUI
 struct MenuBarView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.openWindow) var openWindow
+    @Environment(\.openSettings) var openSettings
 
     var body: some View {
         Label(statusText, systemImage: appState.syncState.icon)
@@ -42,10 +43,7 @@ struct MenuBarView: View {
         }
 
         Button("Preferences...") {
-            // Try modern selector first, fall back to legacy
-            if !NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) {
-                NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
-            }
+            openSettings()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 NSApplication.shared.activate(ignoringOtherApps: true)
             }
