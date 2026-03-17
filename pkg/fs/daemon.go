@@ -67,6 +67,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 1. Initial sync in background — don't block the watcher
 	go func() {
 		d.logger.Info("starting initial sync", "root", d.config.LocalRoot)
+		d.onActivity()
 		result, err := d.engine.SyncOnce(ctx)
 		if err != nil {
 			d.logger.Warn("initial sync failed", "error", err)

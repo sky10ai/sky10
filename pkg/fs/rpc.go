@@ -525,7 +525,7 @@ func (s *RPCServer) rpcSyncStatus(_ context.Context) (interface{}, error) {
 	s.syncMu.Unlock()
 
 	s.activityMu.Lock()
-	active := time.Since(s.lastActivity) < 5*time.Second
+	active := time.Since(s.lastActivity) < 15*time.Second
 	s.activityMu.Unlock()
 
 	return map[string]interface{}{
