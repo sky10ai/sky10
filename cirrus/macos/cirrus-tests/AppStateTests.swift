@@ -11,7 +11,6 @@ struct AppStateTests {
         #expect(state.syncState == .offline)
         #expect(state.files.isEmpty)
         #expect(state.storeInfo == nil)
-        #expect(state.selectedNamespace == nil)
         #expect(state.isLoading == false)
         #expect(state.error == nil)
     }
@@ -119,8 +118,8 @@ struct AppStateTests {
         #expect(state.files.count == 0)
     }
 
-    @Test("Filtered files by namespace")
-    func filteredFiles() async {
+    @Test("Namespaces computed and sorted")
+    func namespacesComputed() async {
         let mock = MockSkyClient()
         mock.files = [
             FileNode(id: "a.md", path: "a.md", name: "a.md", size: 10,
@@ -134,17 +133,7 @@ struct AppStateTests {
         let state = AppState(client: mock)
         await state.refresh()
 
-        #expect(state.filteredFiles.count == 3)
-
-        state.selectedNamespace = "journal"
-        #expect(state.filteredFiles.count == 2)
-        #expect(state.filteredFiles.allSatisfy { $0.namespace == "journal" })
-
-        state.selectedNamespace = "default"
-        #expect(state.filteredFiles.count == 1)
-
-        state.selectedNamespace = nil
-        #expect(state.filteredFiles.count == 3)
+        #expect(state.namespaces == ["default", "journal"])
     }
 
     @Test("Namespaces computed and sorted")

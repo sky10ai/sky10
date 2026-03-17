@@ -1,19 +1,29 @@
 import SwiftUI
 
-/// Sidebar showing namespaces.
+/// Sidebar showing synced drives and storage info.
 struct SidebarView: View {
     @EnvironmentObject var appState: AppState
-    @Binding var selectedNamespace: String?
+    @Binding var selectedDrive: String?
 
     var body: some View {
-        List(selection: $selectedNamespace) {
-            Section("Namespaces") {
-                Label("All Files", systemImage: "tray.full")
+        List(selection: $selectedDrive) {
+            Section("Drives") {
+                Label("All Files", systemImage: "externaldrive.fill")
                     .tag(nil as String?)
 
-                ForEach(appState.namespaces, id: \.self) { ns in
-                    Label(ns.capitalized, systemImage: iconForNamespace(ns))
-                        .tag(ns as String?)
+                ForEach(appState.drives, id: \.id) { drive in
+                    HStack(spacing: 8) {
+                        Image(systemName: drive.running ? "folder.fill" : "folder")
+                            .foregroundStyle(drive.running ? .blue : .secondary)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(drive.name)
+                            Text(drive.localPath)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .tag(drive.namespace as String?)
                 }
             }
 
@@ -36,15 +46,5 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .frame(minWidth: 180)
-    }
-
-    private func iconForNamespace(_ ns: String) -> String {
-        switch ns {
-        case "default":    return "folder"
-        case "financial":  return "dollarsign.circle"
-        case "contacts":   return "person.2"
-        case "docs":       return "doc.text"
-        default:           return "folder.fill"
-        }
     }
 }

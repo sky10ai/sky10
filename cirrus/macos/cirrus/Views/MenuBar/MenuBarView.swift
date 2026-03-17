@@ -22,6 +22,7 @@ struct MenuBarView: View {
 
         Button("Open Cirrus") {
             openWindow(id: "browser")
+            NSApplication.shared.activate(ignoringOtherApps: true)
         }
         .keyboardShortcut("b")
 
