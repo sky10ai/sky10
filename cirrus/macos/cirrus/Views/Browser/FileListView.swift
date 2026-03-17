@@ -18,7 +18,6 @@ struct FileColumnView: View {
                 // Child columns based on selection path
                 ForEach(Array(path.enumerated()), id: \.offset) { depth, folderID in
                     if let nodes = childrenFor(folderID: folderID, at: depth) {
-                        Divider()
                         columnList(nodes: nodes, depth: depth + 1)
                     }
                 }
@@ -47,6 +46,8 @@ struct FileColumnView: View {
         }
         .listStyle(.plain)
         .frame(minWidth: 200, idealWidth: 220)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .border(Color(nsColor: .separatorColor), width: 0.5)
     }
 
     @ViewBuilder
