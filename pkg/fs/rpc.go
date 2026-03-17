@@ -762,7 +762,6 @@ func (s *RPCServer) rpcApprove(ctx context.Context) (interface{}, error) {
 			continue
 		}
 		// Register the joiner as a device
-		RegisterDevice(ctx, s.store.backend, joinerAddr, "Pending Device", "")
 		approved++
 		// Don't cleanup — joiner needs to poll and see the granted marker
 	}
@@ -820,7 +819,6 @@ func (s *RPCServer) tryAutoApprove(ctx context.Context) {
 			s.logger.Warn("auto-approve failed", "invite", inviteID, "error", err)
 			continue
 		}
-		RegisterDevice(ctx, s.store.backend, joinerAddr, "Pending Device", "")
 		s.logger.Info("auto-approved device", "address", joinerAddr)
 	}
 }
