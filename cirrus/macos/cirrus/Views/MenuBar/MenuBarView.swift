@@ -42,7 +42,10 @@ struct MenuBarView: View {
         }
 
         Button("Preferences...") {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            // Try modern selector first, fall back to legacy
+            if !NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) {
+                NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 NSApplication.shared.activate(ignoringOtherApps: true)
             }
