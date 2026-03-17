@@ -1,7 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// Main file browser — Finder-like with sidebar, file tree, and inspector.
+enum ViewMode: String, CaseIterable {
+    case tree
+    case list
+}
+
+/// Main file browser — Finder-like with sidebar, file tree/list, and inspector.
 struct BrowserView: View {
     @EnvironmentObject var appState: AppState
     @State private var selectedFile: FileNode?
@@ -9,6 +14,7 @@ struct BrowserView: View {
     @State private var showActivityLog = false
     @State private var selectedDrive: String? = nil
     @State private var showInspector = false
+    @State private var viewMode: ViewMode = .tree
 
     var body: some View {
         NavigationSplitView {
@@ -16,11 +22,22 @@ struct BrowserView: View {
                 .environmentObject(appState)
         } detail: {
             HSplitView {
-                FileTreeView(
-                    root: buildTree(from: displayedFiles),
-                    selectedFile: $selectedFile
-                )
-                .environmentObject(appState)
+                Group {
+                    switch viewMode {
+                    case .tree:
+                        FileTreeView(
+                            root: buildTree(from: displayedFiles),
+                            selectedFile: $selectedFile
+                        )
+                        .environmentObject(appState)
+                    case .list:
+                        FileTableView(
+                            files: displayedFiles,
+                            selectedFile: $selectedFile
+                        )
+                        .environmentObject(appState)
+                    }
+                }
                 .frame(minWidth: 300)
 
                 if showInspector, let file = selectedFile {
@@ -46,6 +63,16 @@ struct BrowserView: View {
                         Image(systemName: "arrow.clockwise")
                     }
                     .help("Refresh")
+
+                    // View mode toggle
+                    Picker("View", selection: $viewMode) {
+                        Image(systemName: "list.bullet.indent")
+                            .tag(ViewMode.tree)
+                        Image(systemName: "tablecells")
+                            .tag(ViewMode.list)
+                    }
+                    .pickerStyle(.segmented)
+                    .help("Toggle tree / list view")
 
                     Button {
                         showInspector.toggle()
@@ -82,7 +109,6 @@ struct BrowserView: View {
 
     private var displayedFiles: [FileNode] {
         var result = appState.files
-        // Filter by selected drive's namespace
         if let drive = selectedDrive {
             result = result.filter { $0.namespace == drive }
         }

@@ -1,46 +1,44 @@
 import AppKit
 import SwiftUI
 
-/// File list table with sortable columns.
-struct FileListView: View {
+/// Flat sortable table view — like Finder's list view.
+struct FileTableView: View {
     let files: [FileNode]
     @Binding var selectedFile: FileNode?
-    @Binding var sortOrder: [KeyPathComparator<FileNode>]
     @EnvironmentObject var appState: AppState
+    @State private var sortOrder = [KeyPathComparator(\FileNode.path)]
 
     var body: some View {
-        Table(files, selection: Binding(
+        Table(sortedFiles, selection: Binding(
             get: { selectedFile?.id },
             set: { id in selectedFile = files.first { $0.id == id } }
         ), sortOrder: $sortOrder) {
-            TableColumn("Name", value: \.name) { file in
-                FileRowView(file: file)
+            TableColumn("Name", value: \.path) { file in
+                HStack(spacing: 8) {
+                    Image(systemName: file.icon)
+                        .foregroundStyle(.blue)
+                        .frame(width: 18)
+                    Text(file.path)
+                        .lineLimit(1)
+                }
             }
-            .width(min: 200)
+            .width(min: 250)
 
             TableColumn("Size") { file in
                 Text(file.formattedSize)
                     .foregroundStyle(.secondary)
             }
-            .width(80)
+            .width(70)
 
             TableColumn("Modified") { file in
                 Text(file.formattedDate)
                     .foregroundStyle(.secondary)
             }
             .width(140)
-
-            TableColumn("Namespace", value: \.namespace) { file in
-                Text(file.namespace)
-                    .foregroundStyle(.secondary)
-            }
-            .width(100)
         }
         .contextMenu(forSelectionType: String.self) { ids in
             if let id = ids.first, let file = files.first(where: { $0.id == id }) {
-                Button("Download") {
-                    downloadFile(file)
-                }
+                Button("Download") { downloadFile(file) }
                 Button("Copy Path") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(file.path, forType: .string)
@@ -66,15 +64,16 @@ struct FileListView: View {
         }
     }
 
+    private var sortedFiles: [FileNode] {
+        files.sorted(using: sortOrder)
+    }
+
     private func downloadFile(_ file: FileNode) {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = file.name
         if panel.runModal() == .OK, let url = panel.url {
             Task {
-                await appState.downloadFile(
-                    remotePath: file.path,
-                    localPath: url.path
-                )
+                await appState.downloadFile(remotePath: file.path, localPath: url.path)
             }
         }
     }
