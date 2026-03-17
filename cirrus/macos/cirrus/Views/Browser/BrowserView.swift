@@ -14,12 +14,21 @@ struct BrowserView: View {
         NavigationSplitView {
             SidebarView(selectedDrive: $selectedDrive)
                 .environmentObject(appState)
-        } content: {
-            FileTreeView(
-                root: buildTree(from: displayedFiles),
-                selectedFile: $selectedFile
-            )
-            .environmentObject(appState)
+        } detail: {
+            HSplitView {
+                FileTreeView(
+                    root: buildTree(from: displayedFiles),
+                    selectedFile: $selectedFile
+                )
+                .environmentObject(appState)
+                .frame(minWidth: 300)
+
+                if showInspector, let file = selectedFile {
+                    InspectorView(file: file)
+                        .environmentObject(appState)
+                        .frame(width: 240)
+                }
+            }
             .searchable(text: $searchText, prompt: "Search files")
             .navigationTitle("Cirrus")
             .toolbar {
@@ -52,12 +61,6 @@ struct BrowserView: View {
                     }
                     .help("Activity log")
                 }
-            }
-        } detail: {
-            if showInspector, let file = selectedFile {
-                InspectorView(file: file)
-                    .environmentObject(appState)
-                    .frame(minWidth: 220, maxWidth: 280)
             }
         }
         .frame(minWidth: 800, minHeight: 500)
