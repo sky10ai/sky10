@@ -28,6 +28,9 @@ type RPCServer struct {
 
 	driveManager *DriveManager
 
+	activityMu   sync.Mutex
+	lastActivity time.Time
+
 	mu      sync.Mutex
 	clients map[net.Conn]bool
 	events  chan RPCEvent
@@ -66,7 +69,7 @@ func NewRPCServer(store *Store, sockPath string, driveCfgPath string, version st
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &RPCServer{
+	srv := &RPCServer{
 		store:        store,
 		sockPath:     sockPath,
 		version:      version,
@@ -75,6 +78,8 @@ func NewRPCServer(store *Store, sockPath string, driveCfgPath string, version st
 		events:       make(chan RPCEvent, 100),
 		driveManager: NewDriveManager(store, driveCfgPath),
 	}
+	srv.driveManager.OnActivity = srv.MarkActivity
+	return srv
 }
 
 // Serve starts listening and blocks until the context is cancelled.
@@ -513,8 +518,25 @@ func (s *RPCServer) rpcSyncStop(_ context.Context) (interface{}, error) {
 
 func (s *RPCServer) rpcSyncStatus(_ context.Context) (interface{}, error) {
 	s.syncMu.Lock()
-	defer s.syncMu.Unlock()
-	return statusResult{Syncing: s.syncing, SyncDir: s.syncDir}, nil
+	syncing := s.syncing
+	syncDir := s.syncDir
+	s.syncMu.Unlock()
+
+	s.activityMu.Lock()
+	active := time.Since(s.lastActivity) < 5*time.Second
+	s.activityMu.Unlock()
+
+	return map[string]interface{}{
+		"syncing":  syncing || active,
+		"sync_dir": syncDir,
+	}, nil
+}
+
+// MarkActivity records that sync I/O is happening right now.
+func (s *RPCServer) MarkActivity() {
+	s.activityMu.Lock()
+	s.lastActivity = time.Now()
+	s.activityMu.Unlock()
 }
 
 // --- Drive management ---
