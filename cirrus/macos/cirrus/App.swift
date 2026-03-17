@@ -4,14 +4,10 @@ import SwiftUI
 struct CirrusApp: App {
     @StateObject private var appState = AppState()
     @State private var animationFrame = 0
-    private let animationTimer = Timer.publish(every: 0.8, on: .main, in: .common).autoconnect()
+    private let animationTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
-    // Subtle 3-frame animation: cloud with arrow cycling up/down
-    private let syncFrames = [
-        "icloud.and.arrow.up.fill",
-        "icloud.fill",
-        "icloud.and.arrow.down.fill",
-    ]
+    // 3-frame animation: cloud hump shifts left → center → right
+    private let syncFrames = ["cloud_sync_1", "cloud_sync_2", "cloud_sync_3"]
 
     init() {
         FileProviderManager.register()
@@ -23,7 +19,7 @@ struct CirrusApp: App {
                 .environmentObject(appState)
         } label: {
             if appState.syncState == .syncing {
-                Image(systemName: syncFrames[animationFrame % syncFrames.count])
+                Image(syncFrames[animationFrame % syncFrames.count])
                     .onReceive(animationTimer) { _ in
                         if appState.syncState == .syncing {
                             animationFrame += 1
