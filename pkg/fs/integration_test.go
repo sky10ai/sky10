@@ -347,6 +347,111 @@ func TestIntegrationOpEnvelope(t *testing.T) {
 	}
 }
 
+// Regression: empty local files must not overwrite remote content during sync.
+// Simulates: Device A uploads a file. Device B gets a broken 0-byte download.
+// On next sync, Device B must download the real file, not upload the empty one.
+func TestIntegrationEmptyLocalDoesNotWipeRemote(t *testing.T) {
+	h := StartMinIO(t)
+	ctx := context.Background()
+
+	idA, _ := GenerateDeviceKey()
+	idB, _ := GenerateDeviceKey()
+	backend := h.Backend(t, "empty-wipe-test")
+
+	// Device A uploads a file with real content
+	storeA := NewWithDevice(backend, idA, "device-a")
+	storeA.SetNamespace("shared")
+	if err := storeA.Put(ctx, "important.txt", strings.NewReader("critical data here")); err != nil {
+		t.Fatalf("A Put: %v", err)
+	}
+
+	simulateApprove(t, ctx, backend, idA, idB)
+
+	// Device B: create a local directory with a 0-byte version of the file
+	// (simulates broken download from a previous failed sync)
+	dirB := t.TempDir()
+	os.WriteFile(filepath.Join(dirB, "important.txt"), []byte{}, 0644)
+
+	// Device B syncs — must NOT upload the empty file
+	storeB := NewWithDevice(backend, idB, "device-b")
+	storeB.SetNamespace("shared")
+	engineB := NewSyncEngine(storeB, SyncConfig{
+		LocalRoot:  dirB,
+		Namespaces: []string{"shared"},
+	})
+	result, err := engineB.SyncOnce(ctx)
+	if err != nil {
+		t.Fatalf("B SyncOnce: %v", err)
+	}
+
+	// Should download (not upload)
+	if result.Downloaded != 1 {
+		t.Errorf("expected 1 download, got %d (uploaded=%d)", result.Downloaded, result.Uploaded)
+	}
+	if result.Uploaded != 0 {
+		t.Errorf("expected 0 uploads, got %d — empty file would have wiped remote", result.Uploaded)
+	}
+
+	// Local file should now have the real content
+	data, err := os.ReadFile(filepath.Join(dirB, "important.txt"))
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(data) != "critical data here" {
+		t.Errorf("local file = %q, want %q", string(data), "critical data here")
+	}
+
+	// Verify remote still has original content via Device A
+	var buf bytes.Buffer
+	if err := storeA.Get(ctx, "important.txt", &buf); err != nil {
+		t.Fatalf("A Get: %v", err)
+	}
+	if buf.String() != "critical data here" {
+		t.Errorf("remote data corrupted: %q", buf.String())
+	}
+}
+
+// Verify that a legitimate local edit DOES upload and overwrite remote.
+func TestIntegrationRealEditUploads(t *testing.T) {
+	h := StartMinIO(t)
+	ctx := context.Background()
+
+	id, _ := GenerateDeviceKey()
+	backend := h.Backend(t, "real-edit-test")
+
+	store := New(backend, id)
+	store.SetNamespace("docs")
+	store.Put(ctx, "notes.txt", strings.NewReader("version 1"))
+
+	// Local file has different content (a real edit)
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("version 2 - edited locally"), 0644)
+
+	engine := NewSyncEngine(store, SyncConfig{
+		LocalRoot:  dir,
+		Namespaces: []string{"docs"},
+	})
+	result, err := engine.SyncOnce(ctx)
+	if err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+
+	if result.Uploaded != 1 {
+		t.Errorf("expected 1 upload for real edit, got %d", result.Uploaded)
+	}
+
+	// Remote should have the new content
+	var buf bytes.Buffer
+	store2 := New(backend, id)
+	store2.SetNamespace("docs")
+	if err := store2.Get(ctx, "notes.txt", &buf); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if buf.String() != "version 2 - edited locally" {
+		t.Errorf("remote = %q, want edited version", buf.String())
+	}
+}
+
 func readAll(rc interface{ Read([]byte) (int, error) }) []byte {
 	var buf bytes.Buffer
 	buf.ReadFrom(rc)
