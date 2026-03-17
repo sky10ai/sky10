@@ -12,7 +12,8 @@ struct BrowserView: View {
     @State private var selectedFile: FileNode?
     @State private var searchText = ""
     @State private var showActivityLog = false
-    @State private var selectedDrive: String? = nil
+    // nil = "All Files", otherwise filter by drive namespace
+    @State private var selectedDrive: String?
     @State private var showInspector = false
     @AppStorage("viewMode") private var viewMode: ViewMode = .tree
 
