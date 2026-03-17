@@ -125,6 +125,11 @@ func ThreeWayDiff(localFiles map[string]string, manifest *DriveManifest, remoteO
 
 		// Conflicts
 		case (localAdded || localChanged) && (remoteAdded || remoteChanged):
+			// If checksums match, the file is already in sync — no action needed.
+			// This handles first-run where both sides have the same file.
+			if localSum == remoteOp.Checksum {
+				continue
+			}
 			actions = append(actions, SyncAction{
 				Type:     ActionConflict,
 				Path:     path,

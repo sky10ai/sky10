@@ -45,6 +45,23 @@ func LoadDriveManifest(driveID string) *DriveManifest {
 	return &m
 }
 
+// LoadDriveManifestFromPath reads a manifest from a specific path.
+func LoadDriveManifestFromPath(path string) *DriveManifest {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return newDriveManifest(path)
+	}
+	var m DriveManifest
+	if json.Unmarshal(data, &m) != nil {
+		return newDriveManifest(path)
+	}
+	m.path = path
+	if m.Files == nil {
+		m.Files = make(map[string]SyncedFile)
+	}
+	return &m
+}
+
 func newDriveManifest(path string) *DriveManifest {
 	return &DriveManifest{
 		Files: make(map[string]SyncedFile),
