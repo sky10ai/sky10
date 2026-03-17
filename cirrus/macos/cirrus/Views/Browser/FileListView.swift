@@ -1,60 +1,31 @@
 import AppKit
 import SwiftUI
 
-/// Flat sortable table view — like Finder's list view.
-struct FileTableView: View {
-    let files: [FileNode]
+/// Finder-style column browser. Each column shows the contents of the selected
+/// folder from the previous column. Clicking a folder opens a new column to the right.
+struct FileColumnView: View {
+    let root: [TreeNode]
     @Binding var selectedFile: FileNode?
     @EnvironmentObject var appState: AppState
-    @State private var sortOrder = [KeyPathComparator(\FileNode.path)]
+    @State private var path: [String] = [] // stack of selected folder IDs
 
     var body: some View {
-        Table(sortedFiles, selection: Binding(
-            get: { selectedFile?.id },
-            set: { id in selectedFile = files.first { $0.id == id } }
-        ), sortOrder: $sortOrder) {
-            TableColumn("Name", value: \.path) { file in
-                HStack(spacing: 8) {
-                    Image(systemName: file.icon)
-                        .foregroundStyle(.blue)
-                        .frame(width: 18)
-                    Text(file.path)
-                        .lineLimit(1)
-                }
-            }
-            .width(min: 250)
+        ScrollView(.horizontal, showsIndicators: true) {
+            HStack(spacing: 0) {
+                // Root column
+                columnList(nodes: root, depth: 0)
 
-            TableColumn("Size") { file in
-                Text(file.formattedSize)
-                    .foregroundStyle(.secondary)
-            }
-            .width(70)
-
-            TableColumn("Modified") { file in
-                Text(file.formattedDate)
-                    .foregroundStyle(.secondary)
-            }
-            .width(140)
-        }
-        .contextMenu(forSelectionType: String.self) { ids in
-            if let id = ids.first, let file = files.first(where: { $0.id == id }) {
-                Button("Download") { downloadFile(file) }
-                Button("Copy Path") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(file.path, forType: .string)
+                // Child columns based on selection path
+                ForEach(Array(path.enumerated()), id: \.offset) { depth, folderID in
+                    if let nodes = childrenFor(folderID: folderID, at: depth) {
+                        Divider()
+                        columnList(nodes: nodes, depth: depth + 1)
+                    }
                 }
-                Divider()
-                Button("Delete", role: .destructive) {
-                    Task { await appState.removeFile(path: file.path) }
-                }
-            }
-        } primaryAction: { ids in
-            if let id = ids.first, let file = files.first(where: { $0.id == id }) {
-                downloadFile(file)
             }
         }
         .overlay {
-            if files.isEmpty {
+            if root.isEmpty {
                 ContentUnavailableView(
                     "No Files",
                     systemImage: "doc",
@@ -64,17 +35,70 @@ struct FileTableView: View {
         }
     }
 
-    private var sortedFiles: [FileNode] {
-        files.sorted(using: sortOrder)
-    }
-
-    private func downloadFile(_ file: FileNode) {
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = file.name
-        if panel.runModal() == .OK, let url = panel.url {
-            Task {
-                await appState.downloadFile(remotePath: file.path, localPath: url.path)
+    private func columnList(nodes: [TreeNode], depth: Int) -> some View {
+        List(selection: Binding(
+            get: { selectionAt(depth: depth) },
+            set: { id in selectAt(depth: depth, id: id) }
+        )) {
+            ForEach(nodes) { node in
+                columnRow(node)
+                    .tag(node.id)
             }
         }
+        .listStyle(.plain)
+        .frame(minWidth: 200, idealWidth: 220)
+    }
+
+    @ViewBuilder
+    private func columnRow(_ node: TreeNode) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: node.isFolder ? "folder.fill" : (node.file?.icon ?? "doc"))
+                .foregroundColor(node.isFolder ? .primary : .blue)
+                .frame(width: 18)
+            Text(node.name)
+                .lineLimit(1)
+            Spacer()
+            if node.isFolder {
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            } else if let file = node.file {
+                Text(file.formattedSize)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private func selectionAt(depth: Int) -> String? {
+        if depth < path.count {
+            return path[depth]
+        }
+        return selectedFile.map { $0.id }
+    }
+
+    private func selectAt(depth: Int, id: String?) {
+        guard let id = id else { return }
+
+        // Truncate path to this depth
+        if depth < path.count {
+            path = Array(path.prefix(depth))
+        }
+
+        // Find the node
+        let nodes = depth == 0 ? root : (childrenFor(folderID: path[depth - 1], at: depth - 1) ?? [])
+        guard let node = nodes.first(where: { $0.id == id }) else { return }
+
+        if node.isFolder {
+            path.append(id)
+            selectedFile = nil
+        } else {
+            selectedFile = node.file
+        }
+    }
+
+    private func childrenFor(folderID: String, at depth: Int) -> [TreeNode]? {
+        let nodes = depth == 0 ? root : (childrenFor(folderID: path[depth - 1], at: depth - 1) ?? [])
+        return nodes.first(where: { $0.id == folderID })?.children
     }
 }

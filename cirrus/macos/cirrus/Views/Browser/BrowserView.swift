@@ -31,8 +31,8 @@ struct BrowserView: View {
                         )
                         .environmentObject(appState)
                     case .list:
-                        FileTableView(
-                            files: displayedFiles,
+                        FileColumnView(
+                            root: buildTree(from: displayedFiles),
                             selectedFile: $selectedFile
                         )
                         .environmentObject(appState)
@@ -68,11 +68,11 @@ struct BrowserView: View {
                     Picker("View", selection: $viewMode) {
                         Image(systemName: "list.bullet.indent")
                             .tag(ViewMode.tree)
-                        Image(systemName: "tablecells")
+                        Image(systemName: "rectangle.split.3x1")
                             .tag(ViewMode.list)
                     }
                     .pickerStyle(.segmented)
-                    .help("Toggle tree / list view")
+                    .help("Toggle tree / column view")
 
                     Button {
                         showInspector.toggle()
