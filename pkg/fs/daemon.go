@@ -23,6 +23,9 @@ type Daemon struct {
 	poller  *Poller
 	config  DaemonConfig
 	logger  *slog.Logger
+
+	// work queue — watcher feeds events, worker goroutine processes them
+	localWork chan []FileEvent
 }
 
 // NewDaemon creates a sync daemon.
@@ -48,27 +51,30 @@ func NewDaemon(store *Store, index *Index, config DaemonConfig, logger *slog.Log
 	poller := NewPoller(store, index, pollInterval)
 
 	return &Daemon{
-		engine:  engine,
-		watcher: watcher,
-		poller:  poller,
-		config:  config,
-		logger:  logger,
+		engine:    engine,
+		watcher:   watcher,
+		poller:    poller,
+		config:    config,
+		logger:    logger,
+		localWork: make(chan []FileEvent, 50),
 	}, nil
 }
 
 // Run starts the daemon and blocks until the context is cancelled.
-// It performs an initial full sync, then watches for local and remote changes.
 func (d *Daemon) Run(ctx context.Context) error {
-	// 1. Initial sync
-	d.logger.Info("starting initial sync", "root", d.config.LocalRoot)
-	result, err := d.engine.SyncOnce(ctx)
-	if err != nil {
-		return fmt.Errorf("initial sync: %w", err)
-	}
-	d.logger.Info("initial sync complete",
-		"uploaded", result.Uploaded,
-		"downloaded", result.Downloaded,
-		"errors", len(result.Errors))
+	// 1. Initial sync in background — don't block the watcher
+	go func() {
+		d.logger.Info("starting initial sync", "root", d.config.LocalRoot)
+		result, err := d.engine.SyncOnce(ctx)
+		if err != nil {
+			d.logger.Warn("initial sync failed", "error", err)
+			return
+		}
+		d.logger.Info("initial sync complete",
+			"uploaded", result.Uploaded,
+			"downloaded", result.Downloaded,
+			"errors", len(result.Errors))
+	}()
 
 	// 2. Start remote poller in background
 	go d.poller.Start(ctx, func(ops []Op) {
@@ -76,7 +82,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.syncRemoteChanges(ctx, ops)
 	})
 
-	// 3. Watch local changes
+	// 3. Start upload worker — processes local changes without blocking the watcher
+	go d.uploadWorker(ctx)
+
+	// 4. Watch local changes — this loop NEVER blocks on S3
 	d.logger.Info("watching for changes", "poll_interval", d.config.PollSeconds)
 
 	batchTimer := time.NewTimer(2 * time.Second)
@@ -89,7 +98,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			d.logger.Info("shutting down")
 			d.watcher.Close()
 			if len(pendingLocal) > 0 {
-				d.syncLocalChanges(context.Background(), pendingLocal)
+				d.drainLocal(pendingLocal)
 			}
 			return nil
 
@@ -102,11 +111,33 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 		case <-batchTimer.C:
 			if len(pendingLocal) > 0 {
-				d.syncLocalChanges(ctx, pendingLocal)
+				// Send to worker — non-blocking (buffered channel)
+				select {
+				case d.localWork <- pendingLocal:
+				default:
+					d.logger.Warn("upload queue full, dropping batch", "events", len(pendingLocal))
+				}
 				pendingLocal = nil
 			}
 		}
 	}
+}
+
+// uploadWorker processes local file changes in a dedicated goroutine.
+func (d *Daemon) uploadWorker(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case events := <-d.localWork:
+			d.syncLocalChanges(ctx, events)
+		}
+	}
+}
+
+// drainLocal sends remaining events synchronously on shutdown.
+func (d *Daemon) drainLocal(events []FileEvent) {
+	d.syncLocalChanges(context.Background(), events)
 }
 
 func (d *Daemon) syncLocalChanges(ctx context.Context, events []FileEvent) {
