@@ -47,7 +47,7 @@ func New(backend adapter.Backend, identity *DeviceKey) *Store {
 	return &Store{
 		backend:    backend,
 		identity:   identity,
-		deviceID:   generateDeviceID(),
+		deviceID:   stableDeviceID(identity),
 		nsKeys:     make(map[string][]byte),
 		packIndex:  idx,
 		packWriter: NewPackWriter(backend, identity, idx),
@@ -93,11 +93,19 @@ func (s *Store) opsKey(ctx context.Context) ([]byte, error) {
 	return s.getOrCreateNamespaceKey(ctx, "default")
 }
 
-// generateDeviceID creates a random 8-character hex device identifier.
+// generateDeviceID creates a stable device identifier from the identity key.
+// Using the identity ensures the same device always has the same ID across
+// daemon restarts, so ops written by this device are always recognized as ours.
 func generateDeviceID() string {
+	// Fallback random ID — overwritten by New() which uses the identity
 	b := make([]byte, 4)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// stableDeviceID derives a device ID from the identity's public key.
+func stableDeviceID(identity *DeviceKey) string {
+	return shortPubkeyID(identity.Address())
 }
 
 // loadCurrentState loads the latest snapshot and replays any ops on top.
