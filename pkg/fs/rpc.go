@@ -31,6 +31,10 @@ type RPCServer struct {
 	activityMu   sync.Mutex
 	lastActivity time.Time
 
+	cacheMu     sync.Mutex
+	cachedState *Manifest
+	cacheTime   time.Time
+
 	mu      sync.Mutex
 	clients map[net.Conn]bool
 	events  chan RPCEvent
@@ -272,28 +276,72 @@ func (s *RPCServer) rpcList(ctx context.Context, params json.RawMessage) (interf
 		json.Unmarshal(params, &p)
 	}
 
-	entries, err := s.store.List(ctx, p.Prefix)
+	state, err := s.getCachedState(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	files := make([]fileInfo, len(entries))
-	for i, e := range entries {
-		files[i] = fileInfo{
-			Path:      e.Path,
-			Size:      e.Size,
-			Modified:  e.Modified.Format("2006-01-02T15:04:05Z"),
-			Checksum:  e.Checksum,
-			Namespace: e.Namespace,
-			Chunks:    len(e.Chunks),
+	var files []fileInfo
+	for path, entry := range state.Tree {
+		if p.Prefix != "" && len(path) >= len(p.Prefix) && path[:len(p.Prefix)] != p.Prefix {
+			continue
 		}
+		files = append(files, fileInfo{
+			Path:      path,
+			Size:      entry.Size,
+			Modified:  entry.Modified.Format("2006-01-02T15:04:05Z"),
+			Checksum:  entry.Checksum,
+			Namespace: entry.Namespace,
+			Chunks:    len(entry.Chunks),
+		})
 	}
 
 	return listResult{Files: files}, nil
 }
 
+// getCachedState returns the current file state, caching for 10 seconds
+// to avoid hammering S3 on every Cirrus poll.
+func (s *RPCServer) getCachedState(ctx context.Context) (*Manifest, error) {
+	s.cacheMu.Lock()
+	if s.cachedState != nil && time.Since(s.cacheTime) < 30*time.Second {
+		state := s.cachedState
+		s.cacheMu.Unlock()
+		return state, nil
+	}
+	s.cacheMu.Unlock()
+
+	state, err := s.store.loadCurrentState(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	s.cacheMu.Lock()
+	s.cachedState = state
+	s.cacheTime = time.Now()
+	s.cacheMu.Unlock()
+
+	return state, nil
+}
+
 func (s *RPCServer) rpcInfo(ctx context.Context) (interface{}, error) {
-	return s.store.Info(ctx)
+	state, err := s.getCachedState(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	info := &StoreInfo{
+		ID:        s.store.identity.Address(),
+		FileCount: len(state.Tree),
+	}
+	namespaces := make(map[string]bool)
+	for _, entry := range state.Tree {
+		info.TotalSize += entry.Size
+		namespaces[entry.Namespace] = true
+	}
+	for ns := range namespaces {
+		info.Namespaces = append(info.Namespaces, ns)
+	}
+	return info, nil
 }
 
 type putParams struct {

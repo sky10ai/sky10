@@ -74,6 +74,9 @@ func New(ctx context.Context, cfg Config) (*Backend, error) {
 	httpClient := &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
+			MaxIdleConns:          20,
+			MaxIdleConnsPerHost:   10,
+			MaxConnsPerHost:       10,
 			ResponseHeaderTimeout: 15 * time.Second,
 			IdleConnTimeout:       60 * time.Second,
 			TLSHandshakeTimeout:   10 * time.Second,
