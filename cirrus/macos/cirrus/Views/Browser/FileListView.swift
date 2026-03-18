@@ -10,18 +10,24 @@ struct FileColumnView: View {
     @State private var path: [String] = [] // stack of selected folder IDs
 
     var body: some View {
-        HStack(spacing: 0) {
-            // Root column
-            columnList(nodes: root, depth: 0)
-
-            // Child columns based on selection path
-            ForEach(Array(path.enumerated()), id: \.offset) { depth, folderID in
-                if let nodes = childrenFor(folderID: folderID, at: depth) {
-                    columnList(nodes: nodes, depth: depth + 1)
+        GeometryReader { geo in
+            HStack(spacing: 0) {
+                // Root column
+                ResizableColumn {
+                    columnList(nodes: root, depth: 0)
                 }
-            }
 
-            Spacer(minLength: 0)
+                // Child columns based on selection path
+                ForEach(Array(path.enumerated()), id: \.offset) { depth, folderID in
+                    if let nodes = childrenFor(folderID: folderID, at: depth) {
+                        ResizableColumn {
+                            columnList(nodes: nodes, depth: depth + 1)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
         }
         .overlay {
             if root.isEmpty && appState.storeInfo != nil && !appState.isLoading {
@@ -45,9 +51,7 @@ struct FileColumnView: View {
             }
         }
         .listStyle(.plain)
-        .frame(width: 250)
         .background(Color(nsColor: .controlBackgroundColor))
-        .border(Color(nsColor: .separatorColor), width: 0.5)
     }
 
     @ViewBuilder
@@ -101,5 +105,42 @@ struct FileColumnView: View {
     private func childrenFor(folderID: String, at depth: Int) -> [TreeNode]? {
         let nodes = depth == 0 ? root : (childrenFor(folderID: path[depth - 1], at: depth - 1) ?? [])
         return nodes.first(where: { $0.id == folderID })?.children
+    }
+}
+
+/// A column with a draggable right edge for resizing.
+struct ResizableColumn<Content: View>: View {
+    @State private var width: CGFloat = 250
+    let content: () -> Content
+
+    init(@ViewBuilder content: @escaping () -> Content) {
+        self.content = content
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            content()
+                .frame(width: width)
+
+            // Drag handle on right edge
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(width: 1)
+                .contentShape(Rectangle().size(width: 8, height: .infinity))
+                .gesture(
+                    DragGesture(minimumDistance: 1)
+                        .onChanged { value in
+                            let new = width + value.translation.width
+                            width = max(150, min(500, new))
+                        }
+                )
+                .onHover { hovering in
+                    if hovering {
+                        NSCursor.resizeLeftRight.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+        }
     }
 }
