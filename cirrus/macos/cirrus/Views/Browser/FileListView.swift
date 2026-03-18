@@ -10,7 +10,7 @@ struct FileColumnView: View {
     @State private var path: [String] = [] // stack of selected folder IDs
 
     var body: some View {
-        HSplitView {
+        HStack(spacing: 0) {
             // Root column
             columnList(nodes: root, depth: 0)
 
@@ -20,6 +20,8 @@ struct FileColumnView: View {
                     columnList(nodes: nodes, depth: depth + 1)
                 }
             }
+
+            Spacer(minLength: 0)
         }
         .overlay {
             if root.isEmpty && appState.storeInfo != nil && !appState.isLoading {
@@ -43,7 +45,7 @@ struct FileColumnView: View {
             }
         }
         .listStyle(.plain)
-        .frame(minWidth: 180, idealWidth: 220, maxWidth: 300)
+        .frame(width: 250)
         .background(Color(nsColor: .controlBackgroundColor))
         .border(Color(nsColor: .separatorColor), width: 0.5)
     }
