@@ -31,9 +31,10 @@ type RPCServer struct {
 	activityMu   sync.Mutex
 	lastActivity time.Time
 
-	mu      sync.Mutex
-	clients map[net.Conn]bool
-	events  chan RPCEvent
+	mu          sync.Mutex
+	clients     map[net.Conn]bool
+	subscribers map[net.Conn]*json.Encoder // push event connections
+	events      chan RPCEvent
 }
 
 // RPCEvent is a server-push event sent to all connected clients.
@@ -75,10 +76,14 @@ func NewRPCServer(store *Store, sockPath string, driveCfgPath string, version st
 		version:      version,
 		logger:       logger,
 		clients:      make(map[net.Conn]bool),
+		subscribers:  make(map[net.Conn]*json.Encoder),
 		events:       make(chan RPCEvent, 100),
 		driveManager: NewDriveManager(store, driveCfgPath),
 	}
 	srv.driveManager.OnActivity = srv.MarkActivity
+	srv.driveManager.OnStateChanged = func(event string) {
+		srv.Emit(event, nil)
+	}
 	return srv
 }
 
@@ -144,12 +149,21 @@ func (s *RPCServer) Emit(event string, data interface{}) {
 }
 
 func (s *RPCServer) broadcastLoop() {
-	for range s.events {
-		// Events are logged but not pushed to RPC connections.
-		// RPC connections use request-response only.
-		// A separate event subscription endpoint can be added later
-		// (e.g., a second socket or SSE over HTTP).
-		s.logger.Debug("event emitted")
+	for event := range s.events {
+		msg := map[string]interface{}{
+			"jsonrpc": "2.0",
+			"method":  "event",
+			"params":  map[string]interface{}{"event": event.Event, "data": event.Data},
+		}
+
+		s.mu.Lock()
+		for conn, enc := range s.subscribers {
+			if err := enc.Encode(msg); err != nil {
+				delete(s.subscribers, conn)
+				conn.Close()
+			}
+		}
+		s.mu.Unlock()
 	}
 }
 
@@ -170,6 +184,18 @@ func (s *RPCServer) handleConn(ctx context.Context, conn net.Conn) {
 			if err != io.EOF {
 				s.logger.Debug("decode error", "error", err)
 			}
+			return
+		}
+
+		// Subscribe hijacks the connection for push events
+		if req.Method == "skyfs.subscribe" {
+			resp := &RPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]string{"status": "subscribed"}}
+			encoder.Encode(resp)
+			s.mu.Lock()
+			s.subscribers[conn] = encoder
+			s.mu.Unlock()
+			// Block until context is cancelled — connection stays open
+			<-ctx.Done()
 			return
 		}
 

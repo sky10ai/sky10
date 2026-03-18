@@ -42,7 +42,8 @@ type DaemonV2 struct {
 	remoteCh   chan []Op        // poller → manifest worker
 	activityCh chan struct{}    // S3 workers → activity tracker
 
-	onActivity func() // called when sync I/O happens
+	onActivity     func()       // called when sync I/O happens
+	onStateChanged func(string) // called with event name when manifest changes
 }
 
 // NewDaemonV2 creates a channel-based sync daemon.
@@ -70,16 +71,17 @@ func NewDaemonV2(store *Store, config DaemonConfig, logger *slog.Logger) (*Daemo
 	}
 
 	return &DaemonV2{
-		store:      store,
-		manifest:   manifest,
-		watcher:    watcher,
-		config:     config,
-		logger:     logger,
-		manifestCh: make(chan []FileEvent, 100),
-		s3WorkCh:   make(chan S3Job, 200),
-		remoteCh:   make(chan []Op, 10),
-		activityCh: make(chan struct{}, 1),
-		onActivity: func() {},
+		store:          store,
+		manifest:       manifest,
+		watcher:        watcher,
+		config:         config,
+		logger:         logger,
+		manifestCh:     make(chan []FileEvent, 100),
+		s3WorkCh:       make(chan S3Job, 200),
+		remoteCh:       make(chan []Op, 10),
+		activityCh:     make(chan struct{}, 1),
+		onActivity:     func() {},
+		onStateChanged: func(string) {},
 	}, nil
 }
 
@@ -229,6 +231,7 @@ func (d *DaemonV2) handleLocalEvents(events []FileEvent) {
 
 	if changed {
 		d.manifest.Save()
+		d.onStateChanged("state.changed")
 	}
 }
 
@@ -277,6 +280,7 @@ func (d *DaemonV2) handleRemoteOps(ctx context.Context, ops []Op) {
 
 	if changed {
 		d.manifest.Save()
+		d.onStateChanged("state.changed")
 	}
 }
 
@@ -369,6 +373,7 @@ func (d *DaemonV2) fullSync(ctx context.Context) SyncResult {
 	}
 	d.manifest.SetLastRemoteOp(maxTs)
 	d.manifest.Save()
+	d.onStateChanged("state.changed")
 
 	return result
 }
@@ -432,6 +437,7 @@ func (d *DaemonV2) executeS3Job(ctx context.Context, job S3Job) {
 		}
 		d.manifest.SetFile(job.Path, SyncedFile{Checksum: cksum, Size: size, Modified: mod})
 		d.manifest.Save()
+		d.onStateChanged("state.changed")
 	}
 }
 

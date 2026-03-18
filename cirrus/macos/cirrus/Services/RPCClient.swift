@@ -106,6 +106,49 @@ actor RPCClient {
     func disconnect() {
         // No-op — connections are per-call now
     }
+
+    /// Subscribe to push events from the daemon. Calls onEvent for each
+    /// event received. Blocks until the connection drops.
+    func subscribe(onEvent: @escaping (String) -> Void) {
+        guard let fh = try? newConnection() else { return }
+
+        // Send subscribe request
+        var request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "skyfs.subscribe",
+            "id": 0
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: request) {
+            var payload = data
+            payload.append(0x0A)
+            fh.write(payload)
+        }
+
+        // Read the initial "subscribed" response
+        _ = try? readLine(from: fh)
+
+        // Read push events until connection drops
+        var buffer = Data()
+        while true {
+            let chunk = fh.availableData
+            if chunk.isEmpty { break } // connection closed
+            buffer.append(chunk)
+
+            // Process complete lines
+            while let nlIndex = buffer.firstIndex(of: 0x0A) {
+                let line = Data(buffer[buffer.startIndex..<nlIndex])
+                buffer = Data(buffer[buffer.index(after: nlIndex)...])
+
+                if let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                   let params = json["params"] as? [String: Any],
+                   let event = params["event"] as? String {
+                    onEvent(event)
+                }
+            }
+        }
+
+        fh.closeFile()
+    }
 }
 
 enum RPCError: Error, LocalizedError {

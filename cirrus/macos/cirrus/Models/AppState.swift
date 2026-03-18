@@ -36,15 +36,25 @@ class AppState: ObservableObject {
         try? await Task.sleep(for: .seconds(7))
         await refresh()
         await loadDrives()
-        startPolling()
+        subscribeToEvents()
     }
 
-    private func startPolling() {
-        Task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(3))
-                await refresh()
-                await loadDrives()
+    private func subscribeToEvents() {
+        // Subscribe to push events — refresh UI only when daemon says state changed
+        Task.detached { [weak self] in
+            guard let self = self else { return }
+            let rpc = RPCClient()
+            while true {
+                await rpc.subscribe { event in
+                    if event == "state.changed" {
+                        Task { @MainActor in
+                            await self.refresh()
+                            await self.loadDrives()
+                        }
+                    }
+                }
+                // Connection dropped — reconnect after 2 seconds
+                try? await Task.sleep(for: .seconds(2))
             }
         }
     }
