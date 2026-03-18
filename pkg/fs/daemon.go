@@ -223,7 +223,7 @@ func (d *Daemon) threeWaySync(ctx context.Context) syncResult {
 				result.errors++
 			}
 		case ActionConflict:
-			d.logger.Warn("conflict", "path", action.Path, "reason", action.Reason)
+			d.resolveConflict(ctx, action)
 			result.conflicts++
 		}
 	}
@@ -316,6 +316,45 @@ func (d *Daemon) executeDeleteRemote(ctx context.Context, action SyncAction) boo
 	}
 	d.manifest.RemoveFile(action.Path)
 	return true
+}
+
+// resolveConflict handles a file modified on both sides.
+// Strategy: keep both — rename local to .conflict.<device>, download remote.
+func (d *Daemon) resolveConflict(ctx context.Context, action SyncAction) {
+	d.logger.Warn("conflict", "path", action.Path, "reason", action.Reason)
+
+	localPath := filepath.Join(d.config.LocalRoot, filepath.FromSlash(action.Path))
+
+	// Rename local version with conflict suffix
+	ext := filepath.Ext(localPath)
+	base := localPath[:len(localPath)-len(ext)]
+	conflictPath := base + ".conflict." + d.store.deviceID + ext
+	if err := os.Rename(localPath, conflictPath); err != nil {
+		d.logger.Warn("conflict rename failed", "path", action.Path, "error", err)
+		return
+	}
+
+	// Upload the conflict copy so other devices see it
+	conflictRel := action.Path[:len(action.Path)-len(ext)] + ".conflict." + d.store.deviceID + ext
+	cf, err := os.Open(conflictPath)
+	if err == nil {
+		d.store.Put(ctx, conflictRel, cf)
+		cf.Close()
+		if cksum, err := fileChecksum(conflictPath); err == nil {
+			info, _ := os.Stat(conflictPath)
+			d.manifest.SetFile(conflictRel, SyncedFile{
+				Checksum: cksum,
+				Size:     info.Size(),
+				Modified: info.ModTime().UTC().Format("2006-01-02T15:04:05Z"),
+			})
+		}
+	}
+
+	// Download remote version to original path
+	if action.RemoteOp != nil {
+		dl := SyncAction{Type: ActionDownload, Path: action.Path, RemoteOp: action.RemoteOp}
+		d.executeDownload(ctx, dl)
+	}
 }
 
 // uploadWorker processes local file changes in a dedicated goroutine.
