@@ -10,16 +10,14 @@ struct FileColumnView: View {
     @State private var path: [String] = [] // stack of selected folder IDs
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: true) {
-            HStack(spacing: 0) {
-                // Root column
-                columnList(nodes: root, depth: 0)
+        HSplitView {
+            // Root column
+            columnList(nodes: root, depth: 0)
 
-                // Child columns based on selection path
-                ForEach(Array(path.enumerated()), id: \.offset) { depth, folderID in
-                    if let nodes = childrenFor(folderID: folderID, at: depth) {
-                        columnList(nodes: nodes, depth: depth + 1)
-                    }
+            // Child columns based on selection path
+            ForEach(Array(path.enumerated()), id: \.offset) { depth, folderID in
+                if let nodes = childrenFor(folderID: folderID, at: depth) {
+                    columnList(nodes: nodes, depth: depth + 1)
                 }
             }
         }
