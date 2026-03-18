@@ -388,6 +388,7 @@ func (d *DaemonV2) s3Worker(ctx context.Context, id int) {
 			return
 		case job := <-d.s3WorkCh:
 			d.onActivity()
+			d.onStateChanged("sync.active")
 			d.executeS3Job(ctx, job)
 		}
 	}

@@ -46,10 +46,12 @@ class AppState: ObservableObject {
             let rpc = RPCClient()
             while true {
                 await rpc.subscribe { event in
-                    if event == "state.changed" {
-                        Task { @MainActor in
+                    Task { @MainActor in
+                        if event == "state.changed" {
                             await self.refresh()
                             await self.loadDrives()
+                        } else if event == "sync.active" {
+                            self.syncState = .syncing
                         }
                     }
                 }
