@@ -19,12 +19,13 @@ type Drive struct {
 
 // DriveManager manages multiple sync drives, each with its own daemon.
 type DriveManager struct {
-	store      *Store
-	drives     map[string]*Drive
-	daemons    map[string]context.CancelFunc
-	mu         sync.Mutex
-	cfgPath    string
-	OnActivity func() // called when any drive does sync I/O
+	store          *Store
+	drives         map[string]*Drive
+	daemons        map[string]context.CancelFunc
+	mu             sync.Mutex
+	cfgPath        string
+	OnActivity     func()       // called when any drive does sync I/O
+	OnStateChanged func(string) // called when manifest changes
 }
 
 // NewDriveManager creates a drive manager that persists config to cfgPath.
@@ -143,6 +144,9 @@ func (dm *DriveManager) StartDrive(id string, logger interface{ Info(string, ...
 	}
 	if dm.OnActivity != nil {
 		daemon.onActivity = dm.OnActivity
+	}
+	if dm.OnStateChanged != nil {
+		daemon.onStateChanged = dm.OnStateChanged
 	}
 
 	dm.mu.Lock()
