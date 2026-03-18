@@ -95,7 +95,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 3. Start upload worker
 	go d.uploadWorker(ctx)
 
-	// 4. Watch local changes — never blocks on S3
+	// 4. Periodic reconciliation — catches deletes the watcher misses
+	// (e.g. parent directory removed, Finder trash)
+	go d.reconcileLoop(ctx)
+
+	// 5. Watch local changes — never blocks on S3
 	d.logger.Info("watching for changes", "poll_interval", d.config.PollSeconds)
 
 	batchTimer := time.NewTimer(2 * time.Second)
@@ -360,6 +364,75 @@ func (d *Daemon) resolveConflict(ctx context.Context, action SyncAction) {
 	if action.RemoteOp != nil {
 		dl := SyncAction{Type: ActionDownload, Path: action.Path, RemoteOp: action.RemoteOp}
 		d.executeDownload(ctx, dl)
+	}
+}
+
+// reconcileLoop periodically scans the local directory and reconciles
+// against the manifest. Catches deletes the watcher misses (e.g. when
+// a parent directory is trashed in Finder — kqueue doesn't fire events
+// for individual files inside a deleted directory).
+func (d *Daemon) reconcileLoop(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			d.reconcile(ctx)
+		}
+	}
+}
+
+func (d *Daemon) reconcile(ctx context.Context) {
+	localFiles, err := ScanDirectory(d.config.LocalRoot, d.config.IgnoreFunc)
+	if err != nil {
+		return
+	}
+
+	// Find files in manifest but not on disk
+	deleted := 0
+	for path := range d.manifest.Files {
+		if _, exists := localFiles[path]; !exists {
+			if err := d.store.Remove(ctx, path); err != nil {
+				d.logger.Warn("reconcile delete failed", "path", path, "error", err)
+				continue
+			}
+			d.manifest.RemoveFile(path)
+			deleted++
+		}
+	}
+
+	// Find files on disk but not in manifest (new files watcher missed)
+	uploaded := 0
+	for path, cksum := range localFiles {
+		if _, exists := d.manifest.GetFile(path); !exists {
+			localPath := filepath.Join(d.config.LocalRoot, filepath.FromSlash(path))
+			f, err := os.Open(localPath)
+			if err != nil {
+				continue
+			}
+			if err := d.store.Put(ctx, path, f); err != nil {
+				f.Close()
+				continue
+			}
+			f.Close()
+			info, _ := os.Stat(localPath)
+			size := int64(0)
+			mod := ""
+			if info != nil {
+				size = info.Size()
+				mod = info.ModTime().UTC().Format("2006-01-02T15:04:05Z")
+			}
+			d.manifest.SetFile(path, SyncedFile{Checksum: cksum, Size: size, Modified: mod})
+			uploaded++
+		}
+	}
+
+	if deleted > 0 || uploaded > 0 {
+		d.logger.Info("reconciled", "deleted", deleted, "uploaded", uploaded)
+		d.manifest.Save()
 	}
 }
 
