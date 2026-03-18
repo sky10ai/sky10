@@ -43,7 +43,7 @@ struct FileColumnView: View {
             }
         }
         .listStyle(.plain)
-        .frame(minWidth: 200, idealWidth: 220)
+        .frame(minWidth: 180, idealWidth: 220, maxWidth: 300)
         .background(Color(nsColor: .controlBackgroundColor))
         .border(Color(nsColor: .separatorColor), width: 0.5)
     }
