@@ -108,6 +108,12 @@ func ThreeWayDiff(localFiles map[string]string, manifest *DriveManifest, remoteO
 
 		// Only remote changes
 		case (remoteAdded || remoteChanged) && !localAdded && !localChanged && !localDeleted:
+			// Never download an empty remote file over a non-empty local file.
+			// This prevents the empty-file-wipe bug from corrupting local data.
+			emptyHash := "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a"
+			if inLocal && remoteOp.Size == 0 && remoteOp.Checksum == emptyHash && localSum != emptyHash {
+				continue
+			}
 			actions = append(actions, SyncAction{
 				Type:     ActionDownload,
 				Path:     path,
@@ -126,8 +132,19 @@ func ThreeWayDiff(localFiles map[string]string, manifest *DriveManifest, remoteO
 		// Conflicts
 		case (localAdded || localChanged) && (remoteAdded || remoteChanged):
 			// If checksums match, the file is already in sync — no action needed.
-			// This handles first-run where both sides have the same file.
 			if localSum == remoteOp.Checksum {
+				continue
+			}
+			// If remote is empty but local has content, local wins — upload.
+			// Prevents empty-file-wipe from creating bogus conflicts.
+			emptyHash2 := "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a"
+			if remoteOp.Size == 0 && remoteOp.Checksum == emptyHash2 && localSum != emptyHash2 {
+				actions = append(actions, SyncAction{
+					Type:     ActionUpload,
+					Path:     path,
+					Reason:   "local has content, remote is empty",
+					LocalSum: localSum,
+				})
 				continue
 			}
 			actions = append(actions, SyncAction{
