@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"sort"
 	"sync"
@@ -67,6 +68,18 @@ func New(ctx context.Context, cfg Config) (*Backend, error) {
 			credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
 		))
 	}
+
+	// HTTP client with transport-level timeouts — context timeouts alone
+	// can't cancel a stuck TCP read.
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			ResponseHeaderTimeout: 15 * time.Second,
+			IdleConnTimeout:       60 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+		},
+	}
+	opts = append(opts, config.WithHTTPClient(httpClient))
 
 	awsCfg, err := config.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
