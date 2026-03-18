@@ -3,7 +3,7 @@ created: 2026-03-18
 model: claude-opus-4-6
 ---
 
-# Daemon V3: Inbox/Outbox Sync
+# Daemon V2.5: Inbox/Outbox Sync
 
 Replace manifest-based sync with two persistent queues. The
 filesystem IS the state. No manifest needed for file listing.
@@ -119,7 +119,7 @@ is minimal — just checksums for diff detection, not for UI.
 - [ ] Filter: only other devices, only after last seen timestamp
 - [ ] Persist last seen timestamp in state file
 
-### M7: DaemonV3
+### M7: DaemonV2.5
 - [ ] Wire everything: watcher → outbox, poller → inbox
 - [ ] Two workers: outbox worker, inbox worker
 - [ ] Push events to Cirrus on state changes
