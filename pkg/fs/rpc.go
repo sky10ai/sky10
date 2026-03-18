@@ -272,7 +272,7 @@ func (s *RPCServer) rpcList(_ context.Context, params json.RawMessage) (interfac
 		json.Unmarshal(params, &p)
 	}
 
-	var files []fileInfo
+	files := make([]fileInfo, 0)
 	s.driveManager.mu.Lock()
 	for _, drive := range s.driveManager.drives {
 		manifest := LoadDriveManifest(drive.ID)

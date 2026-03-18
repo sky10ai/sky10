@@ -9,6 +9,8 @@ struct DevToolsView: View {
     @State private var opsCount = "—"
     @State private var autoRefresh = true
 
+    private let statusTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
@@ -139,6 +141,10 @@ struct DevToolsView: View {
         }
         .frame(width: 450, height: 550)
         .task {
+            checkStatus()
+            loadManifest()
+        }
+        .onReceive(statusTimer) { _ in
             checkStatus()
             loadManifest()
         }
