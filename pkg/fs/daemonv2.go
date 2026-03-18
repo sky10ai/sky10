@@ -23,7 +23,8 @@ type S3Job struct {
 	Type      S3JobType
 	Path      string // remote path
 	LocalPath string // local filesystem path (for uploads/downloads)
-	Checksum  string // expected checksum (for downloads)
+	Checksum  string // file checksum
+	Namespace string // file namespace (for delete ops)
 }
 
 // DaemonV2 runs continuous bidirectional sync using channel-based
@@ -215,14 +216,19 @@ func (d *DaemonV2) handleLocalEvents(events []FileEvent) {
 			}
 
 		case FileDeleted:
-			if _, ok := d.manifest.GetFile(e.Path); !ok {
+			existing, ok := d.manifest.GetFile(e.Path)
+			if !ok {
 				continue // not in manifest, nothing to do
 			}
 			d.manifest.RemoveFile(e.Path)
 			changed = true
 
+			ns := ""
+			if len(d.config.Namespaces) > 0 {
+				ns = d.config.Namespaces[0]
+			}
 			select {
-			case d.s3WorkCh <- S3Job{Type: S3Delete, Path: e.Path}:
+			case d.s3WorkCh <- S3Job{Type: S3Delete, Path: e.Path, Checksum: existing.Checksum, Namespace: ns}:
 			default:
 				d.logger.Warn("s3 work queue full", "path", e.Path)
 			}
