@@ -195,8 +195,8 @@ func TestIntegrationFirstSyncDownloadsAll(t *testing.T) {
 	}, nil)
 	result := dB.threeWaySync(ctx)
 
-	if result.downloaded != 3 {
-		t.Errorf("downloaded %d, want 3", result.downloaded)
+	if result.Downloaded != 3 {
+		t.Errorf("downloaded %d, want 3", result.Downloaded)
 	}
 
 	for _, name := range []string{"one.txt", "two.txt", "sub/three.txt"} {
@@ -249,8 +249,8 @@ func TestIntegrationConflictCreatesConflictFile(t *testing.T) {
 	// B syncs — should detect conflict (B modified locally, A modified remotely)
 	result := dB.threeWaySync(ctx)
 
-	if result.conflicts != 1 {
-		t.Errorf("expected 1 conflict, got %d", result.conflicts)
+	if result.Conflicts != 1 {
+		t.Errorf("expected 1 conflict, got %d", result.Conflicts)
 	}
 
 	// B should have a conflict file
