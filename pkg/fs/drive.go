@@ -136,13 +136,13 @@ func (dm *DriveManager) StartDrive(id string, logger interface{ Info(string, ...
 		driveStore.SetNamespace(drive.Namespace)
 	}
 
-	daemon, err := NewDaemon(driveStore, nil, daemonCfg, nil)
-	if err == nil && dm.OnActivity != nil {
-		daemon.onActivity = dm.OnActivity
-	}
+	daemon, err := NewDaemonV2(driveStore, daemonCfg, nil)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("creating daemon for %s: %w", drive.Name, err)
+	}
+	if dm.OnActivity != nil {
+		daemon.onActivity = dm.OnActivity
 	}
 
 	dm.mu.Lock()
