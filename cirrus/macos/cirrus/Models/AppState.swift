@@ -54,19 +54,13 @@ class AppState: ObservableObject {
         defer { isLoading = false }
 
         do {
-            // Check if daemon is actively syncing
-            let status = try await client.syncStatus()
-            if status.syncing {
-                syncState = .syncing
-            }
-
             storeInfo = try await client.getInfo()
             let allFiles = try await client.listFiles(prefix: "")
             files = allFiles
 
-            // Re-check after loading (sync may have finished)
-            let status2 = try? await client.syncStatus()
-            syncState = (status2?.syncing == true) ? .syncing : .synced
+            // Check if daemon is actively syncing
+            let status = try await client.syncStatus()
+            syncState = status.syncing ? .syncing : .synced
             error = nil
         } catch {
             self.error = error.localizedDescription
