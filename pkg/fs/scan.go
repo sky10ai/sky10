@@ -36,6 +36,11 @@ func ScanDirectory(root string, ignore func(string) bool) (ScanResult, error) {
 			return nil
 		}
 
+		// Skip conflict artifacts
+		if strings.Contains(name, ".conflict.") {
+			return nil
+		}
+
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return fmt.Errorf("computing relative path: %w", err)
