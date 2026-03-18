@@ -43,6 +43,12 @@ struct CirrusApp: App {
         .defaultSize(width: appState.onboardingComplete ? 1000 : 480,
                      height: appState.onboardingComplete ? 600 : 400)
 
+        WindowGroup("Developer Tools", id: "devtools") {
+            DevToolsView()
+                .environmentObject(appState)
+        }
+        .defaultSize(width: 450, height: 550)
+
         Settings {
             SettingsView()
                 .environmentObject(appState)
