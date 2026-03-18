@@ -31,6 +31,9 @@ type SyncResult struct {
 
 // SyncEngine performs bidirectional sync between a local directory and
 // encrypted remote storage.
+//
+// Deprecated: The daemon now uses ThreeWayDiff with DriveManifest instead.
+// This engine is kept for backward compatibility with existing tests.
 type SyncEngine struct {
 	store  *Store
 	config SyncConfig
