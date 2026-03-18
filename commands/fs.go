@@ -339,19 +339,19 @@ func fsSyncCmd() *cobra.Command {
 				syncCfg.Prefixes = []string{prefix}
 			}
 
+			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+			daemonCfg := skyfs.DaemonConfig{SyncConfig: syncCfg, PollSeconds: poll}
+
 			if once {
-				engine := skyfs.NewSyncEngine(store, syncCfg)
-				result, err := engine.SyncOnce(ctx)
+				daemon, err := skyfs.NewDaemon(store, nil, daemonCfg, logger)
 				if err != nil {
 					return err
 				}
-				fmt.Printf("synced: %d uploaded, %d downloaded, %d errors\n",
-					result.Uploaded, result.Downloaded, len(result.Errors))
+				result := daemon.SyncOnce(ctx)
+				fmt.Printf("synced: %d uploaded, %d downloaded, %d deleted, %d conflicts, %d errors\n",
+					result.Uploaded, result.Downloaded, result.Deleted, result.Conflicts, result.Errors)
 				return nil
 			}
-
-			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-			daemonCfg := skyfs.DaemonConfig{SyncConfig: syncCfg, PollSeconds: poll}
 			daemon, err := skyfs.NewDaemon(store, nil, daemonCfg, logger)
 			if err != nil {
 				return err

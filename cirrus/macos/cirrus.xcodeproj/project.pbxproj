@@ -22,6 +22,7 @@
 		467CE1EC0EE97E5A58A749B7 /* ActivityLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55560C14111959A612D459FB /* ActivityLog.swift */; };
 		477B4775836331AF0E188F7A /* MockSkyClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB00C684C3E3F62DA95FD2D1 /* MockSkyClient.swift */; };
 		4A2A12B8607E9683AD7DAB43 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC3F0335DF9BF0324A9B627A /* NotificationManager.swift */; };
+		5AE6DDFD48FC05D3DA46D59E /* FileTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC3161241B8B58B2CA8C8AD6 /* FileTreeView.swift */; };
 		5D6564C2901A2C4444A08F9D /* DevicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D9648C71B596A3857594FBC /* DevicesView.swift */; };
 		6554FA6F7BC0B134B4EF9858 /* StoreInfoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29A5E184022BF4A30125B8BA /* StoreInfoTests.swift */; };
 		69EA8A292621094500F1A393 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E52C573EF0A0E68A5312DA06 /* SettingsView.swift */; };
@@ -83,6 +84,7 @@
 		950E353FF346988DA0035FDF /* AppStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateTests.swift; sourceTree = "<group>"; };
 		98AC79BA0B50D3F2E59D09EE /* FileListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileListView.swift; sourceTree = "<group>"; };
 		AB66508DF779AF433F6CC949 /* RPCClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RPCClient.swift; sourceTree = "<group>"; };
+		AC3161241B8B58B2CA8C8AD6 /* FileTreeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTreeView.swift; sourceTree = "<group>"; };
 		B13E97031A6CA550C9778E7D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B8E6D7E7E8A0A1109D19935A /* Cirrus.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Cirrus.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BC3F0335DF9BF0324A9B627A /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
@@ -180,6 +182,7 @@
 				40C4545AD8B9A5ABB95F58D9 /* DetailView.swift */,
 				98AC79BA0B50D3F2E59D09EE /* FileListView.swift */,
 				47B1A09BB0B9C75B296D1B69 /* FileRowView.swift */,
+				AC3161241B8B58B2CA8C8AD6 /* FileTreeView.swift */,
 				53DFBFA3E32802FEEE7B529E /* SidebarView.swift */,
 			);
 			path = Browser;
@@ -347,6 +350,7 @@
 				E9ED60A631C497E55B1FE001 /* FileNode.swift in Sources */,
 				92827CE9DFF170544F7384FE /* FileProviderManager.swift in Sources */,
 				9C468B2568C829B49F969DBB /* FileRowView.swift in Sources */,
+				5AE6DDFD48FC05D3DA46D59E /* FileTreeView.swift in Sources */,
 				DFE0E90CE49C21D6E38C3CDC /* MenuBarView.swift in Sources */,
 				4A2A12B8607E9683AD7DAB43 /* NotificationManager.swift in Sources */,
 				A7D9CAFB494EFB1CEFBC6FF1 /* OnboardingView.swift in Sources */,
@@ -500,7 +504,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.6.1;
 				PRODUCT_BUNDLE_IDENTIFIER = ai.sky10.cirrus;
 				PRODUCT_NAME = Cirrus;
 				SDKROOT = macosx;
@@ -521,7 +525,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.6.1;
 				PRODUCT_BUNDLE_IDENTIFIER = ai.sky10.cirrus;
 				PRODUCT_NAME = Cirrus;
 				SDKROOT = macosx;

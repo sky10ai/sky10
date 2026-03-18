@@ -100,7 +100,11 @@ Merge rules:
 - [x] Test: daemon restart preserves manifest, doesn't re-download deleted files
 - [x] Test: first sync on fresh device downloads everything
 
-### M7: Cleanup
-- [ ] Migrate old `SyncEngine` tests to three-way diff
-- [ ] Remove `syncstate.go` once no code references it
-- [ ] Move completed plan to `docs/work/past/`
+### M7: Cleanup ✅
+- [x] Removed `sync.go` (old SyncEngine)
+- [x] Removed `syncstate.go` (old SyncState)
+- [x] Removed `integration_sync_test.go` (old engine integration tests)
+- [x] Moved `SyncConfig` to `syncconfig.go`
+- [x] Exported `SyncResult` and `SyncOnce` on Daemon
+- [x] CLI `fs sync --once` uses new three-way sync
+- [x] Kept `diff.go`, `scan.go`, `TestScanDirectory`, `TestDiffLocalRemote`
