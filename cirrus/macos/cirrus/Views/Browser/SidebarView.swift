@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 private let allFilesTag = "__all__"
@@ -27,6 +28,11 @@ struct SidebarView: View {
                         }
                     }
                     .tag(drive.namespace)
+                    .contextMenu {
+                        Button("Reveal in Finder") {
+                            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: drive.localPath)
+                        }
+                    }
                 }
             }
 
