@@ -31,10 +31,6 @@ type RPCServer struct {
 	activityMu   sync.Mutex
 	lastActivity time.Time
 
-	cacheMu     sync.Mutex
-	cachedState *Manifest
-	cacheTime   time.Time
-
 	mu      sync.Mutex
 	clients map[net.Conn]bool
 	events  chan RPCEvent
@@ -83,7 +79,6 @@ func NewRPCServer(store *Store, sockPath string, driveCfgPath string, version st
 		driveManager: NewDriveManager(store, driveCfgPath),
 	}
 	srv.driveManager.OnActivity = srv.MarkActivity
-	srv.driveManager.OnStateChanged = srv.InvalidateCache
 	return srv
 }
 
@@ -271,74 +266,54 @@ type fileInfo struct {
 	Chunks    int    `json:"chunks"`
 }
 
-func (s *RPCServer) rpcList(ctx context.Context, params json.RawMessage) (interface{}, error) {
+func (s *RPCServer) rpcList(_ context.Context, params json.RawMessage) (interface{}, error) {
 	var p listParams
 	if len(params) > 0 {
 		json.Unmarshal(params, &p)
 	}
 
-	state, err := s.getCachedState(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	var files []fileInfo
-	for path, entry := range state.Tree {
-		if p.Prefix != "" && len(path) >= len(p.Prefix) && path[:len(p.Prefix)] != p.Prefix {
-			continue
+	s.driveManager.mu.Lock()
+	for _, drive := range s.driveManager.drives {
+		manifest := LoadDriveManifest(drive.ID)
+		for path, entry := range manifest.Files {
+			if p.Prefix != "" && (len(path) < len(p.Prefix) || path[:len(p.Prefix)] != p.Prefix) {
+				continue
+			}
+			files = append(files, fileInfo{
+				Path:      path,
+				Size:      entry.Size,
+				Modified:  entry.Modified,
+				Checksum:  entry.Checksum,
+				Namespace: drive.Namespace,
+				Chunks:    1, // manifest doesn't track chunk count
+			})
 		}
-		files = append(files, fileInfo{
-			Path:      path,
-			Size:      entry.Size,
-			Modified:  entry.Modified.Format("2006-01-02T15:04:05Z"),
-			Checksum:  entry.Checksum,
-			Namespace: entry.Namespace,
-			Chunks:    len(entry.Chunks),
-		})
 	}
+	s.driveManager.mu.Unlock()
 
 	return listResult{Files: files}, nil
 }
 
-// getCachedState returns the current file state, caching for 10 seconds
-// to avoid hammering S3 on every Cirrus poll.
-func (s *RPCServer) getCachedState(ctx context.Context) (*Manifest, error) {
-	s.cacheMu.Lock()
-	if s.cachedState != nil && time.Since(s.cacheTime) < 30*time.Second {
-		state := s.cachedState
-		s.cacheMu.Unlock()
-		return state, nil
-	}
-	s.cacheMu.Unlock()
-
-	state, err := s.store.loadCurrentState(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	s.cacheMu.Lock()
-	s.cachedState = state
-	s.cacheTime = time.Now()
-	s.cacheMu.Unlock()
-
-	return state, nil
-}
-
-func (s *RPCServer) rpcInfo(ctx context.Context) (interface{}, error) {
-	state, err := s.getCachedState(ctx)
-	if err != nil {
-		return nil, err
-	}
-
+func (s *RPCServer) rpcInfo(_ context.Context) (interface{}, error) {
 	info := &StoreInfo{
-		ID:        s.store.identity.Address(),
-		FileCount: len(state.Tree),
+		ID: s.store.identity.Address(),
 	}
+
 	namespaces := make(map[string]bool)
-	for _, entry := range state.Tree {
-		info.TotalSize += entry.Size
-		namespaces[entry.Namespace] = true
+	s.driveManager.mu.Lock()
+	for _, drive := range s.driveManager.drives {
+		manifest := LoadDriveManifest(drive.ID)
+		info.FileCount += len(manifest.Files)
+		for _, f := range manifest.Files {
+			info.TotalSize += f.Size
+		}
+		if drive.Namespace != "" {
+			namespaces[drive.Namespace] = true
+		}
 	}
+	s.driveManager.mu.Unlock()
+
 	for ns := range namespaces {
 		info.Namespaces = append(info.Namespaces, ns)
 	}
@@ -584,13 +559,6 @@ func (s *RPCServer) rpcSyncStatus(_ context.Context) (interface{}, error) {
 		"syncing":  syncing || active,
 		"sync_dir": syncDir,
 	}, nil
-}
-
-// InvalidateCache clears the cached state so the next RPC call reloads from S3.
-func (s *RPCServer) InvalidateCache() {
-	s.cacheMu.Lock()
-	s.cachedState = nil
-	s.cacheMu.Unlock()
 }
 
 // MarkActivity records that sync I/O is happening right now.

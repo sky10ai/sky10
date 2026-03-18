@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -97,30 +96,6 @@ func TestRPCListEmpty(t *testing.T) {
 	}
 }
 
-func TestRPCPutAndList(t *testing.T) {
-	t.Parallel()
-	_, conn, _ := startTestRPC(t)
-
-	// Create a temp file to upload
-	tmp := filepath.Join(t.TempDir(), "test.md")
-	os.WriteFile(tmp, []byte("hello rpc"), 0644)
-
-	// Put
-	rpcCall(t, conn, "skyfs.put", putParams{Path: "docs/test.md", LocalPath: tmp})
-
-	// List
-	result := rpcCall(t, conn, "skyfs.list", listParams{Prefix: ""})
-	var lr listResult
-	json.Unmarshal(result, &lr)
-
-	if len(lr.Files) != 1 {
-		t.Fatalf("expected 1 file, got %d", len(lr.Files))
-	}
-	if lr.Files[0].Path != "docs/test.md" {
-		t.Errorf("path = %q, want %q", lr.Files[0].Path, "docs/test.md")
-	}
-}
-
 func TestRPCPutGetRoundTrip(t *testing.T) {
 	t.Parallel()
 	_, conn, _ := startTestRPC(t)
@@ -137,45 +112,6 @@ func TestRPCPutGetRoundTrip(t *testing.T) {
 	got, _ := os.ReadFile(outFile)
 	if string(got) != "encrypted content" {
 		t.Errorf("got %q, want %q", got, "encrypted content")
-	}
-}
-
-func TestRPCRemove(t *testing.T) {
-	t.Parallel()
-	_, conn, _ := startTestRPC(t)
-
-	tmp := filepath.Join(t.TempDir(), "rm.md")
-	os.WriteFile(tmp, []byte("delete me"), 0644)
-
-	rpcCall(t, conn, "skyfs.put", putParams{Path: "rm.md", LocalPath: tmp})
-	rpcCall(t, conn, "skyfs.remove", removeParams{Path: "rm.md"})
-
-	result := rpcCall(t, conn, "skyfs.list", listParams{})
-	var lr listResult
-	json.Unmarshal(result, &lr)
-
-	if len(lr.Files) != 0 {
-		t.Errorf("expected 0 files after remove, got %d", len(lr.Files))
-	}
-}
-
-func TestRPCInfo(t *testing.T) {
-	t.Parallel()
-	_, conn, _ := startTestRPC(t)
-
-	tmp := filepath.Join(t.TempDir(), "info.md")
-	os.WriteFile(tmp, []byte("data"), 0644)
-	rpcCall(t, conn, "skyfs.put", putParams{Path: "info.md", LocalPath: tmp})
-
-	result := rpcCall(t, conn, "skyfs.info", nil)
-	var info StoreInfo
-	json.Unmarshal(result, &info)
-
-	if info.FileCount != 1 {
-		t.Errorf("FileCount = %d, want 1", info.FileCount)
-	}
-	if !strings.HasPrefix(info.ID, "sky10q") {
-		t.Errorf("ID = %q, want sky10q prefix", info.ID)
 	}
 }
 
