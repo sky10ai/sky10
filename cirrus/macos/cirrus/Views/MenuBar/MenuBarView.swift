@@ -52,6 +52,16 @@ struct MenuBarView: View {
 
         Divider()
 
+        Button("Developer Tools") {
+            openWindow(id: "devtools")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                NSApplication.shared.activate(ignoringOtherApps: true)
+            }
+        }
+        .keyboardShortcut("d", modifiers: [.command, .option])
+
+        Divider()
+
         Text("Cirrus v\(appVersion)")
             .disabled(true)
 
