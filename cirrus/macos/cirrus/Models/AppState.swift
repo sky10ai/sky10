@@ -42,7 +42,7 @@ class AppState: ObservableObject {
     private func startPolling() {
         Task {
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(10))
+                try? await Task.sleep(for: .seconds(3))
                 await refresh()
                 await loadDrives()
             }
