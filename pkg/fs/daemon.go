@@ -79,11 +79,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.onActivity()
 		result := d.threeWaySync(ctx)
 		d.logger.Info("initial sync complete",
-			"uploaded", result.uploaded,
-			"downloaded", result.downloaded,
-			"deleted", result.deleted,
-			"conflicts", result.conflicts,
-			"errors", result.errors)
+			"uploaded", result.Uploaded,
+			"downloaded", result.Downloaded,
+			"deleted", result.Deleted,
+			"conflicts", result.Conflicts,
+			"errors", result.Errors)
 	}()
 
 	// 2. Start remote poller in background
@@ -133,23 +133,29 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 }
 
-type syncResult struct {
-	uploaded   int
-	downloaded int
-	deleted    int
-	conflicts  int
-	errors     int
+// SyncResult contains stats from a sync pass.
+type SyncResult struct {
+	Uploaded   int
+	Downloaded int
+	Deleted    int
+	Conflicts  int
+	Errors     int
+}
+
+// SyncOnce performs a single three-way sync pass and returns stats.
+func (d *Daemon) SyncOnce(ctx context.Context) SyncResult {
+	return d.threeWaySync(ctx)
 }
 
 // threeWaySync performs a full three-way diff and executes all actions.
-func (d *Daemon) threeWaySync(ctx context.Context) syncResult {
-	var result syncResult
+func (d *Daemon) threeWaySync(ctx context.Context) SyncResult {
+	var result SyncResult
 
 	// 1. Scan local directory
 	localFiles, err := ScanDirectory(d.config.LocalRoot, d.config.IgnoreFunc)
 	if err != nil {
 		d.logger.Warn("scan failed", "error", err)
-		result.errors++
+		result.Errors++
 		return result
 	}
 
@@ -157,14 +163,14 @@ func (d *Daemon) threeWaySync(ctx context.Context) syncResult {
 	opsKey, err := d.store.opsKey(ctx)
 	if err != nil {
 		d.logger.Warn("ops key failed", "error", err)
-		result.errors++
+		result.Errors++
 		return result
 	}
 
 	allOps, err := ReadOps(ctx, d.store.backend, d.manifest.LastRemoteOp, opsKey)
 	if err != nil {
 		d.logger.Warn("reading ops failed", "error", err)
-		result.errors++
+		result.Errors++
 		return result
 	}
 
@@ -203,28 +209,28 @@ func (d *Daemon) threeWaySync(ctx context.Context) syncResult {
 		switch action.Type {
 		case ActionUpload:
 			if d.executeUpload(ctx, action) {
-				result.uploaded++
+				result.Uploaded++
 			} else {
-				result.errors++
+				result.Errors++
 			}
 		case ActionDownload:
 			if d.executeDownload(ctx, action) {
-				result.downloaded++
+				result.Downloaded++
 			} else {
-				result.errors++
+				result.Errors++
 			}
 		case ActionDeleteLocal:
 			d.executeDeleteLocal(action)
-			result.deleted++
+			result.Deleted++
 		case ActionDeleteRemote:
 			if d.executeDeleteRemote(ctx, action) {
-				result.deleted++
+				result.Deleted++
 			} else {
-				result.errors++
+				result.Errors++
 			}
 		case ActionConflict:
 			d.resolveConflict(ctx, action)
-			result.conflicts++
+			result.Conflicts++
 		}
 	}
 
