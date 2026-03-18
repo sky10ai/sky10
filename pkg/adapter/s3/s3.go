@@ -25,9 +25,11 @@ import (
 )
 
 // Backend stores encrypted blobs in an S3-compatible bucket.
+// All S3 calls go through a semaphore to prevent connection pool exhaustion.
 type Backend struct {
 	client *s3.Client
 	bucket string
+	sem    chan struct{} // concurrency limiter
 }
 
 // Config holds S3 connection parameters.
@@ -102,6 +104,7 @@ func New(ctx context.Context, cfg Config) (*Backend, error) {
 	return &Backend{
 		client: client,
 		bucket: cfg.Bucket,
+		sem:    make(chan struct{}, 5), // max 5 concurrent S3 calls
 	}, nil
 }
 
@@ -111,8 +114,25 @@ func withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, s3Timeout)
 }
 
+func (b *Backend) acquire(ctx context.Context) error {
+	select {
+	case b.sem <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (b *Backend) release() {
+	<-b.sem
+}
+
 // Put stores data from r under the given key.
 func (b *Backend) Put(ctx context.Context, key string, r io.Reader, size int64) error {
+	if err := b.acquire(ctx); err != nil {
+		return fmt.Errorf("s3: put %q: %w", key, err)
+	}
+	defer b.release()
 	ctx, cancel := withTimeout(ctx)
 	defer cancel()
 	_, err := b.client.PutObject(ctx, &s3.PutObjectInput{
@@ -130,6 +150,10 @@ func (b *Backend) Put(ctx context.Context, key string, r io.Reader, size int64) 
 // Get returns a reader for the data stored at key.
 // The caller must close the returned ReadCloser.
 func (b *Backend) Get(ctx context.Context, key string) (io.ReadCloser, error) {
+	if err := b.acquire(ctx); err != nil {
+		return nil, fmt.Errorf("s3: get %q: %w", key, err)
+	}
+	// release happens in cancelOnClose.Close()
 	ctx, cancel := withTimeout(ctx)
 	// Don't defer cancel — the caller needs the context alive to read the body.
 	// The cancel is attached to the returned closer instead.
@@ -139,23 +163,26 @@ func (b *Backend) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	})
 	if err != nil {
 		cancel()
+		b.release()
 		if isNotFound(err) {
 			return nil, adapter.ErrNotFound
 		}
 		return nil, fmt.Errorf("s3: get %q: %w", key, err)
 	}
-	return &cancelOnClose{ReadCloser: out.Body, cancel: cancel}, nil
+	return &cancelOnClose{ReadCloser: out.Body, cancel: cancel, release: b.release}, nil
 }
 
-// cancelOnClose wraps a ReadCloser and cancels a context on Close.
+// cancelOnClose wraps a ReadCloser, cancels context and releases semaphore on Close.
 type cancelOnClose struct {
 	io.ReadCloser
-	cancel context.CancelFunc
+	cancel  context.CancelFunc
+	release func()
 }
 
 func (c *cancelOnClose) Close() error {
 	err := c.ReadCloser.Close()
 	c.cancel()
+	c.release()
 	return err
 }
 
@@ -167,6 +194,10 @@ func (b *Backend) Delete(ctx context.Context, key string) error {
 		return err
 	}
 
+	if err := b.acquire(ctx); err != nil {
+		return fmt.Errorf("s3: delete %q: %w", key, err)
+	}
+	defer b.release()
 	ctx, cancel := withTimeout(ctx)
 	defer cancel()
 	_, err := b.client.DeleteObject(ctx, &s3.DeleteObjectInput{
@@ -181,6 +212,10 @@ func (b *Backend) Delete(ctx context.Context, key string) error {
 
 // List returns all keys with the given prefix.
 func (b *Backend) List(ctx context.Context, prefix string) ([]string, error) {
+	if err := b.acquire(ctx); err != nil {
+		return nil, fmt.Errorf("s3: list %q: %w", prefix, err)
+	}
+	defer b.release()
 	ctx, cancel := withTimeout(ctx)
 	defer cancel()
 	var keys []string
@@ -205,6 +240,10 @@ func (b *Backend) List(ctx context.Context, prefix string) ([]string, error) {
 
 // Head returns metadata for the object at key.
 func (b *Backend) Head(ctx context.Context, key string) (adapter.ObjectMeta, error) {
+	if err := b.acquire(ctx); err != nil {
+		return adapter.ObjectMeta{}, fmt.Errorf("s3: head %q: %w", key, err)
+	}
+	defer b.release()
 	ctx, cancel := withTimeout(ctx)
 	defer cancel()
 	out, err := b.client.HeadObject(ctx, &s3.HeadObjectInput{
