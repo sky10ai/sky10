@@ -102,7 +102,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 5. Watch local changes — never blocks on S3
 	d.logger.Info("watching for changes", "poll_interval", d.config.PollSeconds)
 
-	batchTimer := time.NewTimer(2 * time.Second)
+	batchTimer := time.NewTimer(300 * time.Millisecond)
 	batchTimer.Stop()
 	var pendingLocal []FileEvent
 
@@ -122,7 +122,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 				return nil
 			}
 			pendingLocal = append(pendingLocal, event)
-			batchTimer.Reset(2 * time.Second)
+			batchTimer.Reset(300 * time.Millisecond)
 
 		case <-batchTimer.C:
 			if len(pendingLocal) > 0 {
@@ -391,33 +391,24 @@ func (d *Daemon) reconcile(ctx context.Context) {
 		return
 	}
 
-	// Find files in manifest but not on disk
-	deleted := 0
+	changed := false
+
+	// Find files in manifest but not on disk — update manifest immediately
 	for path := range d.manifest.Files {
 		if _, exists := localFiles[path]; !exists {
-			if err := d.store.Remove(ctx, path); err != nil {
-				d.logger.Warn("reconcile delete failed", "path", path, "error", err)
-				continue
-			}
 			d.manifest.RemoveFile(path)
-			deleted++
+			changed = true
+			p := path
+			go func() {
+				d.store.Remove(ctx, p)
+			}()
 		}
 	}
 
-	// Find files on disk but not in manifest (new files watcher missed)
-	uploaded := 0
+	// Find files on disk but not in manifest — update manifest immediately
 	for path, cksum := range localFiles {
 		if _, exists := d.manifest.GetFile(path); !exists {
 			localPath := filepath.Join(d.config.LocalRoot, filepath.FromSlash(path))
-			f, err := os.Open(localPath)
-			if err != nil {
-				continue
-			}
-			if err := d.store.Put(ctx, path, f); err != nil {
-				f.Close()
-				continue
-			}
-			f.Close()
 			info, _ := os.Stat(localPath)
 			size := int64(0)
 			mod := ""
@@ -426,12 +417,20 @@ func (d *Daemon) reconcile(ctx context.Context) {
 				mod = info.ModTime().UTC().Format("2006-01-02T15:04:05Z")
 			}
 			d.manifest.SetFile(path, SyncedFile{Checksum: cksum, Size: size, Modified: mod})
-			uploaded++
+			changed = true
+			p := path
+			go func() {
+				f, err := os.Open(localPath)
+				if err != nil {
+					return
+				}
+				defer f.Close()
+				d.store.Put(ctx, p, f)
+			}()
 		}
 	}
 
-	if deleted > 0 || uploaded > 0 {
-		d.logger.Info("reconciled", "deleted", deleted, "uploaded", uploaded)
+	if changed {
 		d.manifest.Save()
 	}
 }
@@ -449,10 +448,10 @@ func (d *Daemon) uploadWorker(ctx context.Context) {
 }
 
 // processLocalEvents handles watcher events (live file changes).
+// Manifest updates FIRST (instant), S3 uploads in background.
 func (d *Daemon) processLocalEvents(ctx context.Context, events []FileEvent) {
 	seen := make(map[string]bool)
-	uploaded := 0
-	deleted := 0
+	changed := false
 
 	for _, e := range events {
 		if seen[e.Path] {
@@ -462,30 +461,53 @@ func (d *Daemon) processLocalEvents(ctx context.Context, events []FileEvent) {
 
 		switch e.Type {
 		case FileCreated, FileModified:
-			action := SyncAction{
-				Type: ActionUpload,
-				Path: e.Path,
-			}
 			localPath := filepath.Join(d.config.LocalRoot, filepath.FromSlash(e.Path))
-			cksum, _ := fileChecksum(localPath)
-			action.LocalSum = cksum
-			if d.executeUpload(ctx, action) {
-				uploaded++
+			cksum, err := fileChecksum(localPath)
+			if err != nil {
+				continue
+			}
+			info, _ := os.Stat(localPath)
+			size := int64(0)
+			mod := ""
+			if info != nil {
+				size = info.Size()
+				mod = info.ModTime().UTC().Format("2006-01-02T15:04:05Z")
 			}
 
+			// Update manifest IMMEDIATELY — Cirrus sees it now
+			d.manifest.SetFile(e.Path, SyncedFile{Checksum: cksum, Size: size, Modified: mod})
+			changed = true
+
+			// S3 upload in background
+			path := e.Path
+			go func() {
+				d.onActivity()
+				f, err := os.Open(localPath)
+				if err != nil {
+					return
+				}
+				defer f.Close()
+				if err := d.store.Put(ctx, path, f); err != nil {
+					d.logger.Warn("upload failed", "path", path, "error", err)
+				}
+			}()
+
 		case FileDeleted:
-			action := SyncAction{
-				Type: ActionDeleteRemote,
-				Path: e.Path,
-			}
-			if d.executeDeleteRemote(ctx, action) {
-				deleted++
-			}
+			// Update manifest IMMEDIATELY
+			d.manifest.RemoveFile(e.Path)
+			changed = true
+
+			// S3 delete in background
+			path := e.Path
+			go func() {
+				if err := d.store.Remove(ctx, path); err != nil {
+					d.logger.Warn("remote delete failed", "path", path, "error", err)
+				}
+			}()
 		}
 	}
 
-	if uploaded > 0 || deleted > 0 {
-		d.logger.Info("local changes synced", "uploaded", uploaded, "deleted", deleted)
+	if changed {
 		d.manifest.Save()
 	}
 }
