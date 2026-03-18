@@ -20,13 +20,14 @@ type DaemonConfig struct {
 // Daemon runs continuous bidirectional sync: local file watcher +
 // remote S3 poller + sync engine.
 type Daemon struct {
-	store      *Store
-	manifest   *DriveManifest
-	watcher    *Watcher
-	poller     *Poller
-	config     DaemonConfig
-	logger     *slog.Logger
-	onActivity func() // called when sync I/O happens
+	store          *Store
+	manifest       *DriveManifest
+	watcher        *Watcher
+	poller         *Poller
+	config         DaemonConfig
+	logger         *slog.Logger
+	onActivity     func() // called when sync I/O happens
+	onStateChanged func() // called when files change (invalidate cache)
 
 	// work queue — watcher feeds events, worker goroutine processes them
 	localWork chan []FileEvent
@@ -60,14 +61,15 @@ func NewDaemon(store *Store, index *Index, config DaemonConfig, logger *slog.Log
 	}
 
 	return &Daemon{
-		store:      store,
-		manifest:   manifest,
-		watcher:    watcher,
-		poller:     poller,
-		config:     config,
-		logger:     logger,
-		onActivity: func() {},
-		localWork:  make(chan []FileEvent, 50),
+		store:          store,
+		manifest:       manifest,
+		watcher:        watcher,
+		poller:         poller,
+		config:         config,
+		logger:         logger,
+		onActivity:     func() {},
+		onStateChanged: func() {},
+		localWork:      make(chan []FileEvent, 50),
 	}, nil
 }
 
@@ -78,6 +80,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.logger.Info("starting initial sync", "root", d.config.LocalRoot)
 		d.onActivity()
 		result := d.threeWaySync(ctx)
+		d.onStateChanged()
 		d.logger.Info("initial sync complete",
 			"uploaded", result.Uploaded,
 			"downloaded", result.Downloaded,
@@ -414,6 +417,7 @@ func (d *Daemon) processLocalEvents(ctx context.Context, events []FileEvent) {
 	if uploaded > 0 || deleted > 0 {
 		d.logger.Info("local changes synced", "uploaded", uploaded, "deleted", deleted)
 		d.manifest.Save()
+		d.onStateChanged()
 	}
 }
 
@@ -455,5 +459,6 @@ func (d *Daemon) processRemoteOps(ctx context.Context, ops []Op) {
 	if downloaded > 0 || deleted > 0 {
 		d.logger.Info("remote changes applied", "downloaded", downloaded, "deleted", deleted)
 		d.manifest.Save()
+		d.onStateChanged()
 	}
 }

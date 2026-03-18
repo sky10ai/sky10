@@ -83,6 +83,7 @@ func NewRPCServer(store *Store, sockPath string, driveCfgPath string, version st
 		driveManager: NewDriveManager(store, driveCfgPath),
 	}
 	srv.driveManager.OnActivity = srv.MarkActivity
+	srv.driveManager.OnStateChanged = srv.InvalidateCache
 	return srv
 }
 
@@ -583,6 +584,13 @@ func (s *RPCServer) rpcSyncStatus(_ context.Context) (interface{}, error) {
 		"syncing":  syncing || active,
 		"sync_dir": syncDir,
 	}, nil
+}
+
+// InvalidateCache clears the cached state so the next RPC call reloads from S3.
+func (s *RPCServer) InvalidateCache() {
+	s.cacheMu.Lock()
+	s.cachedState = nil
+	s.cacheMu.Unlock()
 }
 
 // MarkActivity records that sync I/O is happening right now.
