@@ -60,49 +60,47 @@ Merge rules:
 
 ## Milestones
 
-### M1: Local Manifest Infrastructure
-- [ ] Define `DriveManifest` struct (files map + last_remote_op)
-- [ ] Load/save to `~/.sky10/fs/drives/<drive-id>/manifest.json`
-- [ ] Create manifest directory on drive creation
-- [ ] Unit tests for load/save/empty state
+### M1: Local Manifest Infrastructure ✅
+- [x] Define `DriveManifest` struct (files map + last_remote_op)
+- [x] Load/save to `~/.sky10/fs/drives/<drive-id>/manifest.json`
+- [x] Create manifest directory on drive creation
+- [x] Unit tests for load/save/empty state
 
-### M2: Three-Way Diff
-- [ ] New `ThreeWayDiff` function: (localFS, manifest, remoteOps) → actions
-- [ ] Action types: Upload, Download, DeleteLocal, DeleteRemote, Conflict
-- [ ] Handle all merge rules from table above
-- [ ] Table-driven unit tests for every merge case
-- [ ] Test: file unchanged on both sides → no action
+### M2: Three-Way Diff ✅
+- [x] New `ThreeWayDiff` function: (localFS, manifest, remoteOps) → actions
+- [x] Action types: Upload, Download, DeleteLocal, DeleteRemote, Conflict
+- [x] Handle all merge rules from table above
+- [x] Table-driven unit tests for every merge case
+- [x] Test: file unchanged on both sides → no action
 
-### M3: Wire Into Daemon
-- [ ] Replace `SyncOnce` two-way diff with three-way diff
-- [ ] Load manifest on daemon startup
-- [ ] Save manifest after each successful sync pass
-- [ ] Update manifest entries on watcher upload/download
-- [ ] Update `last_remote_op` after processing remote ops
-- [ ] Remove old `SyncState` / `LocalChecksums` code
+### M3: Wire Into Daemon ✅
+- [x] Replace `SyncOnce` two-way diff with three-way diff
+- [x] Load manifest on daemon startup
+- [x] Save manifest after each successful sync pass
+- [x] Update manifest entries on watcher upload/download
+- [x] Update `last_remote_op` after processing remote ops
+- [x] Old `SyncEngine` deprecated (kept for backward-compat tests)
 
-### M4: Delete Support
-- [ ] Local delete → write delete op to S3
-- [ ] Remote delete op → delete local file + remove from manifest
-- [ ] Test: delete on Device A, verify removed on Device B
-- [ ] Test: delete while daemon is stopped, verify op written on restart
+### M4: Delete Support ✅
+- [x] Local delete → write delete op to S3
+- [x] Remote delete op → delete local file + remove from manifest
+- [x] Test: delete on Device A, verify removed on Device B
+- [x] Test: delete while daemon is stopped, verify op written on restart
 
-### M5: Conflict Handling
-- [ ] Detect conflicts per merge rules
-- [ ] Default resolution: keep both (rename conflicting file with `.conflict.<device>` suffix)
-- [ ] Surface conflicts to Cirrus UI (existing conflict alert)
-- [ ] Test: simultaneous edit on two devices → conflict file created
+### M5: Conflict Handling ✅
+- [x] Detect conflicts per merge rules
+- [x] Default resolution: keep both (rename .conflict.<device> suffix)
+- [x] Upload conflict copy so other devices see it
+- [x] Test: simultaneous edit on two devices → conflict file created
 
-### M6: Integration Tests (MinIO)
-- [ ] Test: Device A deletes file, Device B sees it removed
-- [ ] Test: Device B creates file while Device A is offline, A gets it on restart
-- [ ] Test: both devices edit same file → conflict
-- [ ] Test: daemon restart preserves manifest, doesn't re-download deleted files
-- [ ] Test: first sync on fresh device downloads everything
+### M6: Integration Tests (MinIO) ✅
+- [x] Test: Device A deletes file, Device B sees it removed
+- [x] Test: Device B creates file while Device A is offline, A gets it on restart
+- [x] Test: both devices edit same file → conflict
+- [x] Test: daemon restart preserves manifest, doesn't re-download deleted files
+- [x] Test: first sync on fresh device downloads everything
 
 ### M7: Cleanup
-- [ ] Remove old `SyncState` / `syncstate.go`
-- [ ] Remove `LocalChecksums` from `SyncEngine`
-- [ ] Remove empty-file-wipe hack in `DiffLocalRemote` (three-way makes it unnecessary)
-- [ ] Update CLAUDE.md if sync architecture docs reference old approach
+- [ ] Migrate old `SyncEngine` tests to three-way diff
+- [ ] Remove `syncstate.go` once no code references it
 - [ ] Move completed plan to `docs/work/past/`
