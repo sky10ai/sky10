@@ -147,8 +147,10 @@ func (d *DaemonV2_5) SyncOnce(ctx context.Context) {
 func (d *DaemonV2_5) seedStateFromDisk() {
 	localFiles, err := ScanDirectory(d.config.LocalRoot, d.config.IgnoreFunc)
 	if err != nil {
+		d.logger.Warn("seed: scan failed", "error", err)
 		return
 	}
+	d.logger.Info("seed", "local_files", len(localFiles), "state_files", len(d.state.Files))
 
 	ns := ""
 	if len(d.config.Namespaces) > 0 {
@@ -161,9 +163,11 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 	for path, cksum := range localFiles {
 		existing, ok := d.state.GetFile(path)
 		if !ok {
+			d.logger.Info("seed: new file", "path", path)
 			d.state.SetFile(path, FileState{Checksum: cksum, Namespace: ns})
 			events = append(events, FileEvent{Path: path, Type: FileCreated})
 		} else if existing.Checksum != cksum {
+			d.logger.Info("seed: modified", "path", path)
 			d.state.SetFile(path, FileState{Checksum: cksum, Namespace: ns})
 			events = append(events, FileEvent{Path: path, Type: FileModified})
 		}
@@ -172,11 +176,13 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 	// Files in state not on disk → treat as deleted
 	for path := range d.state.Files {
 		if _, exists := localFiles[path]; !exists {
+			d.logger.Info("seed: deleted", "path", path)
 			events = append(events, FileEvent{Path: path, Type: FileDeleted})
 		}
 	}
 
 	if len(events) > 0 {
+		d.logger.Info("seed: events", "count", len(events))
 		d.watcherHandler.HandleEvents(events)
 	}
 
@@ -185,6 +191,7 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 
 // watcherLoop reads kqueue events, debounces, sends to handler.
 func (d *DaemonV2_5) watcherLoop(ctx context.Context) {
+	d.logger.Info("watcher loop started")
 	batchTimer := time.NewTimer(300 * time.Millisecond)
 	batchTimer.Stop()
 	var pending []FileEvent
@@ -192,15 +199,19 @@ func (d *DaemonV2_5) watcherLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			d.logger.Info("watcher loop stopped")
 			return
 		case event, ok := <-d.watcher.Events():
 			if !ok {
+				d.logger.Warn("watcher channel closed")
 				return
 			}
+			d.logger.Info("kqueue", "path", event.Path, "type", event.Type)
 			pending = append(pending, event)
 			batchTimer.Reset(300 * time.Millisecond)
 		case <-batchTimer.C:
 			if len(pending) > 0 {
+				d.logger.Info("watcher: flushing batch", "events", len(pending))
 				d.watcherHandler.HandleEvents(pending)
 				pending = nil
 			}

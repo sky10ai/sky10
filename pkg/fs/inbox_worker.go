@@ -47,12 +47,14 @@ func (w *InboxWorker) Poke() {
 
 // Run processes inbox entries until context is cancelled.
 func (w *InboxWorker) Run(ctx context.Context) {
+	w.logger.Info("inbox worker started")
 	// Drain any pending entries from last session
 	w.drain(ctx)
 
 	for {
 		select {
 		case <-ctx.Done():
+			w.logger.Info("inbox worker stopped")
 			return
 		case <-w.notify:
 			w.drain(ctx)
@@ -63,10 +65,15 @@ func (w *InboxWorker) Run(ctx context.Context) {
 func (w *InboxWorker) drain(ctx context.Context) {
 	for {
 		entries, err := w.inbox.ReadAll()
-		if err != nil || len(entries) == 0 {
+		if err != nil {
+			w.logger.Warn("inbox: read failed", "error", err)
+			return
+		}
+		if len(entries) == 0 {
 			return
 		}
 
+		w.logger.Info("inbox: draining", "pending", len(entries))
 		entry := entries[0]
 		w.onEvent("sync.active")
 
@@ -83,6 +90,7 @@ func (w *InboxWorker) drain(ctx context.Context) {
 				return e.Path == entry.Path && e.Timestamp == entry.Timestamp
 			})
 		} else {
+			w.logger.Warn("inbox: retrying in 5s", "path", entry.Path, "op", string(entry.Op))
 			select {
 			case <-ctx.Done():
 				return
@@ -106,7 +114,8 @@ func (w *InboxWorker) downloadFile(ctx context.Context, entry InboxEntry) bool {
 
 	// Check if we already have this version
 	if existing, err := fileChecksum(localPath); err == nil && existing == entry.Checksum {
-		return true // already have it
+		w.logger.Info("inbox: already have", "path", entry.Path)
+		return true
 	}
 
 	dir := filepath.Dir(localPath)

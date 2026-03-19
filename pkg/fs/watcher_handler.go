@@ -53,13 +53,17 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 			localPath := filepath.Join(h.localDir, filepath.FromSlash(e.Path))
 			cksum, err := fileChecksum(localPath)
 			if err != nil {
+				h.logger.Warn("watcher: checksum failed", "path", e.Path, "error", err)
 				continue
 			}
 
 			// Skip if unchanged from state
 			if existing, ok := h.state.GetFile(e.Path); ok && existing.Checksum == cksum {
+				h.logger.Info("watcher: unchanged", "path", e.Path)
 				continue
 			}
+
+			h.logger.Info("watcher: outbox", "path", e.Path)
 
 			info, _ := os.Stat(localPath)
 			if info == nil {
@@ -86,8 +90,11 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 		case FileDeleted:
 			existing, ok := h.state.GetFile(e.Path)
 			if !ok {
-				continue // not tracked, nothing to do
+				h.logger.Info("watcher: delete untracked", "path", e.Path)
+				continue
 			}
+
+			h.logger.Info("watcher: delete", "path", e.Path)
 
 			// Update state immediately
 			h.state.RemoveFile(e.Path)
