@@ -82,6 +82,7 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 
 		// Filter by namespace
 		if p.namespace != "" && op.Namespace != p.namespace {
+			p.logger.Info("poll: skip namespace", "path", op.Path, "ns", op.Namespace, "want", p.namespace)
 			if op.Timestamp > maxTs {
 				maxTs = op.Timestamp
 			}
@@ -92,16 +93,21 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 		case OpPut:
 			// Skip if we already have this version
 			if existing, ok := p.state.GetFile(op.Path); ok && existing.Checksum == op.Checksum {
+				p.logger.Info("poll: already have", "path", op.Path)
 				break
 			}
+			p.logger.Info("poll: inbox put", "path", op.Path, "device", op.Device)
 			p.inbox.Append(NewInboxPut(op.Path, op.Checksum, op.Namespace, op.Device))
 			wrote = true
 
 		case OpDelete:
 			// Only add to inbox if we have the file
 			if _, ok := p.state.GetFile(op.Path); ok {
+				p.logger.Info("poll: inbox delete", "path", op.Path, "device", op.Device)
 				p.inbox.Append(NewInboxDelete(op.Path, op.Device))
 				wrote = true
+			} else {
+				p.logger.Info("poll: skip delete (not local)", "path", op.Path)
 			}
 		}
 

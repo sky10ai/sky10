@@ -45,12 +45,14 @@ func (w *OutboxWorker) Poke() {
 // Run processes outbox entries until context is cancelled.
 // Drains on startup (crash recovery), then waits for pokes.
 func (w *OutboxWorker) Run(ctx context.Context) {
+	w.logger.Info("outbox worker started")
 	// Drain any pending entries from last session
 	w.drain(ctx)
 
 	for {
 		select {
 		case <-ctx.Done():
+			w.logger.Info("outbox worker stopped")
 			return
 		case <-w.notify:
 			w.drain(ctx)
@@ -61,10 +63,15 @@ func (w *OutboxWorker) Run(ctx context.Context) {
 func (w *OutboxWorker) drain(ctx context.Context) {
 	for {
 		entries, err := w.outbox.ReadAll()
-		if err != nil || len(entries) == 0 {
+		if err != nil {
+			w.logger.Warn("outbox: read failed", "error", err)
+			return
+		}
+		if len(entries) == 0 {
 			return
 		}
 
+		w.logger.Info("outbox: draining", "pending", len(entries))
 		entry := entries[0]
 		w.onEvent("sync.active")
 
@@ -81,7 +88,7 @@ func (w *OutboxWorker) drain(ctx context.Context) {
 				return e.Path == entry.Path && e.Timestamp == entry.Timestamp
 			})
 		} else {
-			// Failed — wait before retrying
+			w.logger.Warn("outbox: retrying in 5s", "path", entry.Path, "op", string(entry.Op))
 			select {
 			case <-ctx.Done():
 				return
