@@ -343,16 +343,15 @@ func fsSyncCmd() *cobra.Command {
 			daemonCfg := skyfs.DaemonConfig{SyncConfig: syncCfg, PollSeconds: poll}
 
 			if once {
-				daemon, err := skyfs.NewDaemonV2(store, daemonCfg, logger)
+				daemon, err := skyfs.NewDaemonV2_5(store, daemonCfg, logger)
 				if err != nil {
 					return err
 				}
-				result := daemon.SyncOnce(ctx)
-				fmt.Printf("synced: %d downloaded, %d errors\n",
-					result.Downloaded, result.Errors)
+				daemon.SyncOnce(ctx)
+				fmt.Println("synced")
 				return nil
 			}
-			daemon, err := skyfs.NewDaemonV2(store, daemonCfg, logger)
+			daemon, err := skyfs.NewDaemonV2_5(store, daemonCfg, logger)
 			if err != nil {
 				return err
 			}

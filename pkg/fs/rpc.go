@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -301,18 +302,26 @@ func (s *RPCServer) rpcList(_ context.Context, params json.RawMessage) (interfac
 	files := make([]fileInfo, 0)
 	s.driveManager.mu.Lock()
 	for _, drive := range s.driveManager.drives {
-		manifest := LoadDriveManifest(drive.ID)
-		for path, entry := range manifest.Files {
+		state := LoadDriveState(drive.ID)
+		for path, entry := range state.Files {
 			if p.Prefix != "" && (len(path) < len(p.Prefix) || path[:len(p.Prefix)] != p.Prefix) {
 				continue
 			}
+			// Get size from local filesystem
+			localPath := filepath.Join(drive.LocalPath, filepath.FromSlash(path))
+			var size int64
+			var mod string
+			if info, err := os.Stat(localPath); err == nil {
+				size = info.Size()
+				mod = info.ModTime().UTC().Format("2006-01-02T15:04:05Z")
+			}
 			files = append(files, fileInfo{
 				Path:      path,
-				Size:      entry.Size,
-				Modified:  entry.Modified,
+				Size:      size,
+				Modified:  mod,
 				Checksum:  entry.Checksum,
-				Namespace: drive.Namespace,
-				Chunks:    1, // manifest doesn't track chunk count
+				Namespace: entry.Namespace,
+				Chunks:    1,
 			})
 		}
 	}
@@ -329,10 +338,13 @@ func (s *RPCServer) rpcInfo(_ context.Context) (interface{}, error) {
 	namespaces := make(map[string]bool)
 	s.driveManager.mu.Lock()
 	for _, drive := range s.driveManager.drives {
-		manifest := LoadDriveManifest(drive.ID)
-		info.FileCount += len(manifest.Files)
-		for _, f := range manifest.Files {
-			info.TotalSize += f.Size
+		state := LoadDriveState(drive.ID)
+		info.FileCount += len(state.Files)
+		for path := range state.Files {
+			localPath := filepath.Join(drive.LocalPath, filepath.FromSlash(path))
+			if fi, err := os.Stat(localPath); err == nil {
+				info.TotalSize += fi.Size()
+			}
 		}
 		if drive.Namespace != "" {
 			namespaces[drive.Namespace] = true
