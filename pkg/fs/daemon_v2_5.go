@@ -152,23 +152,20 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 	}
 	d.logger.Info("seed", "local_files", len(localFiles), "state_files", len(d.state.Files))
 
-	ns := ""
-	if len(d.config.Namespaces) > 0 {
-		ns = d.config.Namespaces[0]
-	}
-
 	var events []FileEvent
 
-	// Files on disk not in state → treat as new
+	// Files on disk not in state → treat as new.
+	// Do NOT update state here — the watcher handler checks state to
+	// decide if a file changed. If we set state first, the handler sees
+	// a matching checksum and skips the file (never queues for upload).
+	// State gets updated by the watcher handler after it queues the outbox entry.
 	for path, cksum := range localFiles {
 		existing, ok := d.state.GetFile(path)
 		if !ok {
 			d.logger.Info("seed: new file", "path", path)
-			d.state.SetFile(path, FileState{Checksum: cksum, Namespace: ns})
 			events = append(events, FileEvent{Path: path, Type: FileCreated})
 		} else if existing.Checksum != cksum {
 			d.logger.Info("seed: modified", "path", path)
-			d.state.SetFile(path, FileState{Checksum: cksum, Namespace: ns})
 			events = append(events, FileEvent{Path: path, Type: FileModified})
 		}
 	}

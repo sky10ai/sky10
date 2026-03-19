@@ -27,6 +27,54 @@ func runDaemon(ctx context.Context, cancel context.CancelFunc, daemon *DaemonV2_
 	}
 }
 
+// Regression: seedStateFromDisk must queue new files for upload.
+// Bug: seed set state BEFORE sending events to the watcher handler,
+// so the handler saw matching checksums and skipped — files never
+// got queued in the outbox and never synced to S3.
+func TestDaemonV25SeedQueuesOutbox(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	// Create a file before daemon starts — empty state
+	os.WriteFile(filepath.Join(localDir, "new-file.txt"), []byte("must be uploaded"), 0644)
+
+	cfg := DaemonConfig{
+		SyncConfig:  SyncConfig{LocalRoot: localDir},
+		DriveID:     "test_seed_outbox",
+		PollSeconds: 300,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatalf("creating daemon: %v", err)
+	}
+
+	// Run seed (this is what happens on startup)
+	daemon.seedStateFromDisk()
+
+	// The outbox must have an entry for the new file.
+	// If seed sets state before sending events, the watcher handler
+	// will see "unchanged" and skip — outbox stays empty.
+	driveDir := driveDataDir("test_seed_outbox")
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(driveDir, "outbox.jsonl"))
+	entries, _ := outbox.ReadAll()
+
+	found := false
+	for _, e := range entries {
+		if e.Path == "new-file.txt" && e.Op == OpPut {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("new-file.txt not queued in outbox after seed — seed updates state before sending events")
+	}
+}
+
 // DaemonV2.5 should detect a pre-existing file and upload it to S3.
 func TestDaemonV25SeedsFromDisk(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -128,6 +176,17 @@ func TestDaemonV25RapidOps(t *testing.T) {
 		if _, ok := daemon.state.GetFile(name); !ok {
 			t.Errorf("file %s not in state", name)
 		}
+	}
+
+	// Wait for outbox to drain before cleanup
+	driveDir := driveDataDir("test_rapid")
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(driveDir, "outbox.jsonl"))
+	drainDeadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(drainDeadline) {
+		if outbox.Len() == 0 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
