@@ -142,6 +142,130 @@ func TestInboxWorkerCrashRecovery(t *testing.T) {
 	}
 }
 
+// Regression: inbox must download to temp dir, not create 0-byte file in
+// the watched directory. Previously, os.Create wrote a 0-byte file that the
+// watcher immediately re-uploaded, overwriting real content on S3.
+func TestInboxWorkerDownloadsToTemp(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	ctx := context.Background()
+	store.Put(ctx, "big-file.txt", strings.NewReader("important data that must not be 0 bytes"))
+
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	inbox := NewSyncLog[InboxEntry](filepath.Join(tmpDir, "inbox.jsonl"))
+	state := LoadDriveStateFromPath(filepath.Join(tmpDir, "state.json"))
+
+	inbox.Append(NewInboxPut("big-file.txt", "xxx", "Test", "device-b", nil))
+
+	worker := NewInboxWorker(store, inbox, state, localDir, nil)
+
+	// Start a watcher on the local dir to detect intermediate 0-byte files
+	sawZeroByte := false
+	watchDone := make(chan struct{})
+	go func() {
+		defer close(watchDone)
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			info, err := os.Stat(filepath.Join(localDir, "big-file.txt"))
+			if err == nil && info.Size() == 0 {
+				sawZeroByte = true
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	ctx, cancel := context.WithCancel(ctx)
+	go worker.Run(ctx)
+	worker.Poke()
+	time.Sleep(3 * time.Second)
+	cancel()
+	<-watchDone
+
+	if sawZeroByte {
+		t.Error("saw 0-byte file in watched dir — inbox should download to temp first")
+	}
+
+	// File should exist with real content
+	data, err := os.ReadFile(filepath.Join(localDir, "big-file.txt"))
+	if err != nil {
+		t.Fatalf("file not downloaded: %v", err)
+	}
+	if !strings.Contains(string(data), "important data") {
+		t.Errorf("content = %q", string(data))
+	}
+}
+
+// Regression: inbox should use direct chunk download (GetChunks) when chunk
+// hashes are provided, avoiding loadCurrentState which reads ALL ops from S3.
+func TestInboxWorkerDirectChunkDownload(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	ctx := context.Background()
+	content := "direct chunk download test content"
+	store.Put(ctx, "chunked.txt", strings.NewReader(content))
+
+	// Get the chunk hashes from the op we just wrote
+	ops, err := ReadOps(ctx, backend, 0, nil)
+	if err != nil {
+		// Need to get the ops key first
+		opsKey, _ := store.opsKey(ctx)
+		ops, err = ReadOps(ctx, backend, 0, opsKey)
+		if err != nil {
+			t.Fatalf("reading ops: %v", err)
+		}
+	}
+
+	var chunks []string
+	var ns string
+	for _, op := range ops {
+		if op.Path == "chunked.txt" && op.Type == OpPut {
+			chunks = op.Chunks
+			ns = op.Namespace
+		}
+	}
+
+	if len(chunks) == 0 {
+		t.Fatal("no chunks found in op for chunked.txt")
+	}
+
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	inbox := NewSyncLog[InboxEntry](filepath.Join(tmpDir, "inbox.jsonl"))
+	state := LoadDriveStateFromPath(filepath.Join(tmpDir, "state.json"))
+
+	// Provide chunk hashes — should bypass loadCurrentState
+	inbox.Append(NewInboxPut("chunked.txt", "xxx", ns, "device-b", chunks))
+
+	worker := NewInboxWorker(store, inbox, state, localDir, nil)
+	ctx, cancel := context.WithCancel(ctx)
+	go worker.Run(ctx)
+	worker.Poke()
+	time.Sleep(2 * time.Second)
+	cancel()
+
+	if inbox.Len() != 0 {
+		t.Errorf("inbox has %d entries", inbox.Len())
+	}
+
+	data, err := os.ReadFile(filepath.Join(localDir, "chunked.txt"))
+	if err != nil {
+		t.Fatalf("file not downloaded: %v", err)
+	}
+	if string(data) != content {
+		t.Errorf("content = %q, want %q", string(data), content)
+	}
+}
+
 func TestInboxWorkerSkipsEmptyOverNonEmpty(t *testing.T) {
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
