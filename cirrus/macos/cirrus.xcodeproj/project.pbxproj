@@ -14,7 +14,9 @@
 		2614B8A443F80BA9DBFFEADC /* ExternalLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 735B2F6CAD57FF60EF7E3E02 /* ExternalLinks.swift */; };
 		273AC17006A4FE6A4013FCC4 /* MockSkyClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D4315D08C44648EE59DB7D /* MockSkyClientTests.swift */; };
 		2A5CF3685C1269AD90D7F49D /* ActivityLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 230940FF47FF0EA80168145D /* ActivityLogView.swift */; };
+		F8A12B3C7E9D4A1B8C5E6F0A /* ActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F67890ABCDEF12 /* ActivityView.swift */; };
 		2BFE55647EB17BC544C9E4CE /* DetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40C4545AD8B9A5ABB95F58D9 /* DetailView.swift */; };
+		2DA1B0A6B46116DF58CC1C93 /* DevToolsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A839421D9F6E6A72BB73B6 /* DevToolsView.swift */; };
 		2F3280C6E02E2F9E6877CF8B /* ActivityLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1320A932BA12FB87FF12CEFF /* ActivityLogTests.swift */; };
 		351D1E1BB41C4E7184DE6C6B /* RPCErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A9B0915A286FD9B5AE0C295 /* RPCErrorTests.swift */; };
 		3C1C91D04CD0D41482CA6551 /* StorageProviderDocs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E97F9B604B9DF1292E4E3A9 /* StorageProviderDocs.swift */; };
@@ -60,6 +62,8 @@
 
 /* Begin PBXFileReference section */
 		0080693286A173A8D315DEB3 /* SyncStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStateTests.swift; sourceTree = "<group>"; };
+		04A839421D9F6E6A72BB73B6 /* DevToolsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevToolsView.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F67890ABCDEF12 /* ActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityView.swift; sourceTree = "<group>"; };
 		0A4D350BB8AAC38A5D003485 /* SyncStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStatusBar.swift; sourceTree = "<group>"; };
 		113946527F894B036639F017 /* FileNodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNodeTests.swift; sourceTree = "<group>"; };
 		1320A932BA12FB87FF12CEFF /* ActivityLogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityLogTests.swift; sourceTree = "<group>"; };
@@ -155,6 +159,7 @@
 			isa = PBXGroup;
 			children = (
 				6EC02BBE7E76649956CDDA65 /* Browser */,
+				778DE2A5985992108A6D8556 /* DevTools */,
 				C9857B9C163628FC006B2EC8 /* MenuBar */,
 				0CA5DE81346D0C2B3CC6C651 /* Onboarding */,
 				74C1E6FB6B551D13D598318C /* Settings */,
@@ -178,6 +183,7 @@
 		6EC02BBE7E76649956CDDA65 /* Browser */ = {
 			isa = PBXGroup;
 			children = (
+				A1B2C3D4E5F67890ABCDEF12 /* ActivityView.swift */,
 				44A765866220BE26B45FD3B5 /* BrowserView.swift */,
 				40C4545AD8B9A5ABB95F58D9 /* DetailView.swift */,
 				98AC79BA0B50D3F2E59D09EE /* FileListView.swift */,
@@ -217,6 +223,14 @@
 				5E97F9B604B9DF1292E4E3A9 /* StorageProviderDocs.swift */,
 			);
 			path = Settings;
+			sourceTree = "<group>";
+		};
+		778DE2A5985992108A6D8556 /* DevTools */ = {
+			isa = PBXGroup;
+			children = (
+				04A839421D9F6E6A72BB73B6 /* DevToolsView.swift */,
+			);
+			path = DevTools;
 			sourceTree = "<group>";
 		};
 		9BED167795DFD9E90076D2EA /* Models */ = {
@@ -337,12 +351,14 @@
 			files = (
 				467CE1EC0EE97E5A58A749B7 /* ActivityLog.swift in Sources */,
 				2A5CF3685C1269AD90D7F49D /* ActivityLogView.swift in Sources */,
+				F8A12B3C7E9D4A1B8C5E6F0A /* ActivityView.swift in Sources */,
 				C8B03AB7C1D10EEA521A1E46 /* App.swift in Sources */,
 				C05617E08FB8BF5AE915A22B /* AppState.swift in Sources */,
 				C39036F7A202EB73E9734417 /* BrowserView.swift in Sources */,
 				208FE78265998227F1A11580 /* ConflictAlert.swift in Sources */,
 				A9F8016A7A8E083AEA519634 /* DaemonManager.swift in Sources */,
 				2BFE55647EB17BC544C9E4CE /* DetailView.swift in Sources */,
+				2DA1B0A6B46116DF58CC1C93 /* DevToolsView.swift in Sources */,
 				5D6564C2901A2C4444A08F9D /* DevicesView.swift in Sources */,
 				FB7A9CF82554F6A3F6A35756 /* DrivesView.swift in Sources */,
 				2614B8A443F80BA9DBFFEADC /* ExternalLinks.swift in Sources */,
@@ -504,7 +520,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.6.1;
+				MARKETING_VERSION = 0.8.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ai.sky10.cirrus;
 				PRODUCT_NAME = Cirrus;
 				SDKROOT = macosx;
@@ -525,7 +541,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.6.1;
+				MARKETING_VERSION = 0.8.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ai.sky10.cirrus;
 				PRODUCT_NAME = Cirrus;
 				SDKROOT = macosx;

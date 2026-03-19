@@ -261,6 +261,8 @@ func (s *RPCServer) dispatch(ctx context.Context, req *RPCRequest) *RPCResponse 
 		result, err = s.rpcJoin(ctx, req.Params)
 	case "skyfs.approve":
 		result, err = s.rpcApprove(ctx)
+	case "skyfs.syncActivity":
+		result, err = s.rpcSyncActivity(ctx)
 	default:
 		resp.Error = &RPCError{Code: -32601, Message: "method not found: " + req.Method}
 		return resp
@@ -918,6 +920,64 @@ func (s *RPCServer) joinerHasAllKeys(ctx context.Context, joinerAddr string) boo
 	}
 
 	return true
+}
+
+// --- Sync activity ---
+
+type activityEntry struct {
+	Direction string `json:"direction"` // "up" or "down"
+	Op        string `json:"op"`        // "put" or "delete"
+	Path      string `json:"path"`
+	DriveID   string `json:"drive_id"`
+	DriveName string `json:"drive_name"`
+	Timestamp int64  `json:"ts"`
+}
+
+func (s *RPCServer) rpcSyncActivity(_ context.Context) (interface{}, error) {
+	s.driveManager.mu.Lock()
+	drives := make(map[string]*Drive)
+	for id, d := range s.driveManager.drives {
+		drives[id] = d
+	}
+	s.driveManager.mu.Unlock()
+
+	pending := make([]activityEntry, 0)
+
+	for id, d := range drives {
+		dir := driveDataDir(id)
+
+		// Read outbox (pending uploads)
+		outbox := NewSyncLog[OutboxEntry](filepath.Join(dir, "outbox.jsonl"))
+		if entries, err := outbox.ReadAll(); err == nil {
+			for _, e := range entries {
+				pending = append(pending, activityEntry{
+					Direction: "up",
+					Op:        string(e.Op),
+					Path:      e.Path,
+					DriveID:   id,
+					DriveName: d.Name,
+					Timestamp: e.Timestamp,
+				})
+			}
+		}
+
+		// Read inbox (pending downloads)
+		inbox := NewSyncLog[InboxEntry](filepath.Join(dir, "inbox.jsonl"))
+		if entries, err := inbox.ReadAll(); err == nil {
+			for _, e := range entries {
+				pending = append(pending, activityEntry{
+					Direction: "down",
+					Op:        string(e.Op),
+					Path:      e.Path,
+					DriveID:   id,
+					DriveName: d.Name,
+					Timestamp: e.Timestamp,
+				})
+			}
+		}
+	}
+
+	return map[string]interface{}{"pending": pending}, nil
 }
 
 func splitInvitePath2(key string) string {

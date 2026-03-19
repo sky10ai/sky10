@@ -183,4 +183,32 @@ class SkyClient {
         return result.status
     }
 
+    // MARK: - Sync Activity
+
+    struct SyncActivityEntry: Codable, Identifiable {
+        let direction: String  // "up" or "down"
+        let op: String         // "put" or "delete"
+        let path: String
+        let driveID: String
+        let driveName: String
+        let ts: Int64
+
+        var id: String { "\(direction)-\(path)-\(ts)" }
+
+        enum CodingKeys: String, CodingKey {
+            case direction, op, path, ts
+            case driveID = "drive_id"
+            case driveName = "drive_name"
+        }
+    }
+
+    struct SyncActivityResult: Codable {
+        let pending: [SyncActivityEntry]
+    }
+
+    func syncActivity() async throws -> [SyncActivityEntry] {
+        let result: SyncActivityResult = try await rpc.call("skyfs.syncActivity")
+        return result.pending
+    }
+
 }

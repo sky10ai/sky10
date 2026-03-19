@@ -19,6 +19,7 @@ protocol SkyClientProtocol {
     func removeDevice(pubkey: String) async throws
     func generateInvite() async throws -> String
     func joinInvite(inviteID: String) async throws -> String
+    func syncActivity() async throws -> [SkyClient.SyncActivityEntry]
 }
 
 struct DeviceInfo: Codable {
