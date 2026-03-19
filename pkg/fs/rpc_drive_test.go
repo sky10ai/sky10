@@ -94,6 +94,85 @@ func TestDrivesAutoStartOnServe(t *testing.T) {
 	}
 }
 
+// skyfs.syncActivity should return pending outbox/inbox entries.
+func TestSyncActivityRPC(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	driveCfgPath := filepath.Join(tmpDir, "drives.json")
+	localDir := filepath.Join(tmpDir, "sync-folder")
+	os.MkdirAll(localDir, 0755)
+
+	drives := []Drive{
+		{
+			ID:        "drive_activity",
+			Name:      "ActivityDrive",
+			LocalPath: localDir,
+			Namespace: "actns",
+			Enabled:   true,
+		},
+	}
+	data, _ := json.MarshalIndent(drives, "", "  ")
+	os.WriteFile(driveCfgPath, data, 0600)
+
+	sockPath := filepath.Join(tmpDir, "test.sock")
+	server := NewRPCServer(store, sockPath, driveCfgPath, "test", nil)
+	go server.Serve(ctx)
+
+	// Wait for server to be ready
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Call syncActivity — should return empty pending
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer conn.Close()
+
+	req := `{"jsonrpc":"2.0","method":"skyfs.syncActivity","id":1}` + "\n"
+	conn.Write([]byte(req))
+
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	var resp struct {
+		Result struct {
+			Pending []struct {
+				Direction string `json:"direction"`
+				Path      string `json:"path"`
+			} `json:"pending"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(buf[:n], &resp); err != nil {
+		t.Fatalf("parse: %v (raw: %s)", err, string(buf[:n]))
+	}
+	if resp.Error != nil {
+		t.Fatalf("RPC error: %s", resp.Error.Message)
+	}
+	// Pending should be an array (possibly empty)
+	if resp.Result.Pending == nil {
+		t.Error("expected pending array, got nil")
+	}
+}
+
 // Drive sync should upload local files to S3 after auto-start.
 func TestDriveAutoStartSyncsFiles(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
