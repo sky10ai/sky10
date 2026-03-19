@@ -263,6 +263,8 @@ func (s *RPCServer) dispatch(ctx context.Context, req *RPCRequest) *RPCResponse 
 		result, err = s.rpcApprove(ctx)
 	case "skyfs.syncActivity":
 		result, err = s.rpcSyncActivity(ctx)
+	case "skyfs.debugDump":
+		result, err = s.rpcDebugDump(ctx)
 	default:
 		resp.Error = &RPCError{Code: -32601, Message: "method not found: " + req.Method}
 		return resp
@@ -978,6 +980,115 @@ func (s *RPCServer) rpcSyncActivity(_ context.Context) (interface{}, error) {
 	}
 
 	return map[string]interface{}{"pending": pending}, nil
+}
+
+// --- Debug dump ---
+
+func (s *RPCServer) rpcDebugDump(ctx context.Context) (interface{}, error) {
+	hostname, _ := os.Hostname()
+	deviceAddr := s.store.identity.Address()
+	deviceID := shortPubkeyID(deviceAddr)
+	ts := time.Now().UTC().Format("2006-01-02T15-04-05")
+
+	dump := map[string]interface{}{
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+		"device":    hostname,
+		"device_id": deviceID,
+		"pubkey":    deviceAddr,
+		"version":   s.version,
+	}
+
+	// Collect per-drive data
+	s.driveManager.mu.Lock()
+	driveDumps := make([]map[string]interface{}, 0)
+	for id, d := range s.driveManager.drives {
+		dd := map[string]interface{}{
+			"id":         id,
+			"name":       d.Name,
+			"local_path": d.LocalPath,
+			"namespace":  d.Namespace,
+			"enabled":    d.Enabled,
+			"running":    s.driveManager.IsRunning(id),
+		}
+
+		dir := driveDataDir(id)
+
+		// State
+		statePath := filepath.Join(dir, "state.json")
+		if raw, err := os.ReadFile(statePath); err == nil {
+			var state interface{}
+			json.Unmarshal(raw, &state)
+			dd["state"] = state
+		}
+
+		// Outbox
+		outbox := NewSyncLog[OutboxEntry](filepath.Join(dir, "outbox.jsonl"))
+		if entries, err := outbox.ReadAll(); err == nil {
+			dd["outbox"] = entries
+			dd["outbox_count"] = len(entries)
+		}
+
+		// Inbox
+		inbox := NewSyncLog[InboxEntry](filepath.Join(dir, "inbox.jsonl"))
+		if entries, err := inbox.ReadAll(); err == nil {
+			dd["inbox"] = entries
+			dd["inbox_count"] = len(entries)
+		}
+
+		// Local files on disk
+		if files, err := ScanDirectory(d.LocalPath, nil); err == nil {
+			localFiles := make(map[string]string)
+			for path, cksum := range files {
+				localFiles[path] = cksum
+			}
+			dd["local_files"] = localFiles
+			dd["local_file_count"] = len(localFiles)
+		}
+
+		driveDumps = append(driveDumps, dd)
+	}
+	s.driveManager.mu.Unlock()
+	dump["drives"] = driveDumps
+
+	// List remote ops keys (just the key names, not contents)
+	if keys, err := s.store.backend.List(ctx, "ops/"); err == nil {
+		dump["remote_ops_count"] = len(keys)
+		// Last 20 op keys
+		if len(keys) > 20 {
+			keys = keys[len(keys)-20:]
+		}
+		dump["remote_ops_recent"] = keys
+	}
+
+	// Devices
+	if devices, err := ListDevices(ctx, s.store.backend); err == nil {
+		dump["devices"] = devices
+	}
+
+	// Namespace keys
+	if keys, err := s.store.backend.List(ctx, "keys/namespaces/"); err == nil {
+		dump["namespace_keys"] = keys
+	}
+
+	// Upload to S3
+	data, err := json.MarshalIndent(dump, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshaling debug dump: %w", err)
+	}
+
+	key := fmt.Sprintf("debug/%s/%s.json", deviceID, ts)
+	r := strings.NewReader(string(data))
+	if err := s.store.backend.Put(ctx, key, r, int64(len(data))); err != nil {
+		return nil, fmt.Errorf("uploading debug dump: %w", err)
+	}
+
+	s.logger.Info("debug dump uploaded", "key", key, "size", len(data))
+
+	return map[string]interface{}{
+		"status": "uploaded",
+		"key":    key,
+		"size":   len(data),
+	}, nil
 }
 
 func splitInvitePath2(key string) string {

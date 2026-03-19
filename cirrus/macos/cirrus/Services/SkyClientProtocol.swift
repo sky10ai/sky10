@@ -20,6 +20,7 @@ protocol SkyClientProtocol {
     func generateInvite() async throws -> String
     func joinInvite(inviteID: String) async throws -> String
     func syncActivity() async throws -> [SkyClient.SyncActivityEntry]
+    func debugDump() async throws -> SkyClient.DebugDumpResult
 }
 
 struct DeviceInfo: Codable {

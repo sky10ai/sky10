@@ -8,6 +8,8 @@ struct DevToolsView: View {
     @State private var manifestContent = ""
     @State private var opsCount = "—"
     @State private var autoRefresh = true
+    @State private var dumpStatus = ""
+    @State private var isDumping = false
 
     private let statusTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
@@ -113,6 +115,39 @@ struct DevToolsView: View {
                         .padding(.vertical, 4)
                     }
 
+                    // Debug Dump
+                    GroupBox("Debug Dump") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Upload device state (drives, outbox, inbox, state, local files, ops) to S3 under debug/")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            HStack {
+                                Button {
+                                    Task { await uploadDebugDump() }
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        if isDumping {
+                                            ProgressView().scaleEffect(0.5)
+                                        } else {
+                                            Image(systemName: "arrow.up.doc")
+                                        }
+                                        Text("Upload Debug Dump")
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(isDumping)
+
+                                if !dumpStatus.isEmpty {
+                                    Text(dumpStatus)
+                                        .font(.caption)
+                                        .foregroundStyle(dumpStatus.hasPrefix("Error") ? .red : .green)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+
                     // Quick Actions
                     GroupBox("Quick Actions") {
                         VStack(alignment: .leading, spacing: 8) {
@@ -194,6 +229,18 @@ struct DevToolsView: View {
         opsCount = "Compacting..."
         // TODO: Add RPC for compact
         opsCount = "Done (restart daemon to take effect)"
+    }
+
+    private func uploadDebugDump() async {
+        isDumping = true
+        dumpStatus = ""
+        do {
+            let result = try await appState.client.debugDump()
+            dumpStatus = "Uploaded: \(result.key) (\(result.size) bytes)"
+        } catch {
+            dumpStatus = "Error: \(error.localizedDescription)"
+        }
+        isDumping = false
     }
 
     private func clearDriveFolder() {

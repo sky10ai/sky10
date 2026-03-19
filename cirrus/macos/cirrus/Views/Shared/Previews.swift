@@ -59,6 +59,9 @@ private class PreviewSkyClient: SkyClientProtocol {
     func generateInvite() async throws -> String { "sky10invite_preview" }
     func joinInvite(inviteID: String) async throws -> String { "approved" }
     func syncActivity() async throws -> [SkyClient.SyncActivityEntry] { [] }
+    func debugDump() async throws -> SkyClient.DebugDumpResult {
+        SkyClient.DebugDumpResult(status: "mock", key: "debug/mock/test.json", size: 0)
+    }
 }
 
 extension AppState {
