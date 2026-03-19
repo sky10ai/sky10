@@ -33,10 +33,11 @@ type RPCServer struct {
 	activityMu   sync.Mutex
 	lastActivity time.Time
 
-	mu          sync.Mutex
-	clients     map[net.Conn]bool
-	subscribers map[net.Conn]*json.Encoder // push event connections
-	events      chan RPCEvent
+	mu               sync.Mutex
+	clients          map[net.Conn]bool
+	subscribers      map[net.Conn]*json.Encoder // push event connections
+	events           chan RPCEvent
+	completedInvites map[string]bool // cached: invites fully approved
 }
 
 // RPCEvent is a server-push event sent to all connected clients.
@@ -76,15 +77,16 @@ func NewRPCServer(store *Store, sockPath string, driveCfgPath string, version st
 		logger = slog.New(NewLogBufferHandler(logBuf, logger.Handler()))
 	}
 	srv := &RPCServer{
-		store:        store,
-		sockPath:     sockPath,
-		version:      version,
-		logger:       logger,
-		logBuf:       logBuf,
-		clients:      make(map[net.Conn]bool),
-		subscribers:  make(map[net.Conn]*json.Encoder),
-		events:       make(chan RPCEvent, 100),
-		driveManager: NewDriveManager(store, driveCfgPath),
+		store:            store,
+		sockPath:         sockPath,
+		version:          version,
+		logger:           logger,
+		logBuf:           logBuf,
+		clients:          make(map[net.Conn]bool),
+		subscribers:      make(map[net.Conn]*json.Encoder),
+		events:           make(chan RPCEvent, 100),
+		completedInvites: make(map[string]bool),
+		driveManager:     NewDriveManager(store, driveCfgPath),
 	}
 	srv.driveManager.Logger = logger
 	// Wire logger to S3 backend for request/response logging
@@ -881,8 +883,13 @@ func (s *RPCServer) autoApproveLoop(ctx context.Context) {
 }
 
 func (s *RPCServer) tryAutoApprove(ctx context.Context) {
+	// Hard timeout: entire cycle must finish in 10 seconds.
+	// If any S3 call hangs, we bail out instead of blocking forever.
+	cycleCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
 	s.logger.Debug("auto-approve: checking")
-	inviteKeys, err := s.store.backend.List(ctx, "invites/")
+	inviteKeys, err := s.store.backend.List(cycleCtx, "invites/")
 	if err != nil {
 		s.logger.Warn("auto-approve: list failed", "error", err)
 		return
@@ -897,21 +904,29 @@ func (s *RPCServer) tryAutoApprove(ctx context.Context) {
 	s.logger.Debug("auto-approve: invites", "count", len(inviteIDs))
 
 	for inviteID := range inviteIDs {
-		joinerAddr, err := CheckJoinRequest(ctx, s.store.backend, inviteID)
+		// Skip invites we've already confirmed are fully complete
+		s.mu.Lock()
+		if s.completedInvites[inviteID] {
+			s.mu.Unlock()
+			continue
+		}
+		s.mu.Unlock()
+
+		joinerAddr, err := CheckJoinRequest(cycleCtx, s.store.backend, inviteID)
 		if err != nil || joinerAddr == "" {
 			continue
 		}
-		granted, _ := IsGranted(ctx, s.store.backend, inviteID)
+		granted, _ := IsGranted(cycleCtx, s.store.backend, inviteID)
 		if granted {
-			// Check if ALL namespace keys were wrapped for the joiner.
-			// A partial approve (crash, or new namespace created after join)
-			// needs to be retried.
-			if s.joinerHasAllKeys(ctx, joinerAddr) {
+			if s.joinerHasAllKeys(cycleCtx, joinerAddr) {
 				s.logger.Debug("auto-approve: already complete", "invite", inviteID[:8])
+				s.mu.Lock()
+				s.completedInvites[inviteID] = true
+				s.mu.Unlock()
 				continue
 			}
 		}
-		if err := ApproveJoin(ctx, s.store.backend, s.store.identity, joinerAddr, inviteID); err != nil {
+		if err := ApproveJoin(cycleCtx, s.store.backend, s.store.identity, joinerAddr, inviteID); err != nil {
 			s.logger.Warn("auto-approve failed", "invite", inviteID, "error", err)
 			continue
 		}
