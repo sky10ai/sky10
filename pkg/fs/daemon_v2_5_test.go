@@ -4,16 +4,32 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	s3adapter "github.com/sky10/sky10/pkg/adapter/s3"
 )
 
+// runDaemon starts the daemon and returns a function that cancels the
+// context and waits for Run to return. This prevents TempDir cleanup
+// races on CI where the daemon goroutine is still writing files.
+func runDaemon(ctx context.Context, cancel context.CancelFunc, daemon *DaemonV2_5) func() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		daemon.Run(ctx)
+	}()
+	return func() {
+		cancel()
+		wg.Wait()
+	}
+}
+
 // DaemonV2.5 should detect a pre-existing file and upload it to S3.
 func TestDaemonV25SeedsFromDisk(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
@@ -37,7 +53,8 @@ func TestDaemonV25SeedsFromDisk(t *testing.T) {
 		t.Fatalf("creating daemon: %v", err)
 	}
 
-	go daemon.Run(ctx)
+	stop := runDaemon(ctx, cancel, daemon)
+	defer stop()
 
 	// Wait for seed + outbox drain
 	deadline := time.Now().Add(10 * time.Second)
@@ -56,7 +73,6 @@ func TestDaemonV25SeedsFromDisk(t *testing.T) {
 // DaemonV2.5 should handle rapid file operations without losing entries.
 func TestDaemonV25RapidOps(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
@@ -77,7 +93,8 @@ func TestDaemonV25RapidOps(t *testing.T) {
 		t.Fatalf("creating daemon: %v", err)
 	}
 
-	go daemon.Run(ctx)
+	stop := runDaemon(ctx, cancel, daemon)
+	defer stop()
 	time.Sleep(500 * time.Millisecond) // let daemon start
 
 	// Create 10 files rapidly
@@ -121,7 +138,6 @@ func TestDaemonV25StaysResponsive(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
@@ -142,7 +158,8 @@ func TestDaemonV25StaysResponsive(t *testing.T) {
 		t.Fatalf("creating daemon: %v", err)
 	}
 
-	go daemon.Run(ctx)
+	stop := runDaemon(ctx, cancel, daemon)
+	defer stop()
 
 	// Wait 5 seconds to let daemon settle
 	time.Sleep(5 * time.Second)
@@ -190,14 +207,12 @@ func TestDaemonV25CrashRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating daemon: %v", err)
 	}
-	go daemon1.Run(ctx1)
+	stop1 := runDaemon(ctx1, cancel1, daemon1)
 	time.Sleep(2 * time.Second)
-	cancel1() // "crash"
-	time.Sleep(500 * time.Millisecond)
+	stop1() // "crash"
 
 	// Second run: state should already have the file
 	ctx2, cancel2 := context.WithCancel(context.Background())
-	defer cancel2()
 
 	daemon2, err := NewDaemonV2_5(store, cfg, nil)
 	if err != nil {
@@ -207,11 +222,14 @@ func TestDaemonV25CrashRecovery(t *testing.T) {
 	// State persisted to disk — load should find the file
 	if _, ok := daemon2.state.GetFile("persist.txt"); !ok {
 		// Might need a seed
-		go daemon2.Run(ctx2)
+		stop2 := runDaemon(ctx2, cancel2, daemon2)
+		defer stop2()
 		time.Sleep(2 * time.Second)
 		if _, ok := daemon2.state.GetFile("persist.txt"); !ok {
 			t.Error("persist.txt not found after daemon restart — state not persisted")
 		}
+	} else {
+		cancel2()
 	}
 }
 
@@ -250,7 +268,6 @@ func TestDaemonV25SyncOnce(t *testing.T) {
 // Directory deletion should produce delete events for all contained files.
 func TestDaemonV25DirectoryTrash(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
@@ -289,7 +306,8 @@ func TestDaemonV25DirectoryTrash(t *testing.T) {
 	os.RemoveAll(subDir)
 
 	// Run daemon — should detect deletions via seedStateFromDisk
-	go daemon.Run(ctx)
+	stop := runDaemon(ctx, cancel, daemon)
+	defer stop()
 
 	// Wait for the outbox worker to process delete ops
 	deadline := time.Now().Add(5 * time.Second)

@@ -310,8 +310,13 @@ func TestDaemonV2ManifestConsistency(t *testing.T) {
 	daemon, localDir := newTestDaemonV2WithStore(t, store)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go daemon.Run(ctx)
+	var wg2 sync.WaitGroup
+	wg2.Add(1)
+	go func() {
+		defer wg2.Done()
+		daemon.Run(ctx)
+	}()
+	defer func() { cancel(); wg2.Wait() }()
 	time.Sleep(500 * time.Millisecond)
 
 	// Create 5 files
