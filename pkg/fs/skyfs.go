@@ -33,12 +33,20 @@ type Store struct {
 	clientID  string // e.g. "cli/0.4.1", "cirrus/0.4.1"
 	namespace string // if set, all files use this namespace instead of path-derived
 
-	mu         sync.Mutex
-	nsKeys     map[string][]byte // cached namespace keys
-	opSeq      int               // per-session op sequence counter
-	packWriter *PackWriter
-	packIndex  *PackIndex
-	packing    bool // when true, small chunks are bundled into pack files
+	mu           sync.Mutex
+	nsKeys       map[string][]byte // cached namespace keys
+	opSeq        int               // per-session op sequence counter
+	packWriter   *PackWriter
+	packIndex    *PackIndex
+	packing      bool   // when true, small chunks are bundled into pack files
+	prevChecksum string // optional: set before Put to avoid loadCurrentState
+}
+
+// SetPrevChecksum sets the previous checksum for the next Put call.
+// This avoids loading the entire ops history from S3 just to populate
+// the prev_checksum field in the op.
+func (s *Store) SetPrevChecksum(checksum string) {
+	s.prevChecksum = checksum
 }
 
 // New creates a Store backed by the given storage backend and identity.
@@ -238,15 +246,12 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 		return fmt.Errorf("namespace key for %q: %w", namespace, err)
 	}
 
-	// Get prev_checksum for conflict detection
-	state, err := s.loadCurrentState(ctx)
-	if err != nil {
-		return fmt.Errorf("loading state: %w", err)
-	}
-	prevChecksum := ""
-	if existing, ok := state.Tree[path]; ok {
-		prevChecksum = existing.Checksum
-	}
+	// prev_checksum is informational — used for conflict detection but
+	// not required for correctness. Skip the expensive loadCurrentState
+	// call (which reads ALL ops from S3) and use whatever the caller
+	// set via SetPrevChecksum, or leave empty.
+	prevChecksum := s.prevChecksum
+	s.prevChecksum = "" // consume it
 
 	chunker := NewChunker(r)
 	var chunkHashes []string

@@ -107,6 +107,10 @@ func (w *OutboxWorker) uploadFile(ctx context.Context, entry OutboxEntry) bool {
 	}
 	defer f.Close()
 
+	// Set prev checksum from local state — avoids loadCurrentState (88+ S3 GETs)
+	if prev, ok := w.state.GetFile(entry.Path); ok {
+		w.store.SetPrevChecksum(prev.Checksum)
+	}
 	if err := w.store.Put(ctx, entry.Path, f); err != nil {
 		w.logger.Warn("outbox upload failed", "path", entry.Path, "error", err)
 		return false
