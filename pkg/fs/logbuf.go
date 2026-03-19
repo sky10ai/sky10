@@ -90,15 +90,25 @@ func NewBufferedLogger(buf *LogBuffer) *slog.Logger {
 }
 
 // NewDaemonLogger creates a logger that writes to stderr, a log file,
-// and an in-memory ring buffer. The log file is at ~/.sky10/fs/daemon.log.
+// and an in-memory ring buffer. The log file is at logPath.
+// Use DaemonLogPath() to get the default path.
 func NewDaemonLogger(buf *LogBuffer) *slog.Logger {
-	home, _ := os.UserHomeDir()
-	logDir := filepath.Join(home, ".sky10", "fs")
-	os.MkdirAll(logDir, 0700)
-	logPath := filepath.Join(logDir, "daemon.log")
+	return NewDaemonLoggerAt(buf, DaemonLogPath())
+}
 
-	// Truncate on startup so we don't grow forever
-	f, err := os.Create(logPath)
+// DaemonLogPath returns the default daemon log path: ~/.sky10/fs/daemon.log.
+func DaemonLogPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".sky10", "fs", "daemon.log")
+}
+
+// NewDaemonLoggerAt creates a logger writing to the given log file path.
+func NewDaemonLoggerAt(buf *LogBuffer, logPath string) *slog.Logger {
+	os.MkdirAll(filepath.Dir(logPath), 0700)
+
+	// Append — don't truncate. Tests and daemon may share the path,
+	// and truncating kills the daemon's log handle.
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		// Fall back to stderr + buffer only
 		return NewBufferedLogger(buf)
