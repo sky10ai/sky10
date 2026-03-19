@@ -201,6 +201,7 @@ func (s *RPCServer) handleConn(ctx context.Context, conn net.Conn) {
 
 		// Subscribe hijacks the connection for push events
 		if req.Method == "skyfs.subscribe" {
+			s.logger.Debug("rpc", "method", "skyfs.subscribe")
 			resp := &RPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]string{"status": "subscribed"}}
 			encoder.Encode(resp)
 			s.mu.Lock()
@@ -211,7 +212,14 @@ func (s *RPCServer) handleConn(ctx context.Context, conn net.Conn) {
 			return
 		}
 
+		start := time.Now()
 		resp := s.dispatch(ctx, &req)
+		ms := time.Since(start).Milliseconds()
+		if resp.Error != nil {
+			s.logger.Warn("rpc", "method", req.Method, "ms", ms, "error", resp.Error.Message)
+		} else {
+			s.logger.Debug("rpc", "method", req.Method, "ms", ms)
+		}
 		if err := encoder.Encode(resp); err != nil {
 			s.logger.Debug("encode error", "error", err)
 			return
@@ -873,8 +881,10 @@ func (s *RPCServer) autoApproveLoop(ctx context.Context) {
 }
 
 func (s *RPCServer) tryAutoApprove(ctx context.Context) {
+	s.logger.Debug("auto-approve: checking")
 	inviteKeys, err := s.store.backend.List(ctx, "invites/")
 	if err != nil {
+		s.logger.Warn("auto-approve: list failed", "error", err)
 		return
 	}
 
@@ -884,6 +894,7 @@ func (s *RPCServer) tryAutoApprove(ctx context.Context) {
 			inviteIDs[id] = true
 		}
 	}
+	s.logger.Debug("auto-approve: invites", "count", len(inviteIDs))
 
 	for inviteID := range inviteIDs {
 		joinerAddr, err := CheckJoinRequest(ctx, s.store.backend, inviteID)
@@ -896,6 +907,7 @@ func (s *RPCServer) tryAutoApprove(ctx context.Context) {
 			// A partial approve (crash, or new namespace created after join)
 			// needs to be retried.
 			if s.joinerHasAllKeys(ctx, joinerAddr) {
+				s.logger.Debug("auto-approve: already complete", "invite", inviteID[:8])
 				continue
 			}
 		}
