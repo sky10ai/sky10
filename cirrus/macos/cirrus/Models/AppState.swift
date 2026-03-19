@@ -36,6 +36,7 @@ class AppState: ObservableObject {
         try? await Task.sleep(for: .seconds(7))
         await refresh()
         await loadDrives()
+        await loadActivity()
         subscribeToEvents()
     }
 
@@ -50,6 +51,7 @@ class AppState: ObservableObject {
                         if event == "state.changed" {
                             await self.refresh()
                             await self.loadDrives()
+                            await self.loadActivity()
                         } else if event == "sync.active" {
                             self.syncState = .syncing
                         }
@@ -167,6 +169,7 @@ class AppState: ObservableObject {
     // MARK: - Drives
 
     @Published var drives: [SkyClient.DriveInfoResult] = []
+    @Published var pendingActivity: [SkyClient.SyncActivityEntry] = []
 
     func loadDrives() async {
         do {
@@ -214,5 +217,15 @@ class AppState: ObservableObject {
 
     var namespaces: [String] {
         Array(Set(files.map { $0.namespace })).sorted()
+    }
+
+    // MARK: - Activity
+
+    func loadActivity() async {
+        do {
+            pendingActivity = try await client.syncActivity()
+        } catch {
+            // Best effort
+        }
     }
 }

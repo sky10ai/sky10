@@ -116,6 +116,10 @@ class MockSkyClient: SkyClientProtocol {
         return "approved"
     }
 
+    func syncActivity() async throws -> [SkyClient.SyncActivityEntry] {
+        return []
+    }
+
 }
 
 enum MockError: Error, LocalizedError {

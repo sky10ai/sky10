@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 enum ViewMode: String, CaseIterable {
+    case activity
     case tree
     case list
 }
@@ -15,7 +16,7 @@ struct BrowserView: View {
     // nil = "All Files", otherwise filter by drive namespace
     @State private var selectedDrive: String?
     @State private var showInspector = false
-    @AppStorage("viewMode") private var viewMode: ViewMode = .tree
+    @AppStorage("viewMode") private var viewMode: ViewMode = .activity
 
     var body: some View {
         NavigationSplitView {
@@ -25,6 +26,9 @@ struct BrowserView: View {
             HSplitView {
                 Group {
                     switch viewMode {
+                    case .activity:
+                        ActivityView()
+                            .environmentObject(appState)
                     case .tree:
                         FileTreeView(
                             root: buildTree(from: displayedFiles),
@@ -67,13 +71,15 @@ struct BrowserView: View {
 
                     // View mode toggle
                     Picker("View", selection: $viewMode) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .tag(ViewMode.activity)
                         Image(systemName: "list.bullet.indent")
                             .tag(ViewMode.tree)
                         Image(systemName: "rectangle.split.3x1")
                             .tag(ViewMode.list)
                     }
                     .pickerStyle(.segmented)
-                    .help("Toggle tree / column view")
+                    .help("Activity / Tree / Column view")
 
                     Button {
                         showInspector.toggle()
