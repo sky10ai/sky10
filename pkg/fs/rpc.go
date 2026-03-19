@@ -86,6 +86,7 @@ func NewRPCServer(store *Store, sockPath string, driveCfgPath string, version st
 		events:       make(chan RPCEvent, 100),
 		driveManager: NewDriveManager(store, driveCfgPath),
 	}
+	srv.driveManager.Logger = logger
 	srv.driveManager.OnActivity = srv.MarkActivity
 	srv.driveManager.OnStateChanged = func(event string) {
 		srv.Emit(event, nil)
@@ -1140,7 +1141,7 @@ func (s *RPCServer) rpcDebugGet(ctx context.Context, params json.RawMessage) (in
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
-	getCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	getCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	rc, err := s.store.backend.Get(getCtx, p.Key)
 	if err != nil {

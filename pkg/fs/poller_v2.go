@@ -56,6 +56,7 @@ func (p *PollerV2) Run(ctx context.Context) {
 func (p *PollerV2) pollOnce(ctx context.Context) {
 	opsKey, err := p.store.opsKey(ctx)
 	if err != nil {
+		p.logger.Warn("poll: getting ops key failed", "error", err)
 		return
 	}
 
@@ -64,6 +65,8 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 		p.logger.Warn("poll: reading ops failed", "error", err)
 		return
 	}
+
+	p.logger.Info("poll", "ops", len(ops), "since", p.state.LastRemoteOp)
 
 	wrote := false
 	maxTs := p.state.LastRemoteOp
