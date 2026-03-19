@@ -9,7 +9,7 @@ struct DevicesView: View {
     @State private var inviteCode: String?
     @State private var generating = false
     @State private var copied = false
-    @State private var pollTimer: Timer?
+    @State private var isLoading = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -32,7 +32,15 @@ struct DevicesView: View {
                 .disabled(generating)
             }
 
-            if devices.isEmpty {
+            if isLoading {
+                VStack(spacing: 8) {
+                    ProgressView()
+                    Text("Loading devices...")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                }
+                .frame(maxWidth: .infinity, minHeight: 60)
+            } else if devices.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "desktopcomputer")
                         .font(.system(size: 28))
@@ -88,9 +96,13 @@ struct DevicesView: View {
         .padding()
         .task {
             await loadDevices()
+            // If no devices found, retry after 3s (daemon may still be registering)
+            if devices.isEmpty {
+                try? await Task.sleep(for: .seconds(3))
+                await loadDevices()
+            }
+            isLoading = false
         }
-        .onAppear { startPolling() }
-        .onDisappear { stopPolling() }
     }
 
     @ViewBuilder
@@ -159,17 +171,6 @@ struct DevicesView: View {
             return display.string(from: date)
         }
         return String(dateStr.prefix(10))
-    }
-
-    private func startPolling() {
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { _ in
-            Task { await loadDevices() }
-        }
-    }
-
-    private func stopPolling() {
-        pollTimer?.invalidate()
-        pollTimer = nil
     }
 
     private func loadDevices() async {
