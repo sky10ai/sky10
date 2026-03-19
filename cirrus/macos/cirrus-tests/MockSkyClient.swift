@@ -120,6 +120,10 @@ class MockSkyClient: SkyClientProtocol {
         return []
     }
 
+    func debugDump() async throws -> SkyClient.DebugDumpResult {
+        return SkyClient.DebugDumpResult(status: "mock", key: "debug/mock/test.json", size: 0)
+    }
+
 }
 
 enum MockError: Error, LocalizedError {

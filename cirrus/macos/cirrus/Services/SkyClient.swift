@@ -211,4 +211,16 @@ class SkyClient {
         return result.pending
     }
 
+    // MARK: - Debug
+
+    struct DebugDumpResult: Codable {
+        let status: String
+        let key: String
+        let size: Int
+    }
+
+    func debugDump() async throws -> DebugDumpResult {
+        return try await rpc.call("skyfs.debugDump")
+    }
+
 }
