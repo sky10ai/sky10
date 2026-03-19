@@ -127,16 +127,21 @@ func (b *Backend) acquire(ctx context.Context) error {
 	case b.sem <- struct{}{}:
 		return nil
 	default:
-		// Semaphore full — log and wait
+		// Semaphore full — log and wait with hard 15s max
 		b.logger.Debug("s3 sem wait", "in_use", len(b.sem), "cap", cap(b.sem))
 		start := time.Now()
+		timer := time.NewTimer(15 * time.Second)
+		defer timer.Stop()
 		select {
 		case b.sem <- struct{}{}:
 			b.logger.Debug("s3 sem acquired", "waited_ms", time.Since(start).Milliseconds())
 			return nil
 		case <-ctx.Done():
-			b.logger.Warn("s3 sem timeout", "waited_ms", time.Since(start).Milliseconds())
+			b.logger.Warn("s3 sem ctx cancelled", "waited_ms", time.Since(start).Milliseconds())
 			return ctx.Err()
+		case <-timer.C:
+			b.logger.Warn("s3 sem hard timeout (15s) — slots likely leaked")
+			return fmt.Errorf("s3: semaphore acquire timeout (15s)")
 		}
 	}
 }
