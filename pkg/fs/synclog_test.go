@@ -106,7 +106,7 @@ func TestSyncLogInbox(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "inbox.jsonl")
 	log := NewSyncLog[InboxEntry](path)
 
-	log.Append(NewInboxPut("photo.jpg", "abc", "Test", "device-b"))
+	log.Append(NewInboxPut("photo.jpg", "abc", "Test", "device-b", nil))
 	log.Append(NewInboxDelete("old.txt", "device-b"))
 
 	entries, _ := log.ReadAll()

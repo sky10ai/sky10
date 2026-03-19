@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -118,22 +119,49 @@ func (w *InboxWorker) downloadFile(ctx context.Context, entry InboxEntry) bool {
 		return true
 	}
 
+	// Download to temp dir first, then atomic rename to final path.
+	// This prevents the watcher from seeing a 0-byte intermediate file
+	// and re-uploading it to S3 before the download finishes.
+	tmpDir := filepath.Join(os.TempDir(), "sky10", "inbox")
+	os.MkdirAll(tmpDir, 0700)
+	tmpFile, err := os.CreateTemp(tmpDir, "dl-*")
+	if err != nil {
+		w.logger.Warn("inbox: create temp failed", "path", entry.Path, "error", err)
+		return false
+	}
+	tmpPath := tmpFile.Name()
+
+	// Use direct chunk download if chunk hashes are available (bypasses loadCurrentState).
+	// Fall back to store.Get for old inbox entries without chunks.
+	var dlErr error
+	if len(entry.Chunks) > 0 {
+		w.logger.Debug("inbox: direct chunk download", "path", entry.Path, "chunks", len(entry.Chunks))
+		dlErr = w.store.GetChunks(ctx, entry.Chunks, entry.Namespace, tmpFile)
+	} else {
+		w.logger.Debug("inbox: full state download (no chunks)", "path", entry.Path)
+		dlErr = w.store.Get(ctx, entry.Path, tmpFile)
+	}
+	if dlErr != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		w.logger.Warn("inbox: download failed", "path", entry.Path, "error", dlErr)
+		return false
+	}
+	tmpFile.Close()
+
+	// Atomic move to final location
 	dir := filepath.Dir(localPath)
 	os.MkdirAll(dir, 0755)
-
-	f, err := os.Create(localPath)
-	if err != nil {
-		w.logger.Warn("inbox: create failed", "path", entry.Path, "error", err)
-		return false
+	if err := os.Rename(tmpPath, localPath); err != nil {
+		// Cross-device rename fallback: copy + delete
+		w.logger.Debug("inbox: rename failed, copying", "error", err)
+		if copyErr := copyFile(tmpPath, localPath); copyErr != nil {
+			w.logger.Warn("inbox: copy failed", "path", entry.Path, "error", copyErr)
+			os.Remove(tmpPath)
+			return false
+		}
+		os.Remove(tmpPath)
 	}
-
-	if err := w.store.Get(ctx, entry.Path, f); err != nil {
-		f.Close()
-		os.Remove(localPath)
-		w.logger.Warn("inbox: download failed", "path", entry.Path, "error", err)
-		return false
-	}
-	f.Close()
 
 	// Update state
 	cksum, _ := fileChecksum(localPath)
@@ -146,6 +174,22 @@ func (w *InboxWorker) downloadFile(ctx context.Context, entry InboxEntry) bool {
 	w.logger.Info("inbox: downloaded", "path", entry.Path)
 	w.onEvent("state.changed")
 	return true
+}
+
+// copyFile copies src to dst for cross-device moves.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
 }
 
 func (w *InboxWorker) deleteLocal(entry InboxEntry) bool {
