@@ -96,8 +96,8 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 				p.logger.Info("poll: already have", "path", op.Path)
 				break
 			}
-			p.logger.Info("poll: inbox put", "path", op.Path, "device", op.Device)
-			p.inbox.Append(NewInboxPut(op.Path, op.Checksum, op.Namespace, op.Device))
+			p.logger.Info("poll: inbox put", "path", op.Path, "device", op.Device, "chunks", len(op.Chunks))
+			p.inbox.Append(NewInboxPut(op.Path, op.Checksum, op.Namespace, op.Device, op.Chunks))
 			wrote = true
 
 		case OpDelete:

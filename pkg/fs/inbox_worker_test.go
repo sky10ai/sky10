@@ -28,7 +28,7 @@ func TestInboxWorkerDownload(t *testing.T) {
 	state := LoadDriveStateFromPath(filepath.Join(tmpDir, "state.json"))
 
 	// Add download entry
-	inbox.Append(NewInboxPut("remote.txt", "xxx", "Test", "device-b"))
+	inbox.Append(NewInboxPut("remote.txt", "xxx", "Test", "device-b", nil))
 
 	worker := NewInboxWorker(store, inbox, state, localDir, nil)
 	ctx, cancel := context.WithCancel(ctx)
@@ -119,7 +119,7 @@ func TestInboxWorkerCrashRecovery(t *testing.T) {
 
 	// Simulate crash: write entry but don't process
 	inbox1 := NewSyncLog[InboxEntry](inboxPath)
-	inbox1.Append(NewInboxPut("recover.txt", "xxx", "Test", "device-b"))
+	inbox1.Append(NewInboxPut("recover.txt", "xxx", "Test", "device-b", nil))
 
 	// "Restart"
 	inbox2 := NewSyncLog[InboxEntry](inboxPath)

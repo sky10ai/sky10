@@ -30,12 +30,13 @@ type OutboxEntry struct {
 
 // InboxEntry is a remote change waiting to be applied locally.
 type InboxEntry struct {
-	Op        OpType `json:"op"`
-	Path      string `json:"path"`
-	Checksum  string `json:"checksum,omitempty"`
-	Namespace string `json:"namespace,omitempty"`
-	Device    string `json:"device,omitempty"`
-	Timestamp int64  `json:"ts"`
+	Op        OpType   `json:"op"`
+	Path      string   `json:"path"`
+	Checksum  string   `json:"checksum,omitempty"`
+	Namespace string   `json:"namespace,omitempty"`
+	Device    string   `json:"device,omitempty"`
+	Chunks    []string `json:"chunks,omitempty"` // chunk hashes for direct download
+	Timestamp int64    `json:"ts"`
 }
 
 // SyncLog is an append-only JSONL file with atomic read/write/remove.
@@ -208,13 +209,14 @@ func NewOutboxDelete(path, checksum, namespace string) OutboxEntry {
 	}
 }
 
-func NewInboxPut(path, checksum, namespace, device string) InboxEntry {
+func NewInboxPut(path, checksum, namespace, device string, chunks []string) InboxEntry {
 	return InboxEntry{
 		Op:        OpPut,
 		Path:      path,
 		Checksum:  checksum,
 		Namespace: namespace,
 		Device:    device,
+		Chunks:    chunks,
 		Timestamp: time.Now().Unix(),
 	}
 }

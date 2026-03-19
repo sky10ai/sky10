@@ -406,6 +406,68 @@ func (s *Store) Get(ctx context.Context, path string, w io.Writer) error {
 	return nil
 }
 
+// GetChunks downloads and decrypts a file using known chunk hashes and namespace.
+// This bypasses loadCurrentState entirely — no ops reading from S3.
+func (s *Store) GetChunks(ctx context.Context, chunks []string, namespace string, w io.Writer) error {
+	nsKey, err := s.getOrCreateNamespaceKey(ctx, namespace)
+	if err != nil {
+		return fmt.Errorf("namespace key for %q: %w", namespace, err)
+	}
+
+	for i, chunkHash := range chunks {
+		var raw []byte
+
+		if loc, ok := s.packIndex.Entries[chunkHash]; ok {
+			packed, err := ReadPackedChunk(ctx, s.backend, loc)
+			if err != nil {
+				return fmt.Errorf("reading packed chunk %d (%s): %w", i, chunkHash[:12], err)
+			}
+			raw = packed
+		} else {
+			blobKey := (&Chunk{Hash: chunkHash}).BlobKey()
+			rc, err := s.backend.Get(ctx, blobKey)
+			if err != nil {
+				return fmt.Errorf("downloading chunk %d (%s): %w", i, chunkHash[:12], err)
+			}
+			raw, err = io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				return fmt.Errorf("reading chunk %d: %w", i, err)
+			}
+		}
+
+		encrypted, _, err := StripBlobHeader(raw)
+		if err != nil {
+			return fmt.Errorf("parsing chunk %d header: %w", i, err)
+		}
+
+		fileKey, err := DeriveFileKey(nsKey, []byte(chunkHash))
+		if err != nil {
+			return fmt.Errorf("deriving file key for chunk %d: %w", i, err)
+		}
+
+		compressed, err := Decrypt(encrypted, fileKey)
+		if err != nil {
+			return fmt.Errorf("decrypting chunk %d: %w", i, err)
+		}
+
+		plaintext, err := DecompressChunk(compressed)
+		if err != nil {
+			return fmt.Errorf("decompressing chunk %d: %w", i, err)
+		}
+
+		if ContentHash(plaintext) != chunkHash {
+			return fmt.Errorf("chunk %d: hash mismatch (data corrupted)", i)
+		}
+
+		if _, err := w.Write(plaintext); err != nil {
+			return fmt.Errorf("writing chunk %d: %w", i, err)
+		}
+	}
+
+	return nil
+}
+
 // List returns all file entries matching the prefix.
 func (s *Store) List(ctx context.Context, prefix string) ([]ManifestEntry, error) {
 	state, err := s.loadCurrentState(ctx)
