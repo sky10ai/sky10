@@ -1114,7 +1114,13 @@ func (s *RPCServer) rpcDebugDump(ctx context.Context) (interface{}, error) {
 		dump["namespace_keys_error"] = err.Error()
 	}
 
-	// Logs (last 1000 lines)
+	// Logs — full daemon.log file
+	home, _ := os.UserHomeDir()
+	logPath := filepath.Join(home, ".sky10", "fs", "daemon.log")
+	if logData, err := os.ReadFile(logPath); err == nil {
+		dump["logs_raw"] = string(logData)
+	}
+	// Also include ring buffer in case file read fails
 	dump["logs"] = s.logBuf.Lines()
 
 	// Upload to S3 with timeout
