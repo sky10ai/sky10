@@ -140,6 +140,7 @@ struct FileTreeView: View {
                         .frame(width: 18)
                     Text(file.name)
                         .lineLimit(1)
+                    SyncStatusIcon(status: file.syncStatus)
                     Spacer()
                     Text(file.formattedSize)
                         .font(.caption)

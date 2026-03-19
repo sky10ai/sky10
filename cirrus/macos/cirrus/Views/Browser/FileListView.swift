@@ -62,6 +62,9 @@ struct FileColumnView: View {
                 .frame(width: 18)
             Text(node.name)
                 .lineLimit(1)
+            if let file = node.file {
+                SyncStatusIcon(status: file.syncStatus)
+            }
             Spacer()
             if node.isFolder {
                 Image(systemName: "chevron.right")
