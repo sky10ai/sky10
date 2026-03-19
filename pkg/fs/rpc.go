@@ -116,7 +116,7 @@ func (s *RPCServer) Serve(ctx context.Context) error {
 	// Set socket permissions
 	os.Chmod(s.sockPath, 0600)
 
-	s.logger.Info("RPC server started", "socket", s.sockPath)
+	s.logger.Info("RPC server started", "socket", s.sockPath, "version", s.version)
 
 	// Broadcast events to clients
 	go s.broadcastLoop()
