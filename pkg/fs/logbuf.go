@@ -3,7 +3,10 @@ package fs
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -83,5 +86,30 @@ func (h *LogBufferHandler) WithGroup(name string) slog.Handler {
 // and also writes to stderr.
 func NewBufferedLogger(buf *LogBuffer) *slog.Logger {
 	handler := NewLogBufferHandler(buf, slog.Default().Handler())
+	return slog.New(handler)
+}
+
+// NewDaemonLogger creates a logger that writes to stderr, a log file,
+// and an in-memory ring buffer. The log file is at ~/.sky10/fs/daemon.log.
+func NewDaemonLogger(buf *LogBuffer) *slog.Logger {
+	home, _ := os.UserHomeDir()
+	logDir := filepath.Join(home, ".sky10", "fs")
+	os.MkdirAll(logDir, 0700)
+	logPath := filepath.Join(logDir, "daemon.log")
+
+	// Truncate on startup so we don't grow forever
+	f, err := os.Create(logPath)
+	if err != nil {
+		// Fall back to stderr + buffer only
+		return NewBufferedLogger(buf)
+	}
+
+	// Write to both stderr and file
+	multiWriter := io.MultiWriter(os.Stderr, f)
+	textHandler := slog.NewTextHandler(multiWriter, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})
+
+	handler := NewLogBufferHandler(buf, textHandler)
 	return slog.New(handler)
 }

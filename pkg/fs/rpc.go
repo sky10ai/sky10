@@ -71,7 +71,7 @@ type RPCError struct {
 func NewRPCServer(store *Store, sockPath string, driveCfgPath string, version string, logger *slog.Logger) *RPCServer {
 	logBuf := NewLogBuffer(1000)
 	if logger == nil {
-		logger = slog.New(NewLogBufferHandler(logBuf, slog.Default().Handler()))
+		logger = NewDaemonLogger(logBuf)
 	} else {
 		logger = slog.New(NewLogBufferHandler(logBuf, logger.Handler()))
 	}
@@ -87,6 +87,11 @@ func NewRPCServer(store *Store, sockPath string, driveCfgPath string, version st
 		driveManager: NewDriveManager(store, driveCfgPath),
 	}
 	srv.driveManager.Logger = logger
+	// Wire logger to S3 backend for request/response logging
+	type logSetter interface{ SetLogger(*slog.Logger) }
+	if ls, ok := store.backend.(logSetter); ok {
+		ls.SetLogger(logger)
+	}
 	srv.driveManager.OnActivity = srv.MarkActivity
 	srv.driveManager.OnStateChanged = func(event string) {
 		srv.Emit(event, nil)

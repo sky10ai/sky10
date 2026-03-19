@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"sort"
@@ -30,6 +31,12 @@ type Backend struct {
 	client *s3.Client
 	bucket string
 	sem    chan struct{} // concurrency limiter
+	logger *slog.Logger
+}
+
+// SetLogger sets the logger for S3 request/response logging.
+func (b *Backend) SetLogger(logger *slog.Logger) {
+	b.logger = logger
 }
 
 // Config holds S3 connection parameters.
@@ -105,6 +112,7 @@ func New(ctx context.Context, cfg Config) (*Backend, error) {
 		client: client,
 		bucket: cfg.Bucket,
 		sem:    make(chan struct{}, 5), // max 5 concurrent S3 calls
+		logger: slog.Default(),
 	}, nil
 }
 
@@ -133,6 +141,8 @@ func (b *Backend) Put(ctx context.Context, key string, r io.Reader, size int64) 
 		return fmt.Errorf("s3: put %q: %w", key, err)
 	}
 	defer b.release()
+	b.logger.Debug("s3 PUT", "key", key, "size", size)
+	start := time.Now()
 	ctx, cancel := withTimeout(ctx)
 	defer cancel()
 	_, err := b.client.PutObject(ctx, &s3.PutObjectInput{
@@ -142,8 +152,10 @@ func (b *Backend) Put(ctx context.Context, key string, r io.Reader, size int64) 
 		ContentLength: aws.Int64(size),
 	})
 	if err != nil {
+		b.logger.Warn("s3 PUT failed", "key", key, "error", err, "ms", time.Since(start).Milliseconds())
 		return fmt.Errorf("s3: put %q: %w", key, err)
 	}
+	b.logger.Debug("s3 PUT ok", "key", key, "ms", time.Since(start).Milliseconds())
 	return nil
 }
 
@@ -154,6 +166,8 @@ func (b *Backend) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("s3: get %q: %w", key, err)
 	}
 	// release happens in cancelOnClose.Close()
+	b.logger.Debug("s3 GET", "key", key)
+	start := time.Now()
 	ctx, cancel := withTimeout(ctx)
 	// Don't defer cancel — the caller needs the context alive to read the body.
 	// The cancel is attached to the returned closer instead.
@@ -165,10 +179,13 @@ func (b *Backend) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 		cancel()
 		b.release()
 		if isNotFound(err) {
+			b.logger.Debug("s3 GET not found", "key", key, "ms", time.Since(start).Milliseconds())
 			return nil, adapter.ErrNotFound
 		}
+		b.logger.Warn("s3 GET failed", "key", key, "error", err, "ms", time.Since(start).Milliseconds())
 		return nil, fmt.Errorf("s3: get %q: %w", key, err)
 	}
+	b.logger.Debug("s3 GET ok", "key", key, "ms", time.Since(start).Milliseconds())
 	return &cancelOnClose{ReadCloser: out.Body, cancel: cancel, release: b.release}, nil
 }
 
@@ -198,6 +215,8 @@ func (b *Backend) Delete(ctx context.Context, key string) error {
 		return fmt.Errorf("s3: delete %q: %w", key, err)
 	}
 	defer b.release()
+	b.logger.Debug("s3 DELETE", "key", key)
+	start := time.Now()
 	ctx, cancel := withTimeout(ctx)
 	defer cancel()
 	_, err := b.client.DeleteObject(ctx, &s3.DeleteObjectInput{
@@ -205,8 +224,10 @@ func (b *Backend) Delete(ctx context.Context, key string) error {
 		Key:    aws.String(key),
 	})
 	if err != nil {
+		b.logger.Warn("s3 DELETE failed", "key", key, "error", err, "ms", time.Since(start).Milliseconds())
 		return fmt.Errorf("s3: delete %q: %w", key, err)
 	}
+	b.logger.Debug("s3 DELETE ok", "key", key, "ms", time.Since(start).Milliseconds())
 	return nil
 }
 
@@ -216,6 +237,8 @@ func (b *Backend) List(ctx context.Context, prefix string) ([]string, error) {
 		return nil, fmt.Errorf("s3: list %q: %w", prefix, err)
 	}
 	defer b.release()
+	b.logger.Debug("s3 LIST", "prefix", prefix)
+	start := time.Now()
 	ctx, cancel := withTimeout(ctx)
 	defer cancel()
 	var keys []string
@@ -227,6 +250,7 @@ func (b *Backend) List(ctx context.Context, prefix string) ([]string, error) {
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(ctx)
 		if err != nil {
+			b.logger.Warn("s3 LIST failed", "prefix", prefix, "error", err, "ms", time.Since(start).Milliseconds())
 			return nil, fmt.Errorf("s3: list %q: %w", prefix, err)
 		}
 		for _, obj := range page.Contents {
@@ -235,6 +259,7 @@ func (b *Backend) List(ctx context.Context, prefix string) ([]string, error) {
 	}
 
 	sort.Strings(keys)
+	b.logger.Debug("s3 LIST ok", "prefix", prefix, "count", len(keys), "ms", time.Since(start).Milliseconds())
 	return keys, nil
 }
 
@@ -244,6 +269,8 @@ func (b *Backend) Head(ctx context.Context, key string) (adapter.ObjectMeta, err
 		return adapter.ObjectMeta{}, fmt.Errorf("s3: head %q: %w", key, err)
 	}
 	defer b.release()
+	b.logger.Debug("s3 HEAD", "key", key)
+	start := time.Now()
 	ctx, cancel := withTimeout(ctx)
 	defer cancel()
 	out, err := b.client.HeadObject(ctx, &s3.HeadObjectInput{
@@ -252,10 +279,13 @@ func (b *Backend) Head(ctx context.Context, key string) (adapter.ObjectMeta, err
 	})
 	if err != nil {
 		if isNotFound(err) {
+			b.logger.Debug("s3 HEAD not found", "key", key, "ms", time.Since(start).Milliseconds())
 			return adapter.ObjectMeta{}, adapter.ErrNotFound
 		}
+		b.logger.Warn("s3 HEAD failed", "key", key, "error", err, "ms", time.Since(start).Milliseconds())
 		return adapter.ObjectMeta{}, fmt.Errorf("s3: head %q: %w", key, err)
 	}
+	b.logger.Debug("s3 HEAD ok", "key", key, "ms", time.Since(start).Milliseconds())
 
 	meta := adapter.ObjectMeta{
 		Key:  key,
