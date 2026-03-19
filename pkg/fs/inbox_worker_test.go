@@ -11,6 +11,24 @@ import (
 	s3adapter "github.com/sky10/sky10/pkg/adapter/s3"
 )
 
+// getChunksFromOps extracts chunk hashes for a path from the ops written to S3.
+func getChunksFromOps(t *testing.T, store *Store, path string) []string {
+	t.Helper()
+	ctx := context.Background()
+	opsKey, _ := store.opsKey(ctx)
+	ops, err := ReadOps(ctx, store.backend, 0, opsKey)
+	if err != nil {
+		t.Fatalf("reading ops: %v", err)
+	}
+	for _, op := range ops {
+		if op.Path == path && op.Type == OpPut {
+			return op.Chunks
+		}
+	}
+	t.Fatalf("no put op found for %s", path)
+	return nil
+}
+
 func TestInboxWorkerDownload(t *testing.T) {
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
@@ -19,6 +37,7 @@ func TestInboxWorkerDownload(t *testing.T) {
 	// Put a file in S3
 	ctx := context.Background()
 	store.Put(ctx, "remote.txt", strings.NewReader("from device B"))
+	chunks := getChunksFromOps(t, store, "remote.txt")
 
 	tmpDir := t.TempDir()
 	localDir := filepath.Join(tmpDir, "sync")
@@ -27,8 +46,8 @@ func TestInboxWorkerDownload(t *testing.T) {
 	inbox := NewSyncLog[InboxEntry](filepath.Join(tmpDir, "inbox.jsonl"))
 	state := LoadDriveStateFromPath(filepath.Join(tmpDir, "state.json"))
 
-	// Add download entry
-	inbox.Append(NewInboxPut("remote.txt", "xxx", "Test", "device-b", nil))
+	// Add download entry with chunks
+	inbox.Append(NewInboxPut("remote.txt", "xxx", "default", "device-b", chunks))
 
 	worker := NewInboxWorker(store, inbox, state, localDir, nil)
 	ctx, cancel := context.WithCancel(ctx)
@@ -56,7 +75,7 @@ func TestInboxWorkerDownload(t *testing.T) {
 	if !ok {
 		t.Error("state missing remote.txt")
 	}
-	if fs.Namespace != "Test" {
+	if fs.Namespace != "default" {
 		t.Errorf("namespace = %q", fs.Namespace)
 	}
 }
@@ -111,6 +130,7 @@ func TestInboxWorkerCrashRecovery(t *testing.T) {
 
 	ctx := context.Background()
 	store.Put(ctx, "recover.txt", strings.NewReader("crash data"))
+	chunks := getChunksFromOps(t, store, "recover.txt")
 
 	tmpDir := t.TempDir()
 	localDir := filepath.Join(tmpDir, "sync")
@@ -119,7 +139,7 @@ func TestInboxWorkerCrashRecovery(t *testing.T) {
 
 	// Simulate crash: write entry but don't process
 	inbox1 := NewSyncLog[InboxEntry](inboxPath)
-	inbox1.Append(NewInboxPut("recover.txt", "xxx", "Test", "device-b", nil))
+	inbox1.Append(NewInboxPut("recover.txt", "xxx", "default", "device-b", chunks))
 
 	// "Restart"
 	inbox2 := NewSyncLog[InboxEntry](inboxPath)
@@ -152,6 +172,7 @@ func TestInboxWorkerDownloadsToTemp(t *testing.T) {
 
 	ctx := context.Background()
 	store.Put(ctx, "big-file.txt", strings.NewReader("important data that must not be 0 bytes"))
+	chunks := getChunksFromOps(t, store, "big-file.txt")
 
 	tmpDir := t.TempDir()
 	localDir := filepath.Join(tmpDir, "sync")
@@ -160,7 +181,7 @@ func TestInboxWorkerDownloadsToTemp(t *testing.T) {
 	inbox := NewSyncLog[InboxEntry](filepath.Join(tmpDir, "inbox.jsonl"))
 	state := LoadDriveStateFromPath(filepath.Join(tmpDir, "state.json"))
 
-	inbox.Append(NewInboxPut("big-file.txt", "xxx", "Test", "device-b", nil))
+	inbox.Append(NewInboxPut("big-file.txt", "xxx", "default", "device-b", chunks))
 
 	worker := NewInboxWorker(store, inbox, state, localDir, nil)
 

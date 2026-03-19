@@ -38,8 +38,9 @@ type Store struct {
 	opSeq        int               // per-session op sequence counter
 	packWriter   *PackWriter
 	packIndex    *PackIndex
-	packing      bool   // when true, small chunks are bundled into pack files
-	prevChecksum string // optional: set before Put to avoid loadCurrentState
+	packing      bool      // when true, small chunks are bundled into pack files
+	prevChecksum string    // optional: set before Put to avoid loadCurrentState
+	stateCache   *Manifest // cached result of loadCurrentState
 }
 
 // SetPrevChecksum sets the previous checksum for the next Put call.
@@ -117,7 +118,16 @@ func stableDeviceID(identity *DeviceKey) string {
 }
 
 // loadCurrentState loads the latest snapshot and replays any ops on top.
+// Result is cached — subsequent calls return the cache without S3 calls.
+// Cache is invalidated when this store writes a new op.
 func (s *Store) loadCurrentState(ctx context.Context) (*Manifest, error) {
+	s.mu.Lock()
+	if s.stateCache != nil {
+		cached := s.stateCache
+		s.mu.Unlock()
+		return cached, nil
+	}
+	s.mu.Unlock()
 	encKey, err := s.opsKey(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("ops key: %w", err)
@@ -135,8 +145,12 @@ func (s *Store) loadCurrentState(ctx context.Context) (*Manifest, error) {
 		return nil, fmt.Errorf("reading ops: %w", err)
 	}
 
-	// Build current state
-	return BuildState(snapshot, ops), nil
+	// Build current state and cache
+	state := BuildState(snapshot, ops)
+	s.mu.Lock()
+	s.stateCache = state
+	s.mu.Unlock()
+	return state, nil
 }
 
 // loadLatestSnapshot finds and loads the most recent manifest snapshot.
@@ -221,6 +235,7 @@ func (s *Store) writeOp(ctx context.Context, op *Op) error {
 	s.mu.Lock()
 	s.opSeq++
 	op.Seq = s.opSeq
+	s.stateCache = nil // invalidate cache
 	s.mu.Unlock()
 
 	op.Device = s.deviceID
