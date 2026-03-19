@@ -21,6 +21,7 @@ type RPCServer struct {
 	version  string
 	listener net.Listener
 	logger   *slog.Logger
+	logBuf   *LogBuffer
 
 	syncMu     sync.Mutex
 	syncCancel context.CancelFunc
@@ -68,14 +69,18 @@ type RPCError struct {
 
 // NewRPCServer creates an RPC server for the given store.
 func NewRPCServer(store *Store, sockPath string, driveCfgPath string, version string, logger *slog.Logger) *RPCServer {
+	logBuf := NewLogBuffer(1000)
 	if logger == nil {
-		logger = slog.Default()
+		logger = slog.New(NewLogBufferHandler(logBuf, slog.Default().Handler()))
+	} else {
+		logger = slog.New(NewLogBufferHandler(logBuf, logger.Handler()))
 	}
 	srv := &RPCServer{
 		store:        store,
 		sockPath:     sockPath,
 		version:      version,
 		logger:       logger,
+		logBuf:       logBuf,
 		clients:      make(map[net.Conn]bool),
 		subscribers:  make(map[net.Conn]*json.Encoder),
 		events:       make(chan RPCEvent, 100),
@@ -265,6 +270,10 @@ func (s *RPCServer) dispatch(ctx context.Context, req *RPCRequest) *RPCResponse 
 		result, err = s.rpcSyncActivity(ctx)
 	case "skyfs.debugDump":
 		result, err = s.rpcDebugDump(ctx)
+	case "skyfs.debugList":
+		result, err = s.rpcDebugList(ctx)
+	case "skyfs.debugGet":
+		result, err = s.rpcDebugGet(ctx, req.Params)
 	default:
 		resp.Error = &RPCError{Code: -32601, Message: "method not found: " + req.Method}
 		return resp
@@ -1087,6 +1096,9 @@ func (s *RPCServer) rpcDebugDump(ctx context.Context) (interface{}, error) {
 		dump["namespace_keys_error"] = err.Error()
 	}
 
+	// Logs (last 1000 lines)
+	dump["logs"] = s.logBuf.Lines()
+
 	// Upload to S3 with timeout
 	data, err := json.MarshalIndent(dump, "", "  ")
 	if err != nil {
@@ -1109,6 +1121,39 @@ func (s *RPCServer) rpcDebugDump(ctx context.Context) (interface{}, error) {
 		"key":    key,
 		"size":   len(data),
 	}, nil
+}
+
+func (s *RPCServer) rpcDebugList(ctx context.Context) (interface{}, error) {
+	listCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	keys, err := s.store.backend.List(listCtx, "debug/")
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"keys": keys}, nil
+}
+
+func (s *RPCServer) rpcDebugGet(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p struct {
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	getCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	rc, err := s.store.backend.Get(getCtx, p.Key)
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, err
+	}
+	var parsed interface{}
+	json.Unmarshal(data, &parsed)
+	return parsed, nil
 }
 
 func splitInvitePath2(key string) string {
