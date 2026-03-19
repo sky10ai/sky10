@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 )
@@ -24,6 +25,7 @@ type DriveManager struct {
 	daemons        map[string]context.CancelFunc
 	mu             sync.Mutex
 	cfgPath        string
+	Logger         *slog.Logger // shared logger (with log buffer)
 	OnActivity     func()       // called when any drive does sync I/O
 	OnStateChanged func(string) // called when manifest changes
 }
@@ -137,7 +139,7 @@ func (dm *DriveManager) StartDrive(id string, logger interface{ Info(string, ...
 		driveStore.SetNamespace(drive.Namespace)
 	}
 
-	daemon, err := NewDaemonV2_5(driveStore, daemonCfg, nil)
+	daemon, err := NewDaemonV2_5(driveStore, daemonCfg, dm.Logger)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("creating daemon for %s: %w", drive.Name, err)
