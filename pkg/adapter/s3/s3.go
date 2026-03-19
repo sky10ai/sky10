@@ -126,8 +126,18 @@ func (b *Backend) acquire(ctx context.Context) error {
 	select {
 	case b.sem <- struct{}{}:
 		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	default:
+		// Semaphore full — log and wait
+		b.logger.Debug("s3 sem wait", "in_use", len(b.sem), "cap", cap(b.sem))
+		start := time.Now()
+		select {
+		case b.sem <- struct{}{}:
+			b.logger.Debug("s3 sem acquired", "waited_ms", time.Since(start).Milliseconds())
+			return nil
+		case <-ctx.Done():
+			b.logger.Warn("s3 sem timeout", "waited_ms", time.Since(start).Milliseconds())
+			return ctx.Err()
+		}
 	}
 }
 
