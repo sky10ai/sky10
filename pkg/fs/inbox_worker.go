@@ -131,16 +131,15 @@ func (w *InboxWorker) downloadFile(ctx context.Context, entry InboxEntry) bool {
 	}
 	tmpPath := tmpFile.Name()
 
-	// Use direct chunk download if chunk hashes are available (bypasses loadCurrentState).
-	// Fall back to store.Get for old inbox entries without chunks.
-	var dlErr error
-	if len(entry.Chunks) > 0 {
-		w.logger.Debug("inbox: direct chunk download", "path", entry.Path, "chunks", len(entry.Chunks))
-		dlErr = w.store.GetChunks(ctx, entry.Chunks, entry.Namespace, tmpFile)
-	} else {
-		w.logger.Debug("inbox: full state download (no chunks)", "path", entry.Path)
-		dlErr = w.store.Get(ctx, entry.Path, tmpFile)
+	// Direct chunk download — requires chunk hashes from the op.
+	// Old inbox entries without chunks are skipped (they'd trigger
+	// loadCurrentState which reads ALL ops from S3 and kills the daemon).
+	if len(entry.Chunks) == 0 {
+		w.logger.Warn("inbox: skipping entry with no chunks (stale entry)", "path", entry.Path)
+		return true // remove from inbox
 	}
+	w.logger.Debug("inbox: direct chunk download", "path", entry.Path, "chunks", len(entry.Chunks))
+	dlErr := w.store.GetChunks(ctx, entry.Chunks, entry.Namespace, tmpFile)
 	if dlErr != nil {
 		tmpFile.Close()
 		os.Remove(tmpPath)
