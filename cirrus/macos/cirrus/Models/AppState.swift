@@ -34,9 +34,9 @@ class AppState: ObservableObject {
         daemonManager.start()
         // Backend takes ~5-6 seconds on first launch (S3 config loading)
         try? await Task.sleep(for: .seconds(7))
-        await refresh()
         await loadDrives()
         await loadActivity()
+        await refresh()
         subscribeToEvents()
     }
 
@@ -49,9 +49,9 @@ class AppState: ObservableObject {
                 await rpc.subscribe { event in
                     Task { @MainActor in
                         if event == "state.changed" {
-                            await self.refresh()
                             await self.loadDrives()
                             await self.loadActivity()
+                            await self.refresh()
                         } else if event == "sync.active" {
                             self.syncState = .syncing
                         }
@@ -69,8 +69,20 @@ class AppState: ObservableObject {
 
         do {
             storeInfo = try await client.getInfo()
-            let allFiles = try await client.listFiles(prefix: "")
-            files = allFiles
+
+            // Build file list from local filesystem for each drive
+            var localFiles: [FileNode] = []
+            let uploadingPaths = Set(pendingActivity.filter { $0.direction == "up" }.map { $0.path })
+            let downloadingPaths = Set(pendingActivity.filter { $0.direction == "down" }.map { $0.path })
+
+            for drive in drives {
+                let driveFiles = scanLocalDirectory(drive.localPath, namespace: drive.namespace,
+                                                     uploadingPaths: uploadingPaths,
+                                                     downloadingPaths: downloadingPaths)
+                localFiles.append(contentsOf: driveFiles)
+            }
+
+            files = localFiles
 
             // Check if daemon is actively syncing
             let status = try await client.syncStatus()
@@ -80,6 +92,59 @@ class AppState: ObservableObject {
             self.error = error.localizedDescription
             syncState = .error
         }
+    }
+
+    /// Scan a local drive directory and build FileNode objects from the filesystem.
+    private func scanLocalDirectory(_ rootPath: String, namespace: String,
+                                     uploadingPaths: Set<String>,
+                                     downloadingPaths: Set<String>) -> [FileNode] {
+        let fm = FileManager.default
+        let rootURL = URL(fileURLWithPath: rootPath)
+        guard let enumerator = fm.enumerator(at: rootURL,
+                                              includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey],
+                                              options: [.skipsHiddenFiles]) else {
+            return []
+        }
+
+        var result: [FileNode] = []
+        let isoFormatter = ISO8601DateFormatter()
+
+        for case let fileURL as URL in enumerator {
+            guard let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]),
+                  let isFile = resourceValues.isRegularFile, isFile else {
+                continue
+            }
+
+            let relativePath = fileURL.path.replacingOccurrences(of: rootPath + "/", with: "")
+            let fileName = fileURL.lastPathComponent
+
+            // Skip .sky10 internal files
+            if relativePath.hasPrefix(".") { continue }
+
+            let size = Int64(resourceValues.fileSize ?? 0)
+            let modified = resourceValues.contentModificationDate ?? Date()
+
+            var status: FileSyncStatus = .synced
+            if uploadingPaths.contains(relativePath) {
+                status = .uploading
+            } else if downloadingPaths.contains(relativePath) {
+                status = .downloading
+            }
+
+            result.append(FileNode(
+                id: relativePath,
+                path: relativePath,
+                name: fileName,
+                size: size,
+                modified: isoFormatter.string(from: modified),
+                checksum: "",
+                namespace: namespace,
+                chunks: 0,
+                syncStatus: status
+            ))
+        }
+
+        return result
     }
 
     func uploadFile(localPath: String, remotePath: String) async {

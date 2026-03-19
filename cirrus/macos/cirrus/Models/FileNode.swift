@@ -1,5 +1,39 @@
 import Foundation
 
+import SwiftUI
+
+/// Per-file sync status for UI overlay.
+enum FileSyncStatus {
+    case synced     // not in outbox or inbox
+    case uploading  // in outbox
+    case downloading // in inbox
+    case error
+}
+
+/// Small icon indicating sync status next to a filename.
+struct SyncStatusIcon: View {
+    let status: FileSyncStatus
+
+    var body: some View {
+        switch status {
+        case .synced:
+            EmptyView()
+        case .uploading:
+            Image(systemName: "arrow.up.circle.fill")
+                .font(.caption2)
+                .foregroundStyle(.blue)
+        case .downloading:
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.caption2)
+                .foregroundStyle(.green)
+        case .error:
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.caption2)
+                .foregroundStyle(.red)
+        }
+    }
+}
+
 /// Represents a file in the encrypted store.
 struct FileNode: Identifiable, Hashable {
     let id: String
@@ -10,6 +44,10 @@ struct FileNode: Identifiable, Hashable {
     let checksum: String
     let namespace: String
     let chunks: Int
+    var syncStatus: FileSyncStatus = .synced
+
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+    static func == (lhs: FileNode, rhs: FileNode) -> Bool { lhs.id == rhs.id }
 
     var isDirectory: Bool {
         false // skyfs stores files, not directories
