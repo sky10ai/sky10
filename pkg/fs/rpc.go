@@ -998,10 +998,16 @@ func (s *RPCServer) rpcDebugDump(ctx context.Context) (interface{}, error) {
 		"version":   s.version,
 	}
 
-	// Collect per-drive data
+	// Collect per-drive data — all local reads, no S3
 	s.driveManager.mu.Lock()
-	driveDumps := make([]map[string]interface{}, 0)
+	drivesCopy := make(map[string]*Drive)
 	for id, d := range s.driveManager.drives {
+		drivesCopy[id] = d
+	}
+	s.driveManager.mu.Unlock()
+
+	driveDumps := make([]map[string]interface{}, 0)
+	for id, d := range drivesCopy {
 		dd := map[string]interface{}{
 			"id":         id,
 			"name":       d.Name,
@@ -1013,7 +1019,7 @@ func (s *RPCServer) rpcDebugDump(ctx context.Context) (interface{}, error) {
 
 		dir := driveDataDir(id)
 
-		// State
+		// State (local file read)
 		statePath := filepath.Join(dir, "state.json")
 		if raw, err := os.ReadFile(statePath); err == nil {
 			var state interface{}
@@ -1021,14 +1027,14 @@ func (s *RPCServer) rpcDebugDump(ctx context.Context) (interface{}, error) {
 			dd["state"] = state
 		}
 
-		// Outbox
+		// Outbox (local file read)
 		outbox := NewSyncLog[OutboxEntry](filepath.Join(dir, "outbox.jsonl"))
 		if entries, err := outbox.ReadAll(); err == nil {
 			dd["outbox"] = entries
 			dd["outbox_count"] = len(entries)
 		}
 
-		// Inbox
+		// Inbox (local file read)
 		inbox := NewSyncLog[InboxEntry](filepath.Join(dir, "inbox.jsonl"))
 		if entries, err := inbox.ReadAll(); err == nil {
 			dd["inbox"] = entries
@@ -1047,38 +1053,52 @@ func (s *RPCServer) rpcDebugDump(ctx context.Context) (interface{}, error) {
 
 		driveDumps = append(driveDumps, dd)
 	}
-	s.driveManager.mu.Unlock()
 	dump["drives"] = driveDumps
 
-	// List remote ops keys (just the key names, not contents)
-	if keys, err := s.store.backend.List(ctx, "ops/"); err == nil {
+	// S3 calls with short timeouts — each one independent
+	s3ctx, s3cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer s3cancel()
+
+	if keys, err := s.store.backend.List(s3ctx, "ops/"); err == nil {
 		dump["remote_ops_count"] = len(keys)
-		// Last 20 op keys
 		if len(keys) > 20 {
 			keys = keys[len(keys)-20:]
 		}
 		dump["remote_ops_recent"] = keys
+	} else {
+		dump["remote_ops_error"] = err.Error()
 	}
 
-	// Devices
-	if devices, err := ListDevices(ctx, s.store.backend); err == nil {
+	s3ctx2, s3cancel2 := context.WithTimeout(ctx, 5*time.Second)
+	defer s3cancel2()
+
+	if devices, err := ListDevices(s3ctx2, s.store.backend); err == nil {
 		dump["devices"] = devices
+	} else {
+		dump["devices_error"] = err.Error()
 	}
 
-	// Namespace keys
-	if keys, err := s.store.backend.List(ctx, "keys/namespaces/"); err == nil {
+	s3ctx3, s3cancel3 := context.WithTimeout(ctx, 5*time.Second)
+	defer s3cancel3()
+
+	if keys, err := s.store.backend.List(s3ctx3, "keys/namespaces/"); err == nil {
 		dump["namespace_keys"] = keys
+	} else {
+		dump["namespace_keys_error"] = err.Error()
 	}
 
-	// Upload to S3
+	// Upload to S3 with timeout
 	data, err := json.MarshalIndent(dump, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("marshaling debug dump: %w", err)
 	}
 
+	uploadCtx, uploadCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer uploadCancel()
+
 	key := fmt.Sprintf("debug/%s/%s.json", deviceID, ts)
 	r := strings.NewReader(string(data))
-	if err := s.store.backend.Put(ctx, key, r, int64(len(data))); err != nil {
+	if err := s.store.backend.Put(uploadCtx, key, r, int64(len(data))); err != nil {
 		return nil, fmt.Errorf("uploading debug dump: %w", err)
 	}
 
