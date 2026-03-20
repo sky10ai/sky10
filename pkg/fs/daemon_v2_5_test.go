@@ -22,6 +22,17 @@ func runDaemon(ctx context.Context, cancel context.CancelFunc, daemon *DaemonV2_
 		daemon.Run(ctx)
 	}()
 	return func() {
+		// Wait for outbox to drain before cancelling — otherwise
+		// in-flight uploads write to the drive data dir after cancel
+		driveDir := driveDataDir(daemon.config.DriveID)
+		outbox := NewSyncLog[OutboxEntry](filepath.Join(driveDir, "outbox.jsonl"))
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if outbox.Len() == 0 {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
 		cancel()
 		wg.Wait()
 	}
