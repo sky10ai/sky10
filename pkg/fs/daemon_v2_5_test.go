@@ -69,8 +69,8 @@ func TestDaemonV25SeedQueuesOutbox(t *testing.T) {
 	daemon.seedStateFromDisk()
 
 	// The outbox must have an entry for the new file.
-	// If seed sets state before sending events, the watcher handler
-	// will see "unchanged" and skip — outbox stays empty.
+	// If seed records in local log before sending events, the handler sees
+	// "unchanged" and skips — outbox stays empty.
 	driveDir := driveDataDir("test_seed_outbox")
 	outbox := NewSyncLog[OutboxEntry](filepath.Join(driveDir, "outbox.jsonl"))
 	entries, _ := outbox.ReadAll()
@@ -82,7 +82,7 @@ func TestDaemonV25SeedQueuesOutbox(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("new-file.txt not queued in outbox after seed — seed updates state before sending events")
+		t.Error("new-file.txt not queued in outbox after seed — seed records before sending events")
 	}
 }
 
@@ -118,14 +118,14 @@ func TestDaemonV25SeedsFromDisk(t *testing.T) {
 	// Wait for seed + outbox drain
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, ok := daemon.state.GetFile("hello.txt"); ok {
+		if _, ok := daemon.localLog.Lookup("hello.txt"); ok {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	if _, ok := daemon.state.GetFile("hello.txt"); !ok {
-		t.Error("hello.txt not in state after daemon seed")
+	if _, ok := daemon.localLog.Lookup("hello.txt"); !ok {
+		t.Error("hello.txt not in local log after daemon seed")
 	}
 }
 
@@ -165,13 +165,13 @@ func TestDaemonV25RapidOps(t *testing.T) {
 	// Seed picks them up
 	daemon.seedStateFromDisk()
 
-	// Wait for state to have all 10
+	// Wait for local log to have all 10
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		count := 0
 		for i := 0; i < 10; i++ {
 			name := "rapid_" + string(rune('a'+i)) + ".txt"
-			if _, ok := daemon.state.GetFile(name); ok {
+			if _, ok := daemon.localLog.Lookup(name); ok {
 				count++
 			}
 		}
@@ -181,11 +181,11 @@ func TestDaemonV25RapidOps(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	// Verify all 10 are in state
+	// Verify all 10 are in local log
 	for i := 0; i < 10; i++ {
 		name := "rapid_" + string(rune('a'+i)) + ".txt"
-		if _, ok := daemon.state.GetFile(name); !ok {
-			t.Errorf("file %s not in state", name)
+		if _, ok := daemon.localLog.Lookup(name); !ok {
+			t.Errorf("file %s not in local log", name)
 		}
 	}
 
@@ -234,14 +234,14 @@ func TestDaemonV25StaysResponsive(t *testing.T) {
 	// Wait 5 seconds to let daemon settle
 	time.Sleep(5 * time.Second)
 
-	// Create a file — state should update within 2 seconds
+	// Create a file — local log should update within 2 seconds
 	os.WriteFile(filepath.Join(localDir, "late.txt"), []byte("late addition"), 0644)
 	daemon.seedStateFromDisk()
 
 	deadline := time.Now().Add(2 * time.Second)
 	found := false
 	for time.Now().Before(deadline) {
-		if _, ok := daemon.state.GetFile("late.txt"); ok {
+		if _, ok := daemon.localLog.Lookup("late.txt"); ok {
 			found = true
 			break
 		}
@@ -281,7 +281,7 @@ func TestDaemonV25CrashRecovery(t *testing.T) {
 	time.Sleep(2 * time.Second)
 	stop1() // "crash"
 
-	// Second run: state should already have the file
+	// Second run: local log should already have the file (from ops.jsonl)
 	ctx2, cancel2 := context.WithCancel(context.Background())
 
 	daemon2, err := NewDaemonV2_5(store, cfg, nil)
@@ -289,14 +289,14 @@ func TestDaemonV25CrashRecovery(t *testing.T) {
 		t.Fatalf("creating daemon: %v", err)
 	}
 
-	// State persisted to disk — load should find the file
-	if _, ok := daemon2.state.GetFile("persist.txt"); !ok {
+	// Local log persisted to ops.jsonl — load should find the file
+	if _, ok := daemon2.localLog.Lookup("persist.txt"); !ok {
 		// Might need a seed
 		stop2 := runDaemon(ctx2, cancel2, daemon2)
 		defer stop2()
 		time.Sleep(2 * time.Second)
-		if _, ok := daemon2.state.GetFile("persist.txt"); !ok {
-			t.Error("persist.txt not found after daemon restart — state not persisted")
+		if _, ok := daemon2.localLog.Lookup("persist.txt"); !ok {
+			t.Error("persist.txt not found after daemon restart — ops log not persisted")
 		}
 	} else {
 		cancel2()
@@ -330,8 +330,8 @@ func TestDaemonV25SyncOnce(t *testing.T) {
 
 	daemon.SyncOnce(ctx)
 
-	if _, ok := daemon.state.GetFile("once.txt"); !ok {
-		t.Error("once.txt not in state after SyncOnce")
+	if _, ok := daemon.localLog.Lookup("once.txt"); !ok {
+		t.Error("once.txt not in local log after SyncOnce")
 	}
 }
 
@@ -362,13 +362,13 @@ func TestDaemonV25DirectoryTrash(t *testing.T) {
 		t.Fatalf("creating daemon: %v", err)
 	}
 
-	// Seed the two files into state
+	// Seed the two files into local log
 	daemon.seedStateFromDisk()
 
-	if _, ok := daemon.state.GetFile("subdir/a.txt"); !ok {
+	if _, ok := daemon.localLog.Lookup("subdir/a.txt"); !ok {
 		t.Fatal("subdir/a.txt not seeded")
 	}
-	if _, ok := daemon.state.GetFile("subdir/b.txt"); !ok {
+	if _, ok := daemon.localLog.Lookup("subdir/b.txt"); !ok {
 		t.Fatal("subdir/b.txt not seeded")
 	}
 
@@ -379,22 +379,22 @@ func TestDaemonV25DirectoryTrash(t *testing.T) {
 	stop := runDaemon(ctx, cancel, daemon)
 	defer stop()
 
-	// Wait for the outbox worker to process delete ops
+	// Wait for the delete ops to be recorded
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		_, okA := daemon.state.GetFile("subdir/a.txt")
-		_, okB := daemon.state.GetFile("subdir/b.txt")
+		_, okA := daemon.localLog.Lookup("subdir/a.txt")
+		_, okB := daemon.localLog.Lookup("subdir/b.txt")
 		if !okA && !okB {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	// After delete ops drain, state should no longer have the files
-	if _, ok := daemon.state.GetFile("subdir/a.txt"); ok {
-		t.Error("subdir/a.txt still in state after directory trash")
+	// After delete ops, local log should no longer have the files
+	if _, ok := daemon.localLog.Lookup("subdir/a.txt"); ok {
+		t.Error("subdir/a.txt still in local log after directory trash")
 	}
-	if _, ok := daemon.state.GetFile("subdir/b.txt"); ok {
-		t.Error("subdir/b.txt still in state after directory trash")
+	if _, ok := daemon.localLog.Lookup("subdir/b.txt"); ok {
+		t.Error("subdir/b.txt still in local log after directory trash")
 	}
 }

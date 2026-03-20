@@ -9,6 +9,7 @@ import (
 	"time"
 
 	s3adapter "github.com/sky10/sky10/pkg/adapter/s3"
+	"github.com/sky10/sky10/pkg/fs/opslog"
 )
 
 func TestOutboxWorkerUpload(t *testing.T) {
@@ -18,10 +19,9 @@ func TestOutboxWorkerUpload(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	outboxPath := filepath.Join(tmpDir, "outbox.jsonl")
-	statePath := filepath.Join(tmpDir, "state.json")
 
 	outbox := NewSyncLog[OutboxEntry](outboxPath)
-	state := LoadDriveStateFromPath(statePath)
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
 
 	// Create a local file
 	localFile := filepath.Join(tmpDir, "test.txt")
@@ -31,7 +31,7 @@ func TestOutboxWorkerUpload(t *testing.T) {
 	outbox.Append(NewOutboxPut("test.txt", "abc123", "Test", localFile))
 
 	// Run worker
-	worker := NewOutboxWorker(store, outbox, state, nil)
+	worker := NewOutboxWorker(store, outbox, localLog, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	go worker.Run(ctx)
@@ -68,12 +68,12 @@ func TestOutboxWorkerDelete(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
-	state := LoadDriveStateFromPath(filepath.Join(tmpDir, "state.json"))
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
 
 	// Add delete to outbox
 	outbox.Append(NewOutboxDelete("delete-me.txt", "somechecksum", "Test"))
 
-	worker := NewOutboxWorker(store, outbox, state, nil)
+	worker := NewOutboxWorker(store, outbox, localLog, nil)
 	ctx, cancel := context.WithCancel(ctx)
 	go worker.Run(ctx)
 	worker.Poke()
@@ -108,8 +108,8 @@ func TestOutboxWorkerCrashRecovery(t *testing.T) {
 
 	// "Restart" — new worker, same outbox file
 	outbox2 := NewSyncLog[OutboxEntry](outboxPath)
-	state := LoadDriveStateFromPath(filepath.Join(tmpDir, "state.json"))
-	worker := NewOutboxWorker(store, outbox2, state, nil)
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+	worker := NewOutboxWorker(store, outbox2, localLog, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go worker.Run(ctx)
@@ -129,12 +129,12 @@ func TestOutboxWorkerMissingFile(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
-	state := LoadDriveStateFromPath(filepath.Join(tmpDir, "state.json"))
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
 
 	// Add upload for a file that doesn't exist
 	outbox.Append(NewOutboxPut("ghost.txt", "xxx", "Test", filepath.Join(tmpDir, "ghost.txt")))
 
-	worker := NewOutboxWorker(store, outbox, state, nil)
+	worker := NewOutboxWorker(store, outbox, localLog, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	go worker.Run(ctx)
 	worker.Poke()

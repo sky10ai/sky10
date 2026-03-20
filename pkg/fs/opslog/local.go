@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 // LocalOpsLog is a JSONL-backed local ops log with in-memory CRDT snapshot
@@ -23,6 +24,7 @@ type LocalOpsLog struct {
 	deviceID   string    // local device ID
 	cache      *Snapshot // cached CRDT snapshot, nil = cold
 	lastRemote int64     // max timestamp of entries from other devices
+	seq        int       // per-device sequence counter for AppendLocal
 }
 
 // NewLocalOpsLog creates a local ops log backed by the file at path.
@@ -52,6 +54,29 @@ func (l *LocalOpsLog) Append(entry Entry) error {
 
 	// Incrementally update cache if warm; otherwise leave cold
 	// for next Snapshot() to rebuild from file.
+	if l.cache != nil {
+		l.cache = buildSnapshot(l.cache, []Entry{entry})
+	}
+	return nil
+}
+
+// AppendLocal creates a local entry with auto-assigned Device, Timestamp,
+// and Seq fields, then appends it to the log. Used by components that
+// generate local ops (e.g. WatcherHandler).
+func (l *LocalOpsLog) AppendLocal(entry Entry) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.seq++
+	entry.Device = l.deviceID
+	entry.Timestamp = time.Now().Unix()
+	entry.Seq = l.seq
+
+	if err := l.appendToFile(entry); err != nil {
+		return err
+	}
+
+	// Local entries from our device — don't update lastRemote.
 	if l.cache != nil {
 		l.cache = buildSnapshot(l.cache, []Entry{entry})
 	}
@@ -121,6 +146,9 @@ func (l *LocalOpsLog) rebuildLocked() (*Snapshot, error) {
 	for _, e := range entries {
 		if e.Device != l.deviceID && e.Timestamp > maxRemote {
 			maxRemote = e.Timestamp
+		}
+		if e.Device == l.deviceID && e.Seq > l.seq {
+			l.seq = e.Seq
 		}
 	}
 	if maxRemote > l.lastRemote {

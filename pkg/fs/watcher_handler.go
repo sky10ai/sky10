@@ -5,14 +5,16 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/sky10/sky10/pkg/fs/opslog"
 )
 
 // WatcherHandler processes file events from the watcher, writes to
-// the outbox, and updates the drive state. No S3, no channels to
-// other goroutines — just local disk operations.
+// the outbox, and records ops in the local ops log. No S3, no channels
+// to other goroutines — just local disk operations.
 type WatcherHandler struct {
 	outbox     *SyncLog[OutboxEntry]
-	state      *DriveState
+	localLog   *opslog.LocalOpsLog
 	localDir   string
 	namespace  string
 	logger     *slog.Logger
@@ -21,13 +23,13 @@ type WatcherHandler struct {
 }
 
 // NewWatcherHandler creates a handler that bridges watcher events to the outbox.
-func NewWatcherHandler(outbox *SyncLog[OutboxEntry], state *DriveState, localDir, namespace string, logger *slog.Logger) *WatcherHandler {
+func NewWatcherHandler(outbox *SyncLog[OutboxEntry], localLog *opslog.LocalOpsLog, localDir, namespace string, logger *slog.Logger) *WatcherHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &WatcherHandler{
 		outbox:     outbox,
-		state:      state,
+		localLog:   localLog,
 		localDir:   localDir,
 		namespace:  namespace,
 		logger:     logger,
@@ -37,7 +39,7 @@ func NewWatcherHandler(outbox *SyncLog[OutboxEntry], state *DriveState, localDir
 }
 
 // HandleEvents processes a batch of file events from the watcher.
-// Updates state immediately, writes to outbox, pokes the outbox worker.
+// Records ops in the local log, writes to outbox, pokes the outbox worker.
 func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 	seen := make(map[string]bool)
 	wrote := false
@@ -57,8 +59,8 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 				continue
 			}
 
-			// Skip if unchanged from state
-			if existing, ok := h.state.GetFile(e.Path); ok && existing.Checksum == cksum {
+			// Skip if unchanged from local log
+			if existing, ok := h.localLog.Lookup(e.Path); ok && existing.Checksum == cksum {
 				h.logger.Info("watcher: unchanged", "path", e.Path)
 				continue
 			}
@@ -70,9 +72,12 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 				continue
 			}
 
-			// Update state immediately
-			h.state.SetFile(e.Path, FileState{
+			// Record op in local log
+			h.localLog.AppendLocal(opslog.Entry{
+				Type:      opslog.Put,
+				Path:      e.Path,
 				Checksum:  cksum,
+				Size:      info.Size(),
 				Namespace: h.namespace,
 			})
 
@@ -88,7 +93,7 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 			wrote = true
 
 		case FileDeleted:
-			existing, ok := h.state.GetFile(e.Path)
+			existing, ok := h.localLog.Lookup(e.Path)
 			if !ok {
 				h.logger.Info("watcher: delete untracked", "path", e.Path)
 				continue
@@ -96,10 +101,14 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 
 			h.logger.Info("watcher: delete", "path", e.Path)
 
-			// Update state immediately
-			h.state.RemoveFile(e.Path)
+			// Record delete op in local log
+			h.localLog.AppendLocal(opslog.Entry{
+				Type:      opslog.Delete,
+				Path:      e.Path,
+				Namespace: existing.Namespace,
+			})
 
-			// Write to outbox with checksum/namespace from state
+			// Write to outbox with checksum/namespace from snapshot
 			h.outbox.Append(OutboxEntry{
 				Op:        OpDelete,
 				Path:      e.Path,
@@ -112,7 +121,6 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 	}
 
 	if wrote {
-		h.state.Save()
 		h.onEvent("state.changed")
 		h.pokeOutbox()
 	}
@@ -122,9 +130,14 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 // in a directory that was trashed. Called when a watched directory
 // disappears — kqueue doesn't fire per-file events in this case.
 func (h *WatcherHandler) HandleDirectoryTrash(dirPath string) {
+	snap, err := h.localLog.Snapshot()
+	if err != nil {
+		h.logger.Warn("watcher: snapshot failed for directory trash", "error", err)
+		return
+	}
 	prefix := dirPath + "/"
 	var events []FileEvent
-	for path := range h.state.Files {
+	for path := range snap.Files() {
 		if len(path) > len(prefix) && path[:len(prefix)] == prefix {
 			events = append(events, FileEvent{Path: path, Type: FileDeleted})
 		}

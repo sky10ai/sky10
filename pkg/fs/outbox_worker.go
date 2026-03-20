@@ -5,32 +5,34 @@ import (
 	"log/slog"
 	"os"
 	"time"
+
+	"github.com/sky10/sky10/pkg/fs/opslog"
 )
 
 // OutboxWorker drains the outbox log — pushes local changes to S3.
 // Reads from the persistent outbox file, not an in-memory channel.
 // If S3 fails, entries stay in the outbox and get retried.
 type OutboxWorker struct {
-	store   *Store
-	outbox  *SyncLog[OutboxEntry]
-	state   *DriveState
-	logger  *slog.Logger
-	notify  chan struct{} // poked when new entries arrive
-	onEvent func(string)  // push events to Cirrus
+	store    *Store
+	outbox   *SyncLog[OutboxEntry]
+	localLog *opslog.LocalOpsLog
+	logger   *slog.Logger
+	notify   chan struct{} // poked when new entries arrive
+	onEvent  func(string)  // push events to Cirrus
 }
 
 // NewOutboxWorker creates an outbox worker.
-func NewOutboxWorker(store *Store, outbox *SyncLog[OutboxEntry], state *DriveState, logger *slog.Logger) *OutboxWorker {
+func NewOutboxWorker(store *Store, outbox *SyncLog[OutboxEntry], localLog *opslog.LocalOpsLog, logger *slog.Logger) *OutboxWorker {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &OutboxWorker{
-		store:   store,
-		outbox:  outbox,
-		state:   state,
-		logger:  logger,
-		notify:  make(chan struct{}, 1),
-		onEvent: func(string) {},
+		store:    store,
+		outbox:   outbox,
+		localLog: localLog,
+		logger:   logger,
+		notify:   make(chan struct{}, 1),
+		onEvent:  func(string) {},
 	}
 }
 
@@ -107,8 +109,8 @@ func (w *OutboxWorker) uploadFile(ctx context.Context, entry OutboxEntry) bool {
 	}
 	defer f.Close()
 
-	// Set prev checksum from local state — avoids loadCurrentState (88+ S3 GETs)
-	if prev, ok := w.state.GetFile(entry.Path); ok {
+	// Set prev checksum from local log — avoids loadCurrentState (88+ S3 GETs)
+	if prev, ok := w.localLog.Lookup(entry.Path); ok {
 		w.store.SetPrevChecksum(prev.Checksum)
 	}
 	if err := w.store.Put(ctx, entry.Path, f); err != nil {

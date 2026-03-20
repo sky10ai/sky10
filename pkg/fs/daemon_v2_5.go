@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/sky10/sky10/pkg/fs/opslog"
 )
 
 // DaemonV2_5 is the inbox/outbox sync daemon. All components communicate
@@ -23,7 +25,8 @@ type DaemonV2_5 struct {
 	outboxWorker   *OutboxWorker
 	inboxWorker    *InboxWorker
 	poller         *PollerV2
-	state          *DriveState
+	state          *DriveState         // still used by poller + inbox worker (until M3/M4)
+	localLog       *opslog.LocalOpsLog // watcher handler + outbox worker source of truth
 	config         DaemonConfig
 	logger         *slog.Logger
 	onEvent        func(string)
@@ -51,9 +54,13 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 	outboxPath := filepath.Join(driveDir, "outbox.jsonl")
 	inboxPath := filepath.Join(driveDir, "inbox.jsonl")
 	statePath := filepath.Join(driveDir, "state.json")
+	opsLogPath := filepath.Join(driveDir, "ops.jsonl")
 
-	// Load state
+	// Load state (still needed for poller + inbox worker)
 	state := LoadDriveStateFromPath(statePath)
+
+	// Create local ops log (source of truth for watcher + outbox)
+	localLog := opslog.NewLocalOpsLog(opsLogPath, store.deviceID)
 
 	// Create logs
 	outbox := NewSyncLog[OutboxEntry](outboxPath)
@@ -72,10 +79,10 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 	}
 
 	// Watcher handler
-	watcherHandler := NewWatcherHandler(outbox, state, config.LocalRoot, ns, logger)
+	watcherHandler := NewWatcherHandler(outbox, localLog, config.LocalRoot, ns, logger)
 
 	// Outbox worker
-	outboxWorker := NewOutboxWorker(store, outbox, state, logger)
+	outboxWorker := NewOutboxWorker(store, outbox, localLog, logger)
 
 	// Inbox worker
 	inboxWorker := NewInboxWorker(store, inbox, state, config.LocalRoot, logger)
@@ -95,6 +102,7 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 		inboxWorker:    inboxWorker,
 		poller:         poller,
 		state:          state,
+		localLog:       localLog,
 		config:         config,
 		logger:         logger,
 		onEvent:        func(string) {},
@@ -150,28 +158,35 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 		d.logger.Warn("seed: scan failed", "error", err)
 		return
 	}
-	d.logger.Info("seed", "local_files", len(localFiles), "state_files", len(d.state.Files))
+
+	// Build snapshot from local ops log (persists across restarts via ops.jsonl).
+	snap, err := d.localLog.Snapshot()
+	if err != nil {
+		d.logger.Warn("seed: snapshot failed", "error", err)
+		return
+	}
+	knownFiles := snap.Files()
+	d.logger.Info("seed", "local_files", len(localFiles), "known_files", len(knownFiles))
 
 	var events []FileEvent
 
-	// Files on disk not in state → treat as new.
-	// Do NOT update state here — the watcher handler checks state to
-	// decide if a file changed. If we set state first, the handler sees
-	// a matching checksum and skips the file (never queues for upload).
-	// State gets updated by the watcher handler after it queues the outbox entry.
+	// Files on disk not in snapshot → treat as new.
+	// Do NOT record in local log here — the watcher handler checks the
+	// snapshot to decide if a file changed. If we record first, the handler
+	// sees a matching checksum and skips (never queues for upload).
 	for path, cksum := range localFiles {
-		existing, ok := d.state.GetFile(path)
+		fi, ok := knownFiles[path]
 		if !ok {
 			d.logger.Info("seed: new file", "path", path)
 			events = append(events, FileEvent{Path: path, Type: FileCreated})
-		} else if existing.Checksum != cksum {
+		} else if fi.Checksum != cksum {
 			d.logger.Info("seed: modified", "path", path)
 			events = append(events, FileEvent{Path: path, Type: FileModified})
 		}
 	}
 
-	// Files in state not on disk → treat as deleted
-	for path := range d.state.Files {
+	// Files in snapshot not on disk → treat as deleted
+	for path := range knownFiles {
 		if _, exists := localFiles[path]; !exists {
 			d.logger.Info("seed: deleted", "path", path)
 			events = append(events, FileEvent{Path: path, Type: FileDeleted})
@@ -182,8 +197,6 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 		d.logger.Info("seed: events", "count", len(events))
 		d.watcherHandler.HandleEvents(events)
 	}
-
-	d.state.Save()
 }
 
 // watcherLoop reads kqueue events, debounces, sends to handler.

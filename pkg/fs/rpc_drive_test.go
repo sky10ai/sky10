@@ -10,6 +10,7 @@ import (
 	"time"
 
 	s3adapter "github.com/sky10/sky10/pkg/adapter/s3"
+	"github.com/sky10/sky10/pkg/fs/opslog"
 )
 
 // Enabled drives must auto-start when the RPC server starts.
@@ -210,10 +211,10 @@ func TestDriveAutoStartSyncsFiles(t *testing.T) {
 	// Wait for initial sync + outbox drain
 	time.Sleep(6 * time.Second)
 
-	// Check state file — file should be tracked
-	state := LoadDriveState("drive_sync")
-	if _, ok := state.GetFile("pre-existing.txt"); !ok {
-		// Also check via RPC
-		t.Errorf("pre-existing.txt not in state after auto-start")
+	// Check local ops log — file should be tracked
+	opsLogPath := filepath.Join(driveDataDir("drive_sync"), "ops.jsonl")
+	localLog := opslog.NewLocalOpsLog(opsLogPath, store.deviceID)
+	if _, ok := localLog.Lookup("pre-existing.txt"); !ok {
+		t.Errorf("pre-existing.txt not in local log after auto-start")
 	}
 }
