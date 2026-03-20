@@ -11,12 +11,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/sky10/sky10/pkg/adapter"
+	"github.com/sky10/sky10/pkg/fs/opslog"
 )
 
 // ErrFileNotFound is returned when a requested file path does not exist
@@ -35,12 +35,11 @@ type Store struct {
 
 	mu           sync.Mutex
 	nsKeys       map[string][]byte // cached namespace keys
-	opSeq        int               // per-session op sequence counter
+	opsLog       *opslog.OpsLog    // lazily initialized
 	packWriter   *PackWriter
 	packIndex    *PackIndex
-	packing      bool      // when true, small chunks are bundled into pack files
-	prevChecksum string    // optional: set before Put to avoid loadCurrentState
-	stateCache   *Manifest // cached result of loadCurrentState
+	packing      bool   // when true, small chunks are bundled into pack files
+	prevChecksum string // optional: set before Put to avoid loadCurrentState
 }
 
 // SetPrevChecksum sets the previous checksum for the next Put call.
@@ -102,6 +101,62 @@ func (s *Store) opsKey(ctx context.Context) ([]byte, error) {
 	return s.getOrCreateNamespaceKey(ctx, "default")
 }
 
+// getOpsLog returns the lazily-initialized OpsLog, creating it on first call.
+func (s *Store) getOpsLog(ctx context.Context) (*opslog.OpsLog, error) {
+	s.mu.Lock()
+	if s.opsLog != nil {
+		log := s.opsLog
+		s.mu.Unlock()
+		return log, nil
+	}
+	s.mu.Unlock()
+
+	encKey, err := s.opsKey(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	log := opslog.New(s.backend, encKey, s.deviceID, s.clientID)
+
+	s.mu.Lock()
+	s.opsLog = log
+	s.mu.Unlock()
+	return log, nil
+}
+
+// opToEntry converts an Op to an opslog.Entry.
+func opToEntry(op *Op) opslog.Entry {
+	return opslog.Entry{
+		Type:         opslog.EntryType(op.Type),
+		Path:         op.Path,
+		Chunks:       op.Chunks,
+		Size:         op.Size,
+		Checksum:     op.Checksum,
+		PrevChecksum: op.PrevChecksum,
+		Namespace:    op.Namespace,
+	}
+}
+
+// snapshotToManifest converts an opslog.Snapshot to a Manifest.
+func snapshotToManifest(snap *opslog.Snapshot) *Manifest {
+	m := &Manifest{
+		Version: 1,
+		Created: snap.Created(),
+		Updated: snap.Updated(),
+		Tree:    make(map[string]FileEntry, snap.Len()),
+	}
+	for path, fi := range snap.Files() {
+		m.Tree[path] = FileEntry{
+			Chunks:    fi.Chunks,
+			Size:      fi.Size,
+			Modified:  fi.Modified,
+			Checksum:  fi.Checksum,
+			Namespace: fi.Namespace,
+		}
+	}
+	return m
+}
+
 // generateDeviceID creates a stable device identifier from the identity key.
 // Using the identity ensures the same device always has the same ID across
 // daemon restarts, so ops written by this device are always recognized as ours.
@@ -117,74 +172,14 @@ func stableDeviceID(identity *DeviceKey) string {
 	return shortPubkeyID(identity.Address())
 }
 
-// loadCurrentState loads the latest snapshot and replays any ops on top.
-// Result is cached — subsequent calls return the cache without S3 calls.
-// Cache is invalidated when this store writes a new op.
-func (s *Store) loadCurrentState(ctx context.Context) (*Manifest, error) {
-	s.mu.Lock()
-	if s.stateCache != nil {
-		cached := s.stateCache
-		s.mu.Unlock()
-		return cached, nil
-	}
-	s.mu.Unlock()
-	encKey, err := s.opsKey(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("ops key: %w", err)
-	}
-
-	// Try to load latest snapshot
-	snapshot, snapshotTimestamp, err := s.loadLatestSnapshot(ctx, encKey)
-	if err != nil {
-		return nil, fmt.Errorf("loading snapshot: %w", err)
-	}
-
-	// Read ops since the snapshot
-	ops, err := ReadOps(ctx, s.backend, snapshotTimestamp, encKey)
-	if err != nil {
-		return nil, fmt.Errorf("reading ops: %w", err)
-	}
-
-	// Build current state and cache
-	state := BuildState(snapshot, ops)
-	s.mu.Lock()
-	s.stateCache = state
-	s.mu.Unlock()
-	return state, nil
-}
-
-// loadLatestSnapshot finds and loads the most recent manifest snapshot.
-// Returns (nil, 0, nil) if no snapshot exists.
-func (s *Store) loadLatestSnapshot(ctx context.Context, encKey []byte) (*Manifest, int64, error) {
-	// Check for v2 snapshots first
-	keys, err := s.backend.List(ctx, "manifests/snapshot-")
-	if err != nil {
-		return nil, 0, fmt.Errorf("listing snapshots: %w", err)
-	}
-
-	if len(keys) > 0 {
-		// Pick the latest snapshot (highest timestamp in key name)
-		sort.Strings(keys)
-		latestKey := keys[len(keys)-1]
-
-		m, err := s.loadManifestFromKey(ctx, latestKey)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		ts := parseSnapshotTimestamp(latestKey)
-		return m, ts, nil
-	}
-
-	// Fall back to v1 manifest (manifests/current.enc)
-	m, err := LoadManifest(ctx, s.backend, encKey)
-	if err != nil {
-		return nil, 0, err
-	}
-	if len(m.Tree) == 0 {
-		return nil, 0, nil
-	}
-	return m, 0, nil
+// parseSnapshotTimestamp extracts the timestamp from a snapshot key.
+func parseSnapshotTimestamp(key string) int64 {
+	name := key
+	name = strings.TrimPrefix(name, "manifests/snapshot-")
+	name = strings.TrimSuffix(name, ".enc")
+	var ts int64
+	fmt.Sscanf(name, "%d", &ts)
+	return ts
 }
 
 // loadManifestFromKey downloads and decrypts a manifest from a specific S3 key.
@@ -220,34 +215,54 @@ func (s *Store) loadManifestFromKey(ctx context.Context, key string) (*Manifest,
 	return &m, nil
 }
 
-// parseSnapshotTimestamp extracts the timestamp from a snapshot key.
-func parseSnapshotTimestamp(key string) int64 {
-	name := key
-	name = strings.TrimPrefix(name, "manifests/snapshot-")
-	name = strings.TrimSuffix(name, ".enc")
-	var ts int64
-	fmt.Sscanf(name, "%d", &ts)
-	return ts
-}
-
-// writeOp writes an operation to the ops log.
-func (s *Store) writeOp(ctx context.Context, op *Op) error {
-	s.mu.Lock()
-	s.opSeq++
-	op.Seq = s.opSeq
-	s.stateCache = nil // invalidate cache
-	s.mu.Unlock()
-
-	op.Device = s.deviceID
-	op.Timestamp = time.Now().Unix()
-	op.Client = s.clientID
-
-	encKey, err := s.opsKey(ctx)
+// loadCurrentState loads the latest snapshot and replays any ops on top.
+// Delegates to the OpsLog for caching and state materialization.
+func (s *Store) loadCurrentState(ctx context.Context) (*Manifest, error) {
+	log, err := s.getOpsLog(ctx)
 	if err != nil {
-		return fmt.Errorf("ops key: %w", err)
+		return nil, fmt.Errorf("ops log: %w", err)
 	}
 
-	return WriteOp(ctx, s.backend, op, encKey)
+	snap, err := log.Snapshot(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot: %w", err)
+	}
+
+	m := snapshotToManifest(snap)
+
+	// V1 fallback: if opslog has no data, try legacy manifest
+	if len(m.Tree) == 0 {
+		encKey, err := s.opsKey(ctx)
+		if err != nil {
+			return m, nil
+		}
+		legacy, err := LoadManifest(ctx, s.backend, encKey)
+		if err == nil && len(legacy.Tree) > 0 {
+			return legacy, nil
+		}
+	}
+
+	return m, nil
+}
+
+// writeOp writes an operation to the ops log via OpsLog.
+func (s *Store) writeOp(ctx context.Context, op *Op) error {
+	log, err := s.getOpsLog(ctx)
+	if err != nil {
+		return fmt.Errorf("ops log: %w", err)
+	}
+
+	entry := opToEntry(op)
+	if err := log.Append(ctx, &entry); err != nil {
+		return err
+	}
+
+	// Copy back auto-set fields
+	op.Device = entry.Device
+	op.Timestamp = entry.Timestamp
+	op.Seq = entry.Seq
+	op.Client = entry.Client
+	return nil
 }
 
 // Put encrypts and stores file data read from r at the given path.
@@ -548,6 +563,7 @@ func (s *Store) Info(ctx context.Context) (*StoreInfo, error) {
 }
 
 // SaveSnapshot writes the current state as a manifest snapshot.
+// Prefer Compact() which also cleans up old ops and snapshots.
 func (s *Store) SaveSnapshot(ctx context.Context) error {
 	state, err := s.loadCurrentState(ctx)
 	if err != nil {
