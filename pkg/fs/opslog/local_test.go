@@ -312,6 +312,91 @@ func TestLocalInvalidateCache(t *testing.T) {
 	}
 }
 
+func TestLocalAppendLocal(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	log := NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), "dev-a")
+
+	if err := log.AppendLocal(Entry{
+		Type: Put, Path: "a.md", Checksum: "h1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := log.AppendLocal(Entry{
+		Type: Put, Path: "b.md", Checksum: "h2",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := log.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Len() != 2 {
+		t.Fatalf("Len() = %d, want 2", snap.Len())
+	}
+
+	fi, ok := snap.Lookup("a.md")
+	if !ok {
+		t.Fatal("a.md not in snapshot")
+	}
+	if fi.Device != "dev-a" {
+		t.Errorf("Device = %q, want dev-a", fi.Device)
+	}
+	if fi.Checksum != "h1" {
+		t.Errorf("Checksum = %q, want h1", fi.Checksum)
+	}
+	if fi.Seq < 1 {
+		t.Errorf("Seq = %d, want >= 1", fi.Seq)
+	}
+
+	// Seq should increase monotonically
+	fi2, _ := snap.Lookup("b.md")
+	if fi2.Seq <= fi.Seq {
+		t.Errorf("b.md Seq (%d) should be > a.md Seq (%d)", fi2.Seq, fi.Seq)
+	}
+}
+
+func TestLocalAppendLocalSeqRecovery(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ops.jsonl")
+
+	// First session: append entries
+	log1 := NewLocalOpsLog(path, "dev-a")
+	log1.AppendLocal(Entry{Type: Put, Path: "a.md", Checksum: "h1"})
+	log1.AppendLocal(Entry{Type: Put, Path: "b.md", Checksum: "h2"})
+
+	// "Crash" — new instance from same file
+	log2 := NewLocalOpsLog(path, "dev-a")
+
+	// Force rebuild to recover seq
+	log2.InvalidateCache()
+	if _, err := log2.Snapshot(); err != nil {
+		t.Fatal(err)
+	}
+
+	// New appends should have higher seq than recovered entries
+	log2.AppendLocal(Entry{Type: Put, Path: "c.md", Checksum: "h3"})
+	snap, _ := log2.Snapshot()
+	fiB, _ := snap.Lookup("b.md")
+	fiC, _ := snap.Lookup("c.md")
+	if fiC.Seq <= fiB.Seq {
+		t.Errorf("c.md Seq (%d) should be > b.md Seq (%d) after recovery", fiC.Seq, fiB.Seq)
+	}
+}
+
+func TestLocalAppendLocalDoesNotAffectLastRemoteOp(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	log := NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), "dev-a")
+
+	log.AppendLocal(Entry{Type: Put, Path: "a.md", Checksum: "h1"})
+	if got := log.LastRemoteOp(); got != 0 {
+		t.Errorf("LastRemoteOp() = %d, want 0 (local entries should not affect)", got)
+	}
+}
+
 func TestLocalSetLastRemoteOpPreservedAcrossRebuild(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
