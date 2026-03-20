@@ -121,8 +121,13 @@ func TestDaemonV2RapidFileCreation(t *testing.T) {
 	daemon, localDir := newTestDaemonV2WithStore(t, store)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go daemon.Run(ctx)
+	var wg3 sync.WaitGroup
+	wg3.Add(1)
+	go func() {
+		defer wg3.Done()
+		daemon.Run(ctx)
+	}()
+	defer func() { cancel(); wg3.Wait() }()
 	time.Sleep(500 * time.Millisecond) // let goroutines start
 
 	// Create 20 files as fast as possible
@@ -159,8 +164,13 @@ func TestDaemonV2RapidFileDeletion(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go daemon.Run(ctx)
+	var wg4 sync.WaitGroup
+	wg4.Add(1)
+	go func() {
+		defer wg4.Done()
+		daemon.Run(ctx)
+	}()
+	defer func() { cancel(); wg4.Wait() }()
 
 	// Wait for files to appear in manifest
 	deadline := time.Now().Add(3 * time.Second)
@@ -267,8 +277,13 @@ func TestDaemonV2NoConcurrentDeadlock(t *testing.T) {
 	daemon, localDir := newTestDaemonV2WithStore(t, store)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go daemon.Run(ctx)
+	var wg5 sync.WaitGroup
+	wg5.Add(1)
+	go func() {
+		defer wg5.Done()
+		daemon.Run(ctx)
+	}()
+	defer func() { cancel(); wg5.Wait() }()
 	time.Sleep(500 * time.Millisecond)
 
 	// Hammer with concurrent creates and deletes
