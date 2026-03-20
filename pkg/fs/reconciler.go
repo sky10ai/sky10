@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/sky10/sky10/pkg/fs/opslog"
 )
@@ -153,7 +154,11 @@ func (r *Reconciler) downloadFile(ctx context.Context, path string, fi opslog.Fi
 	}
 	tmpPath := tmpFile.Name()
 
-	dlErr := r.store.GetChunks(ctx, fi.Chunks, fi.Namespace, tmpFile)
+	// Per-file download timeout: 2 minutes. Prevents a hung S3 GET
+	// from blocking the reconciler forever.
+	dlCtx, dlCancel := context.WithTimeout(ctx, 2*time.Minute)
+	dlErr := r.store.GetChunks(dlCtx, fi.Chunks, fi.Namespace, tmpFile)
+	dlCancel()
 	if dlErr != nil {
 		tmpFile.Close()
 		os.Remove(tmpPath)
