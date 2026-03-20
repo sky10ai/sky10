@@ -20,6 +20,8 @@ protocol SkyClientProtocol {
     func generateInvite() async throws -> String
     func joinInvite(inviteID: String) async throws -> String
     func syncActivity() async throws -> [SkyClient.SyncActivityEntry]
+    func reset() async throws -> SkyClient.ResetResult
+    func compact(keep: Int) async throws -> SkyClient.CompactResult
     func debugDump() async throws -> SkyClient.DebugDumpResult
 }
 

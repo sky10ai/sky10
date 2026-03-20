@@ -15,6 +15,7 @@ class AppState: ObservableObject {
     let client: SkyClientProtocol
     let daemonManager: DaemonManager
     let activityLog = ActivityLog()
+    private var refreshTask: Task<Void, Never>?
 
     init(client: SkyClientProtocol = SkyClient(), daemonManager: DaemonManager = DaemonManager()) {
         self.client = client
@@ -47,11 +48,10 @@ class AppState: ObservableObject {
             let rpc = RPCClient()
             while true {
                 await rpc.subscribe { event in
-                    Task { @MainActor in
+                    Task { @MainActor [weak self] in
+                        guard let self = self else { return }
                         if event == "state.changed" {
-                            await self.loadDrives()
-                            await self.loadActivity()
-                            await self.refresh()
+                            self.debouncedRefresh()
                         } else if event == "sync.active" {
                             self.syncState = .syncing
                         }
@@ -60,6 +60,18 @@ class AppState: ObservableObject {
                 // Connection dropped — reconnect after 2 seconds
                 try? await Task.sleep(for: .seconds(2))
             }
+        }
+    }
+
+    /// Coalesce rapid state.changed events into a single refresh.
+    private func debouncedRefresh() {
+        refreshTask?.cancel()
+        refreshTask = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            await loadDrives()
+            await loadActivity()
+            await refresh()
         }
     }
 

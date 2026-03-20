@@ -59,6 +59,12 @@ private class PreviewSkyClient: SkyClientProtocol {
     func generateInvite() async throws -> String { "sky10invite_preview" }
     func joinInvite(inviteID: String) async throws -> String { "approved" }
     func syncActivity() async throws -> [SkyClient.SyncActivityEntry] { [] }
+    func reset() async throws -> SkyClient.ResetResult {
+        SkyClient.ResetResult(s3Deleted: 0, localDeleted: 0)
+    }
+    func compact(keep: Int) async throws -> SkyClient.CompactResult {
+        SkyClient.CompactResult(opsRemoved: 0, opsKept: 0, chunksRemoved: 0)
+    }
     func debugDump() async throws -> SkyClient.DebugDumpResult {
         SkyClient.DebugDumpResult(status: "mock", key: "debug/mock/test.json", size: 0)
     }

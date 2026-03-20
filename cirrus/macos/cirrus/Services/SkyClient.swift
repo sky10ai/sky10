@@ -211,6 +211,38 @@ class SkyClient {
         return result.pending
     }
 
+    // MARK: - Maintenance
+
+    struct ResetResult: Codable {
+        let s3Deleted: Int
+        let localDeleted: Int
+
+        enum CodingKeys: String, CodingKey {
+            case s3Deleted = "s3_deleted"
+            case localDeleted = "local_deleted"
+        }
+    }
+
+    func reset() async throws -> ResetResult {
+        return try await rpc.call("skyfs.reset")
+    }
+
+    struct CompactResult: Codable {
+        let opsRemoved: Int
+        let opsKept: Int
+        let chunksRemoved: Int
+
+        enum CodingKeys: String, CodingKey {
+            case opsRemoved = "ops_removed"
+            case opsKept = "ops_kept"
+            case chunksRemoved = "chunks_removed"
+        }
+    }
+
+    func compact(keep: Int = 3) async throws -> CompactResult {
+        return try await rpc.call("skyfs.compact", params: ["keep": keep])
+    }
+
     // MARK: - Debug
 
     struct DebugDumpResult: Codable {

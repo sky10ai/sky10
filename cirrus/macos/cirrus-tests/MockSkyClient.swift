@@ -120,6 +120,14 @@ class MockSkyClient: SkyClientProtocol {
         return []
     }
 
+    func reset() async throws -> SkyClient.ResetResult {
+        return SkyClient.ResetResult(s3Deleted: 0, localDeleted: 0)
+    }
+
+    func compact(keep: Int) async throws -> SkyClient.CompactResult {
+        return SkyClient.CompactResult(opsRemoved: 0, opsKept: 0, chunksRemoved: 0)
+    }
+
     func debugDump() async throws -> SkyClient.DebugDumpResult {
         return SkyClient.DebugDumpResult(status: "mock", key: "debug/mock/test.json", size: 0)
     }

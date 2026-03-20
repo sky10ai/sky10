@@ -110,6 +110,12 @@ struct DevToolsView: View {
                                     Task { await compact() }
                                 }
                                 .controlSize(.small)
+
+                                Button("Reset All") {
+                                    Task { await resetAll() }
+                                }
+                                .controlSize(.small)
+                                .foregroundStyle(.red)
                             }
                         }
                         .padding(.vertical, 4)
@@ -118,7 +124,7 @@ struct DevToolsView: View {
                     // Debug Dump
                     GroupBox("Debug Dump") {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Upload device state (drives, outbox, inbox, state, local files, ops) to S3 under debug/")
+                            Text("Upload device state (drives, ops log, outbox, local files) to S3 under debug/")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
@@ -227,8 +233,22 @@ struct DevToolsView: View {
 
     private func compact() async {
         opsCount = "Compacting..."
-        // TODO: Add RPC for compact
-        opsCount = "Done (restart daemon to take effect)"
+        do {
+            let result = try await appState.client.compact(keep: 3)
+            opsCount = "Removed \(result.opsRemoved) ops, kept \(result.opsKept)"
+        } catch {
+            opsCount = "Error: \(error.localizedDescription)"
+        }
+    }
+
+    private func resetAll() async {
+        do {
+            let result = try await appState.client.reset()
+            opsCount = "Reset: \(result.s3Deleted) S3 + \(result.localDeleted) local deleted"
+            appState.daemonManager.restart()
+        } catch {
+            opsCount = "Error: \(error.localizedDescription)"
+        }
     }
 
     private func uploadDebugDump() async {
