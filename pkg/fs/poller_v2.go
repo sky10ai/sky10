@@ -73,8 +73,10 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 	maxTs := cursor
 
 	for _, e := range entries {
-		// Skip our own ops
-		if e.Device == p.store.deviceID {
+		// Skip our own ops — they're already in the local log.
+		// Exception: on a fresh log (cursor=0) we must import everything,
+		// including our own ops, to recover state after ops.jsonl deletion.
+		if cursor > 0 && e.Device == p.store.deviceID {
 			if e.Timestamp > maxTs {
 				maxTs = e.Timestamp
 			}

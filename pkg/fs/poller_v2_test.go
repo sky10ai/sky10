@@ -49,24 +49,43 @@ func TestPollerV2FetchesRemoteOps(t *testing.T) {
 
 func TestPollerV2SkipsOwnOps(t *testing.T) {
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateDeviceKey()
-	store := New(backend, id)
+	idA, _ := GenerateDeviceKey()
+	idB, _ := GenerateDeviceKey()
+	storeA := NewWithDevice(backend, idA, "device-a")
+	storeB := NewWithDevice(backend, idB, "device-b")
 
 	ctx := context.Background()
-	store.Put(ctx, "my-file.txt", strings.NewReader("my data"))
+	storeA.SetNamespace("Test")
+	storeA.Put(ctx, "from-a.txt", strings.NewReader("a data"))
+
+	simulateApprove(t, ctx, backend, idA, idB)
+
+	// B uploads its own file
+	storeB.SetNamespace("Test")
+	storeB.Put(ctx, "from-b.txt", strings.NewReader("b data"))
 
 	tmpDir := t.TempDir()
-	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), store.deviceID)
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), storeB.deviceID)
 
-	poller := NewPollerV2(store, localLog, time.Hour, "", nil)
+	// First poll (cursor=0) — imports everything including own ops
+	poller := NewPollerV2(storeB, localLog, time.Hour, "Test", nil)
 	poller.pollOnce(ctx)
 
-	// Should not append our own ops
-	if _, ok := localLog.Lookup("my-file.txt"); ok {
-		t.Error("own ops should not be appended to local log")
+	if _, ok := localLog.Lookup("from-a.txt"); !ok {
+		t.Error("from-a.txt should be in local log")
 	}
 
-	// But cursor should still advance past own ops
+	// Upload another file from B
+	time.Sleep(time.Second)
+	storeB.Put(ctx, "from-b-2.txt", strings.NewReader("b data 2"))
+
+	// Second poll (cursor > 0) — should skip B's own new op
+	poller.pollOnce(ctx)
+	if _, ok := localLog.Lookup("from-b-2.txt"); ok {
+		t.Error("from-b-2.txt should NOT be in local log (own op, cursor > 0)")
+	}
+
+	// Cursor should still advance past own ops
 	if localLog.LastRemoteOp() == 0 {
 		t.Error("cursor should advance past own ops")
 	}
@@ -181,6 +200,62 @@ func TestPollerV2NamespaceFilter(t *testing.T) {
 	}
 	if _, ok := localLog.Lookup("photos/cat.jpg"); ok {
 		t.Error("photos/cat.jpg should NOT be in local log (wrong namespace)")
+	}
+}
+
+// Regression: when a device deletes ops.jsonl and restarts (fresh local
+// log, cursor=0), the poller must import its OWN ops from S3. Otherwise
+// delete ops from this device are lost and deleted files reappear.
+func TestPollerV2FreshLogImportsOwnOps(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	idA, _ := GenerateDeviceKey()
+	idB, _ := GenerateDeviceKey()
+	storeA := NewWithDevice(backend, idA, "device-a")
+	storeB := NewWithDevice(backend, idB, "device-b")
+
+	ctx := context.Background()
+	storeA.SetNamespace("Test")
+	storeB.SetNamespace("Test")
+
+	// A uploads a file
+	storeA.Put(ctx, "doomed.txt", strings.NewReader("will be deleted"))
+
+	simulateApprove(t, ctx, backend, idA, idB)
+
+	// B polls — picks up the put
+	tmpDir := t.TempDir()
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), storeB.deviceID)
+	poller := NewPollerV2(storeB, localLog, time.Hour, "Test", nil)
+	poller.pollOnce(ctx)
+
+	if _, ok := localLog.Lookup("doomed.txt"); !ok {
+		t.Fatal("doomed.txt not in local log after first poll")
+	}
+
+	// B deletes the file via S3 (simulates outbox worker uploading a delete)
+	time.Sleep(time.Second)
+	storeB.Remove(ctx, "doomed.txt")
+
+	// Also record the delete in B's local log (as WatcherHandler would)
+	localLog.AppendLocal(opslog.Entry{
+		Type: opslog.Delete, Path: "doomed.txt", Namespace: "Test",
+	})
+
+	// Verify local log shows delete
+	if _, ok := localLog.Lookup("doomed.txt"); ok {
+		t.Fatal("doomed.txt should be gone after B's delete")
+	}
+
+	// Simulate ops.jsonl deletion: create a fresh local log (cursor=0)
+	freshLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "fresh-ops.jsonl"), storeB.deviceID)
+	poller2 := NewPollerV2(storeB, freshLog, time.Hour, "Test", nil)
+	poller2.pollOnce(ctx)
+
+	// The delete op from device-b must be imported even though it's
+	// "our own" op. Without the fix, the poller skips it, and doomed.txt
+	// reappears in the snapshot.
+	if _, ok := freshLog.Lookup("doomed.txt"); ok {
+		t.Error("doomed.txt should NOT be in fresh log — device's own delete op was lost")
 	}
 }
 
