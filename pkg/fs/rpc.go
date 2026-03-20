@@ -172,14 +172,25 @@ func (s *RPCServer) broadcastLoop() {
 			"params":  map[string]interface{}{"event": event.Event, "data": event.Data},
 		}
 
+		// Snapshot subscribers under lock, then write without holding it.
+		// Writing to a dead connection can block indefinitely — holding
+		// the lock during that write deadlocks the entire RPC server.
 		s.mu.Lock()
+		subs := make(map[net.Conn]*json.Encoder, len(s.subscribers))
 		for conn, enc := range s.subscribers {
+			subs[conn] = enc
+		}
+		s.mu.Unlock()
+
+		for conn, enc := range subs {
+			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			if err := enc.Encode(msg); err != nil {
+				s.mu.Lock()
 				delete(s.subscribers, conn)
+				s.mu.Unlock()
 				conn.Close()
 			}
 		}
-		s.mu.Unlock()
 	}
 }
 
