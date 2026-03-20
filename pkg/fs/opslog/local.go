@@ -129,6 +129,68 @@ func (l *LocalOpsLog) SetLastRemoteOp(ts int64) {
 	l.mu.Unlock()
 }
 
+// Compact rewrites the ops.jsonl file with one synthetic put per file
+// in the current snapshot. All intermediate ops (superseded puts, deletes
+// for files that were re-created, etc.) are dropped. The snapshot is
+// unchanged after compaction.
+//
+// Uses atomic write (temp file + rename) so a crash mid-compaction
+// doesn't lose data.
+func (l *LocalOpsLog) Compact() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	// Ensure we have a snapshot
+	if l.cache == nil {
+		if _, err := l.rebuildLocked(); err != nil {
+			return err
+		}
+	}
+
+	// Convert snapshot files to entries
+	tmpPath := l.path + ".compact"
+	f, err := os.Create(tmpPath)
+	if err != nil {
+		return fmt.Errorf("creating compact file: %w", err)
+	}
+
+	for path, fi := range l.cache.files {
+		e := Entry{
+			Type:      Put,
+			Path:      path,
+			Chunks:    fi.Chunks,
+			Size:      fi.Size,
+			Checksum:  fi.Checksum,
+			Namespace: fi.Namespace,
+			Device:    fi.Device,
+			Timestamp: fi.Modified.Unix(),
+			Seq:       fi.Seq,
+		}
+		data, err := json.Marshal(e)
+		if err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("marshaling entry: %w", err)
+		}
+		data = append(data, '\n')
+		if _, err := f.Write(data); err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return err
+		}
+	}
+	f.Close()
+
+	// Atomic replace
+	if err := os.Rename(tmpPath, l.path); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("replacing ops log: %w", err)
+	}
+
+	// Cache is still valid — snapshot unchanged.
+	return nil
+}
+
 // InvalidateCache forces the next Snapshot call to rebuild from file.
 func (l *LocalOpsLog) InvalidateCache() {
 	l.mu.Lock()

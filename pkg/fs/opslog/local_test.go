@@ -421,3 +421,142 @@ func TestLocalSetLastRemoteOpPreservedAcrossRebuild(t *testing.T) {
 		t.Errorf("LastRemoteOp() = %d, want 500 (should preserve SetLastRemoteOp)", got)
 	}
 }
+
+func TestLocalCompact(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ops.jsonl")
+	log := NewLocalOpsLog(path, "dev-a")
+
+	// Write many entries, some superseded
+	log.AppendLocal(Entry{Type: Put, Path: "a.md", Checksum: "v1"})
+	log.AppendLocal(Entry{Type: Put, Path: "a.md", Checksum: "v2"}) // supersedes v1
+	log.AppendLocal(Entry{Type: Put, Path: "b.md", Checksum: "h1"})
+	log.AppendLocal(Entry{Type: Delete, Path: "b.md"}) // deletes b.md
+	log.AppendLocal(Entry{Type: Put, Path: "c.md", Checksum: "h2"})
+	log.Append(Entry{Type: Put, Path: "d.md", Checksum: "h3", Device: "dev-b", Timestamp: 200, Seq: 1})
+
+	// 6 entries on disk, snapshot has 3 files (a=v2, c, d)
+	snap1, _ := log.Snapshot()
+	if snap1.Len() != 3 {
+		t.Fatalf("pre-compact Len() = %d, want 3", snap1.Len())
+	}
+
+	// Get file size before compaction
+	info1, _ := os.Stat(path)
+	sizeBefore := info1.Size()
+
+	// Compact
+	if err := log.Compact(); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+
+	// File should be smaller (3 entries instead of 6)
+	info2, _ := os.Stat(path)
+	sizeAfter := info2.Size()
+	if sizeAfter >= sizeBefore {
+		t.Errorf("file did not shrink: before=%d after=%d", sizeBefore, sizeAfter)
+	}
+
+	// Snapshot should be identical
+	snap2, _ := log.Snapshot()
+	if snap2.Len() != 3 {
+		t.Fatalf("post-compact Len() = %d, want 3", snap2.Len())
+	}
+	if fi, ok := snap2.Lookup("a.md"); !ok || fi.Checksum != "v2" {
+		t.Error("a.md not correct after compact")
+	}
+	if _, ok := snap2.Lookup("b.md"); ok {
+		t.Error("b.md should still be deleted after compact")
+	}
+	if fi, ok := snap2.Lookup("c.md"); !ok || fi.Checksum != "h2" {
+		t.Error("c.md not correct after compact")
+	}
+	if fi, ok := snap2.Lookup("d.md"); !ok || fi.Checksum != "h3" {
+		t.Error("d.md not correct after compact")
+	}
+}
+
+func TestLocalCompactSurvivesReload(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ops.jsonl")
+
+	log1 := NewLocalOpsLog(path, "dev-a")
+	log1.AppendLocal(Entry{Type: Put, Path: "x.md", Checksum: "h1"})
+	log1.AppendLocal(Entry{Type: Put, Path: "x.md", Checksum: "h2"})
+	log1.AppendLocal(Entry{Type: Put, Path: "y.md", Checksum: "h3"})
+	log1.Append(Entry{Type: Put, Path: "z.md", Checksum: "h4", Device: "dev-b", Timestamp: 300, Seq: 1})
+	log1.Compact()
+
+	// "Crash" — new instance from compacted file
+	log2 := NewLocalOpsLog(path, "dev-a")
+	snap, err := log2.Snapshot()
+	if err != nil {
+		t.Fatalf("Snapshot after reload: %v", err)
+	}
+	if snap.Len() != 3 {
+		t.Fatalf("Len() = %d, want 3", snap.Len())
+	}
+	if fi, ok := snap.Lookup("x.md"); !ok || fi.Checksum != "h2" {
+		t.Error("x.md not correct after reload")
+	}
+
+	// LastRemoteOp should be recovered from the remote entry
+	if log2.LastRemoteOp() != 300 {
+		t.Errorf("LastRemoteOp() = %d, want 300", log2.LastRemoteOp())
+	}
+
+	// New appends should work on the compacted file
+	log2.AppendLocal(Entry{Type: Put, Path: "new.md", Checksum: "h5"})
+	snap2, _ := log2.Snapshot()
+	if snap2.Len() != 4 {
+		t.Errorf("Len() = %d after append, want 4", snap2.Len())
+	}
+}
+
+func TestLocalCompactEmpty(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ops.jsonl")
+	log := NewLocalOpsLog(path, "dev-a")
+
+	// Compact an empty log
+	if err := log.Compact(); err != nil {
+		t.Fatalf("Compact empty: %v", err)
+	}
+
+	// Should still work
+	snap, _ := log.Snapshot()
+	if snap.Len() != 0 {
+		t.Errorf("Len() = %d, want 0", snap.Len())
+	}
+}
+
+func TestLocalCompactAllDeleted(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ops.jsonl")
+	log := NewLocalOpsLog(path, "dev-a")
+
+	// Put then delete everything
+	log.AppendLocal(Entry{Type: Put, Path: "gone.md", Checksum: "h1"})
+	log.AppendLocal(Entry{Type: Delete, Path: "gone.md"})
+
+	if err := log.Compact(); err != nil {
+		t.Fatal(err)
+	}
+
+	// File should be empty (or near-empty)
+	info, _ := os.Stat(path)
+	if info.Size() > 10 {
+		t.Errorf("compacted file should be tiny, got %d bytes", info.Size())
+	}
+
+	// Reload should work
+	log2 := NewLocalOpsLog(path, "dev-a")
+	snap, _ := log2.Snapshot()
+	if snap.Len() != 0 {
+		t.Errorf("Len() = %d, want 0", snap.Len())
+	}
+}
