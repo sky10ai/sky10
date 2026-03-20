@@ -78,10 +78,11 @@ func New(ctx context.Context, cfg Config) (*Backend, error) {
 		))
 	}
 
-	// HTTP client with transport-level timeouts — context timeouts alone
-	// can't cancel a stuck TCP read.
+	// Transport-level timeouts for connection setup and idle management.
+	// No http.Client.Timeout — that's a wall-clock timeout that kills
+	// active transfers of large files. TCP keepalive (Go default: 30s)
+	// detects dead connections instead.
 	httpClient := &http.Client{
-		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
 			MaxIdleConns:          20,
 			MaxIdleConnsPerHost:   10,
@@ -158,8 +159,8 @@ func (b *Backend) Put(ctx context.Context, key string, r io.Reader, size int64) 
 	defer b.release()
 	b.logger.Debug("s3 PUT", "key", key, "size", size)
 	start := time.Now()
-	ctx, cancel := withTimeout(ctx)
-	defer cancel()
+	// No wall-clock timeout — large chunks need time to upload.
+	// TCP keepalive detects dead connections.
 	_, err := b.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(b.bucket),
 		Key:           aws.String(key),
@@ -183,9 +184,10 @@ func (b *Backend) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	// release happens in cancelOnClose.Close()
 	b.logger.Debug("s3 GET", "key", key)
 	start := time.Now()
-	ctx, cancel := withTimeout(ctx)
-	// Don't defer cancel — the caller needs the context alive to read the body.
-	// The cancel is attached to the returned closer instead.
+	// No wall-clock timeout — body reads need time for large chunks.
+	// TCP keepalive detects dead connections. Caller's context can
+	// still cancel if needed.
+	ctx, cancel := context.WithCancel(ctx)
 	out, err := b.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(b.bucket),
 		Key:    aws.String(key),
