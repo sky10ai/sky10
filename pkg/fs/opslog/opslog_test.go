@@ -477,6 +477,150 @@ func TestDeleteNonexistent(t *testing.T) {
 	}
 }
 
+// --- CRDT tests ---
+// These test the LWW-Register-Map properties directly via buildSnapshot,
+// proving that conflict resolution is order-independent.
+
+func TestCRDTOrderIndependence(t *testing.T) {
+	t.Parallel()
+
+	// a.md: two puts, dev-b (t=200) should win over dev-a (t=100)
+	// b.md: put then delete, delete (t=300) should win
+	entries := []Entry{
+		{Type: Put, Path: "a.md", Checksum: "v1", Timestamp: 100, Device: "dev-a", Seq: 1},
+		{Type: Put, Path: "a.md", Checksum: "v2", Timestamp: 200, Device: "dev-b", Seq: 1},
+		{Type: Put, Path: "b.md", Checksum: "v3", Timestamp: 150, Device: "dev-a", Seq: 2},
+		{Type: Delete, Path: "b.md", Timestamp: 300, Device: "dev-c", Seq: 1},
+	}
+
+	// All 24 permutations must produce the same snapshot.
+	for i, perm := range permutations(entries) {
+		snap := buildSnapshot(nil, perm)
+		if snap.Len() != 1 {
+			t.Fatalf("perm %d: Len() = %d, want 1", i, snap.Len())
+		}
+		fi, ok := snap.Lookup("a.md")
+		if !ok {
+			t.Fatalf("perm %d: a.md missing", i)
+		}
+		if fi.Checksum != "v2" {
+			t.Errorf("perm %d: a.md checksum = %q, want v2", i, fi.Checksum)
+		}
+		if _, ok := snap.Lookup("b.md"); ok {
+			t.Errorf("perm %d: b.md should be deleted", i)
+		}
+	}
+}
+
+func TestCRDTDeleteBeatsOlderPut(t *testing.T) {
+	t.Parallel()
+
+	del := Entry{Type: Delete, Path: "x.md", Timestamp: 200, Device: "dev-a", Seq: 1}
+	put := Entry{Type: Put, Path: "x.md", Checksum: "v1", Timestamp: 100, Device: "dev-b", Seq: 1}
+
+	// Delete processed first, then older put — put should be rejected.
+	snap := buildSnapshot(nil, []Entry{del, put})
+	if _, ok := snap.Lookup("x.md"); ok {
+		t.Error("x.md should be deleted (delete t=200 beats put t=100)")
+	}
+
+	// Reverse order — same result.
+	snap2 := buildSnapshot(nil, []Entry{put, del})
+	if _, ok := snap2.Lookup("x.md"); ok {
+		t.Error("x.md should be deleted regardless of order")
+	}
+}
+
+func TestCRDTPutBeatsOlderDelete(t *testing.T) {
+	t.Parallel()
+
+	put := Entry{Type: Put, Path: "x.md", Checksum: "v1", Timestamp: 200, Device: "dev-a", Seq: 1}
+	del := Entry{Type: Delete, Path: "x.md", Timestamp: 100, Device: "dev-b", Seq: 1}
+
+	// Put first, then older delete — delete should be rejected.
+	snap := buildSnapshot(nil, []Entry{put, del})
+	fi, ok := snap.Lookup("x.md")
+	if !ok {
+		t.Fatal("x.md should exist (put t=200 beats delete t=100)")
+	}
+	if fi.Checksum != "v1" {
+		t.Errorf("checksum = %q, want v1", fi.Checksum)
+	}
+
+	// Reverse order — same result.
+	snap2 := buildSnapshot(nil, []Entry{del, put})
+	fi2, ok := snap2.Lookup("x.md")
+	if !ok {
+		t.Fatal("x.md should exist regardless of order")
+	}
+	if fi2.Checksum != "v1" {
+		t.Errorf("checksum = %q, want v1", fi2.Checksum)
+	}
+}
+
+func TestCRDTSameTimestampTiebreak(t *testing.T) {
+	t.Parallel()
+
+	// Same timestamp — higher device ID wins (lexicographic tiebreak).
+	a := Entry{Type: Put, Path: "x.md", Checksum: "from-a", Timestamp: 100, Device: "dev-a", Seq: 1}
+	b := Entry{Type: Put, Path: "x.md", Checksum: "from-b", Timestamp: 100, Device: "dev-b", Seq: 1}
+
+	for i, order := range [][]Entry{{a, b}, {b, a}} {
+		snap := buildSnapshot(nil, order)
+		fi, ok := snap.Lookup("x.md")
+		if !ok {
+			t.Fatalf("order %d: x.md missing", i)
+		}
+		if fi.Checksum != "from-b" {
+			t.Errorf("order %d: checksum = %q, want from-b (dev-b > dev-a)", i, fi.Checksum)
+		}
+	}
+}
+
+func TestCRDTClockSurvivesCompaction(t *testing.T) {
+	t.Parallel()
+
+	// Base snapshot has x.md from dev-b at t=200.
+	base := buildSnapshot(nil, []Entry{
+		{Type: Put, Path: "x.md", Checksum: "base", Timestamp: 200, Device: "dev-b", Seq: 1},
+	})
+
+	// Same timestamp from dev-a should NOT win (dev-a < dev-b).
+	snap := buildSnapshot(base, []Entry{
+		{Type: Put, Path: "x.md", Checksum: "stale", Timestamp: 200, Device: "dev-a", Seq: 1},
+	})
+	fi, _ := snap.Lookup("x.md")
+	if fi.Checksum != "base" {
+		t.Errorf("checksum = %q, want 'base' (base clock should win)", fi.Checksum)
+	}
+
+	// Higher timestamp should win.
+	snap2 := buildSnapshot(base, []Entry{
+		{Type: Put, Path: "x.md", Checksum: "newer", Timestamp: 300, Device: "dev-a", Seq: 1},
+	})
+	fi2, _ := snap2.Lookup("x.md")
+	if fi2.Checksum != "newer" {
+		t.Errorf("checksum = %q, want 'newer' (higher timestamp wins)", fi2.Checksum)
+	}
+}
+
+// permutations returns all orderings of the given entries.
+func permutations(entries []Entry) [][]Entry {
+	if len(entries) <= 1 {
+		return [][]Entry{append([]Entry{}, entries...)}
+	}
+	var result [][]Entry
+	for i, e := range entries {
+		rest := make([]Entry, 0, len(entries)-1)
+		rest = append(rest, entries[:i]...)
+		rest = append(rest, entries[i+1:]...)
+		for _, p := range permutations(rest) {
+			result = append(result, append([]Entry{e}, p...))
+		}
+	}
+	return result
+}
+
 func TestLastWriterWins(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
