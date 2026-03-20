@@ -11,28 +11,28 @@ import (
 	"github.com/sky10/sky10/pkg/fs/opslog"
 )
 
-// DaemonV2_5 is the inbox/outbox sync daemon. All components communicate
-// through persistent JSONL logs on disk. No goroutine blocks another.
+// DaemonV2_5 is the sync daemon. Local ops log is the single source of
+// truth. The reconciler applies remote changes by diffing the CRDT
+// snapshot against the local filesystem.
 //
 // Goroutines:
-//   - watcherLoop: kqueue → WatcherHandler → outbox.jsonl
+//   - watcherLoop: kqueue → WatcherHandler → ops.jsonl + outbox.jsonl
 //   - outboxWorker.Run: outbox.jsonl → S3
-//   - inboxWorker.Run: inbox.jsonl → filesystem
-//   - pollerV2.Run: S3 → inbox.jsonl
+//   - reconciler.Run: snapshot vs filesystem → download/delete
+//   - pollerV2.Run: S3 → ops.jsonl → poke reconciler
 type DaemonV2_5 struct {
 	watcher        *Watcher
 	watcherHandler *WatcherHandler
 	outboxWorker   *OutboxWorker
-	inboxWorker    *InboxWorker
+	reconciler     *Reconciler
 	poller         *PollerV2
-	state          *DriveState         // still used by inbox worker (until M4)
-	localLog       *opslog.LocalOpsLog // watcher + outbox + poller source of truth
+	localLog       *opslog.LocalOpsLog
 	config         DaemonConfig
 	logger         *slog.Logger
 	onEvent        func(string)
 }
 
-// NewDaemonV2_5 creates the inbox/outbox daemon.
+// NewDaemonV2_5 creates the sync daemon.
 func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*DaemonV2_5, error) {
 	if config.LocalRoot == "" {
 		return nil, fmt.Errorf("LocalRoot is required")
@@ -52,24 +52,24 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 	os.MkdirAll(driveDir, 0700)
 
 	outboxPath := filepath.Join(driveDir, "outbox.jsonl")
-	inboxPath := filepath.Join(driveDir, "inbox.jsonl")
-	statePath := filepath.Join(driveDir, "state.json")
 	opsLogPath := filepath.Join(driveDir, "ops.jsonl")
 
-	// Load state (still needed for inbox worker until M4)
-	state := LoadDriveStateFromPath(statePath)
-
-	// Create local ops log (source of truth for watcher, outbox, poller)
+	// Create local ops log (single source of truth)
 	localLog := opslog.NewLocalOpsLog(opsLogPath, store.deviceID)
 
-	// Create logs
+	// Create outbox
 	outbox := NewSyncLog[OutboxEntry](outboxPath)
-	inbox := NewSyncLog[InboxEntry](inboxPath)
 
 	// Namespace
 	ns := ""
 	if len(config.Namespaces) > 0 {
 		ns = config.Namespaces[0]
+	}
+
+	// Ignore matcher
+	var ignoreFunc func(string) bool
+	if config.IgnoreFunc != nil {
+		ignoreFunc = config.IgnoreFunc
 	}
 
 	// Watcher
@@ -84,24 +84,23 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 	// Outbox worker
 	outboxWorker := NewOutboxWorker(store, outbox, localLog, logger)
 
-	// Inbox worker
-	inboxWorker := NewInboxWorker(store, inbox, state, config.LocalRoot, logger)
+	// Reconciler (replaces inbox worker)
+	reconciler := NewReconciler(store, localLog, config.LocalRoot, ignoreFunc, logger)
 
 	// Poller
 	pollInterval := time.Duration(config.PollSeconds) * time.Second
-	poller := NewPollerV2(store, inbox, localLog, pollInterval, ns, logger)
+	poller := NewPollerV2(store, localLog, pollInterval, ns, logger)
 
 	// Wire poke callbacks
 	watcherHandler.pokeOutbox = outboxWorker.Poke
-	poller.pokeInbox = inboxWorker.Poke
+	poller.pokeReconciler = reconciler.Poke
 
 	d := &DaemonV2_5{
 		watcher:        watcher,
 		watcherHandler: watcherHandler,
 		outboxWorker:   outboxWorker,
-		inboxWorker:    inboxWorker,
+		reconciler:     reconciler,
 		poller:         poller,
-		state:          state,
 		localLog:       localLog,
 		config:         config,
 		logger:         logger,
@@ -111,7 +110,7 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 	// Wire event callbacks
 	watcherHandler.onEvent = d.emitEvent
 	outboxWorker.onEvent = d.emitEvent
-	inboxWorker.onEvent = d.emitEvent
+	reconciler.onEvent = d.emitEvent
 
 	return d, nil
 }
@@ -129,7 +128,7 @@ func (d *DaemonV2_5) Run(ctx context.Context) error {
 
 	// Start workers
 	go d.outboxWorker.Run(ctx)
-	go d.inboxWorker.Run(ctx)
+	go d.reconciler.Run(ctx)
 	go d.poller.Run(ctx)
 	go d.watcherLoop(ctx)
 
@@ -137,15 +136,14 @@ func (d *DaemonV2_5) Run(ctx context.Context) error {
 	<-ctx.Done()
 	d.logger.Info("daemon v2.5 shutting down")
 	d.watcher.Close()
-	d.state.Save()
 	return nil
 }
 
-// SyncOnce does a one-shot sync: seed state, poll remote, drain queues.
+// SyncOnce does a one-shot sync: seed, poll remote, reconcile, drain outbox.
 func (d *DaemonV2_5) SyncOnce(ctx context.Context) {
 	d.seedStateFromDisk()
 	d.poller.pollOnce(ctx)
-	d.inboxWorker.drain(ctx)
+	d.reconciler.reconcile(ctx)
 	d.outboxWorker.drain(ctx)
 }
 
