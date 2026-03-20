@@ -1,0 +1,601 @@
+// Package opslog provides an append-only encrypted operations log backed
+// by a storage backend. It is the single source of truth for file state
+// in skyfs: every put and delete is an entry in the log, and the current
+// file tree is the result of replaying all entries.
+//
+// The log is encrypted at rest. Each entry is wrapped in an OpEnvelope
+// that carries schema version and device metadata in plaintext so
+// compatibility can be checked without decryption.
+//
+// Snapshots are periodic materializations of the full state, stored
+// alongside the log. They accelerate Snapshot() by allowing the log to
+// be replayed from a recent checkpoint instead of from the beginning.
+package opslog
+
+import (
+	"bytes"
+	"context"
+	"encoding/binary"
+	"encoding/json"
+	"fmt"
+	"io"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/sky10/sky10/pkg/adapter"
+	skykey "github.com/sky10/sky10/pkg/key"
+)
+
+// SchemaVersion must match the schema major version written in ops.
+// Ops with a higher major version are rejected.
+const SchemaVersion = "1.0.0"
+
+// EntryType is the kind of operation.
+type EntryType string
+
+const (
+	Put    EntryType = "put"
+	Delete EntryType = "delete"
+)
+
+// Entry is a single operation in the append-only log.
+// JSON tags are wire-compatible with the existing ops/ format on S3.
+type Entry struct {
+	Type         EntryType `json:"op"`
+	Path         string    `json:"path"`
+	Chunks       []string  `json:"chunks,omitempty"`
+	Size         int64     `json:"size,omitempty"`
+	Checksum     string    `json:"checksum,omitempty"`
+	PrevChecksum string    `json:"prev_checksum,omitempty"`
+	Namespace    string    `json:"namespace,omitempty"`
+	Device       string    `json:"device"`
+	Timestamp    int64     `json:"timestamp"`
+	Seq          int       `json:"seq"`
+	Client       string    `json:"client,omitempty"`
+}
+
+// entryKey returns the S3 key for this entry.
+// Format: ops/{timestamp}-{device}-{seq}.enc
+func (e *Entry) entryKey() string {
+	return fmt.Sprintf("ops/%d-%s-%04d.enc", e.Timestamp, e.Device, e.Seq)
+}
+
+// FileInfo describes a file at a point in time.
+type FileInfo struct {
+	Chunks    []string  `json:"chunks"`
+	Size      int64     `json:"size"`
+	Modified  time.Time `json:"modified"`
+	Checksum  string    `json:"checksum"`
+	Namespace string    `json:"namespace"`
+}
+
+// Snapshot is an immutable point-in-time view of the file tree.
+// It is produced by replaying log entries on top of an optional base.
+type Snapshot struct {
+	files   map[string]FileInfo
+	created time.Time
+	updated time.Time
+}
+
+// Lookup returns the FileInfo for path, or false if not present.
+func (s *Snapshot) Lookup(path string) (FileInfo, bool) {
+	fi, ok := s.files[path]
+	return fi, ok
+}
+
+// Paths returns all file paths in sorted order.
+func (s *Snapshot) Paths() []string {
+	paths := make([]string, 0, len(s.files))
+	for p := range s.files {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+// Len returns the number of files.
+func (s *Snapshot) Len() int { return len(s.files) }
+
+// Files returns a copy of the file map. Safe to mutate.
+func (s *Snapshot) Files() map[string]FileInfo {
+	cp := make(map[string]FileInfo, len(s.files))
+	for k, v := range s.files {
+		cp[k] = v
+	}
+	return cp
+}
+
+// Created returns when the earliest snapshot base was created.
+func (s *Snapshot) Created() time.Time { return s.created }
+
+// Updated returns when this snapshot was materialized.
+func (s *Snapshot) Updated() time.Time { return s.updated }
+
+// CompactResult contains stats from a compaction run.
+type CompactResult struct {
+	OpsCompacted     int
+	OpsDeleted       int
+	SnapshotsKept    int
+	SnapshotsDeleted int
+}
+
+// OpsLog is an append-only encrypted operations log backed by a storage
+// backend. It provides the core abstraction for skyfs state: append entries,
+// read entries, and materialize snapshots.
+type OpsLog struct {
+	backend  adapter.Backend
+	encKey   []byte
+	deviceID string
+	clientID string
+	now      func() time.Time // clock function, defaults to time.Now
+
+	mu    sync.Mutex
+	seq   int       // per-session sequence counter
+	cache *Snapshot // cached result of Snapshot()
+}
+
+// New creates a new OpsLog.
+func New(backend adapter.Backend, encKey []byte, deviceID, clientID string) *OpsLog {
+	return &OpsLog{
+		backend:  backend,
+		encKey:   encKey,
+		deviceID: deviceID,
+		clientID: clientID,
+		now:      time.Now,
+	}
+}
+
+// Append encrypts and writes an entry to the log.
+// It sets the Device, Timestamp, Seq, and Client fields automatically.
+func (l *OpsLog) Append(ctx context.Context, e *Entry) error {
+	l.mu.Lock()
+	l.seq++
+	e.Seq = l.seq
+	l.cache = nil // invalidate
+	l.mu.Unlock()
+
+	e.Device = l.deviceID
+	e.Timestamp = l.now().Unix()
+	e.Client = l.clientID
+
+	return writeEntry(ctx, l.backend, e, l.encKey)
+}
+
+// ReadSince returns all entries with timestamps strictly after since,
+// sorted by (timestamp, device, seq) for deterministic replay.
+func (l *OpsLog) ReadSince(ctx context.Context, since int64) ([]Entry, error) {
+	return readEntries(ctx, l.backend, since, l.encKey)
+}
+
+// Snapshot returns the current state by loading the latest stored snapshot
+// and replaying any entries written after it. The result is cached until
+// the next Append or InvalidateCache call.
+func (l *OpsLog) Snapshot(ctx context.Context) (*Snapshot, error) {
+	l.mu.Lock()
+	if l.cache != nil {
+		cached := l.cache
+		l.mu.Unlock()
+		return cached, nil
+	}
+	l.mu.Unlock()
+
+	base, baseTS, err := l.loadLatestSnapshot(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("loading snapshot: %w", err)
+	}
+
+	entries, err := readEntries(ctx, l.backend, baseTS, l.encKey)
+	if err != nil {
+		return nil, fmt.Errorf("reading entries: %w", err)
+	}
+
+	snap := buildSnapshot(base, entries)
+
+	l.mu.Lock()
+	l.cache = snap
+	l.mu.Unlock()
+	return snap, nil
+}
+
+// Compact saves a new snapshot from the current state, deletes all ops
+// (now captured in the snapshot), and prunes old snapshots keeping the
+// last maxSnapshots.
+//
+// Compaction is idempotent: two devices compacting simultaneously read
+// the same entries, replay in the same order, and produce logically
+// identical snapshots.
+func (l *OpsLog) Compact(ctx context.Context, maxSnapshots int) (*CompactResult, error) {
+	if maxSnapshots < 1 {
+		maxSnapshots = 3
+	}
+
+	snap, err := l.Snapshot(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("loading state: %w", err)
+	}
+
+	// Save snapshot
+	if err := l.saveSnapshot(ctx, snap); err != nil {
+		return nil, fmt.Errorf("saving snapshot: %w", err)
+	}
+
+	result := &CompactResult{}
+
+	// Count ops
+	allEntries, err := readEntries(ctx, l.backend, 0, l.encKey)
+	if err != nil {
+		return nil, fmt.Errorf("reading entries: %w", err)
+	}
+	result.OpsCompacted = len(allEntries)
+
+	// Delete all ops (captured in snapshot)
+	opsKeys, err := l.backend.List(ctx, "ops/")
+	if err != nil {
+		return nil, fmt.Errorf("listing ops: %w", err)
+	}
+	for _, key := range opsKeys {
+		if err := l.backend.Delete(ctx, key); err != nil {
+			return nil, fmt.Errorf("deleting op %s: %w", key, err)
+		}
+		result.OpsDeleted++
+	}
+
+	// Prune old snapshots
+	snapKeys, err := l.backend.List(ctx, "manifests/snapshot-")
+	if err != nil {
+		return nil, fmt.Errorf("listing snapshots: %w", err)
+	}
+	sort.Strings(snapKeys)
+
+	if len(snapKeys) > maxSnapshots {
+		for _, key := range snapKeys[:len(snapKeys)-maxSnapshots] {
+			if err := l.backend.Delete(ctx, key); err != nil {
+				return nil, fmt.Errorf("deleting old snapshot %s: %w", key, err)
+			}
+			result.SnapshotsDeleted++
+		}
+	}
+
+	remaining, _ := l.backend.List(ctx, "manifests/snapshot-")
+	result.SnapshotsKept = len(remaining)
+
+	// Invalidate cache so next Snapshot() sees the new baseline
+	l.InvalidateCache()
+
+	return result, nil
+}
+
+// InvalidateCache forces the next Snapshot call to reload from the backend.
+func (l *OpsLog) InvalidateCache() {
+	l.mu.Lock()
+	l.cache = nil
+	l.mu.Unlock()
+}
+
+// --- Snapshot serialization ---
+//
+// Snapshots are stored as encrypted JSON manifests at
+// manifests/snapshot-{timestamp}.enc, wire-compatible with the existing
+// fs.Manifest format.
+
+// manifestJSON is the on-disk format for snapshots, kept compatible with
+// the existing fs.Manifest.
+type manifestJSON struct {
+	Version int                     `json:"version"`
+	Created time.Time               `json:"created"`
+	Updated time.Time               `json:"updated"`
+	Tree    map[string]fileInfoJSON `json:"tree"`
+}
+
+type fileInfoJSON struct {
+	Chunks    []string  `json:"chunks"`
+	Size      int64     `json:"size"`
+	Modified  time.Time `json:"modified"`
+	Checksum  string    `json:"checksum"`
+	Namespace string    `json:"namespace"`
+}
+
+func (l *OpsLog) saveSnapshot(ctx context.Context, snap *Snapshot) error {
+	m := manifestJSON{
+		Version: 1,
+		Created: snap.created,
+		Updated: time.Now().UTC(),
+		Tree:    make(map[string]fileInfoJSON, len(snap.files)),
+	}
+	for path, fi := range snap.files {
+		m.Tree[path] = fileInfoJSON{
+			Chunks:    fi.Chunks,
+			Size:      fi.Size,
+			Modified:  fi.Modified,
+			Checksum:  fi.Checksum,
+			Namespace: fi.Namespace,
+		}
+	}
+
+	data, err := json.Marshal(m)
+	if err != nil {
+		return fmt.Errorf("marshaling snapshot: %w", err)
+	}
+
+	encrypted, err := skykey.Encrypt(data, l.encKey)
+	if err != nil {
+		return fmt.Errorf("encrypting snapshot: %w", err)
+	}
+
+	key := fmt.Sprintf("manifests/snapshot-%d.enc", l.now().Unix())
+	r := bytes.NewReader(encrypted)
+	return l.backend.Put(ctx, key, r, int64(len(encrypted)))
+}
+
+func (l *OpsLog) loadLatestSnapshot(ctx context.Context) (*Snapshot, int64, error) {
+	keys, err := l.backend.List(ctx, "manifests/snapshot-")
+	if err != nil {
+		return nil, 0, fmt.Errorf("listing snapshots: %w", err)
+	}
+
+	if len(keys) == 0 {
+		return nil, 0, nil
+	}
+
+	sort.Strings(keys)
+	latestKey := keys[len(keys)-1]
+
+	rc, err := l.backend.Get(ctx, latestKey)
+	if err != nil {
+		return nil, 0, fmt.Errorf("downloading %s: %w", latestKey, err)
+	}
+	defer rc.Close()
+
+	encrypted, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, 0, fmt.Errorf("reading %s: %w", latestKey, err)
+	}
+
+	data, err := skykey.Decrypt(encrypted, l.encKey)
+	if err != nil {
+		return nil, 0, fmt.Errorf("decrypting %s: %w", latestKey, err)
+	}
+
+	var m manifestJSON
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, 0, fmt.Errorf("parsing %s: %w", latestKey, err)
+	}
+
+	snap := &Snapshot{
+		files:   make(map[string]FileInfo, len(m.Tree)),
+		created: m.Created,
+		updated: m.Updated,
+	}
+	for path, fi := range m.Tree {
+		snap.files[path] = FileInfo{
+			Chunks:    fi.Chunks,
+			Size:      fi.Size,
+			Modified:  fi.Modified,
+			Checksum:  fi.Checksum,
+			Namespace: fi.Namespace,
+		}
+	}
+
+	ts := parseSnapshotTimestamp(latestKey)
+	return snap, ts, nil
+}
+
+// --- Entry read/write ---
+
+// OpEnvelope wire format (22 bytes):
+//
+//	[0:3]   magic     "OPS"
+//	[3]     format    envelope format version (currently 1)
+//	[4:7]   schema    skyfs schema version [major, minor, patch]
+//	[7:15]  timestamp unix timestamp (big-endian int64)
+//	[15:21] device    first 6 bytes of device ID
+//	[21]    op_type   0=put, 1=delete
+//	[22:]   encrypted entry payload
+const envelopeSize = 22
+
+var opMagic = [3]byte{'O', 'P', 'S'}
+
+func writeEntry(ctx context.Context, backend adapter.Backend, e *Entry, encKey []byte) error {
+	data, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling entry: %w", err)
+	}
+
+	encrypted, err := skykey.Encrypt(data, encKey)
+	if err != nil {
+		return fmt.Errorf("encrypting entry: %w", err)
+	}
+
+	blob := makeEnvelope(e, encrypted)
+	r := bytes.NewReader(blob)
+	return backend.Put(ctx, e.entryKey(), r, int64(len(blob)))
+}
+
+func makeEnvelope(e *Entry, encrypted []byte) []byte {
+	sv := parseSemver(SchemaVersion)
+	buf := make([]byte, envelopeSize+len(encrypted))
+
+	copy(buf[0:3], opMagic[:])
+	buf[3] = 1 // format version
+	buf[4] = sv[0]
+	buf[5] = sv[1]
+	buf[6] = sv[2]
+	binary.BigEndian.PutUint64(buf[7:15], uint64(e.Timestamp))
+
+	devBytes := []byte(e.Device)
+	n := 6
+	if len(devBytes) < n {
+		n = len(devBytes)
+	}
+	copy(buf[15:21], devBytes[:n])
+
+	if e.Type == Delete {
+		buf[21] = 1
+	}
+
+	copy(buf[envelopeSize:], encrypted)
+	return buf
+}
+
+func parseEnvelope(data []byte) (encrypted []byte, schemaVer [3]byte, isNew bool) {
+	if len(data) >= envelopeSize &&
+		data[0] == opMagic[0] && data[1] == opMagic[1] && data[2] == opMagic[2] {
+		var sv [3]byte
+		sv[0] = data[4]
+		sv[1] = data[5]
+		sv[2] = data[6]
+		return data[envelopeSize:], sv, true
+	}
+	return data, [3]byte{}, false
+}
+
+func readEntries(ctx context.Context, backend adapter.Backend, since int64, encKey []byte) ([]Entry, error) {
+	keys, err := backend.List(ctx, "ops/")
+	if err != nil {
+		return nil, fmt.Errorf("listing ops: %w", err)
+	}
+
+	var entries []Entry
+	for _, key := range keys {
+		ts := parseEntryTimestamp(key)
+		if ts <= since {
+			continue
+		}
+
+		rc, err := backend.Get(ctx, key)
+		if err != nil {
+			return nil, fmt.Errorf("downloading %s: %w", key, err)
+		}
+
+		raw, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			return nil, fmt.Errorf("reading %s: %w", key, err)
+		}
+
+		encrypted, schemaVer, isNew := parseEnvelope(raw)
+
+		if isNew {
+			codeMajor := semverMajor(SchemaVersion)
+			if int(schemaVer[0]) > codeMajor {
+				return nil, fmt.Errorf("entry %s requires v%d.x (have v%s) — upgrade",
+					key, schemaVer[0], SchemaVersion)
+			}
+		}
+
+		data, err := skykey.Decrypt(encrypted, encKey)
+		if err != nil {
+			return nil, fmt.Errorf("decrypting %s: %w", key, err)
+		}
+
+		var e Entry
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, fmt.Errorf("parsing %s: %w", key, err)
+		}
+
+		entries = append(entries, e)
+	}
+
+	sortEntries(entries)
+	return entries, nil
+}
+
+// --- State materialization ---
+
+func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
+	snap := &Snapshot{
+		files:   make(map[string]FileInfo),
+		created: time.Now().UTC(),
+		updated: time.Now().UTC(),
+	}
+	if base != nil {
+		snap.created = base.created
+		for k, v := range base.files {
+			snap.files[k] = v
+		}
+	}
+
+	for _, e := range entries {
+		switch e.Type {
+		case Put:
+			snap.files[e.Path] = FileInfo{
+				Chunks:    e.Chunks,
+				Size:      e.Size,
+				Modified:  time.Unix(e.Timestamp, 0).UTC(),
+				Checksum:  e.Checksum,
+				Namespace: e.Namespace,
+			}
+		case Delete:
+			delete(snap.files, e.Path)
+		}
+	}
+
+	snap.updated = time.Now().UTC()
+	return snap
+}
+
+// --- Sorting ---
+
+func sortEntries(entries []Entry) {
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Timestamp != entries[j].Timestamp {
+			return entries[i].Timestamp < entries[j].Timestamp
+		}
+		if entries[i].Device != entries[j].Device {
+			return entries[i].Device < entries[j].Device
+		}
+		return entries[i].Seq < entries[j].Seq
+	})
+}
+
+// --- Key parsing helpers ---
+
+func parseEntryTimestamp(key string) int64 {
+	name := strings.TrimPrefix(key, "ops/")
+	name = strings.TrimSuffix(name, ".enc")
+	parts := strings.SplitN(name, "-", 2)
+	if len(parts) < 1 {
+		return 0
+	}
+	var ts int64
+	fmt.Sscanf(parts[0], "%d", &ts)
+	return ts
+}
+
+func parseSnapshotTimestamp(key string) int64 {
+	name := strings.TrimPrefix(key, "manifests/snapshot-")
+	name = strings.TrimSuffix(name, ".enc")
+	var ts int64
+	fmt.Sscanf(name, "%d", &ts)
+	return ts
+}
+
+func parseSemver(v string) [3]byte {
+	parts := strings.SplitN(v, ".", 3)
+	var sv [3]byte
+	if len(parts) >= 1 {
+		n, _ := strconv.Atoi(parts[0])
+		sv[0] = byte(n)
+	}
+	if len(parts) >= 2 {
+		n, _ := strconv.Atoi(parts[1])
+		sv[1] = byte(n)
+	}
+	if len(parts) >= 3 {
+		n, _ := strconv.Atoi(parts[2])
+		sv[2] = byte(n)
+	}
+	return sv
+}
+
+func semverMajor(v string) int {
+	parts := strings.SplitN(v, ".", 2)
+	if len(parts) == 0 {
+		return 0
+	}
+	n, _ := strconv.Atoi(parts[0])
+	return n
+}
