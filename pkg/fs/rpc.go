@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/sky10/sky10/pkg/fs/opslog"
 )
 
 // RPCServer exposes skyfs operations over a Unix domain socket using JSON-RPC 2.0.
@@ -331,12 +333,18 @@ func (s *RPCServer) rpcList(_ context.Context, params json.RawMessage) (interfac
 	files := make([]fileInfo, 0)
 	s.driveManager.mu.Lock()
 	for _, drive := range s.driveManager.drives {
-		state := LoadDriveState(drive.ID)
-		for path, entry := range state.Files {
+		localLog := opslog.NewLocalOpsLog(
+			filepath.Join(driveDataDir(drive.ID), "ops.jsonl"),
+			s.store.deviceID,
+		)
+		snap, err := localLog.Snapshot()
+		if err != nil {
+			continue
+		}
+		for path, fi := range snap.Files() {
 			if p.Prefix != "" && (len(path) < len(p.Prefix) || path[:len(p.Prefix)] != p.Prefix) {
 				continue
 			}
-			// Get size from local filesystem
 			localPath := filepath.Join(drive.LocalPath, filepath.FromSlash(path))
 			var size int64
 			var mod string
@@ -348,9 +356,9 @@ func (s *RPCServer) rpcList(_ context.Context, params json.RawMessage) (interfac
 				Path:      path,
 				Size:      size,
 				Modified:  mod,
-				Checksum:  entry.Checksum,
-				Namespace: entry.Namespace,
-				Chunks:    1,
+				Checksum:  fi.Checksum,
+				Namespace: fi.Namespace,
+				Chunks:    len(fi.Chunks),
 			})
 		}
 	}
@@ -367,9 +375,17 @@ func (s *RPCServer) rpcInfo(_ context.Context) (interface{}, error) {
 	namespaces := make(map[string]bool)
 	s.driveManager.mu.Lock()
 	for _, drive := range s.driveManager.drives {
-		state := LoadDriveState(drive.ID)
-		info.FileCount += len(state.Files)
-		for path := range state.Files {
+		localLog := opslog.NewLocalOpsLog(
+			filepath.Join(driveDataDir(drive.ID), "ops.jsonl"),
+			s.store.deviceID,
+		)
+		snap, err := localLog.Snapshot()
+		if err != nil {
+			continue
+		}
+		snapFiles := snap.Files()
+		info.FileCount += len(snapFiles)
+		for path := range snapFiles {
 			localPath := filepath.Join(drive.LocalPath, filepath.FromSlash(path))
 			if fi, err := os.Stat(localPath); err == nil {
 				info.TotalSize += fi.Size()
@@ -1005,20 +1021,6 @@ func (s *RPCServer) rpcSyncActivity(_ context.Context) (interface{}, error) {
 			}
 		}
 
-		// Read inbox (pending downloads)
-		inbox := NewSyncLog[InboxEntry](filepath.Join(dir, "inbox.jsonl"))
-		if entries, err := inbox.ReadAll(); err == nil {
-			for _, e := range entries {
-				pending = append(pending, activityEntry{
-					Direction: "down",
-					Op:        string(e.Op),
-					Path:      e.Path,
-					DriveID:   id,
-					DriveName: d.Name,
-					Timestamp: e.Timestamp,
-				})
-			}
-		}
 	}
 
 	return map[string]interface{}{"pending": pending}, nil
@@ -1061,12 +1063,12 @@ func (s *RPCServer) rpcDebugDump(ctx context.Context) (interface{}, error) {
 
 		dir := driveDataDir(id)
 
-		// State (local file read)
-		statePath := filepath.Join(dir, "state.json")
-		if raw, err := os.ReadFile(statePath); err == nil {
-			var state interface{}
-			json.Unmarshal(raw, &state)
-			dd["state"] = state
+		// Ops log snapshot (local file read)
+		localLog := opslog.NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), s.store.deviceID)
+		if snap, err := localLog.Snapshot(); err == nil {
+			dd["snapshot_files"] = snap.Files()
+			dd["snapshot_file_count"] = snap.Len()
+			dd["last_remote_op"] = localLog.LastRemoteOp()
 		}
 
 		// Outbox (local file read)
@@ -1074,13 +1076,6 @@ func (s *RPCServer) rpcDebugDump(ctx context.Context) (interface{}, error) {
 		if entries, err := outbox.ReadAll(); err == nil {
 			dd["outbox"] = entries
 			dd["outbox_count"] = len(entries)
-		}
-
-		// Inbox (local file read)
-		inbox := NewSyncLog[InboxEntry](filepath.Join(dir, "inbox.jsonl"))
-		if entries, err := inbox.ReadAll(); err == nil {
-			dd["inbox"] = entries
-			dd["inbox_count"] = len(entries)
 		}
 
 		// Local files on disk
