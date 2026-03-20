@@ -2,6 +2,7 @@
 
 | Date | Title | Summary |
 |------|-------|---------|
+| 20 | [Checksum Fix & Cirrus Stability](20-Checksum-Fix-And-Cirrus-Stability.md) | Fix cross-device echo loop (checksum scheme mismatch), syncStatus flood, reset/compact UI — v0.10.1, v0.10.2 |
 | 19 | [V3: Local Ops Log + CRDT](19-V3-Local-Ops-Log-CRDT.md) | LocalOpsLog replaces DriveState + InboxWorker, Reconciler, CRDT snapshot, local compaction — v0.10.0 |
 | 18 | [Daemon V2.5: Inbox/Outbox](18-Daemon-V2.5-Inbox-Outbox.md) | Persistent JSONL queues, filesystem-direct browser, activity view, sync status overlay, 7 new daemon tests |
 | 18 | [Daemon V2: Channel Architecture](18-Daemon-V2-Channel-Architecture.md) | Four goroutines, three channels. S3 isolated from UI. Push events. Stable device ID. Local-first manifest updates. |
