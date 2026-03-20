@@ -1,10 +1,12 @@
 // Package transfer provides streaming io.Reader/io.Writer wrappers
-// with progress callbacks and idle timeout detection.
+// with progress tracking and idle timeout detection. Progress updates
+// are non-blocking — the latest state is stored atomically and can be
+// polled, or delivered via a non-blocking channel send.
 package transfer
 
 import (
 	"io"
-	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -14,31 +16,25 @@ type Progress struct {
 	Total int64 // total expected bytes (-1 if unknown)
 }
 
-// OnProgress is called during reads/writes with current progress.
-type OnProgress func(Progress)
-
-// Reader wraps an io.Reader with progress reporting and idle timeout.
-// If no bytes are read for IdleTimeout, the read returns an error.
+// Reader wraps an io.Reader with progress tracking and idle timeout.
 type Reader struct {
 	r           io.Reader
-	onProgress  OnProgress
+	total       int64
+	bytes       atomic.Int64
+	lastRead    atomic.Int64 // unix nano
 	idleTimeout time.Duration
-
-	mu       sync.Mutex
-	bytes    int64
-	total    int64
-	lastRead time.Time
+	progress    chan Progress // non-blocking progress updates
 }
 
 // NewReader wraps r with progress tracking.
 // total is the expected byte count (-1 if unknown).
-func NewReader(r io.Reader, total int64, onProgress OnProgress) *Reader {
-	return &Reader{
-		r:          r,
-		onProgress: onProgress,
-		total:      total,
-		lastRead:   time.Now(),
+func NewReader(r io.Reader, total int64) *Reader {
+	tr := &Reader{
+		r:     r,
+		total: total,
 	}
+	tr.lastRead.Store(time.Now().UnixNano())
+	return tr
 }
 
 // SetIdleTimeout sets the max duration with no bytes before Read returns
@@ -47,25 +43,25 @@ func (r *Reader) SetIdleTimeout(d time.Duration) {
 	r.idleTimeout = d
 }
 
+// Progress returns a channel that receives non-blocking progress updates.
+// The channel has a buffer of 1 — slow consumers get the latest state,
+// intermediate updates are dropped. Must be called before reading starts.
+func (r *Reader) Progress() <-chan Progress {
+	r.progress = make(chan Progress, 1)
+	return r.progress
+}
+
 // Read implements io.Reader.
 func (r *Reader) Read(p []byte) (int, error) {
 	n, err := r.r.Read(p)
 	if n > 0 {
-		r.mu.Lock()
-		r.bytes += int64(n)
-		r.lastRead = time.Now()
-		bytes := r.bytes
-		r.mu.Unlock()
-
-		if r.onProgress != nil {
-			r.onProgress(Progress{Bytes: bytes, Total: r.total})
-		}
+		bytes := r.bytes.Add(int64(n))
+		r.lastRead.Store(time.Now().UnixNano())
+		r.emit(bytes)
 	}
 	if err == nil && n == 0 && r.idleTimeout > 0 {
-		r.mu.Lock()
-		idle := time.Since(r.lastRead)
-		r.mu.Unlock()
-		if idle > r.idleTimeout {
+		last := time.Unix(0, r.lastRead.Load())
+		if time.Since(last) > r.idleTimeout {
 			return 0, ErrIdleTimeout
 		}
 	}
@@ -73,51 +69,77 @@ func (r *Reader) Read(p []byte) (int, error) {
 }
 
 // Bytes returns the total bytes transferred so far.
-func (r *Reader) Bytes() int64 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.bytes
+func (r *Reader) Bytes() int64 { return r.bytes.Load() }
+
+func (r *Reader) emit(bytes int64) {
+	if r.progress == nil {
+		return
+	}
+	p := Progress{Bytes: bytes, Total: r.total}
+	select {
+	case r.progress <- p:
+	default:
+		// Drop intermediate update — channel has latest or consumer is slow.
+		// Drain and replace so the channel always has the most recent value.
+		select {
+		case <-r.progress:
+		default:
+		}
+		select {
+		case r.progress <- p:
+		default:
+		}
+	}
 }
 
-// Writer wraps an io.Writer with progress reporting.
+// Writer wraps an io.Writer with progress tracking.
 type Writer struct {
-	w          io.Writer
-	onProgress OnProgress
-
-	mu    sync.Mutex
-	bytes int64
-	total int64
+	w        io.Writer
+	total    int64
+	bytes    atomic.Int64
+	progress chan Progress
 }
 
 // NewWriter wraps w with progress tracking.
 // total is the expected byte count (-1 if unknown).
-func NewWriter(w io.Writer, total int64, onProgress OnProgress) *Writer {
-	return &Writer{
-		w:          w,
-		onProgress: onProgress,
-		total:      total,
-	}
+func NewWriter(w io.Writer, total int64) *Writer {
+	return &Writer{w: w, total: total}
+}
+
+// Progress returns a channel that receives non-blocking progress updates.
+func (w *Writer) Progress() <-chan Progress {
+	w.progress = make(chan Progress, 1)
+	return w.progress
 }
 
 // Write implements io.Writer.
 func (w *Writer) Write(p []byte) (int, error) {
 	n, err := w.w.Write(p)
 	if n > 0 {
-		w.mu.Lock()
-		w.bytes += int64(n)
-		bytes := w.bytes
-		w.mu.Unlock()
-
-		if w.onProgress != nil {
-			w.onProgress(Progress{Bytes: bytes, Total: w.total})
-		}
+		bytes := w.bytes.Add(int64(n))
+		w.emit(bytes)
 	}
 	return n, err
 }
 
 // Bytes returns the total bytes written so far.
-func (w *Writer) Bytes() int64 {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.bytes
+func (w *Writer) Bytes() int64 { return w.bytes.Load() }
+
+func (w *Writer) emit(bytes int64) {
+	if w.progress == nil {
+		return
+	}
+	p := Progress{Bytes: bytes, Total: w.total}
+	select {
+	case w.progress <- p:
+	default:
+		select {
+		case <-w.progress:
+		default:
+		}
+		select {
+		case w.progress <- p:
+		default:
+		}
+	}
 }
