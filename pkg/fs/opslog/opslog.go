@@ -64,12 +64,35 @@ func (e *Entry) entryKey() string {
 }
 
 // FileInfo describes a file at a point in time.
+// Device and Seq preserve the LWW clock through snapshot save/load cycles.
 type FileInfo struct {
 	Chunks    []string  `json:"chunks"`
 	Size      int64     `json:"size"`
 	Modified  time.Time `json:"modified"`
 	Checksum  string    `json:"checksum"`
 	Namespace string    `json:"namespace"`
+	Device    string    `json:"device,omitempty"`
+	Seq       int       `json:"seq,omitempty"`
+}
+
+// clockTuple is the comparison key for LWW-Register-Map conflict resolution.
+// For each path, the entry with the highest clock wins.
+// Comparison order: timestamp, then device ID (lexicographic), then seq.
+type clockTuple struct {
+	ts     int64
+	device string
+	seq    int
+}
+
+// beats returns true if c is strictly greater than other.
+func (c clockTuple) beats(other clockTuple) bool {
+	if c.ts != other.ts {
+		return c.ts > other.ts
+	}
+	if c.device != other.device {
+		return c.device > other.device
+	}
+	return c.seq > other.seq
 }
 
 // Snapshot is an immutable point-in-time view of the file tree.
@@ -296,6 +319,8 @@ type fileInfoJSON struct {
 	Modified  time.Time `json:"modified"`
 	Checksum  string    `json:"checksum"`
 	Namespace string    `json:"namespace"`
+	Device    string    `json:"device,omitempty"`
+	Seq       int       `json:"seq,omitempty"`
 }
 
 func (l *OpsLog) saveSnapshot(ctx context.Context, snap *Snapshot) error {
@@ -312,6 +337,8 @@ func (l *OpsLog) saveSnapshot(ctx context.Context, snap *Snapshot) error {
 			Modified:  fi.Modified,
 			Checksum:  fi.Checksum,
 			Namespace: fi.Namespace,
+			Device:    fi.Device,
+			Seq:       fi.Seq,
 		}
 	}
 
@@ -376,6 +403,8 @@ func (l *OpsLog) loadLatestSnapshot(ctx context.Context) (*Snapshot, int64, erro
 			Modified:  fi.Modified,
 			Checksum:  fi.Checksum,
 			Namespace: fi.Namespace,
+			Device:    fi.Device,
+			Seq:       fi.Seq,
 		}
 	}
 
@@ -503,22 +532,43 @@ func readEntries(ctx context.Context, backend adapter.Backend, since int64, encK
 	return entries, nil
 }
 
-// --- State materialization ---
+// --- State materialization (LWW-Register-Map CRDT) ---
 
+// buildSnapshot materializes a file tree from a base snapshot and entries
+// using LWW-Register-Map CRDT semantics. Each path is an independent
+// last-writer-wins register keyed by (timestamp, device, seq). The entry
+// with the highest clock wins, regardless of processing order. This makes
+// buildSnapshot commutative: any permutation of entries produces the same
+// result.
+//
+// Deletes are tracked as tombstones in the clock map so an older put
+// cannot resurrect a file that was deleted with a higher clock.
 func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 	snap := &Snapshot{
 		files:   make(map[string]FileInfo),
 		created: time.Now().UTC(),
 		updated: time.Now().UTC(),
 	}
+
+	// Per-path clock tracking. Entries (including deletes) must beat the
+	// existing clock to take effect.
+	clocks := make(map[string]clockTuple)
+
 	if base != nil {
 		snap.created = base.created
 		for k, v := range base.files {
 			snap.files[k] = v
+			clocks[k] = clockTuple{ts: v.Modified.Unix(), device: v.Device, seq: v.Seq}
 		}
 	}
 
 	for _, e := range entries {
+		ec := clockTuple{ts: e.Timestamp, device: e.Device, seq: e.Seq}
+		if prev, ok := clocks[e.Path]; ok && !ec.beats(prev) {
+			continue
+		}
+		clocks[e.Path] = ec
+
 		switch e.Type {
 		case Put:
 			snap.files[e.Path] = FileInfo{
@@ -527,6 +577,8 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 				Modified:  time.Unix(e.Timestamp, 0).UTC(),
 				Checksum:  e.Checksum,
 				Namespace: e.Namespace,
+				Device:    e.Device,
+				Seq:       e.Seq,
 			}
 		case Delete:
 			delete(snap.files, e.Path)
