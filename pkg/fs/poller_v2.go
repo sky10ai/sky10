@@ -8,28 +8,28 @@ import (
 	"github.com/sky10/sky10/pkg/fs/opslog"
 )
 
-// PollerV2 fetches remote ops from S3 and writes them to the inbox.
-// Only touches S3 to list/read ops. All local changes go through
-// the inbox worker.
+// PollerV2 fetches remote ops from S3 and appends them to the local ops
+// log. Also writes to the inbox for the inbox worker to download files
+// (transitional — M4 Reconciler will replace the inbox path).
 type PollerV2 struct {
 	store     *Store
 	inbox     *SyncLog[InboxEntry]
-	state     *DriveState
+	localLog  *opslog.LocalOpsLog
 	interval  time.Duration
 	namespace string
 	logger    *slog.Logger
 	pokeInbox func()
 }
 
-// NewPollerV2 creates a poller that writes to the inbox.
-func NewPollerV2(store *Store, inbox *SyncLog[InboxEntry], state *DriveState, interval time.Duration, namespace string, logger *slog.Logger) *PollerV2 {
+// NewPollerV2 creates a poller that appends remote ops to the local log.
+func NewPollerV2(store *Store, inbox *SyncLog[InboxEntry], localLog *opslog.LocalOpsLog, interval time.Duration, namespace string, logger *slog.Logger) *PollerV2 {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &PollerV2{
 		store:     store,
 		inbox:     inbox,
-		state:     state,
+		localLog:  localLog,
 		interval:  interval,
 		namespace: namespace,
 		logger:    logger,
@@ -62,16 +62,17 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 		return
 	}
 
-	entries, err := log.ReadSince(ctx, p.state.LastRemoteOp)
+	cursor := p.localLog.LastRemoteOp()
+	entries, err := log.ReadSince(ctx, cursor)
 	if err != nil {
 		p.logger.Warn("poll: reading entries failed", "error", err)
 		return
 	}
 
-	p.logger.Info("poll", "ops", len(entries), "since", p.state.LastRemoteOp)
+	p.logger.Info("poll", "ops", len(entries), "since", cursor)
 
 	wrote := false
-	maxTs := p.state.LastRemoteOp
+	maxTs := cursor
 
 	for _, e := range entries {
 		// Skip our own ops
@@ -93,18 +94,18 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 
 		switch e.Type {
 		case opslog.Put:
-			// Skip if we already have this version
-			if existing, ok := p.state.GetFile(e.Path); ok && existing.Checksum == e.Checksum {
+			// Skip if we already have this version (check BEFORE appending)
+			if existing, ok := p.localLog.Lookup(e.Path); ok && existing.Checksum == e.Checksum {
 				p.logger.Info("poll: already have", "path", e.Path)
-				break
+			} else {
+				p.logger.Info("poll: inbox put", "path", e.Path, "device", e.Device, "chunks", len(e.Chunks))
+				p.inbox.Append(NewInboxPut(e.Path, e.Checksum, e.Namespace, e.Device, e.Chunks))
+				wrote = true
 			}
-			p.logger.Info("poll: inbox put", "path", e.Path, "device", e.Device, "chunks", len(e.Chunks))
-			p.inbox.Append(NewInboxPut(e.Path, e.Checksum, e.Namespace, e.Device, e.Chunks))
-			wrote = true
 
 		case opslog.Delete:
-			// Only add to inbox if we have the file
-			if _, ok := p.state.GetFile(e.Path); ok {
+			// Only queue delete if we have the file (check BEFORE appending)
+			if _, ok := p.localLog.Lookup(e.Path); ok {
 				p.logger.Info("poll: inbox delete", "path", e.Path, "device", e.Device)
 				p.inbox.Append(NewInboxDelete(e.Path, e.Device))
 				wrote = true
@@ -113,14 +114,17 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 			}
 		}
 
+		// Append remote op to local log (CRDT state).
+		// Done after inbox check so Lookup sees pre-op state.
+		p.localLog.Append(e)
+
 		if e.Timestamp > maxTs {
 			maxTs = e.Timestamp
 		}
 	}
 
-	if maxTs > p.state.LastRemoteOp {
-		p.state.SetLastRemoteOp(maxTs)
-		p.state.Save()
+	if maxTs > cursor {
+		p.localLog.SetLastRemoteOp(maxTs)
 	}
 
 	if wrote {

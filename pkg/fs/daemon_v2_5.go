@@ -25,8 +25,8 @@ type DaemonV2_5 struct {
 	outboxWorker   *OutboxWorker
 	inboxWorker    *InboxWorker
 	poller         *PollerV2
-	state          *DriveState         // still used by poller + inbox worker (until M3/M4)
-	localLog       *opslog.LocalOpsLog // watcher handler + outbox worker source of truth
+	state          *DriveState         // still used by inbox worker (until M4)
+	localLog       *opslog.LocalOpsLog // watcher + outbox + poller source of truth
 	config         DaemonConfig
 	logger         *slog.Logger
 	onEvent        func(string)
@@ -56,10 +56,10 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 	statePath := filepath.Join(driveDir, "state.json")
 	opsLogPath := filepath.Join(driveDir, "ops.jsonl")
 
-	// Load state (still needed for poller + inbox worker)
+	// Load state (still needed for inbox worker until M4)
 	state := LoadDriveStateFromPath(statePath)
 
-	// Create local ops log (source of truth for watcher + outbox)
+	// Create local ops log (source of truth for watcher, outbox, poller)
 	localLog := opslog.NewLocalOpsLog(opsLogPath, store.deviceID)
 
 	// Create logs
@@ -89,7 +89,7 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 
 	// Poller
 	pollInterval := time.Duration(config.PollSeconds) * time.Second
-	poller := NewPollerV2(store, inbox, state, pollInterval, ns, logger)
+	poller := NewPollerV2(store, inbox, localLog, pollInterval, ns, logger)
 
 	// Wire poke callbacks
 	watcherHandler.pokeOutbox = outboxWorker.Poke
