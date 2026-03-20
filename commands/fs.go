@@ -40,6 +40,7 @@ func FsCmd() *cobra.Command {
 	cmd.AddCommand(fsInviteCmd())
 	cmd.AddCommand(fsJoinCmd())
 	cmd.AddCommand(fsApproveCmd())
+	cmd.AddCommand(fsResetCmd())
 
 	return cmd
 }
@@ -396,6 +397,65 @@ func fsCompactCmd() *cobra.Command {
 	}
 	cmd.Flags().Int("keep", 3, "Number of snapshots to keep")
 	return cmd
+}
+
+func fsResetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "reset",
+		Short: "Delete all ops and snapshots from S3 + local state (keeps device keys)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			backend, err := makeBackend(ctx, cfg)
+			if err != nil {
+				return err
+			}
+
+			// Delete S3 ops
+			opsKeys, err := backend.List(ctx, "ops/")
+			if err != nil {
+				return fmt.Errorf("listing ops: %w", err)
+			}
+			for _, key := range opsKeys {
+				backend.Delete(ctx, key)
+			}
+			fmt.Printf("Deleted %d S3 ops\n", len(opsKeys))
+
+			// Delete S3 snapshots
+			snapKeys, err := backend.List(ctx, "manifests/snapshot-")
+			if err != nil {
+				return fmt.Errorf("listing snapshots: %w", err)
+			}
+			for _, key := range snapKeys {
+				backend.Delete(ctx, key)
+			}
+			fmt.Printf("Deleted %d S3 snapshots\n", len(snapKeys))
+
+			// Delete local drive state files
+			home, _ := os.UserHomeDir()
+			drivesDir := filepath.Join(home, ".sky10", "fs", "drives")
+			stateFiles := []string{"ops.jsonl", "outbox.jsonl", "state.json", "inbox.jsonl", "manifest.json"}
+			localDeleted := 0
+			entries, _ := os.ReadDir(drivesDir)
+			for _, d := range entries {
+				if !d.IsDir() {
+					continue
+				}
+				for _, f := range stateFiles {
+					p := filepath.Join(drivesDir, d.Name(), f)
+					if os.Remove(p) == nil {
+						localDeleted++
+					}
+				}
+			}
+			fmt.Printf("Deleted %d local state files\n", localDeleted)
+			fmt.Println("Device keys preserved. Ready for fresh start.")
+			return nil
+		},
+	}
 }
 
 func fsGCCmd() *cobra.Command {
