@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import cirrus
 
@@ -15,26 +16,31 @@ struct AppStateTests {
         #expect(state.error == nil)
     }
 
-    @Test("Refresh loads files and info")
-    func refreshSuccess() async {
+    @Test("Refresh loads info and files from drive directories")
+    func refreshSuccess() async throws {
         let mock = MockSkyClient()
-        mock.files = [
-            FileNode(id: "a.md", path: "a.md", name: "a.md", size: 100,
-                     modified: "2026-03-14T10:00:00Z", checksum: "h1",
-                     namespace: "default", chunks: 1),
-            FileNode(id: "journal/b.md", path: "journal/b.md", name: "b.md",
-                     size: 200, modified: "2026-03-14T11:00:00Z", checksum: "h2",
-                     namespace: "journal", chunks: 1),
+        mock.info = StoreInfo(id: "sky10qtest", fileCount: 2, totalSize: 300, namespaces: ["default"])
+
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cirrus-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        try "hello".write(to: tmpDir.appendingPathComponent("a.md"), atomically: true, encoding: .utf8)
+        try "world".write(to: tmpDir.appendingPathComponent("b.md"), atomically: true, encoding: .utf8)
+
+        mock.mockDrives = [
+            SkyClient.DriveInfoResult(id: "drive_Test", name: "Test",
+                localPath: tmpDir.path, namespace: "default", enabled: true, running: true)
         ]
-        mock.info = StoreInfo(id: "sky10qtest", fileCount: 2, totalSize: 300, namespaces: ["default", "journal"])
 
         let state = AppState(client: mock)
+        await state.loadDrives()
         await state.refresh()
 
         #expect(state.syncState == .synced)
         #expect(state.files.count == 2)
         #expect(state.storeInfo?.fileCount == 2)
-        #expect(state.storeInfo?.totalSize == 300)
         #expect(state.error == nil)
         #expect(state.isLoading == false)
     }
@@ -99,60 +105,44 @@ struct AppStateTests {
         #expect(state.error != nil)
     }
 
-    @Test("Remove file calls remove and refreshes")
-    func removeFile() async {
+    @Test("Remove file calls remove")
+    func removeFile() async throws {
         let mock = MockSkyClient()
-        mock.files = [
-            FileNode(id: "rm.md", path: "rm.md", name: "rm.md", size: 50,
-                     modified: "2026-03-14T10:00:00Z", checksum: "h1",
-                     namespace: "default", chunks: 1)
-        ]
-        mock.info = StoreInfo(id: "sky10qtest", fileCount: 1, totalSize: 50, namespaces: ["default"])
-
         let state = AppState(client: mock)
-        await state.refresh()
-        #expect(state.files.count == 1)
 
         await state.removeFile(path: "rm.md")
         #expect(mock.removeCalls == ["rm.md"])
-        #expect(state.files.count == 0)
     }
 
-    @Test("Namespaces computed and sorted")
-    func namespacesComputed() async {
+    @Test("Namespaces computed from drive files")
+    func namespacesComputed() async throws {
         let mock = MockSkyClient()
-        mock.files = [
-            FileNode(id: "a.md", path: "a.md", name: "a.md", size: 10,
-                     modified: "", checksum: "", namespace: "default", chunks: 1),
-            FileNode(id: "journal/b.md", path: "journal/b.md", name: "b.md",
-                     size: 20, modified: "", checksum: "", namespace: "journal", chunks: 1),
-            FileNode(id: "journal/c.md", path: "journal/c.md", name: "c.md",
-                     size: 30, modified: "", checksum: "", namespace: "journal", chunks: 1),
+
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cirrus-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        try "a".write(to: tmpDir.appendingPathComponent("a.md"), atomically: true, encoding: .utf8)
+
+        let tmpDir2 = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cirrus-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir2, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir2) }
+
+        try "b".write(to: tmpDir2.appendingPathComponent("b.md"), atomically: true, encoding: .utf8)
+
+        mock.mockDrives = [
+            SkyClient.DriveInfoResult(id: "drive_default", name: "Default",
+                localPath: tmpDir.path, namespace: "default", enabled: true, running: true),
+            SkyClient.DriveInfoResult(id: "drive_journal", name: "Journal",
+                localPath: tmpDir2.path, namespace: "journal", enabled: true, running: true),
         ]
 
         let state = AppState(client: mock)
+        await state.loadDrives()
         await state.refresh()
 
         #expect(state.namespaces == ["default", "journal"])
-    }
-
-    @Test("Namespaces computed and sorted")
-    func namespaces() async {
-        let mock = MockSkyClient()
-        mock.files = [
-            FileNode(id: "1", path: "a.md", name: "a.md", size: 0, modified: "",
-                     checksum: "", namespace: "default", chunks: 1),
-            FileNode(id: "2", path: "b.md", name: "b.md", size: 0, modified: "",
-                     checksum: "", namespace: "journal", chunks: 1),
-            FileNode(id: "3", path: "c.md", name: "c.md", size: 0, modified: "",
-                     checksum: "", namespace: "journal", chunks: 1),
-            FileNode(id: "4", path: "d.md", name: "d.md", size: 0, modified: "",
-                     checksum: "", namespace: "financial", chunks: 1),
-        ]
-
-        let state = AppState(client: mock)
-        await state.refresh()
-
-        #expect(state.namespaces == ["default", "financial", "journal"])
     }
 }

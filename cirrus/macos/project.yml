@@ -22,6 +22,7 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         SWIFT_VERSION: "5.10"
+        PRODUCT_MODULE_NAME: cirrus
         INFOPLIST_KEY_LSUIElement: true
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     info:
