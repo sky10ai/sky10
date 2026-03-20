@@ -39,11 +39,9 @@ struct SyncStatusBar: View {
 
             Spacer()
 
-            if let info = appState.storeInfo {
-                Text("\(info.fileCount) files")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            Text("\(appState.files.count) files")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)

@@ -60,9 +60,18 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 			}
 
 			// Skip if unchanged from local log
-			if existing, ok := h.localLog.Lookup(e.Path); ok && existing.Checksum == cksum {
-				h.logger.Info("watcher: unchanged", "path", e.Path)
-				continue
+			if existing, ok := h.localLog.Lookup(e.Path); ok {
+				if existing.Checksum == cksum {
+					h.logger.Info("watcher: unchanged", "path", e.Path)
+					continue
+				}
+				// Backwards compat: old S3 ops used hash-of-chunk-hashes as
+				// checksum, but fileChecksum computes SHA3-256 of raw content.
+				// For single-chunk files, chunks[0] IS the content hash.
+				if len(existing.Chunks) == 1 && existing.Chunks[0] == cksum {
+					h.logger.Info("watcher: unchanged (chunk match)", "path", e.Path)
+					continue
+				}
 			}
 
 			h.logger.Info("watcher: outbox", "path", e.Path)

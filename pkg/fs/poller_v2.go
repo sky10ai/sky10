@@ -92,12 +92,19 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 
 		// Skip duplicate puts (avoid unnecessary JSONL writes)
 		if e.Type == opslog.Put {
-			if existing, ok := p.localLog.Lookup(e.Path); ok && existing.Checksum == e.Checksum {
-				p.logger.Info("poll: already have", "path", e.Path)
-				if e.Timestamp > maxTs {
-					maxTs = e.Timestamp
+			if existing, ok := p.localLog.Lookup(e.Path); ok {
+				match := existing.Checksum == e.Checksum
+				// Backwards compat: compare chunk hashes across checksum schemes
+				if !match && len(existing.Chunks) == 1 && len(e.Chunks) == 1 && existing.Chunks[0] == e.Chunks[0] {
+					match = true
 				}
-				continue
+				if match {
+					p.logger.Info("poll: already have", "path", e.Path)
+					if e.Timestamp > maxTs {
+						maxTs = e.Timestamp
+					}
+					continue
+				}
 			}
 		}
 

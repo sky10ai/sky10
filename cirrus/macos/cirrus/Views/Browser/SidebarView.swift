@@ -41,7 +41,7 @@ struct SidebarView: View {
                     HStack {
                         Text("Files")
                         Spacer()
-                        Text("\(info.fileCount)")
+                        Text("\(appState.files.count)")
                             .foregroundStyle(.secondary)
                     }
                     HStack {

@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/crypto/sha3"
+
 	"github.com/sky10/sky10/pkg/adapter"
 	"github.com/sky10/sky10/pkg/fs/opslog"
 )
@@ -283,7 +285,13 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 	prevChecksum := s.prevChecksum
 	s.prevChecksum = "" // consume it
 
-	chunker := NewChunker(r)
+	// Hash the full content while chunking so the op checksum matches
+	// fileChecksum() (SHA3-256 of raw content). This prevents echo loops
+	// between devices that compare content hashes against op checksums.
+	contentHasher := sha3.New256()
+	tee := io.TeeReader(r, contentHasher)
+
+	chunker := NewChunker(tee)
 	var chunkHashes []string
 	var totalSize int64
 
@@ -344,12 +352,8 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 		totalSize += int64(chunk.Length)
 	}
 
-	// File checksum from ordered chunk hashes
-	allHashes := ""
-	for _, h := range chunkHashes {
-		allHashes += h
-	}
-	fileChecksum := ContentHash([]byte(allHashes))
+	// File checksum = SHA3-256 of raw content (same as fileChecksum in scan.go)
+	fileChecksum := hex.EncodeToString(contentHasher.Sum(nil))
 
 	// Write op (all chunks uploaded first, op is atomic)
 	op := &Op{

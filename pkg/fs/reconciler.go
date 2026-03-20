@@ -92,7 +92,7 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 			return
 		}
 		localChecksum, onDisk := localFiles[path]
-		if !onDisk || localChecksum != fi.Checksum {
+		if !onDisk || !checksumMatch(localChecksum, fi) {
 			if r.downloadFile(ctx, path, fi) {
 				active = true
 			}
@@ -130,7 +130,7 @@ func (r *Reconciler) downloadFile(ctx context.Context, path string, fi opslog.Fi
 	}
 
 	// Double-check: file might already match on disk (scan race)
-	if existing, err := fileChecksum(localPath); err == nil && existing == fi.Checksum {
+	if existing, err := fileChecksum(localPath); err == nil && checksumMatch(existing, fi) {
 		return false
 	}
 
@@ -194,6 +194,19 @@ func copyFile(src, dst string) error {
 	defer out.Close()
 	_, err = io.Copy(out, in)
 	return err
+}
+
+// checksumMatch checks if a content hash matches a FileInfo's checksum,
+// handling both the new scheme (content hash) and the old scheme
+// (hash-of-chunk-hashes, where chunks[0] == content hash for single-chunk files).
+func checksumMatch(contentHash string, fi opslog.FileInfo) bool {
+	if fi.Checksum == contentHash {
+		return true
+	}
+	if len(fi.Chunks) == 1 && fi.Chunks[0] == contentHash {
+		return true
+	}
+	return false
 }
 
 func (r *Reconciler) deleteFile(path string) {
