@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -177,6 +178,22 @@ func (r *Reconciler) downloadFile(ctx context.Context, path string, fi opslog.Fi
 
 	r.logger.Info("reconcile: downloaded", "path", path)
 	return true
+}
+
+// copyFile copies src to dst for cross-device moves.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
 }
 
 func (r *Reconciler) deleteFile(path string) {

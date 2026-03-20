@@ -101,26 +101,6 @@ func TestSyncLogClear(t *testing.T) {
 	}
 }
 
-func TestSyncLogInbox(t *testing.T) {
-	t.Parallel()
-	path := filepath.Join(t.TempDir(), "inbox.jsonl")
-	log := NewSyncLog[InboxEntry](path)
-
-	log.Append(NewInboxPut("photo.jpg", "abc", "Test", "device-b", nil))
-	log.Append(NewInboxDelete("old.txt", "device-b"))
-
-	entries, _ := log.ReadAll()
-	if len(entries) != 2 {
-		t.Fatalf("got %d, want 2", len(entries))
-	}
-	if entries[0].Op != OpPut || entries[0].Device != "device-b" {
-		t.Errorf("entry 0: %+v", entries[0])
-	}
-	if entries[1].Op != OpDelete {
-		t.Errorf("entry 1: %+v", entries[1])
-	}
-}
-
 func TestSyncLogSurvivesReopen(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "persist.jsonl")

@@ -10,6 +10,8 @@ import (
 
 	s3adapter "github.com/sky10/sky10/pkg/adapter/s3"
 	"github.com/sky10/sky10/pkg/fs/opslog"
+
+	"encoding/json"
 )
 
 // runDaemon starts the daemon and returns a function that cancels the
@@ -568,5 +570,79 @@ func TestSeedRemoteFilesNotDeleted(t *testing.T) {
 		if e.Op == OpDelete && e.Path == "remote-only.txt" {
 			t.Error("seed should not queue delete for remote file")
 		}
+	}
+}
+
+// Migration: state.json → ops.jsonl on first V3 startup.
+func TestMigrateStateToOpsLog(t *testing.T) {
+	tmpDir := t.TempDir()
+	driveDir := filepath.Join(tmpDir, "drive")
+	os.MkdirAll(driveDir, 0700)
+
+	// Write a V2.5-style state.json
+	state := map[string]interface{}{
+		"last_remote_op": 500,
+		"files": map[string]interface{}{
+			"a.txt": map[string]string{"checksum": "h1", "namespace": "Test"},
+			"b.txt": map[string]string{"checksum": "h2", "namespace": "Test"},
+		},
+	}
+	data, _ := json.Marshal(state)
+	os.WriteFile(filepath.Join(driveDir, "state.json"), data, 0600)
+
+	// Run migration
+	migrateStateToOpsLog(driveDir, "dev-a", nil)
+
+	// ops.jsonl should exist and have the files
+	localLog := opslog.NewLocalOpsLog(filepath.Join(driveDir, "ops.jsonl"), "dev-a")
+	snap, err := localLog.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Len() != 2 {
+		t.Fatalf("snapshot has %d files, want 2", snap.Len())
+	}
+	if fi, ok := snap.Lookup("a.txt"); !ok || fi.Checksum != "h1" {
+		t.Error("a.txt not migrated correctly")
+	}
+	if fi, ok := snap.Lookup("b.txt"); !ok || fi.Checksum != "h2" {
+		t.Error("b.txt not migrated correctly")
+	}
+
+	// LastRemoteOp cursor is not migrated (poller re-reads from S3 once).
+	// This is by design — the cursor is in-memory only.
+}
+
+// Migration is a no-op when ops.jsonl already exists.
+func TestMigrateSkipsIfOpsLogExists(t *testing.T) {
+	tmpDir := t.TempDir()
+	driveDir := filepath.Join(tmpDir, "drive")
+	os.MkdirAll(driveDir, 0700)
+
+	// Write both state.json and ops.jsonl
+	state := map[string]interface{}{
+		"files": map[string]interface{}{
+			"old.txt": map[string]string{"checksum": "old"},
+		},
+	}
+	data, _ := json.Marshal(state)
+	os.WriteFile(filepath.Join(driveDir, "state.json"), data, 0600)
+
+	// Pre-existing ops.jsonl with different content
+	localLog := opslog.NewLocalOpsLog(filepath.Join(driveDir, "ops.jsonl"), "dev-a")
+	localLog.AppendLocal(opslog.Entry{
+		Type: opslog.Put, Path: "new.txt", Checksum: "new",
+	})
+
+	// Migration should be a no-op
+	migrateStateToOpsLog(driveDir, "dev-a", nil)
+
+	// Should still have new.txt, not old.txt
+	snap, _ := localLog.Snapshot()
+	if _, ok := snap.Lookup("old.txt"); ok {
+		t.Error("migration should not overwrite existing ops.jsonl")
+	}
+	if _, ok := snap.Lookup("new.txt"); !ok {
+		t.Error("new.txt should still be in ops.jsonl")
 	}
 }

@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -54,6 +55,9 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 
 	outboxPath := filepath.Join(driveDir, "outbox.jsonl")
 	opsLogPath := filepath.Join(driveDir, "ops.jsonl")
+
+	// Migrate state.json → ops.jsonl if needed (one-time V2.5→V3 upgrade)
+	migrateStateToOpsLog(driveDir, store.deviceID, logger)
 
 	// Create local ops log (single source of truth)
 	localLog := opslog.NewLocalOpsLog(opsLogPath, store.deviceID)
@@ -281,4 +285,51 @@ func (d *DaemonV2_5) watcherLoop(ctx context.Context) {
 func driveDataDir(driveID string) string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".sky10", "fs", "drives", driveID)
+}
+
+// migrateStateToOpsLog converts a V2.5 state.json to an ops.jsonl file.
+// Only runs once: if ops.jsonl already exists, it's a no-op.
+func migrateStateToOpsLog(driveDir, deviceID string, logger *slog.Logger) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	opsLogPath := filepath.Join(driveDir, "ops.jsonl")
+	statePath := filepath.Join(driveDir, "state.json")
+
+	// Skip if ops.jsonl already exists
+	if _, err := os.Stat(opsLogPath); err == nil {
+		return
+	}
+
+	data, err := os.ReadFile(statePath)
+	if err != nil {
+		return // no state.json to migrate
+	}
+
+	var state struct {
+		LastRemoteOp int64 `json:"last_remote_op"`
+		Files        map[string]struct {
+			Checksum  string `json:"checksum"`
+			Namespace string `json:"namespace"`
+		} `json:"files"`
+	}
+	if json.Unmarshal(data, &state) != nil || len(state.Files) == 0 {
+		return
+	}
+
+	localLog := opslog.NewLocalOpsLog(opsLogPath, deviceID)
+	for path, fs := range state.Files {
+		localLog.AppendLocal(opslog.Entry{
+			Type:      opslog.Put,
+			Path:      path,
+			Checksum:  fs.Checksum,
+			Namespace: fs.Namespace,
+		})
+	}
+
+	// LastRemoteOp cursor is not migrated — the poller will re-read
+	// from S3 once on first startup and "already have" checks will
+	// skip entries that are already in the local log.
+
+	logger.Info("migrated state.json to ops.jsonl", "files", len(state.Files))
 }
