@@ -258,6 +258,8 @@ func (s *RPCServer) dispatch(ctx context.Context, req *RPCRequest) *RPCResponse 
 		result, err = s.rpcCompact(ctx, req.Params)
 	case "skyfs.gc":
 		result, err = s.rpcGC(ctx, req.Params)
+	case "skyfs.reset":
+		result, err = s.rpcReset(ctx)
 	case "skyfs.syncStart":
 		result, err = s.rpcSyncStart(ctx, req.Params)
 	case "skyfs.syncStop":
@@ -533,6 +535,50 @@ func (s *RPCServer) rpcCompact(ctx context.Context, params json.RawMessage) (int
 		return nil, err
 	}
 	return result, nil
+}
+
+func (s *RPCServer) rpcReset(ctx context.Context) (interface{}, error) {
+	deleted := 0
+
+	// Delete all S3 ops
+	if keys, err := s.store.backend.List(ctx, "ops/"); err == nil {
+		for _, key := range keys {
+			s.store.backend.Delete(ctx, key)
+			deleted++
+		}
+	}
+
+	// Delete all S3 snapshots
+	if keys, err := s.store.backend.List(ctx, "manifests/snapshot-"); err == nil {
+		for _, key := range keys {
+			s.store.backend.Delete(ctx, key)
+			deleted++
+		}
+	}
+
+	// Delete local drive state files
+	home, _ := os.UserHomeDir()
+	drivesDir := filepath.Join(home, ".sky10", "fs", "drives")
+	stateFiles := []string{"ops.jsonl", "outbox.jsonl", "state.json", "inbox.jsonl", "manifest.json"}
+	localDeleted := 0
+	if entries, err := os.ReadDir(drivesDir); err == nil {
+		for _, d := range entries {
+			if !d.IsDir() {
+				continue
+			}
+			for _, f := range stateFiles {
+				if os.Remove(filepath.Join(drivesDir, d.Name(), f)) == nil {
+					localDeleted++
+				}
+			}
+		}
+	}
+
+	s.logger.Info("reset complete", "s3_deleted", deleted, "local_deleted", localDeleted)
+	return map[string]interface{}{
+		"s3_deleted":    deleted,
+		"local_deleted": localDeleted,
+	}, nil
 }
 
 type gcParams struct {
