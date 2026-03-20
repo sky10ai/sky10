@@ -27,6 +27,7 @@ type DaemonV2_5 struct {
 	reconciler     *Reconciler
 	poller         *PollerV2
 	localLog       *opslog.LocalOpsLog
+	outbox         *SyncLog[OutboxEntry]
 	config         DaemonConfig
 	logger         *slog.Logger
 	onEvent        func(string)
@@ -102,6 +103,7 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 		reconciler:     reconciler,
 		poller:         poller,
 		localLog:       localLog,
+		outbox:         outbox,
 		config:         config,
 		logger:         logger,
 		onEvent:        func(string) {},
@@ -147,9 +149,9 @@ func (d *DaemonV2_5) SyncOnce(ctx context.Context) {
 	d.outboxWorker.drain(ctx)
 }
 
-// seedStateFromDisk populates state from the local filesystem for files
-// not yet tracked. This handles first run and daemon restarts where
-// files were added while the daemon was off.
+// seedStateFromDisk diffs the local filesystem against the CRDT snapshot
+// and directly records new/modified/deleted files. No synthetic events —
+// appends directly to the local log and outbox.
 func (d *DaemonV2_5) seedStateFromDisk() {
 	localFiles, err := ScanDirectory(d.config.LocalRoot, d.config.IgnoreFunc)
 	if err != nil {
@@ -157,7 +159,6 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 		return
 	}
 
-	// Build snapshot from local ops log (persists across restarts via ops.jsonl).
 	snap, err := d.localLog.Snapshot()
 	if err != nil {
 		d.logger.Warn("seed: snapshot failed", "error", err)
@@ -166,34 +167,84 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 	knownFiles := snap.Files()
 	d.logger.Info("seed", "local_files", len(localFiles), "known_files", len(knownFiles))
 
-	var events []FileEvent
+	ns := ""
+	if len(d.config.Namespaces) > 0 {
+		ns = d.config.Namespaces[0]
+	}
 
-	// Files on disk not in snapshot → treat as new.
-	// Do NOT record in local log here — the watcher handler checks the
-	// snapshot to decide if a file changed. If we record first, the handler
-	// sees a matching checksum and skips (never queues for upload).
+	wrote := false
+
+	// Files on disk not in snapshot → new local files → log + outbox.
+	// Files with different checksums → modified → log + outbox.
 	for path, cksum := range localFiles {
 		fi, ok := knownFiles[path]
-		if !ok {
-			d.logger.Info("seed: new file", "path", path)
-			events = append(events, FileEvent{Path: path, Type: FileCreated})
-		} else if fi.Checksum != cksum {
-			d.logger.Info("seed: modified", "path", path)
-			events = append(events, FileEvent{Path: path, Type: FileModified})
+		if !ok || fi.Checksum != cksum {
+			localPath := filepath.Join(d.config.LocalRoot, filepath.FromSlash(path))
+			info, err := os.Stat(localPath)
+			if err != nil {
+				continue
+			}
+
+			if !ok {
+				d.logger.Info("seed: new file", "path", path)
+			} else {
+				d.logger.Info("seed: modified", "path", path)
+			}
+
+			d.localLog.AppendLocal(opslog.Entry{
+				Type:      opslog.Put,
+				Path:      path,
+				Checksum:  cksum,
+				Size:      info.Size(),
+				Namespace: ns,
+			})
+
+			d.outbox.Append(OutboxEntry{
+				Op:        OpPut,
+				Path:      path,
+				Checksum:  cksum,
+				Namespace: ns,
+				LocalPath: localPath,
+				Timestamp: time.Now().Unix(),
+			})
+
+			wrote = true
 		}
 	}
 
-	// Files in snapshot not on disk → treat as deleted
-	for path := range knownFiles {
+	// Files in snapshot but not on disk: depends on who wrote them.
+	// Our device → local delete (user deleted while daemon was off).
+	// Other device → pending download (reconciler will fetch it).
+	deviceID := d.localLog.DeviceID()
+	needDownload := 0
+	for path, fi := range knownFiles {
 		if _, exists := localFiles[path]; !exists {
-			d.logger.Info("seed: deleted", "path", path)
-			events = append(events, FileEvent{Path: path, Type: FileDeleted})
+			if fi.Device == deviceID {
+				d.logger.Info("seed: local delete", "path", path)
+				d.localLog.AppendLocal(opslog.Entry{
+					Type:      opslog.Delete,
+					Path:      path,
+					Namespace: fi.Namespace,
+				})
+				d.outbox.Append(OutboxEntry{
+					Op:        OpDelete,
+					Path:      path,
+					Checksum:  fi.Checksum,
+					Namespace: fi.Namespace,
+					Timestamp: time.Now().Unix(),
+				})
+				wrote = true
+			} else {
+				needDownload++
+			}
 		}
 	}
+	if needDownload > 0 {
+		d.logger.Info("seed: pending downloads", "count", needDownload)
+	}
 
-	if len(events) > 0 {
-		d.logger.Info("seed: events", "count", len(events))
-		d.watcherHandler.HandleEvents(events)
+	if wrote {
+		d.outboxWorker.Poke()
 	}
 }
 

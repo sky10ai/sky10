@@ -105,6 +105,11 @@ func (l *LocalOpsLog) Lookup(path string) (FileInfo, bool) {
 	return snap.Lookup(path)
 }
 
+// DeviceID returns the local device ID.
+func (l *LocalOpsLog) DeviceID() string {
+	return l.deviceID
+}
+
 // LastRemoteOp returns the max timestamp of entries from non-local devices.
 // Used as the poller cursor for S3 ReadSince.
 func (l *LocalOpsLog) LastRemoteOp() int64 {
