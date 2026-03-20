@@ -27,20 +27,10 @@ func TestPollerV2FetchesRemoteOps(t *testing.T) {
 
 	// B's poller should pick up A's op
 	tmpDir := t.TempDir()
-	inbox := NewSyncLog[InboxEntry](filepath.Join(tmpDir, "inbox.jsonl"))
 	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), storeB.deviceID)
 
-	poller := NewPollerV2(storeB, inbox, localLog, time.Hour, "Test", nil)
+	poller := NewPollerV2(storeB, localLog, time.Hour, "Test", nil)
 	poller.pollOnce(ctx)
-
-	// Inbox should have the entry (for download)
-	entries, _ := inbox.ReadAll()
-	if len(entries) != 1 {
-		t.Fatalf("inbox has %d, want 1", len(entries))
-	}
-	if entries[0].Path != "from-a.txt" || entries[0].Op != OpPut {
-		t.Errorf("entry: %+v", entries[0])
-	}
 
 	// Local log should have the op
 	fi, ok := localLog.Lookup("from-a.txt")
@@ -66,25 +56,19 @@ func TestPollerV2SkipsOwnOps(t *testing.T) {
 	store.Put(ctx, "my-file.txt", strings.NewReader("my data"))
 
 	tmpDir := t.TempDir()
-	inbox := NewSyncLog[InboxEntry](filepath.Join(tmpDir, "inbox.jsonl"))
 	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), store.deviceID)
 
-	poller := NewPollerV2(store, inbox, localLog, time.Hour, "", nil)
+	poller := NewPollerV2(store, localLog, time.Hour, "", nil)
 	poller.pollOnce(ctx)
 
-	// Should not inbox our own ops
-	if inbox.Len() != 0 {
-		t.Errorf("inbox has %d, want 0 (own ops)", inbox.Len())
+	// Should not append our own ops
+	if _, ok := localLog.Lookup("my-file.txt"); ok {
+		t.Error("own ops should not be appended to local log")
 	}
 
 	// But cursor should still advance past own ops
 	if localLog.LastRemoteOp() == 0 {
 		t.Error("cursor should advance past own ops")
-	}
-
-	// Own ops should NOT be in local log (poller skips them)
-	if _, ok := localLog.Lookup("my-file.txt"); ok {
-		t.Error("own ops should not be appended to local log")
 	}
 }
 
@@ -102,19 +86,12 @@ func TestPollerV2SkipsAlreadyHave(t *testing.T) {
 	simulateApprove(t, ctx, backend, idA, idB)
 
 	tmpDir := t.TempDir()
-	inbox := NewSyncLog[InboxEntry](filepath.Join(tmpDir, "inbox.jsonl"))
 	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), storeB.deviceID)
 
-	poller := NewPollerV2(storeB, inbox, localLog, time.Hour, "Test", nil)
+	poller := NewPollerV2(storeB, localLog, time.Hour, "Test", nil)
 
-	// First poll — should inbox the put and append to local log
+	// First poll — should append to local log
 	poller.pollOnce(ctx)
-	if inbox.Len() != 1 {
-		t.Fatalf("first poll: inbox has %d, want 1", inbox.Len())
-	}
-	inbox.Clear()
-
-	// Local log should now have the file
 	fi, ok := localLog.Lookup("existing.txt")
 	if !ok {
 		t.Fatal("existing.txt not in local log after first poll")
@@ -123,20 +100,21 @@ func TestPollerV2SkipsAlreadyHave(t *testing.T) {
 		t.Fatal("checksum should not be empty")
 	}
 
-	// Reset cursor to re-fetch same ops — use a fresh local log
-	// with the same file pre-populated (simulates "already have")
+	// Pre-populate a fresh local log with the same file (simulates "already have")
 	localLog2 := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops2.jsonl"), storeB.deviceID)
 	localLog2.Append(opslog.Entry{
 		Type: opslog.Put, Path: "existing.txt", Checksum: fi.Checksum,
 		Namespace: "Test", Device: "device-a", Timestamp: 1, Seq: 1,
 	})
-	inbox2 := NewSyncLog[InboxEntry](filepath.Join(tmpDir, "inbox2.jsonl"))
-	poller2 := NewPollerV2(storeB, inbox2, localLog2, time.Hour, "Test", nil)
+
+	poked := false
+	poller2 := NewPollerV2(storeB, localLog2, time.Hour, "Test", nil)
+	poller2.pokeReconciler = func() { poked = true }
 
 	// Second poll — should skip (already have same checksum)
 	poller2.pollOnce(ctx)
-	if inbox2.Len() != 0 {
-		t.Errorf("second poll: inbox has %d, want 0 (already have)", inbox2.Len())
+	if poked {
+		t.Error("reconciler should not be poked when all ops already have")
 	}
 }
 
@@ -154,18 +132,12 @@ func TestPollerV2RemoteDelete(t *testing.T) {
 	simulateApprove(t, ctx, backend, idA, idB)
 
 	tmpDir := t.TempDir()
-	inbox := NewSyncLog[InboxEntry](filepath.Join(tmpDir, "inbox.jsonl"))
 	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), storeB.deviceID)
 
-	// First poll — gets the put
-	poller := NewPollerV2(storeB, inbox, localLog, time.Hour, "Test", nil)
-	poller.pollOnce(ctx)
-	if inbox.Len() != 1 {
-		t.Fatalf("first poll: inbox has %d, want 1", inbox.Len())
-	}
-	inbox.Clear()
+	poller := NewPollerV2(storeB, localLog, time.Hour, "Test", nil)
 
-	// Verify file is in local log
+	// First poll — gets the put
+	poller.pollOnce(ctx)
 	if _, ok := localLog.Lookup("del.txt"); !ok {
 		t.Fatal("del.txt not in local log after first poll")
 	}
@@ -174,17 +146,10 @@ func TestPollerV2RemoteDelete(t *testing.T) {
 	time.Sleep(time.Second)
 	storeA.Remove(ctx, "del.txt")
 
-	// B polls — should inbox the delete
+	// B polls — delete should be appended
 	poller.pollOnce(ctx)
-	entries, _ := inbox.ReadAll()
-	if len(entries) != 1 {
-		t.Fatalf("inbox has %d, want 1", len(entries))
-	}
-	if entries[0].Op != OpDelete || entries[0].Path != "del.txt" {
-		t.Errorf("entry: %+v", entries[0])
-	}
 
-	// Local log should no longer have the file (delete appended)
+	// Local log should no longer have the file
 	if _, ok := localLog.Lookup("del.txt"); ok {
 		t.Error("del.txt should be removed from local log after delete")
 	}
@@ -198,27 +163,17 @@ func TestPollerV2NamespaceFilter(t *testing.T) {
 	storeB := NewWithDevice(backend, idB, "device-b")
 
 	ctx := context.Background()
-	// A writes to two namespaces
 	storeA.Put(ctx, "journal/note.txt", strings.NewReader("journal"))
 	storeA.Put(ctx, "photos/cat.jpg", strings.NewReader("cat"))
 
 	simulateApprove(t, ctx, backend, idA, idB)
 
 	tmpDir := t.TempDir()
-	inbox := NewSyncLog[InboxEntry](filepath.Join(tmpDir, "inbox.jsonl"))
 	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), storeB.deviceID)
 
 	// B only syncs "journal" namespace
-	poller := NewPollerV2(storeB, inbox, localLog, time.Hour, "journal", nil)
+	poller := NewPollerV2(storeB, localLog, time.Hour, "journal", nil)
 	poller.pollOnce(ctx)
-
-	entries, _ := inbox.ReadAll()
-	if len(entries) != 1 {
-		t.Fatalf("inbox has %d, want 1 (only journal)", len(entries))
-	}
-	if entries[0].Path != "journal/note.txt" {
-		t.Errorf("path = %q", entries[0].Path)
-	}
 
 	// Only journal file should be in local log
 	if _, ok := localLog.Lookup("journal/note.txt"); !ok {
@@ -229,7 +184,7 @@ func TestPollerV2NamespaceFilter(t *testing.T) {
 	}
 }
 
-func TestPollerV2AppendsToLocalLog(t *testing.T) {
+func TestPollerV2PokesReconciler(t *testing.T) {
 	backend := s3adapter.NewMemory()
 	idA, _ := GenerateDeviceKey()
 	idB, _ := GenerateDeviceKey()
@@ -239,30 +194,25 @@ func TestPollerV2AppendsToLocalLog(t *testing.T) {
 	ctx := context.Background()
 	storeA.SetNamespace("Test")
 	storeA.Put(ctx, "a.txt", strings.NewReader("aaa"))
-	storeA.Put(ctx, "b.txt", strings.NewReader("bbb"))
 
 	simulateApprove(t, ctx, backend, idA, idB)
 
 	tmpDir := t.TempDir()
-	inbox := NewSyncLog[InboxEntry](filepath.Join(tmpDir, "inbox.jsonl"))
 	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), storeB.deviceID)
 
-	poller := NewPollerV2(storeB, inbox, localLog, time.Hour, "Test", nil)
+	poked := false
+	poller := NewPollerV2(storeB, localLog, time.Hour, "Test", nil)
+	poller.pokeReconciler = func() { poked = true }
 	poller.pollOnce(ctx)
 
-	// Both files should be in the local log snapshot
-	snap, err := localLog.Snapshot()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if snap.Len() != 2 {
-		t.Errorf("snapshot has %d files, want 2", snap.Len())
+	if !poked {
+		t.Error("reconciler should be poked after new ops")
 	}
 
-	// Second poll should fetch nothing (cursor advanced)
-	inbox.Clear()
+	// Second poll (no new ops) should NOT poke
+	poked = false
 	poller.pollOnce(ctx)
-	if inbox.Len() != 0 {
-		t.Errorf("second poll: inbox has %d, want 0", inbox.Len())
+	if poked {
+		t.Error("reconciler should not be poked when no new ops")
 	}
 }

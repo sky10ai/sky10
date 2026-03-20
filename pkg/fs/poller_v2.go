@@ -9,31 +9,29 @@ import (
 )
 
 // PollerV2 fetches remote ops from S3 and appends them to the local ops
-// log. Also writes to the inbox for the inbox worker to download files
-// (transitional — M4 Reconciler will replace the inbox path).
+// log. Pokes the Reconciler when new ops arrive so it can apply changes
+// to the local filesystem.
 type PollerV2 struct {
-	store     *Store
-	inbox     *SyncLog[InboxEntry]
-	localLog  *opslog.LocalOpsLog
-	interval  time.Duration
-	namespace string
-	logger    *slog.Logger
-	pokeInbox func()
+	store          *Store
+	localLog       *opslog.LocalOpsLog
+	interval       time.Duration
+	namespace      string
+	logger         *slog.Logger
+	pokeReconciler func()
 }
 
 // NewPollerV2 creates a poller that appends remote ops to the local log.
-func NewPollerV2(store *Store, inbox *SyncLog[InboxEntry], localLog *opslog.LocalOpsLog, interval time.Duration, namespace string, logger *slog.Logger) *PollerV2 {
+func NewPollerV2(store *Store, localLog *opslog.LocalOpsLog, interval time.Duration, namespace string, logger *slog.Logger) *PollerV2 {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &PollerV2{
-		store:     store,
-		inbox:     inbox,
-		localLog:  localLog,
-		interval:  interval,
-		namespace: namespace,
-		logger:    logger,
-		pokeInbox: func() {},
+		store:          store,
+		localLog:       localLog,
+		interval:       interval,
+		namespace:      namespace,
+		logger:         logger,
+		pokeReconciler: func() {},
 	}
 }
 
@@ -92,31 +90,21 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 			continue
 		}
 
-		switch e.Type {
-		case opslog.Put:
-			// Skip if we already have this version (check BEFORE appending)
+		// Skip duplicate puts (avoid unnecessary JSONL writes)
+		if e.Type == opslog.Put {
 			if existing, ok := p.localLog.Lookup(e.Path); ok && existing.Checksum == e.Checksum {
 				p.logger.Info("poll: already have", "path", e.Path)
-			} else {
-				p.logger.Info("poll: inbox put", "path", e.Path, "device", e.Device, "chunks", len(e.Chunks))
-				p.inbox.Append(NewInboxPut(e.Path, e.Checksum, e.Namespace, e.Device, e.Chunks))
-				wrote = true
-			}
-
-		case opslog.Delete:
-			// Only queue delete if we have the file (check BEFORE appending)
-			if _, ok := p.localLog.Lookup(e.Path); ok {
-				p.logger.Info("poll: inbox delete", "path", e.Path, "device", e.Device)
-				p.inbox.Append(NewInboxDelete(e.Path, e.Device))
-				wrote = true
-			} else {
-				p.logger.Info("poll: skip delete (not local)", "path", e.Path)
+				if e.Timestamp > maxTs {
+					maxTs = e.Timestamp
+				}
+				continue
 			}
 		}
 
-		// Append remote op to local log (CRDT state).
-		// Done after inbox check so Lookup sees pre-op state.
+		// Append remote op to local log (CRDT state)
 		p.localLog.Append(e)
+		wrote = true
+		p.logger.Info("poll: appended", "path", e.Path, "op", string(e.Type), "device", e.Device)
 
 		if e.Timestamp > maxTs {
 			maxTs = e.Timestamp
@@ -128,6 +116,6 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 	}
 
 	if wrote {
-		p.pokeInbox()
+		p.pokeReconciler()
 	}
 }
