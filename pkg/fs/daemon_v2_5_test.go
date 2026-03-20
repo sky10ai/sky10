@@ -9,6 +9,7 @@ import (
 	"time"
 
 	s3adapter "github.com/sky10/sky10/pkg/adapter/s3"
+	"github.com/sky10/sky10/pkg/fs/opslog"
 )
 
 // runDaemon starts the daemon and returns a function that cancels the
@@ -396,5 +397,176 @@ func TestDaemonV25DirectoryTrash(t *testing.T) {
 	}
 	if _, ok := daemon.localLog.Lookup("subdir/b.txt"); ok {
 		t.Error("subdir/b.txt still in local log after directory trash")
+	}
+}
+
+// Seed with empty log — all local files are new.
+func TestSeedEmptyLog(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	os.WriteFile(filepath.Join(localDir, "a.txt"), []byte("aaa"), 0644)
+	os.WriteFile(filepath.Join(localDir, "b.txt"), []byte("bbb"), 0644)
+
+	cfg := DaemonConfig{
+		SyncConfig:  SyncConfig{LocalRoot: localDir},
+		DriveID:     "test_seed_empty",
+		PollSeconds: 300,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	daemon.seedStateFromDisk()
+
+	// Both files should be in the local log
+	if _, ok := daemon.localLog.Lookup("a.txt"); !ok {
+		t.Error("a.txt not in local log")
+	}
+	if _, ok := daemon.localLog.Lookup("b.txt"); !ok {
+		t.Error("b.txt not in local log")
+	}
+
+	// Both should be in the outbox
+	driveDir := driveDataDir("test_seed_empty")
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(driveDir, "outbox.jsonl"))
+	entries, _ := outbox.ReadAll()
+	if len(entries) != 2 {
+		t.Errorf("outbox has %d entries, want 2", len(entries))
+	}
+}
+
+// Seed with pre-existing log — tracked files are skipped.
+func TestSeedPreExistingLog(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	os.WriteFile(filepath.Join(localDir, "tracked.txt"), []byte("tracked"), 0644)
+	cksum, _ := fileChecksum(filepath.Join(localDir, "tracked.txt"))
+
+	cfg := DaemonConfig{
+		SyncConfig:  SyncConfig{LocalRoot: localDir},
+		DriveID:     "test_seed_existing",
+		PollSeconds: 300,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Pre-populate the local log with the file
+	daemon.localLog.AppendLocal(opslog.Entry{
+		Type: opslog.Put, Path: "tracked.txt", Checksum: cksum,
+	})
+
+	daemon.seedStateFromDisk()
+
+	// Outbox should be empty (file already tracked with same checksum)
+	driveDir := driveDataDir("test_seed_existing")
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(driveDir, "outbox.jsonl"))
+	if outbox.Len() != 0 {
+		t.Errorf("outbox has %d entries, want 0 (file already tracked)", outbox.Len())
+	}
+}
+
+// Seed detects local modifications (different checksum).
+func TestSeedLocalModification(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	cfg := DaemonConfig{
+		SyncConfig:  SyncConfig{LocalRoot: localDir},
+		DriveID:     "test_seed_modified",
+		PollSeconds: 300,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Track version 1
+	os.WriteFile(filepath.Join(localDir, "doc.txt"), []byte("v1"), 0644)
+	daemon.seedStateFromDisk()
+
+	// Modify the file
+	os.WriteFile(filepath.Join(localDir, "doc.txt"), []byte("v2 modified"), 0644)
+	daemon.seedStateFromDisk()
+
+	// Outbox should have 2 entries (initial + modification)
+	driveDir := driveDataDir("test_seed_modified")
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(driveDir, "outbox.jsonl"))
+	entries, _ := outbox.ReadAll()
+	if len(entries) != 2 {
+		t.Errorf("outbox has %d entries, want 2", len(entries))
+	}
+}
+
+// Seed does NOT delete remote files that haven't been downloaded yet.
+func TestSeedRemoteFilesNotDeleted(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	cfg := DaemonConfig{
+		SyncConfig:  SyncConfig{LocalRoot: localDir},
+		DriveID:     "test_seed_remote",
+		PollSeconds: 300,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate a remote file in the local log (from poller)
+	daemon.localLog.Append(opslog.Entry{
+		Type: opslog.Put, Path: "remote-only.txt", Checksum: "h1",
+		Device: "other-device", Timestamp: 100, Seq: 1,
+	})
+
+	// File is in snapshot but NOT on disk
+	if _, ok := daemon.localLog.Lookup("remote-only.txt"); !ok {
+		t.Fatal("remote-only.txt should be in snapshot")
+	}
+
+	// Seed should NOT delete it (it's a remote file waiting for download)
+	daemon.seedStateFromDisk()
+
+	// File should still be in the snapshot
+	if _, ok := daemon.localLog.Lookup("remote-only.txt"); !ok {
+		t.Error("seed should not delete remote files from snapshot")
+	}
+
+	// Outbox should NOT have a delete entry
+	driveDir := driveDataDir("test_seed_remote")
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(driveDir, "outbox.jsonl"))
+	entries, _ := outbox.ReadAll()
+	for _, e := range entries {
+		if e.Op == OpDelete && e.Path == "remote-only.txt" {
+			t.Error("seed should not queue delete for remote file")
+		}
 	}
 }
