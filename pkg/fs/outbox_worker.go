@@ -121,26 +121,16 @@ func (w *OutboxWorker) uploadFile(ctx context.Context, entry OutboxEntry) bool {
 	return true
 }
 
-// writeDeleteOp writes a delete op directly to S3 without calling
-// store.Remove() (which does a full state load from S3).
+// writeDeleteOp writes a delete op via the store's OpsLog.
 func (w *OutboxWorker) writeDeleteOp(ctx context.Context, entry OutboxEntry) bool {
-	opsKey, err := w.store.opsKey(ctx)
-	if err != nil {
-		w.logger.Warn("outbox delete: ops key failed", "error", err)
-		return false
-	}
-
 	op := &Op{
 		Type:         OpDelete,
 		Path:         entry.Path,
 		PrevChecksum: entry.Checksum,
 		Namespace:    entry.Namespace,
-		Device:       w.store.deviceID,
-		Timestamp:    time.Now().Unix(),
-		Seq:          1,
 	}
 
-	if err := WriteOp(ctx, w.store.backend, op, opsKey); err != nil {
+	if err := w.store.writeOp(ctx, op); err != nil {
 		w.logger.Warn("outbox delete: write op failed", "path", entry.Path, "error", err)
 		return false
 	}

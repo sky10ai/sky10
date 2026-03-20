@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"github.com/sky10/sky10/pkg/fs/opslog"
 )
 
 // PollerV2 fetches remote ops from S3 and writes them to the inbox.
@@ -54,65 +56,65 @@ func (p *PollerV2) Run(ctx context.Context) {
 }
 
 func (p *PollerV2) pollOnce(ctx context.Context) {
-	opsKey, err := p.store.opsKey(ctx)
+	log, err := p.store.getOpsLog(ctx)
 	if err != nil {
-		p.logger.Warn("poll: getting ops key failed", "error", err)
+		p.logger.Warn("poll: getting ops log failed", "error", err)
 		return
 	}
 
-	ops, err := ReadOps(ctx, p.store.backend, p.state.LastRemoteOp, opsKey)
+	entries, err := log.ReadSince(ctx, p.state.LastRemoteOp)
 	if err != nil {
-		p.logger.Warn("poll: reading ops failed", "error", err)
+		p.logger.Warn("poll: reading entries failed", "error", err)
 		return
 	}
 
-	p.logger.Info("poll", "ops", len(ops), "since", p.state.LastRemoteOp)
+	p.logger.Info("poll", "ops", len(entries), "since", p.state.LastRemoteOp)
 
 	wrote := false
 	maxTs := p.state.LastRemoteOp
 
-	for _, op := range ops {
+	for _, e := range entries {
 		// Skip our own ops
-		if op.Device == p.store.deviceID {
-			if op.Timestamp > maxTs {
-				maxTs = op.Timestamp
+		if e.Device == p.store.deviceID {
+			if e.Timestamp > maxTs {
+				maxTs = e.Timestamp
 			}
 			continue
 		}
 
 		// Filter by namespace
-		if p.namespace != "" && op.Namespace != p.namespace {
-			p.logger.Info("poll: skip namespace", "path", op.Path, "ns", op.Namespace, "want", p.namespace)
-			if op.Timestamp > maxTs {
-				maxTs = op.Timestamp
+		if p.namespace != "" && e.Namespace != p.namespace {
+			p.logger.Info("poll: skip namespace", "path", e.Path, "ns", e.Namespace, "want", p.namespace)
+			if e.Timestamp > maxTs {
+				maxTs = e.Timestamp
 			}
 			continue
 		}
 
-		switch op.Type {
-		case OpPut:
+		switch e.Type {
+		case opslog.Put:
 			// Skip if we already have this version
-			if existing, ok := p.state.GetFile(op.Path); ok && existing.Checksum == op.Checksum {
-				p.logger.Info("poll: already have", "path", op.Path)
+			if existing, ok := p.state.GetFile(e.Path); ok && existing.Checksum == e.Checksum {
+				p.logger.Info("poll: already have", "path", e.Path)
 				break
 			}
-			p.logger.Info("poll: inbox put", "path", op.Path, "device", op.Device, "chunks", len(op.Chunks))
-			p.inbox.Append(NewInboxPut(op.Path, op.Checksum, op.Namespace, op.Device, op.Chunks))
+			p.logger.Info("poll: inbox put", "path", e.Path, "device", e.Device, "chunks", len(e.Chunks))
+			p.inbox.Append(NewInboxPut(e.Path, e.Checksum, e.Namespace, e.Device, e.Chunks))
 			wrote = true
 
-		case OpDelete:
+		case opslog.Delete:
 			// Only add to inbox if we have the file
-			if _, ok := p.state.GetFile(op.Path); ok {
-				p.logger.Info("poll: inbox delete", "path", op.Path, "device", op.Device)
-				p.inbox.Append(NewInboxDelete(op.Path, op.Device))
+			if _, ok := p.state.GetFile(e.Path); ok {
+				p.logger.Info("poll: inbox delete", "path", e.Path, "device", e.Device)
+				p.inbox.Append(NewInboxDelete(e.Path, e.Device))
 				wrote = true
 			} else {
-				p.logger.Info("poll: skip delete (not local)", "path", op.Path)
+				p.logger.Info("poll: skip delete (not local)", "path", e.Path)
 			}
 		}
 
-		if op.Timestamp > maxTs {
-			maxTs = op.Timestamp
+		if e.Timestamp > maxTs {
+			maxTs = e.Timestamp
 		}
 	}
 
