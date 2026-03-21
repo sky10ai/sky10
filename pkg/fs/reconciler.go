@@ -236,4 +236,15 @@ func (r *Reconciler) deleteFile(path string) {
 	localPath := filepath.Join(r.localDir, filepath.FromSlash(path))
 	os.Remove(localPath)
 	r.logger.Info("reconcile: deleted", "path", path)
+
+	// Prune empty parent directories up to the drive root.
+	// A directory delete should leave nothing behind.
+	dir := filepath.Dir(localPath)
+	for dir != r.localDir && dir != "." && dir != "/" {
+		if err := os.Remove(dir); err != nil {
+			break // not empty or permission error — stop
+		}
+		r.logger.Info("reconcile: pruned empty dir", "dir", dir)
+		dir = filepath.Dir(dir)
+	}
 }
