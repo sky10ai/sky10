@@ -23,7 +23,7 @@ type DriveManager struct {
 	store          *Store
 	drives         map[string]*Drive
 	daemons        map[string]context.CancelFunc
-	mu             sync.Mutex
+	mu             sync.RWMutex
 	cfgPath        string
 	Logger         *slog.Logger // shared logger (with log buffer)
 	OnActivity     func()       // called when any drive does sync I/O
@@ -82,8 +82,8 @@ func (dm *DriveManager) RemoveDrive(id string) error {
 
 // ListDrives returns all configured drives.
 func (dm *DriveManager) ListDrives() []*Drive {
-	dm.mu.Lock()
-	defer dm.mu.Unlock()
+	dm.mu.RLock()
+	defer dm.mu.RUnlock()
 
 	var result []*Drive
 	for _, d := range dm.drives {
@@ -94,8 +94,8 @@ func (dm *DriveManager) ListDrives() []*Drive {
 
 // GetDrive returns a drive by ID.
 func (dm *DriveManager) GetDrive(id string) *Drive {
-	dm.mu.Lock()
-	defer dm.mu.Unlock()
+	dm.mu.RLock()
+	defer dm.mu.RUnlock()
 	return dm.drives[id]
 }
 
@@ -153,10 +153,12 @@ func (dm *DriveManager) StartDrive(id string, logger interface{ Info(string, ...
 	dm.mu.Unlock()
 
 	go func() {
+		defer func() {
+			dm.mu.Lock()
+			delete(dm.daemons, id)
+			dm.mu.Unlock()
+		}()
 		daemon.Run(ctx)
-		dm.mu.Lock()
-		delete(dm.daemons, id)
-		dm.mu.Unlock()
 	}()
 
 	return nil
@@ -186,8 +188,8 @@ func (dm *DriveManager) StopAll() {
 
 // IsRunning returns whether a drive's daemon is active.
 func (dm *DriveManager) IsRunning(id string) bool {
-	dm.mu.Lock()
-	defer dm.mu.Unlock()
+	dm.mu.RLock()
+	defer dm.mu.RUnlock()
 	_, ok := dm.daemons[id]
 	return ok
 }
