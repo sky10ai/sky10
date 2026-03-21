@@ -11,6 +11,7 @@ package transfer
 
 import (
 	"io"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -28,6 +29,13 @@ type readResult struct {
 }
 
 // Reader wraps an io.Reader with progress tracking and idle timeout.
+//
+// Two stall detection modes:
+//   - Download mode (SetIdleTimeout only): detects when a single Read()
+//     blocks for too long (data source stall). Each Read runs in a goroutine.
+//   - Upload mode (SetIdleTimeout + OnStall): detects when the consumer stops
+//     calling Read() (write-side stall). A background monitor watches for gaps
+//     between Read() calls and fires the OnStall callback.
 type Reader struct {
 	r           io.Reader
 	total       int64
@@ -35,6 +43,11 @@ type Reader struct {
 	lastRead    atomic.Int64 // unix nano
 	idleTimeout time.Duration
 	progress    chan Progress // non-blocking progress updates
+	onStall     func()        // called when consumer stops reading
+	stalled     atomic.Bool
+	monitorOnce sync.Once
+	doneOnce    sync.Once
+	done        chan struct{} // closed when reader completes or Close called
 }
 
 // NewReader wraps r with progress tracking.
@@ -64,13 +77,41 @@ func (r *Reader) Progress() <-chan Progress {
 	return r.progress
 }
 
-// Read implements io.Reader. When an idle timeout is set, each Read
-// runs in a goroutine so a stalled connection can be detected and killed.
-func (r *Reader) Read(p []byte) (int, error) {
-	if r.idleTimeout <= 0 {
-		return r.readDirect(p)
+// OnStall registers a function called when the consumer stops calling Read
+// for longer than the idle timeout. Use for upload request bodies where the
+// HTTP client stalls on a dead socket write. Typically pass a
+// context.CancelFunc to abort the HTTP request. Must be called before Read.
+func (r *Reader) OnStall(fn func()) {
+	r.onStall = fn
+}
+
+// Stalled returns true if a consumer stall was detected.
+func (r *Reader) Stalled() bool { return r.stalled.Load() }
+
+// Close stops the stall monitor and closes the underlying reader
+// if it implements io.Closer.
+func (r *Reader) Close() error {
+	r.signalDone()
+	if c, ok := r.r.(io.Closer); ok {
+		return c.Close()
 	}
-	return r.readWithTimeout(p)
+	return nil
+}
+
+// Read implements io.Reader.
+//   - Upload mode (onStall set): uses readDirect + background monitor
+//   - Download mode (onStall nil): each Read runs in a goroutine with timeout
+func (r *Reader) Read(p []byte) (int, error) {
+	if r.onStall != nil && r.idleTimeout > 0 {
+		r.monitorOnce.Do(func() {
+			r.done = make(chan struct{})
+			go r.monitorStall()
+		})
+	}
+	if r.idleTimeout > 0 && r.onStall == nil {
+		return r.readWithTimeout(p)
+	}
+	return r.readDirect(p)
 }
 
 func (r *Reader) readDirect(p []byte) (int, error) {
@@ -79,6 +120,9 @@ func (r *Reader) readDirect(p []byte) (int, error) {
 		bytes := r.bytes.Add(int64(n))
 		r.lastRead.Store(time.Now().UnixNano())
 		r.emit(bytes)
+	}
+	if err != nil {
+		r.signalDone()
 	}
 	return n, err
 }
@@ -105,6 +149,7 @@ func (r *Reader) readWithTimeout(p []byte) (int, error) {
 			c.Close()
 		}
 		<-done // wait for goroutine to exit
+		r.signalDone()
 		return 0, ErrIdleTimeout
 	}
 }
@@ -129,6 +174,37 @@ func (r *Reader) emit(bytes int64) {
 		select {
 		case r.progress <- p:
 		default:
+		}
+	}
+}
+
+func (r *Reader) signalDone() {
+	r.doneOnce.Do(func() {
+		if r.done != nil {
+			close(r.done)
+		}
+	})
+}
+
+func (r *Reader) monitorStall() {
+	interval := r.idleTimeout / 4
+	if interval < 50*time.Millisecond {
+		interval = 50 * time.Millisecond
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			last := r.lastRead.Load()
+			gap := time.Duration(time.Now().UnixNano() - last)
+			if gap > r.idleTimeout {
+				r.stalled.Store(true)
+				r.onStall()
+				return
+			}
+		case <-r.done:
+			return
 		}
 	}
 }

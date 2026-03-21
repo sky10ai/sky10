@@ -23,6 +23,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/sky10/sky10/pkg/adapter"
+	"github.com/sky10/sky10/pkg/transfer"
 )
 
 // Backend stores encrypted blobs in an S3-compatible bucket.
@@ -159,15 +160,27 @@ func (b *Backend) Put(ctx context.Context, key string, r io.Reader, size int64) 
 	defer b.release()
 	b.logger.Debug("s3 PUT", "key", key, "size", size)
 	start := time.Now()
-	// No wall-clock timeout — large chunks need time to upload.
-	// TCP keepalive detects dead connections.
+
+	// Stall detection: wrap the request body so we can detect when the
+	// HTTP client stops reading (socket write blocked on dead connection).
+	// If no Read() call happens for 30s, cancel the request.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	tr := transfer.NewReader(r, size)
+	tr.SetIdleTimeout(30 * time.Second)
+	tr.OnStall(cancel)
+	defer tr.Close()
+
 	_, err := b.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(b.bucket),
 		Key:           aws.String(key),
-		Body:          r,
+		Body:          tr,
 		ContentLength: aws.Int64(size),
 	})
 	if err != nil {
+		if tr.Stalled() {
+			err = transfer.ErrIdleTimeout
+		}
 		b.logger.Warn("s3 PUT failed", "key", key, "error", err, "ms", time.Since(start).Milliseconds())
 		return fmt.Errorf("s3: put %q: %w", key, err)
 	}
