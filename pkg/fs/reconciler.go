@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/sky10/sky10/pkg/fs/opslog"
@@ -93,10 +95,14 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 	// The watcher already decided these should be deleted — don't
 	// re-download them just because old remote puts are in the log.
 	pendingDeletes := make(map[string]bool)
+	var pendingDeleteDirs []string
 	if entries, err := r.outbox.ReadAll(); err == nil {
 		for _, e := range entries {
-			if e.Op == OpDelete {
+			switch e.Op {
+			case OpDelete:
 				pendingDeletes[e.Path] = true
+			case OpDeleteDir:
+				pendingDeleteDirs = append(pendingDeleteDirs, e.Path+"/")
 			}
 		}
 	}
@@ -108,6 +114,10 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		}
 		if pendingDeletes[path] {
 			r.logger.Info("reconcile: skip, pending delete", "path", path)
+			continue
+		}
+		if r.underPendingDeleteDir(path, pendingDeleteDirs) {
+			r.logger.Info("reconcile: skip, pending delete_dir", "path", path)
 			continue
 		}
 		localChecksum, onDisk := localFiles[path]
@@ -129,6 +139,12 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 			r.deleteFile(path)
 			active = true
 		}
+	}
+
+	// Directories on disk with no files in snapshot → remove.
+	// Driven by delete_dir ops propagated through the CRDT.
+	if r.reconcileDirectories(snapshotFiles) {
+		active = true
 	}
 
 	if active {
@@ -236,4 +252,78 @@ func (r *Reconciler) deleteFile(path string) {
 	localPath := filepath.Join(r.localDir, filepath.FromSlash(path))
 	os.Remove(localPath)
 	r.logger.Info("reconcile: deleted", "path", path)
+}
+
+// underPendingDeleteDir returns true if path falls under any pending
+// delete_dir prefix in the outbox.
+func (r *Reconciler) underPendingDeleteDir(path string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(path, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// reconcileDirectories removes directories that have no files in the
+// snapshot. Returns true if any directories were removed.
+func (r *Reconciler) reconcileDirectories(snapshotFiles map[string]opslog.FileInfo) bool {
+	// Build set of directory paths that should exist (have files under them).
+	liveDirs := make(map[string]bool)
+	for p := range snapshotFiles {
+		dir := p
+		for {
+			i := strings.LastIndex(dir, "/")
+			if i < 0 {
+				break
+			}
+			dir = dir[:i]
+			if liveDirs[dir] {
+				break // ancestors already marked
+			}
+			liveDirs[dir] = true
+		}
+	}
+
+	// Walk local dir for subdirectories.
+	var stale []string
+	filepath.WalkDir(r.localDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || !d.IsDir() || path == r.localDir {
+			return nil
+		}
+		name := d.Name()
+		if strings.HasPrefix(name, ".") {
+			return filepath.SkipDir
+		}
+		rel, _ := filepath.Rel(r.localDir, path)
+		rel = filepath.ToSlash(rel)
+		if r.ignore != nil && r.ignore(rel) {
+			return filepath.SkipDir
+		}
+		if !liveDirs[rel] {
+			stale = append(stale, rel)
+		}
+		return nil
+	})
+
+	if len(stale) == 0 {
+		return false
+	}
+
+	// Sort deepest first so children are removed before parents.
+	sort.Slice(stale, func(i, j int) bool {
+		return len(stale[i]) > len(stale[j])
+	})
+
+	removed := false
+	for _, dir := range stale {
+		localPath := filepath.Join(r.localDir, filepath.FromSlash(dir))
+		// os.Remove only succeeds on empty directories — safe against
+		// new files the watcher hasn't processed yet.
+		if err := os.Remove(localPath); err == nil {
+			r.logger.Info("reconcile: removed dir", "path", dir)
+			removed = true
+		}
+	}
+	return removed
 }

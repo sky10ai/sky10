@@ -19,8 +19,9 @@ import (
 type OpType string
 
 const (
-	OpPut    OpType = "put"
-	OpDelete OpType = "delete"
+	OpPut       OpType = "put"
+	OpDelete    OpType = "delete"
+	OpDeleteDir OpType = "delete_dir"
 )
 
 // Op is a single operation in the append-only log.
@@ -98,8 +99,11 @@ func makeOpEnvelope(op *Op, encrypted []byte) []byte {
 	}
 	copy(buf[15:21], devBytes[:n])
 	// Op type
-	if op.Type == OpDelete {
+	switch op.Type {
+	case OpDelete:
 		buf[21] = 1
+	case OpDeleteDir:
+		buf[21] = 2
 	}
 	// Encrypted payload
 	copy(buf[OpEnvelopeSize:], encrypted)
@@ -226,6 +230,13 @@ func BuildState(base *Manifest, ops []Op) *Manifest {
 			}
 		case OpDelete:
 			delete(m.Tree, op.Path)
+		case OpDeleteDir:
+			prefix := op.Path + "/"
+			for path := range m.Tree {
+				if strings.HasPrefix(path, prefix) {
+					delete(m.Tree, path)
+				}
+			}
 		}
 	}
 

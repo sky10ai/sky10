@@ -2,6 +2,8 @@ package fs
 
 import (
 	"context"
+	"crypto/sha3"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -319,4 +321,99 @@ func TestReconcilerSkipsPendingDeletes(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(localDir, "doomed.txt")); err == nil {
 		t.Error("doomed.txt should NOT have been downloaded — pending delete in outbox")
 	}
+}
+
+func TestReconcilerRemovesStaleDirectories(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+
+	// Create local directories with files
+	os.MkdirAll(filepath.Join(localDir, "keep", "sub"), 0755)
+	os.MkdirAll(filepath.Join(localDir, "stale", "nested"), 0755)
+	os.WriteFile(filepath.Join(localDir, "keep", "a.txt"), []byte("a"), 0644)
+	os.WriteFile(filepath.Join(localDir, "keep", "sub", "b.txt"), []byte("b"), 0644)
+	// stale/ has no files — only empty dirs
+
+	// Snapshot: only keep/a.txt and keep/sub/b.txt exist
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+	localLog.AppendLocal(opslog.Entry{
+		Type: opslog.Put, Path: "keep/a.txt", Checksum: checksumOf("a"), Namespace: "Test",
+	})
+	localLog.AppendLocal(opslog.Entry{
+		Type: opslog.Put, Path: "keep/sub/b.txt", Checksum: checksumOf("b"), Namespace: "Test",
+	})
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.reconcile(context.Background())
+
+	// stale/ and stale/nested/ should be gone
+	if _, err := os.Stat(filepath.Join(localDir, "stale")); err == nil {
+		t.Error("stale/ directory should have been removed")
+	}
+	// keep/ should still exist
+	if _, err := os.Stat(filepath.Join(localDir, "keep")); err != nil {
+		t.Error("keep/ directory should still exist")
+	}
+	if _, err := os.Stat(filepath.Join(localDir, "keep", "sub")); err != nil {
+		t.Error("keep/sub/ directory should still exist")
+	}
+}
+
+func TestReconcilerDeleteDirEndToEnd(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+
+	// Create local files simulating a synced directory
+	os.MkdirAll(filepath.Join(localDir, "photos", "vacation"), 0755)
+	os.WriteFile(filepath.Join(localDir, "photos", "a.jpg"), []byte("img-a"), 0644)
+	os.WriteFile(filepath.Join(localDir, "photos", "vacation", "b.jpg"), []byte("img-b"), 0644)
+	os.WriteFile(filepath.Join(localDir, "notes.txt"), []byte("keep"), 0644)
+
+	// Local log has all three files, then a delete_dir for photos/
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+	localLog.AppendLocal(opslog.Entry{
+		Type: opslog.Put, Path: "photos/a.jpg", Checksum: checksumOf("img-a"), Namespace: "Test",
+	})
+	localLog.AppendLocal(opslog.Entry{
+		Type: opslog.Put, Path: "photos/vacation/b.jpg", Checksum: checksumOf("img-b"), Namespace: "Test",
+	})
+	localLog.AppendLocal(opslog.Entry{
+		Type: opslog.Put, Path: "notes.txt", Checksum: checksumOf("keep"), Namespace: "Test",
+	})
+
+	// Remote device deleted the directory
+	localLog.Append(opslog.Entry{
+		Type: opslog.DeleteDir, Path: "photos",
+		Device: "dev-b", Timestamp: 9999999999, Seq: 1,
+	})
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.reconcile(context.Background())
+
+	// photos/ and all contents should be gone
+	if _, err := os.Stat(filepath.Join(localDir, "photos")); err == nil {
+		t.Error("photos/ directory should have been removed")
+	}
+	// notes.txt should still exist
+	if _, err := os.Stat(filepath.Join(localDir, "notes.txt")); err != nil {
+		t.Error("notes.txt should still exist")
+	}
+}
+
+func checksumOf(content string) string {
+	h := sha3.New256()
+	h.Write([]byte(content))
+	return hex.EncodeToString(h.Sum(nil))
 }
