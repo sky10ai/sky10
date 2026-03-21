@@ -132,11 +132,19 @@ func (d *DaemonV2_5) Run(ctx context.Context) error {
 	// Seed state from local filesystem on first run
 	d.seedStateFromDisk()
 
+	// Watchdog: auto-dump goroutines if any worker is stuck for 2 minutes
+	wd := NewWatchdog(d.logger, 2*time.Minute)
+	wd.Register("poller")
+	wd.Register("outbox")
+	d.poller.heartbeat = func() { wd.Heartbeat("poller") }
+	d.outboxWorker.heartbeat = func() { wd.Heartbeat("outbox") }
+
 	// Start workers
 	go d.outboxWorker.Run(ctx)
 	go d.reconciler.Run(ctx)
 	go d.poller.Run(ctx)
 	go d.watcherLoop(ctx)
+	go wd.Run(ctx)
 
 	// Block until cancelled
 	<-ctx.Done()

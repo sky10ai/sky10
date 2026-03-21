@@ -304,6 +304,9 @@ func fsServeCmd() *cobra.Command {
 			// Register this device in background (ip-api.com can be slow)
 			go skyfs.RegisterDevice(ctx, backend, id.Address(), skyfs.GetDeviceName(), cmd.Root().Version)
 
+			// SIGUSR1 dumps all goroutine stacks to daemon.log
+			skyfs.HandleDumpSignal(slog.Default())
+
 			server := skyfs.NewRPCServer(store, sockPath, filepath.Join(cfgDir, "drives.json"), cmd.Root().Version, nil)
 			fmt.Println(sockPath)
 			return server.Serve(ctx)

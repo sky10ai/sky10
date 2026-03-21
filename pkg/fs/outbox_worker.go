@@ -13,12 +13,13 @@ import (
 // Reads from the persistent outbox file, not an in-memory channel.
 // If S3 fails, entries stay in the outbox and get retried.
 type OutboxWorker struct {
-	store    *Store
-	outbox   *SyncLog[OutboxEntry]
-	localLog *opslog.LocalOpsLog
-	logger   *slog.Logger
-	notify   chan struct{} // poked when new entries arrive
-	onEvent  func(string)  // push events to Cirrus
+	store     *Store
+	outbox    *SyncLog[OutboxEntry]
+	localLog  *opslog.LocalOpsLog
+	logger    *slog.Logger
+	notify    chan struct{} // poked when new entries arrive
+	onEvent   func(string)  // push events to Cirrus
+	heartbeat func()        // watchdog heartbeat
 }
 
 // NewOutboxWorker creates an outbox worker.
@@ -27,12 +28,13 @@ func NewOutboxWorker(store *Store, outbox *SyncLog[OutboxEntry], localLog *opslo
 		logger = slog.Default()
 	}
 	return &OutboxWorker{
-		store:    store,
-		outbox:   outbox,
-		localLog: localLog,
-		logger:   logger,
-		notify:   make(chan struct{}, 1),
-		onEvent:  func(string) {},
+		store:     store,
+		outbox:    outbox,
+		localLog:  localLog,
+		logger:    logger,
+		notify:    make(chan struct{}, 1),
+		onEvent:   func(string) {},
+		heartbeat: func() {},
 	}
 }
 
@@ -73,6 +75,7 @@ func (w *OutboxWorker) drain(ctx context.Context) {
 			return
 		}
 
+		w.heartbeat()
 		w.logger.Info("outbox: draining", "pending", len(entries))
 		entry := entries[0]
 		w.onEvent("sync.active")
