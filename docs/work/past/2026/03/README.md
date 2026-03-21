@@ -2,6 +2,7 @@
 
 | Date | Title | Summary |
 |------|-------|---------|
+| 20 | [Transfer Module & Reliability](20-Transfer-Module-And-Reliability.md) | pkg/transfer for streaming progress, S3 timeout fix, RPC deadlock fix, poller recovery — v0.10.3, v0.10.4, v0.11.0 |
 | 20 | [Checksum Fix & Cirrus Stability](20-Checksum-Fix-And-Cirrus-Stability.md) | Fix cross-device echo loop (checksum scheme mismatch), syncStatus flood, reset/compact UI — v0.10.1, v0.10.2 |
 | 19 | [V3: Local Ops Log + CRDT](19-V3-Local-Ops-Log-CRDT.md) | LocalOpsLog replaces DriveState + InboxWorker, Reconciler, CRDT snapshot, local compaction — v0.10.0 |
 | 18 | [Daemon V2.5: Inbox/Outbox](18-Daemon-V2.5-Inbox-Outbox.md) | Persistent JSONL queues, filesystem-direct browser, activity view, sync status overlay, 7 new daemon tests |
