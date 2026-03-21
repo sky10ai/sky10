@@ -160,14 +160,21 @@ func TestWatcherHandlerDirectoryTrash(t *testing.T) {
 	handler := NewWatcherHandler(outbox, localLog, localDir, "Test", nil)
 	handler.HandleDirectoryTrash("subdir")
 
+	// Should emit one delete_dir op, not N individual deletes
 	entries, _ := outbox.ReadAll()
-	if len(entries) != 2 {
-		t.Fatalf("outbox has %d, want 2 (only subdir files)", len(entries))
+	if len(entries) != 1 {
+		t.Fatalf("outbox has %d, want 1 (one delete_dir)", len(entries))
 	}
-	for _, e := range entries {
-		if e.Op != OpDelete {
-			t.Errorf("expected delete, got %+v", e)
-		}
+	if entries[0].Op != OpDeleteDir || entries[0].Path != "subdir" {
+		t.Errorf("expected delete_dir for subdir, got %+v", entries[0])
+	}
+
+	// CRDT should have removed subdir files from snapshot
+	if _, ok := localLog.Lookup("subdir/a.txt"); ok {
+		t.Error("subdir/a.txt should be removed from snapshot after delete_dir")
+	}
+	if _, ok := localLog.Lookup("subdir/b.txt"); ok {
+		t.Error("subdir/b.txt should be removed from snapshot after delete_dir")
 	}
 
 	// other/c.txt should still be in local log
@@ -195,14 +202,21 @@ func TestWatcherHandlerDeleteDirectoryViaHandleEvents(t *testing.T) {
 	// kqueue sends a single FileDeleted for the directory, not individual files
 	handler.HandleEvents([]FileEvent{{Path: "archive", Type: FileDeleted}})
 
+	// Should emit one delete_dir op
 	entries, _ := outbox.ReadAll()
-	if len(entries) != 2 {
-		t.Fatalf("outbox has %d, want 2 (only archive/* files)", len(entries))
+	if len(entries) != 1 {
+		t.Fatalf("outbox has %d, want 1 (one delete_dir)", len(entries))
 	}
-	for _, e := range entries {
-		if e.Op != OpDelete {
-			t.Errorf("expected delete, got %+v", e)
-		}
+	if entries[0].Op != OpDeleteDir || entries[0].Path != "archive" {
+		t.Errorf("expected delete_dir for archive, got %+v", entries[0])
+	}
+
+	// CRDT should have removed archive files
+	if _, ok := localLog.Lookup("archive/a.txt"); ok {
+		t.Error("archive/a.txt should be gone after delete_dir")
+	}
+	if _, ok := localLog.Lookup("archive/sub/b.txt"); ok {
+		t.Error("archive/sub/b.txt should be gone after delete_dir")
 	}
 
 	// other/c.txt should still be tracked

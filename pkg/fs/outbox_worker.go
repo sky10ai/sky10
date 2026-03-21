@@ -92,6 +92,8 @@ func (w *OutboxWorker) drain(ctx context.Context) {
 			ok = w.uploadFile(ctx, entry)
 		case OpDelete:
 			ok = w.writeDeleteOp(ctx, entry)
+		case OpDeleteDir:
+			ok = w.writeDeleteDirOp(ctx, entry)
 		}
 
 		if ok {
@@ -128,6 +130,22 @@ func (w *OutboxWorker) uploadFile(ctx context.Context, entry OutboxEntry) bool {
 	}
 
 	w.logger.Info("outbox: uploaded", "path", entry.Path)
+	w.onEvent("state.changed")
+	return true
+}
+
+// writeDeleteDirOp writes a delete_dir op via the store's OpsLog.
+func (w *OutboxWorker) writeDeleteDirOp(ctx context.Context, entry OutboxEntry) bool {
+	op := &Op{
+		Type:      OpDeleteDir,
+		Path:      entry.Path,
+		Namespace: entry.Namespace,
+	}
+	if err := w.store.writeOp(ctx, op); err != nil {
+		w.logger.Warn("outbox delete_dir: write op failed", "path", entry.Path, "error", err)
+		return false
+	}
+	w.logger.Info("outbox: delete_dir", "path", entry.Path)
 	w.onEvent("state.changed")
 	return true
 }

@@ -37,8 +37,9 @@ const SchemaVersion = "1.0.0"
 type EntryType string
 
 const (
-	Put    EntryType = "put"
-	Delete EntryType = "delete"
+	Put       EntryType = "put"
+	Delete    EntryType = "delete"
+	DeleteDir EntryType = "delete_dir"
 )
 
 // Entry is a single operation in the append-only log.
@@ -461,8 +462,11 @@ func makeEnvelope(e *Entry, encrypted []byte) []byte {
 	}
 	copy(buf[15:21], devBytes[:n])
 
-	if e.Type == Delete {
+	switch e.Type {
+	case Delete:
 		buf[21] = 1
+	case DeleteDir:
+		buf[21] = 2
 	}
 
 	copy(buf[envelopeSize:], encrypted)
@@ -554,6 +558,13 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 	// existing clock to take effect.
 	clocks := make(map[string]clockTuple)
 
+	// Directory delete tombstones. A Put under a deleted directory is
+	// rejected unless its clock beats the tombstone. This ensures
+	// DeleteDir is order-independent (commutative) — the result is the
+	// same regardless of whether the DeleteDir is processed before or
+	// after the Puts it covers.
+	dirTombstones := make(map[string]clockTuple)
+
 	if base != nil {
 		snap.created = base.created
 		for k, v := range base.files {
@@ -564,13 +575,17 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 
 	for _, e := range entries {
 		ec := clockTuple{ts: e.Timestamp, device: e.Device, seq: e.Seq}
-		if prev, ok := clocks[e.Path]; ok && !ec.beats(prev) {
-			continue
-		}
-		clocks[e.Path] = ec
 
 		switch e.Type {
 		case Put:
+			if prev, ok := clocks[e.Path]; ok && !ec.beats(prev) {
+				continue
+			}
+			// Check if covered by a directory delete tombstone
+			if coveredByDirTombstone(e.Path, ec, dirTombstones) {
+				continue
+			}
+			clocks[e.Path] = ec
 			snap.files[e.Path] = FileInfo{
 				Chunks:    e.Chunks,
 				Size:      e.Size,
@@ -581,12 +596,49 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 				Seq:       e.Seq,
 			}
 		case Delete:
+			if prev, ok := clocks[e.Path]; ok && !ec.beats(prev) {
+				continue
+			}
+			clocks[e.Path] = ec
 			delete(snap.files, e.Path)
+		case DeleteDir:
+			// Record tombstone so future puts under this prefix are rejected
+			// unless they have a higher clock.
+			if prev, ok := dirTombstones[e.Path]; !ok || ec.beats(prev) {
+				dirTombstones[e.Path] = ec
+			}
+			// Remove existing files under this directory.
+			prefix := e.Path + "/"
+			for path := range snap.files {
+				if strings.HasPrefix(path, prefix) {
+					if prev, ok := clocks[path]; !ok || ec.beats(prev) {
+						delete(snap.files, path)
+						clocks[path] = ec
+					}
+				}
+			}
 		}
 	}
 
 	snap.updated = time.Now().UTC()
 	return snap
+}
+
+// coveredByDirTombstone returns true if path is under a directory that
+// was deleted with a clock that beats ec. Walks up the path hierarchy
+// checking each ancestor.
+func coveredByDirTombstone(path string, ec clockTuple, tombstones map[string]clockTuple) bool {
+	dir := path
+	for {
+		i := strings.LastIndex(dir, "/")
+		if i < 0 {
+			return false
+		}
+		dir = dir[:i]
+		if ts, ok := tombstones[dir]; ok && !ec.beats(ts) {
+			return true
+		}
+	}
 }
 
 // --- Sorting ---

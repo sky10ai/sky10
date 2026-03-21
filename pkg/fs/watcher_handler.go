@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sky10/sky10/pkg/fs/opslog"
@@ -136,23 +137,46 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 	}
 }
 
-// HandleDirectoryTrash emits delete events for all files that were
-// in a directory that was trashed. Called when a watched directory
-// disappears — kqueue doesn't fire per-file events in this case.
+// HandleDirectoryTrash emits a single delete_dir op when a watched
+// directory disappears. kqueue fires one event for the directory, not
+// per-file. The CRDT's buildSnapshot handles the prefix delete.
 func (h *WatcherHandler) HandleDirectoryTrash(dirPath string) {
 	snap, err := h.localLog.Snapshot()
 	if err != nil {
 		h.logger.Warn("watcher: snapshot failed for directory trash", "error", err)
 		return
 	}
+
+	// Check that at least one tracked file exists under this prefix.
 	prefix := dirPath + "/"
-	var events []FileEvent
-	for path := range snap.Files() {
-		if len(path) > len(prefix) && path[:len(prefix)] == prefix {
-			events = append(events, FileEvent{Path: path, Type: FileDeleted})
+	ns := ""
+	found := false
+	for path, fi := range snap.Files() {
+		if strings.HasPrefix(path, prefix) {
+			ns = fi.Namespace
+			found = true
+			break
 		}
 	}
-	if len(events) > 0 {
-		h.HandleEvents(events)
+	if !found {
+		return
 	}
+
+	h.logger.Info("watcher: delete_dir", "path", dirPath)
+
+	h.localLog.AppendLocal(opslog.Entry{
+		Type:      opslog.DeleteDir,
+		Path:      dirPath,
+		Namespace: ns,
+	})
+
+	h.outbox.Append(OutboxEntry{
+		Op:        OpDeleteDir,
+		Path:      dirPath,
+		Namespace: ns,
+		Timestamp: time.Now().Unix(),
+	})
+
+	h.onEvent("state.changed")
+	h.pokeOutbox()
 }

@@ -621,6 +621,69 @@ func permutations(entries []Entry) [][]Entry {
 	return result
 }
 
+func TestCRDTDeleteDir(t *testing.T) {
+	t.Parallel()
+
+	entries := []Entry{
+		{Type: Put, Path: "dir/a.txt", Checksum: "a1", Timestamp: 100, Device: "dev-a", Seq: 1},
+		{Type: Put, Path: "dir/b.txt", Checksum: "b1", Timestamp: 100, Device: "dev-a", Seq: 2},
+		{Type: Put, Path: "other.txt", Checksum: "o1", Timestamp: 100, Device: "dev-a", Seq: 3},
+		{Type: DeleteDir, Path: "dir", Timestamp: 200, Device: "dev-b", Seq: 1},
+	}
+
+	// All files under dir/ should be gone, other.txt should remain
+	snap := buildSnapshot(nil, entries)
+	if snap.Len() != 1 {
+		t.Fatalf("Len() = %d, want 1 (only other.txt)", snap.Len())
+	}
+	if _, ok := snap.Lookup("dir/a.txt"); ok {
+		t.Error("dir/a.txt should be deleted by delete_dir")
+	}
+	if _, ok := snap.Lookup("dir/b.txt"); ok {
+		t.Error("dir/b.txt should be deleted by delete_dir")
+	}
+	if _, ok := snap.Lookup("other.txt"); !ok {
+		t.Error("other.txt should survive delete_dir")
+	}
+}
+
+func TestCRDTDeleteDirLaterPutWins(t *testing.T) {
+	t.Parallel()
+
+	// DeleteDir at t=200, but a put at t=300 should survive
+	entries := []Entry{
+		{Type: Put, Path: "dir/old.txt", Checksum: "old", Timestamp: 100, Device: "dev-a", Seq: 1},
+		{Type: DeleteDir, Path: "dir", Timestamp: 200, Device: "dev-b", Seq: 1},
+		{Type: Put, Path: "dir/new.txt", Checksum: "new", Timestamp: 300, Device: "dev-c", Seq: 1},
+	}
+
+	snap := buildSnapshot(nil, entries)
+	if _, ok := snap.Lookup("dir/old.txt"); ok {
+		t.Error("dir/old.txt should be deleted (t=100 < t=200)")
+	}
+	if _, ok := snap.Lookup("dir/new.txt"); !ok {
+		t.Error("dir/new.txt should survive (t=300 > t=200 delete_dir)")
+	}
+}
+
+func TestCRDTDeleteDirOrderIndependent(t *testing.T) {
+	t.Parallel()
+
+	entries := []Entry{
+		{Type: Put, Path: "d/x.txt", Checksum: "x", Timestamp: 100, Device: "dev-a", Seq: 1},
+		{Type: Put, Path: "d/y.txt", Checksum: "y", Timestamp: 150, Device: "dev-a", Seq: 2},
+		{Type: DeleteDir, Path: "d", Timestamp: 200, Device: "dev-b", Seq: 1},
+	}
+
+	// All 6 permutations should produce the same result (0 files)
+	for i, perm := range permutations(entries) {
+		snap := buildSnapshot(nil, perm)
+		if snap.Len() != 0 {
+			t.Errorf("perm %d: Len() = %d, want 0", i, snap.Len())
+		}
+	}
+}
+
 func TestLastWriterWins(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

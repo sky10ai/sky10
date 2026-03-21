@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -276,6 +277,20 @@ func (d *DaemonV2) handleRemoteOps(ctx context.Context, ops []Op) {
 			localPath := filepath.Join(d.config.LocalRoot, filepath.FromSlash(op.Path))
 			os.Remove(localPath)
 			d.manifest.RemoveFile(op.Path)
+			changed = true
+
+		case OpDeleteDir:
+			prefix := op.Path + "/"
+			for path := range d.manifest.Files {
+				if strings.HasPrefix(path, prefix) {
+					localPath := filepath.Join(d.config.LocalRoot, filepath.FromSlash(path))
+					os.Remove(localPath)
+					d.manifest.RemoveFile(path)
+				}
+			}
+			// Remove the directory itself
+			dirPath := filepath.Join(d.config.LocalRoot, filepath.FromSlash(op.Path))
+			os.Remove(dirPath)
 			changed = true
 		}
 
