@@ -4,17 +4,10 @@ import SwiftUI
 /// Developer tools window for daemon control and debugging.
 struct DevToolsView: View {
     @EnvironmentObject var appState: AppState
-    @State private var daemonStatus = "Unknown"
-    @State private var manifestContent = ""
-    @State private var opsCount = "—"
-    @State private var autoRefresh = true
-    @State private var dumpStatus = ""
-    @State private var isDumping = false
-
-    private let statusTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+    @State private var selectedTab = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(spacing: 0) {
             // Header
             HStack {
                 Image(systemName: "wrench.and.screwdriver")
@@ -29,166 +22,165 @@ struct DevToolsView: View {
 
             Divider()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    // Daemon Control
-                    GroupBox("Daemon") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Circle()
-                                    .fill(daemonStatus == "Running" ? .green : .red)
-                                    .frame(width: 8, height: 8)
-                                Text(daemonStatus)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                            }
+            // Tabs
+            Picker("", selection: $selectedTab) {
+                Text("Controls").tag(0)
+                Text("Sync Activity").tag(1)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
 
-                            HStack(spacing: 8) {
-                                Button("Restart Daemon") {
-                                    appState.daemonManager.restart()
-                                    checkStatus()
-                                }
-                                .buttonStyle(.borderedProminent)
+            // Content
+            switch selectedTab {
+            case 0:
+                ControlsTab()
+            case 1:
+                SyncActivityTab()
+            default:
+                EmptyView()
+            }
+        }
+        .frame(width: 600, height: 650)
+    }
+}
 
-                                Button("Stop Daemon") {
-                                    appState.daemonManager.stop()
-                                    daemonStatus = "Stopped"
-                                }
-                                .buttonStyle(.bordered)
+// MARK: - Controls Tab
 
-                                Button("Start Daemon") {
-                                    appState.daemonManager.start()
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                        checkStatus()
-                                    }
-                                }
-                                .buttonStyle(.bordered)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
+struct ControlsTab: View {
+    @EnvironmentObject var appState: AppState
+    @State private var daemonStatus = "Unknown"
+    @State private var opsCount = "—"
+    @State private var dumpStatus = ""
+    @State private var isDumping = false
 
-                    // Manifest
-                    GroupBox("Manifest") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Button("Reload") { loadManifest() }
-                                    .controlSize(.small)
-                                Button("Reset Manifest") {
-                                    resetManifest()
-                                }
-                                .controlSize(.small)
-                                .foregroundStyle(.red)
-                                Spacer()
-                            }
+    private let statusTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
-                            if manifestContent.isEmpty {
-                                Text("No manifest loaded")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                Text(manifestContent)
-                                    .font(.system(.caption2, design: .monospaced))
-                                    .textSelection(.enabled)
-                                    .frame(maxHeight: 200)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-
-                    // S3 State
-                    GroupBox("S3 / Ops") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text("Ops count:")
-                                    .font(.caption)
-                                Text(opsCount)
-                                    .font(.system(.caption, design: .monospaced))
-                                Spacer()
-                                Button("Compact") {
-                                    Task { await compact() }
-                                }
-                                .controlSize(.small)
-
-                                Button("Reset All") {
-                                    Task { await resetAll() }
-                                }
-                                .controlSize(.small)
-                                .foregroundStyle(.red)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-
-                    // Debug Dump
-                    GroupBox("Debug Dump") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Upload device state (drives, ops log, outbox, local files) to S3 under debug/")
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                // Daemon Control
+                GroupBox("Daemon") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Circle()
+                                .fill(daemonStatus == "Running" ? .green : .red)
+                                .frame(width: 8, height: 8)
+                            Text(daemonStatus)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-
-                            HStack {
-                                Button {
-                                    Task { await uploadDebugDump() }
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        if isDumping {
-                                            ProgressView().scaleEffect(0.5)
-                                        } else {
-                                            Image(systemName: "arrow.up.doc")
-                                        }
-                                        Text("Upload Debug Dump")
-                                    }
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(isDumping)
-
-                                if !dumpStatus.isEmpty {
-                                    Text(dumpStatus)
-                                        .font(.caption)
-                                        .foregroundStyle(dumpStatus.hasPrefix("Error") ? .red : .green)
-                                }
-                            }
+                            Spacer()
                         }
-                        .padding(.vertical, 4)
+
+                        HStack(spacing: 8) {
+                            Button("Restart Daemon") {
+                                appState.daemonManager.restart()
+                                checkStatus()
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            Button("Stop Daemon") {
+                                appState.daemonManager.stop()
+                                daemonStatus = "Stopped"
+                            }
+                            .buttonStyle(.bordered)
+
+                            Button("Start Daemon") {
+                                appState.daemonManager.start()
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                    checkStatus()
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                        }
                     }
+                    .padding(.vertical, 4)
+                }
 
-                    // Quick Actions
-                    GroupBox("Quick Actions") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Button("Open ~/.sky10/ in Finder") {
-                                let home = FileManager.default.homeDirectoryForCurrentUser.path
-                                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: "\(home)/.sky10")
+                // S3 State
+                GroupBox("S3 / Ops") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Ops count:")
+                                .font(.caption)
+                            Text(opsCount)
+                                .font(.system(.caption, design: .monospaced))
+                            Spacer()
+                            Button("Compact") {
+                                Task { await compact() }
                             }
                             .controlSize(.small)
 
-                            Button("Force Refresh UI") {
-                                Task { await appState.refresh() }
-                            }
-                            .controlSize(.small)
-
-                            Button("Clear Drive Folder") {
-                                clearDriveFolder()
+                            Button("Reset All") {
+                                Task { await resetAll() }
                             }
                             .controlSize(.small)
                             .foregroundStyle(.red)
                         }
-                        .padding(.vertical, 4)
                     }
+                    .padding(.vertical, 4)
                 }
-                .padding()
+
+                // Debug Dump
+                GroupBox("Debug Dump") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Upload device state (drives, ops log, outbox, local files) to S3 under debug/")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        HStack {
+                            Button {
+                                Task { await uploadDebugDump() }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    if isDumping {
+                                        ProgressView().scaleEffect(0.5)
+                                    } else {
+                                        Image(systemName: "arrow.up.doc")
+                                    }
+                                    Text("Upload Debug Dump")
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(isDumping)
+
+                            if !dumpStatus.isEmpty {
+                                Text(dumpStatus)
+                                    .font(.caption)
+                                    .foregroundStyle(dumpStatus.hasPrefix("Error") ? .red : .green)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                // Quick Actions
+                GroupBox("Quick Actions") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button("Open ~/.sky10/ in Finder") {
+                            let home = FileManager.default.homeDirectoryForCurrentUser.path
+                            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: "\(home)/.sky10")
+                        }
+                        .controlSize(.small)
+
+                        Button("Force Refresh UI") {
+                            Task { await appState.refresh() }
+                        }
+                        .controlSize(.small)
+
+                        Button("Clear Drive Folder") {
+                            clearDriveFolder()
+                        }
+                        .controlSize(.small)
+                        .foregroundStyle(.red)
+                    }
+                    .padding(.vertical, 4)
+                }
             }
+            .padding()
         }
-        .frame(width: 450, height: 550)
-        .task {
-            checkStatus()
-            loadManifest()
-        }
-        .onReceive(statusTimer) { _ in
-            checkStatus()
-            loadManifest()
-        }
+        .task { checkStatus() }
+        .onReceive(statusTimer) { _ in checkStatus() }
     }
 
     private func checkStatus() {
@@ -199,35 +191,6 @@ struct DevToolsView: View {
             } catch {
                 daemonStatus = "Not responding"
             }
-        }
-    }
-
-    private func loadManifest() {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let path = "\(home)/.sky10/fs/drives/drive_Test/manifest.json"
-        guard let data = try? String(contentsOfFile: path, encoding: .utf8) else {
-            manifestContent = "No manifest found"
-            return
-        }
-        // Pretty print
-        if let json = try? JSONSerialization.jsonObject(with: Data(data.utf8)),
-           let pretty = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted),
-           let str = String(data: pretty, encoding: .utf8) {
-            manifestContent = str
-        } else {
-            manifestContent = data
-        }
-    }
-
-    private func resetManifest() {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let path = "\(home)/.sky10/fs/drives/drive_Test/manifest.json"
-        try? FileManager.default.removeItem(atPath: path)
-        manifestContent = "Manifest deleted. Restart daemon to rebuild."
-        appState.daemonManager.restart()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-            checkStatus()
-            loadManifest()
         }
     }
 
@@ -271,5 +234,153 @@ struct DevToolsView: View {
                 try? FileManager.default.removeItem(atPath: "\(path)/\(item)")
             }
         }
+    }
+}
+
+// MARK: - Sync Activity Tab
+
+struct SyncActivityTab: View {
+    @EnvironmentObject var appState: AppState
+    @State private var outboxEntries: [SkyClient.SyncActivityEntry] = []
+    @State private var snapshotFiles: [SnapshotFile] = []
+    @State private var isLoading = false
+
+    private let refreshTimer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
+
+    struct SnapshotFile: Identifiable {
+        let id: String
+        let path: String
+        let size: Int64
+        let chunks: Int
+    }
+
+    var body: some View {
+        HSplitView {
+            // Left: Outbox (pending uploads)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Image(systemName: "arrow.up.circle")
+                        .foregroundStyle(.blue)
+                    Text("Outbox")
+                        .font(.headline)
+                    Spacer()
+                    Text("\(outboxEntries.count)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.secondary.opacity(0.15))
+                        .clipShape(Capsule())
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+
+                Divider()
+
+                if outboxEntries.isEmpty {
+                    VStack {
+                        Spacer()
+                        Text("No pending uploads")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity)
+                } else {
+                    List(outboxEntries) { entry in
+                        HStack {
+                            Image(systemName: entry.op == "put" ? "arrow.up" : "trash")
+                                .font(.caption)
+                                .foregroundStyle(entry.op == "put" ? .blue : .red)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(entry.path)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Text(entry.driveName)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .frame(minWidth: 250)
+
+            // Right: Synced files (ops log snapshot)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Image(systemName: "checkmark.circle")
+                        .foregroundStyle(.green)
+                    Text("Synced")
+                        .font(.headline)
+                    Spacer()
+                    Text("\(snapshotFiles.count)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.secondary.opacity(0.15))
+                        .clipShape(Capsule())
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+
+                Divider()
+
+                if snapshotFiles.isEmpty {
+                    VStack {
+                        Spacer()
+                        Text("No synced files")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity)
+                } else {
+                    List(snapshotFiles) { file in
+                        HStack {
+                            Image(systemName: "doc")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(file.path)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Text(formatSize(file.size) + " · \(file.chunks) chunk\(file.chunks == 1 ? "" : "s")")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .frame(minWidth: 250)
+        }
+        .task { await loadActivity() }
+        .onReceive(refreshTimer) { _ in
+            Task { await loadActivity() }
+        }
+    }
+
+    private func loadActivity() async {
+        do {
+            outboxEntries = try await appState.client.syncActivity()
+
+            let files = try await appState.client.listFiles(prefix: "")
+            snapshotFiles = files.map { f in
+                SnapshotFile(id: f.path, path: f.path, size: f.size, chunks: f.chunks)
+            }.sorted { $0.path < $1.path }
+        } catch {
+            // Best effort
+        }
+    }
+
+    private func formatSize(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 }
