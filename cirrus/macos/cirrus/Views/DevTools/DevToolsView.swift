@@ -49,7 +49,7 @@ struct DevToolsView: View {
 
 struct ControlsTab: View {
     @EnvironmentObject var appState: AppState
-    @State private var daemonStatus = "Unknown"
+    @State private var daemonStatus = "Checking…"
     @State private var opsCount = "—"
     @State private var dumpStatus = ""
     @State private var isDumping = false
@@ -64,7 +64,8 @@ struct ControlsTab: View {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Circle()
-                                .fill(daemonStatus == "Running" ? .green : .red)
+                                .fill(daemonStatus == "Running" ? .green :
+                                      daemonStatus == "Checking…" ? .yellow : .red)
                                 .frame(width: 8, height: 8)
                             Text(daemonStatus)
                                 .font(.caption)
