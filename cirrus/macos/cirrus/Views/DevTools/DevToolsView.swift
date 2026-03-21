@@ -49,22 +49,35 @@ struct DevToolsView: View {
 
 struct ControlsTab: View {
     @EnvironmentObject var appState: AppState
-    @State private var daemonStatus = "Running"
+    @State private var healthInfo: SkyClient.HealthResult?
+    @State private var healthError: String?
     @State private var opsCount = "—"
     @State private var dumpStatus = ""
     @State private var isDumping = false
 
     private let statusTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
+    private var daemonStatus: String {
+        if let error = healthError { return error }
+        guard let h = healthInfo else { return "Checking…" }
+        return "Running"
+    }
+
+    private var statusColor: Color {
+        if healthError != nil { return .red }
+        if healthInfo == nil { return .yellow }
+        return .green
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                // Daemon Control
+                // Daemon Health
                 GroupBox("Daemon") {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Circle()
-                                .fill(daemonStatus == "Running" ? .green : .red)
+                                .fill(statusColor)
                                 .frame(width: 8, height: 8)
                             Text(daemonStatus)
                                 .font(.caption)
@@ -72,23 +85,50 @@ struct ControlsTab: View {
                             Spacer()
                         }
 
+                        if let h = healthInfo {
+                            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
+                                GridRow {
+                                    Text("Version").font(.caption).foregroundStyle(.secondary)
+                                    Text(h.version).font(.system(.caption, design: .monospaced))
+                                }
+                                GridRow {
+                                    Text("Uptime").font(.caption).foregroundStyle(.secondary)
+                                    Text(h.uptime).font(.system(.caption, design: .monospaced))
+                                }
+                                GridRow {
+                                    Text("Drives").font(.caption).foregroundStyle(.secondary)
+                                    Text("\(h.drivesRunning)/\(h.drives) running").font(.system(.caption, design: .monospaced))
+                                }
+                                GridRow {
+                                    Text("Outbox").font(.caption).foregroundStyle(.secondary)
+                                    Text("\(h.outboxPending) pending").font(.system(.caption, design: .monospaced))
+                                        .foregroundStyle(h.outboxPending > 0 ? .orange : .secondary)
+                                }
+                                GridRow {
+                                    Text("Last I/O").font(.caption).foregroundStyle(.secondary)
+                                    Text(h.lastActivityAgo + " ago").font(.system(.caption, design: .monospaced))
+                                }
+                            }
+                        }
+
                         HStack(spacing: 8) {
                             Button("Restart Daemon") {
                                 appState.daemonManager.restart()
-                                checkStatus()
+                                checkHealth()
                             }
                             .buttonStyle(.borderedProminent)
 
                             Button("Stop Daemon") {
                                 appState.daemonManager.stop()
-                                daemonStatus = "Stopped"
+                                healthInfo = nil
+                                healthError = "Stopped"
                             }
                             .buttonStyle(.bordered)
 
                             Button("Start Daemon") {
                                 appState.daemonManager.start()
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                    checkStatus()
+                                    checkHealth()
                                 }
                             }
                             .buttonStyle(.bordered)
@@ -179,17 +219,18 @@ struct ControlsTab: View {
             }
             .padding()
         }
-        .task { checkStatus() }
-        .onReceive(statusTimer) { _ in checkStatus() }
+        .task { checkHealth() }
+        .onReceive(statusTimer) { _ in checkHealth() }
     }
 
-    private func checkStatus() {
+    private func checkHealth() {
         Task {
             do {
-                _ = try await appState.client.syncStatus()
-                daemonStatus = "Running"
+                healthInfo = try await appState.client.health()
+                healthError = nil
             } catch {
-                daemonStatus = "Not responding"
+                healthInfo = nil
+                healthError = "Not responding"
             }
         }
     }

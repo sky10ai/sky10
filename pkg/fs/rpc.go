@@ -34,6 +34,7 @@ type RPCServer struct {
 
 	activityMu   sync.Mutex
 	lastActivity time.Time
+	startTime    time.Time
 
 	mu               sync.Mutex
 	clients          map[net.Conn]bool
@@ -84,6 +85,7 @@ func NewRPCServer(store *Store, sockPath string, driveCfgPath string, version st
 		version:          version,
 		logger:           logger,
 		logBuf:           logBuf,
+		startTime:        time.Now(),
 		clients:          make(map[net.Conn]bool),
 		subscribers:      make(map[net.Conn]*json.Encoder),
 		events:           make(chan RPCEvent, 100),
@@ -251,6 +253,8 @@ func (s *RPCServer) dispatch(ctx context.Context, req *RPCRequest) *RPCResponse 
 	switch req.Method {
 	case "skyfs.ping":
 		return &RPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]string{"status": "ok"}}
+	case "skyfs.health":
+		result, err = s.rpcHealth(ctx)
 	case "skyfs.list":
 		result, err = s.rpcList(ctx, req.Params)
 	case "skyfs.info":
@@ -698,6 +702,61 @@ func (s *RPCServer) rpcSyncStatus(_ context.Context) (interface{}, error) {
 	return map[string]interface{}{
 		"syncing":  syncing || active,
 		"sync_dir": syncDir,
+	}, nil
+}
+
+func (s *RPCServer) rpcHealth(_ context.Context) (interface{}, error) {
+	uptime := time.Since(s.startTime)
+
+	s.activityMu.Lock()
+	lastActivity := s.lastActivity
+	s.activityMu.Unlock()
+
+	// Per-drive health
+	s.driveManager.mu.Lock()
+	driveCount := len(s.driveManager.drives)
+	runningCount := 0
+	for id := range s.driveManager.drives {
+		if s.driveManager.IsRunning(id) {
+			runningCount++
+		}
+	}
+	s.driveManager.mu.Unlock()
+
+	// Outbox pending
+	outboxTotal := 0
+	s.driveManager.mu.Lock()
+	for id := range s.driveManager.drives {
+		dir := driveDataDir(id)
+		outbox := NewSyncLog[OutboxEntry](filepath.Join(dir, "outbox.jsonl"))
+		if entries, err := outbox.ReadAll(); err == nil {
+			outboxTotal += len(entries)
+		}
+	}
+	s.driveManager.mu.Unlock()
+
+	s.mu.Lock()
+	subscribers := len(s.subscribers)
+	clients := len(s.clients)
+	s.mu.Unlock()
+
+	var lastActivityAgo string
+	if lastActivity.IsZero() {
+		lastActivityAgo = "never"
+	} else {
+		lastActivityAgo = time.Since(lastActivity).Truncate(time.Second).String()
+	}
+
+	return map[string]interface{}{
+		"status":            "ok",
+		"version":           s.version,
+		"uptime":            uptime.Truncate(time.Second).String(),
+		"drives":            driveCount,
+		"drives_running":    runningCount,
+		"outbox_pending":    outboxTotal,
+		"last_activity_ago": lastActivityAgo,
+		"rpc_clients":       clients,
+		"rpc_subscribers":   subscribers,
 	}, nil
 }
 
