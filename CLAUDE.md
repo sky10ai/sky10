@@ -167,6 +167,28 @@ CockroachDB) and the Go community's established best practices.
   clients map[string]*Client
   ```
 - Prefer `sync.RWMutex` when reads vastly outnumber writes.
+- **`sync.RWMutex` is NOT reentrant.** Calling `RLock()` while holding `Lock()`
+  on the same goroutine deadlocks instantly. Never call a method that takes the
+  lock from within a section that already holds it. This includes calling
+  exported "getter" methods (e.g. `IsRunning()`) from code that holds a write
+  lock on the same mutex — the getter's `RLock()` will deadlock. Instead, read
+  the protected fields directly while holding the lock:
+  ```go
+  // BAD — deadlocks: Lock() then IsRunning() calls RLock()
+  dm.mu.Lock()
+  for id := range dm.drives {
+      if dm.IsRunning(id) { ... } // RLock → DEADLOCK
+  }
+  dm.mu.Unlock()
+
+  // GOOD — read the map directly under one lock
+  dm.mu.RLock()
+  running := len(dm.daemons)
+  dm.mu.RUnlock()
+  ```
+- When holding a lock only to read a map/slice, use `RLock`, copy what you
+  need, `RUnlock`, then do the work (especially file I/O) outside the lock.
+  Holding a write lock during `os.Stat` or network calls blocks all readers.
 - Use channels for communication between goroutines. Use mutexes for protecting
   shared state.
 - Use `errgroup.Group` from `golang.org/x/sync/errgroup` for managing groups
