@@ -168,24 +168,31 @@ func (b *Backend) Put(ctx context.Context, key string, r io.Reader, size int64) 
 	b.logger.Debug("s3 PUT", "key", key, "size", size)
 	start := time.Now()
 
-	// Stall detection: wrap the request body so we can detect when the
-	// HTTP client stops reading (socket write blocked on dead connection).
-	// If no Read() call happens for 30s, cancel the request.
+	// Stall detection for large uploads: wrap the request body so we can
+	// detect when the HTTP client stops reading (socket write blocked on
+	// dead connection). Skip for small files — they upload instantly and
+	// wrapping hides io.Seeker which the SDK needs for payload signing
+	// over non-TLS connections (MinIO).
+	var body io.Reader = r
+	var tr *transfer.Reader
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	tr := transfer.NewReader(r, size)
-	tr.SetIdleTimeout(30 * time.Second)
-	tr.OnStall(cancel)
-	defer tr.Close()
+	if size >= 1<<20 { // 1 MB threshold
+		tr = transfer.NewReader(r, size)
+		tr.SetIdleTimeout(30 * time.Second)
+		tr.OnStall(cancel)
+		defer tr.Close()
+		body = tr
+	}
 
 	_, err := b.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(b.bucket),
 		Key:           aws.String(key),
-		Body:          tr,
+		Body:          body,
 		ContentLength: aws.Int64(size),
 	})
 	if err != nil {
-		if tr.Stalled() {
+		if tr != nil && tr.Stalled() {
 			err = transfer.ErrIdleTimeout
 		}
 		b.logger.Warn("s3 PUT failed", "key", key, "error", err, "ms", time.Since(start).Milliseconds())
