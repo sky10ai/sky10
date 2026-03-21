@@ -24,6 +24,7 @@ import (
 type Reconciler struct {
 	store    *Store
 	localLog *opslog.LocalOpsLog
+	outbox   *SyncLog[OutboxEntry]
 	localDir string
 	ignore   func(string) bool
 	logger   *slog.Logger
@@ -32,13 +33,14 @@ type Reconciler struct {
 }
 
 // NewReconciler creates a reconciler that applies remote changes locally.
-func NewReconciler(store *Store, localLog *opslog.LocalOpsLog, localDir string, ignore func(string) bool, logger *slog.Logger) *Reconciler {
+func NewReconciler(store *Store, localLog *opslog.LocalOpsLog, outbox *SyncLog[OutboxEntry], localDir string, ignore func(string) bool, logger *slog.Logger) *Reconciler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Reconciler{
 		store:    store,
 		localLog: localLog,
+		outbox:   outbox,
 		localDir: localDir,
 		ignore:   ignore,
 		logger:   logger,
@@ -87,10 +89,26 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 
 	active := false
 
+	// Build set of paths with pending deletes in the outbox.
+	// The watcher already decided these should be deleted — don't
+	// re-download them just because old remote puts are in the log.
+	pendingDeletes := make(map[string]bool)
+	if entries, err := r.outbox.ReadAll(); err == nil {
+		for _, e := range entries {
+			if e.Op == OpDelete {
+				pendingDeletes[e.Path] = true
+			}
+		}
+	}
+
 	// Files in snapshot but not on disk (or wrong checksum) → download
 	for path, fi := range snapshotFiles {
 		if ctx.Err() != nil {
 			return
+		}
+		if pendingDeletes[path] {
+			r.logger.Info("reconcile: skip, pending delete", "path", path)
+			continue
 		}
 		localChecksum, onDisk := localFiles[path]
 		if !onDisk || !checksumMatch(localChecksum, fi) {

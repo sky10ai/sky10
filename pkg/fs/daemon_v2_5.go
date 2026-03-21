@@ -90,7 +90,7 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 	outboxWorker := NewOutboxWorker(store, outbox, localLog, logger)
 
 	// Reconciler (replaces inbox worker)
-	reconciler := NewReconciler(store, localLog, config.LocalRoot, ignoreFunc, logger)
+	reconciler := NewReconciler(store, localLog, outbox, config.LocalRoot, ignoreFunc, logger)
 
 	// Poller
 	pollInterval := time.Duration(config.PollSeconds) * time.Second
