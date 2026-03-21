@@ -133,6 +133,94 @@ func TestWriterMultipleWrites(t *testing.T) {
 	}
 }
 
+func TestReaderStallDetection(t *testing.T) {
+	t.Parallel()
+	data := strings.Repeat("x", 10000)
+	r := NewReader(strings.NewReader(data), 10000)
+	r.SetIdleTimeout(100 * time.Millisecond)
+
+	stalled := make(chan struct{})
+	r.OnStall(func() { close(stalled) })
+
+	// Read some data to start the monitor
+	buf := make([]byte, 100)
+	if _, err := r.Read(buf); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stop reading — simulate consumer stall (HTTP write blocked)
+	select {
+	case <-stalled:
+		// Good — stall detected
+	case <-time.After(1 * time.Second):
+		t.Fatal("stall not detected within 1s")
+	}
+
+	if !r.Stalled() {
+		t.Error("Stalled() should be true")
+	}
+}
+
+func TestReaderStallNoFalsePositive(t *testing.T) {
+	t.Parallel()
+	data := strings.Repeat("x", 1000)
+	r := NewReader(strings.NewReader(data), 1000)
+	r.SetIdleTimeout(200 * time.Millisecond)
+
+	stalled := make(chan struct{}, 1)
+	r.OnStall(func() {
+		select {
+		case stalled <- struct{}{}:
+		default:
+		}
+	})
+
+	// Read all data quickly — monitor should stop on EOF
+	if _, err := io.ReadAll(r); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait longer than idle timeout
+	time.Sleep(300 * time.Millisecond)
+	select {
+	case <-stalled:
+		t.Error("false positive: stall detected after complete read")
+	default:
+		// Good
+	}
+}
+
+func TestReaderStallMonitorCleansUpOnClose(t *testing.T) {
+	t.Parallel()
+	data := strings.Repeat("x", 10000)
+	r := NewReader(strings.NewReader(data), 10000)
+	r.SetIdleTimeout(5 * time.Second)
+
+	stalled := make(chan struct{}, 1)
+	r.OnStall(func() {
+		select {
+		case stalled <- struct{}{}:
+		default:
+		}
+	})
+
+	// Read some data to start monitor
+	buf := make([]byte, 100)
+	r.Read(buf)
+
+	// Close should stop the monitor
+	r.Close()
+
+	// Wait — stall should NOT fire because Close stopped the monitor
+	time.Sleep(200 * time.Millisecond)
+	select {
+	case <-stalled:
+		t.Error("stall detected after Close()")
+	default:
+		// Good
+	}
+}
+
 // stalledReader blocks forever on Read until closed.
 type stalledReader struct {
 	closed chan struct{}
