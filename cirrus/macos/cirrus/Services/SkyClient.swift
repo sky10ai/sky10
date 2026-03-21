@@ -211,6 +211,33 @@ class SkyClient {
         return result.pending
     }
 
+    // MARK: - Health
+
+    struct HealthResult: Codable {
+        let status: String
+        let version: String
+        let uptime: String
+        let drives: Int
+        let drivesRunning: Int
+        let outboxPending: Int
+        let lastActivityAgo: String
+        let rpcClients: Int
+        let rpcSubscribers: Int
+
+        enum CodingKeys: String, CodingKey {
+            case status, version, uptime, drives
+            case drivesRunning = "drives_running"
+            case outboxPending = "outbox_pending"
+            case lastActivityAgo = "last_activity_ago"
+            case rpcClients = "rpc_clients"
+            case rpcSubscribers = "rpc_subscribers"
+        }
+    }
+
+    func health() async throws -> HealthResult {
+        return try await rpc.call("skyfs.health")
+    }
+
     // MARK: - Maintenance
 
     struct ResetResult: Codable {
