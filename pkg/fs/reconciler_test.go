@@ -285,3 +285,38 @@ func TestReconcilerMultipleFiles(t *testing.T) {
 		t.Errorf("b.txt content = %q", string(dataB))
 	}
 }
+
+func TestReconcilerSkipsPendingDeletes(t *testing.T) {
+	t.Parallel()
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	ctx := context.Background()
+	store.Put(ctx, "doomed.txt", strings.NewReader("will be deleted"))
+	entries := getOpsEntries(t, store)
+
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "different-device")
+	for _, e := range entries {
+		localLog.Append(e)
+	}
+
+	// Simulate: watcher already queued a delete in the outbox (user deleted the file).
+	// The reconciler should NOT re-download it.
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	outbox.Append(OutboxEntry{
+		Op:   OpDelete,
+		Path: "doomed.txt",
+	})
+
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.reconcile(ctx)
+
+	if _, err := os.Stat(filepath.Join(localDir, "doomed.txt")); err == nil {
+		t.Error("doomed.txt should NOT have been downloaded — pending delete in outbox")
+	}
+}
