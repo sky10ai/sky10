@@ -49,7 +49,7 @@ func TestReconcilerDownload(t *testing.T) {
 	}
 
 	// Run reconciler
-	r := NewReconciler(store, localLog, localDir, nil, nil)
+	r := NewReconciler(store, localLog, NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl")), localDir, nil, nil)
 	r.reconcile(ctx)
 
 	// File should be on disk
@@ -77,7 +77,7 @@ func TestReconcilerDelete(t *testing.T) {
 	// Empty local log — file is on disk but not in snapshot
 	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
 
-	r := NewReconciler(store, localLog, localDir, nil, nil)
+	r := NewReconciler(store, localLog, NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl")), localDir, nil, nil)
 	r.reconcile(context.Background())
 
 	// File should be deleted
@@ -113,7 +113,7 @@ func TestReconcilerSkipsMatching(t *testing.T) {
 
 	// Track events — reconciler should do nothing
 	active := false
-	r := NewReconciler(store, localLog, localDir, nil, nil)
+	r := NewReconciler(store, localLog, NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl")), localDir, nil, nil)
 	r.onEvent = func(string) { active = true }
 	r.reconcile(context.Background())
 
@@ -154,7 +154,7 @@ func TestReconcilerCreatePlusDeleteCompaction(t *testing.T) {
 	}
 
 	active := false
-	r := NewReconciler(store, localLog, localDir, nil, nil)
+	r := NewReconciler(store, localLog, NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl")), localDir, nil, nil)
 	r.onEvent = func(string) { active = true }
 	r.reconcile(ctx)
 
@@ -186,7 +186,7 @@ func TestReconcilerSkipsEmptyOverNonEmpty(t *testing.T) {
 		localLog.Append(e)
 	}
 
-	r := NewReconciler(store, localLog, localDir, nil, nil)
+	r := NewReconciler(store, localLog, NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl")), localDir, nil, nil)
 	r.reconcile(ctx)
 
 	// Local file should still have real content
@@ -230,7 +230,7 @@ func TestReconcilerAtomicWrite(t *testing.T) {
 		}
 	}()
 
-	r := NewReconciler(store, localLog, localDir, nil, nil)
+	r := NewReconciler(store, localLog, NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl")), localDir, nil, nil)
 	r.reconcile(ctx)
 	<-watchDone
 
@@ -266,7 +266,7 @@ func TestReconcilerMultipleFiles(t *testing.T) {
 		localLog.Append(e)
 	}
 
-	r := NewReconciler(store, localLog, localDir, nil, nil)
+	r := NewReconciler(store, localLog, NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl")), localDir, nil, nil)
 	r.reconcile(ctx)
 
 	dataA, err := os.ReadFile(filepath.Join(localDir, "a.txt"))
