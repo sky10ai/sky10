@@ -347,9 +347,16 @@ func (s *RPCServer) rpcList(_ context.Context, params json.RawMessage) (interfac
 		json.Unmarshal(params, &p)
 	}
 
+	// Copy drives under read lock, then release before doing file I/O
+	s.driveManager.mu.RLock()
+	drivesCopy := make([]*Drive, 0, len(s.driveManager.drives))
+	for _, d := range s.driveManager.drives {
+		drivesCopy = append(drivesCopy, d)
+	}
+	s.driveManager.mu.RUnlock()
+
 	files := make([]fileInfo, 0)
-	s.driveManager.mu.Lock()
-	for _, drive := range s.driveManager.drives {
+	for _, drive := range drivesCopy {
 		localLog := opslog.NewLocalOpsLog(
 			filepath.Join(driveDataDir(drive.ID), "ops.jsonl"),
 			s.store.deviceID,
@@ -379,7 +386,6 @@ func (s *RPCServer) rpcList(_ context.Context, params json.RawMessage) (interfac
 			})
 		}
 	}
-	s.driveManager.mu.Unlock()
 
 	return listResult{Files: files}, nil
 }
@@ -389,9 +395,16 @@ func (s *RPCServer) rpcInfo(_ context.Context) (interface{}, error) {
 		ID: s.store.identity.Address(),
 	}
 
+	// Copy drives under read lock, then release before doing file I/O
+	s.driveManager.mu.RLock()
+	infoDrives := make([]*Drive, 0, len(s.driveManager.drives))
+	for _, d := range s.driveManager.drives {
+		infoDrives = append(infoDrives, d)
+	}
+	s.driveManager.mu.RUnlock()
+
 	namespaces := make(map[string]bool)
-	s.driveManager.mu.Lock()
-	for _, drive := range s.driveManager.drives {
+	for _, drive := range infoDrives {
 		localLog := opslog.NewLocalOpsLog(
 			filepath.Join(driveDataDir(drive.ID), "ops.jsonl"),
 			s.store.deviceID,
@@ -412,7 +425,6 @@ func (s *RPCServer) rpcInfo(_ context.Context) (interface{}, error) {
 			namespaces[drive.Namespace] = true
 		}
 	}
-	s.driveManager.mu.Unlock()
 
 	for ns := range namespaces {
 		info.Namespaces = append(info.Namespaces, ns)
@@ -1108,12 +1120,12 @@ type activityEntry struct {
 }
 
 func (s *RPCServer) rpcSyncActivity(_ context.Context) (interface{}, error) {
-	s.driveManager.mu.Lock()
-	drives := make(map[string]*Drive)
+	s.driveManager.mu.RLock()
+	drives := make(map[string]*Drive, len(s.driveManager.drives))
 	for id, d := range s.driveManager.drives {
 		drives[id] = d
 	}
-	s.driveManager.mu.Unlock()
+	s.driveManager.mu.RUnlock()
 
 	pending := make([]activityEntry, 0)
 
@@ -1157,12 +1169,12 @@ func (s *RPCServer) rpcDebugDump(ctx context.Context) (interface{}, error) {
 	}
 
 	// Collect per-drive data — all local reads, no S3
-	s.driveManager.mu.Lock()
-	drivesCopy := make(map[string]*Drive)
+	s.driveManager.mu.RLock()
+	drivesCopy := make(map[string]*Drive, len(s.driveManager.drives))
 	for id, d := range s.driveManager.drives {
 		drivesCopy[id] = d
 	}
-	s.driveManager.mu.Unlock()
+	s.driveManager.mu.RUnlock()
 
 	driveDumps := make([]map[string]interface{}, 0)
 	for id, d := range drivesCopy {
