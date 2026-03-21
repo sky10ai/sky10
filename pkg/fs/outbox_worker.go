@@ -53,14 +53,19 @@ func (w *OutboxWorker) Run(ctx context.Context) {
 	// Drain any pending entries from last session
 	w.drain(ctx)
 
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
 	for {
-		w.heartbeat() // idle heartbeat — tells watchdog we're alive
+		w.heartbeat()
 		select {
 		case <-ctx.Done():
 			w.logger.Info("outbox worker stopped")
 			return
 		case <-w.notify:
 			w.drain(ctx)
+		case <-ticker.C:
+			// Periodic heartbeat so watchdog knows we're alive while idle
 		}
 	}
 }
