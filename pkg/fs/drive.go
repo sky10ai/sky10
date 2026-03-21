@@ -24,10 +24,28 @@ type DriveManager struct {
 	drives         map[string]*Drive
 	daemons        map[string]context.CancelFunc
 	mu             sync.RWMutex
+	muHolder       string // debug: last write-lock caller
 	cfgPath        string
 	Logger         *slog.Logger // shared logger (with log buffer)
 	OnActivity     func()       // called when any drive does sync I/O
 	OnStateChanged func(string) // called when manifest changes
+}
+
+// wLock acquires write lock and records the caller for debugging.
+func (dm *DriveManager) wLock(caller string) {
+	dm.mu.Lock()
+	dm.muHolder = caller
+}
+
+// wUnlock releases write lock and clears the holder.
+func (dm *DriveManager) wUnlock() {
+	dm.muHolder = ""
+	dm.mu.Unlock()
+}
+
+// MuHolder returns who last acquired the write lock (for diagnostics).
+func (dm *DriveManager) MuHolder() string {
+	return dm.muHolder
 }
 
 // NewDriveManager creates a drive manager that persists config to cfgPath.
@@ -45,8 +63,8 @@ func NewDriveManager(store *Store, cfgPath string) *DriveManager {
 // CreateDrive adds a new drive. Creates the local directory if needed.
 // The caller provides the full local path — no default assumed.
 func (dm *DriveManager) CreateDrive(name, localPath, namespace string) (*Drive, error) {
-	dm.mu.Lock()
-	defer dm.mu.Unlock()
+	dm.wLock("CreateDrive")
+	defer dm.wUnlock()
 
 	if err := os.MkdirAll(localPath, 0755); err != nil {
 		return nil, fmt.Errorf("creating drive directory: %w", err)
@@ -68,8 +86,8 @@ func (dm *DriveManager) CreateDrive(name, localPath, namespace string) (*Drive, 
 
 // RemoveDrive stops and removes a drive. Does not delete local files.
 func (dm *DriveManager) RemoveDrive(id string) error {
-	dm.mu.Lock()
-	defer dm.mu.Unlock()
+	dm.wLock("RemoveDrive")
+	defer dm.wUnlock()
 
 	if cancel, ok := dm.daemons[id]; ok {
 		cancel()
@@ -101,10 +119,10 @@ func (dm *DriveManager) GetDrive(id string) *Drive {
 
 // StartDrive starts syncing a drive.
 func (dm *DriveManager) StartDrive(id string, logger interface{ Info(string, ...any) }) error {
-	dm.mu.Lock()
+	dm.wLock("StartDrive:entry")
 	drive, ok := dm.drives[id]
 	if !ok {
-		dm.mu.Unlock()
+		dm.wUnlock()
 		return fmt.Errorf("drive not found: %s", id)
 	}
 
@@ -112,7 +130,7 @@ func (dm *DriveManager) StartDrive(id string, logger interface{ Info(string, ...
 	if cancel, running := dm.daemons[id]; running {
 		cancel()
 	}
-	dm.mu.Unlock()
+	dm.wUnlock()
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -148,15 +166,15 @@ func (dm *DriveManager) StartDrive(id string, logger interface{ Info(string, ...
 		daemon.onEvent = dm.OnStateChanged
 	}
 
-	dm.mu.Lock()
+	dm.wLock("StartDrive:register")
 	dm.daemons[id] = cancel
-	dm.mu.Unlock()
+	dm.wUnlock()
 
 	go func() {
 		defer func() {
-			dm.mu.Lock()
+			dm.wLock("StartDrive:cleanup")
 			delete(dm.daemons, id)
-			dm.mu.Unlock()
+			dm.wUnlock()
 		}()
 		daemon.Run(ctx)
 	}()
@@ -166,8 +184,8 @@ func (dm *DriveManager) StartDrive(id string, logger interface{ Info(string, ...
 
 // StopDrive stops syncing a drive.
 func (dm *DriveManager) StopDrive(id string) {
-	dm.mu.Lock()
-	defer dm.mu.Unlock()
+	dm.wLock("StopDrive")
+	defer dm.wUnlock()
 
 	if cancel, ok := dm.daemons[id]; ok {
 		cancel()
@@ -177,8 +195,8 @@ func (dm *DriveManager) StopDrive(id string) {
 
 // StopAll stops all running daemons.
 func (dm *DriveManager) StopAll() {
-	dm.mu.Lock()
-	defer dm.mu.Unlock()
+	dm.wLock("StopAll")
+	defer dm.wUnlock()
 
 	for id, cancel := range dm.daemons {
 		cancel()
@@ -196,14 +214,14 @@ func (dm *DriveManager) IsRunning(id string) bool {
 
 // StartAll starts all enabled drives.
 func (dm *DriveManager) StartAll(logger interface{ Info(string, ...any) }) {
-	dm.mu.Lock()
+	dm.wLock("StartAll")
 	drives := make([]*Drive, 0, len(dm.drives))
 	for _, d := range dm.drives {
 		if d.Enabled {
 			drives = append(drives, d)
 		}
 	}
-	dm.mu.Unlock()
+	dm.wUnlock()
 
 	for _, d := range drives {
 		dm.StartDrive(d.ID, logger)
