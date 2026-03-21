@@ -176,6 +176,41 @@ func TestWatcherHandlerDirectoryTrash(t *testing.T) {
 	}
 }
 
+func TestWatcherHandlerDeleteDirectoryViaHandleEvents(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+
+	// Simulate tracked files under a directory
+	localLog.AppendLocal(opslog.Entry{Type: opslog.Put, Path: "archive/a.txt", Checksum: "aaa", Namespace: "Test"})
+	localLog.AppendLocal(opslog.Entry{Type: opslog.Put, Path: "archive/sub/b.txt", Checksum: "bbb", Namespace: "Test"})
+	localLog.AppendLocal(opslog.Entry{Type: opslog.Put, Path: "other/c.txt", Checksum: "ccc", Namespace: "Test"})
+
+	handler := NewWatcherHandler(outbox, localLog, localDir, "Test", nil)
+
+	// kqueue sends a single FileDeleted for the directory, not individual files
+	handler.HandleEvents([]FileEvent{{Path: "archive", Type: FileDeleted}})
+
+	entries, _ := outbox.ReadAll()
+	if len(entries) != 2 {
+		t.Fatalf("outbox has %d, want 2 (only archive/* files)", len(entries))
+	}
+	for _, e := range entries {
+		if e.Op != OpDelete {
+			t.Errorf("expected delete, got %+v", e)
+		}
+	}
+
+	// other/c.txt should still be tracked
+	if _, ok := localLog.Lookup("other/c.txt"); !ok {
+		t.Error("other/c.txt should still be in local log")
+	}
+}
+
 func TestWatcherHandlerOpsLogPersistence(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()

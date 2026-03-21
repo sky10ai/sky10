@@ -104,7 +104,8 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 		case FileDeleted:
 			existing, ok := h.localLog.Lookup(e.Path)
 			if !ok {
-				h.logger.Info("watcher: delete untracked", "path", e.Path)
+				// Might be a directory — emit deletes for all tracked files under it
+				h.HandleDirectoryTrash(e.Path)
 				continue
 			}
 
