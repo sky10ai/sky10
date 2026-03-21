@@ -18,6 +18,7 @@ type PollerV2 struct {
 	namespace      string
 	logger         *slog.Logger
 	pokeReconciler func()
+	heartbeat      func() // watchdog heartbeat
 }
 
 // NewPollerV2 creates a poller that appends remote ops to the local log.
@@ -32,6 +33,7 @@ func NewPollerV2(store *Store, localLog *opslog.LocalOpsLog, interval time.Durat
 		namespace:      namespace,
 		logger:         logger,
 		pokeReconciler: func() {},
+		heartbeat:      func() {},
 	}
 }
 
@@ -54,6 +56,7 @@ func (p *PollerV2) Run(ctx context.Context) {
 }
 
 func (p *PollerV2) pollOnce(ctx context.Context) {
+	p.heartbeat()
 	log, err := p.store.getOpsLog(ctx)
 	if err != nil {
 		p.logger.Warn("poll: getting ops log failed", "error", err)
