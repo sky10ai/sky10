@@ -2,6 +2,11 @@
 // with progress tracking and idle timeout detection. Progress updates
 // are non-blocking — the latest state is stored atomically and can be
 // polled, or delivered via a non-blocking channel send.
+//
+// Read calls never block longer than the idle timeout. Each Read runs
+// in a goroutine — if no bytes arrive within the timeout, the underlying
+// reader is closed (if it implements io.Closer) and ErrIdleTimeout is
+// returned. The goroutine is always cleaned up.
 package transfer
 
 import (
@@ -14,6 +19,12 @@ import (
 type Progress struct {
 	Bytes int64 // bytes transferred so far
 	Total int64 // total expected bytes (-1 if unknown)
+}
+
+// readResult is the result of a goroutine Read call.
+type readResult struct {
+	n   int
+	err error
 }
 
 // Reader wraps an io.Reader with progress tracking and idle timeout.
@@ -38,7 +49,9 @@ func NewReader(r io.Reader, total int64) *Reader {
 }
 
 // SetIdleTimeout sets the max duration with no bytes before Read returns
-// ErrIdleTimeout. Zero means no idle timeout (default).
+// ErrIdleTimeout. If the underlying reader implements io.Closer, it is
+// closed to unblock the stuck read and clean up the goroutine.
+// Zero means no idle timeout (default).
 func (r *Reader) SetIdleTimeout(d time.Duration) {
 	r.idleTimeout = d
 }
@@ -51,21 +64,49 @@ func (r *Reader) Progress() <-chan Progress {
 	return r.progress
 }
 
-// Read implements io.Reader.
+// Read implements io.Reader. When an idle timeout is set, each Read
+// runs in a goroutine so a stalled connection can be detected and killed.
 func (r *Reader) Read(p []byte) (int, error) {
+	if r.idleTimeout <= 0 {
+		return r.readDirect(p)
+	}
+	return r.readWithTimeout(p)
+}
+
+func (r *Reader) readDirect(p []byte) (int, error) {
 	n, err := r.r.Read(p)
 	if n > 0 {
 		bytes := r.bytes.Add(int64(n))
 		r.lastRead.Store(time.Now().UnixNano())
 		r.emit(bytes)
 	}
-	if err == nil && n == 0 && r.idleTimeout > 0 {
-		last := time.Unix(0, r.lastRead.Load())
-		if time.Since(last) > r.idleTimeout {
-			return 0, ErrIdleTimeout
-		}
-	}
 	return n, err
+}
+
+func (r *Reader) readWithTimeout(p []byte) (int, error) {
+	done := make(chan readResult, 1)
+	go func() {
+		n, err := r.r.Read(p)
+		done <- readResult{n, err}
+	}()
+
+	select {
+	case res := <-done:
+		if res.n > 0 {
+			bytes := r.bytes.Add(int64(res.n))
+			r.lastRead.Store(time.Now().UnixNano())
+			r.emit(bytes)
+		}
+		return res.n, res.err
+
+	case <-time.After(r.idleTimeout):
+		// Close the underlying reader to unblock the goroutine.
+		if c, ok := r.r.(io.Closer); ok {
+			c.Close()
+		}
+		<-done // wait for goroutine to exit
+		return 0, ErrIdleTimeout
+	}
 }
 
 // Bytes returns the total bytes transferred so far.

@@ -2,9 +2,11 @@ package transfer
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestReaderProgress(t *testing.T) {
@@ -128,5 +130,79 @@ func TestWriterMultipleWrites(t *testing.T) {
 
 	if w.Bytes() != 30 {
 		t.Errorf("Bytes() = %d, want 30", w.Bytes())
+	}
+}
+
+// stalledReader blocks forever on Read until closed.
+type stalledReader struct {
+	closed chan struct{}
+}
+
+func (s *stalledReader) Read([]byte) (int, error) {
+	<-s.closed
+	return 0, errors.New("closed")
+}
+
+func (s *stalledReader) Close() error {
+	select {
+	case <-s.closed:
+	default:
+		close(s.closed)
+	}
+	return nil
+}
+
+func TestReaderIdleTimeout(t *testing.T) {
+	t.Parallel()
+	sr := &stalledReader{closed: make(chan struct{})}
+	r := NewReader(sr, -1)
+	r.SetIdleTimeout(100 * time.Millisecond)
+
+	start := time.Now()
+	buf := make([]byte, 10)
+	_, err := r.Read(buf)
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, ErrIdleTimeout) {
+		t.Fatalf("got err=%v, want ErrIdleTimeout", err)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("took %v, want ~100ms", elapsed)
+	}
+}
+
+func TestReaderIdleTimeoutCleansUpGoroutine(t *testing.T) {
+	t.Parallel()
+	sr := &stalledReader{closed: make(chan struct{})}
+	r := NewReader(sr, -1)
+	r.SetIdleTimeout(50 * time.Millisecond)
+
+	buf := make([]byte, 10)
+	_, err := r.Read(buf)
+	if !errors.Is(err, ErrIdleTimeout) {
+		t.Fatalf("got err=%v, want ErrIdleTimeout", err)
+	}
+
+	// Verify the underlying reader was closed (goroutine cleaned up)
+	select {
+	case <-sr.closed:
+		// good — Close was called
+	default:
+		t.Error("underlying reader was not closed")
+	}
+}
+
+func TestReaderIdleTimeoutNoFalsePositive(t *testing.T) {
+	t.Parallel()
+	// Fast reader should not trigger idle timeout
+	r := NewReader(strings.NewReader("hello world"), 11)
+	r.SetIdleTimeout(1 * time.Second)
+
+	buf, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(buf) != "hello world" {
+		t.Errorf("got %q, want hello world", string(buf))
 	}
 }
