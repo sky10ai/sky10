@@ -54,6 +54,7 @@ func (w *OutboxWorker) Run(ctx context.Context) {
 	w.drain(ctx)
 
 	for {
+		w.heartbeat() // idle heartbeat — tells watchdog we're alive
 		select {
 		case <-ctx.Done():
 			w.logger.Info("outbox worker stopped")
