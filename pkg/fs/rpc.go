@@ -712,28 +712,26 @@ func (s *RPCServer) rpcHealth(_ context.Context) (interface{}, error) {
 	lastActivity := s.lastActivity
 	s.activityMu.Unlock()
 
-	// Per-drive health
-	s.driveManager.mu.Lock()
+	// Per-drive health — use RLock, check daemons map directly
+	// (don't call IsRunning which also takes the lock)
+	s.driveManager.mu.RLock()
 	driveCount := len(s.driveManager.drives)
-	runningCount := 0
+	runningCount := len(s.driveManager.daemons)
+	var driveIDs []string
 	for id := range s.driveManager.drives {
-		if s.driveManager.IsRunning(id) {
-			runningCount++
-		}
+		driveIDs = append(driveIDs, id)
 	}
-	s.driveManager.mu.Unlock()
+	s.driveManager.mu.RUnlock()
 
-	// Outbox pending
+	// Outbox pending — no lock needed, just reading files
 	outboxTotal := 0
-	s.driveManager.mu.Lock()
-	for id := range s.driveManager.drives {
+	for _, id := range driveIDs {
 		dir := driveDataDir(id)
 		outbox := NewSyncLog[OutboxEntry](filepath.Join(dir, "outbox.jsonl"))
 		if entries, err := outbox.ReadAll(); err == nil {
 			outboxTotal += len(entries)
 		}
 	}
-	s.driveManager.mu.Unlock()
 
 	s.mu.Lock()
 	subscribers := len(s.subscribers)
