@@ -19,6 +19,7 @@ import (
 
 	"github.com/sky10/sky10/pkg/adapter"
 	"github.com/sky10/sky10/pkg/fs/opslog"
+	"github.com/sky10/sky10/pkg/transfer"
 )
 
 // ErrFileNotFound is returned when a requested file path does not exist
@@ -390,59 +391,7 @@ func (s *Store) Get(ctx context.Context, path string, w io.Writer) error {
 		return fmt.Errorf("namespace key for %q: %w", entry.Namespace, err)
 	}
 
-	for i, chunkHash := range entry.Chunks {
-		var raw []byte
-
-		// Check pack index first, fall back to individual blob
-		if loc, ok := s.packIndex.Entries[chunkHash]; ok {
-			packed, err := ReadPackedChunk(ctx, s.backend, loc)
-			if err != nil {
-				return fmt.Errorf("reading packed chunk %d (%s): %w", i, chunkHash[:12], err)
-			}
-			raw = packed
-		} else {
-			blobKey := (&Chunk{Hash: chunkHash}).BlobKey()
-			rc, err := s.backend.Get(ctx, blobKey)
-			if err != nil {
-				return fmt.Errorf("downloading chunk %d (%s): %w", i, chunkHash[:12], err)
-			}
-			raw, err = io.ReadAll(rc)
-			rc.Close()
-			if err != nil {
-				return fmt.Errorf("reading chunk %d: %w", i, err)
-			}
-		}
-
-		encrypted, _, err := StripBlobHeader(raw)
-		if err != nil {
-			return fmt.Errorf("parsing chunk %d header: %w", i, err)
-		}
-
-		fileKey, err := DeriveFileKey(nsKey, []byte(chunkHash))
-		if err != nil {
-			return fmt.Errorf("deriving file key for chunk %d: %w", i, err)
-		}
-
-		compressed, err := Decrypt(encrypted, fileKey)
-		if err != nil {
-			return fmt.Errorf("decrypting chunk %d: %w", i, err)
-		}
-
-		plaintext, err := DecompressChunk(compressed)
-		if err != nil {
-			return fmt.Errorf("decompressing chunk %d: %w", i, err)
-		}
-
-		if ContentHash(plaintext) != chunkHash {
-			return fmt.Errorf("chunk %d: hash mismatch (data corrupted)", i)
-		}
-
-		if _, err := w.Write(plaintext); err != nil {
-			return fmt.Errorf("writing chunk %d: %w", i, err)
-		}
-	}
-
-	return nil
+	return s.downloadChunks(ctx, entry.Chunks, nsKey, w)
 }
 
 // GetChunks downloads and decrypts a file using known chunk hashes and namespace.
@@ -452,7 +401,13 @@ func (s *Store) GetChunks(ctx context.Context, chunks []string, namespace string
 	if err != nil {
 		return fmt.Errorf("namespace key for %q: %w", namespace, err)
 	}
+	return s.downloadChunks(ctx, chunks, nsKey, w)
+}
 
+// downloadChunks fetches, decrypts, and writes chunks sequentially.
+// Each chunk read has a 30-second idle timeout — if the S3 connection
+// stalls, the reader is closed and the download fails (caller retries).
+func (s *Store) downloadChunks(ctx context.Context, chunks []string, nsKey []byte, w io.Writer) error {
 	for i, chunkHash := range chunks {
 		var raw []byte
 
@@ -468,7 +423,9 @@ func (s *Store) GetChunks(ctx context.Context, chunks []string, namespace string
 			if err != nil {
 				return fmt.Errorf("downloading chunk %d (%s): %w", i, chunkHash[:12], err)
 			}
-			raw, err = io.ReadAll(rc)
+			tr := transfer.NewReader(rc, -1)
+			tr.SetIdleTimeout(30 * time.Second)
+			raw, err = io.ReadAll(tr)
 			rc.Close()
 			if err != nil {
 				return fmt.Errorf("reading chunk %d: %w", i, err)
