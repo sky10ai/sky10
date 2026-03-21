@@ -11,6 +11,8 @@ class AppState: ObservableObject {
     @Published var error: String?
     @Published var conflictPath: String? = nil
     @Published var onboardingComplete: Bool
+    @Published var daemonConnected = false
+    @Published var outboxPending = 0
 
     let client: SkyClientProtocol
     let daemonManager: DaemonManager
@@ -96,11 +98,14 @@ class AppState: ObservableObject {
 
             files = localFiles
 
-            // Check if daemon is actively syncing
-            let status = try await client.syncStatus()
-            syncState = status.syncing ? .syncing : .synced
+            // Check daemon health
+            let h = try await client.health()
+            daemonConnected = true
+            outboxPending = h.outboxPending
+            syncState = h.outboxPending > 0 ? .syncing : .synced
             error = nil
         } catch {
+            daemonConnected = false
             self.error = error.localizedDescription
             syncState = .error
         }
