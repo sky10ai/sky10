@@ -100,7 +100,14 @@ func New(ctx context.Context, cfg Config) (*Backend, error) {
 		return nil, fmt.Errorf("s3: loading config: %w", err)
 	}
 
-	var s3Opts []func(*s3.Options)
+	s3Opts := []func(*s3.Options){
+		func(o *s3.Options) {
+			// Disable automatic request checksum (CRC32) — our data is already
+			// integrity-checked at the Store layer, and auto-checksum fails with
+			// unseekable streams (transfer.Reader) over non-TLS connections (MinIO).
+			o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
+		},
+	}
 	if cfg.Endpoint != "" {
 		s3Opts = append(s3Opts, func(o *s3.Options) {
 			o.BaseEndpoint = aws.String(cfg.Endpoint)
