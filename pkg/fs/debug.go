@@ -28,9 +28,8 @@ func DumpGoroutines(logger *slog.Logger) {
 		f.Close()
 	}
 
-	// Also write to stderr in case it's captured
-	fmt.Fprintf(os.Stderr, "\n=== GOROUTINE DUMP (%d goroutines) ===\n%s\n=== END DUMP ===\n\n",
-		runtime.NumGoroutine(), stack)
+	// Don't write to stderr — when Cirrus owns the pipe, a full buffer
+	// blocks write() and freezes the process.
 }
 
 // HandleDumpSignal listens for SIGUSR1 and dumps all goroutine stacks.
