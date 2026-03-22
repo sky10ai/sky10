@@ -18,8 +18,8 @@ struct TreeNode: Identifiable, Hashable {
     }
 }
 
-/// Build a tree from flat file paths.
-func buildTree(from files: [FileNode]) -> [TreeNode] {
+/// Build a tree from flat file paths and explicit empty directories.
+func buildTree(from files: [FileNode], emptyDirs: [String] = []) -> [TreeNode] {
     var folderMap: [String: [TreeNode]] = [:]
 
     for file in files {
@@ -52,6 +52,27 @@ func buildTree(from files: [FileNode]) -> [TreeNode] {
             let parentPath = components.dropLast().joined(separator: "/")
             let node = TreeNode(id: file.id, name: file.name, isFolder: false, file: file, children: [])
             folderMap[parentPath, default: []].append(node)
+        }
+    }
+
+    // Add explicit empty directories
+    for dirPath in emptyDirs {
+        let components = dirPath.split(separator: "/").map(String.init)
+        for i in 0..<components.count {
+            let folderPath = components[0...i].joined(separator: "/")
+            let parentPath = i == 0 ? "" : components[0..<i].joined(separator: "/")
+            let folderName = components[i]
+
+            if folderMap[parentPath]?.contains(where: { $0.id == "folder:" + folderPath }) != true {
+                let folderNode = TreeNode(
+                    id: "folder:" + folderPath,
+                    name: folderName,
+                    isFolder: true,
+                    file: nil,
+                    children: []
+                )
+                folderMap[parentPath, default: []].append(folderNode)
+            }
         }
     }
 

@@ -330,6 +330,12 @@ type listParams struct {
 
 type listResult struct {
 	Files []fileInfo `json:"files"`
+	Dirs  []dirEntry `json:"dirs,omitempty"`
+}
+
+type dirEntry struct {
+	Path      string `json:"path"`
+	Namespace string `json:"namespace,omitempty"`
 }
 
 type fileInfo struct {
@@ -355,7 +361,8 @@ func (s *RPCServer) rpcList(_ context.Context, params json.RawMessage) (interfac
 	}
 	s.driveManager.mu.RUnlock()
 
-	files := make([]fileInfo, 0)
+	var files []fileInfo
+	var dirs []dirEntry
 	for _, drive := range drivesCopy {
 		localLog := opslog.NewLocalOpsLog(
 			filepath.Join(driveDataDir(drive.ID), "ops.jsonl"),
@@ -385,9 +392,18 @@ func (s *RPCServer) rpcList(_ context.Context, params json.RawMessage) (interfac
 				Chunks:    len(fi.Chunks),
 			})
 		}
+		for path, di := range snap.Dirs() {
+			if p.Prefix != "" && (len(path) < len(p.Prefix) || path[:len(p.Prefix)] != p.Prefix) {
+				continue
+			}
+			dirs = append(dirs, dirEntry{
+				Path:      path,
+				Namespace: di.Namespace,
+			})
+		}
 	}
 
-	return listResult{Files: files}, nil
+	return listResult{Files: files, Dirs: dirs}, nil
 }
 
 func (s *RPCServer) rpcInfo(_ context.Context) (interface{}, error) {

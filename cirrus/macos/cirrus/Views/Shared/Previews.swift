@@ -29,7 +29,9 @@ extension FileNode {
 
 // Preview-only mock that lives in the main target (not test target)
 private class PreviewSkyClient: SkyClientProtocol {
-    func listFiles(prefix: String) async throws -> [FileNode] { FileNode.sampleFiles }
+    func listFiles(prefix: String) async throws -> SkyClient.ListFilesResult {
+        SkyClient.ListFilesResult(files: FileNode.sampleFiles, dirs: [])
+    }
     func putFile(path: String, localPath: String) async throws {}
     func getFile(path: String, outPath: String) async throws {}
     func removeFile(path: String) async throws {}
