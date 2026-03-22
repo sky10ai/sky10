@@ -194,9 +194,10 @@ func (r *Reconciler) downloadFile(ctx context.Context, path string, fi opslog.Fi
 	}
 	tmpPath := tmpFile.Name()
 
-	// Per-file download timeout: 2 minutes. Prevents a hung S3 GET
-	// from blocking the reconciler forever.
-	dlCtx, dlCancel := context.WithTimeout(ctx, 2*time.Minute)
+	// Per-file download timeout: scales with chunk count. Base 2 minutes
+	// plus 5 seconds per chunk. A 100-chunk file gets ~10 minutes.
+	timeout := 2*time.Minute + time.Duration(len(fi.Chunks))*5*time.Second
+	dlCtx, dlCancel := context.WithTimeout(ctx, timeout)
 	dlErr := r.store.GetChunks(dlCtx, fi.Chunks, fi.Namespace, tmpFile)
 	dlCancel()
 	if dlErr != nil {
