@@ -252,6 +252,41 @@ func TestWatcherHandlerDirCreated(t *testing.T) {
 	}
 }
 
+// Regression: deleting an empty directory that was created via create_dir
+// must emit a delete_dir op. Previously HandleDirectoryTrash only checked
+// snap.Files() and silently ignored dirs with no files.
+func TestWatcherHandlerDeleteEmptyCreatedDir(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+
+	// Create an empty directory (tracked via create_dir, no files)
+	localLog.AppendLocal(opslog.Entry{Type: opslog.CreateDir, Path: "empty", Namespace: "Test"})
+
+	handler := NewWatcherHandler(outbox, localLog, localDir, "Test", nil)
+
+	// Simulate kqueue FileDeleted for the directory
+	handler.HandleEvents([]FileEvent{{Path: "empty", Type: FileDeleted}})
+
+	entries, _ := outbox.ReadAll()
+	if len(entries) != 1 {
+		t.Fatalf("outbox has %d, want 1 (delete_dir for empty dir)", len(entries))
+	}
+	if entries[0].Op != OpDeleteDir || entries[0].Path != "empty" {
+		t.Errorf("expected delete_dir for empty, got %+v", entries[0])
+	}
+
+	// Dir should be gone from snapshot
+	snap, _ := localLog.Snapshot()
+	if _, ok := snap.Dirs()["empty"]; ok {
+		t.Error("empty dir should be removed from snapshot after delete_dir")
+	}
+}
+
 func TestWatcherHandlerOpsLogPersistence(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
