@@ -143,17 +143,28 @@ struct FileTreeView: View {
 
     private func treeRow(_ node: TreeNode) -> AnyView {
         if node.isFolder {
+            let folderPath = node.id.replacingOccurrences(of: "folder:", with: "")
+            let shortHash = shortHashFor(folderPath)
             return AnyView(
                 DisclosureGroup {
                     ForEach(node.children) { child in
                         treeRow(child)
                     }
                 } label: {
-                    Label(node.name, systemImage: "folder.fill")
-                        .foregroundStyle(.primary)
+                    HStack {
+                        Label(node.name, systemImage: "folder.fill")
+                            .foregroundStyle(.primary)
+                        if let h = shortHash {
+                            Spacer()
+                            Text(h)
+                                .font(.system(.caption2, design: .monospaced))
+                                .foregroundStyle(.quaternary)
+                        }
+                    }
                 }
             )
         } else if let file = node.file {
+            let shortHash = shortHashFor(file.path)
             return AnyView(
                 HStack(spacing: 8) {
                     Image(systemName: file.icon)
@@ -163,6 +174,11 @@ struct FileTreeView: View {
                         .lineLimit(1)
                     SyncStatusIcon(status: file.syncStatus)
                     Spacer()
+                    if let h = shortHash {
+                        Text(h)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.quaternary)
+                    }
                     Text(file.formattedSize)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
@@ -184,6 +200,11 @@ struct FileTreeView: View {
             if let found = findFile(id: id, in: node.children) { return found }
         }
         return nil
+    }
+
+    private func shortHashFor(_ path: String) -> String? {
+        guard let hash = appState.dirHashes[path], !hash.isEmpty else { return nil }
+        return String(hash.prefix(8))
     }
 
     private func downloadFile(_ file: FileNode) {
