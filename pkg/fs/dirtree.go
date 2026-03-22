@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 )
 
 // DirHash computes a Merkle tree hash of a directory. Each file contributes
@@ -17,8 +16,8 @@ import (
 // identical content always produces the same hash regardless of filesystem
 // ordering or creation time.
 //
-// Dotfiles/dirs are skipped. The ignore function, if non-nil, filters
-// relative paths (forward-slash separated).
+// The ignore function, if non-nil, filters relative paths (forward-slash
+// separated).
 //
 // Returns the hex-encoded SHA3-256 root hash.
 func DirHash(root string, ignore func(string) bool) (string, error) {
@@ -47,12 +46,8 @@ func dirHashRecursive(dir, root string, ignore func(string) bool) (string, error
 		return "", err
 	}
 
-	// Filter and sort visible entries
 	var visible []os.DirEntry
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".") {
-			continue
-		}
 		rel := relPath(dir, e.Name(), root)
 		if ignore != nil && ignore(rel) {
 			continue
@@ -71,7 +66,6 @@ func dirHashRecursive(dir, root string, ignore func(string) bool) (string, error
 			if err != nil {
 				return "", err
 			}
-			// dir entry: "name/" + subtree hash
 			h.Write([]byte(e.Name() + "/"))
 			h.Write([]byte(sub))
 		} else {
@@ -79,7 +73,6 @@ func dirHashRecursive(dir, root string, ignore func(string) bool) (string, error
 			if err != nil {
 				return "", err
 			}
-			// file entry: "name" + content hash
 			h.Write([]byte(e.Name()))
 			h.Write([]byte(cksum))
 		}
@@ -96,9 +89,6 @@ func dirTreeRecursive(dir, root string, ignore func(string) bool, tree map[strin
 
 	var visible []os.DirEntry
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".") {
-			continue
-		}
 		rel := relPath(dir, e.Name(), root)
 		if ignore != nil && ignore(rel) {
 			continue

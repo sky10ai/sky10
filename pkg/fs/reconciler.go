@@ -349,10 +349,6 @@ func (r *Reconciler) reconcileDirectories(snapshotFiles map[string]opslog.FileIn
 		if err != nil || !d.IsDir() || path == r.localDir {
 			return nil
 		}
-		name := d.Name()
-		if strings.HasPrefix(name, ".") {
-			return filepath.SkipDir
-		}
 		rel, _ := filepath.Rel(r.localDir, path)
 		rel = filepath.ToSlash(rel)
 		if r.ignore != nil && r.ignore(rel) {
