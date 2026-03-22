@@ -155,6 +155,7 @@ struct FileTreeView: View {
                             .foregroundStyle(.primary)
                         Spacer()
                         hashView(folderPath)
+                            .frame(width: 50, alignment: .trailing)
                     }
                 }
             )
@@ -168,13 +169,14 @@ struct FileTreeView: View {
                         .lineLimit(1)
                     SyncStatusIcon(status: file.syncStatus)
                     Spacer()
-                    hashView(file.path)
                     Text(file.formattedSize)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                     Text(file.formattedDate)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
+                    hashView(file.path)
+                        .frame(width: 50, alignment: .trailing)
                 }
                 .tag(file.id)
             )
