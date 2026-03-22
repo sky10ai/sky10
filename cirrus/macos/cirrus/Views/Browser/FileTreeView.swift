@@ -144,7 +144,6 @@ struct FileTreeView: View {
     private func treeRow(_ node: TreeNode) -> AnyView {
         if node.isFolder {
             let folderPath = node.id.replacingOccurrences(of: "folder:", with: "")
-            let shortHash = shortHashFor(folderPath)
             return AnyView(
                 DisclosureGroup {
                     ForEach(node.children) { child in
@@ -154,17 +153,12 @@ struct FileTreeView: View {
                     HStack {
                         Label(node.name, systemImage: "folder.fill")
                             .foregroundStyle(.primary)
-                        if let h = shortHash {
-                            Spacer()
-                            Text(h)
-                                .font(.system(.caption2, design: .monospaced))
-                                .foregroundStyle(.quaternary)
-                        }
+                        Spacer()
+                        hashView(folderPath)
                     }
                 }
             )
         } else if let file = node.file {
-            let shortHash = shortHashFor(file.path)
             return AnyView(
                 HStack(spacing: 8) {
                     Image(systemName: file.icon)
@@ -174,11 +168,7 @@ struct FileTreeView: View {
                         .lineLimit(1)
                     SyncStatusIcon(status: file.syncStatus)
                     Spacer()
-                    if let h = shortHash {
-                        Text(h)
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(.quaternary)
-                    }
+                    hashView(file.path)
                     Text(file.formattedSize)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
@@ -202,9 +192,29 @@ struct FileTreeView: View {
         return nil
     }
 
-    private func shortHashFor(_ path: String) -> String? {
-        guard let hash = appState.dirHashes[path], !hash.isEmpty else { return nil }
-        return String(hash.prefix(8))
+    private func hashView(_ path: String) -> some View {
+        if let hash = appState.dirHashes[path], !hash.isEmpty {
+            let short = String(hash.prefix(6))
+            let color = colorFromHex(short)
+            return AnyView(
+                Text(short)
+                    .font(.system(.caption2, design: .monospaced))
+                    .bold()
+                    .foregroundStyle(color)
+            )
+        }
+        return AnyView(EmptyView())
+    }
+
+    private func colorFromHex(_ hex: String) -> Color {
+        let scanner = Scanner(string: hex)
+        var rgb: UInt64 = 0
+        scanner.scanHexInt64(&rgb)
+        return Color(
+            red: Double((rgb >> 16) & 0xFF) / 255.0,
+            green: Double((rgb >> 8) & 0xFF) / 255.0,
+            blue: Double(rgb & 0xFF) / 255.0
+        )
     }
 
     private func downloadFile(_ file: FileNode) {
