@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/sky10/sky10/pkg/fs/opslog"
 )
@@ -90,6 +91,7 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 	}
 
 	active := false
+	failed := 0
 
 	// Build set of paths with pending deletes in the outbox.
 	// The watcher already decided these should be deleted — don't
@@ -124,6 +126,8 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		if !onDisk || !checksumMatch(localChecksum, fi) {
 			if r.downloadFile(ctx, path, fi) {
 				active = true
+			} else {
+				failed++
 			}
 		}
 	}
@@ -154,6 +158,20 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 
 	if active {
 		r.onEvent("state.changed")
+	}
+
+	// If any downloads failed, schedule a retry. Short delay avoids
+	// hammering S3 on persistent errors but recovers quickly from
+	// transient failures.
+	if failed > 0 {
+		r.logger.Info("reconcile: scheduling retry", "failed", failed)
+		go func() {
+			select {
+			case <-ctx.Done():
+			case <-time.After(2 * time.Second):
+				r.Poke()
+			}
+		}()
 	}
 }
 

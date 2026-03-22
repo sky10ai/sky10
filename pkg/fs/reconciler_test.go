@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/sha3"
 	"encoding/hex"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -479,4 +482,110 @@ func checksumOf(content string) string {
 	h := sha3.New256()
 	h.Write([]byte(content))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// flakyBackend wraps MemoryBackend to simulate transient download failures.
+type flakyBackend struct {
+	*s3adapter.MemoryBackend
+	mu       sync.Mutex
+	failKeys map[string]int // blob key → remaining failure count
+}
+
+func (f *flakyBackend) Get(ctx context.Context, key string) (io.ReadCloser, error) {
+	f.mu.Lock()
+	if n := f.failKeys[key]; n > 0 {
+		f.failKeys[key] = n - 1
+		if n == 1 {
+			delete(f.failKeys, key)
+		}
+		f.mu.Unlock()
+		return nil, fmt.Errorf("transient S3 error")
+	}
+	f.mu.Unlock()
+	return f.MemoryBackend.Get(ctx, key)
+}
+
+func TestReconcilerRetriesFailedDownloads(t *testing.T) {
+	t.Parallel()
+
+	mem := s3adapter.NewMemory()
+	flaky := &flakyBackend{MemoryBackend: mem, failKeys: make(map[string]int)}
+	id, _ := GenerateDeviceKey()
+	store := New(flaky, id)
+
+	ctx := context.Background()
+	store.Put(ctx, "a.txt", strings.NewReader("aaa"))
+	store.Put(ctx, "b.txt", strings.NewReader("bbb"))
+	store.Put(ctx, "c.txt", strings.NewReader("ccc"))
+
+	entries := getOpsEntries(t, store)
+
+	// Mark b.txt's blob for one transient failure
+	for _, e := range entries {
+		if e.Path == "b.txt" && len(e.Chunks) > 0 {
+			blobKey := (&Chunk{Hash: e.Chunks[0]}).BlobKey()
+			flaky.mu.Lock()
+			flaky.failKeys[blobKey] = 1
+			flaky.mu.Unlock()
+		}
+	}
+
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "different-device")
+	for _, e := range entries {
+		localLog.Append(e)
+	}
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+
+	// Run reconciler with timeout — no external pokes.
+	// With the bug: b.txt fails on first pass, reconciler stops, test times out.
+	// With the fix: reconciler retries, b.txt succeeds on second pass.
+	runCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		r.Run(runCtx)
+		close(done)
+	}()
+
+	// Poll for all 3 files
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	deadline := time.After(4 * time.Second)
+
+	for {
+		select {
+		case <-deadline:
+			cancel()
+			<-done
+			_, aErr := os.Stat(filepath.Join(localDir, "a.txt"))
+			_, bErr := os.Stat(filepath.Join(localDir, "b.txt"))
+			_, cErr := os.Stat(filepath.Join(localDir, "c.txt"))
+			t.Fatalf("timed out: a=%v b=%v c=%v", aErr == nil, bErr == nil, cErr == nil)
+		case <-tick.C:
+			aOK := fileExistsAt(filepath.Join(localDir, "a.txt"))
+			bOK := fileExistsAt(filepath.Join(localDir, "b.txt"))
+			cOK := fileExistsAt(filepath.Join(localDir, "c.txt"))
+			if aOK && bOK && cOK {
+				cancel()
+				<-done
+				data, _ := os.ReadFile(filepath.Join(localDir, "b.txt"))
+				if string(data) != "bbb" {
+					t.Errorf("b.txt content = %q, want %q", string(data), "bbb")
+				}
+				return
+			}
+		}
+	}
+}
+
+func fileExistsAt(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
