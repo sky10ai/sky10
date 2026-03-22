@@ -193,3 +193,72 @@ func TestIntegrationDeleteDirThenRecreate(t *testing.T) {
 		t.Errorf("content = %q, want 'recreated'", string(data))
 	}
 }
+
+// Device A creates an empty directory. Device B should see it after sync.
+func TestIntegrationCreateDirSyncsAcrossDevices(t *testing.T) {
+	h := StartMinIO(t)
+	ctx := context.Background()
+
+	idA, _ := GenerateDeviceKey()
+	idB, _ := GenerateDeviceKey()
+	backend := h.Backend(t, "createdir-sync")
+
+	// A must upload something first to create the namespace key
+	storeA := NewWithDevice(backend, idA, "device-a")
+	storeA.SetNamespace("shared")
+	storeA.Put(ctx, "root.txt", strings.NewReader("hi"))
+
+	simulateApprove(t, ctx, backend, idA, idB)
+
+	// --- Device A: create empty directories, seed picks them up ---
+	tmpA := t.TempDir()
+	dirA := filepath.Join(tmpA, "sync")
+	os.MkdirAll(filepath.Join(dirA, "empty"), 0755)
+	os.MkdirAll(filepath.Join(dirA, "nested", "deep"), 0755)
+	os.WriteFile(filepath.Join(dirA, "root.txt"), []byte("hi"), 0644)
+	cfgA := DaemonConfig{
+		SyncConfig:   SyncConfig{LocalRoot: dirA, Namespaces: []string{"shared"}},
+		DriveID:      "test-createdir-a",
+		ManifestPath: filepath.Join(tmpA, "data", "manifest.json"),
+		PollSeconds:  300,
+	}
+	daemonA, err := NewDaemonV2_5(storeA, cfgA, nil)
+	if err != nil {
+		t.Fatalf("creating daemon A: %v", err)
+	}
+	daemonA.SyncOnce(ctx)
+	// Drain outbox to push create_dir ops to S3
+	daemonA.outboxWorker.drain(ctx)
+
+	// --- Device B: sync should create the empty directories ---
+	tmpB := t.TempDir()
+	dirB := filepath.Join(tmpB, "sync")
+	os.MkdirAll(dirB, 0755)
+
+	storeB := NewWithDevice(backend, idB, "device-b")
+	storeB.SetNamespace("shared")
+	cfgB := DaemonConfig{
+		SyncConfig:   SyncConfig{LocalRoot: dirB, Namespaces: []string{"shared"}},
+		DriveID:      "test-createdir-b",
+		ManifestPath: filepath.Join(tmpB, "data", "manifest.json"),
+		PollSeconds:  300,
+	}
+	daemonB, err := NewDaemonV2_5(storeB, cfgB, nil)
+	if err != nil {
+		t.Fatalf("creating daemon B: %v", err)
+	}
+	daemonB.SyncOnce(ctx)
+
+	// root.txt should exist
+	if _, err := os.Stat(filepath.Join(dirB, "root.txt")); err != nil {
+		t.Error("root.txt should exist on device B")
+	}
+	// empty/ should exist (empty directory)
+	if _, err := os.Stat(filepath.Join(dirB, "empty")); err != nil {
+		t.Error("empty/ should exist on device B")
+	}
+	// nested/deep/ should exist
+	if _, err := os.Stat(filepath.Join(dirB, "nested", "deep")); err != nil {
+		t.Error("nested/deep/ should exist on device B")
+	}
+}
