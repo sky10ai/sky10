@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SwiftUI
 
@@ -7,6 +8,7 @@ class AppState: ObservableObject {
     @Published var syncState: SyncState = .offline
     @Published var files: [FileNode] = []
     @Published var emptyDirs: [String] = []
+    @Published var dirHashes: [String: String] = [:]
     @Published var storeInfo: StoreInfo?
     @Published var isLoading = false
     @Published var error: String?
@@ -101,6 +103,16 @@ class AppState: ObservableObject {
 
             files = localFiles
             emptyDirs = localEmptyDirs
+
+            // Compute Merkle tree hashes for each drive
+            var hashes: [String: String] = [:]
+            for drive in drives {
+                let tree = computeDirTree(drive.localPath)
+                for (path, hash) in tree {
+                    hashes[path] = hash
+                }
+            }
+            dirHashes = hashes
 
             // Check daemon health
             let h = try await client.health()
@@ -329,5 +341,60 @@ class AppState: ObservableObject {
         } catch {
             // Best effort
         }
+    }
+
+    // MARK: - Merkle Tree
+
+    /// Compute a Merkle tree of SHA-256 hashes for a directory.
+    /// Returns a map of relative paths → hex hash strings.
+    private func computeDirTree(_ rootPath: String) -> [String: String] {
+        var tree: [String: String] = [:]
+        _ = merkleHash(URL(fileURLWithPath: rootPath), root: URL(fileURLWithPath: rootPath), tree: &tree)
+        return tree
+    }
+
+    private func merkleHash(_ dir: URL, root: URL, tree: inout [String: String]) -> String {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else {
+            return SHA256.hash(data: Data()).compactMap { String(format: "%02x", $0) }.joined()
+        }
+
+        let sorted = entries.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        var hasher = SHA256()
+
+        for entry in sorted {
+            let isDir = (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            let name = entry.lastPathComponent
+            let rel = entry.path.replacingOccurrences(of: root.path + "/", with: "")
+
+            if isDir {
+                let sub = merkleHash(entry, root: root, tree: &tree)
+                tree[rel] = sub
+                hasher.update(data: Data((name + "/").utf8))
+                hasher.update(data: Data(sub.utf8))
+            } else {
+                let fileHash = hashFile(entry)
+                tree[rel] = fileHash
+                hasher.update(data: Data(name.utf8))
+                hasher.update(data: Data(fileHash.utf8))
+            }
+        }
+
+        let digest = hasher.finalize()
+        let hash = digest.compactMap { String(format: "%02x", $0) }.joined()
+
+        let dirRel = dir.path.replacingOccurrences(of: root.path, with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let key = dirRel.isEmpty ? "." : dirRel
+        tree[key] = hash
+
+        return hash
+    }
+
+    private func hashFile(_ url: URL) -> String {
+        guard let data = try? Data(contentsOf: url) else {
+            return String(repeating: "0", count: 64)
+        }
+        let digest = SHA256.hash(data: data)
+        return digest.compactMap { String(format: "%02x", $0) }.joined()
     }
 }
