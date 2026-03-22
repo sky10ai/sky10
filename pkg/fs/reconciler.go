@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/sky10/sky10/pkg/fs/opslog"
 )
@@ -194,12 +193,10 @@ func (r *Reconciler) downloadFile(ctx context.Context, path string, fi opslog.Fi
 	}
 	tmpPath := tmpFile.Name()
 
-	// Per-file download timeout: scales with chunk count. Base 2 minutes
-	// plus 5 seconds per chunk. A 100-chunk file gets ~10 minutes.
-	timeout := 2*time.Minute + time.Duration(len(fi.Chunks))*5*time.Second
-	dlCtx, dlCancel := context.WithTimeout(ctx, timeout)
-	dlErr := r.store.GetChunks(dlCtx, fi.Chunks, fi.Namespace, tmpFile)
-	dlCancel()
+	// No wall-clock timeout — each chunk has its own 30s idle/stall
+	// detection via transfer.Reader in downloadChunks. As long as bytes
+	// are flowing, the download runs forever.
+	dlErr := r.store.GetChunks(ctx, fi.Chunks, fi.Namespace, tmpFile)
 	if dlErr != nil {
 		tmpFile.Close()
 		os.Remove(tmpPath)

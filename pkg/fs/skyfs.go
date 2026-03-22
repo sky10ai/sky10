@@ -412,11 +412,17 @@ func (s *Store) downloadChunks(ctx context.Context, chunks []string, nsKey []byt
 		var raw []byte
 
 		if loc, ok := s.packIndex.Entries[chunkHash]; ok {
-			packed, err := ReadPackedChunk(ctx, s.backend, loc)
+			rc, err := s.backend.GetRange(ctx, loc.Pack, loc.Offset, loc.Length)
 			if err != nil {
 				return fmt.Errorf("reading packed chunk %d (%s): %w", i, chunkHash[:12], err)
 			}
-			raw = packed
+			tr := transfer.NewReader(rc, int64(loc.Length))
+			tr.SetIdleTimeout(30 * time.Second)
+			raw, err = io.ReadAll(tr)
+			rc.Close()
+			if err != nil {
+				return fmt.Errorf("reading packed chunk %d: %w", i, err)
+			}
 		} else {
 			blobKey := (&Chunk{Hash: chunkHash}).BlobKey()
 			rc, err := s.backend.Get(ctx, blobKey)
