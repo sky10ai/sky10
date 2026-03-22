@@ -31,13 +31,13 @@ struct BrowserView: View {
                             .environmentObject(appState)
                     case .tree:
                         FileTreeView(
-                            root: buildTree(from: displayedFiles),
+                            root: buildTree(from: displayedFiles, emptyDirs: appState.emptyDirs),
                             selectedFile: $selectedFile
                         )
                         .environmentObject(appState)
                     case .list:
                         FileColumnView(
-                            root: buildTree(from: displayedFiles),
+                            root: buildTree(from: displayedFiles, emptyDirs: appState.emptyDirs),
                             selectedFile: $selectedFile
                         )
                         .environmentObject(appState)

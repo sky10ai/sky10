@@ -412,8 +412,8 @@ struct SyncActivityTab: View {
         do {
             outboxEntries = try await appState.client.syncActivity()
 
-            let files = try await appState.client.listFiles(prefix: "")
-            snapshotFiles = files.map { f in
+            let listResult = try await appState.client.listFiles(prefix: "")
+            snapshotFiles = listResult.files.map { f in
                 SnapshotFile(id: f.path, path: f.path, size: f.size, chunks: f.chunks)
             }.sorted { $0.path < $1.path }
         } catch {

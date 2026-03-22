@@ -6,6 +6,7 @@ class SkyClient {
 
     struct ListResult: Codable {
         let files: [FileResult]
+        let dirs: [DirResult]?
     }
 
     struct FileResult: Codable {
@@ -17,9 +18,19 @@ class SkyClient {
         let chunks: Int
     }
 
-    func listFiles(prefix: String) async throws -> [FileNode] {
+    struct DirResult: Codable {
+        let path: String
+        let namespace: String?
+    }
+
+    struct ListFilesResult {
+        let files: [FileNode]
+        let dirs: [String]
+    }
+
+    func listFiles(prefix: String) async throws -> ListFilesResult {
         let result: ListResult = try await rpc.call("skyfs.list", params: ["prefix": prefix])
-        return result.files.map { f in
+        let files = result.files.map { f in
             FileNode(
                 id: f.path, path: f.path,
                 name: (f.path as NSString).lastPathComponent,
@@ -27,6 +38,8 @@ class SkyClient {
                 namespace: f.namespace, chunks: f.chunks
             )
         }
+        let dirs = (result.dirs ?? []).map { $0.path }
+        return ListFilesResult(files: files, dirs: dirs)
     }
 
     struct PutParams: Codable {

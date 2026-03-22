@@ -6,6 +6,7 @@ import SwiftUI
 class AppState: ObservableObject {
     @Published var syncState: SyncState = .offline
     @Published var files: [FileNode] = []
+    @Published var emptyDirs: [String] = []
     @Published var storeInfo: StoreInfo?
     @Published var isLoading = false
     @Published var error: String?
@@ -86,17 +87,20 @@ class AppState: ObservableObject {
 
             // Build file list from local filesystem for each drive
             var localFiles: [FileNode] = []
+            var localEmptyDirs: [String] = []
             let uploadingPaths = Set(pendingActivity.filter { $0.direction == "up" }.map { $0.path })
             let downloadingPaths = Set(pendingActivity.filter { $0.direction == "down" }.map { $0.path })
 
             for drive in drives {
-                let driveFiles = scanLocalDirectory(drive.localPath, namespace: drive.namespace,
-                                                     uploadingPaths: uploadingPaths,
-                                                     downloadingPaths: downloadingPaths)
-                localFiles.append(contentsOf: driveFiles)
+                let scan = scanLocalDirectory(drive.localPath, namespace: drive.namespace,
+                                               uploadingPaths: uploadingPaths,
+                                               downloadingPaths: downloadingPaths)
+                localFiles.append(contentsOf: scan.files)
+                localEmptyDirs.append(contentsOf: scan.emptyDirs)
             }
 
             files = localFiles
+            emptyDirs = localEmptyDirs
 
             // Check daemon health
             let h = try await client.health()
@@ -111,35 +115,50 @@ class AppState: ObservableObject {
         }
     }
 
+    struct LocalScanResult {
+        let files: [FileNode]
+        let emptyDirs: [String]  // relative paths of empty directories
+    }
+
     /// Scan a local drive directory and build FileNode objects from the filesystem.
     private func scanLocalDirectory(_ rootPath: String, namespace: String,
                                      uploadingPaths: Set<String>,
-                                     downloadingPaths: Set<String>) -> [FileNode] {
+                                     downloadingPaths: Set<String>) -> LocalScanResult {
         let fm = FileManager.default
         let rootURL = URL(fileURLWithPath: rootPath)
         guard let enumerator = fm.enumerator(at: rootURL,
-                                              includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey],
+                                              includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey, .isDirectoryKey],
                                               options: [.skipsHiddenFiles]) else {
-            return []
+            return LocalScanResult(files: [], emptyDirs: [])
         }
 
-        var result: [FileNode] = []
+        var files: [FileNode] = []
+        var dirPaths: [String] = []
+        var dirsWithFiles: Set<String> = []
         let isoFormatter = ISO8601DateFormatter()
 
         for case let fileURL as URL in enumerator {
-            guard let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]),
-                  let isFile = resourceValues.isRegularFile, isFile else {
+            let relativePath = fileURL.path.replacingOccurrences(of: rootPath + "/", with: "")
+            if relativePath.hasPrefix(".") { continue }
+
+            let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
+
+            if resourceValues?.isDirectory == true {
+                dirPaths.append(relativePath)
                 continue
             }
 
-            let relativePath = fileURL.path.replacingOccurrences(of: rootPath + "/", with: "")
-            let fileName = fileURL.lastPathComponent
+            guard resourceValues?.isRegularFile == true else { continue }
 
-            // Skip .sky10 internal files
-            if relativePath.hasPrefix(".") { continue }
+            // Mark all parent directories as having files
+            var parent = (relativePath as NSString).deletingLastPathComponent
+            while !parent.isEmpty && parent != "." {
+                dirsWithFiles.insert(parent)
+                parent = (parent as NSString).deletingLastPathComponent
+            }
 
-            let size = Int64(resourceValues.fileSize ?? 0)
-            let modified = resourceValues.contentModificationDate ?? Date()
+            let size = Int64(resourceValues?.fileSize ?? 0)
+            let modified = resourceValues?.contentModificationDate ?? Date()
 
             var status: FileSyncStatus = .synced
             if uploadingPaths.contains(relativePath) {
@@ -148,10 +167,10 @@ class AppState: ObservableObject {
                 status = .downloading
             }
 
-            result.append(FileNode(
+            files.append(FileNode(
                 id: relativePath,
                 path: relativePath,
-                name: fileName,
+                name: fileURL.lastPathComponent,
                 size: size,
                 modified: isoFormatter.string(from: modified),
                 checksum: "",
@@ -161,7 +180,8 @@ class AppState: ObservableObject {
             ))
         }
 
-        return result
+        let emptyDirs = dirPaths.filter { !dirsWithFiles.contains($0) }
+        return LocalScanResult(files: files, emptyDirs: emptyDirs)
     }
 
     func uploadFile(localPath: String, remotePath: String) async {
