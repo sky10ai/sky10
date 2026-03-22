@@ -144,6 +144,18 @@ struct FileTreeView: View {
     private func treeRow(_ node: TreeNode) -> AnyView {
         if node.isFolder {
             let folderPath = node.id.replacingOccurrences(of: "folder:", with: "")
+            if node.children.isEmpty {
+                // Empty folder — plain row, no disclosure arrow
+                return AnyView(
+                    HStack {
+                        Label(node.name, systemImage: "folder")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        hashView(folderPath)
+                            .frame(width: 50, alignment: .trailing)
+                    }
+                )
+            }
             return AnyView(
                 DisclosureGroup {
                     ForEach(node.children) { child in
