@@ -225,6 +225,33 @@ func TestWatcherHandlerDeleteDirectoryViaHandleEvents(t *testing.T) {
 	}
 }
 
+func TestWatcherHandlerDirCreated(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+
+	handler := NewWatcherHandler(outbox, localLog, localDir, "Test", nil)
+	handler.HandleEvents([]FileEvent{{Path: "newdir", Type: DirCreated}})
+
+	entries, _ := outbox.ReadAll()
+	if len(entries) != 1 {
+		t.Fatalf("outbox has %d, want 1", len(entries))
+	}
+	if entries[0].Op != OpCreateDir || entries[0].Path != "newdir" {
+		t.Errorf("expected create_dir for newdir, got %+v", entries[0])
+	}
+
+	snap, _ := localLog.Snapshot()
+	dirs := snap.Dirs()
+	if _, ok := dirs["newdir"]; !ok {
+		t.Error("newdir should be in snapshot dirs")
+	}
+}
+
 func TestWatcherHandlerOpsLogPersistence(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()

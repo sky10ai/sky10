@@ -83,6 +83,7 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 	}
 
 	snapshotFiles := snap.Files()
+	snapshotDirs := snap.Dirs()
 	localFiles, err := ScanDirectory(r.localDir, r.ignore)
 	if err != nil {
 		r.logger.Warn("reconcile: scan failed", "error", err)
@@ -141,9 +142,14 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		}
 	}
 
-	// Directories on disk with no files in snapshot → remove.
+	// Create directories from snapshot's dirs set (from create_dir ops).
+	if r.createDirectories(snapshotDirs) {
+		active = true
+	}
+
+	// Directories on disk with no files/dirs in snapshot → remove.
 	// Driven by delete_dir ops propagated through the CRDT.
-	if r.reconcileDirectories(snapshotFiles) {
+	if r.reconcileDirectories(snapshotFiles, snapshotDirs) {
 		active = true
 	}
 
@@ -265,11 +271,30 @@ func (r *Reconciler) underPendingDeleteDir(path string, prefixes []string) bool 
 	return false
 }
 
-// reconcileDirectories removes directories that have no files in the
-// snapshot. Returns true if any directories were removed.
-func (r *Reconciler) reconcileDirectories(snapshotFiles map[string]opslog.FileInfo) bool {
-	// Build set of directory paths that should exist (have files under them).
+// createDirectories creates directories from the snapshot's dirs set
+// that don't exist on disk. Returns true if any were created.
+func (r *Reconciler) createDirectories(snapshotDirs map[string]opslog.DirInfo) bool {
+	created := false
+	for dir := range snapshotDirs {
+		localPath := filepath.Join(r.localDir, filepath.FromSlash(dir))
+		if _, err := os.Stat(localPath); os.IsNotExist(err) {
+			os.MkdirAll(localPath, 0755)
+			r.logger.Info("reconcile: created dir", "path", dir)
+			created = true
+		}
+	}
+	return created
+}
+
+// reconcileDirectories removes directories that have no files or explicit
+// dir entries in the snapshot. Returns true if any directories were removed.
+func (r *Reconciler) reconcileDirectories(snapshotFiles map[string]opslog.FileInfo, snapshotDirs map[string]opslog.DirInfo) bool {
+	// Build set of directory paths that should exist:
+	// 1. Directories implied by files
+	// 2. Explicitly created directories (from create_dir ops)
 	liveDirs := make(map[string]bool)
+
+	// Dirs implied by files
 	for p := range snapshotFiles {
 		dir := p
 		for {
@@ -282,6 +307,23 @@ func (r *Reconciler) reconcileDirectories(snapshotFiles map[string]opslog.FileIn
 				break // ancestors already marked
 			}
 			liveDirs[dir] = true
+		}
+	}
+
+	// Explicitly created dirs + their parents
+	for dir := range snapshotDirs {
+		liveDirs[dir] = true
+		d := dir
+		for {
+			i := strings.LastIndex(d, "/")
+			if i < 0 {
+				break
+			}
+			d = d[:i]
+			if liveDirs[d] {
+				break
+			}
+			liveDirs[d] = true
 		}
 	}
 

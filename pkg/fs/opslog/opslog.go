@@ -40,6 +40,7 @@ const (
 	Put       EntryType = "put"
 	Delete    EntryType = "delete"
 	DeleteDir EntryType = "delete_dir"
+	CreateDir EntryType = "create_dir"
 )
 
 // Entry is a single operation in the append-only log.
@@ -96,10 +97,20 @@ func (c clockTuple) beats(other clockTuple) bool {
 	return c.seq > other.seq
 }
 
+// DirInfo describes an explicitly created directory.
+// Device and Seq preserve the LWW clock through snapshot save/load cycles.
+type DirInfo struct {
+	Namespace string    `json:"namespace,omitempty"`
+	Device    string    `json:"device,omitempty"`
+	Seq       int       `json:"seq,omitempty"`
+	Modified  time.Time `json:"modified"`
+}
+
 // Snapshot is an immutable point-in-time view of the file tree.
 // It is produced by replaying log entries on top of an optional base.
 type Snapshot struct {
 	files   map[string]FileInfo
+	dirs    map[string]DirInfo // explicitly created directories
 	created time.Time
 	updated time.Time
 }
@@ -127,6 +138,15 @@ func (s *Snapshot) Len() int { return len(s.files) }
 func (s *Snapshot) Files() map[string]FileInfo {
 	cp := make(map[string]FileInfo, len(s.files))
 	for k, v := range s.files {
+		cp[k] = v
+	}
+	return cp
+}
+
+// Dirs returns a copy of the explicitly created directories map.
+func (s *Snapshot) Dirs() map[string]DirInfo {
+	cp := make(map[string]DirInfo, len(s.dirs))
+	for k, v := range s.dirs {
 		cp[k] = v
 	}
 	return cp
@@ -312,6 +332,14 @@ type manifestJSON struct {
 	Created time.Time               `json:"created"`
 	Updated time.Time               `json:"updated"`
 	Tree    map[string]fileInfoJSON `json:"tree"`
+	Dirs    map[string]dirInfoJSON  `json:"dirs,omitempty"`
+}
+
+type dirInfoJSON struct {
+	Namespace string    `json:"namespace,omitempty"`
+	Device    string    `json:"device,omitempty"`
+	Seq       int       `json:"seq,omitempty"`
+	Modified  time.Time `json:"modified"`
 }
 
 type fileInfoJSON struct {
@@ -340,6 +368,17 @@ func (l *OpsLog) saveSnapshot(ctx context.Context, snap *Snapshot) error {
 			Namespace: fi.Namespace,
 			Device:    fi.Device,
 			Seq:       fi.Seq,
+		}
+	}
+	if len(snap.dirs) > 0 {
+		m.Dirs = make(map[string]dirInfoJSON, len(snap.dirs))
+		for path, di := range snap.dirs {
+			m.Dirs[path] = dirInfoJSON{
+				Namespace: di.Namespace,
+				Device:    di.Device,
+				Seq:       di.Seq,
+				Modified:  di.Modified,
+			}
 		}
 	}
 
@@ -394,6 +433,7 @@ func (l *OpsLog) loadLatestSnapshot(ctx context.Context) (*Snapshot, int64, erro
 
 	snap := &Snapshot{
 		files:   make(map[string]FileInfo, len(m.Tree)),
+		dirs:    make(map[string]DirInfo, len(m.Dirs)),
 		created: m.Created,
 		updated: m.Updated,
 	}
@@ -406,6 +446,14 @@ func (l *OpsLog) loadLatestSnapshot(ctx context.Context) (*Snapshot, int64, erro
 			Namespace: fi.Namespace,
 			Device:    fi.Device,
 			Seq:       fi.Seq,
+		}
+	}
+	for path, di := range m.Dirs {
+		snap.dirs[path] = DirInfo{
+			Namespace: di.Namespace,
+			Device:    di.Device,
+			Seq:       di.Seq,
+			Modified:  di.Modified,
 		}
 	}
 
@@ -467,6 +515,8 @@ func makeEnvelope(e *Entry, encrypted []byte) []byte {
 		buf[21] = 1
 	case DeleteDir:
 		buf[21] = 2
+	case CreateDir:
+		buf[21] = 3
 	}
 
 	copy(buf[envelopeSize:], encrypted)
@@ -550,6 +600,7 @@ func readEntries(ctx context.Context, backend adapter.Backend, since int64, encK
 func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 	snap := &Snapshot{
 		files:   make(map[string]FileInfo),
+		dirs:    make(map[string]DirInfo),
 		created: time.Now().UTC(),
 		updated: time.Now().UTC(),
 	}
@@ -558,18 +609,23 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 	// existing clock to take effect.
 	clocks := make(map[string]clockTuple)
 
-	// Directory delete tombstones. A Put under a deleted directory is
-	// rejected unless its clock beats the tombstone. This ensures
-	// DeleteDir is order-independent (commutative) — the result is the
-	// same regardless of whether the DeleteDir is processed before or
-	// after the Puts it covers.
+	// Directory delete tombstones. A Put/CreateDir under a deleted directory
+	// is rejected unless its clock beats the tombstone. This ensures
+	// DeleteDir is order-independent (commutative).
 	dirTombstones := make(map[string]clockTuple)
+
+	// Per-directory clock tracking for CreateDir/DeleteDir.
+	dirClocks := make(map[string]clockTuple)
 
 	if base != nil {
 		snap.created = base.created
 		for k, v := range base.files {
 			snap.files[k] = v
 			clocks[k] = clockTuple{ts: v.Modified.Unix(), device: v.Device, seq: v.Seq}
+		}
+		for k, v := range base.dirs {
+			snap.dirs[k] = v
+			dirClocks[k] = clockTuple{ts: v.Modified.Unix(), device: v.Device, seq: v.Seq}
 		}
 	}
 
@@ -581,7 +637,6 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 			if prev, ok := clocks[e.Path]; ok && !ec.beats(prev) {
 				continue
 			}
-			// Check if covered by a directory delete tombstone
 			if coveredByDirTombstone(e.Path, ec, dirTombstones) {
 				continue
 			}
@@ -601,9 +656,27 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 			}
 			clocks[e.Path] = ec
 			delete(snap.files, e.Path)
+		case CreateDir:
+			if prev, ok := dirClocks[e.Path]; ok && !ec.beats(prev) {
+				continue
+			}
+			// Check exact tombstone and ancestor tombstones
+			if ts, ok := dirTombstones[e.Path]; ok && !ec.beats(ts) {
+				continue
+			}
+			if coveredByDirTombstone(e.Path, ec, dirTombstones) {
+				continue
+			}
+			dirClocks[e.Path] = ec
+			snap.dirs[e.Path] = DirInfo{
+				Namespace: e.Namespace,
+				Device:    e.Device,
+				Seq:       e.Seq,
+				Modified:  time.Unix(e.Timestamp, 0).UTC(),
+			}
 		case DeleteDir:
-			// Record tombstone so future puts under this prefix are rejected
-			// unless they have a higher clock.
+			// Record tombstone so future puts/creates under this prefix
+			// are rejected unless they have a higher clock.
 			if prev, ok := dirTombstones[e.Path]; !ok || ec.beats(prev) {
 				dirTombstones[e.Path] = ec
 			}
@@ -614,6 +687,19 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 					if prev, ok := clocks[path]; !ok || ec.beats(prev) {
 						delete(snap.files, path)
 						clocks[path] = ec
+					}
+				}
+			}
+			// Remove this directory and sub-directories.
+			if prev, ok := dirClocks[e.Path]; !ok || ec.beats(prev) {
+				delete(snap.dirs, e.Path)
+				dirClocks[e.Path] = ec
+			}
+			for dir := range snap.dirs {
+				if strings.HasPrefix(dir, prefix) {
+					if prev, ok := dirClocks[dir]; !ok || ec.beats(prev) {
+						delete(snap.dirs, dir)
+						dirClocks[dir] = ec
 					}
 				}
 			}

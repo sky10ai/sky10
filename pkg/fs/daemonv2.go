@@ -292,6 +292,10 @@ func (d *DaemonV2) handleRemoteOps(ctx context.Context, ops []Op) {
 			dirPath := filepath.Join(d.config.LocalRoot, filepath.FromSlash(op.Path))
 			os.Remove(dirPath)
 			changed = true
+
+		case OpCreateDir:
+			dirPath := filepath.Join(d.config.LocalRoot, filepath.FromSlash(op.Path))
+			os.MkdirAll(dirPath, 0755)
 		}
 
 		if op.Timestamp > d.manifest.LastRemoteOp {

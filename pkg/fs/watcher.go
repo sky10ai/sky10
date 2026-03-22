@@ -18,6 +18,7 @@ const (
 	FileModified
 	FileDeleted
 	FileRenamed
+	DirCreated
 )
 
 // FileEvent represents a filesystem change.
@@ -126,6 +127,11 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 	if event.Has(fsnotify.Create) {
 		if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
 			w.watcher.Add(event.Name)
+			// Emit DirCreated so the handler can track it
+			select {
+			case w.events <- FileEvent{Path: rel, Type: DirCreated}:
+			default:
+			}
 			// Scan for files that were created before the watch was registered
 			entries, _ := os.ReadDir(event.Name)
 			for _, e := range entries {

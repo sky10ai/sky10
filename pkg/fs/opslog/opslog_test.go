@@ -684,6 +684,56 @@ func TestCRDTDeleteDirOrderIndependent(t *testing.T) {
 	}
 }
 
+func TestCRDTCreateDir(t *testing.T) {
+	t.Parallel()
+
+	entries := []Entry{
+		{Type: CreateDir, Path: "empty", Namespace: "ns", Timestamp: 100, Device: "dev-a", Seq: 1},
+	}
+	snap := buildSnapshot(nil, entries)
+	if len(snap.Dirs()) != 1 {
+		t.Fatalf("Dirs() len = %d, want 1", len(snap.Dirs()))
+	}
+	if _, ok := snap.Dirs()["empty"]; !ok {
+		t.Error("empty dir should be in snapshot")
+	}
+}
+
+func TestCRDTDeleteDirRemovesCreateDir(t *testing.T) {
+	t.Parallel()
+
+	entries := []Entry{
+		{Type: CreateDir, Path: "foo", Timestamp: 100, Device: "dev-a", Seq: 1},
+		{Type: CreateDir, Path: "foo/bar", Timestamp: 100, Device: "dev-a", Seq: 2},
+		{Type: DeleteDir, Path: "foo", Timestamp: 200, Device: "dev-b", Seq: 1},
+	}
+
+	// All permutations should produce 0 dirs
+	for i, perm := range permutations(entries) {
+		snap := buildSnapshot(nil, perm)
+		if len(snap.Dirs()) != 0 {
+			t.Errorf("perm %d: Dirs() len = %d, want 0", i, len(snap.Dirs()))
+		}
+	}
+}
+
+func TestCRDTCreateDirAfterDeleteDir(t *testing.T) {
+	t.Parallel()
+
+	// DeleteDir at t=200, then CreateDir at t=300 — dir should exist
+	entries := []Entry{
+		{Type: DeleteDir, Path: "d", Timestamp: 200, Device: "dev-a", Seq: 1},
+		{Type: CreateDir, Path: "d", Timestamp: 300, Device: "dev-b", Seq: 1},
+	}
+
+	for i, perm := range permutations(entries[:2]) {
+		snap := buildSnapshot(nil, perm)
+		if len(snap.Dirs()) != 1 {
+			t.Errorf("perm %d: Dirs() len = %d, want 1", i, len(snap.Dirs()))
+		}
+	}
+}
+
 func TestLastWriterWins(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

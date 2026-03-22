@@ -556,6 +556,10 @@ func (d *Daemon) processRemoteOps(ctx context.Context, ops []Op) {
 			// Remove the directory itself
 			dirPath := filepath.Join(d.config.LocalRoot, filepath.FromSlash(op.Path))
 			os.Remove(dirPath)
+
+		case OpCreateDir:
+			dirPath := filepath.Join(d.config.LocalRoot, filepath.FromSlash(op.Path))
+			os.MkdirAll(dirPath, 0755)
 		}
 
 		if op.Timestamp > d.manifest.LastRemoteOp {

@@ -102,6 +102,21 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 			})
 			wrote = true
 
+		case DirCreated:
+			h.logger.Info("watcher: mkdir", "path", e.Path)
+			h.localLog.AppendLocal(opslog.Entry{
+				Type:      opslog.CreateDir,
+				Path:      e.Path,
+				Namespace: h.namespace,
+			})
+			h.outbox.Append(OutboxEntry{
+				Op:        OpCreateDir,
+				Path:      e.Path,
+				Namespace: h.namespace,
+				Timestamp: time.Now().Unix(),
+			})
+			wrote = true
+
 		case FileDeleted:
 			existing, ok := h.localLog.Lookup(e.Path)
 			if !ok {

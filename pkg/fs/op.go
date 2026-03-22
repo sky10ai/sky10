@@ -22,6 +22,7 @@ const (
 	OpPut       OpType = "put"
 	OpDelete    OpType = "delete"
 	OpDeleteDir OpType = "delete_dir"
+	OpCreateDir OpType = "create_dir"
 )
 
 // Op is a single operation in the append-only log.
@@ -104,6 +105,8 @@ func makeOpEnvelope(op *Op, encrypted []byte) []byte {
 		buf[21] = 1
 	case OpDeleteDir:
 		buf[21] = 2
+	case OpCreateDir:
+		buf[21] = 3
 	}
 	// Encrypted payload
 	copy(buf[OpEnvelopeSize:], encrypted)
@@ -237,6 +240,8 @@ func BuildState(base *Manifest, ops []Op) *Manifest {
 					delete(m.Tree, path)
 				}
 			}
+		case OpCreateDir:
+			// V1/V2 daemons don't track dirs — just ensure directory exists on disk
 		}
 	}
 

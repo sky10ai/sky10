@@ -179,6 +179,28 @@ func (l *LocalOpsLog) Compact() error {
 			return err
 		}
 	}
+	for path, di := range l.cache.dirs {
+		e := Entry{
+			Type:      CreateDir,
+			Path:      path,
+			Namespace: di.Namespace,
+			Device:    di.Device,
+			Timestamp: di.Modified.Unix(),
+			Seq:       di.Seq,
+		}
+		data, err := json.Marshal(e)
+		if err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("marshaling entry: %w", err)
+		}
+		data = append(data, '\n')
+		if _, err := f.Write(data); err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return err
+		}
+	}
 	f.Close()
 
 	// Atomic replace
