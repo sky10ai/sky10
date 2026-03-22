@@ -291,11 +291,11 @@ func fsServeCmd() *cobra.Command {
 				return err
 			}
 
-			// Verify S3 credentials before starting the daemon.
-			// A missing/invalid credential causes the AWS SDK to probe
-			// EC2 IMDS for 5 seconds per call, silently stalling everything.
+			// Warn if S3 is unreachable, but don't exit — the daemon must
+			// stay alive so Little Snitch / firewalls can be approved, and
+			// drives will retry on their own poll intervals.
 			if _, err := backend.List(ctx, "ops/"); err != nil {
-				return fmt.Errorf("S3 credential check failed (is S3_ACCESS_KEY_ID set?): %w", err)
+				slog.Warn("S3 credential check failed (will retry)", "error", err)
 			}
 
 			store := skyfs.New(backend, id)
