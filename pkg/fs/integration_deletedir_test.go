@@ -262,3 +262,81 @@ func TestIntegrationCreateDirSyncsAcrossDevices(t *testing.T) {
 		t.Error("nested/deep/ should exist on device B")
 	}
 }
+
+// Regression: create empty dir on A, sync to B, delete empty dir on A, sync to B.
+// Previously HandleDirectoryTrash only checked files, so deleting an empty
+// dir with only a create_dir entry silently did nothing.
+func TestIntegrationDeleteEmptyDirSyncsAcrossDevices(t *testing.T) {
+	h := StartMinIO(t)
+	ctx := context.Background()
+
+	idA, _ := GenerateDeviceKey()
+	idB, _ := GenerateDeviceKey()
+	backend := h.Backend(t, "delemptydir-sync")
+
+	// A creates namespace key
+	storeA := NewWithDevice(backend, idA, "device-a")
+	storeA.SetNamespace("shared")
+	storeA.Put(ctx, "anchor.txt", strings.NewReader("anchor"))
+
+	simulateApprove(t, ctx, backend, idA, idB)
+
+	// --- Device A: create an empty directory ---
+	tmpA := t.TempDir()
+	dirA := filepath.Join(tmpA, "sync")
+	os.MkdirAll(filepath.Join(dirA, "emptydir"), 0755)
+	os.WriteFile(filepath.Join(dirA, "anchor.txt"), []byte("anchor"), 0644)
+
+	cfgA := DaemonConfig{
+		SyncConfig:   SyncConfig{LocalRoot: dirA, Namespaces: []string{"shared"}},
+		DriveID:      "test-delempty-a",
+		ManifestPath: filepath.Join(tmpA, "data", "manifest.json"),
+		PollSeconds:  300,
+	}
+	daemonA, err := NewDaemonV2_5(storeA, cfgA, nil)
+	if err != nil {
+		t.Fatalf("creating daemon A: %v", err)
+	}
+	daemonA.SyncOnce(ctx)
+	daemonA.outboxWorker.drain(ctx)
+
+	// --- Device B: initial sync, should get emptydir/ ---
+	tmpB := t.TempDir()
+	dirB := filepath.Join(tmpB, "sync")
+	os.MkdirAll(dirB, 0755)
+
+	storeB := NewWithDevice(backend, idB, "device-b")
+	storeB.SetNamespace("shared")
+	cfgB := DaemonConfig{
+		SyncConfig:   SyncConfig{LocalRoot: dirB, Namespaces: []string{"shared"}},
+		DriveID:      "test-delempty-b",
+		ManifestPath: filepath.Join(tmpB, "data", "manifest.json"),
+		PollSeconds:  300,
+	}
+	daemonB, err := NewDaemonV2_5(storeB, cfgB, nil)
+	if err != nil {
+		t.Fatalf("creating daemon B: %v", err)
+	}
+	daemonB.SyncOnce(ctx)
+
+	if _, err := os.Stat(filepath.Join(dirB, "emptydir")); err != nil {
+		t.Fatal("emptydir/ should exist on B after initial sync")
+	}
+
+	// --- Device A: delete the empty directory ---
+	time.Sleep(time.Second)
+	os.RemoveAll(filepath.Join(dirA, "emptydir"))
+	daemonA.watcherHandler.HandleDirectoryTrash("emptydir")
+	daemonA.outboxWorker.drain(ctx)
+
+	// --- Device B: sync again, emptydir/ should be gone ---
+	daemonB.SyncOnce(ctx)
+
+	if _, err := os.Stat(filepath.Join(dirB, "emptydir")); !os.IsNotExist(err) {
+		t.Error("emptydir/ should be removed on B after delete")
+	}
+	// anchor.txt should still exist
+	if _, err := os.Stat(filepath.Join(dirB, "anchor.txt")); err != nil {
+		t.Error("anchor.txt should still exist on B")
+	}
+}
