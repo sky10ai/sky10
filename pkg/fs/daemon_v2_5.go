@@ -255,6 +255,27 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 		d.logger.Info("seed: pending downloads", "count", needDownload)
 	}
 
+	// Empty directories on disk not in snapshot → new local dirs.
+	knownDirs := snap.Dirs()
+	emptyDirs := ScanEmptyDirectories(d.config.LocalRoot, d.config.IgnoreFunc)
+	for _, dir := range emptyDirs {
+		if _, ok := knownDirs[dir]; !ok {
+			d.logger.Info("seed: new dir", "path", dir)
+			d.localLog.AppendLocal(opslog.Entry{
+				Type:      opslog.CreateDir,
+				Path:      dir,
+				Namespace: ns,
+			})
+			d.outbox.Append(OutboxEntry{
+				Op:        OpCreateDir,
+				Path:      dir,
+				Namespace: ns,
+				Timestamp: time.Now().Unix(),
+			})
+			wrote = true
+		}
+	}
+
 	if wrote {
 		d.outboxWorker.Poke()
 	}

@@ -69,6 +69,39 @@ func ScanDirectory(root string, ignore func(string) bool) (ScanResult, error) {
 	return result, nil
 }
 
+// ScanEmptyDirectories returns relative paths of directories that contain no
+// non-dotfiles. Used by seed to detect empty dirs for create_dir ops.
+func ScanEmptyDirectories(root string, ignore func(string) bool) []string {
+	var dirs []string
+	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || !d.IsDir() || path == root {
+			return nil
+		}
+		name := d.Name()
+		if strings.HasPrefix(name, ".") {
+			return filepath.SkipDir
+		}
+		rel, _ := filepath.Rel(root, path)
+		rel = filepath.ToSlash(rel)
+		if ignore != nil && ignore(rel) {
+			return filepath.SkipDir
+		}
+		entries, _ := os.ReadDir(path)
+		hasVisible := false
+		for _, e := range entries {
+			if !strings.HasPrefix(e.Name(), ".") {
+				hasVisible = true
+				break
+			}
+		}
+		if !hasVisible {
+			dirs = append(dirs, rel)
+		}
+		return nil
+	})
+	return dirs
+}
+
 // fileChecksum computes SHA3-256 of a file by streaming (not loading into memory).
 func fileChecksum(path string) (string, error) {
 	f, err := os.Open(path)

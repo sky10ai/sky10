@@ -412,6 +412,69 @@ func TestReconcilerDeleteDirEndToEnd(t *testing.T) {
 	}
 }
 
+func TestReconcilerCreatesDirectories(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	// Snapshot has an explicit create_dir entry
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+	localLog.Append(opslog.Entry{
+		Type: opslog.CreateDir, Path: "empty-dir",
+		Device: "dev-b", Timestamp: 100, Seq: 1,
+	})
+	localLog.Append(opslog.Entry{
+		Type: opslog.CreateDir, Path: "nested/deep",
+		Device: "dev-b", Timestamp: 100, Seq: 2,
+	})
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.reconcile(context.Background())
+
+	// Directories should be created
+	if _, err := os.Stat(filepath.Join(localDir, "empty-dir")); err != nil {
+		t.Error("empty-dir should have been created")
+	}
+	if _, err := os.Stat(filepath.Join(localDir, "nested", "deep")); err != nil {
+		t.Error("nested/deep should have been created")
+	}
+}
+
+func TestReconcilerKeepsExplicitEmptyDir(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+
+	// Create an empty dir on disk
+	os.MkdirAll(filepath.Join(localDir, "keep-me"), 0755)
+
+	// Snapshot has a create_dir entry for it (no files)
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+	localLog.Append(opslog.Entry{
+		Type: opslog.CreateDir, Path: "keep-me",
+		Device: "dev-a", Timestamp: 100, Seq: 1,
+	})
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.reconcile(context.Background())
+
+	// Directory should NOT be removed — it's explicitly tracked
+	if _, err := os.Stat(filepath.Join(localDir, "keep-me")); err != nil {
+		t.Error("keep-me should still exist — explicit create_dir in snapshot")
+	}
+}
+
 func checksumOf(content string) string {
 	h := sha3.New256()
 	h.Write([]byte(content))
