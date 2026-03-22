@@ -162,7 +162,8 @@ func (h *WatcherHandler) HandleDirectoryTrash(dirPath string) {
 		return
 	}
 
-	// Check that at least one tracked file exists under this prefix.
+	// Check that tracked files or dirs exist under this prefix,
+	// or the directory itself is explicitly tracked.
 	prefix := dirPath + "/"
 	ns := ""
 	found := false
@@ -171,6 +172,21 @@ func (h *WatcherHandler) HandleDirectoryTrash(dirPath string) {
 			ns = fi.Namespace
 			found = true
 			break
+		}
+	}
+	if !found {
+		// Check if the directory itself or sub-dirs are tracked
+		if di, ok := snap.Dirs()[dirPath]; ok {
+			ns = di.Namespace
+			found = true
+		} else {
+			for path, di := range snap.Dirs() {
+				if strings.HasPrefix(path, prefix) {
+					ns = di.Namespace
+					found = true
+					break
+				}
+			}
 		}
 	}
 	if !found {
