@@ -14,7 +14,7 @@ import (
 type ScanResult map[string]string
 
 // ScanDirectory walks a directory and computes checksums for all files.
-// Paths are relative to root. Skips dotfiles and directories starting with ".".
+// Paths are relative to root. The ignore function controls what to skip.
 func ScanDirectory(root string, ignore func(string) bool) (ScanResult, error) {
 	result := make(ScanResult)
 
@@ -23,9 +23,17 @@ func ScanDirectory(root string, ignore func(string) bool) (ScanResult, error) {
 			return err
 		}
 
-		// Skip dotfiles/dirs
-		name := d.Name()
-		if strings.HasPrefix(name, ".") && name != "." {
+		if path == root {
+			return nil
+		}
+
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return fmt.Errorf("computing relative path: %w", err)
+		}
+		rel = filepath.ToSlash(rel)
+
+		if ignore != nil && ignore(rel) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -37,19 +45,8 @@ func ScanDirectory(root string, ignore func(string) bool) (ScanResult, error) {
 		}
 
 		// Skip conflict artifacts
+		name := d.Name()
 		if strings.Contains(name, ".conflict.") {
-			return nil
-		}
-
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return fmt.Errorf("computing relative path: %w", err)
-		}
-
-		// Normalize to forward slashes for S3 compatibility
-		rel = filepath.ToSlash(rel)
-
-		if ignore != nil && ignore(rel) {
 			return nil
 		}
 
@@ -70,16 +67,12 @@ func ScanDirectory(root string, ignore func(string) bool) (ScanResult, error) {
 }
 
 // ScanEmptyDirectories returns relative paths of directories that contain no
-// non-dotfiles. Used by seed to detect empty dirs for create_dir ops.
+// non-ignored files. Used by seed to detect empty dirs for create_dir ops.
 func ScanEmptyDirectories(root string, ignore func(string) bool) []string {
 	var dirs []string
 	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || !d.IsDir() || path == root {
 			return nil
-		}
-		name := d.Name()
-		if strings.HasPrefix(name, ".") {
-			return filepath.SkipDir
 		}
 		rel, _ := filepath.Rel(root, path)
 		rel = filepath.ToSlash(rel)
@@ -89,10 +82,12 @@ func ScanEmptyDirectories(root string, ignore func(string) bool) []string {
 		entries, _ := os.ReadDir(path)
 		hasVisible := false
 		for _, e := range entries {
-			if !strings.HasPrefix(e.Name(), ".") {
-				hasVisible = true
-				break
+			childRel := rel + "/" + e.Name()
+			if ignore != nil && ignore(childRel) {
+				continue
 			}
+			hasVisible = true
+			break
 		}
 		if !hasVisible {
 			dirs = append(dirs, rel)

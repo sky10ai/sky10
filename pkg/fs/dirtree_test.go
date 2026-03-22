@@ -3,6 +3,7 @@ package fs
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -149,7 +150,7 @@ func TestDirHashEmptySubdir(t *testing.T) {
 	}
 }
 
-func TestDirHashSkipsDotfiles(t *testing.T) {
+func TestDirHashIncludesDotfiles(t *testing.T) {
 	t.Parallel()
 	dir1 := t.TempDir()
 	os.WriteFile(filepath.Join(dir1, "visible.txt"), []byte("data"), 0644)
@@ -157,13 +158,32 @@ func TestDirHashSkipsDotfiles(t *testing.T) {
 	dir2 := t.TempDir()
 	os.WriteFile(filepath.Join(dir2, "visible.txt"), []byte("data"), 0644)
 	os.WriteFile(filepath.Join(dir2, ".hidden"), []byte("secret"), 0644)
-	os.MkdirAll(filepath.Join(dir2, ".git"), 0755)
-	os.WriteFile(filepath.Join(dir2, ".git", "HEAD"), []byte("ref"), 0644)
 
 	h1, _ := DirHash(dir1, nil)
 	h2, _ := DirHash(dir2, nil)
+	if h1 == h2 {
+		t.Error("dotfiles should affect the hash")
+	}
+}
+
+func TestDirHashIgnoreFuncSkipsGit(t *testing.T) {
+	t.Parallel()
+	ignore := func(path string) bool {
+		return path == ".git" || strings.HasPrefix(path, ".git/")
+	}
+
+	dir1 := t.TempDir()
+	os.WriteFile(filepath.Join(dir1, "visible.txt"), []byte("data"), 0644)
+
+	dir2 := t.TempDir()
+	os.WriteFile(filepath.Join(dir2, "visible.txt"), []byte("data"), 0644)
+	os.MkdirAll(filepath.Join(dir2, ".git"), 0755)
+	os.WriteFile(filepath.Join(dir2, ".git", "HEAD"), []byte("ref"), 0644)
+
+	h1, _ := DirHash(dir1, ignore)
+	h2, _ := DirHash(dir2, ignore)
 	if h1 != h2 {
-		t.Errorf("dotfiles should be ignored: %s != %s", h1, h2)
+		t.Errorf(".git should be skipped via ignore func: %s != %s", h1, h2)
 	}
 }
 

@@ -20,18 +20,14 @@ func TestScanDirectory(t *testing.T) {
 		t.Fatalf("ScanDirectory: %v", err)
 	}
 
-	if len(files) != 2 {
-		t.Errorf("got %d files, want 2 (dotfile excluded)", len(files))
+	if len(files) != 3 {
+		t.Errorf("got %d files, want 3 (dotfiles included)", len(files))
 	}
 
-	if _, ok := files["a.md"]; !ok {
-		t.Error("missing a.md")
-	}
-	if _, ok := files["sub/b.md"]; !ok {
-		t.Error("missing sub/b.md")
-	}
-	if _, ok := files[".hidden"]; ok {
-		t.Error(".hidden should be excluded")
+	for _, want := range []string{"a.md", "sub/b.md", ".hidden"} {
+		if _, ok := files[want]; !ok {
+			t.Errorf("missing %s", want)
+		}
 	}
 }
 
