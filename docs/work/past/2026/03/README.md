@@ -2,7 +2,7 @@
 
 | Date | Title | Summary |
 |------|-------|---------|
-| 21 | [DeleteDir First-Class Op](21-DeleteDir-First-Class-Op.md) | First-class `delete_dir` op in sync protocol — CRDT with tombstone semantics, one op instead of N file deletes, reconciler removes directories — v0.12.0 |
+| 21 | [Directory Operations](21-DeleteDir-First-Class-Op.md) | First-class `delete_dir` + `create_dir` ops — CRDT with tombstone semantics, empty dir sync, Cirrus UI, bugfixes — v0.12.0–v0.13.3 |
 | 21 | [Upload Stall Detection](21-Upload-Stall-Detection.md) | Read-gap stall detection in transfer.Reader — detects dead TCP connections during uploads by monitoring consumer Read() gaps, cancels via context |
 | 20 | [Transfer Module & Reliability](20-Transfer-Module-And-Reliability.md) | pkg/transfer for streaming progress, S3 timeout fix, RPC deadlock fix, poller recovery — v0.10.3, v0.10.4, v0.11.0 |
 | 20 | [Checksum Fix & Cirrus Stability](20-Checksum-Fix-And-Cirrus-Stability.md) | Fix cross-device echo loop (checksum scheme mismatch), syncStatus flood, reset/compact UI — v0.10.1, v0.10.2 |

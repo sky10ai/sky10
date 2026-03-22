@@ -3,7 +3,7 @@ created: 2026-03-21
 model: claude-opus-4-6
 ---
 
-# First-Class `delete_dir` Operation
+# First-Class Directory Operations (`delete_dir` + `create_dir`)
 
 ## Problem
 
@@ -93,6 +93,84 @@ Added `delete_dir` as a first-class operation throughout the sync protocol.
   file deletes is both more efficient (1 S3 write) and semantically correct
   (the intent was to delete a directory, not N files).
 
-## Release
+## `create_dir` — Empty Directory Sync (v0.13.0)
 
-v0.12.0
+Empty directories weren't synced because the entire system was file-only.
+Creating an empty folder on one machine was invisible to the other.
+
+### CRDT
+
+- New `CreateDir` entry type with `DirInfo` (namespace, device, seq, modified)
+- `buildSnapshot` tracks dirs in a separate `dirs` map with per-dir clocks
+- `DeleteDir` also removes sub-directories from the dirs map
+- `CreateDir` respects `DeleteDir` tombstones (exact match + ancestors)
+- Snapshot save/load includes dirs (`manifestJSON.Dirs` field)
+- Local log compaction writes `CreateDir` entries for dirs
+
+### Watcher
+
+- New `DirCreated` event type emitted directly (no debounce) when a
+  directory is created
+- Handler emits `CreateDir` op to local log + outbox
+
+### Seed
+
+- `ScanEmptyDirectories()` finds directories with no visible files
+- Seed emits `CreateDir` for empty dirs not already in snapshot
+
+### Reconciler
+
+- `createDirectories()` creates dirs from snapshot that don't exist on disk
+- `reconcileDirectories()` respects explicit dir entries — won't prune an
+  empty dir that has a `create_dir` in the snapshot
+
+### Cirrus UI (v0.13.1)
+
+- RPC `skyfs.list` returns `dirs` alongside `files`
+- `scanLocalDirectory` detects empty directories on disk
+- `buildTree` renders empty dirs as folder nodes
+- Swift types updated: `ListFilesResult` wraps files + dirs
+
+## Bugfixes
+
+### `HandleDirectoryTrash` ignored empty dirs (v0.13.2)
+
+Deleting an empty directory that was tracked via `create_dir` silently did
+nothing. `HandleDirectoryTrash` only checked `snap.Files()` for tracked
+content under the prefix. Empty dirs with no files were invisible.
+
+Fix: also check `snap.Dirs()` for the directory itself and sub-dirs.
+
+### Daemon crash on blocked S3 (v0.13.3)
+
+The S3 credential check on startup (`backend.List(ctx, "ops/")`) was fatal.
+If Little Snitch blocked the connection, the daemon exited before the user
+could approve the firewall dialog, creating an infinite restart loop.
+
+Fix: log a warning instead of exiting. Drives retry on their poll intervals.
+
+## Tests
+
+- 3 CRDT unit tests: `TestCRDTDeleteDir`, `TestCRDTDeleteDirLaterPutWins`,
+  `TestCRDTDeleteDirOrderIndependent` (all 6 permutations)
+- 3 CRDT create_dir tests: `TestCRDTCreateDir`,
+  `TestCRDTDeleteDirRemovesCreateDir`, `TestCRDTCreateDirAfterDeleteDir`
+- 2 reconciler tests: `TestReconcilerRemovesStaleDirectories`,
+  `TestReconcilerDeleteDirEndToEnd`
+- 2 reconciler create_dir tests: `TestReconcilerCreatesDirectories`,
+  `TestReconcilerKeepsExplicitEmptyDir`
+- Regression: `TestWatcherHandlerDeleteEmptyCreatedDir`
+- Updated watcher handler tests for `delete_dir` and `DirCreated` behavior
+- 4 MinIO integration tests:
+  - `TestIntegrationDeleteDirSyncsAcrossDevices`
+  - `TestIntegrationDeleteDirThenRecreate`
+  - `TestIntegrationCreateDirSyncsAcrossDevices`
+  - `TestIntegrationDeleteEmptyDirSyncsAcrossDevices` (regression)
+
+## Releases
+
+- v0.12.0 — `delete_dir` first-class operation
+- v0.13.0 — `create_dir` first-class operation
+- v0.13.1 — Empty dirs visible in Cirrus UI
+- v0.13.2 — Fix empty dir delete propagation
+- v0.13.3 — Fix daemon crash on blocked S3
