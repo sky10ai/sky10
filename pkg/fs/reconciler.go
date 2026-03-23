@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sky10/sky10/pkg/fs/opslog"
@@ -114,11 +116,13 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		}
 	}
 
-	// Files in snapshot but not on disk (or wrong checksum) → download
+	// Collect files that need downloading
+	type dlTarget struct {
+		path string
+		fi   opslog.FileInfo
+	}
+	var targets []dlTarget
 	for path, fi := range snapshotFiles {
-		if ctx.Err() != nil {
-			return
-		}
 		if pendingDeletes[path] {
 			skipped++
 			continue
@@ -129,13 +133,38 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		}
 		localChecksum, onDisk := localFiles[path]
 		if !onDisk || !checksumMatch(localChecksum, fi) {
-			if r.downloadFile(ctx, path, fi) {
-				downloaded++
-				active = true
-			} else {
-				failed++
-			}
+			targets = append(targets, dlTarget{path, fi})
 		}
+	}
+
+	// Download in parallel (up to 4 at a time)
+	if len(targets) > 0 {
+		r.logger.Info("reconcile: downloading", "files", len(targets))
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, 4)
+		var dlCount, failCount atomic.Int32
+
+		for _, t := range targets {
+			if ctx.Err() != nil {
+				break
+			}
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(path string, fi opslog.FileInfo) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				if r.downloadFile(ctx, path, fi) {
+					dlCount.Add(1)
+				} else {
+					failCount.Add(1)
+				}
+			}(t.path, t.fi)
+		}
+		wg.Wait()
+
+		downloaded = int(dlCount.Load())
+		failed = int(failCount.Load())
+		active = downloaded > 0
 	}
 
 	// Files on disk that were explicitly deleted by a remote op → delete.
