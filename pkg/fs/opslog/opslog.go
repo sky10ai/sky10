@@ -544,7 +544,7 @@ func readEntries(ctx context.Context, backend adapter.Backend, since int64, encK
 	var entries []Entry
 	for _, key := range keys {
 		ts := parseEntryTimestamp(key)
-		if ts <= since {
+		if ts < since {
 			continue
 		}
 

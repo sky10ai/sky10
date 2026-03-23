@@ -161,8 +161,6 @@ func (w *Watcher) flushPending() {
 			continue // still within debounce window
 		}
 
-		delete(w.pending, path)
-
 		eventType := FileModified
 		fullPath := filepath.Join(w.root, filepath.FromSlash(path))
 		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
@@ -171,8 +169,9 @@ func (w *Watcher) flushPending() {
 
 		select {
 		case w.events <- FileEvent{Path: path, Type: eventType}:
+			delete(w.pending, path)
 		default:
-			// Channel full, drop event (will be caught on next sync)
+			// Channel full — leave in pending for next tick
 		}
 	}
 }
