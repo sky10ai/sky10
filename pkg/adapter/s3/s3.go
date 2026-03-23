@@ -7,6 +7,7 @@ package s3
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -81,8 +82,11 @@ func New(ctx context.Context, cfg Config) (*Backend, error) {
 
 	// Transport-level timeouts for connection setup and idle management.
 	// No http.Client.Timeout — that's a wall-clock timeout that kills
-	// active transfers of large files. TCP keepalive (Go default: 30s)
-	// detects dead connections instead.
+	// active transfers of large files.
+	//
+	// HTTP/2 is explicitly disabled. Go's ResponseHeaderTimeout only works
+	// with HTTP/1.1 — HTTP/2 ignores it entirely. Without it, a dead S3
+	// connection hangs forever (poller LIST or reconciler GET with no timeout).
 	httpClient := &http.Client{
 		Transport: &http.Transport{
 			MaxIdleConns:          20,
@@ -91,6 +95,8 @@ func New(ctx context.Context, cfg Config) (*Backend, error) {
 			ResponseHeaderTimeout: 15 * time.Second,
 			IdleConnTimeout:       60 * time.Second,
 			TLSHandshakeTimeout:   10 * time.Second,
+			ForceAttemptHTTP2:     false,
+			TLSNextProto:          make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
 		},
 	}
 	opts = append(opts, config.WithHTTPClient(httpClient))
