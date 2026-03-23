@@ -74,6 +74,7 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 
 	wrote := false
 	maxTs := cursor
+	appended := 0
 
 	for _, e := range entries {
 		// Skip our own ops — they're already in the local log.
@@ -116,6 +117,7 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 		// Append remote op to local log (CRDT state)
 		p.localLog.Append(e)
 		wrote = true
+		appended++
 		p.logger.Info("poll: appended", "path", e.Path, "op", string(e.Type), "device", e.Device)
 
 		if e.Timestamp > maxTs {
@@ -128,6 +130,7 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 	}
 
 	if wrote {
+		p.logger.Info("poll: imported", "appended", appended, "total_s3", len(entries))
 		p.pokeReconciler()
 	}
 }

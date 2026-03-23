@@ -90,8 +90,13 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		return
 	}
 
+	r.logger.Info("reconcile: start", "snapshot_files", len(snapshotFiles), "local_files", len(localFiles), "snapshot_dirs", len(snapshotDirs))
+
 	active := false
 	failed := 0
+	downloaded := 0
+	deleted := 0
+	skipped := 0
 
 	// Build set of paths with pending deletes in the outbox.
 	// The watcher already decided these should be deleted — don't
@@ -115,16 +120,17 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 			return
 		}
 		if pendingDeletes[path] {
-			r.logger.Info("reconcile: skip, pending delete", "path", path)
+			skipped++
 			continue
 		}
 		if r.underPendingDeleteDir(path, pendingDeleteDirs) {
-			r.logger.Info("reconcile: skip, pending delete_dir", "path", path)
+			skipped++
 			continue
 		}
 		localChecksum, onDisk := localFiles[path]
 		if !onDisk || !checksumMatch(localChecksum, fi) {
 			if r.downloadFile(ctx, path, fi) {
+				downloaded++
 				active = true
 			} else {
 				failed++
@@ -141,6 +147,7 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		}
 		if _, inSnapshot := snapshotFiles[path]; !inSnapshot {
 			r.deleteFile(path)
+			deleted++
 			active = true
 		}
 	}
@@ -156,6 +163,8 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		active = true
 	}
 
+	r.logger.Info("reconcile: done", "downloaded", downloaded, "deleted", deleted, "failed", failed, "skipped", skipped)
+
 	if active {
 		r.onEvent("state.changed")
 	}
@@ -164,7 +173,6 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 	// hammering S3 on persistent errors but recovers quickly from
 	// transient failures.
 	if failed > 0 {
-		r.logger.Info("reconcile: scheduling retry", "failed", failed)
 		go func() {
 			select {
 			case <-ctx.Done():

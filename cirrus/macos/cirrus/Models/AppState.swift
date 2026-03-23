@@ -114,6 +114,15 @@ class AppState: ObservableObject {
             }
             dirHashes = hashes
 
+            // Cross-check: log files that scanLocalDirectory found but merkleHash missed
+            let missing = localFiles.filter { hashes[$0.path] == nil }
+            if !missing.isEmpty {
+                print("[cirrus] \(missing.count) files have no Merkle hash:")
+                for f in missing.prefix(10) {
+                    print("[cirrus]   \(f.path)")
+                }
+            }
+
             // Check daemon health
             let h = try await client.health()
             daemonConnected = true
@@ -355,7 +364,9 @@ class AppState: ObservableObject {
 
     private func merkleHash(_ dir: URL, root: URL, tree: inout [String: String]) -> String {
         let fm = FileManager.default
-        guard let entries = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else {
+        let dirRel = dir.path.replacingOccurrences(of: root.path, with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let entries = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey], options: [.skipsHiddenFiles]) else {
+            NSLog("[merkle] contentsOfDirectory FAILED for: %@", dirRel.isEmpty ? "." : dirRel)
             return SHA256.hash(data: Data()).compactMap { String(format: "%02x", $0) }.joined()
         }
 
@@ -363,11 +374,17 @@ class AppState: ObservableObject {
         var hasher = SHA256()
 
         for entry in sorted {
-            let isDir = (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            let rv = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+            let isDir = rv?.isDirectory ?? false
+            let isPkg = rv?.isPackage ?? false
             let name = entry.lastPathComponent
             let rel = entry.path.replacingOccurrences(of: root.path + "/", with: "")
 
-            if isDir {
+            // Treat as directory if isDirectory OR isPackage OR the URL
+            // has a directory path (fallback when resourceValues lies).
+            let treatAsDir = isDir || isPkg || entry.hasDirectoryPath
+
+            if treatAsDir {
                 let sub = merkleHash(entry, root: root, tree: &tree)
                 tree[rel] = sub
                 hasher.update(data: Data((name + "/").utf8))
@@ -383,7 +400,6 @@ class AppState: ObservableObject {
         let digest = hasher.finalize()
         let hash = digest.compactMap { String(format: "%02x", $0) }.joined()
 
-        let dirRel = dir.path.replacingOccurrences(of: root.path, with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let key = dirRel.isEmpty ? "." : dirRel
         tree[key] = hash
 
