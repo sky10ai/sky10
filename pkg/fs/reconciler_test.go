@@ -72,22 +72,30 @@ func TestReconcilerDelete(t *testing.T) {
 	localDir := filepath.Join(tmpDir, "sync")
 	os.MkdirAll(localDir, 0755)
 
-	// File on disk that's NOT in the snapshot (remote delete scenario)
+	// File on disk that was synced, then deleted remotely
 	os.WriteFile(filepath.Join(localDir, "deleted-remote.txt"), []byte("should go"), 0644)
 
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
-	// Empty local log — file is on disk but not in snapshot
+	// Log has put then delete — file was explicitly deleted by remote device
 	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+	localLog.Append(opslog.Entry{
+		Type: opslog.Put, Path: "deleted-remote.txt", Checksum: checksumOf("should go"),
+		Device: "dev-remote", Timestamp: 100, Seq: 1,
+	})
+	localLog.Append(opslog.Entry{
+		Type: opslog.Delete, Path: "deleted-remote.txt",
+		Device: "dev-remote", Timestamp: 200, Seq: 2,
+	})
 
 	r := NewReconciler(store, localLog, NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl")), localDir, nil, nil)
 	r.reconcile(context.Background())
 
-	// File should be deleted
+	// File should be deleted — explicit remote delete op
 	if _, err := os.Stat(filepath.Join(localDir, "deleted-remote.txt")); !os.IsNotExist(err) {
-		t.Error("file should be deleted (not in snapshot)")
+		t.Error("file should be deleted (remote delete op in log)")
 	}
 }
 
@@ -475,6 +483,95 @@ func TestReconcilerKeepsExplicitEmptyDir(t *testing.T) {
 	// Directory should NOT be removed — it's explicitly tracked
 	if _, err := os.Stat(filepath.Join(localDir, "keep-me")); err != nil {
 		t.Error("keep-me should still exist — explicit create_dir in snapshot")
+	}
+}
+
+func TestReconcilerDoesNotDeleteUntrackedFiles(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	// Files on disk that were never tracked — watcher missed them (kqueue burst).
+	// No ops in the log at all for these paths.
+	os.MkdirAll(filepath.Join(localDir, "theme", "example.iapresenter", "assets"), 0755)
+	os.WriteFile(filepath.Join(localDir, "theme", "example.iapresenter", "info.json"), []byte(`{"title":"test"}`), 0644)
+	os.WriteFile(filepath.Join(localDir, "theme", "example.iapresenter", "text.md"), []byte("# Hello"), 0644)
+	os.WriteFile(filepath.Join(localDir, "theme", "example.iapresenter", "assets", "logo.png"), []byte("png-data"), 0644)
+	os.WriteFile(filepath.Join(localDir, "standalone.txt"), []byte("also untracked"), 0644)
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	// Empty log — these files were never seen by watcher or seed
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-local")
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.reconcile(context.Background())
+
+	// All files must survive — no delete op means no deletion
+	for _, path := range []string{
+		"theme/example.iapresenter/info.json",
+		"theme/example.iapresenter/text.md",
+		"theme/example.iapresenter/assets/logo.png",
+		"standalone.txt",
+	} {
+		if _, err := os.Stat(filepath.Join(localDir, path)); os.IsNotExist(err) {
+			t.Errorf("untracked file %q was deleted — reconciler must not delete without a delete op", path)
+		}
+	}
+}
+
+func TestReconcilerDeletesOnRemoteDeleteOp(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	// File on disk — was synced previously
+	os.WriteFile(filepath.Join(localDir, "report.txt"), []byte("old content"), 0644)
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-local")
+
+	// Log has: put from dev-remote, then delete from dev-remote.
+	// The CRDT resolves this as "file deleted."
+	localLog.Append(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "report.txt",
+		Checksum:  checksumOf("old content"),
+		Device:    "dev-remote",
+		Timestamp: 1000,
+		Seq:       1,
+		Namespace: "Test",
+	})
+	localLog.Append(opslog.Entry{
+		Type:      opslog.Delete,
+		Path:      "report.txt",
+		Device:    "dev-remote",
+		Timestamp: 2000,
+		Seq:       2,
+		Namespace: "Test",
+	})
+
+	// Verify snapshot shows file as deleted
+	snap, _ := localLog.Snapshot()
+	if _, exists := snap.Files()["report.txt"]; exists {
+		t.Fatal("snapshot should not contain report.txt after delete op")
+	}
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.reconcile(context.Background())
+
+	// File SHOULD be deleted — there's an explicit delete op
+	if _, err := os.Stat(filepath.Join(localDir, "report.txt")); !os.IsNotExist(err) {
+		t.Error("file should be deleted — remote delete op exists in log")
 	}
 }
 

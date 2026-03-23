@@ -234,16 +234,22 @@ func (b *Backend) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 }
 
 // cancelOnClose wraps a ReadCloser, cancels context and releases semaphore on Close.
+// Close is idempotent — safe to call multiple times (e.g. transfer.Reader's
+// idle timeout closes the reader, then the caller's explicit Close runs).
 type cancelOnClose struct {
 	io.ReadCloser
 	cancel  context.CancelFunc
 	release func()
+	once    sync.Once
 }
 
 func (c *cancelOnClose) Close() error {
-	err := c.ReadCloser.Close()
-	c.cancel()
-	c.release()
+	var err error
+	c.once.Do(func() {
+		err = c.ReadCloser.Close()
+		c.cancel()
+		c.release()
+	})
 	return err
 }
 

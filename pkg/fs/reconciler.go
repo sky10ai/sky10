@@ -138,14 +138,16 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		}
 	}
 
-	// Files on disk but not in snapshot → delete (remote delete).
-	// Safe because seed + watcher ensure local files are tracked
-	// in the local log before the reconciler runs.
+	// Files on disk that were explicitly deleted by a remote op → delete.
+	// Only delete when the CRDT has a delete/delete_dir op for the path.
+	// Files not in the snapshot but without a delete op are untracked
+	// local files (watcher hasn't processed them yet) — leave them alone.
+	deletedPaths := snap.DeletedFiles()
 	for path := range localFiles {
 		if ctx.Err() != nil {
 			return
 		}
-		if _, inSnapshot := snapshotFiles[path]; !inSnapshot {
+		if deletedPaths[path] {
 			r.deleteFile(path)
 			deleted++
 			active = true

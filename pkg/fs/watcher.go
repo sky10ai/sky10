@@ -115,28 +115,32 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 		return
 	}
 
-	// Watch new directories and emit events for any files already inside
+	// Watch new directories and emit events for any files already inside.
+	// Uses addRecursive to catch nested subdirs, and walks the full tree
+	// to find files that landed before the watch was registered.
 	if event.Has(fsnotify.Create) {
 		if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
-			w.watcher.Add(event.Name)
+			w.addRecursive(event.Name)
 			// Emit DirCreated so the handler can track it
 			select {
 			case w.events <- FileEvent{Path: rel, Type: DirCreated}:
 			default:
 			}
-			// Scan for files that were created before the watch was registered
-			entries, _ := os.ReadDir(event.Name)
-			for _, e := range entries {
-				if e.IsDir() {
-					continue
+			// Walk the entire subtree for files created before watches were set
+			filepath.WalkDir(event.Name, func(path string, d os.DirEntry, err error) error {
+				if err != nil || d.IsDir() {
+					return nil
 				}
-				childRel := rel + "/" + e.Name()
-				if w.ignore == nil || !w.ignore(childRel) {
-					w.mu.Lock()
-					w.pending[childRel] = time.Now()
-					w.mu.Unlock()
+				childRel, _ := filepath.Rel(w.root, path)
+				childRel = filepath.ToSlash(childRel)
+				if w.ignore != nil && w.ignore(childRel) {
+					return nil
 				}
-			}
+				w.mu.Lock()
+				w.pending[childRel] = time.Now()
+				w.mu.Unlock()
+				return nil
+			})
 			return
 		}
 	}
