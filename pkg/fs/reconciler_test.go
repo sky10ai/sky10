@@ -486,6 +486,11 @@ func TestReconcilerKeepsExplicitEmptyDir(t *testing.T) {
 	}
 }
 
+// Untracked files in the root survive (no delete op, no stale directory).
+// But untracked files inside directories unknown to the snapshot are removed
+// by reconcileDirectories' os.RemoveAll — see the comment there for the
+// tradeoff (macOS .DS_Store blocking directory cleanup vs. small data-loss
+// window during watcher debounce).
 func TestReconcilerDoesNotDeleteUntrackedFiles(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
@@ -511,15 +516,22 @@ func TestReconcilerDoesNotDeleteUntrackedFiles(t *testing.T) {
 	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
 	r.reconcile(context.Background())
 
-	// All files must survive — no delete op means no deletion
+	// Root-level untracked file survives — file deletion loop only deletes
+	// files with explicit delete ops, and root dir is never stale.
+	if _, err := os.Stat(filepath.Join(localDir, "standalone.txt")); os.IsNotExist(err) {
+		t.Error("root-level untracked file was deleted — reconciler must not delete without a delete op")
+	}
+
+	// Files inside stale directories are removed by os.RemoveAll in
+	// reconcileDirectories. This is a known tradeoff: .DS_Store was blocking
+	// directory cleanup on macOS (every Finder-browsed dir had one).
 	for _, path := range []string{
 		"theme/example.iapresenter/info.json",
 		"theme/example.iapresenter/text.md",
 		"theme/example.iapresenter/assets/logo.png",
-		"standalone.txt",
 	} {
-		if _, err := os.Stat(filepath.Join(localDir, path)); os.IsNotExist(err) {
-			t.Errorf("untracked file %q was deleted — reconciler must not delete without a delete op", path)
+		if _, err := os.Stat(filepath.Join(localDir, path)); !os.IsNotExist(err) {
+			t.Errorf("file %q in stale dir survived — os.RemoveAll should have cleaned it", path)
 		}
 	}
 }

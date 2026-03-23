@@ -382,9 +382,21 @@ func (r *Reconciler) reconcileDirectories(snapshotFiles map[string]opslog.FileIn
 	removed := false
 	for _, dir := range stale {
 		localPath := filepath.Join(r.localDir, filepath.FromSlash(dir))
-		// os.Remove only succeeds on empty directories — safe against
-		// new files the watcher hasn't processed yet.
-		if err := os.Remove(localPath); err == nil {
+		// RemoveAll is the nuclear option — it deletes the directory and
+		// everything inside it. This is necessary because macOS Finder
+		// creates .DS_Store files in every directory it touches. These
+		// files are never synced (DefaultIgnorePatterns), so the CRDT
+		// doesn't know about them. A simple os.Remove fails on non-empty
+		// directories, leaving stale dirs behind after every delete_dir.
+		//
+		// Known risk: if a user creates a new file and the watcher hasn't
+		// picked it up yet (~500ms debounce), RemoveAll will delete it.
+		// The previous os.Remove was safe against this because it refused
+		// to remove non-empty dirs. We accept this tradeoff because the
+		// window is small and the alternative (directories that never get
+		// cleaned up) is worse. A future fix could scan for non-ignored
+		// files before removing and fall back to os.Remove if any exist.
+		if err := os.RemoveAll(localPath); err == nil {
 			r.logger.Info("reconcile: removed dir", "path", dir)
 			removed = true
 		}
