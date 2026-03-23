@@ -6,6 +6,7 @@ class DaemonManager: ObservableObject {
     @Published var error: String?
 
     private var process: Process?
+    private var stderrPath: String?
 
     /// Find the sky10 binary. Search order:
     /// 1. App bundle Resources/
@@ -83,18 +84,29 @@ class DaemonManager: ObservableObject {
         }
         proc.environment = env
 
-        let errPipe = Pipe()
-        proc.standardError = errPipe
-        proc.standardOutput = Pipe() // suppress stdout
+        // Redirect stderr to a file instead of a pipe. Pipes have a 64KB
+        // buffer; if Cirrus doesn't drain it, the daemon's write() syscalls
+        // block and freeze any goroutine that logs to stderr (AWS SDK
+        // checksum middleware, log.Printf, panics, etc.). A file never blocks.
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let stderrLog = "\(home)/.sky10/fs/daemon.stderr.log"
+        FileManager.default.createFile(atPath: stderrLog, contents: nil)
+        let stderrHandle = FileHandle(forWritingAtPath: stderrLog)
+        proc.standardError = stderrHandle ?? FileHandle.nullDevice
+        proc.standardOutput = FileHandle.nullDevice
+        stderrPath = stderrLog
 
         proc.terminationHandler = { [weak self] p in
+            stderrHandle?.closeFile()
             DispatchQueue.main.async {
-                self?.isRunning = false
+                guard let self = self else { return }
+                self.isRunning = false
                 if p.terminationStatus != 0 {
-                    // Try to read stderr for error details
-                    let errData = errPipe.fileHandleForReading.availableData
-                    let errMsg = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    self?.error = errMsg ?? "sky10 exited with status \(p.terminationStatus)"
+                    // Read tail of stderr log for error details.
+                    let errMsg = (try? String(contentsOfFile: stderrLog, encoding: .utf8))?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    self.error = errMsg.flatMap { $0.isEmpty ? nil : $0 }
+                        ?? "sky10 exited with status \(p.terminationStatus)"
                 }
             }
         }
