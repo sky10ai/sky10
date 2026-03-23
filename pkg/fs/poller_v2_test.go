@@ -259,6 +259,67 @@ func TestPollerV2FreshLogImportsOwnOps(t *testing.T) {
 	}
 }
 
+// Regression: if two devices write ops at the same Unix second, and the
+// poller processes one device's ops (advancing the cursor to that second),
+// the other device's ops at the same second must not be skipped.
+// Previously ReadSince used ts <= since, permanently losing same-second ops.
+func TestPollerV2SameTimestampNotSkipped(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	idA, _ := GenerateDeviceKey()
+	idB, _ := GenerateDeviceKey()
+	storeA := NewWithDevice(backend, idA, "device-a")
+	storeB := NewWithDevice(backend, idB, "device-b")
+
+	ctx := context.Background()
+
+	// A creates namespace, approve B, then both can write ops
+	storeA.SetNamespace("Test")
+	storeA.Put(ctx, "seed.txt", strings.NewReader("seed"))
+	simulateApprove(t, ctx, backend, idA, idB)
+
+	// Both upload files — no sleep, same Unix second
+	storeA.Put(ctx, "from-a.txt", strings.NewReader("aaa"))
+	storeB.SetNamespace("Test")
+	storeB.Put(ctx, "from-b.txt", strings.NewReader("bbb"))
+
+	// B's poller: first poll picks up A's ops
+	tmpDir := t.TempDir()
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), storeB.deviceID)
+	poller := NewPollerV2(storeB, localLog, time.Hour, "Test", nil)
+	poller.pollOnce(ctx)
+
+	if _, ok := localLog.Lookup("from-a.txt"); !ok {
+		t.Fatal("from-a.txt not in local log after first poll")
+	}
+
+	cursor := localLog.LastRemoteOp()
+
+	// A uploads another file — same second as cursor (test runs fast)
+	storeA.Put(ctx, "from-a-2.txt", strings.NewReader("aaa2"))
+
+	// Verify the new op has the same timestamp as cursor
+	opsLog, _ := storeB.getOpsLog(ctx)
+	allEntries, _ := opsLog.ReadSince(ctx, 0)
+	var newOpTs int64
+	for _, e := range allEntries {
+		if e.Path == "from-a-2.txt" {
+			newOpTs = e.Timestamp
+		}
+	}
+
+	if newOpTs != cursor {
+		t.Skipf("timestamps differ (cursor=%d, new=%d) — race window missed", cursor, newOpTs)
+	}
+
+	// Second poll — from-a-2.txt has the same timestamp as cursor.
+	// With the bug: ReadSince(cursor) uses ts <= cursor, skips it forever.
+	poller.pollOnce(ctx)
+
+	if _, ok := localLog.Lookup("from-a-2.txt"); !ok {
+		t.Error("from-a-2.txt not in local log — poller skipped op at same timestamp as cursor")
+	}
+}
+
 func TestPollerV2PokesReconciler(t *testing.T) {
 	backend := s3adapter.NewMemory()
 	idA, _ := GenerateDeviceKey()
