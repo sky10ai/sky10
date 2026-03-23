@@ -3,11 +3,14 @@ package s3
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/sky10/sky10/pkg/adapter"
+	"github.com/sky10/sky10/pkg/transfer"
 )
 
 func TestMemoryBackend(t *testing.T) {
@@ -211,5 +214,73 @@ func TestCancelOnCloseIdempotent(t *testing.T) {
 	// Semaphore should have 0 items (1 acquired, 1 released by first Close)
 	if len(sem) != 0 {
 		t.Errorf("semaphore has %d items after double close, want 0", len(sem))
+	}
+}
+
+// blockingReadCloser blocks on Read until Close is called, simulating a
+// stalled S3 response body.
+type blockingReadCloser struct {
+	done chan struct{}
+	once sync.Once
+}
+
+func (r *blockingReadCloser) Read([]byte) (int, error) {
+	<-r.done
+	return 0, errors.New("closed")
+}
+
+func (r *blockingReadCloser) Close() error {
+	r.once.Do(func() { close(r.done) })
+	return nil
+}
+
+// Regression: full integration path exercising the exact downloadChunks
+// sequence. A stalled S3 body triggers transfer.Reader's idle timeout,
+// which closes the cancelOnClose (releasing the semaphore). Then the
+// explicit rc.Close() in downloadChunks runs — the second close. Without
+// the sync.Once fix, this deadlocks on <-sem with an empty channel and
+// the reconciler goroutine is stuck forever.
+func TestTransferTimeoutDoubleCloseSemaphore(t *testing.T) {
+	t.Parallel()
+
+	sem := make(chan struct{}, 5)
+	sem <- struct{}{} // acquire 1 slot
+
+	stall := &blockingReadCloser{done: make(chan struct{})}
+	_, cancel := context.WithCancel(context.Background())
+
+	rc := &cancelOnClose{
+		ReadCloser: stall,
+		cancel:     cancel,
+		release:    func() { <-sem },
+	}
+
+	// Exactly what downloadChunks does:
+	tr := transfer.NewReader(rc, -1)
+	tr.SetIdleTimeout(50 * time.Millisecond)
+
+	_, err := io.ReadAll(tr)
+	if !errors.Is(err, transfer.ErrIdleTimeout) {
+		t.Fatalf("got err=%v, want ErrIdleTimeout", err)
+	}
+
+	// downloadChunks always calls rc.Close() after io.ReadAll.
+	// transfer.Reader already closed rc via the idle timeout path.
+	// This second Close must not deadlock.
+	done := make(chan struct{})
+	go func() {
+		rc.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// ok
+	case <-time.After(2 * time.Second):
+		t.Fatal("rc.Close() after transfer timeout deadlocked — semaphore double-release")
+	}
+
+	if len(sem) != 0 {
+		t.Errorf("semaphore has %d items, want 0", len(sem))
 	}
 }
