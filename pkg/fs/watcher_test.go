@@ -6,7 +6,78 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
+
+// Regression: when a directory tree is created inside a watched root (e.g.
+// Finder bulk-copying a folder), handleEvent must detect ALL files, including
+// those inside nested subdirectories. Previously, handleEvent used
+// w.watcher.Add (single dir) instead of addRecursive, and the ReadDir scan
+// skipped subdirectories. Files inside nested dirs created before the watch
+// was registered were permanently invisible.
+//
+// This test creates the entire tree BEFORE calling handleEvent — guaranteeing
+// the race condition where subdirs exist before their parent is watched.
+func TestWatcherNestedDirectoryCreate(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	// Create watcher internals directly (like TestFlushPending)
+	fsw, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fsw.Close()
+
+	w := &Watcher{
+		root:     root,
+		events:   make(chan FileEvent, 100),
+		ignore:   nil,
+		watcher:  fsw,
+		done:     make(chan struct{}),
+		pending:  make(map[string]time.Time),
+		debounce: 0,
+	}
+	w.addRecursive(root)
+
+	// Create the ENTIRE nested tree on disk BEFORE any events fire.
+	// This simulates the race: Finder created everything before the
+	// watcher registered watches on the subdirectories.
+	base := filepath.Join(root, "theme", "example.iapresenter")
+	os.MkdirAll(filepath.Join(base, "assets"), 0755)
+	os.WriteFile(filepath.Join(base, "info.json"), []byte(`{"v":1}`), 0644)
+	os.WriteFile(filepath.Join(base, "text.md"), []byte("# Hello"), 0644)
+	os.WriteFile(filepath.Join(base, "assets", "logo.png"), []byte("png"), 0644)
+	os.WriteFile(filepath.Join(base, "assets", "icon.png"), []byte("icon"), 0644)
+
+	// Simulate the kqueue Create event for "theme/" — the top-level dir.
+	// The entire subtree already exists. handleEvent must recurse into it.
+	w.handleEvent(fsnotify.Event{
+		Name: filepath.Join(root, "theme"),
+		Op:   fsnotify.Create,
+	})
+
+	// Check that ALL files ended up in pending (including nested ones)
+	w.mu.Lock()
+	pending := make(map[string]bool)
+	for path := range w.pending {
+		pending[path] = true
+	}
+	w.mu.Unlock()
+
+	for _, path := range []string{
+		"theme/example.iapresenter/info.json",
+		"theme/example.iapresenter/text.md",
+		"theme/example.iapresenter/assets/logo.png",
+		"theme/example.iapresenter/assets/icon.png",
+	} {
+		if !pending[path] {
+			t.Errorf("file %q not in pending — nested dir scan missed it", path)
+		}
+	}
+}
 
 // Regression: flushPending must not permanently drop events when the channel
 // is full. Previously, events were deleted from the pending map BEFORE the

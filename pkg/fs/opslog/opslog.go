@@ -111,6 +111,7 @@ type DirInfo struct {
 type Snapshot struct {
 	files   map[string]FileInfo
 	dirs    map[string]DirInfo // explicitly created directories
+	deleted map[string]bool    // paths with an explicit delete as last op
 	created time.Time
 	updated time.Time
 }
@@ -148,6 +149,17 @@ func (s *Snapshot) Dirs() map[string]DirInfo {
 	cp := make(map[string]DirInfo, len(s.dirs))
 	for k, v := range s.dirs {
 		cp[k] = v
+	}
+	return cp
+}
+
+// DeletedFiles returns the set of paths that have an explicit delete
+// as their last op. Used by the reconciler to distinguish "never tracked"
+// (don't delete) from "explicitly deleted by remote" (do delete).
+func (s *Snapshot) DeletedFiles() map[string]bool {
+	cp := make(map[string]bool, len(s.deleted))
+	for k := range s.deleted {
+		cp[k] = true
 	}
 	return cp
 }
@@ -601,6 +613,7 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 	snap := &Snapshot{
 		files:   make(map[string]FileInfo),
 		dirs:    make(map[string]DirInfo),
+		deleted: make(map[string]bool),
 		created: time.Now().UTC(),
 		updated: time.Now().UTC(),
 	}
@@ -627,6 +640,9 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 			snap.dirs[k] = v
 			dirClocks[k] = clockTuple{ts: v.Modified.Unix(), device: v.Device, seq: v.Seq}
 		}
+		for k := range base.deleted {
+			snap.deleted[k] = true
+		}
 	}
 
 	for _, e := range entries {
@@ -641,6 +657,7 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 				continue
 			}
 			clocks[e.Path] = ec
+			delete(snap.deleted, e.Path) // re-created file is no longer deleted
 			snap.files[e.Path] = FileInfo{
 				Chunks:    e.Chunks,
 				Size:      e.Size,
@@ -656,6 +673,7 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 			}
 			clocks[e.Path] = ec
 			delete(snap.files, e.Path)
+			snap.deleted[e.Path] = true
 		case CreateDir:
 			if prev, ok := dirClocks[e.Path]; ok && !ec.beats(prev) {
 				continue
@@ -686,6 +704,7 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 				if strings.HasPrefix(path, prefix) {
 					if prev, ok := clocks[path]; !ok || ec.beats(prev) {
 						delete(snap.files, path)
+						snap.deleted[path] = true
 						clocks[path] = ec
 					}
 				}

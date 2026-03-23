@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/sky10/sky10/pkg/adapter"
 )
@@ -164,4 +165,51 @@ func TestMemoryBackend(t *testing.T) {
 			t.Errorf("got %q, want %q", got, v2)
 		}
 	})
+}
+
+// Regression: cancelOnClose.Close must be idempotent. The transfer.Reader's
+// idle timeout closes the underlying reader to unblock a stuck Read goroutine.
+// Then downloadChunks calls rc.Close() in its cleanup path. If Close releases
+// the semaphore unconditionally, the second release tries to receive from an
+// empty channel — deadlocking the goroutine forever. The reconciler hangs on
+// a single stalled chunk download and never processes another file.
+func TestCancelOnCloseIdempotent(t *testing.T) {
+	t.Parallel()
+
+	sem := make(chan struct{}, 5)
+	sem <- struct{}{} // acquire 1 slot
+
+	body := io.NopCloser(bytes.NewReader([]byte("data")))
+	_, cancel := context.WithCancel(context.Background())
+
+	coc := &cancelOnClose{
+		ReadCloser: body,
+		cancel:     cancel,
+		release:    func() { <-sem },
+	}
+
+	// First close — simulates transfer.Reader's idle timeout closing the reader
+	if err := coc.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+
+	// Second close — simulates downloadChunks' explicit rc.Close()
+	// Must not deadlock on <-sem with an empty channel.
+	done := make(chan struct{})
+	go func() {
+		coc.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// ok
+	case <-time.After(2 * time.Second):
+		t.Fatal("second Close() deadlocked — semaphore double-release on empty channel")
+	}
+
+	// Semaphore should have 0 items (1 acquired, 1 released by first Close)
+	if len(sem) != 0 {
+		t.Errorf("semaphore has %d items after double close, want 0", len(sem))
+	}
 }
