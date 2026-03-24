@@ -16,8 +16,8 @@ If no version is provided, ask the user what version to release.
 
 Update the version string in these files (replace the OLD version with the NEW one):
 
-- `cirrus/macos/project.yml` — `MARKETING_VERSION` and `CFBundleShortVersionString` fields
-- `cirrus/macos/cirrus/Info.plist` — `CFBundleShortVersionString` value
+- `cirrus/macos/project.yml` — THREE fields: `MARKETING_VERSION` (build settings), `CFBundleShortVersionString` (info.properties), and verify they match
+- `cirrus/macos/cirrus/Info.plist` — `CFBundleShortVersionString` value (NOTE: xcodegen overwrites this from project.yml info.properties, so project.yml is the source of truth)
 
 The CLI version comes from git tags via the Makefile — no hardcoded version to update.
 
@@ -49,6 +49,11 @@ GOOS=darwin GOARCH=arm64 go build -trimpath -buildvcs=false \
 cd bin && shasum -a 256 sky10-darwin-arm64 > checksums.txt && cat checksums.txt
 ```
 
+Install locally immediately:
+```bash
+cp bin/sky10-darwin-arm64 /opt/homebrew/bin/sky10
+```
+
 ### 5. Create GitHub release
 
 ```bash
@@ -59,7 +64,11 @@ gh release create v$VERSION \
   --notes "<release notes>"
 ```
 
-Generate release notes from `git log` since the previous tag.
+Generate release notes from `git log` since the previous tag. In the commit list, link each commit hash to its GitHub URL using markdown:
+
+```
+- [`abc1234`](https://github.com/sky10ai/sky10/commit/abc1234) Commit message here
+```
 
 ### 6. Update Homebrew tap
 
