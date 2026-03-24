@@ -78,7 +78,10 @@ class AppState: ObservableObject {
                             let done = data?["done"] as? Int ?? 0
                             let total = data?["total"] as? Int ?? 0
                             let drive = data?["drive"] as? String ?? ""
+                            let dlPath = data?["path"] as? String ?? ""
                             self.syncDetail = "\(drive): downloaded \(done)/\(total)"
+                            let dlShort = dlPath.split(separator: "/").suffix(2).joined(separator: "/")
+                            self.activityLog.logDownload(path: dlShort, size: 0)
 
                         case "upload.start":
                             self.syncState = .syncing
@@ -90,18 +93,32 @@ class AppState: ObservableObject {
                         case "upload.complete":
                             let total = data?["total"] as? Int ?? 0
                             let drive = data?["drive"] as? String ?? ""
+                            let path = data?["path"] as? String ?? ""
+                            let op = data?["op"] as? String ?? "put"
                             if total <= 1 {
                                 self.syncDetail = ""
                             } else {
                                 self.syncDetail = "\(drive): \(total - 1) remaining"
                             }
+                            // Log to activity
+                            let shortPath = path.split(separator: "/").suffix(2).joined(separator: "/")
+                            switch op {
+                            case "delete":
+                                self.activityLog.logDelete(path: shortPath)
+                            case "symlink":
+                                self.activityLog.add(.symlink, path: shortPath, detail: "Symlink synced — \(drive)")
+                            default:
+                                self.activityLog.logUpload(path: shortPath, size: 0)
+                            }
 
                         case "sync.complete":
                             let dl = data?["downloaded"] as? Int ?? 0
                             let del = data?["deleted"] as? Int ?? 0
+                            let failed = data?["failed"] as? Int ?? 0
                             let drive = data?["drive"] as? String ?? ""
                             if dl > 0 || del > 0 {
                                 self.syncDetail = "\(drive): \(dl) downloaded, \(del) deleted"
+                                self.activityLog.add(.synced, path: drive, detail: "\(dl) downloaded, \(del) deleted\(failed > 0 ? ", \(failed) failed" : "")")
                             } else {
                                 self.syncDetail = ""
                             }

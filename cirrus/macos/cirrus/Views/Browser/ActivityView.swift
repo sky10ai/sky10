@@ -125,6 +125,8 @@ private struct CompletedRow: View {
         case .deleted:    return .orange
         case .conflict:   return .yellow
         case .error:      return .red
+        case .synced:     return .green
+        case .symlink:    return .purple
         }
     }
 }
