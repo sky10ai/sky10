@@ -14,6 +14,7 @@ import (
 type DaemonConfig struct {
 	SyncConfig
 	DriveID      string // drive ID for manifest persistence
+	DriveName    string // human-readable name for progress events
 	ManifestPath string // override manifest path (for tests)
 	PollSeconds  int    // remote poll interval in seconds (default 30)
 }

@@ -99,8 +99,8 @@ func NewRPCServer(store *Store, sockPath string, driveCfgPath string, version st
 		ls.SetLogger(logger)
 	}
 	srv.driveManager.OnActivity = srv.MarkActivity
-	srv.driveManager.OnStateChanged = func(event string) {
-		srv.Emit(event, nil)
+	srv.driveManager.OnStateChanged = func(event string, data map[string]any) {
+		srv.Emit(event, data)
 	}
 	return srv
 }

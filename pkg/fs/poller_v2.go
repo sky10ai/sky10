@@ -19,7 +19,8 @@ type PollerV2 struct {
 	logger         *slog.Logger
 	pokeReconciler func()
 	heartbeat      func() // watchdog heartbeat
-	onEvent        func(string)
+	onEvent        func(string, map[string]any)
+	driveName      string
 }
 
 // NewPollerV2 creates a poller that appends remote ops to the local log.
@@ -35,7 +36,7 @@ func NewPollerV2(store *Store, localLog *opslog.LocalOpsLog, interval time.Durat
 		logger:         logger,
 		pokeReconciler: func() {},
 		heartbeat:      func() {},
-		onEvent:        func(string) {},
+		onEvent:        func(string, map[string]any) {},
 	}
 }
 
@@ -79,9 +80,14 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 		maxTs := cursor
 
 		if totalS3 == 0 {
-			p.onEvent("sync.active")
+			p.onEvent("sync.active", nil)
 		}
 		totalS3 += len(entries)
+
+		p.onEvent("poll.progress", map[string]any{
+			"drive":   p.driveName,
+			"fetched": totalS3,
+		})
 
 		for _, e := range entries {
 			// Skip our own ops — they're already in the local log.

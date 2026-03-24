@@ -17,9 +17,10 @@ type OutboxWorker struct {
 	outbox    *SyncLog[OutboxEntry]
 	localLog  *opslog.LocalOpsLog
 	logger    *slog.Logger
-	notify    chan struct{} // poked when new entries arrive
-	onEvent   func(string)  // push events to Cirrus
-	heartbeat func()        // watchdog heartbeat
+	notify    chan struct{}                // poked when new entries arrive
+	onEvent   func(string, map[string]any) // push events to Cirrus
+	heartbeat func()                       // watchdog heartbeat
+	driveName string
 }
 
 // NewOutboxWorker creates an outbox worker.
@@ -33,7 +34,7 @@ func NewOutboxWorker(store *Store, outbox *SyncLog[OutboxEntry], localLog *opslo
 		localLog:  localLog,
 		logger:    logger,
 		notify:    make(chan struct{}, 1),
-		onEvent:   func(string) {},
+		onEvent:   func(string, map[string]any) {},
 		heartbeat: func() {},
 	}
 }
@@ -82,9 +83,16 @@ func (w *OutboxWorker) drain(ctx context.Context) {
 		}
 
 		w.heartbeat()
-		w.logger.Info("outbox: draining", "pending", len(entries))
+		total := len(entries)
 		entry := entries[0]
-		w.onEvent("sync.active")
+		w.logger.Info("outbox: draining", "pending", total)
+		w.onEvent("sync.active", nil)
+		w.onEvent("upload.start", map[string]any{
+			"drive": w.driveName,
+			"path":  entry.Path,
+			"op":    string(entry.Op),
+			"total": total,
+		})
 
 		var ok bool
 		switch entry.Op {
@@ -103,6 +111,12 @@ func (w *OutboxWorker) drain(ctx context.Context) {
 		if ok {
 			w.outbox.Remove(func(e OutboxEntry) bool {
 				return e.Path == entry.Path && e.Timestamp == entry.Timestamp
+			})
+			w.onEvent("upload.complete", map[string]any{
+				"drive": w.driveName,
+				"path":  entry.Path,
+				"op":    string(entry.Op),
+				"total": total,
 			})
 		} else {
 			w.logger.Warn("outbox: retrying in 5s", "path", entry.Path, "op", string(entry.Op))
@@ -136,7 +150,7 @@ func (w *OutboxWorker) uploadFile(ctx context.Context, entry OutboxEntry) bool {
 	}
 
 	w.logger.Info("outbox: uploaded", "path", entry.Path)
-	w.onEvent("state.changed")
+	w.onEvent("state.changed", nil)
 	return true
 }
 
@@ -152,7 +166,7 @@ func (w *OutboxWorker) writeCreateDirOp(ctx context.Context, entry OutboxEntry) 
 		return false
 	}
 	w.logger.Info("outbox: create_dir", "path", entry.Path)
-	w.onEvent("state.changed")
+	w.onEvent("state.changed", nil)
 	return true
 }
 
@@ -168,7 +182,7 @@ func (w *OutboxWorker) writeDeleteDirOp(ctx context.Context, entry OutboxEntry) 
 		return false
 	}
 	w.logger.Info("outbox: delete_dir", "path", entry.Path)
-	w.onEvent("state.changed")
+	w.onEvent("state.changed", nil)
 	return true
 }
 
@@ -187,7 +201,7 @@ func (w *OutboxWorker) writeSymlinkOp(ctx context.Context, entry OutboxEntry) bo
 		return false
 	}
 	w.logger.Info("outbox: symlink", "path", entry.Path, "target", entry.LinkTarget)
-	w.onEvent("state.changed")
+	w.onEvent("state.changed", nil)
 	return true
 }
 
@@ -206,6 +220,6 @@ func (w *OutboxWorker) writeDeleteOp(ctx context.Context, entry OutboxEntry) boo
 	}
 
 	w.logger.Info("outbox: deleted", "path", entry.Path)
-	w.onEvent("state.changed")
+	w.onEvent("state.changed", nil)
 	return true
 }

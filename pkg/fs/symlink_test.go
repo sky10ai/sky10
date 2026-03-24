@@ -393,7 +393,7 @@ func TestReconcilerSymlinkAlreadyCorrect(t *testing.T) {
 	active := false
 	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
 	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
-	r.onEvent = func(string) { active = true }
+	r.onEvent = func(string, map[string]any) { active = true }
 	r.reconcile(context.Background())
 
 	if active {

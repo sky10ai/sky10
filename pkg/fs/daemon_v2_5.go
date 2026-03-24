@@ -31,7 +31,7 @@ type DaemonV2_5 struct {
 	outbox         *SyncLog[OutboxEntry]
 	config         DaemonConfig
 	logger         *slog.Logger
-	onEvent        func(string)
+	onEvent        func(string, map[string]any)
 }
 
 // NewDaemonV2_5 creates the sync daemon.
@@ -110,20 +110,23 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 		outbox:         outbox,
 		config:         config,
 		logger:         logger,
-		onEvent:        func(string) {},
+		onEvent:        func(string, map[string]any) {},
 	}
 
-	// Wire event callbacks
+	// Wire event callbacks and drive name
 	watcherHandler.onEvent = d.emitEvent
 	outboxWorker.onEvent = d.emitEvent
+	outboxWorker.driveName = config.DriveName
 	reconciler.onEvent = d.emitEvent
+	reconciler.driveName = config.DriveName
 	poller.onEvent = d.emitEvent
+	poller.driveName = config.DriveName
 
 	return d, nil
 }
 
-func (d *DaemonV2_5) emitEvent(event string) {
-	d.onEvent(event)
+func (d *DaemonV2_5) emitEvent(event string, data map[string]any) {
+	d.onEvent(event, data)
 }
 
 // Run starts all goroutines and blocks until context is cancelled.
