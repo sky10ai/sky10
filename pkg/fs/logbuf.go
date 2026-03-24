@@ -95,10 +95,9 @@ func NewDaemonLogger(buf *LogBuffer) *slog.Logger {
 	return NewDaemonLoggerAt(buf, DaemonLogPath())
 }
 
-// DaemonLogPath returns the default daemon log path: ~/.sky10/fs/daemon.log.
+// DaemonLogPath returns the default daemon log path: /tmp/sky10/daemon.log.
 func DaemonLogPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".sky10", "fs", "daemon.log")
+	return "/tmp/sky10/daemon.log"
 }
 
 // NewDaemonLoggerAt creates a logger writing to the given log file path.

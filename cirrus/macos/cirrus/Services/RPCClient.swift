@@ -6,7 +6,7 @@ actor RPCClient {
     private var requestID = 0
 
     init(socketPath: String? = nil) {
-        self.socketPath = socketPath ?? "/tmp/sky10.sock"
+        self.socketPath = socketPath ?? "/tmp/sky10/sky10.sock"
     }
 
     func call<P: Encodable, R: Decodable>(_ method: String, params: P) async throws -> R {
