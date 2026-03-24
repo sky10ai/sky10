@@ -252,56 +252,84 @@ func (l *OpsLog) ReadBatched(ctx context.Context, since int64, batchSize int, fn
 	}
 	sort.Strings(filtered)
 
+	// Process in chunks of batchSize, fetching ops within each chunk
+	// in parallel (up to 10 concurrent downloads).
 	total := 0
-	batch := make([]Entry, 0, batchSize)
-
-	for _, key := range filtered {
+	for i := 0; i < len(filtered); i += batchSize {
 		if ctx.Err() != nil {
 			break
 		}
 
-		rc, err := l.backend.Get(ctx, key)
-		if err != nil {
-			return total, fmt.Errorf("downloading %s: %w", key, err)
+		end := i + batchSize
+		if end > len(filtered) {
+			end = len(filtered)
 		}
+		chunk := filtered[i:end]
 
-		raw, err := io.ReadAll(rc)
-		rc.Close()
-		if err != nil {
-			return total, fmt.Errorf("reading %s: %w", key, err)
+		// Fetch all ops in this chunk in parallel.
+		type result struct {
+			idx   int
+			entry Entry
+			err   error
 		}
+		results := make([]result, len(chunk))
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, 10)
 
-		encrypted, schemaVer, isNew := parseEnvelope(raw)
+		for j, key := range chunk {
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(j int, key string) {
+				defer wg.Done()
+				defer func() { <-sem }()
 
-		if isNew {
-			codeMajor := semverMajor(SchemaVersion)
-			if int(schemaVer[0]) > codeMajor {
-				return total, fmt.Errorf("entry %s requires v%d.x (have v%s) — upgrade",
-					key, schemaVer[0], SchemaVersion)
+				rc, err := l.backend.Get(ctx, key)
+				if err != nil {
+					results[j] = result{idx: j, err: fmt.Errorf("downloading %s: %w", key, err)}
+					return
+				}
+				raw, err := io.ReadAll(rc)
+				rc.Close()
+				if err != nil {
+					results[j] = result{idx: j, err: fmt.Errorf("reading %s: %w", key, err)}
+					return
+				}
+
+				encrypted, schemaVer, isNew := parseEnvelope(raw)
+				if isNew {
+					codeMajor := semverMajor(SchemaVersion)
+					if int(schemaVer[0]) > codeMajor {
+						results[j] = result{idx: j, err: fmt.Errorf("entry %s requires v%d.x (have v%s) — upgrade",
+							key, schemaVer[0], SchemaVersion)}
+						return
+					}
+				}
+
+				data, err := skykey.Decrypt(encrypted, l.encKey)
+				if err != nil {
+					results[j] = result{idx: j, err: fmt.Errorf("decrypting %s: %w", key, err)}
+					return
+				}
+
+				var e Entry
+				if err := json.Unmarshal(data, &e); err != nil {
+					results[j] = result{idx: j, err: fmt.Errorf("parsing %s: %w", key, err)}
+					return
+				}
+				results[j] = result{idx: j, entry: e}
+			}(j, key)
+		}
+		wg.Wait()
+
+		// Collect entries in order, fail on first error.
+		batch := make([]Entry, 0, len(chunk))
+		for _, r := range results {
+			if r.err != nil {
+				return total, r.err
 			}
+			batch = append(batch, r.entry)
 		}
 
-		data, err := skykey.Decrypt(encrypted, l.encKey)
-		if err != nil {
-			return total, fmt.Errorf("decrypting %s: %w", key, err)
-		}
-
-		var e Entry
-		if err := json.Unmarshal(data, &e); err != nil {
-			return total, fmt.Errorf("parsing %s: %w", key, err)
-		}
-
-		batch = append(batch, e)
-		if len(batch) >= batchSize {
-			sortEntries(batch)
-			fn(batch)
-			total += len(batch)
-			batch = batch[:0]
-		}
-	}
-
-	// Flush remaining
-	if len(batch) > 0 {
 		sortEntries(batch)
 		fn(batch)
 		total += len(batch)
@@ -642,45 +670,75 @@ func readEntries(ctx context.Context, backend adapter.Backend, since int64, encK
 		return nil, fmt.Errorf("listing ops: %w", err)
 	}
 
-	var entries []Entry
+	// Filter keys by timestamp
+	var filtered []string
 	for _, key := range keys {
 		ts := parseEntryTimestamp(key)
-		if ts < since {
-			continue
+		if ts >= since {
+			filtered = append(filtered, key)
 		}
+	}
 
-		rc, err := backend.Get(ctx, key)
-		if err != nil {
-			return nil, fmt.Errorf("downloading %s: %w", key, err)
-		}
+	// Fetch all ops in parallel (up to 10 concurrent)
+	type result struct {
+		entry Entry
+		err   error
+	}
+	results := make([]result, len(filtered))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 10)
 
-		raw, err := io.ReadAll(rc)
-		rc.Close()
-		if err != nil {
-			return nil, fmt.Errorf("reading %s: %w", key, err)
-		}
+	for i, key := range filtered {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, key string) {
+			defer wg.Done()
+			defer func() { <-sem }()
 
-		encrypted, schemaVer, isNew := parseEnvelope(raw)
-
-		if isNew {
-			codeMajor := semverMajor(SchemaVersion)
-			if int(schemaVer[0]) > codeMajor {
-				return nil, fmt.Errorf("entry %s requires v%d.x (have v%s) — upgrade",
-					key, schemaVer[0], SchemaVersion)
+			rc, err := backend.Get(ctx, key)
+			if err != nil {
+				results[i] = result{err: fmt.Errorf("downloading %s: %w", key, err)}
+				return
 			}
-		}
+			raw, err := io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				results[i] = result{err: fmt.Errorf("reading %s: %w", key, err)}
+				return
+			}
 
-		data, err := skykey.Decrypt(encrypted, encKey)
-		if err != nil {
-			return nil, fmt.Errorf("decrypting %s: %w", key, err)
-		}
+			encrypted, schemaVer, isNew := parseEnvelope(raw)
+			if isNew {
+				codeMajor := semverMajor(SchemaVersion)
+				if int(schemaVer[0]) > codeMajor {
+					results[i] = result{err: fmt.Errorf("entry %s requires v%d.x (have v%s) — upgrade",
+						key, schemaVer[0], SchemaVersion)}
+					return
+				}
+			}
 
-		var e Entry
-		if err := json.Unmarshal(data, &e); err != nil {
-			return nil, fmt.Errorf("parsing %s: %w", key, err)
-		}
+			data, err := skykey.Decrypt(encrypted, encKey)
+			if err != nil {
+				results[i] = result{err: fmt.Errorf("decrypting %s: %w", key, err)}
+				return
+			}
 
-		entries = append(entries, e)
+			var e Entry
+			if err := json.Unmarshal(data, &e); err != nil {
+				results[i] = result{err: fmt.Errorf("parsing %s: %w", key, err)}
+				return
+			}
+			results[i] = result{entry: e}
+		}(i, key)
+	}
+	wg.Wait()
+
+	var entries []Entry
+	for _, r := range results {
+		if r.err != nil {
+			return nil, r.err
+		}
+		entries = append(entries, r.entry)
 	}
 
 	sortEntries(entries)
