@@ -117,6 +117,7 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 	watcherHandler.onEvent = d.emitEvent
 	outboxWorker.onEvent = d.emitEvent
 	reconciler.onEvent = d.emitEvent
+	poller.onEvent = d.emitEvent
 
 	return d, nil
 }
