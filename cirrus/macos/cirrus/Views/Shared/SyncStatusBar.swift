@@ -16,7 +16,11 @@ struct SyncStatusBar: View {
                 ProgressView()
                     .scaleEffect(0.6)
                     .frame(width: 16, height: 16)
-                if appState.outboxPending > 0 {
+                if !appState.syncDetail.isEmpty {
+                    Text(appState.syncDetail)
+                        .font(.caption)
+                        .lineLimit(1)
+                } else if appState.outboxPending > 0 {
                     Text("Uploading \(appState.outboxPending) files…")
                         .font(.caption)
                 } else {

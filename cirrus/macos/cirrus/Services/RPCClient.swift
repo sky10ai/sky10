@@ -108,12 +108,13 @@ actor RPCClient {
     }
 
     /// Subscribe to push events from the daemon. Calls onEvent for each
-    /// event received. Blocks until the connection drops.
-    func subscribe(onEvent: @escaping (String) -> Void) {
+    /// event received with the event name and optional data dict.
+    /// Blocks until the connection drops.
+    func subscribe(onEvent: @escaping (String, [String: Any]?) -> Void) {
         guard let fh = try? newConnection() else { return }
 
         // Send subscribe request
-        var request: [String: Any] = [
+        let request: [String: Any] = [
             "jsonrpc": "2.0",
             "method": "skyfs.subscribe",
             "id": 0
@@ -142,7 +143,8 @@ actor RPCClient {
                 if let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
                    let params = json["params"] as? [String: Any],
                    let event = params["event"] as? String {
-                    onEvent(event)
+                    let data = params["data"] as? [String: Any]
+                    onEvent(event, data)
                 }
             }
         }

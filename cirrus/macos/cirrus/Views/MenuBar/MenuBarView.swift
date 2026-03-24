@@ -76,6 +76,9 @@ struct MenuBarView: View {
         if let err = appState.error {
             return err
         }
+        if !appState.syncDetail.isEmpty {
+            return appState.syncDetail
+        }
         let running = appState.drives.filter { $0.running }.count
         if running > 0 {
             return "Syncing \(running) drive\(running == 1 ? "" : "s")"
