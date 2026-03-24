@@ -14,6 +14,8 @@ struct ActivityEntry: Identifiable {
         case deleted
         case conflict
         case error
+        case synced      // poll/sync summary
+        case symlink
     }
 
     var icon: String {
@@ -23,6 +25,8 @@ struct ActivityEntry: Identifiable {
         case .deleted:    return "trash.circle.fill"
         case .conflict:   return "exclamationmark.triangle.fill"
         case .error:      return "xmark.circle.fill"
+        case .synced:     return "checkmark.circle.fill"
+        case .symlink:    return "link.circle.fill"
         }
     }
 
@@ -33,6 +37,8 @@ struct ActivityEntry: Identifiable {
         case .deleted:    return "orange"
         case .conflict:   return "yellow"
         case .error:      return "red"
+        case .synced:     return "green"
+        case .symlink:    return "purple"
         }
     }
 
@@ -80,7 +86,7 @@ class ActivityLog: ObservableObject {
         }
     }
 
-    private func add(_ type: ActivityEntry.ActivityType, path: String, detail: String) {
+    func add(_ type: ActivityEntry.ActivityType, path: String, detail: String) {
         let entry = ActivityEntry(
             timestamp: Date(),
             type: type,
