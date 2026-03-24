@@ -15,7 +15,7 @@ func TestScanDirectory(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "sub", "b.md"), []byte("bbb"), 0644)
 	os.WriteFile(filepath.Join(dir, ".hidden"), []byte("hidden"), 0644)
 
-	files, err := ScanDirectory(dir, nil)
+	files, _, err := ScanDirectory(dir, nil)
 	if err != nil {
 		t.Fatalf("ScanDirectory: %v", err)
 	}

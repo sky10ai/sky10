@@ -136,6 +136,7 @@ func opToEntry(op *Op) opslog.Entry {
 		Size:         op.Size,
 		Checksum:     op.Checksum,
 		PrevChecksum: op.PrevChecksum,
+		LinkTarget:   op.LinkTarget,
 		Namespace:    op.Namespace,
 	}
 }

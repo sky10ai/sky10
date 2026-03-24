@@ -31,7 +31,7 @@ import (
 
 // SchemaVersion must match the schema major version written in ops.
 // Ops with a higher major version are rejected.
-const SchemaVersion = "1.0.0"
+const SchemaVersion = "1.1.0"
 
 // EntryType is the kind of operation.
 type EntryType string
@@ -41,6 +41,7 @@ const (
 	Delete    EntryType = "delete"
 	DeleteDir EntryType = "delete_dir"
 	CreateDir EntryType = "create_dir"
+	Symlink   EntryType = "symlink"
 )
 
 // Entry is a single operation in the append-only log.
@@ -52,6 +53,7 @@ type Entry struct {
 	Size         int64     `json:"size,omitempty"`
 	Checksum     string    `json:"checksum,omitempty"`
 	PrevChecksum string    `json:"prev_checksum,omitempty"`
+	LinkTarget   string    `json:"link_target,omitempty"`
 	Namespace    string    `json:"namespace,omitempty"`
 	Device       string    `json:"device"`
 	Timestamp    int64     `json:"timestamp"`
@@ -67,14 +69,17 @@ func (e *Entry) entryKey() string {
 
 // FileInfo describes a file at a point in time.
 // Device and Seq preserve the LWW clock through snapshot save/load cycles.
+// When LinkTarget is non-empty, this entry represents a symlink — Chunks
+// will be nil and the target path is stored instead of content.
 type FileInfo struct {
-	Chunks    []string  `json:"chunks"`
-	Size      int64     `json:"size"`
-	Modified  time.Time `json:"modified"`
-	Checksum  string    `json:"checksum"`
-	Namespace string    `json:"namespace"`
-	Device    string    `json:"device,omitempty"`
-	Seq       int       `json:"seq,omitempty"`
+	Chunks     []string  `json:"chunks"`
+	Size       int64     `json:"size"`
+	Modified   time.Time `json:"modified"`
+	Checksum   string    `json:"checksum"`
+	Namespace  string    `json:"namespace"`
+	Device     string    `json:"device,omitempty"`
+	Seq        int       `json:"seq,omitempty"`
+	LinkTarget string    `json:"link_target,omitempty"`
 }
 
 // clockTuple is the comparison key for LWW-Register-Map conflict resolution.
@@ -355,13 +360,14 @@ type dirInfoJSON struct {
 }
 
 type fileInfoJSON struct {
-	Chunks    []string  `json:"chunks"`
-	Size      int64     `json:"size"`
-	Modified  time.Time `json:"modified"`
-	Checksum  string    `json:"checksum"`
-	Namespace string    `json:"namespace"`
-	Device    string    `json:"device,omitempty"`
-	Seq       int       `json:"seq,omitempty"`
+	Chunks     []string  `json:"chunks"`
+	Size       int64     `json:"size"`
+	Modified   time.Time `json:"modified"`
+	Checksum   string    `json:"checksum"`
+	Namespace  string    `json:"namespace"`
+	Device     string    `json:"device,omitempty"`
+	Seq        int       `json:"seq,omitempty"`
+	LinkTarget string    `json:"link_target,omitempty"`
 }
 
 func (l *OpsLog) saveSnapshot(ctx context.Context, snap *Snapshot) error {
@@ -373,13 +379,14 @@ func (l *OpsLog) saveSnapshot(ctx context.Context, snap *Snapshot) error {
 	}
 	for path, fi := range snap.files {
 		m.Tree[path] = fileInfoJSON{
-			Chunks:    fi.Chunks,
-			Size:      fi.Size,
-			Modified:  fi.Modified,
-			Checksum:  fi.Checksum,
-			Namespace: fi.Namespace,
-			Device:    fi.Device,
-			Seq:       fi.Seq,
+			Chunks:     fi.Chunks,
+			Size:       fi.Size,
+			Modified:   fi.Modified,
+			Checksum:   fi.Checksum,
+			Namespace:  fi.Namespace,
+			Device:     fi.Device,
+			Seq:        fi.Seq,
+			LinkTarget: fi.LinkTarget,
 		}
 	}
 	if len(snap.dirs) > 0 {
@@ -451,13 +458,14 @@ func (l *OpsLog) loadLatestSnapshot(ctx context.Context) (*Snapshot, int64, erro
 	}
 	for path, fi := range m.Tree {
 		snap.files[path] = FileInfo{
-			Chunks:    fi.Chunks,
-			Size:      fi.Size,
-			Modified:  fi.Modified,
-			Checksum:  fi.Checksum,
-			Namespace: fi.Namespace,
-			Device:    fi.Device,
-			Seq:       fi.Seq,
+			Chunks:     fi.Chunks,
+			Size:       fi.Size,
+			Modified:   fi.Modified,
+			Checksum:   fi.Checksum,
+			Namespace:  fi.Namespace,
+			Device:     fi.Device,
+			Seq:        fi.Seq,
+			LinkTarget: fi.LinkTarget,
 		}
 	}
 	for path, di := range m.Dirs {
@@ -529,6 +537,8 @@ func makeEnvelope(e *Entry, encrypted []byte) []byte {
 		buf[21] = 2
 	case CreateDir:
 		buf[21] = 3
+	case Symlink:
+		buf[21] = 4
 	}
 
 	copy(buf[envelopeSize:], encrypted)
@@ -649,7 +659,7 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 		ec := clockTuple{ts: e.Timestamp, device: e.Device, seq: e.Seq}
 
 		switch e.Type {
-		case Put:
+		case Put, Symlink:
 			if prev, ok := clocks[e.Path]; ok && !ec.beats(prev) {
 				continue
 			}
@@ -659,13 +669,14 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 			clocks[e.Path] = ec
 			delete(snap.deleted, e.Path) // re-created file is no longer deleted
 			snap.files[e.Path] = FileInfo{
-				Chunks:    e.Chunks,
-				Size:      e.Size,
-				Modified:  time.Unix(e.Timestamp, 0).UTC(),
-				Checksum:  e.Checksum,
-				Namespace: e.Namespace,
-				Device:    e.Device,
-				Seq:       e.Seq,
+				Chunks:     e.Chunks,
+				Size:       e.Size,
+				Modified:   time.Unix(e.Timestamp, 0).UTC(),
+				Checksum:   e.Checksum,
+				Namespace:  e.Namespace,
+				Device:     e.Device,
+				Seq:        e.Seq,
+				LinkTarget: e.LinkTarget,
 			}
 		case Delete:
 			if prev, ok := clocks[e.Path]; ok && !ec.beats(prev) {

@@ -20,7 +20,7 @@ import (
 // Major: breaking changes (cipher, hash, key derivation, blob format)
 // Minor: backward-compatible additions (new optional manifest fields)
 // Patch: bug fixes that don't change data format
-const SchemaVersion = "1.0.0"
+const SchemaVersion = "1.1.0"
 
 const schemaKey = "sky10.schema"
 

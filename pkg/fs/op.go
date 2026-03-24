@@ -23,6 +23,7 @@ const (
 	OpDelete    OpType = "delete"
 	OpDeleteDir OpType = "delete_dir"
 	OpCreateDir OpType = "create_dir"
+	OpSymlink   OpType = "symlink"
 )
 
 // Op is a single operation in the append-only log.
@@ -33,6 +34,7 @@ type Op struct {
 	Size         int64    `json:"size,omitempty"`
 	Checksum     string   `json:"checksum,omitempty"`
 	PrevChecksum string   `json:"prev_checksum,omitempty"`
+	LinkTarget   string   `json:"link_target,omitempty"`
 	Namespace    string   `json:"namespace,omitempty"`
 	Device       string   `json:"device"`
 	Timestamp    int64    `json:"timestamp"`
@@ -107,6 +109,8 @@ func makeOpEnvelope(op *Op, encrypted []byte) []byte {
 		buf[21] = 2
 	case OpCreateDir:
 		buf[21] = 3
+	case OpSymlink:
+		buf[21] = 4
 	}
 	// Encrypted payload
 	copy(buf[OpEnvelopeSize:], encrypted)
@@ -223,7 +227,7 @@ func BuildState(base *Manifest, ops []Op) *Manifest {
 
 	for _, op := range ops {
 		switch op.Type {
-		case OpPut:
+		case OpPut, OpSymlink:
 			m.Tree[op.Path] = FileEntry{
 				Chunks:    op.Chunks,
 				Size:      op.Size,

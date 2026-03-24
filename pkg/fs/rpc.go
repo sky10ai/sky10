@@ -1221,7 +1221,7 @@ func (s *RPCServer) rpcDebugDump(ctx context.Context) (interface{}, error) {
 		}
 
 		// Local files on disk
-		if files, err := ScanDirectory(d.LocalPath, nil); err == nil {
+		if files, _, err := ScanDirectory(d.LocalPath, nil); err == nil {
 			localFiles := make(map[string]string)
 			for path, cksum := range files {
 				localFiles[path] = cksum

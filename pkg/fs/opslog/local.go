@@ -155,16 +155,21 @@ func (l *LocalOpsLog) Compact() error {
 	}
 
 	for path, fi := range l.cache.files {
+		entryType := Put
+		if fi.LinkTarget != "" {
+			entryType = Symlink
+		}
 		e := Entry{
-			Type:      Put,
-			Path:      path,
-			Chunks:    fi.Chunks,
-			Size:      fi.Size,
-			Checksum:  fi.Checksum,
-			Namespace: fi.Namespace,
-			Device:    fi.Device,
-			Timestamp: fi.Modified.Unix(),
-			Seq:       fi.Seq,
+			Type:       entryType,
+			Path:       path,
+			Chunks:     fi.Chunks,
+			Size:       fi.Size,
+			Checksum:   fi.Checksum,
+			LinkTarget: fi.LinkTarget,
+			Namespace:  fi.Namespace,
+			Device:     fi.Device,
+			Timestamp:  fi.Modified.Unix(),
+			Seq:        fi.Seq,
 		}
 		data, err := json.Marshal(e)
 		if err != nil {

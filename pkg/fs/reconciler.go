@@ -86,7 +86,7 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 
 	snapshotFiles := snap.Files()
 	snapshotDirs := snap.Dirs()
-	localFiles, err := ScanDirectory(r.localDir, r.ignore)
+	localFiles, localSymlinks, err := ScanDirectory(r.localDir, r.ignore)
 	if err != nil {
 		r.logger.Warn("reconcile: scan failed", "error", err)
 		return
@@ -116,12 +116,13 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		}
 	}
 
-	// Collect files that need downloading
+	// Collect files and symlinks that need syncing.
 	type dlTarget struct {
 		path string
 		fi   opslog.FileInfo
 	}
 	var targets []dlTarget
+	var symlinkTargets []dlTarget
 	for path, fi := range snapshotFiles {
 		if pendingDeletes[path] {
 			skipped++
@@ -133,11 +134,28 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		}
 		localChecksum, onDisk := localFiles[path]
 		if !onDisk || !checksumMatch(localChecksum, fi) {
-			targets = append(targets, dlTarget{path, fi})
+			if fi.LinkTarget != "" {
+				symlinkTargets = append(symlinkTargets, dlTarget{path, fi})
+			} else {
+				targets = append(targets, dlTarget{path, fi})
+			}
 		}
 	}
 
-	// Download in parallel (up to 4 at a time)
+	// Create/update symlinks (fast — no S3 I/O).
+	for _, t := range symlinkTargets {
+		if ctx.Err() != nil {
+			break
+		}
+		if r.createSymlink(t.path, t.fi.LinkTarget, localSymlinks[t.path]) {
+			downloaded++
+			active = true
+		} else {
+			failed++
+		}
+	}
+
+	// Download regular files in parallel (up to 4 at a time).
 	if len(targets) > 0 {
 		r.logger.Info("reconcile: downloading", "files", len(targets))
 		var wg sync.WaitGroup
@@ -162,9 +180,9 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		}
 		wg.Wait()
 
-		downloaded = int(dlCount.Load())
-		failed = int(failCount.Load())
-		active = downloaded > 0
+		downloaded += int(dlCount.Load())
+		failed += int(failCount.Load())
+		active = active || downloaded > 0
 	}
 
 	// Files on disk that were explicitly deleted by a remote op → delete.
@@ -307,6 +325,28 @@ func checksumMatch(contentHash string, fi opslog.FileInfo) bool {
 		return true
 	}
 	return false
+}
+
+// createSymlink creates or updates a symlink on disk. Returns true on success.
+// localTarget is the current local symlink target (empty if not a symlink).
+func (r *Reconciler) createSymlink(path, target, localTarget string) bool {
+	if localTarget == target {
+		return false // already correct
+	}
+
+	localPath := filepath.Join(r.localDir, filepath.FromSlash(path))
+	dir := filepath.Dir(localPath)
+	os.MkdirAll(dir, 0755)
+
+	// Remove whatever is at the path (regular file, wrong symlink, etc.)
+	os.Remove(localPath)
+
+	if err := os.Symlink(target, localPath); err != nil {
+		r.logger.Warn("reconcile: symlink failed", "path", path, "target", target, "error", err)
+		return false
+	}
+	r.logger.Info("reconcile: symlink", "path", path, "target", target)
+	return true
 }
 
 func (r *Reconciler) deleteFile(path string) {

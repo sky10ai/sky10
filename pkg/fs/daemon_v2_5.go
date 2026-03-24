@@ -165,7 +165,7 @@ func (d *DaemonV2_5) SyncOnce(ctx context.Context) {
 // and directly records new/modified/deleted files. No synthetic events —
 // appends directly to the local log and outbox.
 func (d *DaemonV2_5) seedStateFromDisk() {
-	localFiles, err := ScanDirectory(d.config.LocalRoot, d.config.IgnoreFunc)
+	localFiles, localSymlinks, err := ScanDirectory(d.config.LocalRoot, d.config.IgnoreFunc)
 	if err != nil {
 		d.logger.Warn("seed: scan failed", "error", err)
 		return
@@ -191,6 +191,31 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 	for path, cksum := range localFiles {
 		fi, ok := knownFiles[path]
 		if !ok || fi.Checksum != cksum {
+			// Handle symlinks separately — no file upload needed.
+			if target, isSymlink := localSymlinks[path]; isSymlink {
+				if ok && fi.LinkTarget == target {
+					continue // symlink target unchanged
+				}
+				d.logger.Info("seed: symlink", "path", path, "target", target)
+				d.localLog.AppendLocal(opslog.Entry{
+					Type:       opslog.Symlink,
+					Path:       path,
+					Checksum:   cksum,
+					LinkTarget: target,
+					Namespace:  ns,
+				})
+				d.outbox.Append(OutboxEntry{
+					Op:         OpSymlink,
+					Path:       path,
+					Checksum:   cksum,
+					LinkTarget: target,
+					Namespace:  ns,
+					Timestamp:  time.Now().Unix(),
+				})
+				wrote = true
+				continue
+			}
+
 			localPath := filepath.Join(d.config.LocalRoot, filepath.FromSlash(path))
 			info, err := os.Stat(localPath)
 			if err != nil {

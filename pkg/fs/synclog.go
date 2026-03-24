@@ -20,12 +20,13 @@ const (
 
 // OutboxEntry is a local change waiting to be pushed to S3.
 type OutboxEntry struct {
-	Op        OpType `json:"op"`
-	Path      string `json:"path"`
-	Checksum  string `json:"checksum,omitempty"`
-	Namespace string `json:"namespace,omitempty"`
-	LocalPath string `json:"local_path,omitempty"`
-	Timestamp int64  `json:"ts"`
+	Op         OpType `json:"op"`
+	Path       string `json:"path"`
+	Checksum   string `json:"checksum,omitempty"`
+	LinkTarget string `json:"link_target,omitempty"`
+	Namespace  string `json:"namespace,omitempty"`
+	LocalPath  string `json:"local_path,omitempty"`
+	Timestamp  int64  `json:"ts"`
 }
 
 // SyncLog is an append-only JSONL file with atomic read/write/remove.
