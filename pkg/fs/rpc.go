@@ -108,6 +108,7 @@ func NewRPCServer(store *Store, sockPath string, driveCfgPath string, version st
 // Serve starts listening and blocks until the context is cancelled.
 func (s *RPCServer) Serve(ctx context.Context) error {
 	os.Remove(s.sockPath) // clean up stale socket
+	os.MkdirAll(filepath.Dir(s.sockPath), 0755)
 
 	var err error
 	s.listener, err = net.Listen("unix", s.sockPath)
@@ -1267,8 +1268,7 @@ func (s *RPCServer) rpcDebugDump(ctx context.Context) (interface{}, error) {
 	}
 
 	// Logs — full daemon.log file
-	home, _ := os.UserHomeDir()
-	logPath := filepath.Join(home, ".sky10", "fs", "daemon.log")
+	logPath := DaemonLogPath()
 	if logData, err := os.ReadFile(logPath); err == nil {
 		dump["logs_raw"] = string(logData)
 	}

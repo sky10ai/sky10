@@ -61,10 +61,10 @@ class DaemonManager: ObservableObject {
 
         guard let path = binaryPath else {
             self.error = "sky10 binary not found. Run 'make build' first."
-            try? "sky10 not found".write(toFile: "/tmp/cirrus-daemon.log", atomically: true, encoding: .utf8)
+            try? "sky10 not found".write(toFile: "/tmp/sky10/cirrus-daemon.log", atomically: true, encoding: .utf8)
             return
         }
-        try? "Found sky10 at: \(path)".write(toFile: "/tmp/cirrus-daemon.log", atomically: true, encoding: .utf8)
+        try? "Found sky10 at: \(path)".write(toFile: "/tmp/sky10/cirrus-daemon.log", atomically: true, encoding: .utf8)
 
         // Write config from UI settings before starting daemon
         writeConfig()
@@ -88,8 +88,8 @@ class DaemonManager: ObservableObject {
         // buffer; if Cirrus doesn't drain it, the daemon's write() syscalls
         // block and freeze any goroutine that logs to stderr (AWS SDK
         // checksum middleware, log.Printf, panics, etc.). A file never blocks.
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let stderrLog = "\(home)/.sky10/fs/daemon.stderr.log"
+        try? FileManager.default.createDirectory(atPath: "/tmp/sky10", withIntermediateDirectories: true)
+        let stderrLog = "/tmp/sky10/daemon.stderr.log"
         FileManager.default.createFile(atPath: stderrLog, contents: nil)
         let stderrHandle = FileHandle(forWritingAtPath: stderrLog)
         proc.standardError = stderrHandle ?? FileHandle.nullDevice
@@ -116,10 +116,10 @@ class DaemonManager: ObservableObject {
             process = proc
             isRunning = true
             error = nil
-            try? "Process started PID=\(proc.processIdentifier)".write(toFile: "/tmp/cirrus-daemon.log", atomically: true, encoding: .utf8)
+            try? "Process started PID=\(proc.processIdentifier)".write(toFile: "/tmp/sky10/cirrus-daemon.log", atomically: true, encoding: .utf8)
         } catch {
             self.error = "Failed to start sky10: \(error.localizedDescription)"
-            try? "Failed: \(error.localizedDescription)".write(toFile: "/tmp/cirrus-daemon.log", atomically: true, encoding: .utf8)
+            try? "Failed: \(error.localizedDescription)".write(toFile: "/tmp/sky10/cirrus-daemon.log", atomically: true, encoding: .utf8)
         }
     }
 

@@ -270,9 +270,14 @@ func fsServeCmd() *cobra.Command {
 				cancel()
 			}()
 
+			// Kill any existing daemon before starting
+			if err := skyfs.KillExistingDaemon(); err != nil {
+				slog.Info("daemon: " + err.Error())
+			}
+
 			sockPath, _ := cmd.Flags().GetString("socket")
 			if sockPath == "" {
-				sockPath = "/tmp/sky10.sock"
+				sockPath = "/tmp/sky10/sky10.sock"
 			}
 			cfgDir, _ := config.Dir()
 
@@ -306,6 +311,11 @@ func fsServeCmd() *cobra.Command {
 
 			// SIGUSR1 dumps all goroutine stacks to daemon.log
 			skyfs.HandleDumpSignal(slog.Default())
+
+			if err := skyfs.WritePIDFile(); err != nil {
+				return fmt.Errorf("writing PID file: %w", err)
+			}
+			defer skyfs.RemovePIDFile()
 
 			server := skyfs.NewRPCServer(store, sockPath, filepath.Join(cfgDir, "drives.json"), cmd.Root().Version, nil)
 			fmt.Println(sockPath)
