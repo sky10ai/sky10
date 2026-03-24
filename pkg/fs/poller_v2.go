@@ -19,6 +19,7 @@ type PollerV2 struct {
 	logger         *slog.Logger
 	pokeReconciler func()
 	heartbeat      func() // watchdog heartbeat
+	onEvent        func(string)
 }
 
 // NewPollerV2 creates a poller that appends remote ops to the local log.
@@ -34,6 +35,7 @@ func NewPollerV2(store *Store, localLog *opslog.LocalOpsLog, interval time.Durat
 		logger:         logger,
 		pokeReconciler: func() {},
 		heartbeat:      func() {},
+		onEvent:        func(string) {},
 	}
 }
 
@@ -72,6 +74,10 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 
 	p.logger.Info("poll", "ops", len(entries), "since", cursor)
 
+	if len(entries) > 0 {
+		p.onEvent("sync.active")
+	}
+
 	wrote := false
 	maxTs := cursor
 	appended := 0
@@ -96,8 +102,8 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 			continue
 		}
 
-		// Skip duplicate puts (avoid unnecessary JSONL writes)
-		if e.Type == opslog.Put {
+		// Skip duplicate puts/symlinks (avoid unnecessary JSONL writes)
+		if e.Type == opslog.Put || e.Type == opslog.Symlink {
 			if existing, ok := p.localLog.Lookup(e.Path); ok {
 				match := existing.Checksum == e.Checksum
 				// Backwards compat: compare chunk hashes across checksum schemes
