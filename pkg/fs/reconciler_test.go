@@ -127,7 +127,7 @@ func TestReconcilerSkipsMatching(t *testing.T) {
 	// Track events — reconciler should do nothing
 	active := false
 	r := NewReconciler(store, localLog, NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl")), localDir, nil, nil)
-	r.onEvent = func(string) { active = true }
+	r.onEvent = func(string, map[string]any) { active = true }
 	r.reconcile(context.Background())
 
 	if active {
@@ -168,7 +168,7 @@ func TestReconcilerCreatePlusDeleteCompaction(t *testing.T) {
 
 	active := false
 	r := NewReconciler(store, localLog, NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl")), localDir, nil, nil)
-	r.onEvent = func(string) { active = true }
+	r.onEvent = func(string, map[string]any) { active = true }
 	r.reconcile(ctx)
 
 	if active {

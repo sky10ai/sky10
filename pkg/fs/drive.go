@@ -26,9 +26,9 @@ type DriveManager struct {
 	mu             sync.RWMutex
 	muHolder       string // debug: last write-lock caller
 	cfgPath        string
-	Logger         *slog.Logger // shared logger (with log buffer)
-	OnActivity     func()       // called when any drive does sync I/O
-	OnStateChanged func(string) // called when manifest changes
+	Logger         *slog.Logger                 // shared logger (with log buffer)
+	OnActivity     func()                       // called when any drive does sync I/O
+	OnStateChanged func(string, map[string]any) // called when manifest changes
 }
 
 // wLock acquires write lock and records the caller for debugging.
@@ -146,6 +146,7 @@ func (dm *DriveManager) StartDrive(id string, logger interface{ Info(string, ...
 	daemonCfg := DaemonConfig{
 		SyncConfig:  cfg,
 		DriveID:     id,
+		DriveName:   drive.Name,
 		PollSeconds: 30,
 	}
 

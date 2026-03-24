@@ -191,7 +191,7 @@ func TestPollerBatchEmitsEvent(t *testing.T) {
 	poller.pokeReconciler = func() {}
 
 	var events []string
-	poller.onEvent = func(e string) { events = append(events, e) }
+	poller.onEvent = func(e string, _ map[string]any) { events = append(events, e) }
 
 	poller.pollOnce(ctx)
 
@@ -220,7 +220,7 @@ func TestPollerBatchNoEventWhenEmpty(t *testing.T) {
 	poller.pokeReconciler = func() {}
 
 	var events []string
-	poller.onEvent = func(e string) { events = append(events, e) }
+	poller.onEvent = func(e string, _ map[string]any) { events = append(events, e) }
 
 	poller.pollOnce(context.Background())
 

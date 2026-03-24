@@ -26,14 +26,15 @@ import (
 // then deleted remotely, the snapshot shows nothing and no download
 // happens.
 type Reconciler struct {
-	store    *Store
-	localLog *opslog.LocalOpsLog
-	outbox   *SyncLog[OutboxEntry]
-	localDir string
-	ignore   func(string) bool
-	logger   *slog.Logger
-	notify   chan struct{}
-	onEvent  func(string)
+	store     *Store
+	localLog  *opslog.LocalOpsLog
+	outbox    *SyncLog[OutboxEntry]
+	localDir  string
+	ignore    func(string) bool
+	logger    *slog.Logger
+	notify    chan struct{}
+	onEvent   func(string, map[string]any)
+	driveName string
 }
 
 // NewReconciler creates a reconciler that applies remote changes locally.
@@ -49,7 +50,7 @@ func NewReconciler(store *Store, localLog *opslog.LocalOpsLog, outbox *SyncLog[O
 		ignore:   ignore,
 		logger:   logger,
 		notify:   make(chan struct{}, 1),
-		onEvent:  func(string) {},
+		onEvent:  func(string, map[string]any) {},
 	}
 }
 
@@ -157,7 +158,12 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 
 	// Download regular files in parallel (up to 4 at a time).
 	if len(targets) > 0 {
-		r.logger.Info("reconcile: downloading", "files", len(targets))
+		total := len(targets)
+		r.logger.Info("reconcile: downloading", "files", total)
+		r.onEvent("download.start", map[string]any{
+			"drive": r.driveName,
+			"total": total,
+		})
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, 4)
 		var dlCount, failCount atomic.Int32
@@ -172,7 +178,15 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 				defer wg.Done()
 				defer func() { <-sem }()
 				if r.downloadFile(ctx, path, fi) {
-					dlCount.Add(1)
+					count := int(dlCount.Add(1))
+					if count%10 == 0 || count == total {
+						r.onEvent("download.progress", map[string]any{
+							"drive": r.driveName,
+							"path":  path,
+							"done":  count,
+							"total": total,
+						})
+					}
 				} else {
 					failCount.Add(1)
 				}
@@ -215,7 +229,13 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 	r.logger.Info("reconcile: done", "downloaded", downloaded, "deleted", deleted, "failed", failed, "skipped", skipped)
 
 	if active {
-		r.onEvent("state.changed")
+		r.onEvent("sync.complete", map[string]any{
+			"drive":      r.driveName,
+			"downloaded": downloaded,
+			"deleted":    deleted,
+			"failed":     failed,
+		})
+		r.onEvent("state.changed", nil)
 	}
 
 	// If any downloads failed, schedule a retry. Short delay avoids
@@ -255,7 +275,7 @@ func (r *Reconciler) downloadFile(ctx context.Context, path string, fi opslog.Fi
 		return false
 	}
 
-	r.onEvent("sync.active")
+	r.onEvent("sync.active", nil)
 
 	// Download to temp dir first, then atomic rename.
 	// Prevents the watcher from seeing a 0-byte intermediate file.

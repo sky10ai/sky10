@@ -20,7 +20,7 @@ type WatcherHandler struct {
 	namespace  string
 	logger     *slog.Logger
 	pokeOutbox func()
-	onEvent    func(string)
+	onEvent    func(string, map[string]any)
 }
 
 // NewWatcherHandler creates a handler that bridges watcher events to the outbox.
@@ -35,7 +35,7 @@ func NewWatcherHandler(outbox *SyncLog[OutboxEntry], localLog *opslog.LocalOpsLo
 		namespace:  namespace,
 		logger:     logger,
 		pokeOutbox: func() {},
-		onEvent:    func(string) {},
+		onEvent:    func(string, map[string]any) {},
 	}
 }
 
@@ -185,7 +185,7 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 	}
 
 	if wrote {
-		h.onEvent("state.changed")
+		h.onEvent("state.changed", nil)
 		h.pokeOutbox()
 	}
 }
@@ -246,6 +246,6 @@ func (h *WatcherHandler) HandleDirectoryTrash(dirPath string) {
 		Timestamp: time.Now().Unix(),
 	})
 
-	h.onEvent("state.changed")
+	h.onEvent("state.changed", nil)
 	h.pokeOutbox()
 }
