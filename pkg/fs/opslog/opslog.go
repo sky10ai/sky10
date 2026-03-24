@@ -231,6 +231,85 @@ func (l *OpsLog) ReadSince(ctx context.Context, since int64) ([]Entry, error) {
 	return readEntries(ctx, l.backend, since, l.encKey)
 }
 
+// ReadBatched lists ops after since and calls fn with batches of up to
+// batchSize entries. The fn callback is invoked after each batch is
+// downloaded and decrypted, allowing callers to process ops incrementally
+// instead of waiting for the full set. Returns the total number of entries
+// processed.
+func (l *OpsLog) ReadBatched(ctx context.Context, since int64, batchSize int, fn func([]Entry)) (int, error) {
+	keys, err := l.backend.List(ctx, "ops/")
+	if err != nil {
+		return 0, fmt.Errorf("listing ops: %w", err)
+	}
+
+	// Filter and sort keys by timestamp
+	var filtered []string
+	for _, key := range keys {
+		ts := parseEntryTimestamp(key)
+		if ts >= since {
+			filtered = append(filtered, key)
+		}
+	}
+	sort.Strings(filtered)
+
+	total := 0
+	batch := make([]Entry, 0, batchSize)
+
+	for _, key := range filtered {
+		if ctx.Err() != nil {
+			break
+		}
+
+		rc, err := l.backend.Get(ctx, key)
+		if err != nil {
+			return total, fmt.Errorf("downloading %s: %w", key, err)
+		}
+
+		raw, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			return total, fmt.Errorf("reading %s: %w", key, err)
+		}
+
+		encrypted, schemaVer, isNew := parseEnvelope(raw)
+
+		if isNew {
+			codeMajor := semverMajor(SchemaVersion)
+			if int(schemaVer[0]) > codeMajor {
+				return total, fmt.Errorf("entry %s requires v%d.x (have v%s) — upgrade",
+					key, schemaVer[0], SchemaVersion)
+			}
+		}
+
+		data, err := skykey.Decrypt(encrypted, l.encKey)
+		if err != nil {
+			return total, fmt.Errorf("decrypting %s: %w", key, err)
+		}
+
+		var e Entry
+		if err := json.Unmarshal(data, &e); err != nil {
+			return total, fmt.Errorf("parsing %s: %w", key, err)
+		}
+
+		batch = append(batch, e)
+		if len(batch) >= batchSize {
+			sortEntries(batch)
+			fn(batch)
+			total += len(batch)
+			batch = batch[:0]
+		}
+	}
+
+	// Flush remaining
+	if len(batch) > 0 {
+		sortEntries(batch)
+		fn(batch)
+		total += len(batch)
+	}
+
+	return total, nil
+}
+
 // Snapshot returns the current state by loading the latest stored snapshot
 // and replaying any entries written after it. The result is cached until
 // the next Append or InvalidateCache call.

@@ -66,77 +66,86 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 	}
 
 	cursor := p.localLog.LastRemoteOp()
-	entries, err := log.ReadSince(ctx, cursor)
+
+	// Read ops in batches of 200. Each batch is appended to the local
+	// log and the reconciler is poked so downloads start while the
+	// poller is still fetching remaining ops from S3.
+	totalAppended := 0
+	totalS3 := 0
+
+	_, err = log.ReadBatched(ctx, cursor, 200, func(entries []opslog.Entry) {
+		p.heartbeat()
+		batchAppended := 0
+		maxTs := cursor
+
+		if totalS3 == 0 {
+			p.onEvent("sync.active")
+		}
+		totalS3 += len(entries)
+
+		for _, e := range entries {
+			// Skip our own ops — they're already in the local log.
+			// Exception: on a fresh log (cursor=0) we must import everything,
+			// including our own ops, to recover state after ops.jsonl deletion.
+			if cursor > 0 && e.Device == p.store.deviceID {
+				if e.Timestamp > maxTs {
+					maxTs = e.Timestamp
+				}
+				continue
+			}
+
+			// Filter by namespace
+			if p.namespace != "" && e.Namespace != p.namespace {
+				if e.Timestamp > maxTs {
+					maxTs = e.Timestamp
+				}
+				continue
+			}
+
+			// Skip duplicate puts/symlinks (avoid unnecessary JSONL writes)
+			if e.Type == opslog.Put || e.Type == opslog.Symlink {
+				if existing, ok := p.localLog.Lookup(e.Path); ok {
+					match := existing.Checksum == e.Checksum
+					if !match && len(existing.Chunks) == 1 && len(e.Chunks) == 1 && existing.Chunks[0] == e.Chunks[0] {
+						match = true
+					}
+					if match {
+						if e.Timestamp > maxTs {
+							maxTs = e.Timestamp
+						}
+						continue
+					}
+				}
+			}
+
+			p.localLog.Append(e)
+			batchAppended++
+			p.logger.Info("poll: appended", "path", e.Path, "op", string(e.Type), "device", e.Device)
+
+			if e.Timestamp > maxTs {
+				maxTs = e.Timestamp
+			}
+		}
+
+		if maxTs > cursor {
+			p.localLog.SetLastRemoteOp(maxTs)
+		}
+
+		totalAppended += batchAppended
+		if batchAppended > 0 {
+			p.logger.Info("poll: batch imported", "appended", batchAppended, "batch_size", len(entries))
+			p.pokeReconciler()
+		}
+	})
+
 	if err != nil {
 		p.logger.Warn("poll: reading entries failed", "error", err)
 		return
 	}
 
-	p.logger.Info("poll", "ops", len(entries), "since", cursor)
-
-	if len(entries) > 0 {
-		p.onEvent("sync.active")
-	}
-
-	wrote := false
-	maxTs := cursor
-	appended := 0
-
-	for _, e := range entries {
-		// Skip our own ops — they're already in the local log.
-		// Exception: on a fresh log (cursor=0) we must import everything,
-		// including our own ops, to recover state after ops.jsonl deletion.
-		if cursor > 0 && e.Device == p.store.deviceID {
-			if e.Timestamp > maxTs {
-				maxTs = e.Timestamp
-			}
-			continue
-		}
-
-		// Filter by namespace
-		if p.namespace != "" && e.Namespace != p.namespace {
-			p.logger.Info("poll: skip namespace", "path", e.Path, "ns", e.Namespace, "want", p.namespace)
-			if e.Timestamp > maxTs {
-				maxTs = e.Timestamp
-			}
-			continue
-		}
-
-		// Skip duplicate puts/symlinks (avoid unnecessary JSONL writes)
-		if e.Type == opslog.Put || e.Type == opslog.Symlink {
-			if existing, ok := p.localLog.Lookup(e.Path); ok {
-				match := existing.Checksum == e.Checksum
-				// Backwards compat: compare chunk hashes across checksum schemes
-				if !match && len(existing.Chunks) == 1 && len(e.Chunks) == 1 && existing.Chunks[0] == e.Chunks[0] {
-					match = true
-				}
-				if match {
-					p.logger.Info("poll: already have", "path", e.Path)
-					if e.Timestamp > maxTs {
-						maxTs = e.Timestamp
-					}
-					continue
-				}
-			}
-		}
-
-		// Append remote op to local log (CRDT state)
-		p.localLog.Append(e)
-		wrote = true
-		appended++
-		p.logger.Info("poll: appended", "path", e.Path, "op", string(e.Type), "device", e.Device)
-
-		if e.Timestamp > maxTs {
-			maxTs = e.Timestamp
-		}
-	}
-
-	if maxTs > cursor {
-		p.localLog.SetLastRemoteOp(maxTs)
-	}
-
-	if wrote {
-		p.logger.Info("poll: imported", "appended", appended, "total_s3", len(entries))
-		p.pokeReconciler()
+	if totalAppended > 0 {
+		p.logger.Info("poll: done", "appended", totalAppended, "total_s3", totalS3)
+	} else {
+		p.logger.Info("poll", "ops", totalS3, "since", cursor)
 	}
 }
