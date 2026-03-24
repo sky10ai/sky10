@@ -3,20 +3,36 @@ package fs
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 )
 
+// RuntimeDir returns the ephemeral directory for daemon state (socket, log,
+// PID file). On unix this is /tmp/sky10, on Windows %TEMP%\sky10.
+func RuntimeDir() string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(os.TempDir(), "sky10")
+	}
+	return "/tmp/sky10"
+}
+
 // DaemonPIDPath returns the path to the daemon PID file.
 func DaemonPIDPath() string {
-	return "/tmp/sky10/daemon.pid"
+	return filepath.Join(RuntimeDir(), "daemon.pid")
+}
+
+// DaemonSocketPath returns the default path for the RPC Unix socket.
+func DaemonSocketPath() string {
+	return filepath.Join(RuntimeDir(), "sky10.sock")
 }
 
 // WritePIDFile writes the current process ID to the PID file.
 func WritePIDFile() error {
-	os.MkdirAll("/tmp/sky10", 0755)
+	os.MkdirAll(RuntimeDir(), 0755)
 	return os.WriteFile(DaemonPIDPath(), []byte(strconv.Itoa(os.Getpid())), 0600)
 }
 

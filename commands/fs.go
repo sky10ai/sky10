@@ -277,7 +277,7 @@ func fsServeCmd() *cobra.Command {
 
 			sockPath, _ := cmd.Flags().GetString("socket")
 			if sockPath == "" {
-				sockPath = "/tmp/sky10/sky10.sock"
+				sockPath = skyfs.DaemonSocketPath()
 			}
 			cfgDir, _ := config.Dir()
 
