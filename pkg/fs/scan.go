@@ -15,8 +15,14 @@ type ScanResult map[string]string
 
 // ScanDirectory walks a directory and computes checksums for all files.
 // Paths are relative to root. The ignore function controls what to skip.
-func ScanDirectory(root string, ignore func(string) bool) (ScanResult, error) {
+//
+// Symlinks are detected via os.Lstat and returned separately — their
+// "checksum" (SHA3-256 of the target path) is also added to the main
+// ScanResult so the reconciler's checksum comparison works uniformly.
+// The returned symlinks map is path → link target.
+func ScanDirectory(root string, ignore func(string) bool) (ScanResult, map[string]string, error) {
 	result := make(ScanResult)
+	symlinks := make(map[string]string)
 
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -50,6 +56,18 @@ func ScanDirectory(root string, ignore func(string) bool) (ScanResult, error) {
 			return nil
 		}
 
+		// Detect symlinks before computing checksum.
+		// filepath.WalkDir uses Lstat internally, so d.Type() has ModeSymlink.
+		if d.Type()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(path)
+			if err != nil {
+				return fmt.Errorf("reading symlink %s: %w", rel, err)
+			}
+			symlinks[rel] = target
+			result[rel] = symlinkChecksum(target)
+			return nil
+		}
+
 		checksum, err := fileChecksum(path)
 		if err != nil {
 			return fmt.Errorf("checksumming %s: %w", rel, err)
@@ -60,10 +78,10 @@ func ScanDirectory(root string, ignore func(string) bool) (ScanResult, error) {
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("scanning %s: %w", root, err)
+		return nil, nil, fmt.Errorf("scanning %s: %w", root, err)
 	}
 
-	return result, nil
+	return result, symlinks, nil
 }
 
 // ScanEmptyDirectories returns relative paths of directories that contain no
@@ -111,4 +129,12 @@ func fileChecksum(path string) (string, error) {
 	}
 
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// symlinkChecksum computes SHA3-256 of a symlink's target path.
+// Used for change detection — if the target changes, the checksum changes.
+func symlinkChecksum(target string) string {
+	h := sha3.New256()
+	h.Write([]byte(target))
+	return hex.EncodeToString(h.Sum(nil))
 }

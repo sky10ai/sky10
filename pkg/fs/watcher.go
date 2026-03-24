@@ -18,6 +18,7 @@ const (
 	FileDeleted
 	FileRenamed
 	DirCreated
+	SymlinkCreated
 )
 
 // FileEvent represents a filesystem change.
@@ -115,11 +116,15 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 		return
 	}
 
+	// Use Lstat so symlinks are not followed.
+	info, lstatErr := os.Lstat(event.Name)
+
 	// Watch new directories and emit events for any files already inside.
 	// Uses addRecursive to catch nested subdirs, and walks the full tree
 	// to find files that landed before the watch was registered.
+	// Only real directories — symlinks to directories are treated as symlinks.
 	if event.Has(fsnotify.Create) {
-		if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
+		if lstatErr == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
 			w.addRecursive(event.Name)
 			// Emit DirCreated so the handler can track it
 			select {
@@ -145,8 +150,8 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 		}
 	}
 
-	// Skip directory events
-	if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
+	// Skip real directory events (not symlinks to directories)
+	if lstatErr == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
 		return
 	}
 
@@ -167,8 +172,15 @@ func (w *Watcher) flushPending() {
 
 		eventType := FileModified
 		fullPath := filepath.Join(w.root, filepath.FromSlash(path))
-		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-			eventType = FileDeleted
+		fi, err := os.Lstat(fullPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				eventType = FileDeleted
+			} else {
+				continue // transient error, retry next tick
+			}
+		} else if fi.Mode()&os.ModeSymlink != 0 {
+			eventType = SymlinkCreated
 		}
 
 		select {

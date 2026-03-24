@@ -117,6 +117,44 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 			})
 			wrote = true
 
+		case SymlinkCreated:
+			localPath := filepath.Join(h.localDir, filepath.FromSlash(e.Path))
+			target, err := os.Readlink(localPath)
+			if err != nil {
+				h.logger.Warn("watcher: readlink failed", "path", e.Path, "error", err)
+				continue
+			}
+
+			// Skip if unchanged from local log
+			if existing, ok := h.localLog.Lookup(e.Path); ok {
+				if existing.LinkTarget == target {
+					h.logger.Info("watcher: symlink unchanged", "path", e.Path)
+					continue
+				}
+			}
+
+			h.logger.Info("watcher: symlink outbox", "path", e.Path, "target", target)
+
+			cksum := symlinkChecksum(target)
+
+			h.localLog.AppendLocal(opslog.Entry{
+				Type:       opslog.Symlink,
+				Path:       e.Path,
+				Checksum:   cksum,
+				LinkTarget: target,
+				Namespace:  h.namespace,
+			})
+
+			h.outbox.Append(OutboxEntry{
+				Op:         OpSymlink,
+				Path:       e.Path,
+				Checksum:   cksum,
+				LinkTarget: target,
+				Namespace:  h.namespace,
+				Timestamp:  time.Now().Unix(),
+			})
+			wrote = true
+
 		case FileDeleted:
 			existing, ok := h.localLog.Lookup(e.Path)
 			if !ok {

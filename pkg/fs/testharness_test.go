@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -151,7 +152,7 @@ func NewTestBucket(t *testing.T) string {
 	t.Helper()
 	name := filepath.Base(t.Name())
 	// MinIO bucket names: lowercase, 3-63 chars, no dots
-	bucket := fmt.Sprintf("test-%s-%d", name, time.Now().UnixNano()%100000)
+	bucket := fmt.Sprintf("test-%s-%d", strings.ToLower(name), time.Now().UnixNano()%100000)
 	if len(bucket) > 63 {
 		bucket = bucket[:63]
 	}

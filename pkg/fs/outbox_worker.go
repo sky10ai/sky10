@@ -96,6 +96,8 @@ func (w *OutboxWorker) drain(ctx context.Context) {
 			ok = w.writeDeleteDirOp(ctx, entry)
 		case OpCreateDir:
 			ok = w.writeCreateDirOp(ctx, entry)
+		case OpSymlink:
+			ok = w.writeSymlinkOp(ctx, entry)
 		}
 
 		if ok {
@@ -166,6 +168,25 @@ func (w *OutboxWorker) writeDeleteDirOp(ctx context.Context, entry OutboxEntry) 
 		return false
 	}
 	w.logger.Info("outbox: delete_dir", "path", entry.Path)
+	w.onEvent("state.changed")
+	return true
+}
+
+// writeSymlinkOp writes a symlink op via the store's OpsLog.
+// No file upload — symlinks are metadata-only ops.
+func (w *OutboxWorker) writeSymlinkOp(ctx context.Context, entry OutboxEntry) bool {
+	op := &Op{
+		Type:       OpSymlink,
+		Path:       entry.Path,
+		Checksum:   entry.Checksum,
+		LinkTarget: entry.LinkTarget,
+		Namespace:  entry.Namespace,
+	}
+	if err := w.store.writeOp(ctx, op); err != nil {
+		w.logger.Warn("outbox symlink: write op failed", "path", entry.Path, "error", err)
+		return false
+	}
+	w.logger.Info("outbox: symlink", "path", entry.Path, "target", entry.LinkTarget)
 	w.onEvent("state.changed")
 	return true
 }

@@ -157,7 +157,7 @@ func (d *Daemon) threeWaySync(ctx context.Context) SyncResult {
 	var result SyncResult
 
 	// 1. Scan local directory
-	localFiles, err := ScanDirectory(d.config.LocalRoot, d.config.IgnoreFunc)
+	localFiles, _, err := ScanDirectory(d.config.LocalRoot, d.config.IgnoreFunc)
 	if err != nil {
 		d.logger.Warn("scan failed", "error", err)
 		result.Errors++
@@ -387,7 +387,7 @@ func (d *Daemon) reconcileLoop(ctx context.Context) {
 }
 
 func (d *Daemon) reconcile(ctx context.Context) {
-	localFiles, err := ScanDirectory(d.config.LocalRoot, d.config.IgnoreFunc)
+	localFiles, _, err := ScanDirectory(d.config.LocalRoot, d.config.IgnoreFunc)
 	if err != nil {
 		return
 	}

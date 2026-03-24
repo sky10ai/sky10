@@ -18,7 +18,7 @@ func TestScanDirectoryIncludesDotfiles(t *testing.T) {
 	os.MkdirAll(filepath.Join(dir, ".config"), 0755)
 	os.WriteFile(filepath.Join(dir, ".config", "settings.json"), []byte("{}"), 0644)
 
-	files, err := ScanDirectory(dir, nil)
+	files, _, err := ScanDirectory(dir, nil)
 	if err != nil {
 		t.Fatalf("ScanDirectory: %v", err)
 	}

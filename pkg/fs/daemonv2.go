@@ -312,7 +312,7 @@ func (d *DaemonV2) handleRemoteOps(ctx context.Context, ops []Op) {
 // reconcileLocal scans the filesystem and compares against manifest.
 // Injects synthetic events for anything the watcher missed.
 func (d *DaemonV2) reconcileLocal() {
-	localFiles, err := ScanDirectory(d.config.LocalRoot, d.config.IgnoreFunc)
+	localFiles, _, err := ScanDirectory(d.config.LocalRoot, d.config.IgnoreFunc)
 	if err != nil {
 		return
 	}
