@@ -16,6 +16,7 @@ class AppState: ObservableObject {
     @Published var onboardingComplete: Bool
     @Published var daemonConnected = false
     @Published var outboxPending = 0
+    @Published var syncDetail: String = ""
 
     let client: SkyClientProtocol
     let daemonManager: DaemonManager
@@ -47,18 +48,68 @@ class AppState: ObservableObject {
     }
 
     private func subscribeToEvents() {
-        // Subscribe to push events — refresh UI only when daemon says state changed
         Task.detached { [weak self] in
             guard let self = self else { return }
             let rpc = RPCClient()
             while true {
-                await rpc.subscribe { event in
+                await rpc.subscribe { event, data in
                     Task { @MainActor [weak self] in
                         guard let self = self else { return }
-                        if event == "state.changed" {
+                        switch event {
+                        case "state.changed":
                             self.debouncedRefresh()
-                        } else if event == "sync.active" {
+
+                        case "sync.active":
                             self.syncState = .syncing
+
+                        case "poll.progress":
+                            self.syncState = .syncing
+                            let fetched = data?["fetched"] as? Int ?? 0
+                            let drive = data?["drive"] as? String ?? ""
+                            self.syncDetail = "\(drive): fetching ops (\(fetched))"
+
+                        case "download.start":
+                            self.syncState = .syncing
+                            let total = data?["total"] as? Int ?? 0
+                            let drive = data?["drive"] as? String ?? ""
+                            self.syncDetail = "\(drive): downloading \(total) files"
+
+                        case "download.progress":
+                            let done = data?["done"] as? Int ?? 0
+                            let total = data?["total"] as? Int ?? 0
+                            let drive = data?["drive"] as? String ?? ""
+                            self.syncDetail = "\(drive): downloaded \(done)/\(total)"
+
+                        case "upload.start":
+                            self.syncState = .syncing
+                            let total = data?["total"] as? Int ?? 0
+                            let drive = data?["drive"] as? String ?? ""
+                            let path = (data?["path"] as? String)?.split(separator: "/").last.map(String.init) ?? ""
+                            self.syncDetail = "\(drive): uploading \(path) (\(total) pending)"
+
+                        case "upload.complete":
+                            let total = data?["total"] as? Int ?? 0
+                            let drive = data?["drive"] as? String ?? ""
+                            if total <= 1 {
+                                self.syncDetail = ""
+                            } else {
+                                self.syncDetail = "\(drive): \(total - 1) remaining"
+                            }
+
+                        case "sync.complete":
+                            let dl = data?["downloaded"] as? Int ?? 0
+                            let del = data?["deleted"] as? Int ?? 0
+                            let drive = data?["drive"] as? String ?? ""
+                            if dl > 0 || del > 0 {
+                                self.syncDetail = "\(drive): \(dl) downloaded, \(del) deleted"
+                            } else {
+                                self.syncDetail = ""
+                            }
+                            self.syncState = .synced
+                            self.debouncedRefresh()
+
+                        default:
+                            break
                         }
                     }
                 }
