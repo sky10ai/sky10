@@ -282,146 +282,82 @@ struct ControlsTab: View {
 
 struct SyncActivityTab: View {
     @EnvironmentObject var appState: AppState
-    @State private var outboxEntries: [SkyClient.SyncActivityEntry] = []
-    @State private var snapshotFiles: [SnapshotFile] = []
-    @State private var isLoading = false
-
-    private let refreshTimer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
-
-    struct SnapshotFile: Identifiable {
-        let id: String
-        let path: String
-        let size: Int64
-        let chunks: Int
-    }
 
     var body: some View {
-        HSplitView {
-            // Left: Outbox (pending uploads)
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Image(systemName: "arrow.up.circle")
-                        .foregroundStyle(.blue)
-                    Text("Outbox")
-                        .font(.headline)
+        VStack(spacing: 0) {
+            // Live status banner
+            if appState.syncState == .syncing {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                        .frame(width: 16, height: 16)
+                    Text(appState.syncDetail.isEmpty ? "Syncing..." : appState.syncDetail)
+                        .font(.system(.caption, design: .monospaced))
                     Spacer()
-                    Text("\(outboxEntries.count)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.secondary.opacity(0.15))
-                        .clipShape(Capsule())
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 8)
+                .background(.blue.opacity(0.1))
 
                 Divider()
-
-                if outboxEntries.isEmpty {
-                    VStack {
-                        Spacer()
-                        Text("No pending uploads")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                    }
-                    .frame(maxWidth: .infinity)
-                } else {
-                    List(outboxEntries) { entry in
-                        HStack {
-                            Image(systemName: entry.op == "put" ? "arrow.up" : "trash")
-                                .font(.caption)
-                                .foregroundStyle(entry.op == "put" ? .blue : .red)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(entry.path)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                Text(entry.driveName)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .listStyle(.plain)
-                }
             }
-            .frame(minWidth: 250)
 
-            // Right: Synced files (ops log snapshot)
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Image(systemName: "checkmark.circle")
-                        .foregroundStyle(.green)
-                    Text("Synced")
-                        .font(.headline)
+            // Live event log
+            if appState.activityLog.entries.isEmpty {
+                VStack {
                     Spacer()
-                    Text("\(snapshotFiles.count)")
+                    Image(systemName: "clock")
+                        .font(.largeTitle)
+                        .foregroundStyle(.secondary)
+                    Text("No activity yet")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.secondary.opacity(0.15))
-                        .clipShape(Capsule())
+                    Text("Uploads, downloads, deletes, and sync events will appear here in real time")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                    Spacer()
                 }
-                .padding(.horizontal)
-                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+            } else {
+                List(appState.activityLog.entries) { entry in
+                    HStack(spacing: 8) {
+                        Image(systemName: entry.icon)
+                            .foregroundStyle(colorForType(entry.type))
+                            .frame(width: 16)
 
-                Divider()
-
-                if snapshotFiles.isEmpty {
-                    VStack {
-                        Spacer()
-                        Text("No synced files")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                    }
-                    .frame(maxWidth: .infinity)
-                } else {
-                    List(snapshotFiles) { file in
-                        HStack {
-                            Image(systemName: "doc")
-                                .font(.caption)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.path)
+                                .font(.system(.caption, design: .monospaced))
+                                .lineLimit(1)
+                            Text(entry.detail)
+                                .font(.caption2)
                                 .foregroundStyle(.secondary)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(file.path)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                Text(formatSize(file.size) + " · \(file.chunks) chunk\(file.chunks == 1 ? "" : "s")")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
                         }
+
+                        Spacer()
+
+                        Text(entry.formattedTime)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.tertiary)
                     }
-                    .listStyle(.plain)
+                    .padding(.vertical, 1)
                 }
+                .listStyle(.plain)
             }
-            .frame(minWidth: 250)
-        }
-        .task { await loadActivity() }
-        .onReceive(refreshTimer) { _ in
-            Task { await loadActivity() }
         }
     }
 
-    private func loadActivity() async {
-        do {
-            outboxEntries = try await appState.client.syncActivity()
-
-            let listResult = try await appState.client.listFiles(prefix: "")
-            snapshotFiles = listResult.files.map { f in
-                SnapshotFile(id: f.path, path: f.path, size: f.size, chunks: f.chunks)
-            }.sorted { $0.path < $1.path }
-        } catch {
-            // Best effort
+    private func colorForType(_ type: ActivityEntry.ActivityType) -> Color {
+        switch type {
+        case .uploaded:   return .blue
+        case .downloaded: return .green
+        case .deleted:    return .orange
+        case .conflict:   return .yellow
+        case .error:      return .red
+        case .synced:     return .green
+        case .symlink:    return .purple
         }
-    }
-
-    private func formatSize(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 }
