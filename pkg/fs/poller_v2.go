@@ -79,15 +79,16 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 		batchAppended := 0
 		maxTs := cursor
 
-		if totalS3 == 0 {
-			p.onEvent("sync.active", nil)
-		}
 		totalS3 += len(entries)
 
-		p.onEvent("poll.progress", map[string]any{
-			"drive":   p.driveName,
-			"fetched": totalS3,
-		})
+		// Snapshot before this batch for dedup checks. Cached, so O(1).
+		snap, _ := p.localLog.Snapshot()
+		var snapDirs map[string]opslog.DirInfo
+		var snapDeleted map[string]bool
+		if snap != nil {
+			snapDirs = snap.Dirs()
+			snapDeleted = snap.DeletedFiles()
+		}
 
 		for _, e := range entries {
 			// Skip our own ops — they're already in the local log.
@@ -108,19 +109,36 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 				continue
 			}
 
-			// Skip duplicate puts/symlinks (avoid unnecessary JSONL writes)
-			if e.Type == opslog.Put || e.Type == opslog.Symlink {
-				if existing, ok := p.localLog.Lookup(e.Path); ok {
-					match := existing.Checksum == e.Checksum
-					if !match && len(existing.Chunks) == 1 && len(e.Chunks) == 1 && existing.Chunks[0] == e.Chunks[0] {
-						match = true
-					}
-					if match {
-						if e.Timestamp > maxTs {
-							maxTs = e.Timestamp
+			// Skip ops already reflected in the local snapshot.
+			switch e.Type {
+			case opslog.Put, opslog.Symlink:
+				if snap != nil {
+					if existing, ok := snap.Lookup(e.Path); ok {
+						match := existing.Checksum == e.Checksum
+						if !match && len(existing.Chunks) == 1 && len(e.Chunks) == 1 && existing.Chunks[0] == e.Chunks[0] {
+							match = true
 						}
-						continue
+						if match {
+							if e.Timestamp > maxTs {
+								maxTs = e.Timestamp
+							}
+							continue
+						}
 					}
+				}
+			case opslog.CreateDir:
+				if _, ok := snapDirs[e.Path]; ok {
+					if e.Timestamp > maxTs {
+						maxTs = e.Timestamp
+					}
+					continue
+				}
+			case opslog.Delete:
+				if snapDeleted[e.Path] {
+					if e.Timestamp > maxTs {
+						maxTs = e.Timestamp
+					}
+					continue
 				}
 			}
 
@@ -139,6 +157,11 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 
 		totalAppended += batchAppended
 		if batchAppended > 0 {
+			p.onEvent("sync.active", nil)
+			p.onEvent("poll.progress", map[string]any{
+				"drive":   p.driveName,
+				"fetched": batchAppended,
+			})
 			p.logger.Info("poll: batch imported", "appended", batchAppended, "batch_size", len(entries))
 			p.pokeReconciler()
 		}
