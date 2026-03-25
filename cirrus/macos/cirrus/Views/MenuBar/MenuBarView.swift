@@ -8,9 +8,6 @@ struct MenuBarView: View {
     @Environment(\.openSettings) var openSettings
 
     var body: some View {
-        Label(statusText, systemImage: appState.syncState.icon)
-            .disabled(true)
-
         let activeDrives = appState.drives.filter { $0.running }
         if !activeDrives.isEmpty {
             ForEach(activeDrives, id: \.id) { drive in
@@ -70,20 +67,6 @@ struct MenuBarView: View {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q")
-    }
-
-    private var statusText: String {
-        if let err = appState.error {
-            return err
-        }
-        if !appState.syncDetail.isEmpty {
-            return appState.syncDetail
-        }
-        let running = appState.drives.filter { $0.running }.count
-        if running > 0 {
-            return "Syncing \(running) drive\(running == 1 ? "" : "s")"
-        }
-        return appState.syncState.label
     }
 
     private var appVersion: String {
