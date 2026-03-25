@@ -103,6 +103,16 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 			wrote = true
 
 		case DirCreated:
+			// Skip if the directory already exists in the snapshot.
+			// This prevents the watcher from emitting create_dir ops for
+			// directories created by the reconciler (which would poison
+			// the CRDT and override a prior delete_dir).
+			if snap, _ := h.localLog.Snapshot(); snap != nil {
+				if _, ok := snap.Dirs()[e.Path]; ok {
+					h.logger.Info("watcher: skip mkdir (already in snapshot)", "path", e.Path)
+					continue
+				}
+			}
 			h.logger.Info("watcher: mkdir", "path", e.Path)
 			h.localLog.AppendLocal(opslog.Entry{
 				Type:      opslog.CreateDir,

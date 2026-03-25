@@ -388,9 +388,22 @@ func (r *Reconciler) underPendingDeleteDir(path string, prefixes []string) bool 
 
 // createDirectories creates directories from the snapshot's dirs set
 // that don't exist on disk. Returns true if any were created.
+//
+// Re-checks the current snapshot before each creation: a delete_dir may
+// have been appended by the watcher since reconciliation started, and
+// creating the dir would trigger a watcher create_dir that poisons the
+// CRDT (later create beats earlier delete → directory keeps coming back).
 func (r *Reconciler) createDirectories(snapshotDirs map[string]opslog.DirInfo) bool {
 	created := false
 	for dir := range snapshotDirs {
+		// Guard against stale snapshot: re-check that the dir is still
+		// in the current snapshot before creating it on disk.
+		currentSnap, _ := r.localLog.Snapshot()
+		if currentSnap != nil {
+			if _, ok := currentSnap.Dirs()[dir]; !ok {
+				continue
+			}
+		}
 		localPath := filepath.Join(r.localDir, filepath.FromSlash(dir))
 		if _, err := os.Stat(localPath); os.IsNotExist(err) {
 			os.MkdirAll(localPath, 0755)

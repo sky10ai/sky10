@@ -486,6 +486,89 @@ func TestReconcilerKeepsExplicitEmptyDir(t *testing.T) {
 	}
 }
 
+// Regression: reconciler must not recreate a directory that was deleted
+// since the snapshot was taken. The stale snapshot has the dir in Dirs(),
+// but a delete_dir appended during reconciliation removes it. Without
+// the re-check, the reconciler creates the dir, the watcher emits
+// create_dir (which beats the delete_dir in the CRDT), and the directory
+// keeps coming back in a ping-pong cycle.
+func TestReconcilerDoesNotRecreateDirDeletedDuringReconcile(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	// Set up local log with a create_dir
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+	localLog.Append(opslog.Entry{
+		Type: opslog.CreateDir, Path: "mydir",
+		Device: "dev-b", Timestamp: 100, Seq: 1,
+	})
+
+	// Take a stale snapshot (what the reconciler would have at start)
+	staleSnap, _ := localLog.Snapshot()
+	if staleSnap == nil {
+		t.Fatal("snapshot should not be nil")
+	}
+	staleDirs := staleSnap.Dirs()
+	if _, ok := staleDirs["mydir"]; !ok {
+		t.Fatal("mydir should be in stale snapshot dirs")
+	}
+
+	// Simulate: after the reconciler took the snapshot, a delete_dir
+	// is appended (by the watcher processing the user's rm -rf).
+	localLog.AppendLocal(opslog.Entry{
+		Type: opslog.DeleteDir, Path: "mydir", Namespace: "Test",
+	})
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	// Call createDirectories with the STALE dirs — simulates the race
+	// where reconcile() took the snapshot before the delete_dir.
+	r.createDirectories(staleDirs)
+
+	// mydir should NOT have been created on disk
+	if _, err := os.Stat(filepath.Join(localDir, "mydir")); err == nil {
+		t.Error("mydir should NOT be created — it was deleted during reconciliation")
+	}
+}
+
+// Regression: watcher handler should not emit create_dir for a directory
+// that already exists in the snapshot. This prevents the reconciler from
+// triggering spurious create_dir ops when it creates directories.
+func TestWatcherHandlerSkipsDirAlreadyInSnapshot(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+
+	// Directory already tracked in the snapshot
+	localLog.Append(opslog.Entry{
+		Type: opslog.CreateDir, Path: "existing",
+		Device: "dev-b", Timestamp: 100, Seq: 1,
+	})
+
+	handler := NewWatcherHandler(outbox, localLog, localDir, "Test", nil)
+
+	// Watcher fires DirCreated for "existing" (reconciler just created it on disk)
+	handler.HandleEvents([]FileEvent{{Path: "existing", Type: DirCreated}})
+
+	// Outbox should NOT have a create_dir for "existing"
+	entries, _ := outbox.ReadAll()
+	for _, e := range entries {
+		if e.Op == OpCreateDir && e.Path == "existing" {
+			t.Error("watcher should not emit create_dir for dir already in snapshot")
+		}
+	}
+}
+
 // Untracked files in the root survive (no delete op, no stale directory).
 // But untracked files inside directories unknown to the snapshot are removed
 // by reconcileDirectories' os.RemoveAll — see the comment there for the
