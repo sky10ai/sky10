@@ -670,6 +670,87 @@ func TestReconcilerDeletesOnRemoteDeleteOp(t *testing.T) {
 	}
 }
 
+// Regression: the integrity sweep must re-queue files that were AppendLocal'd
+// (no chunks) but never uploaded. This catches the "file gone then reappear"
+// scenario as a safety net even if Fix A didn't fire.
+func TestIntegritySweepRequeuesChunklessFile(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+
+	// Simulate watcher handler: AppendLocal with no chunks
+	localLog.AppendLocal(opslog.Entry{
+		Type: opslog.Put, Path: "orphan.txt", Checksum: checksumOf("orphan data"),
+		Size: 11, Namespace: "Test",
+	})
+
+	// File exists on disk with matching content
+	os.WriteFile(filepath.Join(localDir, "orphan.txt"), []byte("orphan data"), 0644)
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.integritySweep()
+
+	// Outbox should have a re-queued put for orphan.txt
+	entries, _ := outbox.ReadAll()
+	found := false
+	for _, e := range entries {
+		if e.Op == OpPut && e.Path == "orphan.txt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("orphan.txt should be re-queued — snapshot has put with no chunks")
+	}
+}
+
+// The sweep must skip files from other devices (we can't re-upload their blobs)
+// and files that already have chunks (upload completed).
+func TestIntegritySweepSkipsCompletedAndRemote(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+
+	// Entry from another device — should be skipped
+	localLog.Append(opslog.Entry{
+		Type: opslog.Put, Path: "remote.txt", Checksum: "xxx",
+		Size: 5, Namespace: "Test", Device: "dev-b", Timestamp: 100, Seq: 1,
+	})
+	os.WriteFile(filepath.Join(localDir, "remote.txt"), []byte("hello"), 0644)
+
+	// Entry with chunks (upload already completed) — should be skipped
+	localLog.Append(opslog.Entry{
+		Type: opslog.Put, Path: "done.txt", Checksum: "yyy",
+		Size: 5, Namespace: "Test", Device: "dev-a", Timestamp: 200, Seq: 2,
+		Chunks: []string{"chunk1"},
+	})
+	os.WriteFile(filepath.Join(localDir, "done.txt"), []byte("world"), 0644)
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.integritySweep()
+
+	// Outbox should be empty — nothing to re-queue
+	entries, _ := outbox.ReadAll()
+	if len(entries) != 0 {
+		t.Errorf("outbox has %d entries, want 0 — should skip remote and completed files", len(entries))
+	}
+}
+
 func checksumOf(content string) string {
 	h := sha3.New256()
 	h.Write([]byte(content))

@@ -132,8 +132,16 @@ func (w *OutboxWorker) drain(ctx context.Context) {
 func (w *OutboxWorker) uploadFile(ctx context.Context, entry OutboxEntry) bool {
 	f, err := os.Open(entry.LocalPath)
 	if err != nil {
-		// File gone — probably deleted before upload finished. Remove from outbox.
-		w.logger.Warn("outbox upload: file gone", "path", entry.Path)
+		// File gone — deleted before upload finished. Append a delete to
+		// the local log so the stale put is superseded. Without this, the
+		// watcher's dedup check matches the old checksum when the file
+		// reappears, and the blob never gets uploaded.
+		w.logger.Warn("outbox upload: file gone, recording delete", "path", entry.Path)
+		w.localLog.AppendLocal(opslog.Entry{
+			Type:      opslog.Delete,
+			Path:      entry.Path,
+			Namespace: entry.Namespace,
+		})
 		return true
 	}
 	defer f.Close()
