@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -201,6 +202,7 @@ func (w *Watcher) addRecursive(root string) error {
 			if path == root {
 				return err
 			}
+			slog.Warn("watcher: skipping path", "path", path, "error", err)
 			return nil
 		}
 		if !d.IsDir() {
@@ -215,9 +217,15 @@ func (w *Watcher) addRecursive(root string) error {
 		// kqueue stats directory contents when adding a watch.
 		// If the directory contains dangling symlinks, Add fails
 		// with ENOENT. Skip non-root failures so one bad symlink
-		// doesn't prevent the watcher from starting.
-		if err := w.watcher.Add(path); err != nil && path == root {
-			return err
+		// doesn't prevent the watcher from starting. Return nil
+		// (not SkipDir) so children are still visited — they may
+		// be watchable even if the parent isn't.
+		if err := w.watcher.Add(path); err != nil {
+			if path == root {
+				return err
+			}
+			slog.Warn("watcher: cannot watch directory", "path", path, "error", err)
+			return nil
 		}
 		return nil
 	})
