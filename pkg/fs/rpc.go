@@ -574,10 +574,20 @@ func (s *RPCServer) rpcCompact(ctx context.Context, params json.RawMessage) (int
 		json.Unmarshal(params, &p)
 	}
 
+	s.Emit("compact.start", map[string]any{"phase": "reading ops"})
+
 	result, err := Compact(ctx, s.store.backend, s.store.identity, p.Keep)
 	if err != nil {
+		s.Emit("compact.error", map[string]any{"error": err.Error()})
 		return nil, err
 	}
+
+	s.Emit("compact.complete", map[string]any{
+		"ops_compacted":     result.OpsCompacted,
+		"ops_deleted":       result.OpsDeleted,
+		"snapshots_kept":    result.SnapshotsKept,
+		"snapshots_deleted": result.SnapshotsDeleted,
+	})
 	return result, nil
 }
 
