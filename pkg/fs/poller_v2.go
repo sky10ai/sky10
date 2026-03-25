@@ -3,6 +3,7 @@ package fs
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/sky10/sky10/pkg/fs/opslog"
@@ -139,6 +140,29 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 						maxTs = e.Timestamp
 					}
 					continue
+				}
+			case opslog.DeleteDir:
+				// Skip when the dir is already gone and no live files remain.
+				// Guard on cursor > 0: on a fresh log the snapshot is empty
+				// and every check would trivially pass — we need to import
+				// delete_dir ops to establish CRDT tombstones.
+				if cursor > 0 && snap != nil {
+					if _, inDirs := snapDirs[e.Path]; !inDirs {
+						prefix := e.Path + "/"
+						hasLiveFiles := false
+						for path := range snap.Files() {
+							if strings.HasPrefix(path, prefix) {
+								hasLiveFiles = true
+								break
+							}
+						}
+						if !hasLiveFiles {
+							if e.Timestamp > maxTs {
+								maxTs = e.Timestamp
+							}
+							continue
+						}
+					}
 				}
 			}
 
