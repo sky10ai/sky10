@@ -219,3 +219,93 @@ func TestCompactSnapshotPruning(t *testing.T) {
 		t.Errorf("expected <= 2 snapshots, got %d", len(snapKeys))
 	}
 }
+
+func TestCompactThenNewOpsSnapshot(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	log, _ := newTestLog(t)
+
+	// Write 5 ops, compact
+	for i := 0; i < 5; i++ {
+		e := Entry{Type: Put, Path: "old" + string(rune('a'+i)) + ".md", Checksum: "h"}
+		log.Append(ctx, &e)
+	}
+	if _, err := log.Compact(ctx, 2); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write 3 more ops (post-compact)
+	for i := 0; i < 3; i++ {
+		e := Entry{Type: Put, Path: "new" + string(rune('a'+i)) + ".md", Checksum: "h"}
+		log.Append(ctx, &e)
+	}
+
+	// Force re-read from backend (simulates fresh OpsLog)
+	log.InvalidateCache()
+	snap, err := log.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if snap.Len() != 8 {
+		t.Errorf("Len() = %d, want 8 (5 from snapshot + 3 new ops)", snap.Len())
+	}
+
+	// Old files from compacted snapshot
+	for i := 0; i < 5; i++ {
+		if _, ok := snap.Lookup("old" + string(rune('a'+i)) + ".md"); !ok {
+			t.Errorf("old%c.md missing (should be in compacted snapshot)", rune('a'+i))
+		}
+	}
+	// New files from ops
+	for i := 0; i < 3; i++ {
+		if _, ok := snap.Lookup("new" + string(rune('a'+i)) + ".md"); !ok {
+			t.Errorf("new%c.md missing (should be in new ops)", rune('a'+i))
+		}
+	}
+}
+
+func TestCompactDeletePostCompactSnapshot(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	log, _ := newTestLog(t)
+
+	// Write 5 ops, compact
+	for i := 0; i < 5; i++ {
+		e := Entry{Type: Put, Path: "f" + string(rune('a'+i)) + ".md", Checksum: "h"}
+		log.Append(ctx, &e)
+	}
+	if _, err := log.Compact(ctx, 2); err != nil {
+		t.Fatal(err)
+	}
+
+	// Delete 2 files that are in the snapshot
+	for i := 0; i < 2; i++ {
+		e := Entry{Type: Delete, Path: "f" + string(rune('a'+i)) + ".md"}
+		log.Append(ctx, &e)
+	}
+
+	// Force re-read — deletes should remove files from snapshot base
+	log.InvalidateCache()
+	snap, err := log.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if snap.Len() != 3 {
+		t.Errorf("Len() = %d, want 3 (5 from snapshot - 2 deleted)", snap.Len())
+	}
+
+	// Deleted files gone
+	for i := 0; i < 2; i++ {
+		path := "f" + string(rune('a'+i)) + ".md"
+		if _, ok := snap.Lookup(path); ok {
+			t.Errorf("%s should be deleted", path)
+		}
+	}
+	// Surviving files present
+	for i := 2; i < 5; i++ {
+		path := "f" + string(rune('a'+i)) + ".md"
+		if _, ok := snap.Lookup(path); !ok {
+			t.Errorf("%s missing (should survive)", path)
+		}
+	}
+}
