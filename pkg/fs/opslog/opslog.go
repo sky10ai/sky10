@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sky10/sky10/pkg/adapter"
@@ -392,24 +393,34 @@ func (l *OpsLog) Compact(ctx context.Context, maxSnapshots int) (*CompactResult,
 
 	result := &CompactResult{}
 
-	// Count ops
-	allEntries, err := readEntries(ctx, l.backend, 0, l.encKey)
-	if err != nil {
-		return nil, fmt.Errorf("reading entries: %w", err)
-	}
-	result.OpsCompacted = len(allEntries)
-
-	// Delete all ops (captured in snapshot)
+	// List and delete all ops in parallel (snapshot captures them all).
+	// No need to re-read entries — just list keys and delete.
 	opsKeys, err := l.backend.List(ctx, "ops/")
 	if err != nil {
 		return nil, fmt.Errorf("listing ops: %w", err)
 	}
+	result.OpsCompacted = len(opsKeys)
+
+	// Parallel delete (up to 10 concurrent)
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 10)
+	var deleteCount int64
 	for _, key := range opsKeys {
-		if err := l.backend.Delete(ctx, key); err != nil {
-			return nil, fmt.Errorf("deleting op %s: %w", key, err)
+		if ctx.Err() != nil {
+			break
 		}
-		result.OpsDeleted++
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(key string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if err := l.backend.Delete(ctx, key); err == nil {
+				atomic.AddInt64(&deleteCount, 1)
+			}
+		}(key)
 	}
+	wg.Wait()
+	result.OpsDeleted = int(deleteCount)
 
 	// Prune old snapshots
 	snapKeys, err := l.backend.List(ctx, "manifests/snapshot-")
