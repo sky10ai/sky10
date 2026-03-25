@@ -261,6 +261,207 @@ func TestIntegrationProgressEventsMinIO(t *testing.T) {
 	}
 }
 
+// --- Post-compaction bootstrap gap tests ---
+//
+// These MinIO integration tests document and regression-test the known gap:
+// after S3 compaction, the poller only reads ops/ (empty after compact),
+// so a fresh device misses files captured in the S3 snapshot. The S3
+// OpsLog.Snapshot() handles this correctly, but the poller + local log
+// path does not bootstrap from it.
+
+func TestIntegrationPollerAfterCompactMinIO(t *testing.T) {
+	h := StartMinIO(t)
+	if h == nil {
+		return
+	}
+
+	bucket := NewTestBucket(t)
+	backend := h.Backend(t, bucket)
+	ctx := context.Background()
+	WriteSchema(ctx, backend)
+
+	id, _ := GenerateDeviceKey()
+	storeA := NewWithDevice(backend, id, "dev-a")
+	storeA.SetNamespace("shared")
+
+	// Upload 10 files and compact
+	for i := 0; i < 10; i++ {
+		storeA.Put(ctx, "file"+string(rune('a'+i))+".txt", strings.NewReader("content"))
+	}
+
+	result, err := Compact(ctx, backend, id, 2)
+	if err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	if result.OpsCompacted != 10 {
+		t.Errorf("OpsCompacted = %d, want 10", result.OpsCompacted)
+	}
+
+	// S3 OpsLog.Snapshot() correctly sees all 10 via snapshot
+	storeB := NewWithDevice(backend, id, "dev-b")
+	storeB.SetNamespace("shared")
+	s3Log, _ := storeB.getOpsLog(ctx)
+	s3Snap, err := s3Log.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("S3 Snapshot: %v", err)
+	}
+	if s3Snap.Len() != 10 {
+		t.Errorf("S3 snapshot has %d files, want 10", s3Snap.Len())
+	}
+
+	// Poller + local log: fresh device sees nothing (known gap)
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-b")
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+
+	poller := NewPollerV2(storeB, localLog, 30*time.Second, "shared", nil)
+	poller.pokeReconciler = func() {}
+	poller.onEvent = func(string, map[string]any) {}
+
+	poller.pollOnce(ctx)
+
+	localSnap, _ := localLog.Snapshot()
+	if localSnap.Len() != 0 {
+		t.Errorf("poller local log has %d files, want 0 (poller doesn't read S3 snapshots)", localSnap.Len())
+	}
+
+	// Reconciler has nothing to work with — no files on disk
+	reconciler := NewReconciler(storeB, localLog, outbox, localDir, nil, nil)
+	reconciler.onEvent = func(string, map[string]any) {}
+	reconciler.reconcile(ctx)
+
+	downloaded := 0
+	filepath.WalkDir(localDir, func(path string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			downloaded++
+		}
+		return nil
+	})
+	if downloaded != 0 {
+		t.Errorf("downloaded %d files, want 0 (compacted files unreachable via poller)", downloaded)
+	}
+}
+
+func TestIntegrationMultiCompactPollMinIO(t *testing.T) {
+	h := StartMinIO(t)
+	if h == nil {
+		return
+	}
+
+	bucket := NewTestBucket(t)
+	backend := h.Backend(t, bucket)
+	ctx := context.Background()
+	WriteSchema(ctx, backend)
+
+	id, _ := GenerateDeviceKey()
+	store := NewWithDevice(backend, id, "dev-a")
+	store.SetNamespace("shared")
+
+	// Round 1: 5 files → compact
+	for i := 0; i < 5; i++ {
+		store.Put(ctx, "r1-"+string(rune('a'+i))+".txt", strings.NewReader("r1"))
+	}
+	Compact(ctx, backend, id, 2)
+
+	// Round 2: 3 files → compact
+	for i := 0; i < 3; i++ {
+		store.Put(ctx, "r2-"+string(rune('a'+i))+".txt", strings.NewReader("r2"))
+	}
+	Compact(ctx, backend, id, 2)
+
+	// Round 3: 2 more (not compacted)
+	for i := 0; i < 2; i++ {
+		store.Put(ctx, "r3-"+string(rune('a'+i))+".txt", strings.NewReader("r3"))
+	}
+
+	// S3 snapshot: all 10 files
+	storeB := NewWithDevice(backend, id, "dev-b")
+	storeB.SetNamespace("shared")
+	s3Log, _ := storeB.getOpsLog(ctx)
+	s3Snap, _ := s3Log.Snapshot(ctx)
+	if s3Snap.Len() != 10 {
+		t.Errorf("S3 snapshot has %d files, want 10", s3Snap.Len())
+	}
+
+	// Poller: only 2 uncompacted ops
+	tmpDir := t.TempDir()
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-b")
+
+	poller := NewPollerV2(storeB, localLog, 30*time.Second, "shared", nil)
+	poller.pokeReconciler = func() {}
+	poller.onEvent = func(string, map[string]any) {}
+
+	poller.pollOnce(ctx)
+
+	localSnap, _ := localLog.Snapshot()
+	if localSnap.Len() != 2 {
+		t.Errorf("poller local log has %d files, want 2 (only uncompacted ops)", localSnap.Len())
+	}
+}
+
+func TestIntegrationCompactDeletesThenPollMinIO(t *testing.T) {
+	h := StartMinIO(t)
+	if h == nil {
+		return
+	}
+
+	bucket := NewTestBucket(t)
+	backend := h.Backend(t, bucket)
+	ctx := context.Background()
+	WriteSchema(ctx, backend)
+
+	id, _ := GenerateDeviceKey()
+	store := NewWithDevice(backend, id, "dev-a")
+	store.SetNamespace("shared")
+
+	// Upload 10, delete 5, compact
+	for i := 0; i < 10; i++ {
+		store.Put(ctx, "f"+string(rune('a'+i))+".txt", strings.NewReader("data"))
+	}
+	for i := 0; i < 5; i++ {
+		store.Remove(ctx, "f"+string(rune('a'+i))+".txt")
+	}
+	Compact(ctx, backend, id, 2)
+
+	// Add 2 new files post-compact
+	store.Put(ctx, "new1.txt", strings.NewReader("n1"))
+	store.Put(ctx, "new2.txt", strings.NewReader("n2"))
+
+	// S3 snapshot: 5 surviving + 2 new = 7
+	storeB := NewWithDevice(backend, id, "dev-b")
+	storeB.SetNamespace("shared")
+	s3Log, _ := storeB.getOpsLog(ctx)
+	s3Snap, _ := s3Log.Snapshot(ctx)
+	if s3Snap.Len() != 7 {
+		t.Errorf("S3 snapshot has %d files, want 7 (5 surviving + 2 new)", s3Snap.Len())
+	}
+
+	// Poller: only 2 post-compact ops
+	tmpDir := t.TempDir()
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-b")
+
+	poller := NewPollerV2(storeB, localLog, 30*time.Second, "shared", nil)
+	poller.pokeReconciler = func() {}
+	poller.onEvent = func(string, map[string]any) {}
+
+	poller.pollOnce(ctx)
+
+	localSnap, _ := localLog.Snapshot()
+	if localSnap.Len() != 2 {
+		t.Errorf("poller local log has %d files, want 2 (only post-compact ops)", localSnap.Len())
+	}
+
+	// Surviving pre-compact files not in local log
+	for i := 5; i < 10; i++ {
+		path := "f" + string(rune('a'+i)) + ".txt"
+		if _, ok := localSnap.Lookup(path); ok {
+			t.Errorf("%s should not be in local log (compacted into snapshot)", path)
+		}
+	}
+}
+
 func TestIntegrationCompactThenNewOpsMinIO(t *testing.T) {
 	h := StartMinIO(t)
 	if h == nil {
