@@ -125,6 +125,26 @@ class AppState: ObservableObject {
                             self.syncState = .synced
                             self.debouncedRefresh()
 
+                        case "compact.start":
+                            self.syncState = .syncing
+                            let phase = data?["phase"] as? String ?? "compacting"
+                            self.syncDetail = "Compacting: \(phase)"
+                            self.activityLog.add(.synced, path: "Compact", detail: "Started — \(phase)")
+
+                        case "compact.complete":
+                            let ops = data?["ops_deleted"] as? Int ?? 0
+                            let snaps = data?["snapshots_kept"] as? Int ?? 0
+                            self.syncDetail = ""
+                            self.syncState = .synced
+                            self.activityLog.add(.synced, path: "Compact", detail: "\(ops) ops deleted, \(snaps) snapshots kept")
+                            self.debouncedRefresh()
+
+                        case "compact.error":
+                            let msg = data?["error"] as? String ?? "unknown error"
+                            self.syncDetail = ""
+                            self.syncState = .error
+                            self.activityLog.add(.error, path: "Compact", detail: msg)
+
                         default:
                             break
                         }
