@@ -195,7 +195,13 @@ func (w *Watcher) flushPending() {
 func (w *Watcher) addRecursive(root string) error {
 	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return err
+			// Root must be accessible; non-root errors (dangling symlinks,
+			// permission denied, TOCTOU races) are skipped so one bad
+			// entry doesn't prevent the watcher from starting.
+			if path == root {
+				return err
+			}
+			return nil
 		}
 		if !d.IsDir() {
 			return nil
@@ -206,6 +212,13 @@ func (w *Watcher) addRecursive(root string) error {
 				return filepath.SkipDir
 			}
 		}
-		return w.watcher.Add(path)
+		// kqueue stats directory contents when adding a watch.
+		// If the directory contains dangling symlinks, Add fails
+		// with ENOENT. Skip non-root failures so one bad symlink
+		// doesn't prevent the watcher from starting.
+		if err := w.watcher.Add(path); err != nil && path == root {
+			return err
+		}
+		return nil
 	})
 }

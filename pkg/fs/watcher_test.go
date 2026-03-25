@@ -79,6 +79,74 @@ func TestWatcherNestedDirectoryCreate(t *testing.T) {
 	}
 }
 
+// Regression: addRecursive must skip dangling symlinks instead of failing.
+// In node_modules, bun creates symlinks to .bun/ subdirectories. After
+// compaction or partial sync, targets may not exist. Previously,
+// WalkDir returned os.ErrNotExist for the symlink target and
+// addRecursive propagated it as a fatal error, preventing the entire
+// drive daemon from starting.
+func TestWatcherAddRecursiveSkipsDanglingSymlinks(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	// Create a directory with a dangling symlink inside it
+	sub := filepath.Join(root, "node_modules", "pkg-a")
+	os.MkdirAll(sub, 0755)
+	os.WriteFile(filepath.Join(sub, "index.js"), []byte("x"), 0644)
+
+	// Dangling symlink: target does not exist
+	os.Symlink(
+		filepath.Join(root, "node_modules", ".bun", "does-not-exist", "pkg-b"),
+		filepath.Join(root, "node_modules", "pkg-b"),
+	)
+
+	fsw, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fsw.Close()
+
+	w := &Watcher{
+		root:    root,
+		watcher: fsw,
+		ignore:  nil,
+	}
+
+	// Must not error — the dangling symlink should be skipped
+	if err := w.addRecursive(root); err != nil {
+		t.Fatalf("addRecursive failed on dangling symlink: %v", err)
+	}
+}
+
+// Regression: addRecursive must skip permission-denied directories.
+func TestWatcherAddRecursiveSkipsPermissionDenied(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	// Create a directory we can't read
+	forbidden := filepath.Join(root, "forbidden")
+	os.MkdirAll(forbidden, 0000)
+	t.Cleanup(func() { os.Chmod(forbidden, 0755) })
+
+	fsw, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fsw.Close()
+
+	w := &Watcher{
+		root:    root,
+		watcher: fsw,
+		ignore:  nil,
+	}
+
+	if err := w.addRecursive(root); err != nil {
+		t.Fatalf("addRecursive failed on permission-denied dir: %v", err)
+	}
+}
+
 // Regression: flushPending must not permanently drop events when the channel
 // is full. Previously, events were deleted from the pending map BEFORE the
 // channel send, so when the channel was full the event was silently lost
