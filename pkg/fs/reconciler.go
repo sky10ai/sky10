@@ -516,9 +516,9 @@ func (r *Reconciler) reconcileDirectories(snapshotFiles map[string]opslog.FileIn
 // re-queue it for upload. No S3 calls needed.
 //
 // Signal: AppendLocal creates put entries without chunks. After the
-// outbox worker uploads, the op goes to S3 with chunks, and the poller
-// imports it back. So chunks == nil && device == self reliably means
-// "authored by us, never confirmed uploaded."
+// outbox worker uploads, it confirms by writing the chunks back to the
+// local log. So chunks == nil && device == self means "authored by us,
+// upload not yet confirmed."
 func (r *Reconciler) integritySweep() {
 	snap, err := r.localLog.Snapshot()
 	if err != nil {
