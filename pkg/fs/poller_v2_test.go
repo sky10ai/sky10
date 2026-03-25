@@ -320,6 +320,105 @@ func TestPollerV2SameTimestampNotSkipped(t *testing.T) {
 	}
 }
 
+// Regression: delete_dir ops must be deduped like create_dir and delete.
+// Without dedup, a delete_dir at the cursor timestamp is re-appended to the
+// local log every poll cycle.
+func TestPollerV2DedupDeleteDir(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	idA, _ := GenerateDeviceKey()
+	idB, _ := GenerateDeviceKey()
+	storeA := NewWithDevice(backend, idA, "device-a")
+	storeB := NewWithDevice(backend, idB, "device-b")
+
+	ctx := context.Background()
+	storeA.SetNamespace("Test")
+
+	// A creates a directory and a file under it
+	storeA.writeOp(ctx, &Op{Type: OpCreateDir, Path: "photos", Namespace: "Test"})
+	storeA.Put(ctx, "photos/a.jpg", strings.NewReader("image"))
+
+	// A deletes the directory
+	time.Sleep(time.Second)
+	storeA.Remove(ctx, "photos/a.jpg")
+	storeA.writeOp(ctx, &Op{Type: OpDeleteDir, Path: "photos", Namespace: "Test"})
+
+	simulateApprove(t, ctx, backend, idA, idB)
+
+	tmpDir := t.TempDir()
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), storeB.deviceID)
+
+	pokeCount := 0
+	poller := NewPollerV2(storeB, localLog, time.Hour, "Test", nil)
+	poller.pokeReconciler = func() { pokeCount++ }
+
+	// First poll — imports all ops
+	poller.pollOnce(ctx)
+	if pokeCount == 0 {
+		t.Fatal("reconciler should be poked on first poll")
+	}
+
+	// Verify the delete_dir was applied: dir not in snapshot
+	snap, _ := localLog.Snapshot()
+	if snap != nil {
+		if _, ok := snap.Dirs()["photos"]; ok {
+			t.Error("photos dir should not be in snapshot after delete_dir")
+		}
+	}
+
+	// Second poll — delete_dir should be deduped, no new appends
+	pokeCount = 0
+	poller.pollOnce(ctx)
+	if pokeCount != 0 {
+		t.Error("reconciler should not be poked — delete_dir should be deduped")
+	}
+}
+
+// Regression: create_dir ops must be deduped when the directory already
+// exists in the local snapshot.
+func TestPollerV2DedupCreateDir(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	idA, _ := GenerateDeviceKey()
+	idB, _ := GenerateDeviceKey()
+	storeA := NewWithDevice(backend, idA, "device-a")
+	storeB := NewWithDevice(backend, idB, "device-b")
+
+	ctx := context.Background()
+	storeA.SetNamespace("Test")
+
+	// A creates a directory
+	storeA.writeOp(ctx, &Op{Type: OpCreateDir, Path: "docs", Namespace: "Test"})
+
+	simulateApprove(t, ctx, backend, idA, idB)
+
+	tmpDir := t.TempDir()
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), storeB.deviceID)
+
+	pokeCount := 0
+	poller := NewPollerV2(storeB, localLog, time.Hour, "Test", nil)
+	poller.pokeReconciler = func() { pokeCount++ }
+
+	// First poll — imports the create_dir
+	poller.pollOnce(ctx)
+	if pokeCount == 0 {
+		t.Fatal("reconciler should be poked on first poll")
+	}
+
+	snap, _ := localLog.Snapshot()
+	if snap == nil {
+		t.Fatal("snapshot should not be nil")
+	}
+	if _, ok := snap.Dirs()["docs"]; !ok {
+		t.Fatal("docs dir should be in snapshot after create_dir")
+	}
+
+	// Second poll — create_dir should be deduped
+	pokeCount = 0
+	poller.pollOnce(ctx)
+	if pokeCount != 0 {
+		t.Error("reconciler should not be poked — create_dir should be deduped")
+	}
+}
+
 func TestPollerV2PokesReconciler(t *testing.T) {
 	backend := s3adapter.NewMemory()
 	idA, _ := GenerateDeviceKey()

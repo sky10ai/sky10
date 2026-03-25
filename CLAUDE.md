@@ -25,6 +25,9 @@ updated: 2026-03-14
 - Inspect existing files before editing.
 - Explain what you changed and why.
 - Call out any commands you could not run.
+- **Bug fix order: test → fail → fix → pass.** Write the regression test
+  first, run it to confirm the failure, then apply the fix. Never ship a
+  bug fix and its test in a single untested step.
 
 ## Documentation
 - `docs/learned/` — **AGENT ONLY.** This is YOUR memory so you don't repeat
@@ -51,6 +54,11 @@ updated: 2026-03-14
 
 ## Testing
 - All code must be well tested. Write tests as you write code, not after.
+- **Bug fixes require test-first workflow.** When fixing a bug, write a
+  regression test FIRST that reproduces the bug (verified to fail), THEN
+  apply the fix and verify the test passes. Never fix a bug without a
+  failing test proving the bug exists. This prevents incomplete fixes and
+  documents the exact failure mode for future readers.
 - Use table-driven tests for functions with multiple input/output cases.
 - Every exported function needs test coverage.
 - **Before every commit**, run `gofmt -w` on changed Go files. No exceptions.
@@ -252,6 +260,9 @@ CockroachDB) and the Go community's established best practices.
 - Use `httptest.NewServer` for HTTP integration tests.
 - Use `t.Setenv()` instead of `os.Setenv()` in tests.
 - Test behavior, not implementation. Test the public API of a package.
+- Bug-fix regression tests: prefix the test name with `Test...` and add a
+  `// Regression:` comment explaining the bug. Write the test BEFORE the
+  fix. Run it, confirm it fails, then fix the code. This is non-negotiable.
 - Test files live next to the code they test: `foo.go` and `foo_test.go` in
   the same directory.
 
