@@ -43,6 +43,21 @@ type Store struct {
 	packIndex    *PackIndex
 	packing      bool   // when true, small chunks are bundled into pack files
 	prevChecksum string // optional: set before Put to avoid loadCurrentState
+	lastPut      *PutResult
+}
+
+// PutResult holds metadata from the last successful Put call.
+// Used by the outbox worker to confirm the upload in the local log.
+type PutResult struct {
+	Chunks   []string
+	Checksum string
+	Size     int64
+}
+
+// LastPutResult returns metadata from the last successful Put call,
+// or nil if no Put has completed yet.
+func (s *Store) LastPutResult() *PutResult {
+	return s.lastPut
 }
 
 // SetPrevChecksum sets the previous checksum for the next Put call.
@@ -370,6 +385,12 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 
 	if err := s.writeOp(ctx, op); err != nil {
 		return fmt.Errorf("writing op: %w", err)
+	}
+
+	s.lastPut = &PutResult{
+		Chunks:   chunkHashes,
+		Checksum: fileChecksum,
+		Size:     totalSize,
 	}
 
 	return nil

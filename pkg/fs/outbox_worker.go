@@ -157,6 +157,22 @@ func (w *OutboxWorker) uploadFile(ctx context.Context, entry OutboxEntry) bool {
 		return false
 	}
 
+	// Confirm upload in local log: write back the chunk hashes so the
+	// integrity sweep sees chunks != nil and stops re-queuing this file.
+	// Without this, AppendLocal entries (from the watcher) have chunks=nil
+	// permanently — the poller skips own-device ops, so the S3 op's chunks
+	// never return to the local log.
+	if result := w.store.LastPutResult(); result != nil {
+		w.localLog.AppendLocal(opslog.Entry{
+			Type:      opslog.Put,
+			Path:      entry.Path,
+			Chunks:    result.Chunks,
+			Size:      result.Size,
+			Checksum:  result.Checksum,
+			Namespace: entry.Namespace,
+		})
+	}
+
 	w.logger.Info("outbox: uploaded", "path", entry.Path)
 	w.onEvent("state.changed", nil)
 	return true

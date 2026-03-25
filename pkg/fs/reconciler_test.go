@@ -751,6 +751,83 @@ func TestIntegritySweepSkipsCompletedAndRemote(t *testing.T) {
 	}
 }
 
+// Regression: the integrity sweep uses device==self && chunks==nil to detect
+// failed uploads. But AppendLocal (used by the watcher handler) never sets
+// chunks, and the poller skips own-device ops — so chunks never come back to
+// the local log. Result: the sweep re-queues EVERY locally-created file,
+// every cycle, forever. The fix: the outbox worker must confirm the upload
+// by writing chunks back to the local log after store.Put succeeds.
+func TestSweepStopsAfterSuccessfulUpload(t *testing.T) {
+	t.Parallel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+
+	// Step 1: simulate what the watcher handler does — AppendLocal with no chunks
+	content := "sweep regression test data"
+	localFile := filepath.Join(localDir, "local.txt")
+	os.WriteFile(localFile, []byte(content), 0644)
+	cksum := checksumOf(content)
+
+	localLog.AppendLocal(opslog.Entry{
+		Type: opslog.Put, Path: "local.txt", Checksum: cksum,
+		Size: int64(len(content)), Namespace: "Test",
+	})
+
+	// Sanity: snapshot should have device=dev-a, chunks=nil
+	snap, _ := localLog.Snapshot()
+	fi, ok := snap.Lookup("local.txt")
+	if !ok {
+		t.Fatal("local.txt not in snapshot")
+	}
+	if len(fi.Chunks) != 0 {
+		t.Fatal("expected chunks=nil before upload")
+	}
+
+	// Step 2: add to outbox and run the worker (uploads to S3)
+	outbox.Append(NewOutboxPut("local.txt", cksum, "Test", localFile))
+	worker := NewOutboxWorker(store, outbox, localLog, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go worker.Run(ctx)
+	worker.Poke()
+	time.Sleep(2 * time.Second)
+	cancel()
+
+	if outbox.Len() != 0 {
+		t.Fatalf("outbox has %d entries, want 0", outbox.Len())
+	}
+
+	// Step 3: run the integrity sweep
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.integritySweep()
+
+	// After fix: the outbox worker confirmed the upload by writing chunks
+	// back to the local log. The sweep should see chunks and NOT re-queue.
+	entries, _ := outbox.ReadAll()
+	if len(entries) != 0 {
+		t.Errorf("sweep re-queued %d entries after successful upload — chunks not confirmed in local log", len(entries))
+	}
+
+	// Verify the local log now has chunks for local.txt
+	snap, _ = localLog.Snapshot()
+	fi, ok = snap.Lookup("local.txt")
+	if !ok {
+		t.Fatal("local.txt missing from snapshot after upload")
+	}
+	if len(fi.Chunks) == 0 {
+		t.Error("local.txt still has no chunks after upload — outbox worker should confirm upload in local log")
+	}
+}
+
 func checksumOf(content string) string {
 	h := sha3.New256()
 	h.Write([]byte(content))
