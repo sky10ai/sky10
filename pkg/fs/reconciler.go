@@ -526,6 +526,17 @@ func (r *Reconciler) integritySweep() {
 		return
 	}
 
+	// Build set of paths already in the outbox to avoid re-queuing
+	// files that are waiting to be uploaded.
+	alreadyQueued := make(map[string]bool)
+	if entries, err := r.outbox.ReadAll(); err == nil {
+		for _, e := range entries {
+			if e.Op == OpPut {
+				alreadyQueued[e.Path] = true
+			}
+		}
+	}
+
 	deviceID := r.localLog.DeviceID()
 	requeued := 0
 
@@ -538,6 +549,9 @@ func (r *Reconciler) integritySweep() {
 		}
 		if fi.LinkTarget != "" {
 			continue // symlinks don't have chunks
+		}
+		if alreadyQueued[path] {
+			continue
 		}
 
 		localPath := filepath.Join(r.localDir, filepath.FromSlash(path))
