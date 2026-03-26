@@ -4,9 +4,17 @@ import (
 	"crypto/sha3"
 	"encoding/hex"
 	"io"
+	"sync"
 
 	fastcdc "github.com/jotfs/fastcdc-go"
 )
+
+// chunkerTableMu serializes writes to fastcdc's package-level lookup
+// table. NewChunker mutates a global table (table[i] ^= seed) on every
+// call — a data race when multiple goroutines create chunkers or call
+// Next() concurrently. With Seed=0 the XOR is a no-op, but the race
+// detector correctly flags the unsynchronized writes.
+var chunkerTableMu sync.RWMutex
 
 const (
 	// MinChunkSize is the minimum chunk size for CDC.
@@ -52,7 +60,9 @@ func NewChunker(r io.Reader) *Chunker {
 		AverageSize: AvgChunkSize,
 		MaxSize:     MaxChunkSize,
 	}
+	chunkerTableMu.Lock()
 	cdc, _ := fastcdc.NewChunker(r, opts)
+	chunkerTableMu.Unlock()
 	return &Chunker{cdc: cdc}
 }
 
@@ -63,7 +73,9 @@ func (c *Chunker) Next() (Chunk, error) {
 		return Chunk{}, io.EOF
 	}
 
+	chunkerTableMu.RLock()
 	cdcChunk, err := c.cdc.Next()
+	chunkerTableMu.RUnlock()
 	if err != nil {
 		if err == io.EOF {
 			c.done = true
