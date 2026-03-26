@@ -3,10 +3,14 @@ package fs
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"strings"
+	"sync/atomic"
 	"testing"
 
+	"github.com/sky10/sky10/pkg/adapter"
 	s3adapter "github.com/sky10/sky10/pkg/adapter/s3"
 )
 
@@ -296,5 +300,121 @@ func TestStoreInfo(t *testing.T) {
 	}
 	if !strings.HasPrefix(info.ID, "sky10q") {
 		t.Errorf("ID = %q, want sky10q prefix", info.ID)
+	}
+}
+
+// failAfterNBackend wraps a backend and returns an error on the Nth
+// Get or GetRange call (1-indexed). All other methods pass through.
+type failAfterNBackend struct {
+	adapter.Backend
+	failAt  int
+	calls   atomic.Int32
+	failErr error
+}
+
+func (f *failAfterNBackend) Get(ctx context.Context, key string) (io.ReadCloser, error) {
+	n := int(f.calls.Add(1))
+	if n >= f.failAt {
+		return nil, f.failErr
+	}
+	return f.Backend.Get(ctx, key)
+}
+
+func (f *failAfterNBackend) GetRange(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	n := int(f.calls.Add(1))
+	if n >= f.failAt {
+		return nil, f.failErr
+	}
+	return f.Backend.GetRange(ctx, key, offset, length)
+}
+
+func TestDownloadChunksCancellation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, _ := newTestStore(t)
+
+	// 5MB file — multiple chunks to exercise the parallel path.
+	data := make([]byte, 5*1024*1024)
+	for i := range data {
+		data[i] = byte(i % 251)
+	}
+	if err := store.Put(ctx, "big.bin", bytes.NewReader(data)); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	// Get with an already-cancelled context.
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+
+	err := store.Get(cancelled, "big.bin", io.Discard)
+	if err == nil {
+		t.Fatal("expected error from cancelled context")
+	}
+}
+
+func TestDownloadChunksErrorMidStream(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, backend := newTestStore(t)
+
+	// 10MB file — forces ~10 chunks.
+	data := make([]byte, 10*1024*1024)
+	for i := range data {
+		data[i] = byte(i % 251)
+	}
+	if err := store.Put(ctx, "big.bin", bytes.NewReader(data)); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	// Swap backend to one that fails on the 3rd Get/GetRange.
+	injectedErr := fmt.Errorf("injected S3 error")
+	store.backend = &failAfterNBackend{
+		Backend: backend,
+		failAt:  3,
+		failErr: injectedErr,
+	}
+
+	err := store.Get(ctx, "big.bin", io.Discard)
+	if err == nil {
+		t.Fatal("expected error from failing backend")
+	}
+	if !errors.Is(err, injectedErr) {
+		// The error is wrapped by fetchChunk, so check the message.
+		if !strings.Contains(err.Error(), "injected S3 error") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	}
+}
+
+func TestDownloadChunksOrdering(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, _ := newTestStore(t)
+
+	// 20MB file — many chunks to make ordering bugs likely.
+	size := 20 * 1024 * 1024
+	data := make([]byte, size)
+	for i := range data {
+		data[i] = byte((i * 7) % 256) // varied pattern
+	}
+
+	if err := store.Put(ctx, "ordered.bin", bytes.NewReader(data)); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := store.Get(ctx, "ordered.bin", &buf); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+
+	if !bytes.Equal(buf.Bytes(), data) {
+		t.Errorf("data mismatch: got %d bytes, want %d", buf.Len(), size)
+		// Find first differing byte for debugging.
+		for i := range data {
+			if i >= buf.Len() || buf.Bytes()[i] != data[i] {
+				t.Errorf("first difference at byte %d (chunk ~%d)", i, i/(1024*1024))
+				break
+			}
+		}
 	}
 }

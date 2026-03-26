@@ -426,70 +426,135 @@ func (s *Store) GetChunks(ctx context.Context, chunks []string, namespace string
 	return s.downloadChunks(ctx, chunks, nsKey, w)
 }
 
-// downloadChunks fetches, decrypts, and writes chunks sequentially.
+// downloadChunks fetches, decrypts, and writes chunks to w in order.
+// Up to 3 chunks are fetched concurrently to overlap network I/O.
 // Each chunk read has a 30-second idle timeout — if the S3 connection
 // stalls, the reader is closed and the download fails (caller retries).
 func (s *Store) downloadChunks(ctx context.Context, chunks []string, nsKey []byte, w io.Writer) error {
-	for i, chunkHash := range chunks {
-		var raw []byte
-
-		if loc, ok := s.packIndex.Entries[chunkHash]; ok {
-			rc, err := s.backend.GetRange(ctx, loc.Pack, loc.Offset, loc.Length)
+	if len(chunks) <= 1 {
+		// Single-chunk fast path — no goroutine overhead.
+		for i, hash := range chunks {
+			plain, err := s.fetchChunk(ctx, i, hash, nsKey)
 			if err != nil {
-				return fmt.Errorf("reading packed chunk %d (%s): %w", i, chunkHash[:12], err)
+				return err
 			}
-			tr := transfer.NewReader(rc, int64(loc.Length))
-			tr.SetIdleTimeout(30 * time.Second)
-			raw, err = io.ReadAll(tr)
-			rc.Close()
-			if err != nil {
-				return fmt.Errorf("reading packed chunk %d: %w", i, err)
-			}
-		} else {
-			blobKey := (&Chunk{Hash: chunkHash}).BlobKey()
-			rc, err := s.backend.Get(ctx, blobKey)
-			if err != nil {
-				return fmt.Errorf("downloading chunk %d (%s): %w", i, chunkHash[:12], err)
-			}
-			tr := transfer.NewReader(rc, -1)
-			tr.SetIdleTimeout(30 * time.Second)
-			raw, err = io.ReadAll(tr)
-			rc.Close()
-			if err != nil {
-				return fmt.Errorf("reading chunk %d: %w", i, err)
+			if _, err := w.Write(plain); err != nil {
+				return fmt.Errorf("writing chunk %d: %w", i, err)
 			}
 		}
+		return nil
+	}
 
-		encrypted, _, err := StripBlobHeader(raw)
-		if err != nil {
-			return fmt.Errorf("parsing chunk %d header: %w", i, err)
-		}
+	const ahead = 3 // max chunks to prefetch
 
-		fileKey, err := DeriveFileKey(nsKey, []byte(chunkHash))
-		if err != nil {
-			return fmt.Errorf("deriving file key for chunk %d: %w", i, err)
-		}
+	type result struct {
+		data []byte
+		err  error
+	}
 
-		compressed, err := Decrypt(encrypted, fileKey)
-		if err != nil {
-			return fmt.Errorf("decrypting chunk %d: %w", i, err)
-		}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
-		plaintext, err := DecompressChunk(compressed)
-		if err != nil {
-			return fmt.Errorf("decompressing chunk %d: %w", i, err)
-		}
+	// Prefetch semaphore — limits in-flight fetches to bound memory.
+	sem := make(chan struct{}, ahead)
+	// One buffered result channel per chunk preserves ordering.
+	slots := make([]chan result, len(chunks))
+	for i := range slots {
+		slots[i] = make(chan result, 1)
+	}
 
-		if ContentHash(plaintext) != chunkHash {
-			return fmt.Errorf("chunk %d: hash mismatch (data corrupted)", i)
-		}
+	for i, hash := range chunks {
+		i, hash := i, hash
+		go func() {
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				slots[i] <- result{err: ctx.Err()}
+				return
+			}
+			plain, err := s.fetchChunk(ctx, i, hash, nsKey)
+			slots[i] <- result{data: plain, err: err}
+			// Semaphore released by consumer, not here — keeps
+			// backpressure tight so at most `ahead` chunks are buffered.
+		}()
+	}
 
-		if _, err := w.Write(plaintext); err != nil {
-			return fmt.Errorf("writing chunk %d: %w", i, err)
+	// Consume results in order and write to output.
+	for i := range chunks {
+		select {
+		case r := <-slots[i]:
+			<-sem // release prefetch slot after consuming
+			if r.err != nil {
+				return r.err
+			}
+			if _, err := w.Write(r.data); err != nil {
+				return fmt.Errorf("writing chunk %d: %w", i, err)
+			}
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
 
 	return nil
+}
+
+// fetchChunk downloads a single chunk from S3, decrypts, decompresses,
+// and verifies its content hash. Returns the plaintext bytes.
+func (s *Store) fetchChunk(ctx context.Context, index int, chunkHash string, nsKey []byte) ([]byte, error) {
+	var raw []byte
+
+	if loc, ok := s.packIndex.Entries[chunkHash]; ok {
+		rc, err := s.backend.GetRange(ctx, loc.Pack, loc.Offset, loc.Length)
+		if err != nil {
+			return nil, fmt.Errorf("reading packed chunk %d (%s): %w", index, chunkHash[:12], err)
+		}
+		tr := transfer.NewReader(rc, int64(loc.Length))
+		tr.SetIdleTimeout(30 * time.Second)
+		raw, err = io.ReadAll(tr)
+		rc.Close()
+		if err != nil {
+			return nil, fmt.Errorf("reading packed chunk %d: %w", index, err)
+		}
+	} else {
+		blobKey := (&Chunk{Hash: chunkHash}).BlobKey()
+		rc, err := s.backend.Get(ctx, blobKey)
+		if err != nil {
+			return nil, fmt.Errorf("downloading chunk %d (%s): %w", index, chunkHash[:12], err)
+		}
+		tr := transfer.NewReader(rc, -1)
+		tr.SetIdleTimeout(30 * time.Second)
+		raw, err = io.ReadAll(tr)
+		rc.Close()
+		if err != nil {
+			return nil, fmt.Errorf("reading chunk %d: %w", index, err)
+		}
+	}
+
+	encrypted, _, err := StripBlobHeader(raw)
+	if err != nil {
+		return nil, fmt.Errorf("parsing chunk %d header: %w", index, err)
+	}
+
+	fileKey, err := DeriveFileKey(nsKey, []byte(chunkHash))
+	if err != nil {
+		return nil, fmt.Errorf("deriving file key for chunk %d: %w", index, err)
+	}
+
+	compressed, err := Decrypt(encrypted, fileKey)
+	if err != nil {
+		return nil, fmt.Errorf("decrypting chunk %d: %w", index, err)
+	}
+
+	plaintext, err := DecompressChunk(compressed)
+	if err != nil {
+		return nil, fmt.Errorf("decompressing chunk %d: %w", index, err)
+	}
+
+	if ContentHash(plaintext) != chunkHash {
+		return nil, fmt.Errorf("chunk %d: hash mismatch (data corrupted)", index)
+	}
+
+	return plaintext, nil
 }
 
 // List returns all file entries matching the prefix.
