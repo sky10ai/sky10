@@ -283,6 +283,25 @@ class SkyClient {
         return try await rpc.call("skyfs.compact", params: ["keep": keep])
     }
 
+    // MARK: - S3 Browser
+
+    struct S3Entry: Codable, Identifiable {
+        let key: String
+        let size: Int64
+        var id: String { key }
+    }
+
+    struct S3ListResult: Codable {
+        let files: [S3Entry]?
+        let dirs: [String]?
+        let prefix: String
+        let total: Int
+    }
+
+    func s3List(prefix: String) async throws -> S3ListResult {
+        return try await rpc.call("skyfs.s3List", params: ["prefix": prefix])
+    }
+
     // MARK: - Debug
 
     struct DebugDumpResult: Codable {

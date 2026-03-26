@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -310,6 +311,8 @@ func (s *RPCServer) dispatch(ctx context.Context, req *RPCRequest) *RPCResponse 
 		result, err = s.rpcDebugList(ctx)
 	case "skyfs.debugGet":
 		result, err = s.rpcDebugGet(ctx, req.Params)
+	case "skyfs.s3List":
+		result, err = s.rpcS3List(ctx, req.Params)
 	default:
 		resp.Error = &RPCError{Code: -32601, Message: "method not found: " + req.Method}
 		return resp
@@ -1340,6 +1343,60 @@ func (s *RPCServer) rpcDebugGet(ctx context.Context, params json.RawMessage) (in
 	var parsed interface{}
 	json.Unmarshal(data, &parsed)
 	return parsed, nil
+}
+
+func (s *RPCServer) rpcS3List(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p struct {
+		Prefix string `json:"prefix"`
+	}
+	if params != nil {
+		json.Unmarshal(params, &p)
+	}
+
+	listCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	keys, err := s.store.backend.List(listCtx, p.Prefix)
+	if err != nil {
+		return nil, err
+	}
+
+	// Group by next path component to show "directories"
+	type s3Entry struct {
+		Key  string `json:"key"`
+		Size int64  `json:"size"`
+	}
+	var files []s3Entry
+	dirSet := make(map[string]bool)
+
+	prefixLen := len(p.Prefix)
+	for _, key := range keys {
+		rest := key[prefixLen:]
+		if idx := strings.Index(rest, "/"); idx >= 0 {
+			dir := p.Prefix + rest[:idx+1]
+			dirSet[dir] = true
+		} else {
+			meta, err := s.store.backend.Head(listCtx, key)
+			size := int64(0)
+			if err == nil {
+				size = meta.Size
+			}
+			files = append(files, s3Entry{Key: key, Size: size})
+		}
+	}
+
+	var dirs []string
+	for d := range dirSet {
+		dirs = append(dirs, d)
+	}
+	sort.Strings(dirs)
+
+	return map[string]interface{}{
+		"files":  files,
+		"dirs":   dirs,
+		"prefix": p.Prefix,
+		"total":  len(keys),
+	}, nil
 }
 
 func splitInvitePath2(key string) string {

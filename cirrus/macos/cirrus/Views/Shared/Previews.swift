@@ -75,6 +75,9 @@ private class PreviewSkyClient: SkyClientProtocol {
     func debugDump() async throws -> SkyClient.DebugDumpResult {
         SkyClient.DebugDumpResult(status: "mock", key: "debug/mock/test.json", size: 0)
     }
+    func s3List(prefix: String) async throws -> SkyClient.S3ListResult {
+        SkyClient.S3ListResult(files: [], dirs: ["ops/", "blobs/", "manifests/"], prefix: "", total: 0)
+    }
 }
 
 extension AppState {

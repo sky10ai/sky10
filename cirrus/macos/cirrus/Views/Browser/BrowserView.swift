@@ -23,34 +23,7 @@ struct BrowserView: View {
             SidebarView(selectedDrive: $selectedDrive)
                 .environmentObject(appState)
         } detail: {
-            HSplitView {
-                Group {
-                    switch viewMode {
-                    case .activity:
-                        ActivityView()
-                            .environmentObject(appState)
-                    case .tree:
-                        FileTreeView(
-                            root: buildTree(from: displayedFiles, emptyDirs: appState.emptyDirs),
-                            selectedFile: $selectedFile
-                        )
-                        .environmentObject(appState)
-                    case .list:
-                        FileColumnView(
-                            root: buildTree(from: displayedFiles, emptyDirs: appState.emptyDirs),
-                            selectedFile: $selectedFile
-                        )
-                        .environmentObject(appState)
-                    }
-                }
-                .frame(minWidth: 300)
-
-                if showInspector, let file = selectedFile {
-                    InspectorView(file: file)
-                        .environmentObject(appState)
-                        .frame(width: 240)
-                }
-            }
+            detailContent
             .searchable(text: $searchText, prompt: "Search files")
             .navigationTitle("Cirrus")
             .toolbar {
@@ -114,9 +87,46 @@ struct BrowserView: View {
         }
     }
 
+    @ViewBuilder
+    private var detailContent: some View {
+        if selectedDrive == "__s3__" {
+            S3BrowserView()
+                .environmentObject(appState)
+        } else {
+            HSplitView {
+                Group {
+                    switch viewMode {
+                    case .activity:
+                        ActivityView()
+                            .environmentObject(appState)
+                    case .tree:
+                        FileTreeView(
+                            root: buildTree(from: displayedFiles, emptyDirs: appState.emptyDirs),
+                            selectedFile: $selectedFile
+                        )
+                        .environmentObject(appState)
+                    case .list:
+                        FileColumnView(
+                            root: buildTree(from: displayedFiles, emptyDirs: appState.emptyDirs),
+                            selectedFile: $selectedFile
+                        )
+                        .environmentObject(appState)
+                    }
+                }
+                .frame(minWidth: 300)
+
+                if showInspector, let file = selectedFile {
+                    InspectorView(file: file)
+                        .environmentObject(appState)
+                        .frame(width: 240)
+                }
+            }
+        }
+    }
+
     private var displayedFiles: [FileNode] {
         var result = appState.files
-        if let drive = selectedDrive {
+        if let drive = selectedDrive, drive != "__s3__" {
             result = result.filter { $0.namespace == drive }
         }
         if !searchText.isEmpty {
