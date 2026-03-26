@@ -312,6 +312,12 @@ func fsServeCmd() *cobra.Command {
 			// SIGUSR1 dumps all goroutine stacks to daemon.log
 			skyfs.HandleDumpSignal(slog.Default())
 
+			// Kill any stale daemon from a previous session before starting.
+			// Without this, multiple daemons run simultaneously — all watching
+			// the same directory, all uploading, creating a feedback loop.
+			if err := skyfs.KillExistingDaemon(); err != nil {
+				slog.Warn("killed stale daemon", "error", err)
+			}
 			if err := skyfs.WritePIDFile(); err != nil {
 				return fmt.Errorf("writing PID file: %w", err)
 			}
