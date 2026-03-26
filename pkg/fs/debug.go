@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -49,6 +50,7 @@ func HandleDumpSignal(logger *slog.Logger) {
 // Each worker should call heartbeat() periodically. If no heartbeat arrives
 // within the timeout, the watchdog dumps all goroutines to the log.
 type Watchdog struct {
+	mu      sync.Mutex
 	logger  *slog.Logger
 	timeout time.Duration
 	workers map[string]*workerState
@@ -76,11 +78,13 @@ func (w *Watchdog) Register(name string) {
 
 // Heartbeat records that a worker is alive.
 func (w *Watchdog) Heartbeat(name string) {
+	w.mu.Lock()
 	if ws, ok := w.workers[name]; ok {
 		ws.lastBeat = time.Now()
 		ws.isActive = true
 		w.dumped = false // reset dump flag when workers recover
 	}
+	w.mu.Unlock()
 }
 
 // Run checks worker health periodically until context is cancelled.
@@ -99,6 +103,8 @@ func (w *Watchdog) Run(ctx context.Context) {
 }
 
 func (w *Watchdog) check() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.dumped {
 		return
 	}
