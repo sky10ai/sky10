@@ -1,0 +1,51 @@
+name: verify-release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  verify-darwin-arm64:
+    name: Verify darwin/arm64 binary
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build from source
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          COMMIT="$(git rev-parse --short HEAD)"
+          DATE="$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ)"
+          GOOS=darwin GOARCH=arm64 go build -trimpath -buildvcs=false \
+            -ldflags "-s -w -X 'main.version=v${VERSION}' -X 'main.commit=${COMMIT}' -X 'main.buildDate=${DATE}'" \
+            -o sky10-rebuilt .
+          shasum -a 256 sky10-rebuilt
+
+      - name: Download release asset
+        run: |
+          gh release download "${GITHUB_REF_NAME}" \
+            --pattern "sky10-darwin-arm64" \
+            --pattern "checksums.txt" \
+            --dir release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify release checksum
+        run: cd release && shasum -a 256 -c checksums.txt
+
+      - name: Compare binaries
+        run: |
+          HASH_REBUILT="$(shasum -a 256 sky10-rebuilt | awk '{print $1}')"
+          HASH_RELEASE="$(shasum -a 256 release/sky10-darwin-arm64 | awk '{print $1}')"
+          echo "Rebuilt:  ${HASH_REBUILT}"
+          echo "Release:  ${HASH_RELEASE}"
+          if [ "${HASH_REBUILT}" != "${HASH_RELEASE}" ]; then
+            echo "::error::Binary mismatch — release asset does not match source"
+            ls -la sky10-rebuilt release/sky10-darwin-arm64
+            exit 1
+          fi
+          echo "Reproducible build verified — binaries are byte-identical"
