@@ -12,7 +12,7 @@ func TestCompactParallelDeleteMany(t *testing.T) {
 
 	// Write enough ops to exercise parallel delete (>10 to exceed semaphore)
 	for i := 0; i < 25; i++ {
-		e := Entry{Type: Put, Path: "file" + string(rune('a'+i)) + ".md", Checksum: "h"}
+		e := Entry{Type: Put, Path: "file" + string(rune('a'+i)) + ".md", Checksum: "h", Chunks: []string{"c1"}}
 		if err := log.Append(ctx, &e); err != nil {
 			t.Fatal(err)
 		}
@@ -58,7 +58,7 @@ func TestCompactWithDeletedFiles(t *testing.T) {
 
 	// Create then delete files — compact should produce a clean snapshot
 	for i := 0; i < 10; i++ {
-		e := Entry{Type: Put, Path: "temp" + string(rune('a'+i)) + ".md", Checksum: "h"}
+		e := Entry{Type: Put, Path: "temp" + string(rune('a'+i)) + ".md", Checksum: "h", Chunks: []string{"c1"}}
 		if err := log.Append(ctx, &e); err != nil {
 			t.Fatal(err)
 		}
@@ -173,7 +173,7 @@ func TestCompactIdempotent(t *testing.T) {
 	log, _ := newTestLog(t)
 
 	for i := 0; i < 5; i++ {
-		e := Entry{Type: Put, Path: "f" + string(rune('a'+i)) + ".md", Checksum: "h"}
+		e := Entry{Type: Put, Path: "f" + string(rune('a'+i)) + ".md", Checksum: "h", Chunks: []string{"c1"}}
 		log.Append(ctx, &e)
 	}
 
@@ -208,7 +208,7 @@ func TestCompactSnapshotPruning(t *testing.T) {
 
 	// Compact 3 times to create 3 snapshots
 	for round := 0; round < 3; round++ {
-		e := Entry{Type: Put, Path: "f.md", Checksum: "v" + string(rune('0'+round))}
+		e := Entry{Type: Put, Path: "f.md", Checksum: "v" + string(rune('0'+round)), Chunks: []string{"c1"}}
 		log.Append(ctx, &e)
 		log.Compact(ctx, 2) // keep max 2
 	}
@@ -227,7 +227,7 @@ func TestCompactThenNewOpsSnapshot(t *testing.T) {
 
 	// Write 5 ops, compact
 	for i := 0; i < 5; i++ {
-		e := Entry{Type: Put, Path: "old" + string(rune('a'+i)) + ".md", Checksum: "h"}
+		e := Entry{Type: Put, Path: "old" + string(rune('a'+i)) + ".md", Checksum: "h", Chunks: []string{"c1"}}
 		log.Append(ctx, &e)
 	}
 	if _, err := log.Compact(ctx, 2); err != nil {
@@ -236,7 +236,7 @@ func TestCompactThenNewOpsSnapshot(t *testing.T) {
 
 	// Write 3 more ops (post-compact)
 	for i := 0; i < 3; i++ {
-		e := Entry{Type: Put, Path: "new" + string(rune('a'+i)) + ".md", Checksum: "h"}
+		e := Entry{Type: Put, Path: "new" + string(rune('a'+i)) + ".md", Checksum: "h", Chunks: []string{"c1"}}
 		log.Append(ctx, &e)
 	}
 
@@ -264,6 +264,106 @@ func TestCompactThenNewOpsSnapshot(t *testing.T) {
 	}
 }
 
+// Regression: S3 compaction must strip chunkless Put entries from snapshots.
+// Chunkless Puts are local tracking state ("upload pending") that leaked to
+// S3. If compaction preserves them, other machines see permanently-broken
+// entries that can never be downloaded, causing infinite reconciler retries.
+func TestCompactStripsChunklessPuts(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	log, _ := newTestLog(t)
+
+	// Normal put with chunks — should survive compaction
+	e1 := Entry{Type: Put, Path: "complete.txt", Checksum: "h1", Chunks: []string{"c1", "c2"}, Size: 100}
+	log.Append(ctx, &e1)
+
+	// Chunkless put — should be stripped by compaction
+	e2 := Entry{Type: Put, Path: "pending.txt", Checksum: "h2", Size: 50}
+	log.Append(ctx, &e2)
+
+	// Another chunkless put
+	e3 := Entry{Type: Put, Path: "also-pending.txt", Checksum: "h3", Size: 75}
+	log.Append(ctx, &e3)
+
+	// Delete op (always chunkless by nature) — should survive
+	e4 := Entry{Type: Delete, Path: "gone.txt"}
+	log.Append(ctx, &e4)
+
+	// Symlink (chunkless by nature) — should survive
+	e5 := Entry{Type: Symlink, Path: "link.txt", LinkTarget: "complete.txt"}
+	log.Append(ctx, &e5)
+
+	// Pre-compact: snapshot has 3 files + 1 symlink
+	snap, err := log.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Len() != 4 {
+		t.Fatalf("pre-compact Len() = %d, want 4", snap.Len())
+	}
+
+	_, err = log.Compact(ctx, 2)
+	if err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+
+	// Force reload from compacted snapshot
+	log.InvalidateCache()
+	snap, err = log.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Snapshot after compact: %v", err)
+	}
+
+	// Only complete.txt and link.txt should survive — chunkless Puts stripped
+	if _, ok := snap.Lookup("complete.txt"); !ok {
+		t.Error("complete.txt should survive compaction (has chunks)")
+	}
+	if _, ok := snap.Lookup("link.txt"); !ok {
+		t.Error("link.txt should survive compaction (symlink)")
+	}
+	if _, ok := snap.Lookup("pending.txt"); ok {
+		t.Error("pending.txt should be stripped by compaction (chunkless put)")
+	}
+	if _, ok := snap.Lookup("also-pending.txt"); ok {
+		t.Error("also-pending.txt should be stripped by compaction (chunkless put)")
+	}
+}
+
+// Regression: when a path has both a chunkless Put and a later Put with
+// chunks, only the chunked version should survive compaction.
+func TestCompactKeepsChunkedOverChunkless(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	log, _ := newTestLog(t)
+
+	// First: chunkless put (watcher handler)
+	e1 := Entry{Type: Put, Path: "file.txt", Checksum: "h1", Size: 50, Device: "dev-a"}
+	log.Append(ctx, &e1)
+
+	// Second: same path with chunks (outbox worker confirmed upload)
+	e2 := Entry{Type: Put, Path: "file.txt", Checksum: "h1", Size: 50, Chunks: []string{"c1"}, Device: "dev-a"}
+	log.Append(ctx, &e2)
+
+	_, err := log.Compact(ctx, 2)
+	if err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+
+	log.InvalidateCache()
+	snap, err := log.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fi, ok := snap.Lookup("file.txt")
+	if !ok {
+		t.Fatal("file.txt should survive compaction (later entry has chunks)")
+	}
+	if len(fi.Chunks) == 0 {
+		t.Error("file.txt should have chunks after compaction (chunked entry wins)")
+	}
+}
+
 func TestCompactDeletePostCompactSnapshot(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -271,7 +371,7 @@ func TestCompactDeletePostCompactSnapshot(t *testing.T) {
 
 	// Write 5 ops, compact
 	for i := 0; i < 5; i++ {
-		e := Entry{Type: Put, Path: "f" + string(rune('a'+i)) + ".md", Checksum: "h"}
+		e := Entry{Type: Put, Path: "f" + string(rune('a'+i)) + ".md", Checksum: "h", Chunks: []string{"c1"}}
 		log.Append(ctx, &e)
 	}
 	if _, err := log.Compact(ctx, 2); err != nil {

@@ -155,6 +155,13 @@ func (l *LocalOpsLog) Compact() error {
 	}
 
 	for path, fi := range l.cache.files {
+		// Strip chunkless Puts — they are local tracking state ("upload
+		// pending") that should not persist through compaction. The
+		// integrity sweep will re-queue them from disk if needed.
+		// Symlinks are legitimately chunkless and must be kept.
+		if len(fi.Chunks) == 0 && fi.LinkTarget == "" {
+			continue
+		}
 		entryType := Put
 		if fi.LinkTarget != "" {
 			entryType = Symlink
@@ -214,7 +221,9 @@ func (l *LocalOpsLog) Compact() error {
 		return fmt.Errorf("replacing ops log: %w", err)
 	}
 
-	// Cache is still valid — snapshot unchanged.
+	// Invalidate cache — compaction may have stripped chunkless entries,
+	// so the in-memory snapshot no longer matches the file on disk.
+	l.cache = nil
 	return nil
 }
 
