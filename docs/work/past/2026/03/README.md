@@ -2,6 +2,7 @@
 
 | Date | Title | Summary |
 |------|-------|---------|
+| 26 | [Chunkless Ops Architecture](26-Chunkless-Ops-Architecture.md) | Strip chunkless Puts from compaction snapshots, skip in reconciler — fixes infinite retry spin on receiving machines |
 | 25 | [Parallel Chunk Downloads](25-Parallel-Chunk-Downloads.md) | Prefetch up to 3 chunks concurrently per file, fix GetRange semaphore, fastcdc race, Watchdog race |
 | 25 | [File-Gone Sync Gap](25-File-Gone-Sync-Gap.md) | Fix files never syncing after "file gone" outbox failure — outbox records delete on failure + periodic integrity sweep re-queues chunkless entries |
 | 24 | [Compact Gap & Watcher Fix](24-Compact-Gap-And-Watcher-Fix.md) | Post-compaction poller bootstrap gap (documented + tests), watcher crash on dangling symlinks (fixed), fsnotify kqueue `os.Stat` root cause |

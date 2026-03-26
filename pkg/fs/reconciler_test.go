@@ -987,3 +987,118 @@ func fileExistsAt(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
+
+// Regression: when a remote device uploads a chunkless Put (e.g. AppendLocal
+// leaked to S3 before outbox worker confirmed chunks), the reconciler must
+// treat it as "pending" — not as a download failure. Counting it as failed
+// triggers a 2-second retry poke that spins forever because chunks will
+// never appear on their own.
+func TestReconcilerSkipsChunklessRemoteEntries(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-local")
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+
+	// Remote device has a chunkless Put — upload pending on their side.
+	localLog.Append(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "pending-upload.txt",
+		Checksum:  "abc123",
+		Size:      100,
+		Namespace: "Test",
+		Device:    "dev-remote",
+		Timestamp: 1000,
+		Seq:       1,
+		// Chunks intentionally nil — this is the chunkless op
+	})
+
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+
+	// Run reconciliation directly.
+	// The chunkless entry must NOT count as failed.
+	ctx := context.Background()
+	r.reconcile(ctx)
+
+	// The chunkless file should NOT be on disk (no chunks to download)
+	if _, err := os.Stat(filepath.Join(localDir, "pending-upload.txt")); err == nil {
+		t.Error("pending-upload.txt should NOT be on disk — no chunks available")
+	}
+
+	// Wait for any retry goroutine to fire (the bug: 2-second retry poke)
+	time.Sleep(3 * time.Second)
+
+	// Drain the notify channel — with the bug, a retry poke is queued.
+	select {
+	case <-r.notify:
+		t.Error("chunkless entry should NOT trigger retry poke")
+	default:
+		// good — no poke
+	}
+}
+
+// Regression: chunkless Put entries should not count toward the failed
+// counter in reconcile(), which means failed==0 and no retry poke fires.
+// This specifically tests the case where ALL remote entries are chunkless.
+func TestReconcilerChunklessOnlyNoRetryPoke(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-local")
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+
+	// 5 chunkless remote Puts — all pending uploads on source machine
+	for i := 0; i < 5; i++ {
+		localLog.Append(opslog.Entry{
+			Type:      opslog.Put,
+			Path:      fmt.Sprintf("pending-%d.txt", i),
+			Checksum:  fmt.Sprintf("hash%d", i),
+			Size:      100,
+			Namespace: "Test",
+			Device:    "dev-remote",
+			Timestamp: int64(1000 + i),
+			Seq:       i + 1,
+		})
+	}
+
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+
+	// Run reconciler in a goroutine with Run() — if retry pokes fire,
+	// it will keep reconciling in a tight loop.
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+
+	reconcileCount := 0
+	r.onEvent = func(evt string, _ map[string]any) {
+		if evt == "sync.complete" || evt == "download.start" {
+			reconcileCount++
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		r.Run(ctx)
+		close(done)
+	}()
+
+	<-ctx.Done()
+	<-done
+
+	// With the bug: reconciler retries every 2 seconds → reconcileCount >= 2
+	// With the fix: reconciler runs once on startup, no retries → reconcileCount <= 1
+	if reconcileCount > 1 {
+		t.Errorf("reconciler ran %d times in 4s — chunkless entries are causing retry spin", reconcileCount)
+	}
+}

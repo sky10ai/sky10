@@ -129,6 +129,7 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 	}
 	var targets []dlTarget
 	var symlinkTargets []dlTarget
+	pending := 0
 	for path, fi := range snapshotFiles {
 		if pendingDeletes[path] {
 			skipped++
@@ -136,6 +137,14 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		}
 		if r.underPendingDeleteDir(path, pendingDeleteDirs) {
 			skipped++
+			continue
+		}
+		// Chunkless Puts are tracking state ("upload pending on source
+		// device"), not downloadable content. Skip them — the source
+		// machine's outbox worker will eventually upload chunks and
+		// write a new op with the chunk hashes.
+		if len(fi.Chunks) == 0 && fi.LinkTarget == "" {
+			pending++
 			continue
 		}
 		localChecksum, onDisk := localFiles[path]
@@ -231,7 +240,7 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		active = true
 	}
 
-	r.logger.Info("reconcile: done", "downloaded", downloaded, "deleted", deleted, "failed", failed, "skipped", skipped)
+	r.logger.Info("reconcile: done", "downloaded", downloaded, "deleted", deleted, "failed", failed, "skipped", skipped, "pending", pending)
 
 	if active {
 		r.onEvent("sync.complete", map[string]any{

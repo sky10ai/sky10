@@ -429,12 +429,12 @@ func TestLocalCompact(t *testing.T) {
 	log := NewLocalOpsLog(path, "dev-a")
 
 	// Write many entries, some superseded
-	log.AppendLocal(Entry{Type: Put, Path: "a.md", Checksum: "v1"})
-	log.AppendLocal(Entry{Type: Put, Path: "a.md", Checksum: "v2"}) // supersedes v1
-	log.AppendLocal(Entry{Type: Put, Path: "b.md", Checksum: "h1"})
+	log.AppendLocal(Entry{Type: Put, Path: "a.md", Checksum: "v1", Chunks: []string{"c1"}})
+	log.AppendLocal(Entry{Type: Put, Path: "a.md", Checksum: "v2", Chunks: []string{"c2"}}) // supersedes v1
+	log.AppendLocal(Entry{Type: Put, Path: "b.md", Checksum: "h1", Chunks: []string{"c3"}})
 	log.AppendLocal(Entry{Type: Delete, Path: "b.md"}) // deletes b.md
-	log.AppendLocal(Entry{Type: Put, Path: "c.md", Checksum: "h2"})
-	log.Append(Entry{Type: Put, Path: "d.md", Checksum: "h3", Device: "dev-b", Timestamp: 200, Seq: 1})
+	log.AppendLocal(Entry{Type: Put, Path: "c.md", Checksum: "h2", Chunks: []string{"c4"}})
+	log.Append(Entry{Type: Put, Path: "d.md", Checksum: "h3", Chunks: []string{"c5"}, Device: "dev-b", Timestamp: 200, Seq: 1})
 
 	// 6 entries on disk, snapshot has 3 files (a=v2, c, d)
 	snap1, _ := log.Snapshot()
@@ -483,10 +483,10 @@ func TestLocalCompactSurvivesReload(t *testing.T) {
 	path := filepath.Join(dir, "ops.jsonl")
 
 	log1 := NewLocalOpsLog(path, "dev-a")
-	log1.AppendLocal(Entry{Type: Put, Path: "x.md", Checksum: "h1"})
-	log1.AppendLocal(Entry{Type: Put, Path: "x.md", Checksum: "h2"})
-	log1.AppendLocal(Entry{Type: Put, Path: "y.md", Checksum: "h3"})
-	log1.Append(Entry{Type: Put, Path: "z.md", Checksum: "h4", Device: "dev-b", Timestamp: 300, Seq: 1})
+	log1.AppendLocal(Entry{Type: Put, Path: "x.md", Checksum: "h1", Chunks: []string{"c1"}})
+	log1.AppendLocal(Entry{Type: Put, Path: "x.md", Checksum: "h2", Chunks: []string{"c2"}})
+	log1.AppendLocal(Entry{Type: Put, Path: "y.md", Checksum: "h3", Chunks: []string{"c3"}})
+	log1.Append(Entry{Type: Put, Path: "z.md", Checksum: "h4", Chunks: []string{"c4"}, Device: "dev-b", Timestamp: 300, Seq: 1})
 	log1.Compact()
 
 	// "Crash" — new instance from compacted file
@@ -508,7 +508,7 @@ func TestLocalCompactSurvivesReload(t *testing.T) {
 	}
 
 	// New appends should work on the compacted file
-	log2.AppendLocal(Entry{Type: Put, Path: "new.md", Checksum: "h5"})
+	log2.AppendLocal(Entry{Type: Put, Path: "new.md", Checksum: "h5", Chunks: []string{"c5"}})
 	snap2, _ := log2.Snapshot()
 	if snap2.Len() != 4 {
 		t.Errorf("Len() = %d after append, want 4", snap2.Len())
@@ -530,6 +530,71 @@ func TestLocalCompactEmpty(t *testing.T) {
 	snap, _ := log.Snapshot()
 	if snap.Len() != 0 {
 		t.Errorf("Len() = %d, want 0", snap.Len())
+	}
+}
+
+// Regression: local compaction must strip chunkless Put entries from the
+// compacted file. Chunkless Puts are tracking state ("upload pending") that
+// should not persist through compaction — they cause the integrity sweep
+// to re-queue files every cycle and the reconciler to spin on retries.
+func TestLocalCompactStripsChunklessPuts(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ops.jsonl")
+	log := NewLocalOpsLog(path, "dev-a")
+
+	// Chunkless put (watcher handler — upload pending)
+	log.AppendLocal(Entry{Type: Put, Path: "pending.md", Checksum: "h1", Size: 50})
+
+	// Put with chunks (upload confirmed)
+	log.AppendLocal(Entry{Type: Put, Path: "done.md", Checksum: "h2", Size: 100, Chunks: []string{"c1"}})
+
+	// Symlink (always chunkless — should survive)
+	log.AppendLocal(Entry{Type: Symlink, Path: "link.md", LinkTarget: "done.md"})
+
+	// Remote entry with chunks
+	log.Append(Entry{
+		Type: Put, Path: "remote.md", Checksum: "h3", Size: 200,
+		Chunks: []string{"c2"}, Device: "dev-b", Timestamp: 300, Seq: 1,
+	})
+
+	// Pre-compact: 4 files
+	snap, _ := log.Snapshot()
+	if snap.Len() != 4 {
+		t.Fatalf("pre-compact Len() = %d, want 4", snap.Len())
+	}
+
+	if err := log.Compact(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reload from compacted file
+	log2 := NewLocalOpsLog(path, "dev-a")
+	snap, _ = log2.Snapshot()
+
+	// pending.md should be stripped (chunkless put)
+	if _, ok := snap.Lookup("pending.md"); ok {
+		t.Error("pending.md should be stripped by compaction (chunkless put)")
+	}
+
+	// done.md should survive (has chunks)
+	if _, ok := snap.Lookup("done.md"); !ok {
+		t.Error("done.md should survive compaction (has chunks)")
+	}
+
+	// link.md should survive (symlink)
+	if _, ok := snap.Lookup("link.md"); !ok {
+		t.Error("link.md should survive compaction (symlink)")
+	}
+
+	// remote.md should survive (has chunks)
+	if _, ok := snap.Lookup("remote.md"); !ok {
+		t.Error("remote.md should survive compaction (has chunks)")
+	}
+
+	// Total: 3 files after compaction
+	if snap.Len() != 3 {
+		t.Errorf("post-compact Len() = %d, want 3", snap.Len())
 	}
 }
 

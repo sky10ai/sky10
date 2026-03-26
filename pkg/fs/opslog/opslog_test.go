@@ -278,7 +278,7 @@ func TestCompactThenAppend(t *testing.T) {
 	log, _ := newTestLog(t)
 
 	// Initial entries
-	e1 := Entry{Type: Put, Path: "a.md", Checksum: "h1"}
+	e1 := Entry{Type: Put, Path: "a.md", Checksum: "h1", Chunks: []string{"c1"}}
 	if err := log.Append(ctx, &e1); err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func TestCompactThenAppend(t *testing.T) {
 	}
 
 	// New entry after compact
-	e2 := Entry{Type: Put, Path: "b.md", Checksum: "h2"}
+	e2 := Entry{Type: Put, Path: "b.md", Checksum: "h2", Chunks: []string{"c2"}}
 	if err := log.Append(ctx, &e2); err != nil {
 		t.Fatal(err)
 	}

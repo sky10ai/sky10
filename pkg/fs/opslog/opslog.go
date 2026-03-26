@@ -496,6 +496,14 @@ func (l *OpsLog) saveSnapshot(ctx context.Context, snap *Snapshot) error {
 		Tree:    make(map[string]fileInfoJSON, len(snap.files)),
 	}
 	for path, fi := range snap.files {
+		// Strip chunkless Puts — they are local tracking state ("upload
+		// pending") that should not be baked into S3 snapshots. If
+		// preserved, other machines see permanently-broken entries that
+		// can never be downloaded, causing infinite reconciler retries.
+		// Symlinks are legitimately chunkless and must be kept.
+		if len(fi.Chunks) == 0 && fi.LinkTarget == "" {
+			continue
+		}
 		m.Tree[path] = fileInfoJSON{
 			Chunks:     fi.Chunks,
 			Size:       fi.Size,
