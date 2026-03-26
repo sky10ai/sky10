@@ -24,6 +24,7 @@ protocol SkyClientProtocol {
     func reset() async throws -> SkyClient.ResetResult
     func compact(keep: Int) async throws -> SkyClient.CompactResult
     func debugDump() async throws -> SkyClient.DebugDumpResult
+    func s3List(prefix: String) async throws -> SkyClient.S3ListResult
 }
 
 struct DeviceInfo: Codable {

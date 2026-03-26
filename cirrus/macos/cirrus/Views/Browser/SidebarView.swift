@@ -2,8 +2,9 @@ import AppKit
 import SwiftUI
 
 private let allFilesTag = "__all__"
+private let s3Tag = "__s3__"
 
-/// Sidebar showing synced drives and storage info.
+/// Sidebar showing S3 browser, synced drives, and storage info.
 struct SidebarView: View {
     @EnvironmentObject var appState: AppState
     @Binding var selectedDrive: String?
@@ -11,6 +12,11 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: $selection) {
+            Section("S3") {
+                Label("Bucket", systemImage: "externaldrive.connected.to.line.below")
+                    .tag(s3Tag)
+            }
+
             Section("Drives") {
                 Label("All Files", systemImage: "externaldrive.fill")
                     .tag(allFilesTag)
@@ -56,7 +62,14 @@ struct SidebarView: View {
         .listStyle(.sidebar)
         .frame(minWidth: 180)
         .onChange(of: selection) { _, newValue in
-            selectedDrive = (newValue == allFilesTag) ? nil : newValue
+            switch newValue {
+            case s3Tag:
+                selectedDrive = s3Tag
+            case allFilesTag:
+                selectedDrive = nil
+            default:
+                selectedDrive = newValue
+            }
         }
     }
 }
