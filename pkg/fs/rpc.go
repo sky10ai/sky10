@@ -1288,18 +1288,17 @@ func (s *RPCServer) rpcDebugDump(ctx context.Context) (interface{}, error) {
 	// Also include ring buffer in case file read fails
 	dump["logs"] = s.logBuf.Lines()
 
-	// Upload to S3 with timeout
+	// Upload to S3 — no wall-clock timeout. The HTTP client has its own
+	// idle/read timeouts for dead connections. A fixed deadline kills
+	// active uploads that are streaming bytes but happen to be large.
 	data, err := json.MarshalIndent(dump, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("marshaling debug dump: %w", err)
 	}
 
-	uploadCtx, uploadCancel := context.WithTimeout(ctx, 10*time.Second)
-	defer uploadCancel()
-
 	key := fmt.Sprintf("debug/%s/%s.json", deviceID, ts)
 	r := strings.NewReader(string(data))
-	if err := s.store.backend.Put(uploadCtx, key, r, int64(len(data))); err != nil {
+	if err := s.store.backend.Put(ctx, key, r, int64(len(data))); err != nil {
 		return nil, fmt.Errorf("uploading debug dump: %w", err)
 	}
 
