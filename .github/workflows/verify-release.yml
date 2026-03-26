@@ -1,8 +1,8 @@
 name: verify-release
 
 on:
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
 
 jobs:
   verify-darwin-arm64:
@@ -24,6 +24,21 @@ jobs:
             -ldflags "-s -w -X 'main.version=v${VERSION}' -X 'main.commit=${COMMIT}' -X 'main.buildDate=${DATE}'" \
             -o sky10-rebuilt .
           shasum -a 256 sky10-rebuilt
+
+      - name: Wait for release asset
+        run: |
+          for i in $(seq 1 30); do
+            if gh release view "${GITHUB_REF_NAME}" --json assets -q '.assets[].name' 2>/dev/null | grep -q sky10-darwin-arm64; then
+              echo "Release asset found"
+              exit 0
+            fi
+            echo "Waiting for release asset... (attempt $i/30)"
+            sleep 10
+          done
+          echo "::error::Release asset not found after 5 minutes"
+          exit 1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download release asset
         run: |
