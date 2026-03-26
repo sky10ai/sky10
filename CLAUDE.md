@@ -1,5 +1,5 @@
 ---
-updated: 2026-03-14
+updated: 2026-03-26
 ---
 
 # CLAUDE.md
@@ -20,6 +20,17 @@ updated: 2026-03-14
 - Commit and push after every completed task. Don't let work pile up. After
   each command the user gives you, commit and push immediately. Never commit
   without pushing.
+- Use **Conventional Commits** for all commit messages:
+  - Format: `<type>(<scope>): <description>`
+  - Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`, `ci`
+  - Scope is optional but encouraged (e.g. `fix(s3):`, `feat(reconciler):`)
+  - Description is lowercase, imperative, no period
+  - Body (after blank line) explains *why*, not *what*
+  - Examples:
+    - `feat(download): prefetch up to 3 chunks concurrently`
+    - `fix(s3): add missing semaphore to GetRange`
+    - `test(skyfs): add parallel chunk download coverage`
+    - `docs(work): add log for parallel chunk downloads`
 
 ## Workflow
 - Inspect existing files before editing.
@@ -51,6 +62,30 @@ updated: 2026-03-14
   - `docs/work/README.md` — top-level index linking to current and past
   - When work is completed, move plans from `current/` to
     `past/{year}/{month}/` and update all READMEs.
+
+## Debugging Remote Machines
+
+When diagnosing issues on another machine, use the daemon's RPC over the
+Unix socket at `/tmp/sky10/sky10.sock`.
+
+- **Identify devices:** `skyfs.devices` RPC returns all registered devices
+  with hostname and short public key ID. Compare the `device_id` field in
+  a debug dump to the device list to match dumps to machines.
+- **List debug dumps:** `skyfs.debugList` — returns S3 keys under `debug/`.
+- **Fetch a dump:** `skyfs.debugGet` with `{"key":"debug/<deviceID>/<ts>.json"}`
+  — returns full JSON with snapshot, outbox, local files, logs, and S3 state.
+- **Trigger a dump** (from the target machine): `skyfs.debugDump` uploads a
+  new dump to S3 under `debug/<deviceID>/<timestamp>.json`.
+- **Direct S3 access:** Use Go code or the RPC — there is no standalone S3
+  CLI configured. The `s3List` RPC can browse any prefix. For bulk deletes,
+  `/opt/homebrew/bin/mc` (minio client) has alias `sky10do` configured.
+- **RPC one-liner:**
+  ```
+  echo '{"jsonrpc":"2.0","method":"skyfs.debugGet","params":{"key":"debug/qmsghat84k9sfufg/..."},"id":1}' | nc -U /tmp/sky10/sky10.sock | python3 -m json.tool
+  ```
+
+Always get a FRESH dump — old dumps go stale fast during active issues.
+Delete old dumps from S3 before requesting a new one to avoid confusion.
 
 ## Testing
 - All code must be well tested. Write tests as you write code, not after.
