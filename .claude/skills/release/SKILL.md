@@ -45,12 +45,16 @@ Currently only building for macOS ARM64. TODO: add other platforms later.
 ```bash
 rm -f bin/sky10-darwin-arm64
 COMMIT=$(git rev-parse --short HEAD)
-DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+DATE=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ)
 GOOS=darwin GOARCH=arm64 go build -trimpath -buildvcs=false \
   -ldflags "-s -w -X 'main.version=v$VERSION' -X 'main.commit=$COMMIT' -X 'main.buildDate=$DATE'" \
   -o bin/sky10-darwin-arm64 .
 cd bin && shasum -a 256 sky10-darwin-arm64 > checksums.txt && cat checksums.txt
 ```
+
+The date uses `git log -1 --format=%cI` (committer timestamp) instead of
+wall-clock time, so builds from the same commit are byte-identical. This
+is verified by the `verify-release` GitHub Action.
 
 Install locally immediately:
 ```bash
