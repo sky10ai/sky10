@@ -876,6 +876,80 @@ func TestSweepSkipsFilesAlreadyInOutbox(t *testing.T) {
 	}
 }
 
+// Regression: the integrity sweep re-queued files into the outbox but
+// never poked the outbox worker to drain them. Files sat in the outbox
+// indefinitely until an unrelated watcher event happened to trigger a
+// drain. The fix wires pokeOutbox on the Reconciler so the sweep wakes
+// the worker after re-queuing.
+func TestSweepPokesOutboxWorker(t *testing.T) {
+	t.Parallel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+
+	// Create a chunkless entry (watcher detected, upload pending)
+	content := "needs upload"
+	os.WriteFile(filepath.Join(localDir, "stale.txt"), []byte(content), 0644)
+	localLog.AppendLocal(opslog.Entry{
+		Type: opslog.Put, Path: "stale.txt", Checksum: checksumOf(content),
+		Size: int64(len(content)), Namespace: "Test",
+	})
+
+	// Track whether pokeOutbox was called
+	poked := false
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.pokeOutbox = func() { poked = true }
+
+	r.integritySweep()
+
+	if outbox.Len() == 0 {
+		t.Fatal("sweep should have re-queued stale.txt")
+	}
+	if !poked {
+		t.Error("sweep should poke the outbox worker after re-queuing files")
+	}
+}
+
+// Verify sweep does NOT poke outbox when nothing was re-queued.
+func TestSweepDoesNotPokeWhenNothingRequeued(t *testing.T) {
+	t.Parallel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+
+	// Entry with chunks — upload already complete, nothing to re-queue
+	localLog.Append(opslog.Entry{
+		Type: opslog.Put, Path: "done.txt", Checksum: "h1",
+		Chunks: []string{"c1"}, Device: "dev-a", Timestamp: 100, Seq: 1,
+	})
+
+	poked := false
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.pokeOutbox = func() { poked = true }
+
+	r.integritySweep()
+
+	if poked {
+		t.Error("sweep should NOT poke when nothing was re-queued")
+	}
+}
+
 func checksumOf(content string) string {
 	h := sha3.New256()
 	h.Write([]byte(content))
