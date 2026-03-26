@@ -126,7 +126,7 @@ func New(ctx context.Context, cfg Config) (*Backend, error) {
 	return &Backend{
 		client: client,
 		bucket: cfg.Bucket,
-		sem:    make(chan struct{}, 5), // max 5 concurrent S3 calls
+		sem:    make(chan struct{}, 8), // max 8 concurrent S3 calls
 		logger: slog.Default(),
 	}, nil
 }
@@ -354,7 +354,15 @@ func (b *Backend) Head(ctx context.Context, key string) (adapter.ObjectMeta, err
 }
 
 // GetRange returns a reader for a byte range within the object.
+// The caller must close the returned ReadCloser.
 func (b *Backend) GetRange(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	if err := b.acquire(ctx); err != nil {
+		return nil, fmt.Errorf("s3: get-range %q: %w", key, err)
+	}
+	// release happens in cancelOnClose.Close()
+	b.logger.Debug("s3 GET-RANGE", "key", key, "offset", offset, "length", length)
+	start := time.Now()
+	ctx, cancel := context.WithCancel(ctx)
 	rangeHeader := fmt.Sprintf("bytes=%d-%d", offset, offset+length-1)
 	out, err := b.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(b.bucket),
@@ -362,12 +370,17 @@ func (b *Backend) GetRange(ctx context.Context, key string, offset, length int64
 		Range:  aws.String(rangeHeader),
 	})
 	if err != nil {
+		cancel()
+		b.release()
 		if isNotFound(err) {
+			b.logger.Debug("s3 GET-RANGE not found", "key", key, "ms", time.Since(start).Milliseconds())
 			return nil, adapter.ErrNotFound
 		}
+		b.logger.Warn("s3 GET-RANGE failed", "key", key, "error", err, "ms", time.Since(start).Milliseconds())
 		return nil, fmt.Errorf("s3: get-range %q: %w", key, err)
 	}
-	return out.Body, nil
+	b.logger.Debug("s3 GET-RANGE ok", "key", key, "ms", time.Since(start).Milliseconds())
+	return &cancelOnClose{ReadCloser: out.Body, cancel: cancel, release: b.release}, nil
 }
 
 // isNotFound checks if an error indicates the object doesn't exist.
@@ -464,7 +477,9 @@ func (m *MemoryBackend) Head(_ context.Context, key string) (adapter.ObjectMeta,
 
 // GetRange returns a reader for a byte range.
 func (m *MemoryBackend) GetRange(_ context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	m.mu.RLock()
 	data, ok := m.objects[key]
+	m.mu.RUnlock()
 	if !ok {
 		return nil, adapter.ErrNotFound
 	}
