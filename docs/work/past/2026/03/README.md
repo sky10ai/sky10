@@ -2,6 +2,7 @@
 
 | Date | Title | Summary |
 |------|-------|---------|
+| 25 | [Parallel Chunk Downloads](25-Parallel-Chunk-Downloads.md) | Prefetch up to 3 chunks concurrently per file, fix GetRange semaphore, fastcdc race, Watchdog race |
 | 25 | [File-Gone Sync Gap](25-File-Gone-Sync-Gap.md) | Fix files never syncing after "file gone" outbox failure — outbox records delete on failure + periodic integrity sweep re-queues chunkless entries |
 | 24 | [Compact Gap & Watcher Fix](24-Compact-Gap-And-Watcher-Fix.md) | Post-compaction poller bootstrap gap (documented + tests), watcher crash on dangling symlinks (fixed), fsnotify kqueue `os.Stat` root cause |
 | 21 | [Directory Operations](21-DeleteDir-First-Class-Op.md) | First-class `delete_dir` + `create_dir` ops — CRDT with tombstone semantics, empty dir sync, Cirrus UI, bugfixes — v0.12.0–v0.13.3 |
