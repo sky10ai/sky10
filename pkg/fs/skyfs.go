@@ -463,21 +463,29 @@ func (s *Store) downloadChunks(ctx context.Context, chunks []string, nsKey []byt
 		slots[i] = make(chan result, 1)
 	}
 
-	for i, hash := range chunks {
-		i, hash := i, hash
-		go func() {
+	// Producer: acquire semaphore slots sequentially so goroutines
+	// are launched in chunk order. This prevents out-of-order slot
+	// acquisition which can deadlock the consumer.
+	go func() {
+		for i, hash := range chunks {
 			select {
 			case sem <- struct{}{}:
 			case <-ctx.Done():
-				slots[i] <- result{err: ctx.Err()}
+				// Fill remaining slots so consumer doesn't block.
+				for j := i; j < len(chunks); j++ {
+					slots[j] <- result{err: ctx.Err()}
+				}
 				return
 			}
-			plain, err := s.fetchChunk(ctx, i, hash, nsKey)
-			slots[i] <- result{data: plain, err: err}
-			// Semaphore released by consumer, not here — keeps
-			// backpressure tight so at most `ahead` chunks are buffered.
-		}()
-	}
+			i, hash := i, hash
+			go func() {
+				plain, err := s.fetchChunk(ctx, i, hash, nsKey)
+				slots[i] <- result{data: plain, err: err}
+				// Semaphore released by consumer, not here — keeps
+				// backpressure tight so at most `ahead` chunks are buffered.
+			}()
+		}
+	}()
 
 	// Consume results in order and write to output.
 	for i := range chunks {
