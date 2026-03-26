@@ -23,7 +23,9 @@ updated: 2026-03-26
 - Use **Conventional Commits** for all commit messages:
   - Format: `<type>(<scope>): <description>`
   - Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`, `ci`
-  - Scope is optional but encouraged (e.g. `fix(s3):`, `feat(reconciler):`)
+  - Scope is optional but encouraged. Common scopes include `fs`, `s3`,
+    `keys`, `kv`, `db`, `auth`, `link`, `cirrus`, `transfer`, `config`,
+    `reconciler`, `poller`, `daemon` — use whatever fits the change
   - Description is lowercase, imperative, no period
   - Body (after blank line) explains *why*, not *what*
   - Examples:
