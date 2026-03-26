@@ -828,6 +828,54 @@ func TestSweepStopsAfterSuccessfulUpload(t *testing.T) {
 	}
 }
 
+// Regression: the integrity sweep re-queued files that were already waiting
+// in the outbox but hadn't been uploaded yet (chunks still nil). With 16k
+// files from a bun install, the sweep ran every 5 minutes and re-queued
+// ~15k files each cycle, growing the outbox to 71k+ entries.
+func TestSweepSkipsFilesAlreadyInOutbox(t *testing.T) {
+	t.Parallel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+
+	// Simulate watcher queuing 3 files — AppendLocal with no chunks,
+	// entries added to outbox. None uploaded yet.
+	for i := 0; i < 3; i++ {
+		name := fmt.Sprintf("file-%d.txt", i)
+		content := fmt.Sprintf("content-%d", i)
+		localFile := filepath.Join(localDir, name)
+		os.WriteFile(localFile, []byte(content), 0644)
+		cksum := checksumOf(content)
+
+		localLog.AppendLocal(opslog.Entry{
+			Type: opslog.Put, Path: name, Checksum: cksum,
+			Size: int64(len(content)), Namespace: "Test",
+		})
+		outbox.Append(NewOutboxPut(name, cksum, "Test", localFile))
+	}
+
+	if outbox.Len() != 3 {
+		t.Fatalf("outbox has %d entries, want 3", outbox.Len())
+	}
+
+	// Run the integrity sweep — files have no chunks but are already
+	// in the outbox. Sweep must NOT re-queue them.
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.integritySweep()
+
+	if outbox.Len() != 3 {
+		t.Errorf("sweep grew outbox to %d entries, want 3 (should not re-queue files already in outbox)", outbox.Len())
+	}
+}
+
 func checksumOf(content string) string {
 	h := sha3.New256()
 	h.Write([]byte(content))
