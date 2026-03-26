@@ -26,15 +26,16 @@ import (
 // then deleted remotely, the snapshot shows nothing and no download
 // happens.
 type Reconciler struct {
-	store     *Store
-	localLog  *opslog.LocalOpsLog
-	outbox    *SyncLog[OutboxEntry]
-	localDir  string
-	ignore    func(string) bool
-	logger    *slog.Logger
-	notify    chan struct{}
-	onEvent   func(string, map[string]any)
-	driveName string
+	store      *Store
+	localLog   *opslog.LocalOpsLog
+	outbox     *SyncLog[OutboxEntry]
+	localDir   string
+	ignore     func(string) bool
+	logger     *slog.Logger
+	notify     chan struct{}
+	onEvent    func(string, map[string]any)
+	driveName  string
+	pokeOutbox func() // wake the outbox worker after sweep re-queues files
 }
 
 // NewReconciler creates a reconciler that applies remote changes locally.
@@ -583,5 +584,8 @@ func (r *Reconciler) integritySweep() {
 
 	if requeued > 0 {
 		r.logger.Info("integrity sweep: done", "requeued", requeued)
+		if r.pokeOutbox != nil {
+			r.pokeOutbox()
+		}
 	}
 }

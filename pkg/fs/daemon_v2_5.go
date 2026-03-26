@@ -99,6 +99,7 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 	// Wire poke callbacks
 	watcherHandler.pokeOutbox = outboxWorker.Poke
 	poller.pokeReconciler = reconciler.Poke
+	reconciler.pokeOutbox = outboxWorker.Poke
 
 	d := &DaemonV2_5{
 		watcher:        watcher,
