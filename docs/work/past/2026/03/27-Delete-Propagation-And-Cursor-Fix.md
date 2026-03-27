@@ -85,6 +85,22 @@ For each file in the local snapshot that is:
 The `timestamp < snapshotTS` guard prevents deleting files that were created
 locally after the snapshot was built (not yet synced to S3).
 
+### Fix 4: Startup order + seed respects deleted files
+
+`pkg/fs/daemon_v2_5.go` — Two changes to prevent `seedStateFromDisk` from
+undoing catch-up deletes:
+
+1. **Swapped startup order**: `catchUpFromSnapshot` now runs BEFORE
+   `seedStateFromDisk`. Previously seed ran first and re-created CRDT entries
+   for all files on disk with `time.Now()` timestamps. Catch-up's timestamp
+   guard (`ts >= snapshotTS`) then skipped all of them, making delete
+   propagation ineffective.
+
+2. **Seed checks deleted set**: `seedStateFromDisk` now reads `snap.DeletedFiles()`
+   and skips files that were explicitly deleted in the CRDT. Without this, seed
+   would see files on disk that were just deleted by catch-up and re-add them
+   as "new local files."
+
 ### Reverted: cursor persistence partial edit
 
 Reverted the half-written cursor persistence code in `SetLastRemoteOp` that
@@ -123,3 +139,4 @@ All test-first — written before fixes, verified to fail, then fixes applied.
 - `pkg/fs/opslog/local.go` — `LastRemoteOp()` rebuild, `CatchUpFromSnapshot` delete pass, revert cursor partial edit
 - `pkg/fs/opslog/local_test.go` — 3 regression tests
 - `pkg/fs/rpc.go` — `rpcDriveList` call order fix
+- `pkg/fs/daemon_v2_5.go` — Swap startup order (catch-up before seed), seed skips deleted files
