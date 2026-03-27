@@ -127,6 +127,31 @@ func TestLocalSetLastRemoteOp(t *testing.T) {
 	}
 }
 
+// Regression: rpcDriveList created a fresh LocalOpsLog and called
+// LastRemoteOp() before Snapshot(). Since the cache was cold (no rebuild),
+// LastRemoteOp() returned 0 even though the file had remote entries.
+// This made the cursor appear stuck at 0 and misled debugging.
+func TestLastRemoteOpColdCache(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ops.jsonl")
+
+	// Write a file with remote entries.
+	log1 := NewLocalOpsLog(path, "dev-local")
+	log1.Append(Entry{
+		Type: Put, Path: "a.txt", Checksum: "h1", Chunks: []string{"c1"},
+		Device: "dev-remote", Timestamp: 1774582375, Seq: 1,
+	})
+
+	// Simulate what rpcDriveList does: create a new LocalOpsLog and
+	// immediately read LastRemoteOp() without calling Snapshot() first.
+	log2 := NewLocalOpsLog(path, "dev-local")
+	got := log2.LastRemoteOp()
+	if got != 1774582375 {
+		t.Errorf("LastRemoteOp() on cold cache = %d, want 1774582375", got)
+	}
+}
+
 func TestLocalCrashRecovery(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -806,5 +831,126 @@ func TestCatchUpFromSnapshotRespectsNamespace(t *testing.T) {
 	}
 	if _, ok := snap.Lookup("theirs.txt"); ok {
 		t.Error("theirs.txt should NOT be in snapshot (wrong namespace)")
+	}
+}
+
+// Regression: when a file is deleted on one machine and compaction folds the
+// delete into the S3 snapshot (file disappears), CatchUpFromSnapshot only
+// iterates files present in the S3 snapshot. It never notices that the local
+// snapshot has files the S3 snapshot doesn't — so the delete is never
+// propagated and the machines diverge permanently.
+func TestCatchUpFromSnapshotPropagatesDeletes(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	localLog := NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), "dev-local")
+
+	// Local log has three files received from another device:
+	// - archive/a.txt at ts=100 (from dev-other)
+	// - archive/b.txt at ts=150 (from dev-other)
+	// - recent.txt   at ts=250 (from dev-local, created AFTER snapshot)
+	localLog.Append(Entry{
+		Type: Put, Path: "archive/a.txt", Chunks: []string{"c1"}, Size: 100,
+		Checksum: "chk-a", Namespace: "docs", Device: "dev-other", Timestamp: 100, Seq: 1,
+	})
+	localLog.Append(Entry{
+		Type: Put, Path: "archive/b.txt", Chunks: []string{"c2"}, Size: 200,
+		Checksum: "chk-b", Namespace: "docs", Device: "dev-other", Timestamp: 150, Seq: 2,
+	})
+	localLog.Append(Entry{
+		Type: Put, Path: "recent.txt", Chunks: []string{"c3"}, Size: 50,
+		Checksum: "chk-r", Namespace: "docs", Device: "dev-local", Timestamp: 250, Seq: 1,
+	})
+
+	// Verify local snapshot has all three files before catch-up.
+	snap, _ := localLog.Snapshot()
+	if snap.Len() != 3 {
+		t.Fatalf("pre-catchup Len() = %d, want 3", snap.Len())
+	}
+
+	// S3 snapshot at ts=200 — archive/ was deleted, so those files are gone.
+	// Only a surviving file remains. recent.txt is NOT in the snapshot because
+	// it was created at ts=250 (after the snapshot).
+	s3Snap := &Snapshot{
+		files: map[string]FileInfo{
+			"keeper.txt": {
+				Chunks: []string{"c-keep"}, Size: 300, Checksum: "chk-keep",
+				Modified: time.Unix(180, 0), Device: "dev-other", Seq: 3,
+				Namespace: "docs",
+			},
+		},
+	}
+
+	injected, err := localLog.CatchUpFromSnapshot(s3Snap, 200, "docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	snap, _ = localLog.Snapshot()
+
+	// archive/a.txt (ts=100 < snapshotTS=200): should be deleted
+	if _, ok := snap.Lookup("archive/a.txt"); ok {
+		t.Error("archive/a.txt should be deleted (absent from S3 snapshot, ts < snapshotTS)")
+	}
+
+	// archive/b.txt (ts=150 < snapshotTS=200): should be deleted
+	if _, ok := snap.Lookup("archive/b.txt"); ok {
+		t.Error("archive/b.txt should be deleted (absent from S3 snapshot, ts < snapshotTS)")
+	}
+
+	// recent.txt (ts=250 > snapshotTS=200): should survive — created after snapshot
+	if _, ok := snap.Lookup("recent.txt"); !ok {
+		t.Error("recent.txt should survive (ts > snapshotTS, not yet in S3)")
+	}
+
+	// keeper.txt: injected from S3 snapshot
+	if _, ok := snap.Lookup("keeper.txt"); !ok {
+		t.Error("keeper.txt should be injected from S3 snapshot")
+	}
+
+	// injected should count both the new file (keeper.txt) and the deletes
+	if injected < 1 {
+		t.Errorf("injected = %d, want >= 1", injected)
+	}
+}
+
+// Regression: CatchUpFromSnapshot delete propagation must respect the
+// namespace filter. Files from other namespaces that are absent from the
+// S3 snapshot should NOT be deleted — they belong to a different drive.
+func TestCatchUpDeleteRespectsNamespace(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	localLog := NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), "dev-local")
+
+	// Local log has files from two namespaces
+	localLog.Append(Entry{
+		Type: Put, Path: "photos/pic.jpg", Chunks: []string{"c1"}, Size: 100,
+		Checksum: "chk-p", Namespace: "photos", Device: "dev-other", Timestamp: 100, Seq: 1,
+	})
+	localLog.Append(Entry{
+		Type: Put, Path: "docs/readme.md", Chunks: []string{"c2"}, Size: 200,
+		Checksum: "chk-d", Namespace: "docs", Device: "dev-other", Timestamp: 100, Seq: 2,
+	})
+
+	// S3 snapshot at ts=200 has neither file (both deleted on S3).
+	// But we catch up with namespace="photos" only.
+	s3Snap := &Snapshot{
+		files: map[string]FileInfo{},
+	}
+
+	_, err := localLog.CatchUpFromSnapshot(s3Snap, 200, "photos")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	snap, _ := localLog.Snapshot()
+
+	// photos/pic.jpg: namespace=photos, absent from S3, ts=100 < 200 → deleted
+	if _, ok := snap.Lookup("photos/pic.jpg"); ok {
+		t.Error("photos/pic.jpg should be deleted (matching namespace, absent from S3)")
+	}
+
+	// docs/readme.md: namespace=docs, NOT matching filter → must survive
+	if _, ok := snap.Lookup("docs/readme.md"); !ok {
+		t.Error("docs/readme.md should survive (different namespace, not filtered)")
 	}
 }

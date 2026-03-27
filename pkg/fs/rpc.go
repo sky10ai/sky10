@@ -888,13 +888,15 @@ func (s *RPCServer) rpcDriveList(_ context.Context) (interface{}, error) {
 			"enabled":    d.Enabled,
 			"running":    s.driveManager.IsRunning(d.ID),
 		}
-		// Add cursor and snapshot info from local ops log
+		// Add cursor and snapshot info from local ops log.
+		// Snapshot() must be called first — it triggers the rebuild that
+		// populates lastRemote from the file.
 		dir := driveDataDir(d.ID)
 		localLog := opslog.NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), s.store.deviceID)
-		entry["last_remote_op"] = localLog.LastRemoteOp()
 		if snap, err := localLog.Snapshot(); err == nil {
 			entry["snapshot_files"] = snap.Len()
 		}
+		entry["last_remote_op"] = localLog.LastRemoteOp()
 		outbox := NewSyncLog[OutboxEntry](filepath.Join(dir, "outbox.jsonl"))
 		if entries, err := outbox.ReadAll(); err == nil {
 			entry["outbox_pending"] = len(entries)
