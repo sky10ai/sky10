@@ -325,10 +325,28 @@ func fsServeCmd() *cobra.Command {
 
 			server := skyfs.NewRPCServer(store, sockPath, filepath.Join(cfgDir, "drives.json"), cmd.Root().Version, nil)
 			fmt.Println(sockPath)
+
+			// Start HTTP RPC if requested
+			httpAddr, _ := cmd.Flags().GetString("http")
+			if httpAddr != "" {
+				token := skyfs.GenerateToken()
+				fmt.Printf("http://%s/rpc\n", httpAddr)
+				fmt.Printf("Token: %s\n", token)
+				go func() {
+					if err := server.ServeHTTP(ctx, skyfs.HTTPConfig{
+						Addr:  httpAddr,
+						Token: token,
+					}); err != nil {
+						slog.Error("HTTP server failed", "error", err)
+					}
+				}()
+			}
+
 			return server.Serve(ctx)
 		},
 	}
 	cmd.Flags().String("socket", "", "Socket path")
+	cmd.Flags().String("http", "", "HTTP listen address (e.g. :9100)")
 	return cmd
 }
 

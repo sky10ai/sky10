@@ -42,6 +42,11 @@ type RPCServer struct {
 	subscribers      map[net.Conn]*json.Encoder // push event connections
 	events           chan RPCEvent
 	completedInvites map[string]bool // cached: invites fully approved
+
+	// HTTP RPC fields
+	httpToken string
+	httpSubMu sync.RWMutex
+	httpSubs  []*httpSubscriber
 }
 
 // RPCEvent is a server-push event sent to all connected clients.
@@ -195,6 +200,9 @@ func (s *RPCServer) broadcastLoop() {
 				conn.Close()
 			}
 		}
+
+		// Fan out to HTTP SSE subscribers
+		s.broadcastToHTTP(event)
 	}
 }
 
