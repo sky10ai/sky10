@@ -767,3 +767,44 @@ func TestCatchUpFromSnapshotIdempotent(t *testing.T) {
 		t.Errorf("Len() = %d, want 1", snap.Len())
 	}
 }
+
+// Regression: the catch-up loaded the full S3 snapshot (all namespaces)
+// and injected everything into each drive's local log. This caused files
+// from one namespace to download into another drive's directory.
+func TestCatchUpFromSnapshotRespectsNamespace(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	localLog := NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), "dev-local")
+
+	s3Snap := &Snapshot{
+		files: map[string]FileInfo{
+			"mine.txt": {
+				Chunks: []string{"c1"}, Size: 100, Checksum: "chk-mine",
+				Modified: time.Unix(200, 0), Device: "dev-remote", Seq: 1,
+				Namespace: "photos",
+			},
+			"theirs.txt": {
+				Chunks: []string{"c2"}, Size: 200, Checksum: "chk-theirs",
+				Modified: time.Unix(200, 0), Device: "dev-remote", Seq: 2,
+				Namespace: "journal",
+			},
+		},
+	}
+
+	// Catch-up with namespace="photos" — should only inject mine.txt
+	injected, err := localLog.CatchUpFromSnapshot(s3Snap, 200, "photos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if injected != 1 {
+		t.Errorf("injected = %d, want 1", injected)
+	}
+
+	snap, _ := localLog.Snapshot()
+	if _, ok := snap.Lookup("mine.txt"); !ok {
+		t.Error("mine.txt should be in snapshot (correct namespace)")
+	}
+	if _, ok := snap.Lookup("theirs.txt"); ok {
+		t.Error("theirs.txt should NOT be in snapshot (wrong namespace)")
+	}
+}
