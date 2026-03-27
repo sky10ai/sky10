@@ -2,6 +2,7 @@
 
 | Date | Title | Summary |
 |------|-------|---------|
+| 26 | [Snapshot Catch-Up & Poller Fix](26-Snapshot-Catchup-And-Poller-Fix.md) | Close CRDT convergence gap (snapshot merge on startup), fix poller dedup blind spot (chunk-awareness), S3 browser delete |
 | 26 | [Chunkless Ops Architecture](26-Chunkless-Ops-Architecture.md) | Strip chunkless Puts from compaction snapshots, skip in reconciler — fixes infinite retry spin on receiving machines |
 | 25 | [Parallel Chunk Downloads](25-Parallel-Chunk-Downloads.md) | Prefetch up to 3 chunks concurrently per file, fix GetRange semaphore, fastcdc race, Watchdog race |
 | 25 | [File-Gone Sync Gap](25-File-Gone-Sync-Gap.md) | Fix files never syncing after "file gone" outbox failure — outbox records delete on failure + periodic integrity sweep re-queues chunkless entries |
