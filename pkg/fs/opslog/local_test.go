@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestLocalAppendAndSnapshot(t *testing.T) {
@@ -623,5 +624,146 @@ func TestLocalCompactAllDeleted(t *testing.T) {
 	snap, _ := log2.Snapshot()
 	if snap.Len() != 0 {
 		t.Errorf("Len() = %d, want 0", snap.Len())
+	}
+}
+
+// Regression: when S3 compaction folds ops into a snapshot and deletes the
+// op files, the poller (which only reads ops/) can never see those entries.
+// CatchUpFromSnapshot merges the S3 snapshot into the local log on startup,
+// using LWW clock comparison to inject entries the local log is missing.
+func TestCatchUpFromSnapshot(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	localLog := NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), "dev-local")
+
+	// Local log has:
+	// - a.txt: chunkless put from local device (ts=100)
+	// - b.txt: complete put from another device (ts=100)
+	localLog.Append(Entry{
+		Type: Put, Path: "a.txt", Checksum: "chk-a", Size: 100,
+		Namespace: "ns", Device: "dev-local", Timestamp: 100, Seq: 1,
+	})
+	localLog.Append(Entry{
+		Type: Put, Path: "b.txt", Checksum: "chk-b", Size: 200,
+		Chunks: []string{"chunk-b-1"}, Namespace: "ns",
+		Device: "dev-other", Timestamp: 100, Seq: 1,
+	})
+
+	// S3 snapshot has:
+	// - a.txt: chunked, higher clock (ts=200, dev-remote) — should win LWW
+	// - b.txt: same clock (ts=100, dev-other) — no change
+	// - c.txt: new file — should be injected
+	s3Snap := &Snapshot{
+		files: map[string]FileInfo{
+			"a.txt": {
+				Chunks: []string{"chunk-a-1"}, Size: 100, Checksum: "chk-a",
+				Modified: time.Unix(200, 0), Device: "dev-remote", Seq: 1,
+				Namespace: "ns",
+			},
+			"b.txt": {
+				Chunks: []string{"chunk-b-1"}, Size: 200, Checksum: "chk-b",
+				Modified: time.Unix(100, 0), Device: "dev-other", Seq: 1,
+				Namespace: "ns",
+			},
+			"c.txt": {
+				Chunks: []string{"chunk-c-1"}, Size: 300, Checksum: "chk-c",
+				Modified: time.Unix(150, 0), Device: "dev-remote", Seq: 2,
+				Namespace: "ns",
+			},
+		},
+	}
+
+	injected, err := localLog.CatchUpFromSnapshot(s3Snap, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should inject a.txt (chunked upgrade, S3 clock wins) and c.txt (new)
+	if injected != 2 {
+		t.Errorf("injected = %d, want 2", injected)
+	}
+
+	snap, err := localLog.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// a.txt should now have chunks from S3 (dev-remote wins LWW at ts=200)
+	fiA, ok := snap.Lookup("a.txt")
+	if !ok {
+		t.Fatal("a.txt not in snapshot")
+	}
+	if len(fiA.Chunks) == 0 {
+		t.Error("a.txt should have chunks after catch-up")
+	}
+	if fiA.Device != "dev-remote" {
+		t.Errorf("a.txt Device = %q, want dev-remote", fiA.Device)
+	}
+
+	// b.txt should be unchanged (same clock — no injection needed)
+	fiB, ok := snap.Lookup("b.txt")
+	if !ok {
+		t.Fatal("b.txt not in snapshot")
+	}
+	if fiB.Device != "dev-other" {
+		t.Errorf("b.txt Device = %q, want dev-other", fiB.Device)
+	}
+
+	// c.txt should be injected (new file not in local log)
+	fiC, ok := snap.Lookup("c.txt")
+	if !ok {
+		t.Fatal("c.txt not in snapshot after catch-up")
+	}
+	if len(fiC.Chunks) == 0 {
+		t.Error("c.txt should have chunks")
+	}
+	if fiC.Device != "dev-remote" {
+		t.Errorf("c.txt Device = %q, want dev-remote", fiC.Device)
+	}
+
+	// Cursor should be advanced to snapshot timestamp
+	if localLog.LastRemoteOp() < 200 {
+		t.Errorf("cursor = %d, want >= 200", localLog.LastRemoteOp())
+	}
+}
+
+// CatchUpFromSnapshot must be idempotent — running it twice with the same
+// snapshot should not inject duplicates.
+func TestCatchUpFromSnapshotIdempotent(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	localLog := NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), "dev-local")
+
+	s3Snap := &Snapshot{
+		files: map[string]FileInfo{
+			"x.txt": {
+				Chunks: []string{"c1"}, Size: 100, Checksum: "chk-x",
+				Modified: time.Unix(200, 0), Device: "dev-remote", Seq: 1,
+				Namespace: "ns",
+			},
+		},
+	}
+
+	// First catch-up: injects x.txt
+	n1, err := localLog.CatchUpFromSnapshot(s3Snap, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n1 != 1 {
+		t.Errorf("first catch-up: injected = %d, want 1", n1)
+	}
+
+	// Second catch-up with same snapshot — should inject nothing
+	n2, err := localLog.CatchUpFromSnapshot(s3Snap, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n2 != 0 {
+		t.Errorf("second catch-up: injected = %d, want 0 (should be idempotent)", n2)
+	}
+
+	snap, _ := localLog.Snapshot()
+	if snap.Len() != 1 {
+		t.Errorf("Len() = %d, want 1", snap.Len())
 	}
 }

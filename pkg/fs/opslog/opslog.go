@@ -351,7 +351,7 @@ func (l *OpsLog) Snapshot(ctx context.Context) (*Snapshot, error) {
 	}
 	l.mu.Unlock()
 
-	base, baseTS, err := l.loadLatestSnapshot(ctx)
+	base, baseTS, err := l.LoadLatestSnapshot(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("loading snapshot: %w", err)
 	}
@@ -542,7 +542,10 @@ func (l *OpsLog) saveSnapshot(ctx context.Context, snap *Snapshot) error {
 	return l.backend.Put(ctx, key, r, int64(len(encrypted)))
 }
 
-func (l *OpsLog) loadLatestSnapshot(ctx context.Context) (*Snapshot, int64, error) {
+// LoadLatestSnapshot downloads and decrypts the most recent S3 snapshot from
+// manifests/. Returns (nil, 0, nil) if no snapshots exist. The int64 is the
+// snapshot timestamp parsed from the key name.
+func (l *OpsLog) LoadLatestSnapshot(ctx context.Context) (*Snapshot, int64, error) {
 	keys, err := l.backend.List(ctx, "manifests/snapshot-")
 	if err != nil {
 		return nil, 0, fmt.Errorf("listing snapshots: %w", err)
