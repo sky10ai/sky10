@@ -195,7 +195,11 @@ func (d *DaemonV2_5) catchUpFromSnapshot(ctx context.Context) {
 		return // no snapshot exists yet
 	}
 
-	injected, err := d.localLog.CatchUpFromSnapshot(s3Snap, snapshotTS)
+	ns := ""
+	if len(d.config.Namespaces) > 0 {
+		ns = d.config.Namespaces[0]
+	}
+	injected, err := d.localLog.CatchUpFromSnapshot(s3Snap, snapshotTS, ns)
 	if err != nil {
 		d.logger.Warn("catch-up: merge failed", "error", err)
 		return

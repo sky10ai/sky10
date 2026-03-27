@@ -673,7 +673,7 @@ func TestCatchUpFromSnapshot(t *testing.T) {
 		},
 	}
 
-	injected, err := localLog.CatchUpFromSnapshot(s3Snap, 200)
+	injected, err := localLog.CatchUpFromSnapshot(s3Snap, 200, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -745,7 +745,7 @@ func TestCatchUpFromSnapshotIdempotent(t *testing.T) {
 	}
 
 	// First catch-up: injects x.txt
-	n1, err := localLog.CatchUpFromSnapshot(s3Snap, 200)
+	n1, err := localLog.CatchUpFromSnapshot(s3Snap, 200, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -754,7 +754,7 @@ func TestCatchUpFromSnapshotIdempotent(t *testing.T) {
 	}
 
 	// Second catch-up with same snapshot — should inject nothing
-	n2, err := localLog.CatchUpFromSnapshot(s3Snap, 200)
+	n2, err := localLog.CatchUpFromSnapshot(s3Snap, 200, "")
 	if err != nil {
 		t.Fatal(err)
 	}
