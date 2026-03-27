@@ -111,10 +111,14 @@ func (l *LocalOpsLog) DeviceID() string {
 }
 
 // LastRemoteOp returns the max timestamp of entries from non-local devices.
-// Used as the poller cursor for S3 ReadSince.
+// Used as the poller cursor for S3 ReadSince. Triggers a rebuild from file
+// if the cache is cold so the cursor reflects persisted entries.
 func (l *LocalOpsLog) LastRemoteOp() int64 {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.cache == nil {
+		l.rebuildLocked() // best-effort; on error lastRemote stays 0
+	}
 	return l.lastRemote
 }
 
@@ -183,6 +187,33 @@ func (l *LocalOpsLog) CatchUpFromSnapshot(s3Snap *Snapshot, snapshotTS int64, na
 		}
 		if err := l.Append(entry); err != nil {
 			return injected, fmt.Errorf("injecting %s: %w", path, err)
+		}
+		injected++
+	}
+
+	// Second pass: propagate deletes. If a file exists locally but is
+	// absent from the S3 snapshot and has a clock older than the snapshot,
+	// it was deleted before compaction folded the delete away. Without
+	// this pass, compaction permanently loses delete propagation.
+	for path, localfi := range localSnap.files {
+		if namespace != "" && localfi.Namespace != namespace {
+			continue
+		}
+		if _, existsInS3 := s3Snap.Lookup(path); existsInS3 {
+			continue
+		}
+		if localfi.Modified.Unix() >= snapshotTS {
+			continue // created after snapshot — not yet synced, keep it
+		}
+		entry := Entry{
+			Type:      Delete,
+			Path:      path,
+			Namespace: localfi.Namespace,
+			Device:    "_catchup",
+			Timestamp: snapshotTS,
+		}
+		if err := l.Append(entry); err != nil {
+			return injected, fmt.Errorf("deleting %s: %w", path, err)
 		}
 		injected++
 	}
