@@ -83,6 +83,13 @@ struct S3BrowserView: View {
                                     .foregroundStyle(.secondary)
                                     .monospacedDigit()
                             }
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    Task { await deleteKey(file.key) }
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                         }
                     }
                 }
@@ -127,6 +134,15 @@ struct S3BrowserView: View {
             dirs = []
             files = []
             total = 0
+        }
+    }
+
+    private func deleteKey(_ key: String) async {
+        do {
+            _ = try await appState.client.s3Delete(key: key)
+            files.removeAll { $0.key == key }
+        } catch {
+            // Silently fail — the key may already be gone
         }
     }
 
