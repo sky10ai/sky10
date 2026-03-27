@@ -37,83 +37,83 @@ struct APISettingsView: View {
     @State private var loading = true
 
     var body: some View {
-        Form {
-            Section {
-                if loading {
-                    HStack {
-                        ProgressView().controlSize(.small)
-                        Text("Connecting...")
-                            .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 12) {
+            if loading {
+                HStack {
+                    ProgressView().controlSize(.small)
+                    Text("Connecting...")
+                        .foregroundStyle(.secondary)
+                }
+            } else if let h = health {
+                LabeledContent("Status") {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(.green)
+                            .frame(width: 8, height: 8)
+                        Text("Running")
                     }
-                } else if let h = health {
-                    LabeledContent("Status") {
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(.green)
-                                .frame(width: 8, height: 8)
-                            Text("Running")
-                        }
-                    }
+                }
 
-                    if let addr = h.httpAddr {
-                        LabeledContent("HTTP Endpoint") {
-                            Text("http://localhost\(addr)")
-                                .font(.system(.caption, design: .monospaced))
-                                .textSelection(.enabled)
-                        }
-
-                        LabeledContent("RPC") {
-                            Text("POST http://localhost\(addr)/rpc")
-                                .font(.system(.caption, design: .monospaced))
-                                .textSelection(.enabled)
-                        }
-
-                        LabeledContent("Events") {
-                            Text("GET http://localhost\(addr)/rpc/events")
-                                .font(.system(.caption, design: .monospaced))
-                                .textSelection(.enabled)
-                        }
-                    } else {
-                        LabeledContent("HTTP") {
-                            Text("Not available")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    Divider()
-
-                    LabeledContent("Unix Socket") {
-                        Text("/tmp/sky10/sky10.sock")
+                if let addr = h.httpAddr {
+                    LabeledContent("HTTP Endpoint") {
+                        Text("http://localhost\(addr)")
                             .font(.system(.caption, design: .monospaced))
                             .textSelection(.enabled)
                     }
 
-                    LabeledContent("Version") {
-                        Text(h.version)
+                    LabeledContent("RPC") {
+                        Text("POST http://localhost\(addr)/rpc")
                             .font(.system(.caption, design: .monospaced))
                             .textSelection(.enabled)
                     }
 
-                    LabeledContent("Uptime") {
-                        Text(h.uptime)
-                    }
-
-                    LabeledContent("RPC Clients") {
-                        Text("\(h.rpcClients)")
-                    }
-
-                    LabeledContent("SSE Subscribers") {
-                        Text("\(h.rpcSubscribers)")
+                    LabeledContent("Events") {
+                        Text("GET http://localhost\(addr)/rpc/events")
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
                     }
                 } else {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
-                        Text("Daemon not connected")
+                    LabeledContent("HTTP") {
+                        Text("Not available")
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                Divider()
+
+                LabeledContent("Unix Socket") {
+                    Text("/tmp/sky10/sky10.sock")
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+
+                LabeledContent("Version") {
+                    Text(h.version)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+
+                LabeledContent("Uptime") {
+                    Text(h.uptime)
+                }
+
+                LabeledContent("RPC Clients") {
+                    Text("\(h.rpcClients)")
+                }
+
+                LabeledContent("SSE Subscribers") {
+                    Text("\(h.rpcSubscribers)")
+                }
+            } else {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                    Text("Daemon not connected")
+                        .foregroundStyle(.secondary)
+                }
             }
+
+            Spacer()
         }
         .padding()
         .task {
@@ -131,7 +131,7 @@ struct GeneralSettingsView: View {
     @AppStorage("pollInterval") private var pollInterval = 30
 
     var body: some View {
-        Form {
+        VStack(alignment: .leading, spacing: 12) {
             Toggle("Launch at Login", isOn: $launchAtLogin)
 
             Picker("Poll Interval", selection: $pollInterval) {
@@ -140,6 +140,7 @@ struct GeneralSettingsView: View {
                 Text("60 seconds").tag(60)
                 Text("5 minutes").tag(300)
             }
+            .frame(maxWidth: 250)
 
             Divider()
 
@@ -163,6 +164,8 @@ struct GeneralSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+
+            Spacer()
         }
         .padding()
     }

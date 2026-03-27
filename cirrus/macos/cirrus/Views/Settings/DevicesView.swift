@@ -61,6 +61,8 @@ struct DevicesView: View {
                 }
             }
 
+            Spacer()
+
             if let code = inviteCode {
                 Divider()
                 VStack(alignment: .leading, spacing: 6) {
