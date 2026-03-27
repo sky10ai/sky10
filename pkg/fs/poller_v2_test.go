@@ -119,10 +119,12 @@ func TestPollerV2SkipsAlreadyHave(t *testing.T) {
 		t.Fatal("checksum should not be empty")
 	}
 
-	// Pre-populate a fresh local log with the same file (simulates "already have")
+	// Pre-populate a fresh local log with the same file (simulates "already have"
+	// with complete chunks — not chunkless).
 	localLog2 := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops2.jsonl"), storeB.deviceID)
 	localLog2.Append(opslog.Entry{
 		Type: opslog.Put, Path: "existing.txt", Checksum: fi.Checksum,
+		Chunks:    fi.Chunks,
 		Namespace: "Test", Device: "device-a", Timestamp: 1, Seq: 1,
 	})
 
@@ -416,6 +418,72 @@ func TestPollerV2DedupCreateDir(t *testing.T) {
 	poller.pollOnce(ctx)
 	if pokeCount != 0 {
 		t.Error("reconciler should not be poked — create_dir should be deduped")
+	}
+}
+
+// Regression: the poller's dedup compares checksums but ignores chunk presence.
+// When the local snapshot has a chunkless entry (upload pending) and a remote
+// op arrives with the same checksum but actual chunks, the poller skips it
+// because checksums match. The file stays chunkless forever — the integrity
+// sweep re-queues it every cycle, but the poller never imports the chunked
+// version from the remote.
+func TestPollerV2ChunklessNotDeduped(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	idA, _ := GenerateDeviceKey()
+	idB, _ := GenerateDeviceKey()
+	storeA := NewWithDevice(backend, idA, "device-a")
+	storeB := NewWithDevice(backend, idB, "device-b")
+
+	ctx := context.Background()
+	storeA.SetNamespace("Test")
+	storeA.Put(ctx, "file.txt", strings.NewReader("hello"))
+
+	simulateApprove(t, ctx, backend, idA, idB)
+
+	// Probe poll to discover A's checksum and chunks.
+	tmpDir := t.TempDir()
+	probeLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "probe.jsonl"), storeB.deviceID)
+	NewPollerV2(storeB, probeLog, time.Hour, "Test", nil).pollOnce(ctx)
+
+	probed, ok := probeLog.Lookup("file.txt")
+	if !ok {
+		t.Fatal("file.txt not found in probe poll")
+	}
+	if len(probed.Chunks) == 0 {
+		t.Fatal("probe: A's entry should have chunks")
+	}
+
+	// B's local log has a chunkless entry with the same checksum.
+	// This simulates the watcher creating a Put before the upload completes.
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), storeB.deviceID)
+	localLog.Append(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "file.txt",
+		Checksum:  probed.Checksum,
+		Namespace: "Test",
+		Device:    storeB.deviceID,
+		Timestamp: 1, // Old timestamp — A's entry should win LWW
+		Seq:       1,
+		// No Chunks — chunkless entry
+	})
+
+	// Verify pre-condition: local entry exists and is chunkless.
+	pre, _ := localLog.Lookup("file.txt")
+	if len(pre.Chunks) > 0 {
+		t.Fatal("pre-condition: local entry should be chunkless")
+	}
+
+	// Poll — the poller should NOT skip A's chunked op.
+	poller := NewPollerV2(storeB, localLog, time.Hour, "Test", nil)
+	poller.pollOnce(ctx)
+
+	// After poll: A's chunked entry should win LWW in the snapshot.
+	post, ok := localLog.Lookup("file.txt")
+	if !ok {
+		t.Fatal("file.txt not in local log after poll")
+	}
+	if len(post.Chunks) == 0 {
+		t.Error("file.txt should have chunks after poll — poller incorrectly skipped the chunked remote op because checksum matched the chunkless local entry")
 	}
 }
 

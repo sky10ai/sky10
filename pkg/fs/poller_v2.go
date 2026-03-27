@@ -119,6 +119,11 @@ func (p *PollerV2) pollOnce(ctx context.Context) {
 						if !match && len(existing.Chunks) == 1 && len(e.Chunks) == 1 && existing.Chunks[0] == e.Chunks[0] {
 							match = true
 						}
+						// Don't skip if local is chunkless but remote has chunks —
+						// the remote entry completes the upload confirmation.
+						if match && len(existing.Chunks) == 0 && len(e.Chunks) > 0 {
+							match = false
+						}
 						if match {
 							if e.Timestamp > maxTs {
 								maxTs = e.Timestamp
