@@ -22,6 +22,7 @@ import (
 //   - reconciler.Run: snapshot vs filesystem → download/delete
 //   - pollerV2.Run: S3 → ops.jsonl → poke reconciler
 type DaemonV2_5 struct {
+	store          *Store
 	watcher        *Watcher
 	watcherHandler *WatcherHandler
 	outboxWorker   *OutboxWorker
@@ -102,6 +103,7 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 	reconciler.pokeOutbox = outboxWorker.Poke
 
 	d := &DaemonV2_5{
+		store:          store,
 		watcher:        watcher,
 		watcherHandler: watcherHandler,
 		outboxWorker:   outboxWorker,
@@ -137,6 +139,10 @@ func (d *DaemonV2_5) Run(ctx context.Context) error {
 	// Seed state from local filesystem on first run
 	d.seedStateFromDisk()
 
+	// Catch up from S3 snapshot before polling. Closes the convergence gap
+	// where ops are compacted into manifests/ before the poller reads them.
+	d.catchUpFromSnapshot(ctx)
+
 	// Watchdog: auto-dump goroutines if any worker is stuck for 2 minutes
 	wd := NewWatchdog(d.logger, 2*time.Minute)
 	wd.Register("poller")
@@ -158,12 +164,46 @@ func (d *DaemonV2_5) Run(ctx context.Context) error {
 	return nil
 }
 
-// SyncOnce does a one-shot sync: seed, poll remote, reconcile, drain outbox.
+// SyncOnce does a one-shot sync: seed, catch up, poll remote, reconcile, drain outbox.
 func (d *DaemonV2_5) SyncOnce(ctx context.Context) {
 	d.seedStateFromDisk()
+	d.catchUpFromSnapshot(ctx)
 	d.poller.pollOnce(ctx)
 	d.reconciler.reconcile(ctx)
 	d.outboxWorker.drain(ctx)
+}
+
+// catchUpFromSnapshot loads the latest S3 snapshot and merges entries into the
+// local log using LWW clock comparison. Non-fatal on failure — the poller will
+// handle non-compacted ops when it starts.
+func (d *DaemonV2_5) catchUpFromSnapshot(ctx context.Context) {
+	opsLog, err := d.store.getOpsLog(ctx)
+	if err != nil {
+		d.logger.Warn("catch-up: failed to get ops log", "error", err)
+		return
+	}
+
+	loadCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	s3Snap, snapshotTS, err := opsLog.LoadLatestSnapshot(loadCtx)
+	if err != nil {
+		d.logger.Warn("catch-up: failed to load S3 snapshot", "error", err)
+		return
+	}
+	if s3Snap == nil {
+		return // no snapshot exists yet
+	}
+
+	injected, err := d.localLog.CatchUpFromSnapshot(s3Snap, snapshotTS)
+	if err != nil {
+		d.logger.Warn("catch-up: merge failed", "error", err)
+		return
+	}
+	if injected > 0 {
+		d.logger.Info("catch-up: merged S3 snapshot", "injected", injected)
+		d.reconciler.Poke()
+	}
 }
 
 // seedStateFromDisk diffs the local filesystem against the CRDT snapshot

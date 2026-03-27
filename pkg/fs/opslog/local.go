@@ -129,6 +129,64 @@ func (l *LocalOpsLog) SetLastRemoteOp(ts int64) {
 	l.mu.Unlock()
 }
 
+// CatchUpFromSnapshot merges an S3 snapshot into the local log, injecting
+// entries where the S3 snapshot wins LWW. Called on daemon startup to close
+// the convergence gap between the poller (reads ops/) and S3 compaction
+// (folds ops into manifests/ snapshots and deletes the originals).
+//
+// Returns the number of entries injected.
+func (l *LocalOpsLog) CatchUpFromSnapshot(s3Snap *Snapshot, snapshotTS int64) (int, error) {
+	localSnap, err := l.Snapshot()
+	if err != nil {
+		return 0, fmt.Errorf("loading local snapshot: %w", err)
+	}
+
+	injected := 0
+	for path, s3fi := range s3Snap.files {
+		s3Clock := clockTuple{
+			ts:     s3fi.Modified.Unix(),
+			device: s3fi.Device,
+			seq:    s3fi.Seq,
+		}
+
+		localfi, exists := localSnap.Lookup(path)
+		if exists {
+			localClock := clockTuple{
+				ts:     localfi.Modified.Unix(),
+				device: localfi.Device,
+				seq:    localfi.Seq,
+			}
+			if !s3Clock.beats(localClock) {
+				continue // local wins or tie — keep local
+			}
+		}
+
+		// Inject the S3 entry into the local log via Append (not AppendLocal)
+		// so it keeps the original device/timestamp/seq and doesn't trigger
+		// the outbox.
+		entry := Entry{
+			Type:      Put,
+			Path:      path,
+			Chunks:    s3fi.Chunks,
+			Size:      s3fi.Size,
+			Checksum:  s3fi.Checksum,
+			Namespace: s3fi.Namespace,
+			Device:    s3fi.Device,
+			Timestamp: s3fi.Modified.Unix(),
+			Seq:       s3fi.Seq,
+		}
+		if err := l.Append(entry); err != nil {
+			return injected, fmt.Errorf("injecting %s: %w", path, err)
+		}
+		injected++
+	}
+
+	// Advance cursor so the poller doesn't re-read compacted ops.
+	l.SetLastRemoteOp(snapshotTS)
+
+	return injected, nil
+}
+
 // Compact rewrites the ops.jsonl file with one synthetic put per file
 // in the current snapshot. All intermediate ops (superseded puts, deletes
 // for files that were re-created, etc.) are dropped. The snapshot is
