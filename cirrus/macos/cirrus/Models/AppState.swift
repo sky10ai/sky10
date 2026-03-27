@@ -237,7 +237,7 @@ class AppState: ObservableObject {
         let rootURL = URL(fileURLWithPath: rootPath)
         guard let enumerator = fm.enumerator(at: rootURL,
                                               includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey, .isDirectoryKey],
-                                              options: [.skipsHiddenFiles]) else {
+                                              options: []) else {
             return LocalScanResult(files: [], emptyDirs: [])
         }
 
@@ -248,7 +248,7 @@ class AppState: ObservableObject {
 
         for case let fileURL as URL in enumerator {
             let relativePath = fileURL.path.replacingOccurrences(of: rootPath + "/", with: "")
-            if relativePath.hasPrefix(".") { continue }
+            // Show all files including dotfiles — Cirrus must not hide anything
 
             let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
 
