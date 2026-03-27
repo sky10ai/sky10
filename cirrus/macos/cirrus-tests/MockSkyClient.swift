@@ -119,7 +119,7 @@ class MockSkyClient: SkyClientProtocol {
     func health() async throws -> SkyClient.HealthResult {
         return SkyClient.HealthResult(status: "ok", version: "mock", uptime: "1m0s",
             drives: 1, drivesRunning: 1, outboxPending: 0, lastActivityAgo: "5s",
-            rpcClients: 1, rpcSubscribers: 1)
+            rpcClients: 1, rpcSubscribers: 1, httpAddr: ":9101")
     }
 
     func syncActivity() async throws -> [SkyClient.SyncActivityEntry] {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 )
@@ -14,35 +15,72 @@ type httpSubscriber struct {
 	done chan struct{}
 }
 
+// DefaultHTTPPort is the preferred port for the HTTP RPC server.
+const DefaultHTTPPort = 9101
+
 // ServeHTTP starts an HTTP server alongside the Unix socket.
-// POST /rpc — JSON-RPC 2.0 request/response
-// GET /rpc/events — SSE stream of push events
-// GET /health — status check
-func (s *RPCServer) ServeHTTP(ctx context.Context, addr string) error {
+// Tries the given port first; if taken, picks a random available port.
+// The actual address is stored on the server for discovery via health RPC.
+//
+//	GET  /           — JSON hello
+//	POST /rpc        — JSON-RPC 2.0 request/response
+//	GET  /rpc/events — SSE stream of push events
+//	GET  /health     — status check
+func (s *RPCServer) ServeHTTP(ctx context.Context, port int) error {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", s.handleHTTPRoot)
 	mux.HandleFunc("POST /rpc", s.handleHTTPRPC)
 	mux.HandleFunc("GET /rpc/events", s.handleHTTPEvents)
 	mux.HandleFunc("GET /health", s.handleHTTPHealth)
 
-	srv := &http.Server{
-		Addr:    addr,
-		Handler: mux,
+	// Try preferred port, fall back to random
+	addr := fmt.Sprintf(":%d", port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		ln, err = net.Listen("tcp", ":0")
+		if err != nil {
+			return fmt.Errorf("http listen: %w", err)
+		}
 	}
+
+	actualAddr := ln.Addr().String()
+	s.mu.Lock()
+	s.httpAddr = actualAddr
+	s.mu.Unlock()
+
+	srv := &http.Server{Handler: mux}
 
 	go func() {
 		<-ctx.Done()
 		srv.Close()
 	}()
 
-	s.logger.Info("HTTP RPC server started", "addr", addr)
-	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+	s.logger.Info("HTTP RPC server started", "addr", actualAddr)
+	if err := srv.Serve(ln); err != http.ErrServerClosed {
 		return err
 	}
 	return nil
 }
 
-func (s *RPCServer) handleHTTPRPC(w http.ResponseWriter, r *http.Request) {
+// HTTPAddr returns the address the HTTP server is listening on, or "" if not started.
+func (s *RPCServer) HTTPAddr() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.httpAddr
+}
 
+func (s *RPCServer) handleHTTPRoot(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"name":    "sky10",
+		"version": s.version,
+		"rpc":     "POST /rpc",
+		"events":  "GET /rpc/events",
+		"health":  "GET /health",
+	})
+}
+
+func (s *RPCServer) handleHTTPRPC(w http.ResponseWriter, r *http.Request) {
 	var req RPCRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -63,7 +101,6 @@ func (s *RPCServer) handleHTTPRPC(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RPCServer) handleHTTPHealth(w http.ResponseWriter, r *http.Request) {
-	// Health is unauthenticated — just returns status
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":  "ok",

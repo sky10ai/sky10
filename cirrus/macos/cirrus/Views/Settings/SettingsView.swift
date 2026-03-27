@@ -19,11 +19,109 @@ struct SettingsView: View {
                 .environmentObject(appState)
                 .tabItem { Label("Storage", systemImage: "externaldrive") }
 
+            APISettingsView()
+                .environmentObject(appState)
+                .tabItem { Label("API", systemImage: "network") }
+
             GeneralSettingsView()
                 .environmentObject(appState)
                 .tabItem { Label("General", systemImage: "gear") }
         }
         .frame(width: 500, height: 420)
+    }
+}
+
+struct APISettingsView: View {
+    @EnvironmentObject var appState: AppState
+    @State private var health: SkyClient.HealthResult?
+    @State private var loading = true
+
+    var body: some View {
+        Form {
+            Section {
+                if loading {
+                    HStack {
+                        ProgressView().controlSize(.small)
+                        Text("Connecting...")
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let h = health {
+                    LabeledContent("Status") {
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(.green)
+                                .frame(width: 8, height: 8)
+                            Text("Running")
+                        }
+                    }
+
+                    if let addr = h.httpAddr {
+                        LabeledContent("HTTP Endpoint") {
+                            Text("http://localhost\(addr)")
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                        }
+
+                        LabeledContent("RPC") {
+                            Text("POST http://localhost\(addr)/rpc")
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                        }
+
+                        LabeledContent("Events") {
+                            Text("GET http://localhost\(addr)/rpc/events")
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                        }
+                    } else {
+                        LabeledContent("HTTP") {
+                            Text("Not available")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Divider()
+
+                    LabeledContent("Unix Socket") {
+                        Text("/tmp/sky10/sky10.sock")
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                    }
+
+                    LabeledContent("Version") {
+                        Text(h.version)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                    }
+
+                    LabeledContent("Uptime") {
+                        Text(h.uptime)
+                    }
+
+                    LabeledContent("RPC Clients") {
+                        Text("\(h.rpcClients)")
+                    }
+
+                    LabeledContent("SSE Subscribers") {
+                        Text("\(h.rpcSubscribers)")
+                    }
+                } else {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                        Text("Daemon not connected")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .padding()
+        .task {
+            do {
+                health = try await appState.client.health()
+            } catch {}
+            loading = false
+        }
     }
 }
 

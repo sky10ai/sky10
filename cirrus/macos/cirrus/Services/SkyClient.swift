@@ -236,6 +236,7 @@ class SkyClient {
         let lastActivityAgo: String
         let rpcClients: Int
         let rpcSubscribers: Int
+        let httpAddr: String?
 
         enum CodingKeys: String, CodingKey {
             case status, version, uptime, drives
@@ -244,6 +245,7 @@ class SkyClient {
             case lastActivityAgo = "last_activity_ago"
             case rpcClients = "rpc_clients"
             case rpcSubscribers = "rpc_subscribers"
+            case httpAddr = "http_addr"
         }
     }
 
