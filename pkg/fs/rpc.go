@@ -878,13 +878,28 @@ func (s *RPCServer) rpcDriveRemove(_ context.Context, params json.RawMessage) (i
 
 func (s *RPCServer) rpcDriveList(_ context.Context) (interface{}, error) {
 	drives := s.driveManager.ListDrives()
-	result := make([]driveInfo, len(drives))
+	result := make([]map[string]interface{}, len(drives))
 	for i, d := range drives {
-		result[i] = driveInfo{
-			ID: d.ID, Name: d.Name, LocalPath: d.LocalPath,
-			Namespace: d.Namespace, Enabled: d.Enabled,
-			Running: s.driveManager.IsRunning(d.ID),
+		entry := map[string]interface{}{
+			"id":         d.ID,
+			"name":       d.Name,
+			"local_path": d.LocalPath,
+			"namespace":  d.Namespace,
+			"enabled":    d.Enabled,
+			"running":    s.driveManager.IsRunning(d.ID),
 		}
+		// Add cursor and snapshot info from local ops log
+		dir := driveDataDir(d.ID)
+		localLog := opslog.NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), s.store.deviceID)
+		entry["last_remote_op"] = localLog.LastRemoteOp()
+		if snap, err := localLog.Snapshot(); err == nil {
+			entry["snapshot_files"] = snap.Len()
+		}
+		outbox := NewSyncLog[OutboxEntry](filepath.Join(dir, "outbox.jsonl"))
+		if entries, err := outbox.ReadAll(); err == nil {
+			entry["outbox_pending"] = len(entries)
+		}
+		result[i] = entry
 	}
 	return map[string]interface{}{"drives": result}, nil
 }
