@@ -136,12 +136,13 @@ func (d *DaemonV2_5) emitEvent(event string, data map[string]any) {
 func (d *DaemonV2_5) Run(ctx context.Context) error {
 	d.logger.Info("daemon v2.5 starting", "root", d.config.LocalRoot)
 
-	// Seed state from local filesystem on first run
-	d.seedStateFromDisk()
-
-	// Catch up from S3 snapshot before polling. Closes the convergence gap
-	// where ops are compacted into manifests/ before the poller reads them.
+	// Catch up from S3 snapshot BEFORE seeding from disk. This ensures
+	// delete propagation takes effect before seedStateFromDisk re-adds
+	// files that are still on disk but should be deleted.
 	d.catchUpFromSnapshot(ctx)
+
+	// Seed state from local filesystem
+	d.seedStateFromDisk()
 
 	// Watchdog: auto-dump goroutines if any worker is stuck for 2 minutes
 	wd := NewWatchdog(d.logger, 2*time.Minute)
@@ -166,8 +167,8 @@ func (d *DaemonV2_5) Run(ctx context.Context) error {
 
 // SyncOnce does a one-shot sync: seed, catch up, poll remote, reconcile, drain outbox.
 func (d *DaemonV2_5) SyncOnce(ctx context.Context) {
-	d.seedStateFromDisk()
 	d.catchUpFromSnapshot(ctx)
+	d.seedStateFromDisk()
 	d.poller.pollOnce(ctx)
 	d.reconciler.reconcile(ctx)
 	d.outboxWorker.drain(ctx)
@@ -226,7 +227,8 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 		return
 	}
 	knownFiles := snap.Files()
-	d.logger.Info("seed", "local_files", len(localFiles), "known_files", len(knownFiles))
+	deletedFiles := snap.DeletedFiles()
+	d.logger.Info("seed", "local_files", len(localFiles), "known_files", len(knownFiles), "deleted_files", len(deletedFiles))
 
 	ns := ""
 	if len(d.config.Namespaces) > 0 {
@@ -237,7 +239,12 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 
 	// Files on disk not in snapshot → new local files → log + outbox.
 	// Files with different checksums → modified → log + outbox.
+	// Files explicitly deleted in the CRDT are skipped — catch-up
+	// propagated the delete and the reconciler will remove the disk copy.
 	for path, cksum := range localFiles {
+		if deletedFiles[path] {
+			continue
+		}
 		fi, ok := knownFiles[path]
 		if !ok || fi.Checksum != cksum {
 			// Handle symlinks separately — no file upload needed.
