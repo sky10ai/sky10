@@ -134,8 +134,11 @@ func (l *LocalOpsLog) SetLastRemoteOp(ts int64) {
 // the convergence gap between the poller (reads ops/) and S3 compaction
 // (folds ops into manifests/ snapshots and deletes the originals).
 //
+// If namespace is non-empty, only entries matching that namespace are
+// considered (mirrors the poller's namespace filter).
+//
 // Returns the number of entries injected.
-func (l *LocalOpsLog) CatchUpFromSnapshot(s3Snap *Snapshot, snapshotTS int64) (int, error) {
+func (l *LocalOpsLog) CatchUpFromSnapshot(s3Snap *Snapshot, snapshotTS int64, namespace string) (int, error) {
 	localSnap, err := l.Snapshot()
 	if err != nil {
 		return 0, fmt.Errorf("loading local snapshot: %w", err)
@@ -143,6 +146,9 @@ func (l *LocalOpsLog) CatchUpFromSnapshot(s3Snap *Snapshot, snapshotTS int64) (i
 
 	injected := 0
 	for path, s3fi := range s3Snap.files {
+		if namespace != "" && s3fi.Namespace != namespace {
+			continue
+		}
 		s3Clock := clockTuple{
 			ts:     s3fi.Modified.Unix(),
 			device: s3fi.Device,
