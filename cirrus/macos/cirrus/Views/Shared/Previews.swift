@@ -63,7 +63,7 @@ private class PreviewSkyClient: SkyClientProtocol {
     func health() async throws -> SkyClient.HealthResult {
         SkyClient.HealthResult(status: "ok", version: "preview", uptime: "5m0s",
             drives: 1, drivesRunning: 1, outboxPending: 0, lastActivityAgo: "2s",
-            rpcClients: 1, rpcSubscribers: 1)
+            rpcClients: 1, rpcSubscribers: 1, httpAddr: ":9101")
     }
     func syncActivity() async throws -> [SkyClient.SyncActivityEntry] { [] }
     func reset() async throws -> SkyClient.ResetResult {

@@ -44,6 +44,7 @@ type RPCServer struct {
 	completedInvites map[string]bool // cached: invites fully approved
 
 	// HTTP RPC fields
+	httpAddr  string
 	httpSubMu sync.RWMutex
 	httpSubs  []*httpSubscriber
 }
@@ -796,7 +797,7 @@ func (s *RPCServer) rpcHealth(_ context.Context) (interface{}, error) {
 		lastActivityAgo = time.Since(lastActivity).Truncate(time.Second).String()
 	}
 
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"status":            "ok",
 		"version":           s.version,
 		"uptime":            uptime.Truncate(time.Second).String(),
@@ -806,7 +807,11 @@ func (s *RPCServer) rpcHealth(_ context.Context) (interface{}, error) {
 		"last_activity_ago": lastActivityAgo,
 		"rpc_clients":       clients,
 		"rpc_subscribers":   subscribers,
-	}, nil
+	}
+	if addr := s.httpAddr; addr != "" {
+		result["http_addr"] = addr
+	}
+	return result, nil
 }
 
 // MarkActivity records that sync I/O is happening right now.
