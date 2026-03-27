@@ -44,7 +44,6 @@ type RPCServer struct {
 	completedInvites map[string]bool // cached: invites fully approved
 
 	// HTTP RPC fields
-	httpToken string
 	httpSubMu sync.RWMutex
 	httpSubs  []*httpSubscriber
 }

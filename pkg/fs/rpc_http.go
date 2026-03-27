@@ -2,8 +2,6 @@ package fs
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,29 +14,18 @@ type httpSubscriber struct {
 	done chan struct{}
 }
 
-// HTTPConfig configures the HTTP RPC server.
-type HTTPConfig struct {
-	Addr  string // e.g. ":9100"
-	Token string // bearer token; generated if empty
-}
-
 // ServeHTTP starts an HTTP server alongside the Unix socket.
 // POST /rpc — JSON-RPC 2.0 request/response
-// GET /events — SSE stream of push events
-func (s *RPCServer) ServeHTTP(ctx context.Context, cfg HTTPConfig) error {
-	if cfg.Token == "" {
-		return fmt.Errorf("HTTP token is required")
-	}
-
-	s.httpToken = cfg.Token
-
+// GET /rpc/events — SSE stream of push events
+// GET /health — status check
+func (s *RPCServer) ServeHTTP(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /rpc", s.handleHTTPRPC)
 	mux.HandleFunc("GET /rpc/events", s.handleHTTPEvents)
 	mux.HandleFunc("GET /health", s.handleHTTPHealth)
 
 	srv := &http.Server{
-		Addr:    cfg.Addr,
+		Addr:    addr,
 		Handler: mux,
 	}
 
@@ -47,35 +34,14 @@ func (s *RPCServer) ServeHTTP(ctx context.Context, cfg HTTPConfig) error {
 		srv.Close()
 	}()
 
-	s.logger.Info("HTTP RPC server started", "addr", cfg.Addr)
+	s.logger.Info("HTTP RPC server started", "addr", addr)
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		return err
 	}
 	return nil
 }
 
-func (s *RPCServer) checkHTTPAuth(w http.ResponseWriter, r *http.Request) bool {
-	token := r.Header.Get("Authorization")
-	if token == "" {
-		http.Error(w, "missing Authorization header", http.StatusUnauthorized)
-		return false
-	}
-	// Accept "Bearer <token>" or raw "<token>"
-	const prefix = "Bearer "
-	if len(token) > len(prefix) && token[:len(prefix)] == prefix {
-		token = token[len(prefix):]
-	}
-	if token != s.httpToken {
-		http.Error(w, "invalid token", http.StatusForbidden)
-		return false
-	}
-	return true
-}
-
 func (s *RPCServer) handleHTTPRPC(w http.ResponseWriter, r *http.Request) {
-	if !s.checkHTTPAuth(w, r) {
-		return
-	}
 
 	var req RPCRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -106,10 +72,6 @@ func (s *RPCServer) handleHTTPHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RPCServer) handleHTTPEvents(w http.ResponseWriter, r *http.Request) {
-	if !s.checkHTTPAuth(w, r) {
-		return
-	}
-
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
@@ -173,11 +135,4 @@ func (s *RPCServer) broadcastToHTTP(event RPCEvent) {
 			// Drop if subscriber is slow
 		}
 	}
-}
-
-// GenerateToken creates a random 32-byte hex token.
-func GenerateToken() string {
-	b := make([]byte, 32)
-	rand.Read(b)
-	return hex.EncodeToString(b)
 }

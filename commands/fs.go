@@ -329,14 +329,9 @@ func fsServeCmd() *cobra.Command {
 			// Start HTTP RPC if requested
 			httpAddr, _ := cmd.Flags().GetString("http")
 			if httpAddr != "" {
-				token := skyfs.GenerateToken()
 				fmt.Printf("http://%s/rpc\n", httpAddr)
-				fmt.Printf("Token: %s\n", token)
 				go func() {
-					if err := server.ServeHTTP(ctx, skyfs.HTTPConfig{
-						Addr:  httpAddr,
-						Token: token,
-					}); err != nil {
+					if err := server.ServeHTTP(ctx, httpAddr); err != nil {
 						slog.Error("HTTP server failed", "error", err)
 					}
 				}()
