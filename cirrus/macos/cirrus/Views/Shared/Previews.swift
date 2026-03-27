@@ -78,6 +78,9 @@ private class PreviewSkyClient: SkyClientProtocol {
     func s3List(prefix: String) async throws -> SkyClient.S3ListResult {
         SkyClient.S3ListResult(files: [], dirs: ["ops/", "blobs/", "manifests/"], prefix: "", total: 0)
     }
+    func s3Delete(key: String) async throws -> SkyClient.S3DeleteResult {
+        SkyClient.S3DeleteResult(deleted: key)
+    }
 }
 
 extension AppState {

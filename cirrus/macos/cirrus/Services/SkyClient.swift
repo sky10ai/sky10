@@ -302,6 +302,14 @@ class SkyClient {
         return try await rpc.call("skyfs.s3List", params: ["prefix": prefix])
     }
 
+    struct S3DeleteResult: Codable {
+        let deleted: String
+    }
+
+    func s3Delete(key: String) async throws -> S3DeleteResult {
+        return try await rpc.call("skyfs.s3Delete", params: ["key": key])
+    }
+
     // MARK: - Debug
 
     struct DebugDumpResult: Codable {

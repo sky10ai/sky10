@@ -47,6 +47,7 @@
 		C8B03AB7C1D10EEA521A1E46 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2BE84EA67BC850F09B743B1 /* App.swift */; };
 		DFE0E90CE49C21D6E38C3CDC /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 703B3B5D3AA7BCAE0FCE377B /* MenuBarView.swift */; };
 		E9ED60A631C497E55B1FE001 /* FileNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8D47E106F253E073CC0FAA0 /* FileNode.swift */; };
+		ED76E359276A6FC0CA7B21AF /* S3BrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF8F81F3A06814186C486F35 /* S3BrowserView.swift */; };
 		FB7A9CF82554F6A3F6A35756 /* DrivesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7B52312747F37CECF5B110F /* DrivesView.swift */; };
 /* End PBXBuildFile section */
 
@@ -95,6 +96,7 @@
 		CB00C684C3E3F62DA95FD2D1 /* MockSkyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockSkyClient.swift; sourceTree = "<group>"; };
 		CE06B13E041B55F79E5DEF54 /* FileProviderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileProviderManager.swift; sourceTree = "<group>"; };
 		CF39E6117D7F1C1794D0DE32 /* SkyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkyClient.swift; sourceTree = "<group>"; };
+		CF8F81F3A06814186C486F35 /* S3BrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = S3BrowserView.swift; sourceTree = "<group>"; };
 		D3FCDD83C861B8FEA6D04773 /* Cirrus-Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Cirrus-Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		D7B52312747F37CECF5B110F /* DrivesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrivesView.swift; sourceTree = "<group>"; };
 		D9F4060F7A7E5F619FFA02AB /* ActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityView.swift; sourceTree = "<group>"; };
@@ -189,6 +191,7 @@
 				98AC79BA0B50D3F2E59D09EE /* FileListView.swift */,
 				47B1A09BB0B9C75B296D1B69 /* FileRowView.swift */,
 				AC3161241B8B58B2CA8C8AD6 /* FileTreeView.swift */,
+				CF8F81F3A06814186C486F35 /* S3BrowserView.swift */,
 				53DFBFA3E32802FEEE7B529E /* SidebarView.swift */,
 			);
 			path = Browser;
@@ -372,6 +375,7 @@
 				A7D9CAFB494EFB1CEFBC6FF1 /* OnboardingView.swift in Sources */,
 				231AC68C6781A145A22E93B3 /* Previews.swift in Sources */,
 				8A66546137AD1C2882BF1E2F /* RPCClient.swift in Sources */,
+				ED76E359276A6FC0CA7B21AF /* S3BrowserView.swift in Sources */,
 				69EA8A292621094500F1A393 /* SettingsView.swift in Sources */,
 				142E1F41706C41AB3B57ADC3 /* SidebarView.swift in Sources */,
 				B17E9FE702B77CB3B6A64BDE /* SkyClient.swift in Sources */,
@@ -520,7 +524,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.10.0;
+				MARKETING_VERSION = 0.17.6;
 				PRODUCT_BUNDLE_IDENTIFIER = ai.sky10.cirrus;
 				PRODUCT_MODULE_NAME = cirrus;
 				PRODUCT_NAME = Cirrus;
@@ -542,7 +546,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.10.0;
+				MARKETING_VERSION = 0.17.6;
 				PRODUCT_BUNDLE_IDENTIFIER = ai.sky10.cirrus;
 				PRODUCT_MODULE_NAME = cirrus;
 				PRODUCT_NAME = Cirrus;

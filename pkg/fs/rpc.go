@@ -313,6 +313,8 @@ func (s *RPCServer) dispatch(ctx context.Context, req *RPCRequest) *RPCResponse 
 		result, err = s.rpcDebugGet(ctx, req.Params)
 	case "skyfs.s3List":
 		result, err = s.rpcS3List(ctx, req.Params)
+	case "skyfs.s3Delete":
+		result, err = s.rpcS3Delete(ctx, req.Params)
 	default:
 		resp.Error = &RPCError{Code: -32601, Message: "method not found: " + req.Method}
 		return resp
@@ -1396,6 +1398,29 @@ func (s *RPCServer) rpcS3List(ctx context.Context, params json.RawMessage) (inte
 		"prefix": p.Prefix,
 		"total":  len(keys),
 	}, nil
+}
+
+func (s *RPCServer) rpcS3Delete(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p struct {
+		Key string `json:"key"`
+	}
+	if params == nil {
+		return nil, fmt.Errorf("missing params")
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("parsing params: %w", err)
+	}
+	if p.Key == "" {
+		return nil, fmt.Errorf("key is required")
+	}
+
+	delCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	if err := s.store.backend.Delete(delCtx, p.Key); err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"deleted": p.Key}, nil
 }
 
 func splitInvitePath2(key string) string {

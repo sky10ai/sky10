@@ -138,6 +138,14 @@ class MockSkyClient: SkyClientProtocol {
         return SkyClient.DebugDumpResult(status: "mock", key: "debug/mock/test.json", size: 0)
     }
 
+    func s3List(prefix: String) async throws -> SkyClient.S3ListResult {
+        return SkyClient.S3ListResult(files: [], dirs: [], prefix: prefix, total: 0)
+    }
+
+    func s3Delete(key: String) async throws -> SkyClient.S3DeleteResult {
+        return SkyClient.S3DeleteResult(deleted: key)
+    }
+
 }
 
 enum MockError: Error, LocalizedError {
