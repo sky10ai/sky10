@@ -828,6 +828,96 @@ func TestSweepStopsAfterSuccessfulUpload(t *testing.T) {
 	}
 }
 
+// Regression: the integrity sweep ran every 5 minutes, re-queued 101
+// chunkless files each cycle, the outbox uploaded them, but the next sweep
+// found them chunkless AGAIN — infinite loop. This reproduces the full
+// production cycle: sweep → outbox drain → sweep → must NOT re-queue.
+//
+// Root cause: after upload the outbox worker must write chunks back to the
+// local log (via AppendLocal). If it doesn't, the snapshot permanently has
+// chunks=nil for locally-created files because the poller skips own-device
+// ops from S3.
+func TestSweepDoesNotLoopAfterOutboxDrain(t *testing.T) {
+	t.Parallel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+
+	// Step 1: simulate watcher creating 3 chunkless files
+	for i := 0; i < 3; i++ {
+		name := fmt.Sprintf("file-%d.txt", i)
+		content := fmt.Sprintf("content-%d", i)
+		localFile := filepath.Join(localDir, name)
+		os.WriteFile(localFile, []byte(content), 0644)
+		cksum := checksumOf(content)
+
+		localLog.AppendLocal(opslog.Entry{
+			Type: opslog.Put, Path: name, Checksum: cksum,
+			Size: int64(len(content)), Namespace: "Test",
+		})
+	}
+
+	// Step 2: first sweep — should re-queue all 3
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.integritySweep()
+
+	if outbox.Len() != 3 {
+		t.Fatalf("first sweep: outbox has %d entries, want 3", outbox.Len())
+	}
+
+	// Step 3: outbox worker drains — uploads all 3 to S3
+	worker := NewOutboxWorker(store, outbox, localLog, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	go worker.Run(ctx)
+	worker.Poke()
+	time.Sleep(2 * time.Second)
+	cancel()
+
+	if outbox.Len() != 0 {
+		t.Fatalf("outbox has %d entries after drain, want 0", outbox.Len())
+	}
+
+	// Step 4: verify the local snapshot now has chunks for all 3 files
+	snap, _ := localLog.Snapshot()
+	for i := 0; i < 3; i++ {
+		name := fmt.Sprintf("file-%d.txt", i)
+		fi, ok := snap.Lookup(name)
+		if !ok {
+			t.Fatalf("%s not in snapshot after upload", name)
+		}
+		if len(fi.Chunks) == 0 {
+			t.Errorf("%s still has no chunks after upload — outbox worker did not confirm upload in local log", name)
+		}
+	}
+
+	// Step 5: second sweep — must NOT re-queue anything
+	r.integritySweep()
+
+	entries, _ := outbox.ReadAll()
+	if len(entries) != 0 {
+		t.Errorf("second sweep re-queued %d entries — infinite loop! chunks not persisted in local log", len(entries))
+		for _, e := range entries {
+			t.Logf("  re-queued: %s", e.Path)
+		}
+	}
+
+	// Step 6: third sweep for good measure
+	r.integritySweep()
+
+	entries, _ = outbox.ReadAll()
+	if len(entries) != 0 {
+		t.Errorf("third sweep re-queued %d entries — still looping", len(entries))
+	}
+}
+
 // Regression: the integrity sweep re-queued files that were already waiting
 // in the outbox but hadn't been uploaded yet (chunks still nil). With 16k
 // files from a bun install, the sweep ran every 5 minutes and re-queued
