@@ -243,13 +243,18 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 
 	r.logger.Info("reconcile: done", "downloaded", downloaded, "deleted", deleted, "failed", failed, "skipped", skipped, "pending", pending)
 
-	if active {
+	// Emit sync.complete whenever work was attempted (active) OR when
+	// download.start was emitted. Without the latter, the UI stays stuck
+	// at "downloading N files" when all downloads fail or are skipped.
+	if active || len(targets) > 0 {
 		r.onEvent("sync.complete", map[string]any{
 			"drive":      r.driveName,
 			"downloaded": downloaded,
 			"deleted":    deleted,
 			"failed":     failed,
 		})
+	}
+	if active {
 		r.onEvent("state.changed", nil)
 	}
 
