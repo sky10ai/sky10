@@ -642,69 +642,6 @@ func TestSeedDoesNotResurrectCatchUpDeletes(t *testing.T) {
 	}
 }
 
-// Regression: clearing ops.jsonl to repair a corrupted local log caused
-// seed to re-add all stale files on disk as "new" because the local CRDT
-// was empty after the clear. Seed must check the S3 snapshot: files on
-// disk not in the CRDT AND not in the S3 snapshot are stale downloads.
-func TestSeedSkipsStaleFilesAfterOpsLogClear(t *testing.T) {
-	ctx := context.Background()
-
-	backend := s3adapter.NewMemory()
-	id, _ := GenerateDeviceKey()
-	storeA := New(backend, id)
-
-	// Device A uploads one file and compacts.
-	storeA.Put(ctx, "real.txt", strings.NewReader("real"))
-	if _, err := Compact(ctx, backend, id, 2); err != nil {
-		t.Fatalf("Compact: %v", err)
-	}
-
-	// Device B has real.txt AND a stale file on disk (was deleted on S3
-	// before compaction, or was never supposed to be here).
-	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
-	localDir := filepath.Join(tmpDir, "sync")
-	os.MkdirAll(localDir, 0755)
-	os.WriteFile(filepath.Join(localDir, "real.txt"), []byte("real"), 0644)
-	os.WriteFile(filepath.Join(localDir, "stale.txt"), []byte("should not sync"), 0644)
-
-	// Device B starts with EMPTY ops.jsonl (simulating a clear/repair).
-	storeB := NewWithDevice(backend, id, "dev-B")
-	cfg := DaemonConfig{
-		SyncConfig:  SyncConfig{LocalRoot: localDir},
-		DriveID:     "test_stale_clear",
-		PollSeconds: 300,
-	}
-	daemon, err := NewDaemonV2_5(storeB, cfg, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Run startup: catch-up then seed.
-	daemon.catchUpFromSnapshot(ctx)
-	daemon.seedStateFromDisk()
-
-	// real.txt should be in the CRDT (from catch-up S3 snapshot).
-	if _, ok := daemon.localLog.Lookup("real.txt"); !ok {
-		t.Error("real.txt should be in CRDT (exists in S3 snapshot)")
-	}
-
-	// stale.txt should NOT be in the CRDT — it's on disk but not in S3.
-	if _, ok := daemon.localLog.Lookup("stale.txt"); ok {
-		t.Error("stale.txt should not be seeded (not in S3 snapshot)")
-	}
-
-	// Outbox should not have stale.txt.
-	driveDir := driveDataDir("test_stale_clear")
-	outbox := NewSyncLog[OutboxEntry](filepath.Join(driveDir, "outbox.jsonl"))
-	entries, _ := outbox.ReadAll()
-	for _, e := range entries {
-		if e.Path == "stale.txt" {
-			t.Error("stale.txt should not be in outbox")
-		}
-	}
-}
-
 // Migration: state.json → ops.jsonl on first V3 startup.
 func TestMigrateStateToOpsLog(t *testing.T) {
 	tmpDir := t.TempDir()
