@@ -33,6 +33,7 @@ type DaemonV2_5 struct {
 	config         DaemonConfig
 	logger         *slog.Logger
 	onEvent        func(string, map[string]any)
+	s3Snap         *opslog.Snapshot // cached from catch-up, used by seed to skip stale files
 }
 
 // NewDaemonV2_5 creates the sync daemon.
@@ -195,6 +196,7 @@ func (d *DaemonV2_5) catchUpFromSnapshot(ctx context.Context) {
 	if s3Snap == nil {
 		return // no snapshot exists yet
 	}
+	d.s3Snap = s3Snap
 
 	ns := ""
 	if len(d.config.Namespaces) > 0 {
@@ -241,11 +243,19 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 	// Files with different checksums → modified → log + outbox.
 	// Files explicitly deleted in the CRDT are skipped — catch-up
 	// propagated the delete and the reconciler will remove the disk copy.
+	// Files absent from both the CRDT and the S3 snapshot are stale
+	// downloads from a previous session — skip them.
 	for path, cksum := range localFiles {
 		if deletedFiles[path] {
 			continue
 		}
 		fi, ok := knownFiles[path]
+		if !ok && d.s3Snap != nil {
+			s3fi, inS3 := d.s3Snap.Lookup(path)
+			if !inS3 || (ns != "" && s3fi.Namespace != ns) {
+				continue // stale download — not in S3 snapshot for this namespace
+			}
+		}
 		if !ok || fi.Checksum != cksum {
 			// Handle symlinks separately — no file upload needed.
 			if target, isSymlink := localSymlinks[path]; isSymlink {
