@@ -295,8 +295,6 @@ func (b *Backend) List(ctx context.Context, prefix string) ([]string, error) {
 	defer b.release()
 	b.logger.Debug("s3 LIST", "prefix", prefix)
 	start := time.Now()
-	ctx, cancel := withTimeout(ctx)
-	defer cancel()
 	var keys []string
 	paginator := s3.NewListObjectsV2Paginator(b.client, &s3.ListObjectsV2Input{
 		Bucket: aws.String(b.bucket),
@@ -304,7 +302,10 @@ func (b *Backend) List(ctx context.Context, prefix string) ([]string, error) {
 	})
 
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(ctx)
+		// Timeout per page, not for the entire paginated listing.
+		pageCtx, pageCancel := withTimeout(ctx)
+		page, err := paginator.NextPage(pageCtx)
+		pageCancel()
 		if err != nil {
 			b.logger.Warn("s3 LIST failed", "prefix", prefix, "error", err, "ms", time.Since(start).Milliseconds())
 			return nil, fmt.Errorf("s3: list %q: %w", prefix, err)
