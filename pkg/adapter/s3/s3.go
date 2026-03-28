@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -385,6 +386,8 @@ func (b *Backend) GetRange(ctx context.Context, key string, offset, length int64
 }
 
 // isNotFound checks if an error indicates the object doesn't exist.
+// Also treats 403 Forbidden as not-found: DO Spaces returns 403 for
+// zero-byte or recently-deleted objects instead of 404.
 func isNotFound(err error) bool {
 	var nsk *types.NoSuchKey
 	if errors.As(err, &nsk) {
@@ -392,6 +395,10 @@ func isNotFound(err error) bool {
 	}
 	var nsb *types.NotFound
 	if errors.As(err, &nsb) {
+		return true
+	}
+	// DO Spaces returns 403 for HEAD on deleted/corrupt objects.
+	if strings.Contains(err.Error(), "StatusCode: 403") {
 		return true
 	}
 	return false
