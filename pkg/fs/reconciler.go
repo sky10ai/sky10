@@ -135,11 +135,10 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 			skipped++
 			continue
 		}
-		// Chunkless Puts are tracking state ("upload pending on source
-		// device"), not downloadable content. Skip them — the source
-		// machine's outbox worker will eventually upload chunks and
-		// write a new op with the chunk hashes.
-		if len(fi.Chunks) == 0 && fi.LinkTarget == "" {
+		// Empty files (size=0, chunks=0) are valid — create them on disk.
+		// Only skip entries with size>0 but no chunks (impossible with
+		// upload-then-record, but defensive).
+		if len(fi.Chunks) == 0 && fi.LinkTarget == "" && fi.Size > 0 {
 			pending++
 			continue
 		}
@@ -284,7 +283,19 @@ func (r *Reconciler) downloadFile(ctx context.Context, path string, fi opslog.Fi
 		return false
 	}
 
-	// Need chunk hashes for download
+	// Empty file: create it directly, no download needed.
+	if len(fi.Chunks) == 0 && fi.Size == 0 {
+		dir := filepath.Dir(localPath)
+		os.MkdirAll(dir, 0755)
+		if err := os.WriteFile(localPath, nil, 0644); err != nil {
+			r.logger.Warn("reconcile: create empty file failed", "path", path, "error", err)
+			return false
+		}
+		r.logger.Info("reconcile: created empty file", "path", path)
+		return true
+	}
+
+	// No chunks but size>0 — shouldn't happen with upload-then-record.
 	if len(fi.Chunks) == 0 {
 		r.logger.Warn("reconcile: no chunks, skipping", "path", path)
 		return false

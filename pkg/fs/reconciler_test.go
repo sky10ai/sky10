@@ -72,6 +72,49 @@ func TestReconcilerDownload(t *testing.T) {
 	}
 }
 
+// Regression: empty files (size=0, chunks=0) were skipped by the
+// reconciler because the chunkless-put guard treated them as "upload
+// pending." An empty file's presence is state — it must be created.
+func TestReconcilerCreatesEmptyFile(t *testing.T) {
+	t.Parallel()
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	// Simulate a remote device that uploaded an empty file.
+	// Empty files have size=0, no chunks, and the SHA3-256 of empty input.
+	emptyHash := ContentHash(nil)
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "local-dev")
+	localLog.Append(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "empty.txt",
+		Checksum:  emptyHash,
+		Size:      0,
+		Namespace: "default",
+		Device:    "remote-dev",
+		Timestamp: 1000,
+		Seq:       1,
+	})
+
+	ctx := context.Background()
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.reconcile(ctx)
+
+	// Empty file should exist on disk
+	info, err := os.Stat(filepath.Join(localDir, "empty.txt"))
+	if err != nil {
+		t.Fatalf("empty file not created: %v", err)
+	}
+	if info.Size() != 0 {
+		t.Errorf("size = %d, want 0", info.Size())
+	}
+}
+
 func TestReconcilerDelete(t *testing.T) {
 	tmpDir := t.TempDir()
 	localDir := filepath.Join(tmpDir, "sync")

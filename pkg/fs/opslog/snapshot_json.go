@@ -22,8 +22,9 @@ func MarshalSnapshot(snap *Snapshot) ([]byte, error) {
 	}
 
 	for path, fi := range snap.files {
-		// Skip chunkless puts (upload still pending).
-		if fi.Chunks == nil && fi.LinkTarget == "" {
+		// Skip chunkless puts with size>0 (upload still pending).
+		// Empty files (size=0, chunks=nil) are valid and must be included.
+		if fi.Chunks == nil && fi.LinkTarget == "" && fi.Size > 0 {
 			continue
 		}
 		m.Tree[path] = fileInfoJSON{

@@ -259,3 +259,39 @@ func TestEndToEnd_OfflineDeviceCatchesUp(t *testing.T) {
 		t.Errorf("B has %d files on disk, want 5", len(files))
 	}
 }
+
+// Regression: empty files (size=0, chunks=0) must sync across devices.
+// The reconciler was skipping them because the chunkless-put guard
+// treated all chunks==0 entries as "upload pending."
+func TestEndToEnd_EmptyFileSyncs(t *testing.T) {
+	env := setupTwoDevices(t)
+	ctx := context.Background()
+
+	// A creates an empty file — Put with empty reader
+	env.storeA.Put(ctx, "empty.npmignore", strings.NewReader(""))
+	pr := env.storeA.LastPutResult()
+	env.localLogA.AppendLocal(opslog.Entry{
+		Type: opslog.Put, Path: "empty.npmignore", Checksum: pr.Checksum,
+		Chunks: pr.Chunks, Size: pr.Size, Namespace: env.nsID,
+	})
+	env.uploaderA.Upload(ctx)
+
+	// Verify A's snapshot is in S3
+	keys, _ := env.backend.List(ctx, "fs/shared/snapshots/")
+	t.Logf("S3 snapshots: %v", keys)
+
+	// B polls and reconciles
+	env.pollerB.pollOnce(ctx)
+
+	outboxB := NewSyncLog[OutboxEntry](filepath.Join(env.syncB, "..", "outbox.jsonl"))
+	NewReconciler(env.storeB, env.localLogB, outboxB, env.syncB, nil, nil).reconcile(ctx)
+
+	// Empty file should exist on B's disk
+	info, err := os.Stat(filepath.Join(env.syncB, "empty.npmignore"))
+	if err != nil {
+		t.Fatalf("B: empty file not created: %v", err)
+	}
+	if info.Size() != 0 {
+		t.Errorf("B: size = %d, want 0", info.Size())
+	}
+}
