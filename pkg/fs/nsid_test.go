@@ -8,46 +8,87 @@ import (
 	"github.com/sky10/sky10/pkg/key"
 )
 
-func TestResolveNSID_GeneratesAndPersists(t *testing.T) {
+func TestDeriveNSID_Deterministic(t *testing.T) {
+	t.Parallel()
+	encKey, _ := key.GenerateSymmetricKey()
+
+	id1 := deriveNSID(encKey, "TestDrive")
+	id2 := deriveNSID(encKey, "TestDrive")
+
+	if id1 != id2 {
+		t.Errorf("same key+name should produce same ID: %q vs %q", id1, id2)
+	}
+	if len(id1) != 32 {
+		t.Errorf("nsID length = %d, want 32", len(id1))
+	}
+}
+
+func TestDeriveNSID_DifferentNamespaces(t *testing.T) {
+	t.Parallel()
+	encKey, _ := key.GenerateSymmetricKey()
+
+	id1 := deriveNSID(encKey, "Drive1")
+	id2 := deriveNSID(encKey, "Drive2")
+
+	if id1 == id2 {
+		t.Error("different names should produce different IDs")
+	}
+}
+
+func TestDeriveNSID_DifferentKeys(t *testing.T) {
+	t.Parallel()
+	key1, _ := key.GenerateSymmetricKey()
+	key2, _ := key.GenerateSymmetricKey()
+
+	id1 := deriveNSID(key1, "Same")
+	id2 := deriveNSID(key2, "Same")
+
+	if id1 == id2 {
+		t.Error("different keys should produce different IDs")
+	}
+}
+
+func TestDeriveNSID_NotHumanReadable(t *testing.T) {
+	t.Parallel()
+	encKey, _ := key.GenerateSymmetricKey()
+
+	nsID := deriveNSID(encKey, "MySecretDrive")
+	if nsID == "MySecretDrive" {
+		t.Error("nsID should be opaque, not the human name")
+	}
+}
+
+func TestResolveNSID_WritesMeta(t *testing.T) {
 	t.Parallel()
 	backend := s3adapter.NewMemory()
 	encKey, _ := key.GenerateSymmetricKey()
 	ctx := context.Background()
 
-	// First call generates a new ID
-	nsID1, err := resolveNSID(ctx, backend, "TestDrive", encKey)
+	nsID, err := resolveNSID(ctx, backend, "TestDrive", encKey)
 	if err != nil {
 		t.Fatalf("resolveNSID: %v", err)
 	}
-	if len(nsID1) != 32 { // 16 bytes = 32 hex chars
-		t.Errorf("nsID length = %d, want 32", len(nsID1))
+
+	// Should match deterministic derivation
+	expected := deriveNSID(encKey, "TestDrive")
+	if nsID != expected {
+		t.Errorf("nsID = %q, want %q", nsID, expected)
 	}
 
-	// Second call returns the same ID
-	nsID2, err := resolveNSID(ctx, backend, "TestDrive", encKey)
-	if err != nil {
-		t.Fatalf("resolveNSID second call: %v", err)
+	// Meta should exist in S3
+	keys, _ := backend.List(ctx, "keys/namespaces/")
+	found := false
+	for _, k := range keys {
+		if k == "keys/namespaces/TestDrive.meta.enc" {
+			found = true
+		}
 	}
-	if nsID1 != nsID2 {
-		t.Errorf("nsID changed: %q vs %q", nsID1, nsID2)
-	}
-}
-
-func TestResolveNSID_DifferentNamespaces(t *testing.T) {
-	t.Parallel()
-	backend := s3adapter.NewMemory()
-	encKey, _ := key.GenerateSymmetricKey()
-	ctx := context.Background()
-
-	id1, _ := resolveNSID(ctx, backend, "Drive1", encKey)
-	id2, _ := resolveNSID(ctx, backend, "Drive2", encKey)
-
-	if id1 == id2 {
-		t.Error("different namespaces should have different IDs")
+	if !found {
+		t.Error("meta.enc not written to S3")
 	}
 }
 
-func TestResolveNSID_EncryptedInS3(t *testing.T) {
+func TestResolveNSID_WrongKeyCantDecryptMeta(t *testing.T) {
 	t.Parallel()
 	backend := s3adapter.NewMemory()
 	encKey, _ := key.GenerateSymmetricKey()
@@ -56,23 +97,35 @@ func TestResolveNSID_EncryptedInS3(t *testing.T) {
 
 	resolveNSID(ctx, backend, "Secret", encKey)
 
-	// Wrong key can't read the meta
-	_, err := resolveNSID(ctx, backend, "Secret", wrongKey)
-	if err == nil {
-		t.Error("wrong key should fail to decrypt meta")
+	// Wrong key still derives an ID (HMAC doesn't need S3)
+	// but the meta.enc can't be decrypted
+	nsID := deriveNSID(wrongKey, "Secret")
+	correctID := deriveNSID(encKey, "Secret")
+	if nsID == correctID {
+		t.Error("different keys should derive different IDs")
 	}
 }
 
-func TestResolveNSID_NotHumanReadableInPath(t *testing.T) {
+func TestDiscoverNamespaces(t *testing.T) {
 	t.Parallel()
 	backend := s3adapter.NewMemory()
 	encKey, _ := key.GenerateSymmetricKey()
 	ctx := context.Background()
 
-	nsID, _ := resolveNSID(ctx, backend, "MySecretDrive", encKey)
+	resolveNSID(ctx, backend, "Photos", encKey)
+	resolveNSID(ctx, backend, "Documents", encKey)
 
-	// The nsID should NOT contain the human name
-	if nsID == "MySecretDrive" {
-		t.Error("nsID should be opaque, not the human name")
+	discovered, err := discoverNamespaces(ctx, backend, encKey)
+	if err != nil {
+		t.Fatalf("discoverNamespaces: %v", err)
+	}
+	if len(discovered) != 2 {
+		t.Errorf("discovered %d namespaces, want 2", len(discovered))
+	}
+	if discovered["Photos"] != deriveNSID(encKey, "Photos") {
+		t.Error("Photos nsID mismatch")
+	}
+	if discovered["Documents"] != deriveNSID(encKey, "Documents") {
+		t.Error("Documents nsID mismatch")
 	}
 }

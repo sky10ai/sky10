@@ -595,6 +595,14 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 
 	// Also check local cache before creating — the S3 key may have been deleted
 	if cached, err := s.loadCachedNamespaceKey(namespace); err == nil {
+		// Re-upload to S3 so other devices can access it
+		wrapped, wErr := WrapNamespaceKey(cached, s.identity.PublicKey)
+		if wErr == nil {
+			keyPath := "keys/namespaces/" + namespace + ".ns.enc"
+			r := bytes.NewReader(wrapped)
+			s.backend.Put(ctx, keyPath, r, int64(len(wrapped)))
+			s.wrapKeyForAllDevices(ctx, namespace, cached)
+		}
 		s.mu.Lock()
 		s.nsKeys[namespace] = cached
 		s.mu.Unlock()
