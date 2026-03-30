@@ -55,9 +55,6 @@ func NewReconciler(store *Store, localLog *opslog.LocalOpsLog, outbox *SyncLog[O
 	}
 }
 
-// integritySweep is a deprecated no-op. Kept so skipped tests compile.
-func (r *Reconciler) integritySweep() {}
-
 // Poke tells the reconciler there are new ops to process.
 func (r *Reconciler) Poke() {
 	select {
