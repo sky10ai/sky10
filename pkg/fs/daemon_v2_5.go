@@ -212,16 +212,31 @@ func (d *DaemonV2_5) SyncOnce(ctx context.Context) {
 	d.snapshotUploader.Upload(ctx)
 }
 
-// resolveSnapshotKey fetches the namespace encryption key and sets it on
-// the snapshot uploader and poller. Called once during startup.
+// resolveSnapshotKey fetches the namespace encryption key and resolves the
+// opaque namespace ID. Sets both on the uploader, poller, and store.
 func (d *DaemonV2_5) resolveSnapshotKey(ctx context.Context) error {
-	ns := d.snapshotUploader.nsID
-	encKey, err := d.store.getOrCreateNamespaceKey(ctx, ns)
+	nsName := d.snapshotUploader.nsID // initially set to namespace name
+	encKey, err := d.store.getOrCreateNamespaceKey(ctx, nsName)
 	if err != nil {
-		return fmt.Errorf("resolving namespace key %q: %w", ns, err)
+		return fmt.Errorf("resolving namespace key %q: %w", nsName, err)
 	}
+
+	// Resolve opaque namespace ID (or generate on first use)
+	nsID, err := loadCachedNSID(nsName)
+	if err != nil {
+		nsID, err = resolveNSID(ctx, d.store.backend, nsName, encKey)
+		if err != nil {
+			return fmt.Errorf("resolving nsID for %q: %w", nsName, err)
+		}
+		cacheNSID(nsName, nsID)
+	}
+	d.logger.Info("namespace resolved", "name", nsName, "nsid", nsID)
+
 	d.snapshotUploader.encKey = encKey
+	d.snapshotUploader.nsID = nsID
 	d.snapshotPoller.encKey = encKey
+	d.snapshotPoller.nsID = nsID
+	d.store.SetNamespaceID(nsID)
 	return nil
 }
 
