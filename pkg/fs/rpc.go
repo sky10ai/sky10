@@ -946,7 +946,7 @@ func (s *RPCServer) rpcDriveState(_ context.Context, params json.RawMessage) (in
 	if snap, err := localLog.Snapshot(); err == nil {
 		crdtFiles := make(map[string]interface{})
 		for path, fi := range snap.Files() {
-			crdtFiles[path] = map[string]interface{}{
+			entry := map[string]interface{}{
 				"checksum":  fi.Checksum,
 				"size":      fi.Size,
 				"device":    fi.Device,
@@ -954,6 +954,10 @@ func (s *RPCServer) rpcDriveState(_ context.Context, params json.RawMessage) (in
 				"namespace": fi.Namespace,
 				"modified":  fi.Modified.Unix(),
 			}
+			if fi.LinkTarget != "" {
+				entry["link_target"] = fi.LinkTarget
+			}
+			crdtFiles[path] = entry
 		}
 		result["crdt_files"] = crdtFiles
 		result["crdt_deleted"] = snap.DeletedFiles()
