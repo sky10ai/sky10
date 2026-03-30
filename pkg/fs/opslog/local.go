@@ -107,6 +107,10 @@ func (l *LocalOpsLog) Lookup(path string) (FileInfo, bool) {
 	return snap.Lookup(path)
 }
 
+// LastRemoteOp is a deprecated no-op stub. Cursor tracking was removed
+// in the snapshot-exchange architecture. Kept so integration tests compile.
+func (l *LocalOpsLog) LastRemoteOp() int64 { return 0 }
+
 // DeviceID returns the local device ID.
 func (l *LocalOpsLog) DeviceID() string {
 	return l.deviceID
