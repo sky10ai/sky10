@@ -17,44 +17,48 @@ import (
 	"github.com/sky10/sky10/pkg/fs/opslog"
 )
 
-// getOpsEntries reads all ops from S3 as opslog.Entry values.
-func getOpsEntries(t *testing.T, store *Store) []opslog.Entry {
+// putAndLog uploads content to S3 via store.Put, then writes an opslog.Entry
+// to the local log with the resulting chunks/checksum. The entry appears as
+// if a remote device uploaded it, so the reconciler will download it.
+func putAndLog(t *testing.T, store *Store, localLog *opslog.LocalOpsLog, path, content string, seq int) {
 	t.Helper()
 	ctx := context.Background()
-	log, err := store.getOpsLog(ctx)
-	if err != nil {
-		t.Fatalf("getting ops log: %v", err)
+	if err := store.Put(ctx, path, strings.NewReader(content)); err != nil {
+		t.Fatalf("store.Put(%s): %v", path, err)
 	}
-	entries, err := log.ReadSince(ctx, 0)
-	if err != nil {
-		t.Fatalf("reading entries: %v", err)
+	res := store.LastPutResult()
+	if res == nil {
+		t.Fatalf("store.LastPutResult() nil after Put(%s)", path)
 	}
-	return entries
+	localLog.Append(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      path,
+		Chunks:    res.Chunks,
+		Checksum:  res.Checksum,
+		Size:      res.Size,
+		Namespace: NamespaceFromPath(path),
+		Device:    "remote-device",
+		Timestamp: int64(1000 + seq),
+		Seq:       seq,
+	})
 }
 
 func TestReconcilerDownload(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
+	t.Parallel()
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
-
-	ctx := context.Background()
-	store.Put(ctx, "remote.txt", strings.NewReader("from remote"))
-
-	// Get the entry from S3 (includes chunk hashes)
-	entries := getOpsEntries(t, store)
 
 	tmpDir := t.TempDir()
 	localDir := filepath.Join(tmpDir, "sync")
 	os.MkdirAll(localDir, 0755)
 
-	// Append to local log (as if the poller did it)
+	// Upload blob to S3, then write entry to local log with chunks.
 	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "different-device")
-	for _, e := range entries {
-		localLog.Append(e)
-	}
+	putAndLog(t, store, localLog, "remote.txt", "from remote", 1)
 
-	// Run reconciler
+	// Run reconciler — should download the file
+	ctx := context.Background()
 	r := NewReconciler(store, localLog, NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl")), localDir, nil, nil)
 	r.reconcile(ctx)
 
@@ -137,29 +141,23 @@ func TestReconcilerSkipsMatching(t *testing.T) {
 }
 
 func TestReconcilerCreatePlusDeleteCompaction(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
+	t.Parallel()
 	// If a file was created then deleted remotely, the snapshot shows
 	// nothing and the reconciler does no work.
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
-	ctx := context.Background()
-	store.Put(ctx, "ephemeral.txt", strings.NewReader("short lived"))
-	entries := getOpsEntries(t, store)
-
 	tmpDir := t.TempDir()
 	localDir := filepath.Join(tmpDir, "sync")
 	os.MkdirAll(localDir, 0755)
 
-	// Append put then delete — snapshot should be empty
+	// Upload blob, write put entry, then append a delete.
 	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "different-device")
-	for _, e := range entries {
-		localLog.Append(e)
-	}
+	putAndLog(t, store, localLog, "ephemeral.txt", "short lived", 1)
 	localLog.Append(opslog.Entry{
 		Type: opslog.Delete, Path: "ephemeral.txt",
-		Device: entries[0].Device, Timestamp: entries[0].Timestamp + 1, Seq: entries[0].Seq + 1,
+		Device: "remote-device", Timestamp: 1002, Seq: 2,
 	})
 
 	// Verify snapshot is empty
@@ -169,6 +167,7 @@ func TestReconcilerCreatePlusDeleteCompaction(t *testing.T) {
 	}
 
 	active := false
+	ctx := context.Background()
 	r := NewReconciler(store, localLog, NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl")), localDir, nil, nil)
 	r.onEvent = func(string, map[string]any) { active = true }
 	r.reconcile(ctx)
@@ -179,29 +178,23 @@ func TestReconcilerCreatePlusDeleteCompaction(t *testing.T) {
 }
 
 func TestReconcilerSkipsEmptyOverNonEmpty(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
+	t.Parallel()
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
-	// Upload an empty file to S3
-	ctx := context.Background()
-	store.Put(ctx, "notwipe.txt", strings.NewReader(""))
-	entries := getOpsEntries(t, store)
-
+	// Upload an empty file to S3 and write entry to local log.
 	tmpDir := t.TempDir()
 	localDir := filepath.Join(tmpDir, "sync")
 	os.MkdirAll(localDir, 0755)
 
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "different-device")
+	putAndLog(t, store, localLog, "notwipe.txt", "", 1)
+
 	// Local file has real content
 	os.WriteFile(filepath.Join(localDir, "notwipe.txt"), []byte("real content"), 0644)
 
-	// Append to local log
-	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "different-device")
-	for _, e := range entries {
-		localLog.Append(e)
-	}
-
+	ctx := context.Background()
 	r := NewReconciler(store, localLog, NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl")), localDir, nil, nil)
 	r.reconcile(ctx)
 
@@ -213,23 +206,17 @@ func TestReconcilerSkipsEmptyOverNonEmpty(t *testing.T) {
 }
 
 func TestReconcilerAtomicWrite(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
+	t.Parallel()
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
-
-	ctx := context.Background()
-	store.Put(ctx, "big-file.txt", strings.NewReader("important data"))
-	entries := getOpsEntries(t, store)
 
 	tmpDir := t.TempDir()
 	localDir := filepath.Join(tmpDir, "sync")
 	os.MkdirAll(localDir, 0755)
 
 	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "different-device")
-	for _, e := range entries {
-		localLog.Append(e)
-	}
+	putAndLog(t, store, localLog, "big-file.txt", "important data", 1)
 
 	// Watch for 0-byte intermediate files
 	sawZeroByte := false
@@ -247,6 +234,7 @@ func TestReconcilerAtomicWrite(t *testing.T) {
 		}
 	}()
 
+	ctx := context.Background()
 	r := NewReconciler(store, localLog, NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl")), localDir, nil, nil)
 	r.reconcile(ctx)
 	<-watchDone
@@ -265,25 +253,20 @@ func TestReconcilerAtomicWrite(t *testing.T) {
 }
 
 func TestReconcilerMultipleFiles(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
+	t.Parallel()
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
-
-	ctx := context.Background()
-	store.Put(ctx, "a.txt", strings.NewReader("aaa"))
-	store.Put(ctx, "b.txt", strings.NewReader("bbb"))
-	entries := getOpsEntries(t, store)
 
 	tmpDir := t.TempDir()
 	localDir := filepath.Join(tmpDir, "sync")
 	os.MkdirAll(localDir, 0755)
 
 	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "different-device")
-	for _, e := range entries {
-		localLog.Append(e)
-	}
+	putAndLog(t, store, localLog, "a.txt", "aaa", 1)
+	putAndLog(t, store, localLog, "b.txt", "bbb", 2)
 
+	ctx := context.Background()
 	r := NewReconciler(store, localLog, NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl")), localDir, nil, nil)
 	r.reconcile(ctx)
 
@@ -305,24 +288,17 @@ func TestReconcilerMultipleFiles(t *testing.T) {
 }
 
 func TestReconcilerSkipsPendingDeletes(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
 	t.Parallel()
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
-
-	ctx := context.Background()
-	store.Put(ctx, "doomed.txt", strings.NewReader("will be deleted"))
-	entries := getOpsEntries(t, store)
 
 	tmpDir := t.TempDir()
 	localDir := filepath.Join(tmpDir, "sync")
 	os.MkdirAll(localDir, 0755)
 
 	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "different-device")
-	for _, e := range entries {
-		localLog.Append(e)
-	}
+	putAndLog(t, store, localLog, "doomed.txt", "will be deleted", 1)
 
 	// Simulate: watcher already queued a delete in the outbox (user deleted the file).
 	// The reconciler should NOT re-download it.
@@ -332,6 +308,7 @@ func TestReconcilerSkipsPendingDeletes(t *testing.T) {
 		Path: "doomed.txt",
 	})
 
+	ctx := context.Background()
 	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
 	r.reconcile(ctx)
 
@@ -676,383 +653,6 @@ func TestReconcilerDeletesOnRemoteDeleteOp(t *testing.T) {
 	}
 }
 
-// Regression: the integrity sweep must re-queue files that were AppendLocal'd
-// (no chunks) but never uploaded. This catches the "file gone then reappear"
-// scenario as a safety net even if Fix A didn't fire.
-func TestIntegritySweepRequeuesChunklessFile(t *testing.T) {
-	t.Skip("snapshot-exchange: integritySweep removed")
-	t.Parallel()
-	tmpDir := t.TempDir()
-	localDir := filepath.Join(tmpDir, "sync")
-	os.MkdirAll(localDir, 0755)
-
-	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
-
-	// Simulate watcher handler: AppendLocal with no chunks
-	localLog.AppendLocal(opslog.Entry{
-		Type: opslog.Put, Path: "orphan.txt", Checksum: checksumOf("orphan data"),
-		Size: 11, Namespace: "Test",
-	})
-
-	// File exists on disk with matching content
-	os.WriteFile(filepath.Join(localDir, "orphan.txt"), []byte("orphan data"), 0644)
-
-	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
-	backend := s3adapter.NewMemory()
-	id, _ := GenerateDeviceKey()
-	store := New(backend, id)
-
-	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
-	r.integritySweep()
-
-	// Outbox should have a re-queued put for orphan.txt
-	entries, _ := outbox.ReadAll()
-	found := false
-	for _, e := range entries {
-		if e.Op == OpPut && e.Path == "orphan.txt" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("orphan.txt should be re-queued — snapshot has put with no chunks")
-	}
-}
-
-// The sweep must skip files from other devices (we can't re-upload their blobs)
-// and files that already have chunks (upload completed).
-func TestIntegritySweepSkipsCompletedAndRemote(t *testing.T) {
-	t.Skip("snapshot-exchange: integritySweep removed")
-	t.Parallel()
-	tmpDir := t.TempDir()
-	localDir := filepath.Join(tmpDir, "sync")
-	os.MkdirAll(localDir, 0755)
-
-	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
-
-	// Entry from another device — should be skipped
-	localLog.Append(opslog.Entry{
-		Type: opslog.Put, Path: "remote.txt", Checksum: "xxx",
-		Size: 5, Namespace: "Test", Device: "dev-b", Timestamp: 100, Seq: 1,
-	})
-	os.WriteFile(filepath.Join(localDir, "remote.txt"), []byte("hello"), 0644)
-
-	// Entry with chunks (upload already completed) — should be skipped
-	localLog.Append(opslog.Entry{
-		Type: opslog.Put, Path: "done.txt", Checksum: "yyy",
-		Size: 5, Namespace: "Test", Device: "dev-a", Timestamp: 200, Seq: 2,
-		Chunks: []string{"chunk1"},
-	})
-	os.WriteFile(filepath.Join(localDir, "done.txt"), []byte("world"), 0644)
-
-	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
-	backend := s3adapter.NewMemory()
-	id, _ := GenerateDeviceKey()
-	store := New(backend, id)
-
-	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
-	r.integritySweep()
-
-	// Outbox should be empty — nothing to re-queue
-	entries, _ := outbox.ReadAll()
-	if len(entries) != 0 {
-		t.Errorf("outbox has %d entries, want 0 — should skip remote and completed files", len(entries))
-	}
-}
-
-// Regression: the integrity sweep uses device==self && chunks==nil to detect
-// failed uploads. But AppendLocal (used by the watcher handler) never sets
-// chunks, and the poller skips own-device ops — so chunks never come back to
-// the local log. Result: the sweep re-queues EVERY locally-created file,
-// every cycle, forever. The fix: the outbox worker must confirm the upload
-// by writing chunks back to the local log after store.Put succeeds.
-func TestSweepStopsAfterSuccessfulUpload(t *testing.T) {
-	t.Skip("snapshot-exchange: integritySweep removed")
-	t.Parallel()
-
-	backend := s3adapter.NewMemory()
-	id, _ := GenerateDeviceKey()
-	store := New(backend, id)
-
-	tmpDir := t.TempDir()
-	localDir := filepath.Join(tmpDir, "sync")
-	os.MkdirAll(localDir, 0755)
-
-	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
-	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
-
-	// Step 1: simulate what the watcher handler does — AppendLocal with no chunks
-	content := "sweep regression test data"
-	localFile := filepath.Join(localDir, "local.txt")
-	os.WriteFile(localFile, []byte(content), 0644)
-	cksum := checksumOf(content)
-
-	localLog.AppendLocal(opslog.Entry{
-		Type: opslog.Put, Path: "local.txt", Checksum: cksum,
-		Size: int64(len(content)), Namespace: "Test",
-	})
-
-	// Sanity: snapshot should have device=dev-a, chunks=nil
-	snap, _ := localLog.Snapshot()
-	fi, ok := snap.Lookup("local.txt")
-	if !ok {
-		t.Fatal("local.txt not in snapshot")
-	}
-	if len(fi.Chunks) != 0 {
-		t.Fatal("expected chunks=nil before upload")
-	}
-
-	// Step 2: add to outbox and run the worker (uploads to S3)
-	outbox.Append(NewOutboxPut("local.txt", cksum, "Test", localFile))
-	worker := NewOutboxWorker(store, outbox, localLog, nil)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	go worker.Run(ctx)
-	worker.Poke()
-	time.Sleep(2 * time.Second)
-	cancel()
-
-	if outbox.Len() != 0 {
-		t.Fatalf("outbox has %d entries, want 0", outbox.Len())
-	}
-
-	// Step 3: run the integrity sweep
-	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
-	r.integritySweep()
-
-	// After fix: the outbox worker confirmed the upload by writing chunks
-	// back to the local log. The sweep should see chunks and NOT re-queue.
-	entries, _ := outbox.ReadAll()
-	if len(entries) != 0 {
-		t.Errorf("sweep re-queued %d entries after successful upload — chunks not confirmed in local log", len(entries))
-	}
-
-	// Verify the local log now has chunks for local.txt
-	snap, _ = localLog.Snapshot()
-	fi, ok = snap.Lookup("local.txt")
-	if !ok {
-		t.Fatal("local.txt missing from snapshot after upload")
-	}
-	if len(fi.Chunks) == 0 {
-		t.Error("local.txt still has no chunks after upload — outbox worker should confirm upload in local log")
-	}
-}
-
-// Regression: the integrity sweep ran every 5 minutes, re-queued 101
-// chunkless files each cycle, the outbox uploaded them, but the next sweep
-// found them chunkless AGAIN — infinite loop. This reproduces the full
-// production cycle: sweep → outbox drain → sweep → must NOT re-queue.
-//
-// Root cause: after upload the outbox worker must write chunks back to the
-// local log (via AppendLocal). If it doesn't, the snapshot permanently has
-// chunks=nil for locally-created files because the poller skips own-device
-// ops from S3.
-func TestSweepDoesNotLoopAfterOutboxDrain(t *testing.T) {
-	t.Skip("snapshot-exchange: integritySweep removed")
-	t.Parallel()
-
-	backend := s3adapter.NewMemory()
-	id, _ := GenerateDeviceKey()
-	store := New(backend, id)
-
-	tmpDir := t.TempDir()
-	localDir := filepath.Join(tmpDir, "sync")
-	os.MkdirAll(localDir, 0755)
-
-	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
-	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
-
-	// Step 1: simulate watcher creating 3 chunkless files
-	for i := 0; i < 3; i++ {
-		name := fmt.Sprintf("file-%d.txt", i)
-		content := fmt.Sprintf("content-%d", i)
-		localFile := filepath.Join(localDir, name)
-		os.WriteFile(localFile, []byte(content), 0644)
-		cksum := checksumOf(content)
-
-		localLog.AppendLocal(opslog.Entry{
-			Type: opslog.Put, Path: name, Checksum: cksum,
-			Size: int64(len(content)), Namespace: "Test",
-		})
-	}
-
-	// Step 2: first sweep — should re-queue all 3
-	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
-	r.integritySweep()
-
-	if outbox.Len() != 3 {
-		t.Fatalf("first sweep: outbox has %d entries, want 3", outbox.Len())
-	}
-
-	// Step 3: outbox worker drains — uploads all 3 to S3
-	worker := NewOutboxWorker(store, outbox, localLog, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	go worker.Run(ctx)
-	worker.Poke()
-	time.Sleep(2 * time.Second)
-	cancel()
-
-	if outbox.Len() != 0 {
-		t.Fatalf("outbox has %d entries after drain, want 0", outbox.Len())
-	}
-
-	// Step 4: verify the local snapshot now has chunks for all 3 files
-	snap, _ := localLog.Snapshot()
-	for i := 0; i < 3; i++ {
-		name := fmt.Sprintf("file-%d.txt", i)
-		fi, ok := snap.Lookup(name)
-		if !ok {
-			t.Fatalf("%s not in snapshot after upload", name)
-		}
-		if len(fi.Chunks) == 0 {
-			t.Errorf("%s still has no chunks after upload — outbox worker did not confirm upload in local log", name)
-		}
-	}
-
-	// Step 5: second sweep — must NOT re-queue anything
-	r.integritySweep()
-
-	entries, _ := outbox.ReadAll()
-	if len(entries) != 0 {
-		t.Errorf("second sweep re-queued %d entries — infinite loop! chunks not persisted in local log", len(entries))
-		for _, e := range entries {
-			t.Logf("  re-queued: %s", e.Path)
-		}
-	}
-
-	// Step 6: third sweep for good measure
-	r.integritySweep()
-
-	entries, _ = outbox.ReadAll()
-	if len(entries) != 0 {
-		t.Errorf("third sweep re-queued %d entries — still looping", len(entries))
-	}
-}
-
-// Regression: the integrity sweep re-queued files that were already waiting
-// in the outbox but hadn't been uploaded yet (chunks still nil). With 16k
-// files from a bun install, the sweep ran every 5 minutes and re-queued
-// ~15k files each cycle, growing the outbox to 71k+ entries.
-func TestSweepSkipsFilesAlreadyInOutbox(t *testing.T) {
-	t.Skip("snapshot-exchange: integritySweep removed")
-	t.Parallel()
-
-	backend := s3adapter.NewMemory()
-	id, _ := GenerateDeviceKey()
-	store := New(backend, id)
-
-	tmpDir := t.TempDir()
-	localDir := filepath.Join(tmpDir, "sync")
-	os.MkdirAll(localDir, 0755)
-
-	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
-	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
-
-	// Simulate watcher queuing 3 files — AppendLocal with no chunks,
-	// entries added to outbox. None uploaded yet.
-	for i := 0; i < 3; i++ {
-		name := fmt.Sprintf("file-%d.txt", i)
-		content := fmt.Sprintf("content-%d", i)
-		localFile := filepath.Join(localDir, name)
-		os.WriteFile(localFile, []byte(content), 0644)
-		cksum := checksumOf(content)
-
-		localLog.AppendLocal(opslog.Entry{
-			Type: opslog.Put, Path: name, Checksum: cksum,
-			Size: int64(len(content)), Namespace: "Test",
-		})
-		outbox.Append(NewOutboxPut(name, cksum, "Test", localFile))
-	}
-
-	if outbox.Len() != 3 {
-		t.Fatalf("outbox has %d entries, want 3", outbox.Len())
-	}
-
-	// Run the integrity sweep — files have no chunks but are already
-	// in the outbox. Sweep must NOT re-queue them.
-	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
-	r.integritySweep()
-
-	if outbox.Len() != 3 {
-		t.Errorf("sweep grew outbox to %d entries, want 3 (should not re-queue files already in outbox)", outbox.Len())
-	}
-}
-
-// Regression: the integrity sweep re-queued files into the outbox but
-// never poked the outbox worker to drain them. Files sat in the outbox
-// indefinitely until an unrelated watcher event happened to trigger a
-// drain. The fix wires pokeOutbox on the Reconciler so the sweep wakes
-// the worker after re-queuing.
-func TestSweepPokesOutboxWorker(t *testing.T) {
-	t.Skip("snapshot-exchange: integritySweep removed")
-	t.Parallel()
-
-	backend := s3adapter.NewMemory()
-	id, _ := GenerateDeviceKey()
-	store := New(backend, id)
-
-	tmpDir := t.TempDir()
-	localDir := filepath.Join(tmpDir, "sync")
-	os.MkdirAll(localDir, 0755)
-
-	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
-	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
-
-	// Create a chunkless entry (watcher detected, upload pending)
-	content := "needs upload"
-	os.WriteFile(filepath.Join(localDir, "stale.txt"), []byte(content), 0644)
-	localLog.AppendLocal(opslog.Entry{
-		Type: opslog.Put, Path: "stale.txt", Checksum: checksumOf(content),
-		Size: int64(len(content)), Namespace: "Test",
-	})
-
-	// Track whether pokeOutbox was called
-	poked := false
-	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
-	r.pokeOutbox = func() { poked = true }
-
-	r.integritySweep()
-
-	if outbox.Len() == 0 {
-		t.Fatal("sweep should have re-queued stale.txt")
-	}
-	if !poked {
-		t.Error("sweep should poke the outbox worker after re-queuing files")
-	}
-}
-
-// Verify sweep does NOT poke outbox when nothing was re-queued.
-func TestSweepDoesNotPokeWhenNothingRequeued(t *testing.T) {
-	t.Skip("snapshot-exchange: integritySweep removed")
-	t.Parallel()
-
-	backend := s3adapter.NewMemory()
-	id, _ := GenerateDeviceKey()
-	store := New(backend, id)
-
-	tmpDir := t.TempDir()
-	localDir := filepath.Join(tmpDir, "sync")
-	os.MkdirAll(localDir, 0755)
-
-	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
-	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
-
-	// Entry with chunks — upload already complete, nothing to re-queue
-	localLog.Append(opslog.Entry{
-		Type: opslog.Put, Path: "done.txt", Checksum: "h1",
-		Chunks: []string{"c1"}, Device: "dev-a", Timestamp: 100, Seq: 1,
-	})
-
-	poked := false
-	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
-	r.pokeOutbox = func() { poked = true }
-
-	r.integritySweep()
-
-	if poked {
-		t.Error("sweep should NOT poke when nothing was re-queued")
-	}
-}
-
 func checksumOf(content string) string {
 	h := sha3.New256()
 	h.Write([]byte(content))
@@ -1081,7 +681,6 @@ func (f *flakyBackend) Get(ctx context.Context, key string) (io.ReadCloser, erro
 }
 
 func TestReconcilerRetriesFailedDownloads(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
 	t.Parallel()
 
 	mem := s3adapter.NewMemory()
@@ -1089,30 +688,25 @@ func TestReconcilerRetriesFailedDownloads(t *testing.T) {
 	id, _ := GenerateDeviceKey()
 	store := New(flaky, id)
 
-	ctx := context.Background()
-	store.Put(ctx, "a.txt", strings.NewReader("aaa"))
-	store.Put(ctx, "b.txt", strings.NewReader("bbb"))
-	store.Put(ctx, "c.txt", strings.NewReader("ccc"))
-
-	entries := getOpsEntries(t, store)
-
-	// Mark b.txt's blob for one transient failure
-	for _, e := range entries {
-		if e.Path == "b.txt" && len(e.Chunks) > 0 {
-			blobKey := (&Chunk{Hash: e.Chunks[0]}).BlobKey()
-			flaky.mu.Lock()
-			flaky.failKeys[blobKey] = 1
-			flaky.mu.Unlock()
-		}
-	}
-
 	tmpDir := t.TempDir()
 	localDir := filepath.Join(tmpDir, "sync")
 	os.MkdirAll(localDir, 0755)
 
 	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "different-device")
-	for _, e := range entries {
-		localLog.Append(e)
+
+	// Upload blobs and record entries in the local log.
+	putAndLog(t, store, localLog, "a.txt", "aaa", 1)
+	putAndLog(t, store, localLog, "b.txt", "bbb", 2)
+	putAndLog(t, store, localLog, "c.txt", "ccc", 3)
+
+	// Mark b.txt's blob for one transient failure by reading the snapshot.
+	snap, _ := localLog.Snapshot()
+	bInfo, _ := snap.Lookup("b.txt")
+	if len(bInfo.Chunks) > 0 {
+		blobKey := (&Chunk{Hash: bInfo.Chunks[0]}).BlobKey()
+		flaky.mu.Lock()
+		flaky.failKeys[blobKey] = 1
+		flaky.mu.Unlock()
 	}
 
 	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
@@ -1121,6 +715,7 @@ func TestReconcilerRetriesFailedDownloads(t *testing.T) {
 	// Run reconciler with timeout — no external pokes.
 	// With the bug: b.txt fails on first pass, reconciler stops, test times out.
 	// With the fix: reconciler retries, b.txt succeeds on second pass.
+	ctx := context.Background()
 	runCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
