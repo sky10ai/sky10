@@ -72,7 +72,7 @@ struct BrowserView: View {
         }
         .frame(minWidth: 800, minHeight: 500)
         .overlay(alignment: .bottom) {
-            SyncStatusBar()
+            SyncStatusBar(fileCount: displayedFiles.count)
                 .environmentObject(appState)
         }
         .conflictAlert(path: $appState.conflictPath) { resolution in
@@ -101,13 +101,13 @@ struct BrowserView: View {
                             .environmentObject(appState)
                     case .tree:
                         FileTreeView(
-                            root: buildTree(from: displayedFiles, emptyDirs: appState.emptyDirs),
+                            root: buildTree(from: displayedFiles, emptyDirs: filteredEmptyDirs),
                             selectedFile: $selectedFile
                         )
                         .environmentObject(appState)
                     case .list:
                         FileColumnView(
-                            root: buildTree(from: displayedFiles, emptyDirs: appState.emptyDirs),
+                            root: buildTree(from: displayedFiles, emptyDirs: filteredEmptyDirs),
                             selectedFile: $selectedFile
                         )
                         .environmentObject(appState)
@@ -122,6 +122,13 @@ struct BrowserView: View {
                 }
             }
         }
+    }
+
+    private var filteredEmptyDirs: [String] {
+        if let drive = selectedDrive, drive != "__s3__" {
+            return appState.emptyDirs.filter { $0.namespace == drive }.map { $0.path }
+        }
+        return appState.emptyDirs.map { $0.path }
     }
 
     private var displayedFiles: [FileNode] {

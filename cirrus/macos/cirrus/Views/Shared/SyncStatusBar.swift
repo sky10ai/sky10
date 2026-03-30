@@ -3,6 +3,7 @@ import SwiftUI
 /// Bottom bar showing sync activity in the browser window.
 struct SyncStatusBar: View {
     @EnvironmentObject var appState: AppState
+    var fileCount: Int = -1 // -1 means use appState.files.count
 
     var body: some View {
         HStack(spacing: 8) {
@@ -49,7 +50,7 @@ struct SyncStatusBar: View {
 
             Spacer()
 
-            Text("\(appState.files.count) files")
+            Text("\(fileCount >= 0 ? fileCount : appState.files.count) files")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

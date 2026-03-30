@@ -7,7 +7,7 @@ import SwiftUI
 class AppState: ObservableObject {
     @Published var syncState: SyncState = .offline
     @Published var files: [FileNode] = []
-    @Published var emptyDirs: [String] = []
+    @Published var emptyDirs: [(path: String, namespace: String)] = []
     @Published var dirHashes: [String: String] = [:]
     @Published var storeInfo: StoreInfo?
     @Published var isLoading = false
@@ -177,7 +177,7 @@ class AppState: ObservableObject {
 
             // Build file list from local filesystem for each drive
             var localFiles: [FileNode] = []
-            var localEmptyDirs: [String] = []
+            var localEmptyDirs: [(String, String)] = [] // (path, namespace)
             let uploadingPaths = Set(pendingActivity.filter { $0.direction == "up" }.map { $0.path })
             let downloadingPaths = Set(pendingActivity.filter { $0.direction == "down" }.map { $0.path })
 
@@ -186,7 +186,7 @@ class AppState: ObservableObject {
                                                uploadingPaths: uploadingPaths,
                                                downloadingPaths: downloadingPaths)
                 localFiles.append(contentsOf: scan.files)
-                localEmptyDirs.append(contentsOf: scan.emptyDirs)
+                localEmptyDirs.append(contentsOf: scan.emptyDirs.map { ($0, drive.namespace) })
             }
 
             files = localFiles
