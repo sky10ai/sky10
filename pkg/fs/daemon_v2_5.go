@@ -26,21 +26,24 @@ type DaemonConfig struct {
 // snapshot against the local filesystem.
 //
 // Goroutines:
-//   - watcherLoop: kqueue → WatcherHandler → ops.jsonl + outbox.jsonl
-//   - outboxWorker.Run: outbox.jsonl → S3
+//   - watcherLoop: kqueue → WatcherHandler → outbox.jsonl
+//   - outboxWorker.Run: outbox.jsonl → S3 blobs → ops.jsonl
 //   - reconciler.Run: snapshot vs filesystem → download/delete
-//   - pollerV2.Run: S3 → ops.jsonl → poke reconciler
+//   - snapshotPoller.Run: remote snapshots → baseline diff → ops.jsonl
+//   - snapshotUploader.Run: ops.jsonl → encrypted snapshot → S3
 type DaemonV2_5 struct {
-	store          *Store
-	watcher        *Watcher
-	watcherHandler *WatcherHandler
-	outboxWorker   *OutboxWorker
-	reconciler     *Reconciler
-	localLog       *opslog.LocalOpsLog
-	outbox         *SyncLog[OutboxEntry]
-	config         DaemonConfig
-	logger         *slog.Logger
-	onEvent        func(string, map[string]any)
+	store            *Store
+	watcher          *Watcher
+	watcherHandler   *WatcherHandler
+	outboxWorker     *OutboxWorker
+	reconciler       *Reconciler
+	snapshotUploader *SnapshotUploader
+	snapshotPoller   *SnapshotPoller
+	localLog         *opslog.LocalOpsLog
+	outbox           *SyncLog[OutboxEntry]
+	config           DaemonConfig
+	logger           *slog.Logger
+	onEvent          func(string, map[string]any)
 }
 
 // NewDaemonV2_5 creates the sync daemon.
@@ -98,24 +101,41 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 	// Outbox worker
 	outboxWorker := NewOutboxWorker(store, outbox, localLog, logger)
 
-	// Reconciler (replaces inbox worker)
+	// Reconciler
 	reconciler := NewReconciler(store, localLog, outbox, config.LocalRoot, ignoreFunc, logger)
+
+	// Namespace encryption key for snapshot upload/download.
+	// Uses the first namespace (drive namespace) or "default".
+	nsForKey := ns
+	if nsForKey == "" {
+		nsForKey = "default"
+	}
+
+	// Snapshot uploader + poller (created with nil encKey — resolved lazily on first use)
+	baselineDir := filepath.Join(driveDir, "baselines")
+	pollInterval := time.Duration(config.PollSeconds) * time.Second
+	snapshotUploader := NewSnapshotUploader(store.backend, localLog, store.deviceID, nsForKey, nil, logger)
+	snapshotPoller := NewSnapshotPoller(store.backend, localLog, store.deviceID, nsForKey, nil, pollInterval, NewBaselineStore(baselineDir), logger)
 
 	// Wire poke callbacks
 	watcherHandler.pokeOutbox = outboxWorker.Poke
 	reconciler.pokeOutbox = outboxWorker.Poke
+	snapshotPoller.pokeReconciler = reconciler.Poke
+	snapshotPoller.pokeUploader = snapshotUploader.Poke
 
 	d := &DaemonV2_5{
-		store:          store,
-		watcher:        watcher,
-		watcherHandler: watcherHandler,
-		outboxWorker:   outboxWorker,
-		reconciler:     reconciler,
-		localLog:       localLog,
-		outbox:         outbox,
-		config:         config,
-		logger:         logger,
-		onEvent:        func(string, map[string]any) {},
+		store:            store,
+		watcher:          watcher,
+		watcherHandler:   watcherHandler,
+		outboxWorker:     outboxWorker,
+		reconciler:       reconciler,
+		snapshotUploader: snapshotUploader,
+		snapshotPoller:   snapshotPoller,
+		localLog:         localLog,
+		outbox:           outbox,
+		config:           config,
+		logger:           logger,
+		onEvent:          func(string, map[string]any) {},
 	}
 
 	// Wire event callbacks and drive name
@@ -124,45 +144,85 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 	outboxWorker.driveName = config.DriveName
 	reconciler.onEvent = d.emitEvent
 	reconciler.driveName = config.DriveName
+	snapshotUploader.onEvent = d.emitEvent
+	snapshotPoller.onEvent = d.emitEvent
+	snapshotPoller.driveName = config.DriveName
 
 	return d, nil
 }
 
 func (d *DaemonV2_5) emitEvent(event string, data map[string]any) {
 	d.onEvent(event, data)
+	// Poke snapshot uploader when local state changes.
+	if event == "state.changed" && d.snapshotUploader != nil {
+		d.snapshotUploader.Poke()
+	}
 }
 
 // Run starts all goroutines and blocks until context is cancelled.
 func (d *DaemonV2_5) Run(ctx context.Context) error {
-	d.logger.Info("daemon v2.5 starting", "root", d.config.LocalRoot)
+	d.logger.Info("daemon starting", "root", d.config.LocalRoot)
 
-	// Seed state from local filesystem (diff against LOCAL CRDT only,
-	// before any remote merge — this is the merge base model).
+	// Resolve namespace encryption key for snapshot upload/download.
+	if err := d.resolveSnapshotKey(ctx); err != nil {
+		d.logger.Warn("snapshot key resolution failed — sync will work but no snapshot exchange", "error", err)
+	}
+
+	// Startup sequence (order matters — see snapshot-exchange-architecture.md):
+	// 1. Seed from disk (diff local filesystem vs LOCAL CRDT — merge base)
+	// 2. Poll remote snapshots (baseline diff → merge into CRDT)
+	// 3. Reconcile (download new, delete removed)
+	// 4. Upload our snapshot
 	d.seedStateFromDisk()
+	d.snapshotPoller.pollOnce(ctx)
+	d.reconciler.reconcile(ctx)
+	d.outboxWorker.drain(ctx)
+	if err := d.snapshotUploader.Upload(ctx); err != nil {
+		d.logger.Warn("initial snapshot upload failed", "error", err)
+	}
 
-	// Watchdog: auto-dump goroutines if any worker is stuck for 2 minutes
+	// Watchdog
 	wd := NewWatchdog(d.logger, 2*time.Minute)
 	wd.Register("outbox")
+	wd.Register("poller")
 	d.outboxWorker.heartbeat = func() { wd.Heartbeat("outbox") }
+	d.snapshotPoller.heartbeat = func() { wd.Heartbeat("poller") }
 
-	// Start workers (no poller — snapshot poller added in Phase 4)
+	// Start workers
 	go d.outboxWorker.Run(ctx)
 	go d.reconciler.Run(ctx)
+	go d.snapshotPoller.Run(ctx)
+	go d.snapshotUploader.Run(ctx)
 	go d.watcherLoop(ctx)
 	go wd.Run(ctx)
 
-	// Block until cancelled
 	<-ctx.Done()
-	d.logger.Info("daemon v2.5 shutting down")
+	d.logger.Info("daemon shutting down")
 	d.watcher.Close()
 	return nil
 }
 
-// SyncOnce does a one-shot sync: seed, catch up, poll remote, reconcile, drain outbox.
+// SyncOnce does a one-shot sync: seed, poll, reconcile, drain, upload.
 func (d *DaemonV2_5) SyncOnce(ctx context.Context) {
+	d.resolveSnapshotKey(ctx)
 	d.seedStateFromDisk()
+	d.snapshotPoller.pollOnce(ctx)
 	d.reconciler.reconcile(ctx)
 	d.outboxWorker.drain(ctx)
+	d.snapshotUploader.Upload(ctx)
+}
+
+// resolveSnapshotKey fetches the namespace encryption key and sets it on
+// the snapshot uploader and poller. Called once during startup.
+func (d *DaemonV2_5) resolveSnapshotKey(ctx context.Context) error {
+	ns := d.snapshotUploader.nsID
+	encKey, err := d.store.getOrCreateNamespaceKey(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("resolving namespace key %q: %w", ns, err)
+	}
+	d.snapshotUploader.encKey = encKey
+	d.snapshotPoller.encKey = encKey
+	return nil
 }
 
 // seedStateFromDisk diffs the local filesystem against the CRDT snapshot
