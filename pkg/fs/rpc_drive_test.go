@@ -218,3 +218,105 @@ func TestDriveAutoStartSyncsFiles(t *testing.T) {
 		t.Errorf("pre-existing.txt not in local log after auto-start")
 	}
 }
+
+func TestDriveStateRPC(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	driveCfgPath := filepath.Join(tmpDir, "drives.json")
+	localDir := filepath.Join(tmpDir, "sync-folder")
+	os.MkdirAll(localDir, 0755)
+
+	// Pre-existing file on disk
+	os.WriteFile(filepath.Join(localDir, "hello.txt"), []byte("hello"), 0644)
+
+	// Pre-populate ops log with a known entry
+	dir := driveDataDir("drive_state")
+	os.MkdirAll(dir, 0700)
+	localLog := opslog.NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), store.deviceID)
+	localLog.AppendLocal(opslog.Entry{
+		Type: opslog.Put, Path: "hello.txt", Checksum: "abc",
+		Chunks: []string{"c1"}, Size: 5, Namespace: "statens",
+	})
+
+	drives := []Drive{{
+		ID: "drive_state", Name: "StateDrive",
+		LocalPath: localDir, Namespace: "statens", Enabled: false,
+	}}
+	data, _ := json.MarshalIndent(drives, "", "  ")
+	os.WriteFile(driveCfgPath, data, 0600)
+
+	sockPath := filepath.Join(tmpDir, "test.sock")
+	server := NewRPCServer(store, sockPath, driveCfgPath, "test", nil)
+	go server.Serve(ctx)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer conn.Close()
+
+	req := `{"jsonrpc":"2.0","method":"skyfs.driveState","params":{"id":"drive_state"},"id":1}` + "\n"
+	conn.Write([]byte(req))
+
+	buf := make([]byte, 16384)
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	var resp struct {
+		Result map[string]interface{} `json:"result"`
+		Error  *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(buf[:n], &resp); err != nil {
+		t.Fatalf("parse: %v (raw: %s)", err, string(buf[:n]))
+	}
+	if resp.Error != nil {
+		t.Fatalf("RPC error: %s", resp.Error.Message)
+	}
+
+	// Should have crdt_files with hello.txt
+	crdtFiles, ok := resp.Result["crdt_files"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("crdt_files missing or wrong type: %v", resp.Result["crdt_files"])
+	}
+	if _, ok := crdtFiles["hello.txt"]; !ok {
+		t.Error("hello.txt not in crdt_files")
+	}
+
+	// Should have disk_files with hello.txt
+	diskFiles, ok := resp.Result["disk_files"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("disk_files missing or wrong type: %v", resp.Result["disk_files"])
+	}
+	if _, ok := diskFiles["hello.txt"]; !ok {
+		t.Error("hello.txt not in disk_files")
+	}
+
+	// Should have outbox (possibly empty array)
+	if _, ok := resp.Result["outbox"]; !ok {
+		t.Error("outbox missing from response")
+	}
+
+	// Should have baselines (possibly empty)
+	if _, ok := resp.Result["baselines"]; !ok {
+		t.Error("baselines missing from response")
+	}
+}
