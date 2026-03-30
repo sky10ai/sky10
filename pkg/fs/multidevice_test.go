@@ -59,7 +59,6 @@ func TestMultiDeviceCrossReadWrite(t *testing.T) {
 	registerTestDevice(t, backend, "dev-a")
 	registerTestDevice(t, backend, "dev-b")
 
-	// Device A: put a file and upload snapshot
 	idA, _ := GenerateDeviceKey()
 	storeA := NewWithDevice(backend, idA, "dev-a")
 	storeA.SetNamespaceID(nsID)
@@ -79,14 +78,12 @@ func TestMultiDeviceCrossReadWrite(t *testing.T) {
 		t.Fatalf("A upload snapshot: %v", err)
 	}
 
-	// Device B: poll to discover A's file
 	dirB := t.TempDir()
 	localLogB := opslog.NewLocalOpsLog(filepath.Join(dirB, "ops.jsonl"), "dev-b")
 	baselinesB := NewBaselineStore(filepath.Join(dirB, "baselines"))
 	pollerB := NewSnapshotPoller(backend, localLogB, "dev-b", nsID, encKey, 30*time.Second, baselinesB, nil)
 	pollerB.pollOnce(ctx)
 
-	// B should have file1.md in its CRDT
 	fi, ok := localLogB.Lookup("file1.md")
 	if !ok {
 		t.Fatal("Device B: file1.md not in CRDT after poll")
