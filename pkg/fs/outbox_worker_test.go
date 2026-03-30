@@ -44,16 +44,15 @@ func TestOutboxWorkerUpload(t *testing.T) {
 		t.Errorf("outbox has %d entries, want 0", outbox.Len())
 	}
 
-	// File should be in S3
-	entries, _ := store.List(ctx, "")
-	found := false
-	for _, e := range entries {
-		if e.Path == "test.txt" {
-			found = true
-		}
+	// Upload-then-record: file should be in the local log after drain
+	if _, ok := localLog.Lookup("test.txt"); !ok {
+		t.Error("test.txt not in local log after outbox drain")
 	}
-	if !found {
-		t.Error("test.txt not uploaded to S3")
+
+	// Blob should exist in S3
+	keys, _ := backend.List(context.Background(), "blobs/")
+	if len(keys) == 0 {
+		t.Error("no blobs in S3 after upload")
 	}
 }
 
@@ -85,10 +84,9 @@ func TestOutboxWorkerDelete(t *testing.T) {
 		t.Errorf("outbox has %d entries, want 0", outbox.Len())
 	}
 
-	// At least one delete op should exist in S3
-	keys, _ := backend.List(context.Background(), "ops/")
-	if len(keys) == 0 {
-		t.Error("expected at least 1 op after delete")
+	// Upload-then-record: delete should be in the local log
+	if _, ok := localLog.Lookup("delete-me.txt"); ok {
+		t.Error("delete-me.txt should be absent from local log after delete")
 	}
 }
 

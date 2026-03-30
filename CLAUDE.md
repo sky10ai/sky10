@@ -329,8 +329,8 @@ CockroachDB) and the Go community's established best practices.
 
 - Run `gofmt` (or `goimports`) on all code. No exceptions.
 - One package per directory. One directory per package.
-- Keep files focused. If a file exceeds ~500 lines, consider splitting by
-  concern. A 2000-line file is almost always too large.
+- **Hard limit: 500 lines per file.** Split by concern when approaching
+  this limit. Large files hurt maintainability and make reviews painful.
 - Group imports in three blocks: stdlib, external, internal. `goimports`
   handles this automatically.
 - File names are lowercase with underscores: `reverse_proxy.go`,

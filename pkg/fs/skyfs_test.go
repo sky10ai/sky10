@@ -276,9 +276,9 @@ func TestStoreNamespaceIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List namespace keys: %v", err)
 	}
-	// journal + financial + default (used for ops encryption)
-	if len(nsKeys) != 3 {
-		t.Errorf("expected 3 namespace keys, got %d: %v", len(nsKeys), nsKeys)
+	// journal + financial (default key no longer created — S3 ops log removed)
+	if len(nsKeys) != 2 {
+		t.Errorf("expected 2 namespace keys, got %d: %v", len(nsKeys), nsKeys)
 	}
 }
 
