@@ -151,8 +151,9 @@ func freePort(t *testing.T) int {
 func NewTestBucket(t *testing.T) string {
 	t.Helper()
 	name := filepath.Base(t.Name())
-	// MinIO bucket names: lowercase, 3-63 chars, no dots
-	bucket := fmt.Sprintf("test-%s-%d", strings.ToLower(name), time.Now().UnixNano()%100000)
+	// S3 bucket names: lowercase, 3-63 chars, no dots or underscores
+	safe := strings.NewReplacer("_", "-", ".", "-").Replace(strings.ToLower(name))
+	bucket := fmt.Sprintf("test-%s-%d", safe, time.Now().UnixNano()%100000)
 	if len(bucket) > 63 {
 		bucket = bucket[:63]
 	}
