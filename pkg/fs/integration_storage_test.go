@@ -44,6 +44,7 @@ func TestIntegrationLargeFile(t *testing.T) {
 
 // Op envelope format over real S3.
 func TestIntegrationOpEnvelope(t *testing.T) {
+	t.Skip("snapshot-exchange: S3 ops no longer written")
 	h := StartMinIO(t)
 	ctx := context.Background()
 

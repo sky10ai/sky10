@@ -95,11 +95,12 @@ func TestIntegrationHTTPRPC(t *testing.T) {
 	})
 
 	// --- POST /rpc: skyfs.s3List (verify uploads via S3 browser) ---
-	t.Run("rpc_s3list_ops", func(t *testing.T) {
-		result := httpRPCCall(t, baseURL, "skyfs.s3List", map[string]string{"prefix": "ops/"})
+	t.Run("rpc_s3list_blobs_namespaced", func(t *testing.T) {
+		// Snapshot exchange: verify blobs are stored under fs/{nsID}/ prefix.
+		result := httpRPCCall(t, baseURL, "skyfs.s3List", map[string]string{"prefix": "blobs/"})
 		total, _ := result["total"].(float64)
-		if total < 3 {
-			t.Errorf("S3 ops count = %v, want >= 3", total)
+		if total < 1 {
+			t.Errorf("S3 blob count = %v, want >= 1", total)
 		}
 	})
 
