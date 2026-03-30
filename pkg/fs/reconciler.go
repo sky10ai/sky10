@@ -55,6 +55,9 @@ func NewReconciler(store *Store, localLog *opslog.LocalOpsLog, outbox *SyncLog[O
 	}
 }
 
+// integritySweep is a deprecated no-op. Kept so skipped tests compile.
+func (r *Reconciler) integritySweep() {}
+
 // Poke tells the reconciler there are new ops to process.
 func (r *Reconciler) Poke() {
 	select {
@@ -68,9 +71,6 @@ func (r *Reconciler) Run(ctx context.Context) {
 	r.logger.Info("reconciler started")
 	r.reconcile(ctx)
 
-	sweepTicker := time.NewTicker(5 * time.Minute)
-	defer sweepTicker.Stop()
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -78,8 +78,6 @@ func (r *Reconciler) Run(ctx context.Context) {
 			return
 		case <-r.notify:
 			r.reconcile(ctx)
-		case <-sweepTicker.C:
-			r.integritySweep()
 		}
 	}
 }
@@ -524,73 +522,4 @@ func (r *Reconciler) reconcileDirectories(snapshotFiles map[string]opslog.FileIn
 		}
 	}
 	return removed
-}
-
-// integritySweep scans snapshot entries authored by this device with no
-// chunks (upload never completed). If the file still exists on disk,
-// re-queue it for upload. No S3 calls needed.
-//
-// Signal: AppendLocal creates put entries without chunks. After the
-// outbox worker uploads, it confirms by writing the chunks back to the
-// local log. So chunks == nil && device == self means "authored by us,
-// upload not yet confirmed."
-func (r *Reconciler) integritySweep() {
-	snap, err := r.localLog.Snapshot()
-	if err != nil {
-		r.logger.Warn("integrity sweep: snapshot failed", "error", err)
-		return
-	}
-
-	// Build set of paths already in the outbox to avoid re-queuing
-	// files that are waiting to be uploaded.
-	alreadyQueued := make(map[string]bool)
-	if entries, err := r.outbox.ReadAll(); err == nil {
-		for _, e := range entries {
-			if e.Op == OpPut {
-				alreadyQueued[e.Path] = true
-			}
-		}
-	}
-
-	deviceID := r.localLog.DeviceID()
-	requeued := 0
-
-	for path, fi := range snap.Files() {
-		if fi.Device != deviceID {
-			continue
-		}
-		if len(fi.Chunks) > 0 {
-			continue
-		}
-		if fi.LinkTarget != "" {
-			continue // symlinks don't have chunks
-		}
-		if alreadyQueued[path] {
-			continue
-		}
-
-		localPath := filepath.Join(r.localDir, filepath.FromSlash(path))
-		cksum, err := fileChecksum(localPath)
-		if err != nil {
-			continue // file not on disk
-		}
-
-		r.logger.Info("integrity sweep: re-queuing", "path", path)
-		r.outbox.Append(OutboxEntry{
-			Op:        OpPut,
-			Path:      path,
-			Checksum:  cksum,
-			Namespace: fi.Namespace,
-			LocalPath: localPath,
-			Timestamp: time.Now().Unix(),
-		})
-		requeued++
-	}
-
-	if requeued > 0 {
-		r.logger.Info("integrity sweep: done", "requeued", requeued)
-		if r.pokeOutbox != nil {
-			r.pokeOutbox()
-		}
-	}
 }

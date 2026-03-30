@@ -649,7 +649,21 @@ func (s *RPCServer) rpcGC(ctx context.Context, params json.RawMessage) (interfac
 		json.Unmarshal(params, &p)
 	}
 
-	result, err := GC(ctx, s.store.backend, s.store.identity, p.DryRun)
+	// Get namespace encryption key for reading snapshots
+	encKey, err := s.store.getOrCreateNamespaceKey(ctx, "default")
+	if err != nil {
+		return nil, fmt.Errorf("getting encryption key: %w", err)
+	}
+	// Collect namespace IDs from drives
+	var nsIDs []string
+	if s.store.nsID != "" {
+		nsIDs = []string{s.store.nsID}
+	}
+	result, err := GC(ctx, s.store.backend, encKey, GCConfig{
+		NSIDs:         nsIDs,
+		RetentionDays: 30,
+		DryRun:        p.DryRun,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -938,11 +952,22 @@ func (s *RPCServer) rpcDeviceRemove(ctx context.Context, params json.RawMessage)
 		return nil, fmt.Errorf("cannot remove this device")
 	}
 	id := shortPubkeyID(p.Pubkey)
-	key := "devices/" + id + ".json"
-	if err := s.store.backend.Delete(ctx, key); err != nil {
+	// Delete device registration
+	devKey := "devices/" + id + ".json"
+	if err := s.store.backend.Delete(ctx, devKey); err != nil {
 		return nil, err
 	}
-	return map[string]string{"status": "ok"}, nil
+	// Delete device snapshots across all namespace prefixes
+	snapPrefix := "fs/"
+	allKeys, _ := s.store.backend.List(ctx, snapPrefix)
+	deleted := 0
+	for _, k := range allKeys {
+		if strings.Contains(k, "/snapshots/"+id+"/") {
+			s.store.backend.Delete(ctx, k)
+			deleted++
+		}
+	}
+	return map[string]any{"status": "ok", "snapshots_deleted": deleted}, nil
 }
 
 func (s *RPCServer) rpcInvite(ctx context.Context) (interface{}, error) {

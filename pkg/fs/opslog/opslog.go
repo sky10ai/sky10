@@ -103,6 +103,29 @@ func (c clockTuple) beats(other clockTuple) bool {
 	return c.seq > other.seq
 }
 
+// Clock represents the LWW clock for a file entry.
+type Clock struct {
+	Ts     int64
+	Device string
+	Seq    int
+}
+
+// Beats returns true if c is strictly greater than other.
+func (c Clock) Beats(other Clock) bool {
+	if c.Ts != other.Ts {
+		return c.Ts > other.Ts
+	}
+	if c.Device != other.Device {
+		return c.Device > other.Device
+	}
+	return c.Seq > other.Seq
+}
+
+// ClockTuple extracts the LWW clock from a FileInfo.
+func ClockTuple(fi FileInfo) Clock {
+	return Clock{Ts: fi.Modified.Unix(), Device: fi.Device, Seq: fi.Seq}
+}
+
 // DirInfo describes an explicitly created directory.
 // Device and Seq preserve the LWW clock through snapshot save/load cycles.
 type DirInfo struct {

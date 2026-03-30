@@ -680,6 +680,7 @@ func TestReconcilerDeletesOnRemoteDeleteOp(t *testing.T) {
 // (no chunks) but never uploaded. This catches the "file gone then reappear"
 // scenario as a safety net even if Fix A didn't fire.
 func TestIntegritySweepRequeuesChunklessFile(t *testing.T) {
+	t.Skip("snapshot-exchange: integritySweep removed")
 	t.Parallel()
 	tmpDir := t.TempDir()
 	localDir := filepath.Join(tmpDir, "sync")
@@ -720,6 +721,7 @@ func TestIntegritySweepRequeuesChunklessFile(t *testing.T) {
 // The sweep must skip files from other devices (we can't re-upload their blobs)
 // and files that already have chunks (upload completed).
 func TestIntegritySweepSkipsCompletedAndRemote(t *testing.T) {
+	t.Skip("snapshot-exchange: integritySweep removed")
 	t.Parallel()
 	tmpDir := t.TempDir()
 	localDir := filepath.Join(tmpDir, "sync")
@@ -764,6 +766,7 @@ func TestIntegritySweepSkipsCompletedAndRemote(t *testing.T) {
 // every cycle, forever. The fix: the outbox worker must confirm the upload
 // by writing chunks back to the local log after store.Put succeeds.
 func TestSweepStopsAfterSuccessfulUpload(t *testing.T) {
+	t.Skip("snapshot-exchange: integritySweep removed")
 	t.Parallel()
 
 	backend := s3adapter.NewMemory()
@@ -844,6 +847,7 @@ func TestSweepStopsAfterSuccessfulUpload(t *testing.T) {
 // chunks=nil for locally-created files because the poller skips own-device
 // ops from S3.
 func TestSweepDoesNotLoopAfterOutboxDrain(t *testing.T) {
+	t.Skip("snapshot-exchange: integritySweep removed")
 	t.Parallel()
 
 	backend := s3adapter.NewMemory()
@@ -929,6 +933,7 @@ func TestSweepDoesNotLoopAfterOutboxDrain(t *testing.T) {
 // files from a bun install, the sweep ran every 5 minutes and re-queued
 // ~15k files each cycle, growing the outbox to 71k+ entries.
 func TestSweepSkipsFilesAlreadyInOutbox(t *testing.T) {
+	t.Skip("snapshot-exchange: integritySweep removed")
 	t.Parallel()
 
 	backend := s3adapter.NewMemory()
@@ -978,6 +983,7 @@ func TestSweepSkipsFilesAlreadyInOutbox(t *testing.T) {
 // drain. The fix wires pokeOutbox on the Reconciler so the sweep wakes
 // the worker after re-queuing.
 func TestSweepPokesOutboxWorker(t *testing.T) {
+	t.Skip("snapshot-exchange: integritySweep removed")
 	t.Parallel()
 
 	backend := s3adapter.NewMemory()
@@ -1016,6 +1022,7 @@ func TestSweepPokesOutboxWorker(t *testing.T) {
 
 // Verify sweep does NOT poke outbox when nothing was re-queued.
 func TestSweepDoesNotPokeWhenNothingRequeued(t *testing.T) {
+	t.Skip("snapshot-exchange: integritySweep removed")
 	t.Parallel()
 
 	backend := s3adapter.NewMemory()

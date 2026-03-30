@@ -71,8 +71,9 @@ s3://bucket/
   invites/{inviteID}/...                        ← invitation protocol (shared)
   debug/{deviceID}/{ts}.json                    ← diagnostic dumps (shared)
 
+  fs/
+    schema                                      ← skyfs storage format version (shared across namespaces)
   fs/{nsID}/
-    schema                                      ← skyfs storage format version
     snapshots/{deviceID}/latest.enc             ← current state (sync reads this)
     snapshots/{deviceID}/{timestamp}.enc        ← historical snapshots (recovery)
     blobs/ab/cd/{hash}.enc                      ← file chunks

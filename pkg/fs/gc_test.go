@@ -31,7 +31,7 @@ func TestGCDeletesOrphans(t *testing.T) {
 	}
 
 	// Run GC
-	result, err := GC(ctx, backend, id, false)
+	result, err := GC(ctx, backend, nil, GCConfig{})
 	if err != nil {
 		t.Fatalf("GC: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestGCPreservesReferenced(t *testing.T) {
 
 	blobsBefore, _ := backend.List(ctx, "blobs/")
 
-	result, err := GC(ctx, backend, id, false)
+	result, err := GC(ctx, backend, nil, GCConfig{})
 	if err != nil {
 		t.Fatalf("GC: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestGCDedupPreservesShared(t *testing.T) {
 	store.Remove(ctx, "file1.md")
 
 	// GC should NOT delete the blob (still referenced by file2)
-	result, err := GC(ctx, backend, id, false)
+	result, err := GC(ctx, backend, nil, GCConfig{})
 	if err != nil {
 		t.Fatalf("GC: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestGCDryRun(t *testing.T) {
 	blobsBefore, _ := backend.List(ctx, "blobs/")
 
 	// Dry run — should report but not delete
-	result, err := GC(ctx, backend, id, true)
+	result, err := GC(ctx, backend, nil, GCConfig{DryRun: true})
 	if err != nil {
 		t.Fatalf("GC dry run: %v", err)
 	}
@@ -135,9 +135,8 @@ func TestGCEmpty(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
-	id, _ := GenerateDeviceKey()
 
-	result, err := GC(ctx, backend, id, false)
+	result, err := GC(ctx, backend, nil, GCConfig{})
 	if err != nil {
 		t.Fatalf("GC: %v", err)
 	}

@@ -38,6 +38,7 @@ type Store struct {
 
 	mu           sync.Mutex
 	nsKeys       map[string][]byte // cached namespace keys
+	nsID         string            // namespace ID for S3 path scoping (set by daemon)
 	packWriter   *PackWriter
 	packIndex    *PackIndex
 	packing      bool   // when true, small chunks are bundled into pack files
@@ -57,6 +58,20 @@ type PutResult struct {
 // or nil if no Put has completed yet.
 func (s *Store) LastPutResult() *PutResult {
 	return s.lastPut
+}
+
+// SetNamespaceID sets the S3 namespace prefix for blob storage.
+// When set, blobs are stored at fs/{nsID}/blobs/... instead of blobs/...
+func (s *Store) SetNamespaceID(nsID string) {
+	s.nsID = nsID
+}
+
+// blobKeyFor returns the S3 key for a chunk, respecting the namespace prefix.
+func (s *Store) blobKeyFor(hash string) string {
+	if s.nsID != "" {
+		return namespacedBlobKey(s.nsID, hash)
+	}
+	return (&Chunk{Hash: hash}).BlobKey()
 }
 
 // SetPrevChecksum sets the previous checksum for the next Put call.
@@ -235,7 +250,7 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 		}
 
 		// Dedup check
-		_, headErr := s.backend.Head(ctx, chunk.BlobKey())
+		_, headErr := s.backend.Head(ctx, s.blobKeyFor(chunk.Hash))
 		if headErr == nil {
 			chunkHashes = append(chunkHashes, chunk.Hash)
 			totalSize += int64(chunk.Length)
@@ -261,13 +276,13 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 			}
 			if !packed {
 				cr := bytes.NewReader(blob)
-				if err := s.backend.Put(ctx, chunk.BlobKey(), cr, int64(len(blob))); err != nil {
+				if err := s.backend.Put(ctx, s.blobKeyFor(chunk.Hash), cr, int64(len(blob))); err != nil {
 					return fmt.Errorf("uploading chunk %s: %w", chunk.Hash[:12], err)
 				}
 			}
 		} else {
 			cr := bytes.NewReader(blob)
-			if err := s.backend.Put(ctx, chunk.BlobKey(), cr, int64(len(blob))); err != nil {
+			if err := s.backend.Put(ctx, s.blobKeyFor(chunk.Hash), cr, int64(len(blob))); err != nil {
 				return fmt.Errorf("uploading chunk %s: %w", chunk.Hash[:12], err)
 			}
 		}
@@ -299,39 +314,31 @@ func (s *Store) GetChunks(ctx context.Context, chunks []string, namespace string
 	return s.downloadChunks(ctx, chunks, nsKey, w)
 }
 
-// --- Deprecated stubs: kept only so skipped tests compile. ---
-// These will be removed once tests are rewritten for snapshot exchange.
+// --- Deprecated stubs: kept so skipped tests compile. Remove when tests are rewritten. ---
 
 func (s *Store) Get(ctx context.Context, path string, w io.Writer) error {
-	return fmt.Errorf("Store.Get removed: use GetChunks with the local CRDT")
+	return fmt.Errorf("Store.Get removed: use GetChunks")
 }
-
 func (s *Store) List(ctx context.Context, prefix string) ([]ManifestEntry, error) {
-	return nil, fmt.Errorf("Store.List removed: use local CRDT snapshot")
+	return nil, fmt.Errorf("Store.List removed")
 }
-
 func (s *Store) Remove(ctx context.Context, path string) error {
-	return fmt.Errorf("Store.Remove removed: use local ops log + outbox")
+	return fmt.Errorf("Store.Remove removed")
 }
-
 func (s *Store) Info(ctx context.Context) (*StoreInfo, error) {
-	return nil, fmt.Errorf("Store.Info removed: use local CRDT snapshot")
+	return nil, fmt.Errorf("Store.Info removed")
 }
-
 func (s *Store) SaveSnapshot(ctx context.Context) error {
-	return fmt.Errorf("Store.SaveSnapshot removed: use snapshot uploader")
+	return fmt.Errorf("Store.SaveSnapshot removed")
 }
-
 func (s *Store) getOpsLog(ctx context.Context) (*opslog.OpsLog, error) {
-	return nil, fmt.Errorf("getOpsLog removed: S3 ops log eliminated")
+	return nil, fmt.Errorf("getOpsLog removed")
 }
-
 func (s *Store) writeOp(ctx context.Context, op *Op) error {
-	return fmt.Errorf("writeOp removed: S3 ops log eliminated")
+	return fmt.Errorf("writeOp removed")
 }
-
 func (s *Store) loadCurrentState(ctx context.Context) (*Manifest, error) {
-	return nil, fmt.Errorf("loadCurrentState removed: use local CRDT snapshot")
+	return nil, fmt.Errorf("loadCurrentState removed")
 }
 
 // downloadChunks fetches, decrypts, and writes chunks to w in order.
@@ -432,7 +439,7 @@ func (s *Store) fetchChunk(ctx context.Context, index int, chunkHash string, nsK
 			return nil, fmt.Errorf("reading packed chunk %d: %w", index, err)
 		}
 	} else {
-		blobKey := (&Chunk{Hash: chunkHash}).BlobKey()
+		blobKey := s.blobKeyFor(chunkHash)
 		rc, err := s.backend.Get(ctx, blobKey)
 		if err != nil {
 			return nil, fmt.Errorf("downloading chunk %d (%s): %w", index, chunkHash[:12], err)
