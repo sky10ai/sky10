@@ -35,13 +35,10 @@ func TestWatcherHandlerCreate(t *testing.T) {
 		t.Errorf("local_path = %q", entries[0].LocalPath)
 	}
 
-	// Local log should have the file
-	fi, ok := localLog.Lookup("new.txt")
-	if !ok {
-		t.Fatal("local log missing new.txt")
-	}
-	if fi.Namespace != "Test" {
-		t.Errorf("namespace = %q", fi.Namespace)
+	// Upload-then-record: local log should NOT have the entry yet.
+	// The outbox worker writes it after upload succeeds.
+	if _, ok := localLog.Lookup("new.txt"); ok {
+		t.Error("local log should not have new.txt before outbox drain")
 	}
 }
 
@@ -62,6 +59,8 @@ func TestWatcherHandlerModify(t *testing.T) {
 	os.WriteFile(filepath.Join(localDir, "doc.txt"), []byte("v2 changed"), 0644)
 	handler.HandleEvents([]FileEvent{{Path: "doc.txt", Type: FileModified}})
 
+	// Both events go to outbox (dedup check won't find first in local log,
+	// so both are queued — outbox worker handles idempotently).
 	entries, _ := outbox.ReadAll()
 	if len(entries) != 2 {
 		t.Fatalf("outbox has %d, want 2", len(entries))
@@ -77,28 +76,26 @@ func TestWatcherHandlerDelete(t *testing.T) {
 	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
 	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
 
-	// Create, track in local log, then delete
+	// Simulate a file that was previously uploaded (in local log).
+	localLog.AppendLocal(opslog.Entry{
+		Type: opslog.Put, Path: "bye.txt", Checksum: "abc123", Namespace: "Test",
+	})
+
 	os.WriteFile(filepath.Join(localDir, "bye.txt"), []byte("goodbye"), 0644)
 	handler := NewWatcherHandler(outbox, localLog, localDir, "Test", nil)
-	handler.HandleEvents([]FileEvent{{Path: "bye.txt", Type: FileCreated}})
 
 	os.Remove(filepath.Join(localDir, "bye.txt"))
 	handler.HandleEvents([]FileEvent{{Path: "bye.txt", Type: FileDeleted}})
 
 	entries, _ := outbox.ReadAll()
-	if len(entries) != 2 {
-		t.Fatalf("outbox has %d, want 2", len(entries))
+	if len(entries) != 1 {
+		t.Fatalf("outbox has %d, want 1", len(entries))
 	}
-	if entries[1].Op != OpDelete {
-		t.Errorf("second entry: %+v", entries[1])
+	if entries[0].Op != OpDelete {
+		t.Errorf("entry: %+v", entries[0])
 	}
-	if entries[1].Checksum == "" {
+	if entries[0].Checksum == "" {
 		t.Error("delete entry should have checksum from local log")
-	}
-
-	// Local log should show file as deleted
-	if _, ok := localLog.Lookup("bye.txt"); ok {
-		t.Error("local log should not have bye.txt after delete")
 	}
 }
 
@@ -112,16 +109,21 @@ func TestWatcherHandlerSkipsUnchanged(t *testing.T) {
 	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
 
 	os.WriteFile(filepath.Join(localDir, "same.txt"), []byte("same"), 0644)
+	cksum, _ := fileChecksum(filepath.Join(localDir, "same.txt"))
+
+	// Simulate the file already being in the local log (previously uploaded).
+	localLog.AppendLocal(opslog.Entry{
+		Type: opslog.Put, Path: "same.txt", Checksum: cksum, Namespace: "Test",
+	})
+
 	handler := NewWatcherHandler(outbox, localLog, localDir, "Test", nil)
 
-	// First event — should write
-	handler.HandleEvents([]FileEvent{{Path: "same.txt", Type: FileCreated}})
-	// Second event, same content — should skip
+	// Event for same content — should skip (dedup check finds it in local log).
 	handler.HandleEvents([]FileEvent{{Path: "same.txt", Type: FileModified}})
 
 	entries, _ := outbox.ReadAll()
-	if len(entries) != 1 {
-		t.Errorf("outbox has %d, want 1 (skip unchanged)", len(entries))
+	if len(entries) != 0 {
+		t.Errorf("outbox has %d, want 0 (skip unchanged)", len(entries))
 	}
 }
 
@@ -160,7 +162,7 @@ func TestWatcherHandlerDirectoryTrash(t *testing.T) {
 	handler := NewWatcherHandler(outbox, localLog, localDir, "Test", nil)
 	handler.HandleDirectoryTrash("subdir")
 
-	// Should emit one delete_dir op, not N individual deletes
+	// Should emit one delete_dir op to outbox
 	entries, _ := outbox.ReadAll()
 	if len(entries) != 1 {
 		t.Fatalf("outbox has %d, want 1 (one delete_dir)", len(entries))
@@ -169,18 +171,9 @@ func TestWatcherHandlerDirectoryTrash(t *testing.T) {
 		t.Errorf("expected delete_dir for subdir, got %+v", entries[0])
 	}
 
-	// CRDT should have removed subdir files from snapshot
-	if _, ok := localLog.Lookup("subdir/a.txt"); ok {
-		t.Error("subdir/a.txt should be removed from snapshot after delete_dir")
-	}
-	if _, ok := localLog.Lookup("subdir/b.txt"); ok {
-		t.Error("subdir/b.txt should be removed from snapshot after delete_dir")
-	}
-
-	// other/c.txt should still be in local log
-	if _, ok := localLog.Lookup("other/c.txt"); !ok {
-		t.Error("other/c.txt should still be in local log")
-	}
+	// Local log still has the entries — outbox worker will record the
+	// delete_dir after processing. The CRDT applies delete_dir as a
+	// prefix delete when the outbox worker writes it.
 }
 
 func TestWatcherHandlerDeleteDirectoryViaHandleEvents(t *testing.T) {
@@ -202,26 +195,13 @@ func TestWatcherHandlerDeleteDirectoryViaHandleEvents(t *testing.T) {
 	// kqueue sends a single FileDeleted for the directory, not individual files
 	handler.HandleEvents([]FileEvent{{Path: "archive", Type: FileDeleted}})
 
-	// Should emit one delete_dir op
+	// Should emit one delete_dir op to outbox
 	entries, _ := outbox.ReadAll()
 	if len(entries) != 1 {
 		t.Fatalf("outbox has %d, want 1 (one delete_dir)", len(entries))
 	}
 	if entries[0].Op != OpDeleteDir || entries[0].Path != "archive" {
 		t.Errorf("expected delete_dir for archive, got %+v", entries[0])
-	}
-
-	// CRDT should have removed archive files
-	if _, ok := localLog.Lookup("archive/a.txt"); ok {
-		t.Error("archive/a.txt should be gone after delete_dir")
-	}
-	if _, ok := localLog.Lookup("archive/sub/b.txt"); ok {
-		t.Error("archive/sub/b.txt should be gone after delete_dir")
-	}
-
-	// other/c.txt should still be tracked
-	if _, ok := localLog.Lookup("other/c.txt"); !ok {
-		t.Error("other/c.txt should still be in local log")
 	}
 }
 
@@ -243,12 +223,6 @@ func TestWatcherHandlerDirCreated(t *testing.T) {
 	}
 	if entries[0].Op != OpCreateDir || entries[0].Path != "newdir" {
 		t.Errorf("expected create_dir for newdir, got %+v", entries[0])
-	}
-
-	snap, _ := localLog.Snapshot()
-	dirs := snap.Dirs()
-	if _, ok := dirs["newdir"]; !ok {
-		t.Error("newdir should be in snapshot dirs")
 	}
 }
 
@@ -279,35 +253,34 @@ func TestWatcherHandlerDeleteEmptyCreatedDir(t *testing.T) {
 	if entries[0].Op != OpDeleteDir || entries[0].Path != "empty" {
 		t.Errorf("expected delete_dir for empty, got %+v", entries[0])
 	}
-
-	// Dir should be gone from snapshot
-	snap, _ := localLog.Snapshot()
-	if _, ok := snap.Dirs()["empty"]; ok {
-		t.Error("empty dir should be removed from snapshot after delete_dir")
-	}
 }
 
-func TestWatcherHandlerOpsLogPersistence(t *testing.T) {
+func TestWatcherHandlerSymlinkOutboxOnly(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	localDir := filepath.Join(tmpDir, "sync")
 	os.MkdirAll(localDir, 0755)
-	opsPath := filepath.Join(tmpDir, "ops.jsonl")
 
 	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
-	localLog := opslog.NewLocalOpsLog(opsPath, "dev-a")
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
 
-	os.WriteFile(filepath.Join(localDir, "persist.txt"), []byte("data"), 0644)
+	// Create a real symlink
+	target := filepath.Join(localDir, "target.txt")
+	os.WriteFile(target, []byte("target"), 0644)
+	link := filepath.Join(localDir, "link.txt")
+	os.Symlink(target, link)
+
 	handler := NewWatcherHandler(outbox, localLog, localDir, "Test", nil)
-	handler.HandleEvents([]FileEvent{{Path: "persist.txt", Type: FileCreated}})
+	handler.HandleEvents([]FileEvent{{Path: "link.txt", Type: SymlinkCreated}})
 
-	// "Crash" — create new instance from same ops.jsonl
-	localLog2 := opslog.NewLocalOpsLog(opsPath, "dev-a")
-	fi, ok := localLog2.Lookup("persist.txt")
-	if !ok {
-		t.Fatal("persist.txt not recovered from ops.jsonl")
+	entries, _ := outbox.ReadAll()
+	if len(entries) != 1 {
+		t.Fatalf("outbox has %d, want 1", len(entries))
 	}
-	if fi.Checksum == "" {
-		t.Error("recovered entry should have checksum")
+	if entries[0].Op != OpSymlink {
+		t.Errorf("expected symlink op, got %+v", entries[0])
+	}
+	if entries[0].LinkTarget != target {
+		t.Errorf("link target = %q, want %q", entries[0].LinkTarget, target)
 	}
 }

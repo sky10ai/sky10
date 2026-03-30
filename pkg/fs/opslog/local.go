@@ -69,7 +69,9 @@ func (l *LocalOpsLog) AppendLocal(entry Entry) error {
 
 	l.seq++
 	entry.Device = l.deviceID
-	entry.Timestamp = time.Now().Unix()
+	if entry.Timestamp == 0 {
+		entry.Timestamp = time.Now().Unix()
+	}
 	entry.Seq = l.seq
 
 	if err := l.appendToFile(entry); err != nil {

@@ -82,16 +82,8 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 				continue
 			}
 
-			// Record op in local log
-			h.localLog.AppendLocal(opslog.Entry{
-				Type:      opslog.Put,
-				Path:      e.Path,
-				Checksum:  cksum,
-				Size:      info.Size(),
-				Namespace: h.namespace,
-			})
-
-			// Write to outbox
+			// Write to outbox only — local log entry written by
+			// OutboxWorker after blob upload succeeds (upload-then-record).
 			h.outbox.Append(OutboxEntry{
 				Op:        OpPut,
 				Path:      e.Path,
@@ -114,11 +106,7 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 				}
 			}
 			h.logger.Info("watcher: mkdir", "path", e.Path)
-			h.localLog.AppendLocal(opslog.Entry{
-				Type:      opslog.CreateDir,
-				Path:      e.Path,
-				Namespace: h.namespace,
-			})
+			// Outbox only — local log written by OutboxWorker.
 			h.outbox.Append(OutboxEntry{
 				Op:        OpCreateDir,
 				Path:      e.Path,
@@ -147,14 +135,7 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 
 			cksum := symlinkChecksum(target)
 
-			h.localLog.AppendLocal(opslog.Entry{
-				Type:       opslog.Symlink,
-				Path:       e.Path,
-				Checksum:   cksum,
-				LinkTarget: target,
-				Namespace:  h.namespace,
-			})
-
+			// Outbox only — local log written by OutboxWorker.
 			h.outbox.Append(OutboxEntry{
 				Op:         OpSymlink,
 				Path:       e.Path,
@@ -175,14 +156,7 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 
 			h.logger.Info("watcher: delete", "path", e.Path)
 
-			// Record delete op in local log
-			h.localLog.AppendLocal(opslog.Entry{
-				Type:      opslog.Delete,
-				Path:      e.Path,
-				Namespace: existing.Namespace,
-			})
-
-			// Write to outbox with checksum/namespace from snapshot
+			// Outbox only — local log written by OutboxWorker.
 			h.outbox.Append(OutboxEntry{
 				Op:        OpDelete,
 				Path:      e.Path,
@@ -243,12 +217,7 @@ func (h *WatcherHandler) HandleDirectoryTrash(dirPath string) {
 
 	h.logger.Info("watcher: delete_dir", "path", dirPath)
 
-	h.localLog.AppendLocal(opslog.Entry{
-		Type:      opslog.DeleteDir,
-		Path:      dirPath,
-		Namespace: ns,
-	})
-
+	// Outbox only — local log written by OutboxWorker.
 	h.outbox.Append(OutboxEntry{
 		Op:        OpDeleteDir,
 		Path:      dirPath,
