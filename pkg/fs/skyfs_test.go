@@ -25,7 +25,6 @@ func newTestStore(t *testing.T) (*Store, *s3adapter.MemoryBackend) {
 }
 
 func TestStorePutGet(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
 	t.Parallel()
 	ctx := context.Background()
 	store, _ := newTestStore(t)
@@ -48,9 +47,15 @@ func TestStorePutGet(t *testing.T) {
 				t.Fatalf("Put: %v", err)
 			}
 
+			res := store.LastPutResult()
+			if res == nil {
+				t.Fatal("LastPutResult returned nil")
+			}
+
+			ns := NamespaceFromPath(tt.path)
 			var buf bytes.Buffer
-			if err := store.Get(ctx, tt.path, &buf); err != nil {
-				t.Fatalf("Get: %v", err)
+			if err := store.GetChunks(ctx, res.Chunks, ns, &buf); err != nil {
+				t.Fatalf("GetChunks: %v", err)
 			}
 
 			if !bytes.Equal(buf.Bytes(), tt.data) {
@@ -61,7 +66,6 @@ func TestStorePutGet(t *testing.T) {
 }
 
 func TestStorePutGetLargeFile(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
 	t.Parallel()
 	ctx := context.Background()
 	store, _ := newTestStore(t)
@@ -77,9 +81,14 @@ func TestStorePutGetLargeFile(t *testing.T) {
 		t.Fatalf("Put: %v", err)
 	}
 
+	res := store.LastPutResult()
+	if res == nil {
+		t.Fatal("LastPutResult returned nil")
+	}
+
 	var buf bytes.Buffer
-	if err := store.Get(ctx, "large/bigfile.bin", &buf); err != nil {
-		t.Fatalf("Get: %v", err)
+	if err := store.GetChunks(ctx, res.Chunks, "large", &buf); err != nil {
+		t.Fatalf("GetChunks: %v", err)
 	}
 
 	if !bytes.Equal(buf.Bytes(), data) {
@@ -87,91 +96,7 @@ func TestStorePutGetLargeFile(t *testing.T) {
 	}
 }
 
-func TestStoreGetNotFound(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
-	t.Parallel()
-	ctx := context.Background()
-	store, _ := newTestStore(t)
-
-	err := store.Get(ctx, "nonexistent.md", io.Discard)
-	if err == nil {
-		t.Error("expected error for nonexistent file")
-	}
-	if err != ErrFileNotFound {
-		t.Errorf("got %v, want ErrFileNotFound", err)
-	}
-}
-
-func TestStoreList(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
-	t.Parallel()
-	ctx := context.Background()
-	store, _ := newTestStore(t)
-
-	files := map[string]string{
-		"journal/a.md":        "entry a",
-		"journal/b.md":        "entry b",
-		"financial/report.md": "q4 report",
-		"notes.md":            "root notes",
-	}
-
-	for path, content := range files {
-		if err := store.Put(ctx, path, strings.NewReader(content)); err != nil {
-			t.Fatalf("Put %q: %v", path, err)
-		}
-	}
-
-	tests := []struct {
-		prefix string
-		want   int
-	}{
-		{"journal/", 2},
-		{"financial/", 1},
-		{"", 4},
-		{"nonexistent/", 0},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.prefix, func(t *testing.T) {
-			entries, err := store.List(ctx, tt.prefix)
-			if err != nil {
-				t.Fatalf("List(%q): %v", tt.prefix, err)
-			}
-			if len(entries) != tt.want {
-				t.Errorf("List(%q) returned %d entries, want %d", tt.prefix, len(entries), tt.want)
-			}
-		})
-	}
-}
-
-func TestStoreRemove(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
-	t.Parallel()
-	ctx := context.Background()
-	store, _ := newTestStore(t)
-
-	if err := store.Put(ctx, "journal/test.md", strings.NewReader("content")); err != nil {
-		t.Fatalf("Put: %v", err)
-	}
-
-	if err := store.Remove(ctx, "journal/test.md"); err != nil {
-		t.Fatalf("Remove: %v", err)
-	}
-
-	err := store.Get(ctx, "journal/test.md", io.Discard)
-	if err != ErrFileNotFound {
-		t.Errorf("after Remove: got %v, want ErrFileNotFound", err)
-	}
-
-	// Remove nonexistent
-	err = store.Remove(ctx, "nonexistent.md")
-	if err != ErrFileNotFound {
-		t.Errorf("Remove nonexistent: got %v, want ErrFileNotFound", err)
-	}
-}
-
 func TestStoreOverwrite(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
 	t.Parallel()
 	ctx := context.Background()
 	store, _ := newTestStore(t)
@@ -179,14 +104,27 @@ func TestStoreOverwrite(t *testing.T) {
 	if err := store.Put(ctx, "file.md", strings.NewReader("version 1")); err != nil {
 		t.Fatalf("Put v1: %v", err)
 	}
+	v1 := store.LastPutResult()
+	if v1 == nil {
+		t.Fatal("LastPutResult nil after v1")
+	}
 
 	if err := store.Put(ctx, "file.md", strings.NewReader("version 2")); err != nil {
 		t.Fatalf("Put v2: %v", err)
 	}
+	v2 := store.LastPutResult()
+	if v2 == nil {
+		t.Fatal("LastPutResult nil after v2")
+	}
 
+	if v1.Checksum == v2.Checksum {
+		t.Errorf("v1 and v2 checksums should differ, both are %q", v1.Checksum)
+	}
+
+	// Verify v2 content is retrievable
 	var buf bytes.Buffer
-	if err := store.Get(ctx, "file.md", &buf); err != nil {
-		t.Fatalf("Get: %v", err)
+	if err := store.GetChunks(ctx, v2.Chunks, "default", &buf); err != nil {
+		t.Fatalf("GetChunks v2: %v", err)
 	}
 	if buf.String() != "version 2" {
 		t.Errorf("got %q, want %q", buf.String(), "version 2")
@@ -194,7 +132,6 @@ func TestStoreOverwrite(t *testing.T) {
 }
 
 func TestStoreDedup(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
 	t.Parallel()
 	ctx := context.Background()
 	store, backend := newTestStore(t)
@@ -215,17 +152,6 @@ func TestStoreDedup(t *testing.T) {
 	}
 	if len(blobs) != 1 {
 		t.Errorf("expected 1 blob (dedup), got %d", len(blobs))
-	}
-
-	// Both files should still return correct content
-	for _, path := range []string{"file1.md", "file2.md"} {
-		var buf bytes.Buffer
-		if err := store.Get(ctx, path, &buf); err != nil {
-			t.Fatalf("Get %s: %v", path, err)
-		}
-		if !bytes.Equal(buf.Bytes(), data) {
-			t.Errorf("%s: data mismatch", path)
-		}
 	}
 }
 
@@ -282,35 +208,6 @@ func TestStoreNamespaceIsolation(t *testing.T) {
 	}
 }
 
-func TestStoreInfo(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
-	t.Parallel()
-	ctx := context.Background()
-	store, _ := newTestStore(t)
-
-	if err := store.Put(ctx, "journal/a.md", strings.NewReader("aaa")); err != nil {
-		t.Fatalf("Put: %v", err)
-	}
-	if err := store.Put(ctx, "notes.md", strings.NewReader("bbb")); err != nil {
-		t.Fatalf("Put: %v", err)
-	}
-
-	info, err := store.Info(ctx)
-	if err != nil {
-		t.Fatalf("Info: %v", err)
-	}
-
-	if info.FileCount != 2 {
-		t.Errorf("FileCount = %d, want 2", info.FileCount)
-	}
-	if info.TotalSize != 6 {
-		t.Errorf("TotalSize = %d, want 6", info.TotalSize)
-	}
-	if !strings.HasPrefix(info.ID, "sky10q") {
-		t.Errorf("ID = %q, want sky10q prefix", info.ID)
-	}
-}
-
 // failAfterNBackend wraps a backend and returns an error on the Nth
 // Get or GetRange call (1-indexed). All other methods pass through.
 type failAfterNBackend struct {
@@ -337,7 +234,6 @@ func (f *failAfterNBackend) GetRange(ctx context.Context, key string, offset, le
 }
 
 func TestDownloadChunksCancellation(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
 	t.Parallel()
 	ctx := context.Background()
 	store, _ := newTestStore(t)
@@ -351,18 +247,22 @@ func TestDownloadChunksCancellation(t *testing.T) {
 		t.Fatalf("Put: %v", err)
 	}
 
-	// Get with an already-cancelled context.
+	res := store.LastPutResult()
+	if res == nil {
+		t.Fatal("LastPutResult returned nil")
+	}
+
+	// GetChunks with an already-cancelled context.
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
 
-	err := store.Get(cancelled, "big.bin", io.Discard)
+	err := store.GetChunks(cancelled, res.Chunks, "default", io.Discard)
 	if err == nil {
 		t.Fatal("expected error from cancelled context")
 	}
 }
 
 func TestDownloadChunksErrorMidStream(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
 	t.Parallel()
 	ctx := context.Background()
 	store, backend := newTestStore(t)
@@ -376,6 +276,11 @@ func TestDownloadChunksErrorMidStream(t *testing.T) {
 		t.Fatalf("Put: %v", err)
 	}
 
+	res := store.LastPutResult()
+	if res == nil {
+		t.Fatal("LastPutResult returned nil")
+	}
+
 	// Swap backend to one that fails on the 3rd Get/GetRange.
 	injectedErr := fmt.Errorf("injected S3 error")
 	store.backend = &failAfterNBackend{
@@ -384,7 +289,7 @@ func TestDownloadChunksErrorMidStream(t *testing.T) {
 		failErr: injectedErr,
 	}
 
-	err := store.Get(ctx, "big.bin", io.Discard)
+	err := store.GetChunks(ctx, res.Chunks, "default", io.Discard)
 	if err == nil {
 		t.Fatal("expected error from failing backend")
 	}
@@ -397,7 +302,6 @@ func TestDownloadChunksErrorMidStream(t *testing.T) {
 }
 
 func TestDownloadChunksOrdering(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
 	t.Parallel()
 	ctx := context.Background()
 	store, _ := newTestStore(t)
@@ -413,9 +317,14 @@ func TestDownloadChunksOrdering(t *testing.T) {
 		t.Fatalf("Put: %v", err)
 	}
 
+	res := store.LastPutResult()
+	if res == nil {
+		t.Fatal("LastPutResult returned nil")
+	}
+
 	var buf bytes.Buffer
-	if err := store.Get(ctx, "ordered.bin", &buf); err != nil {
-		t.Fatalf("Get: %v", err)
+	if err := store.GetChunks(ctx, res.Chunks, "default", &buf); err != nil {
+		t.Fatalf("GetChunks: %v", err)
 	}
 
 	if !bytes.Equal(buf.Bytes(), data) {

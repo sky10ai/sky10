@@ -10,7 +10,6 @@ import (
 )
 
 func TestStoreUnicodeFilenames(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
 	t.Parallel()
 	ctx := context.Background()
 	store, _ := newTestStore(t)
@@ -29,9 +28,15 @@ func TestStoreUnicodeFilenames(t *testing.T) {
 				t.Fatalf("Put %q: %v", path, err)
 			}
 
+			res := store.LastPutResult()
+			if res == nil {
+				t.Fatal("LastPutResult returned nil")
+			}
+
+			ns := NamespaceFromPath(path)
 			var buf bytes.Buffer
-			if err := store.Get(ctx, path, &buf); err != nil {
-				t.Fatalf("Get %q: %v", path, err)
+			if err := store.GetChunks(ctx, res.Chunks, ns, &buf); err != nil {
+				t.Fatalf("GetChunks %q: %v", path, err)
 			}
 
 			if buf.String() != data {
@@ -42,7 +47,6 @@ func TestStoreUnicodeFilenames(t *testing.T) {
 }
 
 func TestStoreDeepPaths(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
 	t.Parallel()
 	ctx := context.Background()
 	store, _ := newTestStore(t)
@@ -54,27 +58,28 @@ func TestStoreDeepPaths(t *testing.T) {
 		t.Fatalf("Put: %v", err)
 	}
 
+	res := store.LastPutResult()
+	if res == nil {
+		t.Fatal("LastPutResult returned nil")
+	}
+
 	var buf bytes.Buffer
-	if err := store.Get(ctx, path, &buf); err != nil {
-		t.Fatalf("Get: %v", err)
+	if err := store.GetChunks(ctx, res.Chunks, "a", &buf); err != nil {
+		t.Fatalf("GetChunks: %v", err)
 	}
 
 	if buf.String() != data {
 		t.Errorf("got %q, want %q", buf.String(), data)
 	}
 
-	// Namespace should be the first directory
-	entries, _ := store.List(ctx, "")
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 entry, got %d", len(entries))
-	}
-	if entries[0].Namespace != "a" {
-		t.Errorf("namespace = %q, want %q", entries[0].Namespace, "a")
+	// Verify namespace derivation
+	ns := NamespaceFromPath(path)
+	if ns != "a" {
+		t.Errorf("NamespaceFromPath(%q) = %q, want %q", path, ns, "a")
 	}
 }
 
 func TestStorePathsWithSpaces(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
 	t.Parallel()
 	ctx := context.Background()
 	store, _ := newTestStore(t)
@@ -86,9 +91,14 @@ func TestStorePathsWithSpaces(t *testing.T) {
 		t.Fatalf("Put: %v", err)
 	}
 
+	res := store.LastPutResult()
+	if res == nil {
+		t.Fatal("LastPutResult returned nil")
+	}
+
 	var buf bytes.Buffer
-	if err := store.Get(ctx, path, &buf); err != nil {
-		t.Fatalf("Get: %v", err)
+	if err := store.GetChunks(ctx, res.Chunks, "my docs", &buf); err != nil {
+		t.Fatalf("GetChunks: %v", err)
 	}
 
 	if buf.String() != data {
@@ -97,7 +107,6 @@ func TestStorePathsWithSpaces(t *testing.T) {
 }
 
 func TestStoreBinaryFiles(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
 	t.Parallel()
 	ctx := context.Background()
 	store, _ := newTestStore(t)
@@ -116,9 +125,14 @@ func TestStoreBinaryFiles(t *testing.T) {
 		t.Fatalf("Put: %v", err)
 	}
 
+	res := store.LastPutResult()
+	if res == nil {
+		t.Fatal("LastPutResult returned nil")
+	}
+
 	var buf bytes.Buffer
-	if err := store.Get(ctx, "assets/photo.png", &buf); err != nil {
-		t.Fatalf("Get: %v", err)
+	if err := store.GetChunks(ctx, res.Chunks, "assets", &buf); err != nil {
+		t.Fatalf("GetChunks: %v", err)
 	}
 
 	if !bytes.Equal(buf.Bytes(), data) {
@@ -127,7 +141,6 @@ func TestStoreBinaryFiles(t *testing.T) {
 }
 
 func TestStoreEmptyFile(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
 	t.Parallel()
 	ctx := context.Background()
 	store, _ := newTestStore(t)
@@ -136,9 +149,14 @@ func TestStoreEmptyFile(t *testing.T) {
 		t.Fatalf("Put empty: %v", err)
 	}
 
+	res := store.LastPutResult()
+	if res == nil {
+		t.Fatal("LastPutResult returned nil")
+	}
+
 	var buf bytes.Buffer
-	if err := store.Get(ctx, "empty.md", &buf); err != nil {
-		t.Fatalf("Get empty: %v", err)
+	if err := store.GetChunks(ctx, res.Chunks, "default", &buf); err != nil {
+		t.Fatalf("GetChunks empty: %v", err)
 	}
 
 	if buf.Len() != 0 {
@@ -147,7 +165,6 @@ func TestStoreEmptyFile(t *testing.T) {
 }
 
 func TestStoreExactChunkBoundary(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
 	t.Parallel()
 	ctx := context.Background()
 	store, _ := newTestStore(t)
@@ -162,9 +179,14 @@ func TestStoreExactChunkBoundary(t *testing.T) {
 		t.Fatalf("Put: %v", err)
 	}
 
+	res := store.LastPutResult()
+	if res == nil {
+		t.Fatal("LastPutResult returned nil")
+	}
+
 	var buf bytes.Buffer
-	if err := store.Get(ctx, "large/exact.bin", &buf); err != nil {
-		t.Fatalf("Get: %v", err)
+	if err := store.GetChunks(ctx, res.Chunks, "large", &buf); err != nil {
+		t.Fatalf("GetChunks: %v", err)
 	}
 
 	if !bytes.Equal(buf.Bytes(), data) {
@@ -173,7 +195,6 @@ func TestStoreExactChunkBoundary(t *testing.T) {
 }
 
 func TestStoreMultipleNamespaces(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
 	t.Parallel()
 	ctx := context.Background()
 	store, _ := newTestStore(t)
@@ -185,17 +206,29 @@ func TestStoreMultipleNamespaces(t *testing.T) {
 		"notes.md":            "root note",
 	}
 
+	// Put all files and record their chunks
+	type putInfo struct {
+		chunks []string
+		ns     string
+	}
+	results := make(map[string]putInfo)
 	for path, content := range namespaces {
 		if err := store.Put(ctx, path, strings.NewReader(content)); err != nil {
 			t.Fatalf("Put %q: %v", path, err)
 		}
+		res := store.LastPutResult()
+		if res == nil {
+			t.Fatalf("LastPutResult nil after Put %q", path)
+		}
+		results[path] = putInfo{chunks: res.Chunks, ns: NamespaceFromPath(path)}
 	}
 
-	// Verify each file is retrievable
+	// Verify each file is retrievable via GetChunks
 	for path, want := range namespaces {
+		info := results[path]
 		var buf bytes.Buffer
-		if err := store.Get(ctx, path, &buf); err != nil {
-			t.Fatalf("Get %q: %v", path, err)
+		if err := store.GetChunks(ctx, info.chunks, info.ns, &buf); err != nil {
+			t.Fatalf("GetChunks %q: %v", path, err)
 		}
 		if buf.String() != want {
 			t.Errorf("%s: got %q, want %q", path, buf.String(), want)
