@@ -528,7 +528,6 @@ func TestReconcilerFileReplacedBySymlink(t *testing.T) {
 }
 
 func TestReconcilerSymlinkReplacedByFile(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
 	t.Parallel()
 	tmpDir := t.TempDir()
 	localDir := filepath.Join(tmpDir, "sync")
@@ -542,14 +541,35 @@ func TestReconcilerSymlinkReplacedByFile(t *testing.T) {
 	store := New(backend, id)
 
 	ctx := context.Background()
-	store.Put(ctx, "thing", strings.NewReader("new file content"))
-	entries := getOpsEntries(t, store)
 
-	// Append to local log
-	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "different-device")
-	for _, e := range entries {
-		localLog.Append(e)
+	// Put actual file content to create blobs
+	if err := store.Put(ctx, "thing", strings.NewReader("new file content")); err != nil {
+		t.Fatalf("Put: %v", err)
 	}
+	pr := store.LastPutResult()
+
+	// Build local log: symlink first, then replaced by file (higher clock)
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "different-device")
+	localLog.Append(opslog.Entry{
+		Type:       opslog.Symlink,
+		Path:       "thing",
+		LinkTarget: "old-target",
+		Checksum:   symlinkChecksum("old-target"),
+		Device:     "dev-a",
+		Timestamp:  100,
+		Seq:        1,
+	})
+	localLog.Append(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "thing",
+		Chunks:    pr.Chunks,
+		Checksum:  pr.Checksum,
+		Size:      pr.Size,
+		Namespace: NamespaceFromPath("thing"),
+		Device:    "dev-a",
+		Timestamp: 200,
+		Seq:       2,
+	})
 
 	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
 	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
