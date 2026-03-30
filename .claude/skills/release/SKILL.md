@@ -79,25 +79,25 @@ Generate release notes from `git log` since the previous tag. In the commit list
 
 ### 6. Update Homebrew tap
 
-The tap repo is at `/tmp/homebrew-tap`. If it doesn't exist, clone it:
+The tap repo is at `~/Documents/projects/homebrew-tap`. If it doesn't exist, clone it:
 ```bash
-git clone https://github.com/sky10ai/homebrew-tap.git /tmp/homebrew-tap
+git clone https://github.com/sky10ai/homebrew-tap.git ~/Documents/projects/homebrew-tap
 ```
 
 Update these files using the checksum from step 4:
 
-**`/tmp/homebrew-tap/Formula/sky10.rb`:**
+**`~/Documents/projects/homebrew-tap/Formula/sky10.rb`:**
 - `version` field
 - The darwin-arm64 `url` field — update the tag in the URL
 - The darwin-arm64 `sha256` field — from checksums.txt
 - Keep other platform entries as-is (they'll 404 but that's fine — TODO: add them later)
 
-**`/tmp/homebrew-tap/Formula/sky10-cirrus.rb`:**
+**`~/Documents/projects/homebrew-tap/Formula/sky10-cirrus.rb`:**
 - The `tag:` value in the `url` line
 
 Then commit and push:
 ```bash
-cd /tmp/homebrew-tap
+cd ~/Documents/projects/homebrew-tap
 git add Formula/sky10.rb Formula/sky10-cirrus.rb
 git commit -m "Bump to v$VERSION"
 git push origin main
