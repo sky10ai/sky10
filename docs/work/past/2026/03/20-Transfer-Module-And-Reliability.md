@@ -13,8 +13,8 @@ Released as v0.10.3, v0.10.4, v0.11.0.
 
 1. **S3 wall-clock timeout**: `http.Client{Timeout: 30s}` killed active
    transfers after 30 seconds regardless of whether bytes were flowing.
-   Large files (>4MB chunks on slow connections) always failed. the remote device's
-   outbox had 115 files stuck because uploads kept timing out.
+   Large files (>4MB chunks on slow connections) always failed. The remote
+   device's outbox had 115 files stuck because uploads kept timing out.
 
 2. **RPC server deadlock**: `broadcastLoop` held `s.mu` while writing
    to subscriber connections. A dead Cirrus connection blocked the write
