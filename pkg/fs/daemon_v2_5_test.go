@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -551,7 +550,6 @@ func TestSeedDeletesMissingFiles(t *testing.T) {
 		t.Error("was-here.txt should be deleted from CRDT after seed")
 	}
 }
-
 
 // Migration: state.json → ops.jsonl on first V3 startup.
 func TestMigrateStateToOpsLog(t *testing.T) {

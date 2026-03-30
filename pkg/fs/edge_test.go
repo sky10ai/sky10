@@ -218,9 +218,10 @@ func TestStoreNamespaceKeyCaching(t *testing.T) {
 		t.Fatalf("Put b: %v", err)
 	}
 
-	// journal + default (used for ops encryption)
+	// Only the journal namespace key (default key no longer created
+	// since S3 ops log was removed).
 	keys, _ := backend.List(ctx, "keys/namespaces/")
-	if len(keys) != 2 {
-		t.Errorf("expected 2 namespace keys, got %d", len(keys))
+	if len(keys) != 1 {
+		t.Errorf("expected 1 namespace key (journal), got %d: %v", len(keys), keys)
 	}
 }
