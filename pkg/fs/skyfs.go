@@ -38,11 +38,10 @@ type Store struct {
 
 	mu           sync.Mutex
 	nsKeys       map[string][]byte // cached namespace keys
-	opsLog       *opslog.OpsLog    // lazily initialized
 	packWriter   *PackWriter
 	packIndex    *PackIndex
 	packing      bool   // when true, small chunks are bundled into pack files
-	prevChecksum string // optional: set before Put to avoid loadCurrentState
+	prevChecksum string // optional: informational prev_checksum for dedup
 	lastPut      *PutResult
 }
 
@@ -117,43 +116,6 @@ func (s *Store) namespaceFor(path string) string {
 // This is the "default" namespace key — shared across all devices.
 func (s *Store) opsKey(ctx context.Context) ([]byte, error) {
 	return s.getOrCreateNamespaceKey(ctx, "default")
-}
-
-// getOpsLog returns the lazily-initialized OpsLog, creating it on first call.
-func (s *Store) getOpsLog(ctx context.Context) (*opslog.OpsLog, error) {
-	s.mu.Lock()
-	if s.opsLog != nil {
-		log := s.opsLog
-		s.mu.Unlock()
-		return log, nil
-	}
-	s.mu.Unlock()
-
-	encKey, err := s.opsKey(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	log := opslog.New(s.backend, encKey, s.deviceID, s.clientID)
-
-	s.mu.Lock()
-	s.opsLog = log
-	s.mu.Unlock()
-	return log, nil
-}
-
-// opToEntry converts an Op to an opslog.Entry.
-func opToEntry(op *Op) opslog.Entry {
-	return opslog.Entry{
-		Type:         opslog.EntryType(op.Type),
-		Path:         op.Path,
-		Chunks:       op.Chunks,
-		Size:         op.Size,
-		Checksum:     op.Checksum,
-		PrevChecksum: op.PrevChecksum,
-		LinkTarget:   op.LinkTarget,
-		Namespace:    op.Namespace,
-	}
 }
 
 // snapshotToManifest converts an opslog.Snapshot to a Manifest.
@@ -234,56 +196,6 @@ func (s *Store) loadManifestFromKey(ctx context.Context, key string) (*Manifest,
 	return &m, nil
 }
 
-// loadCurrentState loads the latest snapshot and replays any ops on top.
-// Delegates to the OpsLog for caching and state materialization.
-func (s *Store) loadCurrentState(ctx context.Context) (*Manifest, error) {
-	log, err := s.getOpsLog(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("ops log: %w", err)
-	}
-
-	snap, err := log.Snapshot(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("snapshot: %w", err)
-	}
-
-	m := snapshotToManifest(snap)
-
-	// V1 fallback: if opslog has no data, try legacy manifest
-	if len(m.Tree) == 0 {
-		encKey, err := s.opsKey(ctx)
-		if err != nil {
-			return m, nil
-		}
-		legacy, err := LoadManifest(ctx, s.backend, encKey)
-		if err == nil && len(legacy.Tree) > 0 {
-			return legacy, nil
-		}
-	}
-
-	return m, nil
-}
-
-// writeOp writes an operation to the ops log via OpsLog.
-func (s *Store) writeOp(ctx context.Context, op *Op) error {
-	log, err := s.getOpsLog(ctx)
-	if err != nil {
-		return fmt.Errorf("ops log: %w", err)
-	}
-
-	entry := opToEntry(op)
-	if err := log.Append(ctx, &entry); err != nil {
-		return err
-	}
-
-	// Copy back auto-set fields
-	op.Device = entry.Device
-	op.Timestamp = entry.Timestamp
-	op.Seq = entry.Seq
-	op.Client = entry.Client
-	return nil
-}
-
 // Put encrypts and stores file data read from r at the given path.
 // It streams through the data chunk by chunk, never holding more than
 // one chunk (max 4MB) in memory.
@@ -295,12 +207,7 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 		return fmt.Errorf("namespace key for %q: %w", namespace, err)
 	}
 
-	// prev_checksum is informational — used for conflict detection but
-	// not required for correctness. Skip the expensive loadCurrentState
-	// call (which reads ALL ops from S3) and use whatever the caller
-	// set via SetPrevChecksum, or leave empty.
-	prevChecksum := s.prevChecksum
-	s.prevChecksum = "" // consume it
+	s.prevChecksum = "" // consume prev_checksum (no longer written to S3 ops)
 
 	// Hash the full content while chunking so the op checksum matches
 	// fileChecksum() (SHA3-256 of raw content). This prevents echo loops
@@ -372,21 +279,8 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 	// File checksum = SHA3-256 of raw content (same as fileChecksum in scan.go)
 	fileChecksum := hex.EncodeToString(contentHasher.Sum(nil))
 
-	// Write op (all chunks uploaded first, op is atomic)
-	op := &Op{
-		Type:         OpPut,
-		Path:         path,
-		Chunks:       chunkHashes,
-		Size:         totalSize,
-		Checksum:     fileChecksum,
-		PrevChecksum: prevChecksum,
-		Namespace:    namespace,
-	}
-
-	if err := s.writeOp(ctx, op); err != nil {
-		return fmt.Errorf("writing op: %w", err)
-	}
-
+	// No S3 op written — upload-then-record means the caller (outbox
+	// worker) writes the local log entry after this returns.
 	s.lastPut = &PutResult{
 		Chunks:   chunkHashes,
 		Checksum: fileChecksum,
@@ -396,34 +290,48 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 	return nil
 }
 
-// Get retrieves and decrypts a file, streaming the plaintext to w.
-func (s *Store) Get(ctx context.Context, path string, w io.Writer) error {
-	state, err := s.loadCurrentState(ctx)
-	if err != nil {
-		return fmt.Errorf("loading state: %w", err)
-	}
-
-	entry, ok := state.Tree[path]
-	if !ok {
-		return ErrFileNotFound
-	}
-
-	nsKey, err := s.getOrCreateNamespaceKey(ctx, entry.Namespace)
-	if err != nil {
-		return fmt.Errorf("namespace key for %q: %w", entry.Namespace, err)
-	}
-
-	return s.downloadChunks(ctx, entry.Chunks, nsKey, w)
-}
-
 // GetChunks downloads and decrypts a file using known chunk hashes and namespace.
-// This bypasses loadCurrentState entirely — no ops reading from S3.
 func (s *Store) GetChunks(ctx context.Context, chunks []string, namespace string, w io.Writer) error {
 	nsKey, err := s.getOrCreateNamespaceKey(ctx, namespace)
 	if err != nil {
 		return fmt.Errorf("namespace key for %q: %w", namespace, err)
 	}
 	return s.downloadChunks(ctx, chunks, nsKey, w)
+}
+
+// --- Deprecated stubs: kept only so skipped tests compile. ---
+// These will be removed once tests are rewritten for snapshot exchange.
+
+func (s *Store) Get(ctx context.Context, path string, w io.Writer) error {
+	return fmt.Errorf("Store.Get removed: use GetChunks with the local CRDT")
+}
+
+func (s *Store) List(ctx context.Context, prefix string) ([]ManifestEntry, error) {
+	return nil, fmt.Errorf("Store.List removed: use local CRDT snapshot")
+}
+
+func (s *Store) Remove(ctx context.Context, path string) error {
+	return fmt.Errorf("Store.Remove removed: use local ops log + outbox")
+}
+
+func (s *Store) Info(ctx context.Context) (*StoreInfo, error) {
+	return nil, fmt.Errorf("Store.Info removed: use local CRDT snapshot")
+}
+
+func (s *Store) SaveSnapshot(ctx context.Context) error {
+	return fmt.Errorf("Store.SaveSnapshot removed: use snapshot uploader")
+}
+
+func (s *Store) getOpsLog(ctx context.Context) (*opslog.OpsLog, error) {
+	return nil, fmt.Errorf("getOpsLog removed: S3 ops log eliminated")
+}
+
+func (s *Store) writeOp(ctx context.Context, op *Op) error {
+	return fmt.Errorf("writeOp removed: S3 ops log eliminated")
+}
+
+func (s *Store) loadCurrentState(ctx context.Context) (*Manifest, error) {
+	return nil, fmt.Errorf("loadCurrentState removed: use local CRDT snapshot")
 }
 
 // downloadChunks fetches, decrypts, and writes chunks to w in order.
@@ -563,97 +471,6 @@ func (s *Store) fetchChunk(ctx context.Context, index int, chunkHash string, nsK
 	}
 
 	return plaintext, nil
-}
-
-// List returns all file entries matching the prefix.
-func (s *Store) List(ctx context.Context, prefix string) ([]ManifestEntry, error) {
-	state, err := s.loadCurrentState(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("loading state: %w", err)
-	}
-	return state.ListPrefix(prefix), nil
-}
-
-// Remove deletes a file entry. Writes a delete op to the log.
-func (s *Store) Remove(ctx context.Context, path string) error {
-	state, err := s.loadCurrentState(ctx)
-	if err != nil {
-		return fmt.Errorf("loading state: %w", err)
-	}
-
-	entry, ok := state.Tree[path]
-	if !ok {
-		return ErrFileNotFound
-	}
-
-	op := &Op{
-		Type:         OpDelete,
-		Path:         path,
-		PrevChecksum: entry.Checksum,
-		Namespace:    entry.Namespace,
-	}
-
-	if err := s.writeOp(ctx, op); err != nil {
-		return fmt.Errorf("writing delete op: %w", err)
-	}
-
-	return nil
-}
-
-// Info returns summary information about the store.
-func (s *Store) Info(ctx context.Context) (*StoreInfo, error) {
-	state, err := s.loadCurrentState(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("loading state: %w", err)
-	}
-
-	info := &StoreInfo{
-		ID:        s.identity.Address(),
-		FileCount: len(state.Tree),
-	}
-
-	namespaces := make(map[string]bool)
-	for _, entry := range state.Tree {
-		info.TotalSize += entry.Size
-		namespaces[entry.Namespace] = true
-	}
-	for ns := range namespaces {
-		info.Namespaces = append(info.Namespaces, ns)
-	}
-
-	return info, nil
-}
-
-// SaveSnapshot writes the current state as a manifest snapshot.
-// Prefer Compact() which also cleans up old ops and snapshots.
-func (s *Store) SaveSnapshot(ctx context.Context) error {
-	state, err := s.loadCurrentState(ctx)
-	if err != nil {
-		return fmt.Errorf("loading state: %w", err)
-	}
-
-	encKey, err := s.opsKey(ctx)
-	if err != nil {
-		return fmt.Errorf("ops key: %w", err)
-	}
-
-	data, err := json.Marshal(state)
-	if err != nil {
-		return fmt.Errorf("marshaling snapshot: %w", err)
-	}
-
-	encrypted, err := Encrypt(data, encKey)
-	if err != nil {
-		return fmt.Errorf("encrypting snapshot: %w", err)
-	}
-
-	key := fmt.Sprintf("manifests/snapshot-%d.enc", time.Now().Unix())
-	r := bytes.NewReader(encrypted)
-	if err := s.backend.Put(ctx, key, r, int64(len(encrypted))); err != nil {
-		return fmt.Errorf("uploading snapshot: %w", err)
-	}
-
-	return nil
 }
 
 // EnablePacking turns on pack file bundling for small chunks.

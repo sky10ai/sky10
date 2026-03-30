@@ -1,0 +1,23 @@
+{
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Services/NotificationManager.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/NotificationManager.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/NotificationManager.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/NotificationManager.dia",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/NotificationManager.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/NotificationManager.swiftdeps"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Browser/FileTreeView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileTreeView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileTreeView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileTreeView.dia",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileTreeView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileTreeView.swiftdeps"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/MenuBar/MenuBarView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/MenuBarView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/MenuBarView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/MenuBarView.dia",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/MenuBarView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/MenuBarView.swiftdeps"
+  }
+}

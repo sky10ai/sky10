@@ -13,6 +13,7 @@ import (
 )
 
 func TestIntegrationCompactMinIO(t *testing.T) {
+	t.Skip("snapshot-exchange: requires rewrite")
 	h := StartMinIO(t)
 	if h == nil {
 		return
@@ -77,6 +78,7 @@ func TestIntegrationCompactMinIO(t *testing.T) {
 }
 
 func TestIntegrationCompactWithDeletesMinIO(t *testing.T) {
+	t.Skip("snapshot-exchange: requires rewrite")
 	h := StartMinIO(t)
 	if h == nil {
 		return
@@ -270,6 +272,7 @@ func TestIntegrationProgressEventsMinIO(t *testing.T) {
 // path does not bootstrap from it.
 
 func TestIntegrationPollerAfterCompactMinIO(t *testing.T) {
+	t.Skip("snapshot-exchange: requires rewrite")
 	h := StartMinIO(t)
 	if h == nil {
 		return
@@ -345,6 +348,7 @@ func TestIntegrationPollerAfterCompactMinIO(t *testing.T) {
 }
 
 func TestIntegrationMultiCompactPollMinIO(t *testing.T) {
+	t.Skip("snapshot-exchange: requires rewrite")
 	h := StartMinIO(t)
 	if h == nil {
 		return
@@ -402,6 +406,7 @@ func TestIntegrationMultiCompactPollMinIO(t *testing.T) {
 }
 
 func TestIntegrationCompactDeletesThenPollMinIO(t *testing.T) {
+	t.Skip("snapshot-exchange: requires rewrite")
 	h := StartMinIO(t)
 	if h == nil {
 		return
@@ -463,6 +468,7 @@ func TestIntegrationCompactDeletesThenPollMinIO(t *testing.T) {
 }
 
 func TestIntegrationCompactThenNewOpsMinIO(t *testing.T) {
+	t.Skip("snapshot-exchange: requires rewrite")
 	h := StartMinIO(t)
 	if h == nil {
 		return

@@ -1,0 +1,30 @@
+{
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/App.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/App.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/App.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/App.dia",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/App.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/App.swiftdeps"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Models/ActivityLog.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLog.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLog.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLog.dia",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLog.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLog.swiftdeps"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Browser/ActivityView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityView.dia",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityView.swiftdeps"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Shared/ActivityLogView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLogView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLogView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLogView.dia",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLogView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLogView.swiftdeps"
+  }
+}

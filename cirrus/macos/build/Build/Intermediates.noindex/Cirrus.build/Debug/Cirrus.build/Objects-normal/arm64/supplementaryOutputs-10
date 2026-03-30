@@ -1,0 +1,23 @@
+{
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/GeneratedAssetSymbols.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/GeneratedAssetSymbols.dia",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftdeps"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Models/SyncState.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncState.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncState.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncState.dia",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncState.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncState.swiftdeps"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Shared/SyncStatusBar.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncStatusBar.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncStatusBar.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncStatusBar.dia",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncStatusBar.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncStatusBar.swiftdeps"
+  }
+}

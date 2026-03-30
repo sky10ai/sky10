@@ -164,7 +164,8 @@ func fsGetCmd() *cobra.Command {
 				downloaded = transferred
 				fmt.Fprintf(os.Stderr, "\rdownloading %s  %s", args[0], formatSize(transferred))
 			})
-			if err := store.Get(ctx, args[0], pw); err != nil {
+			_, _ = store, pw
+			if err := fmt.Errorf("sky10 fs get: use the sync daemon for file downloads"); err != nil {
 				os.Remove(out)
 				return err
 			}
@@ -191,7 +192,8 @@ func fsListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			entries, err := store.List(ctx, prefix)
+			_, _ = store, prefix
+			entries, err := []skyfs.ManifestEntry{}, fmt.Errorf("sky10 fs ls: use the sync daemon for file listing")
 			if err != nil {
 				return err
 			}
@@ -223,7 +225,8 @@ func fsRemoveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := store.Remove(ctx, args[0]); err != nil {
+			_ = store
+			if err := fmt.Errorf("sky10 fs rm: use the sync daemon for file removal"); err != nil {
 				return err
 			}
 			fmt.Printf("removed %s\n", args[0])
@@ -242,7 +245,8 @@ func fsInfoCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			info, err := store.Info(ctx)
+			_ = store
+			info, err := (*skyfs.StoreInfo)(nil), fmt.Errorf("sky10 fs info: not yet implemented in snapshot-exchange architecture")
 			if err != nil {
 				return err
 			}
@@ -428,12 +432,8 @@ func fsCompactCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			result, err := skyfs.Compact(ctx, backend, id, keep)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("Compacted %d ops\n  Deleted: %d ops, %d snapshots\n  Kept: %d snapshots\n",
-				result.OpsCompacted, result.OpsDeleted, result.SnapshotsDeleted, result.SnapshotsKept)
+			_, _, _ = backend, id, keep
+			fmt.Println("Compaction is no longer needed — snapshot-exchange architecture has no ops log.")
 			return nil
 		},
 	}

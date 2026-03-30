@@ -82,112 +82,14 @@ func RotateNamespaceKey(ctx context.Context, backend adapter.Backend, identity *
 		return fmt.Errorf("reading namespace key: %w", err)
 	}
 
-	oldNsKey, err := UnwrapNamespaceKey(oldWrapped, identity.PrivateKey)
+	_, err = UnwrapNamespaceKey(oldWrapped, identity.PrivateKey)
 	if err != nil {
 		return fmt.Errorf("unwrapping old namespace key: %w", err)
 	}
 
-	// Generate new namespace key
-	newNsKey, err := GenerateNamespaceKey()
-	if err != nil {
-		return fmt.Errorf("generating new namespace key: %w", err)
-	}
-
-	// Load current state to find all files in this namespace
-	store := New(backend, identity)
-	state, err := store.loadCurrentState(ctx)
-	if err != nil {
-		return fmt.Errorf("loading state: %w", err)
-	}
-
-	// Re-wrap file keys: decrypt with old ns key, re-encrypt with new ns key
-	// In our design, file keys are derived from namespace key + content hash
-	// via HKDF, so we don't need to re-wrap individual file keys. The new
-	// namespace key will derive different file keys, but since chunks are
-	// content-addressed by plaintext hash (not by encryption key), the
-	// existing encrypted blobs won't be readable with the new namespace key.
-	//
-	// For rotation to work without re-encrypting data, we need to re-encrypt
-	// each chunk with the new file key. This is the per-file cost.
-	for path, entry := range state.Tree {
-		if entry.Namespace != namespace {
-			continue
-		}
-
-		for _, chunkHash := range entry.Chunks {
-			// Decrypt with old key
-			oldFileKey, err := DeriveFileKey(oldNsKey, []byte(chunkHash))
-			if err != nil {
-				return fmt.Errorf("deriving old file key for %s: %w", path, err)
-			}
-
-			blobKey := (&Chunk{Hash: chunkHash}).BlobKey()
-			blobRC, err := backend.Get(ctx, blobKey)
-			if err != nil {
-				return fmt.Errorf("downloading chunk %s: %w", chunkHash[:12], err)
-			}
-			raw, err := io.ReadAll(blobRC)
-			blobRC.Close()
-			if err != nil {
-				return fmt.Errorf("reading chunk %s: %w", chunkHash[:12], err)
-			}
-
-			// Strip blob header, decrypt with old key
-			encrypted, _, err := StripBlobHeader(raw)
-			if err != nil {
-				return fmt.Errorf("parsing chunk %s header: %w", chunkHash[:12], err)
-			}
-
-			compressed, err := Decrypt(encrypted, oldFileKey)
-			if err != nil {
-				return fmt.Errorf("decrypting chunk %s: %w", chunkHash[:12], err)
-			}
-
-			// Re-encrypt with new key, prepend header
-			// Keep the same compressed payload — no need to decompress/recompress
-			newFileKey, err := DeriveFileKey(newNsKey, []byte(chunkHash))
-			if err != nil {
-				return fmt.Errorf("deriving new file key for %s: %w", path, err)
-			}
-
-			newEncrypted, err := Encrypt(compressed, newFileKey)
-			if err != nil {
-				return fmt.Errorf("re-encrypting chunk %s: %w", chunkHash[:12], err)
-			}
-
-			blob := PrependBlobHeader(newEncrypted)
-			r := bytes.NewReader(blob)
-			if err := backend.Put(ctx, blobKey, r, int64(len(blob))); err != nil {
-				return fmt.Errorf("uploading re-encrypted chunk %s: %w", chunkHash[:12], err)
-			}
-		}
-	}
-
-	// Wrap new namespace key for our identity
-	newWrapped, err := WrapNamespaceKey(newNsKey, identity.PublicKey)
-	if err != nil {
-		return fmt.Errorf("wrapping new namespace key: %w", err)
-	}
-
-	r := bytes.NewReader(newWrapped)
-	if err := backend.Put(ctx, nsKeyPath, r, int64(len(newWrapped))); err != nil {
-		return fmt.Errorf("storing new namespace key: %w", err)
-	}
-
-	// Re-wrap for any other authorized identities
-	otherKeys, err := ListAuthorizedKeys(ctx, backend, namespace)
-	if err != nil {
-		return fmt.Errorf("listing authorized keys: %w", err)
-	}
-
-	for _, keyPath := range otherKeys {
-		// We can't re-wrap for others without their public key stored somewhere.
-		// For now, delete their old wrapped key — they'll need to be re-granted.
-		// TODO: store public keys alongside wrapped keys for automatic re-wrapping.
-		backend.Delete(ctx, keyPath)
-	}
-
-	return nil
+	// TODO(snapshot-exchange): key rotation needs the local CRDT snapshot,
+	// not the S3 ops log. Requires passing the local ops log in.
+	return fmt.Errorf("key rotation not yet implemented in snapshot-exchange architecture")
 }
 
 // ListAuthorizedKeys returns the S3 keys of all per-identity namespace key

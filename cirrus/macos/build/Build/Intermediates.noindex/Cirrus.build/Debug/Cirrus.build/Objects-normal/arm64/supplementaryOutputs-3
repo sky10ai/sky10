@@ -1,0 +1,23 @@
+{
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Browser/DetailView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DetailView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DetailView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DetailView.dia",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DetailView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DetailView.swiftdeps"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/DevTools/DevToolsView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevToolsView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevToolsView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevToolsView.dia",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevToolsView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevToolsView.swiftdeps"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Settings/DevicesView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevicesView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevicesView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevicesView.dia",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevicesView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevicesView.swiftdeps"
+  }
+}

@@ -517,7 +517,8 @@ func (s *RPCServer) rpcGet(ctx context.Context, params json.RawMessage) (interfa
 		return nil, fmt.Errorf("creating %s: %w", p.OutPath, err)
 	}
 
-	if err := s.store.Get(ctx, p.Path, f); err != nil {
+	// TODO(snapshot-exchange): rpcDownload needs GetChunks + local CRDT lookup
+	if err := fmt.Errorf("download RPC not yet implemented in snapshot-exchange architecture"); err != nil {
 		f.Close()
 		os.Remove(p.OutPath)
 		return nil, err
@@ -539,7 +540,8 @@ func (s *RPCServer) rpcRemove(ctx context.Context, params json.RawMessage) (inte
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
 
-	if err := s.store.Remove(ctx, p.Path); err != nil {
+	// TODO(snapshot-exchange): rpcRemove needs local CRDT + outbox
+	if err := fmt.Errorf("remove RPC not yet implemented in snapshot-exchange architecture"); err != nil {
 		return nil, err
 	}
 
@@ -589,19 +591,8 @@ func (s *RPCServer) rpcCompact(ctx context.Context, params json.RawMessage) (int
 
 	s.Emit("compact.start", map[string]any{"phase": "reading ops"})
 
-	result, err := Compact(ctx, s.store.backend, s.store.identity, p.Keep)
-	if err != nil {
-		s.Emit("compact.error", map[string]any{"error": err.Error()})
-		return nil, err
-	}
-
-	s.Emit("compact.complete", map[string]any{
-		"ops_compacted":     result.OpsCompacted,
-		"ops_deleted":       result.OpsDeleted,
-		"snapshots_kept":    result.SnapshotsKept,
-		"snapshots_deleted": result.SnapshotsDeleted,
-	})
-	return result, nil
+	// Compaction is no longer needed in the snapshot-exchange architecture.
+	return map[string]string{"status": "no-op", "reason": "compaction removed"}, nil
 }
 
 func (s *RPCServer) rpcReset(ctx context.Context) (interface{}, error) {
@@ -707,7 +698,7 @@ func (s *RPCServer) rpcSyncStart(_ context.Context, params json.RawMessage) (int
 		PollSeconds: p.PollSeconds,
 	}
 
-	daemon, err := NewDaemon(s.store, nil, daemonCfg, s.logger)
+	daemon, err := NewDaemonV2_5(s.store, daemonCfg, s.logger)
 	if err != nil {
 		s.syncing = false
 		s.syncCancel = nil
@@ -896,7 +887,7 @@ func (s *RPCServer) rpcDriveList(_ context.Context) (interface{}, error) {
 		if snap, err := localLog.Snapshot(); err == nil {
 			entry["snapshot_files"] = snap.Len()
 		}
-		entry["last_remote_op"] = localLog.LastRemoteOp()
+		// last_remote_op removed — snapshot exchange has no cursors
 		outbox := NewSyncLog[OutboxEntry](filepath.Join(dir, "outbox.jsonl"))
 		if entries, err := outbox.ReadAll(); err == nil {
 			entry["outbox_pending"] = len(entries)
@@ -1255,7 +1246,7 @@ func (s *RPCServer) rpcDebugDump(ctx context.Context) (interface{}, error) {
 		if snap, err := localLog.Snapshot(); err == nil {
 			dd["snapshot_files"] = snap.Files()
 			dd["snapshot_file_count"] = snap.Len()
-			dd["last_remote_op"] = localLog.LastRemoteOp()
+			// last_remote_op removed — snapshot exchange has no cursors
 		}
 
 		// Outbox (local file read)
