@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -96,25 +95,8 @@ func TestRPCListEmpty(t *testing.T) {
 	}
 }
 
-func TestRPCPutGetRoundTrip(t *testing.T) {
-	t.Skip("snapshot-exchange: requires rewrite")
-	t.Parallel()
-	_, conn, _ := startTestRPC(t)
-
-	dir := t.TempDir()
-	inFile := filepath.Join(dir, "input.md")
-	outFile := filepath.Join(dir, "output.md")
-
-	os.WriteFile(inFile, []byte("encrypted content"), 0644)
-
-	rpcCall(t, conn, "skyfs.put", putParams{Path: "file.md", LocalPath: inFile})
-	rpcCall(t, conn, "skyfs.get", getParams{Path: "file.md", OutPath: outFile})
-
-	got, _ := os.ReadFile(outFile)
-	if string(got) != "encrypted content" {
-		t.Errorf("got %q, want %q", got, "encrypted content")
-	}
-}
+// TestRPCPutGetRoundTrip deleted:
+// Get RPC is stubbed. Put-only RPC is tested via daemon_v2_5_test.go.
 
 func TestRPCStatus(t *testing.T) {
 	t.Parallel()
