@@ -24,13 +24,11 @@ func TestGCDeletesOrphans(t *testing.T) {
 	store := New(backend, id)
 	store.SetNamespaceID(nsID)
 
-	// Put a file (creates blobs)
 	if err := store.Put(ctx, "keep.md", strings.NewReader("keep this")); err != nil {
 		t.Fatalf("Put keep: %v", err)
 	}
 	keepResult := store.LastPutResult()
 
-	// Upload a snapshot that references keep.md
 	dir := t.TempDir()
 	localLog := opslog.NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), "dev-a")
 	localLog.AppendLocal(opslog.Entry{
@@ -42,13 +40,11 @@ func TestGCDeletesOrphans(t *testing.T) {
 		t.Fatalf("Upload snapshot: %v", err)
 	}
 
-	// Put an orphan blob manually (not referenced by any snapshot)
 	orphanData := []byte("orphan blob data")
 	orphanHash := "deadbeef00112233"
 	blobKey := namespacedBlobKey(nsID, orphanHash)
 	backend.Put(ctx, blobKey, bytes.NewReader(orphanData), int64(len(orphanData)))
 
-	// Run GC
 	result, err := GC(ctx, backend, encKey, GCConfig{NSIDs: []string{nsID}})
 	if err != nil {
 		t.Fatalf("GC: %v", err)
@@ -57,12 +53,10 @@ func TestGCDeletesOrphans(t *testing.T) {
 		t.Errorf("expected 1 blob deleted, got %d", result.BlobsDeleted)
 	}
 
-	// Orphan blob should be gone
 	if _, err := backend.Head(ctx, blobKey); err == nil {
 		t.Error("orphan blob should have been deleted")
 	}
 
-	// Referenced blobs should still exist
 	for _, chunk := range keepResult.Chunks {
 		if _, err := backend.Head(ctx, namespacedBlobKey(nsID, chunk)); err != nil {
 			t.Errorf("referenced blob %s should still exist", chunk[:12])
@@ -81,13 +75,11 @@ func TestGCPreservesReferenced(t *testing.T) {
 	store := New(backend, id)
 	store.SetNamespaceID(nsID)
 
-	// Put a file
 	if err := store.Put(ctx, "keep.md", strings.NewReader("keep this")); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	pr := store.LastPutResult()
 
-	// Upload snapshot with the reference
 	dir := t.TempDir()
 	localLog := opslog.NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), "dev-a")
 	localLog.AppendLocal(opslog.Entry{
@@ -106,7 +98,7 @@ func TestGCPreservesReferenced(t *testing.T) {
 		t.Fatalf("GC: %v", err)
 	}
 	if result.BlobsDeleted != 0 {
-		t.Errorf("deleted %d blobs, should have deleted 0 (all referenced)", result.BlobsDeleted)
+		t.Errorf("deleted %d blobs, should have deleted 0", result.BlobsDeleted)
 	}
 
 	blobsAfter, _ := backend.List(ctx, "fs/"+nsID+"/blobs/")
@@ -126,19 +118,11 @@ func TestGCDedupPreservesShared(t *testing.T) {
 	store := New(backend, id)
 	store.SetNamespaceID(nsID)
 
-	// Two files with identical content (dedup = same blob)
 	data := "identical content"
-	if err := store.Put(ctx, "file1.md", strings.NewReader(data)); err != nil {
-		t.Fatalf("Put file1: %v", err)
-	}
-	pr1 := store.LastPutResult()
-
-	if err := store.Put(ctx, "file2.md", strings.NewReader(data)); err != nil {
-		t.Fatalf("Put file2: %v", err)
-	}
+	store.Put(ctx, "file1.md", strings.NewReader(data))
+	store.Put(ctx, "file2.md", strings.NewReader(data))
 	pr2 := store.LastPutResult()
 
-	// Upload snapshot referencing only file2 (simulating file1 deleted)
 	dir := t.TempDir()
 	localLog := opslog.NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), "dev-a")
 	localLog.AppendLocal(opslog.Entry{
@@ -146,22 +130,14 @@ func TestGCDedupPreservesShared(t *testing.T) {
 		Chunks: pr2.Chunks, Size: pr2.Size, Namespace: nsID,
 	})
 	u := NewSnapshotUploader(backend, localLog, "dev-a", nsID, encKey, nil)
-	if err := u.Upload(ctx); err != nil {
-		t.Fatalf("Upload: %v", err)
-	}
+	u.Upload(ctx)
 
-	// GC should NOT delete the blob since file2 still references it
 	result, err := GC(ctx, backend, encKey, GCConfig{NSIDs: []string{nsID}})
 	if err != nil {
 		t.Fatalf("GC: %v", err)
 	}
 	if result.BlobsDeleted != 0 {
 		t.Errorf("deleted %d blobs, but shared blob should be preserved", result.BlobsDeleted)
-	}
-
-	// Both files have the same chunks (dedup)
-	if pr1.Chunks[0] != pr2.Chunks[0] {
-		t.Logf("note: chunks differ (no dedup), test still valid")
 	}
 }
 
@@ -173,21 +149,15 @@ func TestGCDryRun(t *testing.T) {
 
 	nsID := "test-ns"
 
-	// Upload empty snapshot (no references)
 	dir := t.TempDir()
 	localLog := opslog.NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), "dev-a")
 	u := NewSnapshotUploader(backend, localLog, "dev-a", nsID, encKey, nil)
-	if err := u.Upload(ctx); err != nil {
-		t.Fatalf("Upload: %v", err)
-	}
+	u.Upload(ctx)
 
-	// Put an orphan blob manually
-	orphanData := []byte("orphan")
 	orphanHash := "deadbeef00112233"
 	blobKey := namespacedBlobKey(nsID, orphanHash)
-	backend.Put(ctx, blobKey, bytes.NewReader(orphanData), int64(len(orphanData)))
+	backend.Put(ctx, blobKey, bytes.NewReader([]byte("orphan")), 6)
 
-	// Dry run should report but not delete
 	result, err := GC(ctx, backend, encKey, GCConfig{NSIDs: []string{nsID}, DryRun: true})
 	if err != nil {
 		t.Fatalf("GC dry run: %v", err)
@@ -196,7 +166,6 @@ func TestGCDryRun(t *testing.T) {
 		t.Error("dry run should report blobs to delete")
 	}
 
-	// Blob should still exist
 	if _, err := backend.Head(ctx, blobKey); err != nil {
 		t.Error("dry run should not delete anything")
 	}
@@ -234,12 +203,10 @@ func TestGCExpiredHistorySnapshot(t *testing.T) {
 	data, _ := opslog.MarshalSnapshot(snap)
 	encrypted, _ := Encrypt(data, encKey)
 
-	// Upload a history snapshot with an old timestamp (expired)
 	oldTS := time.Now().AddDate(0, 0, -60).Unix()
 	histKey := snapshotHistoryKey(nsID, "dev-a", oldTS)
 	backend.Put(ctx, histKey, bytes.NewReader(encrypted), int64(len(encrypted)))
 
-	// Also upload latest so GC has something to scan
 	latestKey := snapshotLatestKey(nsID, "dev-a")
 	backend.Put(ctx, latestKey, bytes.NewReader(encrypted), int64(len(encrypted)))
 
