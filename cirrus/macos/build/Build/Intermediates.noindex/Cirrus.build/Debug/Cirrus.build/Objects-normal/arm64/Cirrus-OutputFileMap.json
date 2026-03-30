@@ -1,0 +1,329 @@
+{
+  "" : {
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/Cirrus-primary.dia",
+    "emit-module-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/Cirrus-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/Cirrus-primary-emit-module.dia",
+    "pch" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/Cirrus-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/Cirrus-primary.swiftdeps"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/GeneratedAssetSymbols.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/GeneratedAssetSymbols.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/GeneratedAssetSymbols.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/GeneratedAssetSymbols~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/App.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/App.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/App.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/App.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/App.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/App.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/App.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/App.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/App~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Models/ActivityLog.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLog.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLog.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLog.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLog.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLog.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLog.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLog.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLog~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Models/AppState.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/AppState.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/AppState.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/AppState.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/AppState.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/AppState.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/AppState.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/AppState.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/AppState~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Models/FileNode.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileNode.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileNode.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileNode.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileNode.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileNode.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileNode.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileNode.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileNode~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Models/StorageProvider.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/StorageProvider.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/StorageProvider.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/StorageProvider.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/StorageProvider.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/StorageProvider.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/StorageProvider.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/StorageProvider.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/StorageProvider~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Models/SyncState.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncState.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncState.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncState.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncState.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncState.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncState.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncState.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncState~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Services/DaemonManager.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DaemonManager.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DaemonManager.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DaemonManager.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DaemonManager.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DaemonManager.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DaemonManager.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DaemonManager.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DaemonManager~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Services/ExternalLinks.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ExternalLinks.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ExternalLinks.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ExternalLinks.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ExternalLinks.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ExternalLinks.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ExternalLinks.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ExternalLinks.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ExternalLinks~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Services/FileProviderManager.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileProviderManager.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileProviderManager.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileProviderManager.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileProviderManager.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileProviderManager.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileProviderManager.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileProviderManager.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileProviderManager~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Services/NotificationManager.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/NotificationManager.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/NotificationManager.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/NotificationManager.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/NotificationManager.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/NotificationManager.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/NotificationManager.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/NotificationManager.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/NotificationManager~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Services/RPCClient.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/RPCClient.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/RPCClient.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/RPCClient.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/RPCClient.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/RPCClient.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/RPCClient.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/RPCClient.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/RPCClient~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Services/SkyClient.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SkyClient.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SkyClient.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SkyClient.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SkyClient.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SkyClient.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SkyClient.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SkyClient.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SkyClient~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Services/SkyClientProtocol.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SkyClientProtocol.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SkyClientProtocol.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SkyClientProtocol.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SkyClientProtocol.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SkyClientProtocol.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SkyClientProtocol.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SkyClientProtocol.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SkyClientProtocol~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Browser/ActivityView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityView.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityView.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityView.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityView.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityView~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Browser/BrowserView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/BrowserView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/BrowserView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/BrowserView.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/BrowserView.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/BrowserView.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/BrowserView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/BrowserView.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/BrowserView~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Browser/DetailView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DetailView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DetailView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DetailView.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DetailView.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DetailView.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DetailView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DetailView.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DetailView~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Browser/FileListView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileListView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileListView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileListView.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileListView.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileListView.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileListView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileListView.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileListView~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Browser/FileRowView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileRowView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileRowView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileRowView.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileRowView.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileRowView.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileRowView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileRowView.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileRowView~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Browser/FileTreeView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileTreeView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileTreeView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileTreeView.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileTreeView.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileTreeView.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileTreeView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileTreeView.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/FileTreeView~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Browser/SidebarView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SidebarView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SidebarView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SidebarView.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SidebarView.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SidebarView.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SidebarView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SidebarView.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SidebarView~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/DevTools/DevToolsView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevToolsView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevToolsView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevToolsView.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevToolsView.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevToolsView.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevToolsView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevToolsView.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevToolsView~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/MenuBar/MenuBarView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/MenuBarView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/MenuBarView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/MenuBarView.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/MenuBarView.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/MenuBarView.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/MenuBarView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/MenuBarView.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/MenuBarView~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Onboarding/OnboardingView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/OnboardingView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/OnboardingView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/OnboardingView.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/OnboardingView.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/OnboardingView.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/OnboardingView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/OnboardingView.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/OnboardingView~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Settings/DevicesView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevicesView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevicesView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevicesView.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevicesView.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevicesView.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevicesView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevicesView.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DevicesView~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Settings/DrivesView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DrivesView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DrivesView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DrivesView.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DrivesView.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DrivesView.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DrivesView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DrivesView.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/DrivesView~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Settings/SettingsView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SettingsView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SettingsView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SettingsView.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SettingsView.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SettingsView.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SettingsView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SettingsView.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SettingsView~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Settings/StorageProviderDocs.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/StorageProviderDocs.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/StorageProviderDocs.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/StorageProviderDocs.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/StorageProviderDocs.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/StorageProviderDocs.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/StorageProviderDocs.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/StorageProviderDocs.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/StorageProviderDocs~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Shared/ActivityLogView.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLogView.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLogView.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLogView.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLogView.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLogView.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLogView.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLogView.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ActivityLogView~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Shared/ConflictAlert.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ConflictAlert.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ConflictAlert.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ConflictAlert.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ConflictAlert.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ConflictAlert.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ConflictAlert.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ConflictAlert.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/ConflictAlert~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Shared/Previews.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/Previews.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/Previews.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/Previews.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/Previews.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/Previews.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/Previews.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/Previews.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/Previews~partial.swiftmodule"
+  },
+  "/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Views/Shared/SyncStatusBar.swift" : {
+    "const-values" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncStatusBar.swiftconstvalues",
+    "dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncStatusBar.d",
+    "diagnostics" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncStatusBar.dia",
+    "index-unit-output-path" : "/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncStatusBar.o",
+    "llvm-bc" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncStatusBar.bc",
+    "object" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncStatusBar.o",
+    "swift-dependencies" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncStatusBar.swiftdeps",
+    "swiftmodule" : "/Users/bf/Documents/projects/sky10/cirrus/macos/build/Build/Intermediates.noindex/Cirrus.build/Debug/Cirrus.build/Objects-normal/arm64/SyncStatusBar~partial.swiftmodule"
+  }
+}

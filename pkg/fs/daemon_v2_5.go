@@ -12,6 +12,15 @@ import (
 	"github.com/sky10/sky10/pkg/fs/opslog"
 )
 
+// DaemonConfig configures the sync daemon.
+type DaemonConfig struct {
+	SyncConfig
+	DriveID      string // drive ID for state persistence
+	DriveName    string // human-readable name for progress events
+	ManifestPath string // override state path (for tests)
+	PollSeconds  int    // remote poll interval in seconds (default 30)
+}
+
 // DaemonV2_5 is the sync daemon. Local ops log is the single source of
 // truth. The reconciler applies remote changes by diffing the CRDT
 // snapshot against the local filesystem.
@@ -27,7 +36,6 @@ type DaemonV2_5 struct {
 	watcherHandler *WatcherHandler
 	outboxWorker   *OutboxWorker
 	reconciler     *Reconciler
-	poller         *PollerV2
 	localLog       *opslog.LocalOpsLog
 	outbox         *SyncLog[OutboxEntry]
 	config         DaemonConfig
@@ -93,13 +101,8 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 	// Reconciler (replaces inbox worker)
 	reconciler := NewReconciler(store, localLog, outbox, config.LocalRoot, ignoreFunc, logger)
 
-	// Poller
-	pollInterval := time.Duration(config.PollSeconds) * time.Second
-	poller := NewPollerV2(store, localLog, pollInterval, ns, logger)
-
 	// Wire poke callbacks
 	watcherHandler.pokeOutbox = outboxWorker.Poke
-	poller.pokeReconciler = reconciler.Poke
 	reconciler.pokeOutbox = outboxWorker.Poke
 
 	d := &DaemonV2_5{
@@ -108,7 +111,6 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 		watcherHandler: watcherHandler,
 		outboxWorker:   outboxWorker,
 		reconciler:     reconciler,
-		poller:         poller,
 		localLog:       localLog,
 		outbox:         outbox,
 		config:         config,
@@ -122,8 +124,6 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 	outboxWorker.driveName = config.DriveName
 	reconciler.onEvent = d.emitEvent
 	reconciler.driveName = config.DriveName
-	poller.onEvent = d.emitEvent
-	poller.driveName = config.DriveName
 
 	return d, nil
 }
@@ -136,25 +136,18 @@ func (d *DaemonV2_5) emitEvent(event string, data map[string]any) {
 func (d *DaemonV2_5) Run(ctx context.Context) error {
 	d.logger.Info("daemon v2.5 starting", "root", d.config.LocalRoot)
 
-	// Catch up from S3 snapshot BEFORE seeding from disk. This ensures
-	// delete propagation takes effect before seedStateFromDisk re-adds
-	// files that are still on disk but should be deleted.
-	d.catchUpFromSnapshot(ctx)
-
-	// Seed state from local filesystem
+	// Seed state from local filesystem (diff against LOCAL CRDT only,
+	// before any remote merge — this is the merge base model).
 	d.seedStateFromDisk()
 
 	// Watchdog: auto-dump goroutines if any worker is stuck for 2 minutes
 	wd := NewWatchdog(d.logger, 2*time.Minute)
-	wd.Register("poller")
 	wd.Register("outbox")
-	d.poller.heartbeat = func() { wd.Heartbeat("poller") }
 	d.outboxWorker.heartbeat = func() { wd.Heartbeat("outbox") }
 
-	// Start workers
+	// Start workers (no poller — snapshot poller added in Phase 4)
 	go d.outboxWorker.Run(ctx)
 	go d.reconciler.Run(ctx)
-	go d.poller.Run(ctx)
 	go d.watcherLoop(ctx)
 	go wd.Run(ctx)
 
@@ -167,48 +160,9 @@ func (d *DaemonV2_5) Run(ctx context.Context) error {
 
 // SyncOnce does a one-shot sync: seed, catch up, poll remote, reconcile, drain outbox.
 func (d *DaemonV2_5) SyncOnce(ctx context.Context) {
-	d.catchUpFromSnapshot(ctx)
 	d.seedStateFromDisk()
-	d.poller.pollOnce(ctx)
 	d.reconciler.reconcile(ctx)
 	d.outboxWorker.drain(ctx)
-}
-
-// catchUpFromSnapshot loads the latest S3 snapshot and merges entries into the
-// local log using LWW clock comparison. Non-fatal on failure — the poller will
-// handle non-compacted ops when it starts.
-func (d *DaemonV2_5) catchUpFromSnapshot(ctx context.Context) {
-	opsLog, err := d.store.getOpsLog(ctx)
-	if err != nil {
-		d.logger.Warn("catch-up: failed to get ops log", "error", err)
-		return
-	}
-
-	loadCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	s3Snap, snapshotTS, err := opsLog.LoadLatestSnapshot(loadCtx)
-	if err != nil {
-		d.logger.Warn("catch-up: failed to load S3 snapshot", "error", err)
-		return
-	}
-	if s3Snap == nil {
-		return // no snapshot exists yet
-	}
-
-	ns := ""
-	if len(d.config.Namespaces) > 0 {
-		ns = d.config.Namespaces[0]
-	}
-	injected, err := d.localLog.CatchUpFromSnapshot(s3Snap, snapshotTS, ns)
-	if err != nil {
-		d.logger.Warn("catch-up: merge failed", "error", err)
-		return
-	}
-	if injected > 0 {
-		d.logger.Info("catch-up: merged S3 snapshot", "injected", injected)
-		d.reconciler.Poke()
-	}
 }
 
 // seedStateFromDisk diffs the local filesystem against the CRDT snapshot

@@ -8,6 +8,7 @@ import (
 )
 
 // CompactResult contains stats from a compaction run.
+// Deprecated: compaction is no longer needed in the snapshot-exchange architecture.
 type CompactResult struct {
 	OpsCompacted     int
 	OpsDeleted       int
@@ -15,28 +16,8 @@ type CompactResult struct {
 	SnapshotsDeleted int
 }
 
-// Compact writes a new snapshot from the current state and cleans up
-// old ops and snapshots. Keeps the last maxSnapshots snapshots.
-//
-// Compaction is idempotent: two devices compacting simultaneously read
-// the same ops, replay in the same order, and produce logically identical
-// snapshots.
+// Compact is a no-op stub. Compaction is no longer needed — the S3 ops log
+// has been replaced by per-device snapshot exchange.
 func Compact(ctx context.Context, backend adapter.Backend, identity *DeviceKey, maxSnapshots int) (*CompactResult, error) {
-	store := New(backend, identity)
-	log, err := store.getOpsLog(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("ops log: %w", err)
-	}
-
-	r, err := log.Compact(ctx, maxSnapshots)
-	if err != nil {
-		return nil, fmt.Errorf("compact: %w", err)
-	}
-
-	return &CompactResult{
-		OpsCompacted:     r.OpsCompacted,
-		OpsDeleted:       r.OpsDeleted,
-		SnapshotsKept:    r.SnapshotsKept,
-		SnapshotsDeleted: r.SnapshotsDeleted,
-	}, nil
+	return nil, fmt.Errorf("compaction removed: snapshot-exchange architecture has no S3 ops log")
 }

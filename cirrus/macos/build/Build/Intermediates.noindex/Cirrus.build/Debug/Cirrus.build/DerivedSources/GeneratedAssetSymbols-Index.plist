@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>colors</key>
+	<array/>
+	<key>images</key>
+	<array>
+		<dict>
+			<key>catalogPath</key>
+			<string>/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Resources/Assets.xcassets</string>
+			<key>objcSymbol</key>
+			<string>ACImageNameCloudSync1</string>
+			<key>relativePath</key>
+			<string>./cloud_sync_1.imageset</string>
+			<key>swiftSymbol</key>
+			<string>cloudSync1</string>
+		</dict>
+		<dict>
+			<key>catalogPath</key>
+			<string>/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Resources/Assets.xcassets</string>
+			<key>objcSymbol</key>
+			<string>ACImageNameCloudSync2</string>
+			<key>relativePath</key>
+			<string>./cloud_sync_2.imageset</string>
+			<key>swiftSymbol</key>
+			<string>cloudSync2</string>
+		</dict>
+		<dict>
+			<key>catalogPath</key>
+			<string>/Users/bf/Documents/projects/sky10/cirrus/macos/cirrus/Resources/Assets.xcassets</string>
+			<key>objcSymbol</key>
+			<string>ACImageNameCloudSync3</string>
+			<key>relativePath</key>
+			<string>./cloud_sync_3.imageset</string>
+			<key>swiftSymbol</key>
+			<string>cloudSync3</string>
+		</dict>
+	</array>
+	<key>symbols</key>
+	<array/>
+</dict>
+</plist>
