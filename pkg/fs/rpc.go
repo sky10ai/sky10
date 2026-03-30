@@ -313,6 +313,8 @@ func (s *RPCServer) dispatch(ctx context.Context, req *RPCRequest) *RPCResponse 
 		result, err = s.rpcApprove(ctx)
 	case "skyfs.syncActivity":
 		result, err = s.rpcSyncActivity(ctx)
+	case "skyfs.driveState":
+		result, err = s.rpcDriveState(ctx, req.Params)
 	case "skyfs.debugDump":
 		result, err = s.rpcDebugDump(ctx)
 	case "skyfs.debugList":
@@ -909,6 +911,97 @@ func (s *RPCServer) rpcDriveList(_ context.Context) (interface{}, error) {
 		result[i] = entry
 	}
 	return map[string]interface{}{"drives": result}, nil
+}
+
+// rpcDriveState returns the full state of a drive: CRDT snapshot, disk
+// files, outbox entries, and baselines. Used for debugging sync issues.
+func (s *RPCServer) rpcDriveState(_ context.Context, params json.RawMessage) (interface{}, error) {
+	var p driveIDParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+
+	drives := s.driveManager.ListDrives()
+	var drive *Drive
+	for _, d := range drives {
+		if d.ID == p.ID {
+			drive = d
+			break
+		}
+	}
+	if drive == nil {
+		return nil, fmt.Errorf("drive %q not found", p.ID)
+	}
+
+	dir := driveDataDir(drive.ID)
+	result := map[string]interface{}{
+		"drive_id":   drive.ID,
+		"name":       drive.Name,
+		"namespace":  drive.Namespace,
+		"local_path": drive.LocalPath,
+	}
+
+	// CRDT snapshot
+	localLog := opslog.NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), s.store.deviceID)
+	if snap, err := localLog.Snapshot(); err == nil {
+		crdtFiles := make(map[string]interface{})
+		for path, fi := range snap.Files() {
+			crdtFiles[path] = map[string]interface{}{
+				"checksum":  fi.Checksum,
+				"size":      fi.Size,
+				"device":    fi.Device,
+				"chunks":    len(fi.Chunks),
+				"namespace": fi.Namespace,
+				"modified":  fi.Modified.Unix(),
+			}
+		}
+		result["crdt_files"] = crdtFiles
+		result["crdt_deleted"] = snap.DeletedFiles()
+		result["crdt_dirs"] = snap.Dirs()
+	}
+
+	// Disk files
+	if diskFiles, _, err := ScanDirectory(drive.LocalPath, nil); err == nil {
+		diskList := make(map[string]string, len(diskFiles))
+		for path, cksum := range diskFiles {
+			diskList[path] = cksum
+		}
+		result["disk_files"] = diskList
+	}
+
+	// Outbox
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(dir, "outbox.jsonl"))
+	if entries, err := outbox.ReadAll(); err == nil {
+		outboxList := make([]map[string]interface{}, len(entries))
+		for i, e := range entries {
+			outboxList[i] = map[string]interface{}{
+				"op": string(e.Op), "path": e.Path, "timestamp": e.Timestamp,
+			}
+		}
+		result["outbox"] = outboxList
+	}
+
+	// Baselines
+	baselineDir := filepath.Join(dir, "baselines")
+	bs := NewBaselineStore(baselineDir)
+	if ids, err := bs.DeviceIDs(); err == nil {
+		baselines := make(map[string]interface{})
+		for _, id := range ids {
+			if snap, err := bs.Load(id); err == nil && snap != nil {
+				files := make(map[string]string, snap.Len())
+				for path, fi := range snap.Files() {
+					files[path] = fi.Checksum
+				}
+				baselines[id] = map[string]interface{}{
+					"files": files,
+					"count": snap.Len(),
+				}
+			}
+		}
+		result["baselines"] = baselines
+	}
+
+	return result, nil
 }
 
 func (s *RPCServer) rpcDriveStart(_ context.Context, params json.RawMessage) (interface{}, error) {
