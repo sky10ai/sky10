@@ -244,6 +244,13 @@ func TestDriveStateRPC(t *testing.T) {
 		Type: opslog.Put, Path: "hello.txt", Checksum: "abc",
 		Chunks: []string{"c1"}, Size: 5, Namespace: "statens",
 	})
+	localLog.AppendLocal(opslog.Entry{
+		Type: opslog.Symlink, Path: "link.txt", Checksum: "def",
+		LinkTarget: "hello.txt", Namespace: "statens",
+	})
+
+	// Create symlink on disk too
+	os.Symlink("hello.txt", filepath.Join(localDir, "link.txt"))
 
 	drives := []Drive{{
 		ID: "drive_state", Name: "StateDrive",
@@ -299,6 +306,15 @@ func TestDriveStateRPC(t *testing.T) {
 	}
 	if _, ok := crdtFiles["hello.txt"]; !ok {
 		t.Error("hello.txt not in crdt_files")
+	}
+
+	// Symlink should have link_target
+	linkEntry, ok := crdtFiles["link.txt"].(map[string]interface{})
+	if !ok {
+		t.Fatal("link.txt not in crdt_files")
+	}
+	if linkEntry["link_target"] != "hello.txt" {
+		t.Errorf("link_target = %v, want hello.txt", linkEntry["link_target"])
 	}
 
 	// Should have disk_files with hello.txt
