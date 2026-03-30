@@ -365,41 +365,32 @@ func TestDaemonV25DirectoryTrash(t *testing.T) {
 		t.Fatalf("creating daemon: %v", err)
 	}
 
-	// Seed the two files into local log
+	// Seed queues the two files to outbox. Drain the outbox so they
+	// appear in the local log (upload-then-record).
 	daemon.seedStateFromDisk()
+	daemon.outboxWorker.drain(ctx)
 
 	if _, ok := daemon.localLog.Lookup("subdir/a.txt"); !ok {
-		t.Fatal("subdir/a.txt not seeded")
+		t.Fatal("subdir/a.txt not in local log after outbox drain")
 	}
 	if _, ok := daemon.localLog.Lookup("subdir/b.txt"); !ok {
-		t.Fatal("subdir/b.txt not seeded")
+		t.Fatal("subdir/b.txt not in local log after outbox drain")
 	}
 
 	// Delete the directory
 	os.RemoveAll(subDir)
 
-	// Run daemon — should detect deletions via seedStateFromDisk
-	stop := runDaemon(ctx, cancel, daemon)
-	defer stop()
+	// Re-run seed — should detect files in CRDT but not on disk as local deletes.
+	daemon.seedStateFromDisk()
 
-	// Wait for the delete ops to be recorded
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		_, okA := daemon.localLog.Lookup("subdir/a.txt")
-		_, okB := daemon.localLog.Lookup("subdir/b.txt")
-		if !okA && !okB {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	// After delete ops, local log should no longer have the files
+	// After seed, local log should no longer have the files
 	if _, ok := daemon.localLog.Lookup("subdir/a.txt"); ok {
-		t.Error("subdir/a.txt still in local log after directory trash")
+		t.Error("subdir/a.txt still in local log after seed with deleted dir")
 	}
 	if _, ok := daemon.localLog.Lookup("subdir/b.txt"); ok {
-		t.Error("subdir/b.txt still in local log after directory trash")
+		t.Error("subdir/b.txt still in local log after seed with deleted dir")
 	}
+	cancel()
 }
 
 // Seed with empty log — all local files are new.
@@ -428,18 +419,13 @@ func TestSeedEmptyLog(t *testing.T) {
 
 	daemon.seedStateFromDisk()
 
-	// Both files should be in the local log
-	if _, ok := daemon.localLog.Lookup("a.txt"); !ok {
-		t.Error("a.txt not in local log")
-	}
-	if _, ok := daemon.localLog.Lookup("b.txt"); !ok {
-		t.Error("b.txt not in local log")
+	// Upload-then-record: new files go to outbox only, not local log.
+	if _, ok := daemon.localLog.Lookup("a.txt"); ok {
+		t.Error("a.txt should NOT be in local log before outbox drain")
 	}
 
 	// Both should be in the outbox
-	driveDir := driveDataDir("test_seed_empty")
-	outbox := NewSyncLog[OutboxEntry](filepath.Join(driveDir, "outbox.jsonl"))
-	entries, _ := outbox.ReadAll()
+	entries, _ := daemon.outbox.ReadAll()
 	if len(entries) != 2 {
 		t.Errorf("outbox has %d entries, want 2", len(entries))
 	}
@@ -522,8 +508,12 @@ func TestSeedLocalModification(t *testing.T) {
 	}
 }
 
-// Seed does NOT delete remote files that haven't been downloaded yet.
-func TestSeedRemoteFilesNotDeleted(t *testing.T) {
+// Seed treats ALL files in CRDT but not on disk as local deletes.
+// In the snapshot-exchange architecture, the local CRDT is the merge base:
+// if a file was known and is now gone from disk, the user deleted it.
+// Remote state is merged AFTER seed, so remote adds will be re-introduced
+// by the snapshot poller.
+func TestSeedDeletesMissingFiles(t *testing.T) {
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
@@ -535,7 +525,7 @@ func TestSeedRemoteFilesNotDeleted(t *testing.T) {
 
 	cfg := DaemonConfig{
 		SyncConfig:  SyncConfig{LocalRoot: localDir},
-		DriveID:     "test_seed_remote",
+		DriveID:     "test_seed_deletes",
 		PollSeconds: 300,
 	}
 	daemon, err := NewDaemonV2_5(store, cfg, nil)
@@ -543,33 +533,22 @@ func TestSeedRemoteFilesNotDeleted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Simulate a remote file in the local log (from poller)
+	// Simulate a file in the local log (regardless of device origin)
 	daemon.localLog.Append(opslog.Entry{
-		Type: opslog.Put, Path: "remote-only.txt", Checksum: "h1",
+		Type: opslog.Put, Path: "was-here.txt", Checksum: "h1",
 		Device: "other-device", Timestamp: 100, Seq: 1,
 	})
 
-	// File is in snapshot but NOT on disk
-	if _, ok := daemon.localLog.Lookup("remote-only.txt"); !ok {
-		t.Fatal("remote-only.txt should be in snapshot")
+	// File is in CRDT but NOT on disk
+	if _, ok := daemon.localLog.Lookup("was-here.txt"); !ok {
+		t.Fatal("was-here.txt should be in snapshot")
 	}
 
-	// Seed should NOT delete it (it's a remote file waiting for download)
 	daemon.seedStateFromDisk()
 
-	// File should still be in the snapshot
-	if _, ok := daemon.localLog.Lookup("remote-only.txt"); !ok {
-		t.Error("seed should not delete remote files from snapshot")
-	}
-
-	// Outbox should NOT have a delete entry
-	driveDir := driveDataDir("test_seed_remote")
-	outbox := NewSyncLog[OutboxEntry](filepath.Join(driveDir, "outbox.jsonl"))
-	entries, _ := outbox.ReadAll()
-	for _, e := range entries {
-		if e.Op == OpDelete && e.Path == "remote-only.txt" {
-			t.Error("seed should not queue delete for remote file")
-		}
+	// Seed should have written a delete — file was in CRDT but gone from disk
+	if _, ok := daemon.localLog.Lookup("was-here.txt"); ok {
+		t.Error("was-here.txt should be deleted from CRDT after seed")
 	}
 }
 

@@ -642,14 +642,10 @@ func TestWatcherHandlerSymlinkCreated(t *testing.T) {
 		t.Error("checksum mismatch")
 	}
 
-	// Check local log has symlink entry
-	snap, _ := localLog.Snapshot()
-	fi, ok := snap.Lookup("link.txt")
-	if !ok {
-		t.Fatal("symlink not in local log snapshot")
-	}
-	if fi.LinkTarget != "target.txt" {
-		t.Errorf("snapshot LinkTarget = %q", fi.LinkTarget)
+	// Upload-then-record: local log should NOT have the entry yet.
+	// The outbox worker writes it after processing.
+	if _, ok := localLog.Lookup("link.txt"); ok {
+		t.Error("local log should not have link.txt before outbox drain")
 	}
 }
 
@@ -716,20 +712,13 @@ func TestOutboxWorkerSymlink(t *testing.T) {
 		t.Errorf("outbox still has %d entries after drain", len(entries))
 	}
 
-	// Op should be in S3
-	log, _ := store.getOpsLog(ctx)
-	ops, _ := log.ReadSince(ctx, 0)
-	found := false
-	for _, op := range ops {
-		if string(op.Type) == string(opslog.Symlink) && op.Path == "link.txt" {
-			if op.LinkTarget != "target.txt" {
-				t.Errorf("S3 op LinkTarget = %q", op.LinkTarget)
-			}
-			found = true
-		}
+	// Upload-then-record: symlink op should be in the local log
+	fi, ok := localLog.Lookup("link.txt")
+	if !ok {
+		t.Fatal("symlink not in local log after outbox drain")
 	}
-	if !found {
-		t.Error("symlink op not found in S3")
+	if fi.LinkTarget != "target.txt" {
+		t.Errorf("local log LinkTarget = %q, want target.txt", fi.LinkTarget)
 	}
 }
 

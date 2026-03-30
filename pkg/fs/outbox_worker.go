@@ -157,12 +157,11 @@ func (w *OutboxWorker) uploadFile(ctx context.Context, entry OutboxEntry) bool {
 		return false
 	}
 
-	// Confirm upload in local log: write back the chunk hashes so the
-	// integrity sweep sees chunks != nil and stops re-queuing this file.
-	// Without this, AppendLocal entries (from the watcher) have chunks=nil
-	// permanently — the poller skips own-device ops, so the S3 op's chunks
-	// never return to the local log.
-	if result := w.store.LastPutResult(); result != nil {
+	// Upload-then-record: write the entry to the local log only AFTER the
+	// blob upload succeeds. Use the outbox entry's timestamp to preserve
+	// correct LWW ordering (event time, not upload completion time).
+	result := w.store.LastPutResult()
+	if result != nil {
 		w.localLog.AppendLocal(opslog.Entry{
 			Type:      opslog.Put,
 			Path:      entry.Path,
@@ -170,6 +169,7 @@ func (w *OutboxWorker) uploadFile(ctx context.Context, entry OutboxEntry) bool {
 			Size:      result.Size,
 			Checksum:  result.Checksum,
 			Namespace: entry.Namespace,
+			Timestamp: entry.Timestamp,
 		})
 	}
 
@@ -178,15 +178,15 @@ func (w *OutboxWorker) uploadFile(ctx context.Context, entry OutboxEntry) bool {
 	return true
 }
 
-// writeCreateDirOp writes a create_dir op via the store's OpsLog.
+// writeCreateDirOp records a create_dir in the local log.
 func (w *OutboxWorker) writeCreateDirOp(ctx context.Context, entry OutboxEntry) bool {
-	op := &Op{
-		Type:      OpCreateDir,
+	if err := w.localLog.AppendLocal(opslog.Entry{
+		Type:      opslog.CreateDir,
 		Path:      entry.Path,
 		Namespace: entry.Namespace,
-	}
-	if err := w.store.writeOp(ctx, op); err != nil {
-		w.logger.Warn("outbox create_dir: write op failed", "path", entry.Path, "error", err)
+		Timestamp: entry.Timestamp,
+	}); err != nil {
+		w.logger.Warn("outbox create_dir: write failed", "path", entry.Path, "error", err)
 		return false
 	}
 	w.logger.Info("outbox: create_dir", "path", entry.Path)
@@ -194,15 +194,15 @@ func (w *OutboxWorker) writeCreateDirOp(ctx context.Context, entry OutboxEntry) 
 	return true
 }
 
-// writeDeleteDirOp writes a delete_dir op via the store's OpsLog.
+// writeDeleteDirOp records a delete_dir in the local log.
 func (w *OutboxWorker) writeDeleteDirOp(ctx context.Context, entry OutboxEntry) bool {
-	op := &Op{
-		Type:      OpDeleteDir,
+	if err := w.localLog.AppendLocal(opslog.Entry{
+		Type:      opslog.DeleteDir,
 		Path:      entry.Path,
 		Namespace: entry.Namespace,
-	}
-	if err := w.store.writeOp(ctx, op); err != nil {
-		w.logger.Warn("outbox delete_dir: write op failed", "path", entry.Path, "error", err)
+		Timestamp: entry.Timestamp,
+	}); err != nil {
+		w.logger.Warn("outbox delete_dir: write failed", "path", entry.Path, "error", err)
 		return false
 	}
 	w.logger.Info("outbox: delete_dir", "path", entry.Path)
@@ -210,18 +210,17 @@ func (w *OutboxWorker) writeDeleteDirOp(ctx context.Context, entry OutboxEntry) 
 	return true
 }
 
-// writeSymlinkOp writes a symlink op via the store's OpsLog.
-// No file upload — symlinks are metadata-only ops.
+// writeSymlinkOp records a symlink in the local log.
 func (w *OutboxWorker) writeSymlinkOp(ctx context.Context, entry OutboxEntry) bool {
-	op := &Op{
-		Type:       OpSymlink,
+	if err := w.localLog.AppendLocal(opslog.Entry{
+		Type:       opslog.Symlink,
 		Path:       entry.Path,
 		Checksum:   entry.Checksum,
 		LinkTarget: entry.LinkTarget,
 		Namespace:  entry.Namespace,
-	}
-	if err := w.store.writeOp(ctx, op); err != nil {
-		w.logger.Warn("outbox symlink: write op failed", "path", entry.Path, "error", err)
+		Timestamp:  entry.Timestamp,
+	}); err != nil {
+		w.logger.Warn("outbox symlink: write failed", "path", entry.Path, "error", err)
 		return false
 	}
 	w.logger.Info("outbox: symlink", "path", entry.Path, "target", entry.LinkTarget)
@@ -229,20 +228,17 @@ func (w *OutboxWorker) writeSymlinkOp(ctx context.Context, entry OutboxEntry) bo
 	return true
 }
 
-// writeDeleteOp writes a delete op via the store's OpsLog.
+// writeDeleteOp records a delete in the local log.
 func (w *OutboxWorker) writeDeleteOp(ctx context.Context, entry OutboxEntry) bool {
-	op := &Op{
-		Type:         OpDelete,
-		Path:         entry.Path,
-		PrevChecksum: entry.Checksum,
-		Namespace:    entry.Namespace,
-	}
-
-	if err := w.store.writeOp(ctx, op); err != nil {
-		w.logger.Warn("outbox delete: write op failed", "path", entry.Path, "error", err)
+	if err := w.localLog.AppendLocal(opslog.Entry{
+		Type:      opslog.Delete,
+		Path:      entry.Path,
+		Namespace: entry.Namespace,
+		Timestamp: entry.Timestamp,
+	}); err != nil {
+		w.logger.Warn("outbox delete: write failed", "path", entry.Path, "error", err)
 		return false
 	}
-
 	w.logger.Info("outbox: deleted", "path", entry.Path)
 	w.onEvent("state.changed", nil)
 	return true

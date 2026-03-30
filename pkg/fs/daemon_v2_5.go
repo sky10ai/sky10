@@ -237,10 +237,10 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 
 	wrote := false
 
-	// Files on disk not in snapshot → new local files → log + outbox.
-	// Files with different checksums → modified → log + outbox.
-	// Files explicitly deleted in the CRDT are skipped — catch-up
-	// propagated the delete and the reconciler will remove the disk copy.
+	// Files on disk not in snapshot → new local files → outbox only.
+	// Files with different checksums → modified → outbox only.
+	// Upload-then-record: local log entry written by OutboxWorker after
+	// blob upload succeeds.
 	for path, cksum := range localFiles {
 		if deletedFiles[path] {
 			continue
@@ -253,13 +253,6 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 					continue // symlink target unchanged
 				}
 				d.logger.Info("seed: symlink", "path", path, "target", target)
-				d.localLog.AppendLocal(opslog.Entry{
-					Type:       opslog.Symlink,
-					Path:       path,
-					Checksum:   cksum,
-					LinkTarget: target,
-					Namespace:  ns,
-				})
 				d.outbox.Append(OutboxEntry{
 					Op:         OpSymlink,
 					Path:       path,
@@ -273,8 +266,7 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 			}
 
 			localPath := filepath.Join(d.config.LocalRoot, filepath.FromSlash(path))
-			info, err := os.Stat(localPath)
-			if err != nil {
+			if _, err := os.Stat(localPath); err != nil {
 				continue
 			}
 
@@ -283,14 +275,6 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 			} else {
 				d.logger.Info("seed: modified", "path", path)
 			}
-
-			d.localLog.AppendLocal(opslog.Entry{
-				Type:      opslog.Put,
-				Path:      path,
-				Checksum:  cksum,
-				Size:      info.Size(),
-				Namespace: ns,
-			})
 
 			d.outbox.Append(OutboxEntry{
 				Op:        OpPut,
@@ -305,48 +289,28 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 		}
 	}
 
-	// Files in snapshot but not on disk: depends on who wrote them.
-	// Our device → local delete (user deleted while daemon was off).
-	// Other device → pending download (reconciler will fetch it).
-	deviceID := d.localLog.DeviceID()
-	needDownload := 0
+	// Files in CRDT but not on disk → local delete. The local CRDT is
+	// the merge base: if a file was known and is now gone from disk,
+	// the user deleted it while the daemon was off. No device attribution
+	// needed — the snapshot poller will merge remote state AFTER seed.
 	for path, fi := range knownFiles {
 		if _, exists := localFiles[path]; !exists {
-			if fi.Device == deviceID {
-				d.logger.Info("seed: local delete", "path", path)
-				d.localLog.AppendLocal(opslog.Entry{
-					Type:      opslog.Delete,
-					Path:      path,
-					Namespace: fi.Namespace,
-				})
-				d.outbox.Append(OutboxEntry{
-					Op:        OpDelete,
-					Path:      path,
-					Checksum:  fi.Checksum,
-					Namespace: fi.Namespace,
-					Timestamp: time.Now().Unix(),
-				})
-				wrote = true
-			} else {
-				needDownload++
-			}
+			d.logger.Info("seed: local delete", "path", path)
+			d.localLog.AppendLocal(opslog.Entry{
+				Type:      opslog.Delete,
+				Path:      path,
+				Namespace: fi.Namespace,
+			})
+			wrote = true
 		}
 	}
-	if needDownload > 0 {
-		d.logger.Info("seed: pending downloads", "count", needDownload)
-	}
 
-	// Empty directories on disk not in snapshot → new local dirs.
+	// Empty directories on disk not in snapshot → outbox only.
 	knownDirs := snap.Dirs()
 	emptyDirs := ScanEmptyDirectories(d.config.LocalRoot, d.config.IgnoreFunc)
 	for _, dir := range emptyDirs {
 		if _, ok := knownDirs[dir]; !ok {
 			d.logger.Info("seed: new dir", "path", dir)
-			d.localLog.AppendLocal(opslog.Entry{
-				Type:      opslog.CreateDir,
-				Path:      dir,
-				Namespace: ns,
-			})
 			d.outbox.Append(OutboxEntry{
 				Op:        OpCreateDir,
 				Path:      dir,
