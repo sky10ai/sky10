@@ -104,12 +104,12 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 	// Reconciler
 	reconciler := NewReconciler(store, localLog, outbox, config.LocalRoot, ignoreFunc, logger)
 
-	// Namespace encryption key for snapshot upload/download.
-	// Uses the first namespace (drive namespace) or "default".
+	// Namespace ID for S3 path scoping and encryption.
 	nsForKey := ns
 	if nsForKey == "" {
 		nsForKey = "default"
 	}
+	store.SetNamespaceID(nsForKey)
 
 	// Snapshot uploader + poller (created with nil encKey — resolved lazily on first use)
 	baselineDir := filepath.Join(driveDir, "baselines")

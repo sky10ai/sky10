@@ -22,7 +22,7 @@ import (
 // Patch: bug fixes that don't change data format
 const SchemaVersion = "1.1.0"
 
-const schemaKey = "sky10.schema"
+const schemaKey = "fs/schema"
 
 // Schema describes the algorithms and format versions used in a bucket.
 // Written once on init, read on every open. The same version string is

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sky10/sky10/pkg/adapter"
@@ -180,6 +182,9 @@ func (p *SnapshotPoller) diffAndMerge(remote, baseline *opslog.Snapshot) int {
 		baselineFiles = baseline.Files()
 	}
 
+	// Get local snapshot for conflict detection
+	localSnap, _ := p.localLog.Snapshot()
+
 	// Additions and modifications: in remote but not in baseline (or changed)
 	for path, remotefi := range remoteFiles {
 		basefi, inBaseline := baselineFiles[path]
@@ -187,7 +192,19 @@ func (p *SnapshotPoller) diffAndMerge(remote, baseline *opslog.Snapshot) int {
 			continue // unchanged
 		}
 
-		// New or modified — merge into local CRDT via LWW
+		// Conflict detection: if the local CRDT also changed this file
+		// since the baseline, it's a concurrent edit.
+		if localfi, localExists := localSnap.Lookup(path); localExists && inBaseline {
+			localChanged := localfi.Checksum != basefi.Checksum
+			remoteChanged := remotefi.Checksum != basefi.Checksum
+			if localChanged && remoteChanged && localfi.Checksum != remotefi.Checksum {
+				// Conflict — LWW will pick the winner. Save the loser
+				// as a conflict copy so the user doesn't lose data.
+				p.createConflictCopy(path, localfi, remotefi)
+			}
+		}
+
+		// Merge into local CRDT via LWW (the CRDT resolves the winner)
 		if err := p.localLog.Append(opslog.Entry{
 			Type:       opslog.Put,
 			Path:       path,
@@ -270,6 +287,42 @@ func (p *SnapshotPoller) diffAndMerge(remote, baseline *opslog.Snapshot) int {
 	}
 
 	return merged
+}
+
+// createConflictCopy records the losing version of a concurrent edit as a
+// conflict copy file. The loser's blob is already in S3 (upload-then-record),
+// so we just write a CRDT entry pointing to it with a conflict path.
+func (p *SnapshotPoller) createConflictCopy(path string, localfi, remotefi opslog.FileInfo) {
+	// Determine which version loses LWW
+	loser := localfi
+	remoteClock := opslog.ClockTuple(remotefi)
+	localClock := opslog.ClockTuple(localfi)
+	if remoteClock.Beats(localClock) {
+		loser = localfi // remote wins, local is the loser
+	} else {
+		loser = remotefi // local wins, remote is the loser
+	}
+
+	// Build conflict path: file.conflict-{device}-{timestamp}.ext
+	conflictPath := conflictCopyPath(path, loser.Device, loser.Modified.Unix())
+	p.logger.Info("conflict copy", "path", path, "conflict", conflictPath, "loser", loser.Device)
+
+	p.localLog.AppendLocal(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      conflictPath,
+		Chunks:    loser.Chunks,
+		Size:      loser.Size,
+		Checksum:  loser.Checksum,
+		Namespace: loser.Namespace,
+	})
+}
+
+// conflictCopyPath generates a conflict copy filename.
+// "docs/notes.md" → "docs/notes.conflict-dev123-1711700000.md"
+func conflictCopyPath(path, device string, ts int64) string {
+	ext := filepath.Ext(path)
+	base := strings.TrimSuffix(path, ext)
+	return fmt.Sprintf("%s.conflict-%s-%d%s", base, device, ts, ext)
 }
 
 // isNotFoundError checks if an error is a not-found error.

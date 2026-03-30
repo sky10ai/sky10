@@ -519,16 +519,8 @@ func fsGCCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			result, err := skyfs.GC(ctx, backend, id, dryRun)
-			if err != nil {
-				return err
-			}
-			if dryRun {
-				fmt.Println("Dry run (no changes made):")
-			}
-			fmt.Printf("Blobs referenced: %d\nBlobs found:      %d\nBlobs deleted:    %d\nBytes reclaimed:  %s\n",
-				result.BlobsReferenced, result.BlobsFound, result.BlobsDeleted, formatSize(result.BytesReclaimed))
-			return nil
+			_, _, _ = backend, id, dryRun
+			return fmt.Errorf("sky10 fs gc: use the daemon RPC (skyfs.gc) instead")
 		},
 	}
 	cmd.Flags().Bool("dry-run", false, "Show what would be deleted")
