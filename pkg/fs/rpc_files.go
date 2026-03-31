@@ -163,9 +163,20 @@ func (s *FSHandler) rpcReset(ctx context.Context) (interface{}, error) {
 			if !d.IsDir() {
 				continue
 			}
+			driveDir := filepath.Join(drivesDir, d.Name())
 			for _, f := range stateFiles {
-				if os.Remove(filepath.Join(drivesDir, d.Name(), f)) == nil {
+				if os.Remove(filepath.Join(driveDir, f)) == nil {
 					localDeleted++
+				}
+			}
+			// Clear baselines — stale baselines cause the poller to
+			// skip changes that match the old baseline.
+			baselinesDir := filepath.Join(driveDir, "baselines")
+			if bEntries, err := os.ReadDir(baselinesDir); err == nil {
+				for _, b := range bEntries {
+					if os.Remove(filepath.Join(baselinesDir, b.Name())) == nil {
+						localDeleted++
+					}
 				}
 			}
 		}
