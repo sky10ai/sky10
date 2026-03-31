@@ -50,8 +50,9 @@ type Node struct {
 	config   Config
 	logger   *slog.Logger
 
-	host   host.Host
-	peerID peer.ID
+	host     host.Host
+	peerID   peer.ID
+	registry *Registry
 
 	mu      sync.RWMutex
 	running bool
@@ -86,6 +87,22 @@ func (n *Node) Address() string { return n.identity.Address() }
 
 // Host returns the underlying libp2p host. Nil before Run.
 func (n *Node) Host() host.Host { return n.host }
+
+// RegisterCapability registers a capability handler on this node.
+func (n *Node) RegisterCapability(cap Capability, handler HandlerFunc) {
+	if n.registry == nil {
+		n.registry = NewRegistry(n.logger)
+	}
+	n.registry.Register(cap, handler)
+}
+
+// Capabilities returns all registered capabilities.
+func (n *Node) Capabilities() []Capability {
+	if n.registry == nil {
+		return nil
+	}
+	return n.registry.Capabilities()
+}
 
 // ConnectedPeers returns the peer IDs of all connected peers.
 func (n *Node) ConnectedPeers() []peer.ID {
@@ -125,8 +142,12 @@ func (n *Node) Run(ctx context.Context) error {
 	}
 	n.host = h
 
-	// Register sync notification protocol handler.
+	// Register protocol handlers.
 	h.SetStreamHandler(SyncNotifyProtocol, n.handleSyncNotify)
+	if n.registry == nil {
+		n.registry = NewRegistry(n.logger)
+	}
+	h.SetStreamHandler(ProtocolID, n.registry.HandleStream)
 
 	n.mu.Lock()
 	n.running = true
