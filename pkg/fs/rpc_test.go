@@ -9,16 +9,19 @@ import (
 	"time"
 
 	s3adapter "github.com/sky10/sky10/pkg/adapter/s3"
+	skyrpc "github.com/sky10/sky10/pkg/rpc"
 )
 
-func startTestRPC(t *testing.T) (*RPCServer, net.Conn, context.CancelFunc) {
+func startTestRPC(t *testing.T) (*skyrpc.Server, net.Conn, context.CancelFunc) {
 	t.Helper()
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	sockPath := filepath.Join(t.TempDir(), "test.sock")
-	server := NewRPCServer(store, sockPath, filepath.Join(t.TempDir(), "drives.json"), "test", nil)
+	server := skyrpc.NewServer(sockPath, "test", nil)
+	handler := NewFSHandler(store, server, filepath.Join(t.TempDir(), "drives.json"))
+	server.RegisterHandler(handler)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -43,7 +46,7 @@ func startTestRPC(t *testing.T) (*RPCServer, net.Conn, context.CancelFunc) {
 type rpcRaw struct {
 	JSONRPC string          `json:"jsonrpc"`
 	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *RPCError       `json:"error,omitempty"`
+	Error   *skyrpc.Error   `json:"error,omitempty"`
 	ID      interface{}     `json:"id"`
 }
 
@@ -55,7 +58,7 @@ func rpcCall(t *testing.T, conn net.Conn, method string, params interface{}) jso
 		rawParams, _ = json.Marshal(params)
 	}
 
-	req := RPCRequest{
+	req := skyrpc.Request{
 		JSONRPC: "2.0",
 		Method:  method,
 		Params:  rawParams,
@@ -95,9 +98,6 @@ func TestRPCListEmpty(t *testing.T) {
 	}
 }
 
-// TestRPCPutGetRoundTrip deleted:
-// Get RPC is stubbed. Put-only RPC is tested via daemon_v2_5_test.go.
-
 func TestRPCStatus(t *testing.T) {
 	t.Parallel()
 	_, conn, _ := startTestRPC(t)
@@ -106,7 +106,6 @@ func TestRPCStatus(t *testing.T) {
 	var status statusResult
 	json.Unmarshal(result, &status)
 
-	// Should not be syncing by default
 	if status.Syncing {
 		t.Error("should not be syncing")
 	}
@@ -116,13 +115,13 @@ func TestRPCMethodNotFound(t *testing.T) {
 	t.Parallel()
 	_, conn, _ := startTestRPC(t)
 
-	req := RPCRequest{JSONRPC: "2.0", Method: "skyfs.nonexistent", ID: 1}
+	req := skyrpc.Request{JSONRPC: "2.0", Method: "skyfs.nonexistent", ID: 1}
 	encoder := json.NewEncoder(conn)
 	decoder := json.NewDecoder(conn)
 
 	encoder.Encode(req)
 
-	var resp RPCResponse
+	var resp skyrpc.Response
 	decoder.Decode(&resp)
 
 	if resp.Error == nil {

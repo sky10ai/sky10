@@ -11,7 +11,19 @@ import (
 
 	s3adapter "github.com/sky10/sky10/pkg/adapter/s3"
 	"github.com/sky10/sky10/pkg/fs/opslog"
+	skyrpc "github.com/sky10/sky10/pkg/rpc"
 )
+
+// newTestServer creates an rpc.Server with FSHandler registered for tests.
+func newTestServer(store *Store, sockPath, driveCfgPath string) *skyrpc.Server {
+	server := skyrpc.NewServer(sockPath, "test", nil)
+	handler := NewFSHandler(store, server, driveCfgPath)
+	server.RegisterHandler(handler)
+	server.OnServe(func() {
+		handler.StartDrives()
+	})
+	return server
+}
 
 // Enabled drives must auto-start when the RPC server starts.
 // Before fix: StartAll was defined but never called — drives
@@ -45,7 +57,7 @@ func TestDrivesAutoStartOnServe(t *testing.T) {
 
 	// Start RPC server
 	sockPath := filepath.Join(tmpDir, "test.sock")
-	server := NewRPCServer(store, sockPath, driveCfgPath, "test", nil)
+	server := newTestServer(store, sockPath, driveCfgPath)
 
 	go server.Serve(ctx)
 
@@ -123,7 +135,7 @@ func TestSyncActivityRPC(t *testing.T) {
 	os.WriteFile(driveCfgPath, data, 0600)
 
 	sockPath := filepath.Join(tmpDir, "test.sock")
-	server := NewRPCServer(store, sockPath, driveCfgPath, "test", nil)
+	server := newTestServer(store, sockPath, driveCfgPath)
 	go server.Serve(ctx)
 
 	// Wait for server to be ready
@@ -205,7 +217,7 @@ func TestDriveAutoStartSyncsFiles(t *testing.T) {
 	os.WriteFile(driveCfgPath, data, 0600)
 
 	sockPath := filepath.Join(tmpDir, "test.sock")
-	server := NewRPCServer(store, sockPath, driveCfgPath, "test", nil)
+	server := newTestServer(store, sockPath, driveCfgPath)
 	go server.Serve(ctx)
 
 	// Wait for initial sync + outbox drain
@@ -260,7 +272,7 @@ func TestDriveStateRPC(t *testing.T) {
 	os.WriteFile(driveCfgPath, data, 0600)
 
 	sockPath := filepath.Join(tmpDir, "test.sock")
-	server := NewRPCServer(store, sockPath, driveCfgPath, "test", nil)
+	server := newTestServer(store, sockPath, driveCfgPath)
 	go server.Serve(ctx)
 
 	deadline := time.Now().Add(3 * time.Second)

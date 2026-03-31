@@ -1,4 +1,4 @@
-package fs
+package rpc
 
 import (
 	"context"
@@ -9,31 +9,22 @@ import (
 	"time"
 )
 
-// httpSubscriber tracks an SSE connection for the broadcast loop.
-type httpSubscriber struct {
-	ch   chan RPCEvent
-	done chan struct{}
-}
-
 // DefaultHTTPPort is the preferred port for the HTTP RPC server.
 const DefaultHTTPPort = 9101
 
+type httpSubscriber struct {
+	ch   chan Event
+	done chan struct{}
+}
+
 // ServeHTTP starts an HTTP server alongside the Unix socket.
-// Tries the given port first; if taken, picks a random available port.
-// The actual address is stored on the server for discovery via health RPC.
-//
-//	GET  /           — JSON hello
-//	POST /rpc        — JSON-RPC 2.0 request/response
-//	GET  /rpc/events — SSE stream of push events
-//	GET  /health     — status check
-func (s *RPCServer) ServeHTTP(ctx context.Context, port int) error {
+func (s *Server) ServeHTTP(ctx context.Context, port int) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.handleHTTPRoot)
 	mux.HandleFunc("POST /rpc", s.handleHTTPRPC)
 	mux.HandleFunc("GET /rpc/events", s.handleHTTPEvents)
 	mux.HandleFunc("GET /health", s.handleHTTPHealth)
 
-	// Try preferred port, fall back to random
 	addr := fmt.Sprintf(":%d", port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -49,7 +40,6 @@ func (s *RPCServer) ServeHTTP(ctx context.Context, port int) error {
 	s.mu.Unlock()
 
 	srv := &http.Server{Handler: mux}
-
 	go func() {
 		<-ctx.Done()
 		srv.Close()
@@ -62,14 +52,14 @@ func (s *RPCServer) ServeHTTP(ctx context.Context, port int) error {
 	return nil
 }
 
-// HTTPAddr returns the address the HTTP server is listening on, or "" if not started.
-func (s *RPCServer) HTTPAddr() string {
+// HTTPAddr returns the address the HTTP server is listening on.
+func (s *Server) HTTPAddr() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.httpAddr
 }
 
-func (s *RPCServer) handleHTTPRoot(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleHTTPRoot(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"name":    "sky10",
@@ -80,8 +70,8 @@ func (s *RPCServer) handleHTTPRoot(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *RPCServer) handleHTTPRPC(w http.ResponseWriter, r *http.Request) {
-	var req RPCRequest
+func (s *Server) handleHTTPRPC(w http.ResponseWriter, r *http.Request) {
+	var req Request
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
@@ -100,7 +90,7 @@ func (s *RPCServer) handleHTTPRPC(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-func (s *RPCServer) handleHTTPHealth(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleHTTPHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":  "ok",
@@ -108,7 +98,7 @@ func (s *RPCServer) handleHTTPHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *RPCServer) handleHTTPEvents(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleHTTPEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
@@ -121,7 +111,7 @@ func (s *RPCServer) handleHTTPEvents(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	sub := &httpSubscriber{
-		ch:   make(chan RPCEvent, 100),
+		ch:   make(chan Event, 100),
 		done: make(chan struct{}),
 	}
 
@@ -149,17 +139,16 @@ func (s *RPCServer) handleHTTPEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		case event := <-sub.ch:
 			data, _ := json.Marshal(map[string]interface{}{
-				"event": event.Event,
+				"event": event.Name,
 				"data":  event.Data,
 			})
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Event, data)
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Name, data)
 			flusher.Flush()
 		}
 	}
 }
 
-// broadcastToHTTP fans out an event to all SSE subscribers.
-func (s *RPCServer) broadcastToHTTP(event RPCEvent) {
+func (s *Server) broadcastToHTTP(event Event) {
 	s.httpSubMu.RLock()
 	subs := make([]*httpSubscriber, len(s.httpSubs))
 	copy(subs, s.httpSubs)
@@ -169,7 +158,6 @@ func (s *RPCServer) broadcastToHTTP(event RPCEvent) {
 		select {
 		case sub.ch <- event:
 		default:
-			// Drop if subscriber is slow
 		}
 	}
 }

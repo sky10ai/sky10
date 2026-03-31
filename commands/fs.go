@@ -15,6 +15,7 @@ import (
 	"github.com/sky10/sky10/pkg/config"
 	skyfs "github.com/sky10/sky10/pkg/fs"
 	"github.com/sky10/sky10/pkg/kv"
+	skyrpc "github.com/sky10/sky10/pkg/rpc"
 	"github.com/spf13/cobra"
 )
 
@@ -328,9 +329,13 @@ func fsServeCmd() *cobra.Command {
 			}
 			defer skyfs.RemovePIDFile()
 
-			server := skyfs.NewRPCServer(store, sockPath, filepath.Join(cfgDir, "drives.json"), cmd.Root().Version, nil)
+			server := skyrpc.NewServer(sockPath, cmd.Root().Version, nil)
 
-			// Register KV store handler for skykv.* RPC methods.
+			// Register skyfs.* handler
+			fsHandler := skyfs.NewFSHandler(store, server, filepath.Join(cfgDir, "drives.json"))
+			server.RegisterHandler(fsHandler)
+
+			// Register skykv.* handler
 			kvStore := kv.New(backend, id, kv.Config{Namespace: "default"}, nil)
 			server.RegisterHandler(kv.NewRPCHandler(kvStore))
 			go func() {
@@ -338,6 +343,12 @@ func fsServeCmd() *cobra.Command {
 					slog.Warn("kv store failed", "error", err)
 				}
 			}()
+
+			// Auto-start drives and invite approval after socket binds
+			server.OnServe(func() {
+				fsHandler.StartDrives()
+				fsHandler.StartAutoApprove(ctx)
+			})
 
 			fmt.Println(sockPath)
 
@@ -348,7 +359,6 @@ func fsServeCmd() *cobra.Command {
 					slog.Error("HTTP server failed", "error", err)
 				}
 			}()
-			// Wait briefly for listener to bind, then print actual address
 			time.Sleep(100 * time.Millisecond)
 			if addr := server.HTTPAddr(); addr != "" {
 				fmt.Printf("http://localhost%s\n", addr)
@@ -358,7 +368,7 @@ func fsServeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().String("socket", "", "Socket path")
-	cmd.Flags().Int("http-port", skyfs.DefaultHTTPPort, "HTTP RPC port")
+	cmd.Flags().Int("http-port", skyrpc.DefaultHTTPPort, "HTTP RPC port")
 	return cmd
 }
 

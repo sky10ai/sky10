@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	skyrpc "github.com/sky10/sky10/pkg/rpc"
 )
 
 // Integration test for the HTTP RPC server: starts a real MinIO backend,
@@ -34,7 +36,7 @@ func TestIntegrationHTTPRPC(t *testing.T) {
 	driveCfgPath := filepath.Join(tmpDir, "drives.json")
 	os.WriteFile(driveCfgPath, []byte("[]"), 0644)
 
-	server := NewRPCServer(store, sockPath, driveCfgPath, "test/1.0.0", nil)
+	server := newTestServer(store, sockPath, driveCfgPath)
 
 	// Start Unix socket server in background
 	go server.Serve(ctx)
@@ -235,7 +237,7 @@ func httpRPCCall(t *testing.T, baseURL, method string, params interface{}) map[s
 	return result
 }
 
-func httpRPCCallRaw(t *testing.T, baseURL, method string, params interface{}) RPCResponse {
+func httpRPCCallRaw(t *testing.T, baseURL, method string, params interface{}) skyrpc.Response {
 	t.Helper()
 	reqBody := map[string]interface{}{
 		"jsonrpc": "2.0",
@@ -253,7 +255,7 @@ func httpRPCCallRaw(t *testing.T, baseURL, method string, params interface{}) RP
 	}
 	defer resp.Body.Close()
 
-	var rpcResp RPCResponse
+	var rpcResp skyrpc.Response
 	json.NewDecoder(resp.Body).Decode(&rpcResp)
 	return rpcResp
 }

@@ -1,0 +1,206 @@
+package fs
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
+type putParams struct {
+	Path      string `json:"path"`
+	LocalPath string `json:"local_path"`
+}
+
+type putResult struct {
+	Size   int64 `json:"size"`
+	Chunks int   `json:"chunks"`
+}
+
+type getParams struct {
+	Path    string `json:"path"`
+	OutPath string `json:"out_path"`
+}
+
+type getResult struct {
+	Size int64 `json:"size"`
+}
+
+type removeParams struct {
+	Path string `json:"path"`
+}
+
+type versionsParams struct {
+	Path string `json:"path"`
+}
+
+type compactParams struct {
+	Keep int `json:"keep"`
+}
+
+type gcParams struct {
+	DryRun bool `json:"dry_run"`
+}
+
+func (s *FSHandler) rpcPut(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p putParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+
+	f, err := os.Open(p.LocalPath)
+	if err != nil {
+		return nil, fmt.Errorf("opening %s: %w", p.LocalPath, err)
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat %s: %w", p.LocalPath, err)
+	}
+
+	if err := s.store.Put(ctx, p.Path, f); err != nil {
+		return nil, err
+	}
+
+	s.server.Emit("file.changed", map[string]string{"path": p.Path, "type": "put"})
+	return putResult{Size: info.Size()}, nil
+}
+
+func (s *FSHandler) rpcGet(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p getParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+
+	f, err := os.Create(p.OutPath)
+	if err != nil {
+		return nil, fmt.Errorf("creating %s: %w", p.OutPath, err)
+	}
+
+	// TODO(snapshot-exchange): rpcDownload needs GetChunks + local CRDT lookup
+	if err := fmt.Errorf("download RPC not yet implemented in snapshot-exchange architecture"); err != nil {
+		f.Close()
+		os.Remove(p.OutPath)
+		return nil, err
+	}
+
+	stat, _ := f.Stat()
+	f.Close()
+
+	return getResult{Size: stat.Size()}, nil
+}
+
+func (s *FSHandler) rpcRemove(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p removeParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+
+	// TODO(snapshot-exchange): rpcRemove needs local CRDT + outbox
+	if err := fmt.Errorf("remove RPC not yet implemented in snapshot-exchange architecture"); err != nil {
+		return nil, err
+	}
+
+	s.server.Emit("file.changed", map[string]string{"path": p.Path, "type": "delete"})
+	return map[string]string{"status": "ok"}, nil
+}
+
+func (s *FSHandler) rpcVersions(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p versionsParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+
+	versions, err := ListVersions(ctx, s.store, p.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{"versions": versions}, nil
+}
+
+func (s *FSHandler) rpcCompact(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p compactParams
+	p.Keep = 3
+	if len(params) > 0 {
+		json.Unmarshal(params, &p)
+	}
+
+	s.server.Emit("compact.start", map[string]any{"phase": "reading ops"})
+
+	// Compaction is no longer needed in the snapshot-exchange architecture.
+	return map[string]string{"status": "no-op", "reason": "compaction removed"}, nil
+}
+
+func (s *FSHandler) rpcReset(ctx context.Context) (interface{}, error) {
+	deleted := 0
+
+	// Delete all S3 ops
+	if keys, err := s.store.backend.List(ctx, "ops/"); err == nil {
+		for _, key := range keys {
+			s.store.backend.Delete(ctx, key)
+			deleted++
+		}
+	}
+
+	// Delete all S3 snapshots
+	if keys, err := s.store.backend.List(ctx, "manifests/snapshot-"); err == nil {
+		for _, key := range keys {
+			s.store.backend.Delete(ctx, key)
+			deleted++
+		}
+	}
+
+	// Delete local drive state files
+	home, _ := os.UserHomeDir()
+	drivesDir := filepath.Join(home, ".sky10", "fs", "drives")
+	stateFiles := []string{"ops.jsonl", "outbox.jsonl", "state.json", "inbox.jsonl", "manifest.json"}
+	localDeleted := 0
+	if entries, err := os.ReadDir(drivesDir); err == nil {
+		for _, d := range entries {
+			if !d.IsDir() {
+				continue
+			}
+			for _, f := range stateFiles {
+				if os.Remove(filepath.Join(drivesDir, d.Name(), f)) == nil {
+					localDeleted++
+				}
+			}
+		}
+	}
+
+	s.logger.Info("reset complete", "s3_deleted", deleted, "local_deleted", localDeleted)
+	return map[string]interface{}{
+		"s3_deleted":    deleted,
+		"local_deleted": localDeleted,
+	}, nil
+}
+
+func (s *FSHandler) rpcGC(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p gcParams
+	if len(params) > 0 {
+		json.Unmarshal(params, &p)
+	}
+
+	// Get namespace encryption key for reading snapshots
+	encKey, err := s.store.getOrCreateNamespaceKey(ctx, "default")
+	if err != nil {
+		return nil, fmt.Errorf("getting encryption key: %w", err)
+	}
+	// Collect namespace IDs from drives
+	var nsIDs []string
+	if s.store.nsID != "" {
+		nsIDs = []string{s.store.nsID}
+	}
+	result, err := GC(ctx, s.store.backend, encKey, GCConfig{
+		NSIDs:         nsIDs,
+		RetentionDays: 30,
+		DryRun:        p.DryRun,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
