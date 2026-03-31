@@ -77,13 +77,7 @@ func ServeCmd() *cobra.Command {
 			fsHandler := skyfs.NewFSHandler(store, server, filepath.Join(cfgDir, "drives.json"))
 			server.RegisterHandler(fsHandler)
 
-			// Resolve namespace key from fs key infrastructure so all
-			// modules (fs, kv) share the same encryption keys.
-			kvNSKey, err := store.GetOrCreateNamespaceKey(ctx, "default")
-			if err != nil {
-				slog.Warn("kv namespace key resolution failed", "error", err)
-			}
-			kvStore := kv.New(backend, id, kv.Config{Namespace: "default", Key: kvNSKey}, nil)
+			kvStore := kv.New(backend, id, kv.Config{Namespace: "default"}, nil)
 			server.RegisterHandler(kv.NewRPCHandler(kvStore))
 			go func() {
 				if err := kvStore.Run(ctx); err != nil {

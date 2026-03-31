@@ -25,7 +25,6 @@ type Config struct {
 	Namespace    string        // KV namespace name
 	DataDir      string        // local data directory (ops log, baselines)
 	PollInterval time.Duration // remote snapshot poll interval
-	Key          []byte        // pre-resolved namespace key (skip key creation if set)
 }
 
 // Store is the main KV store. It provides Get/Set/Delete/List and manages
@@ -210,15 +209,9 @@ func (s *Store) Snapshot() (*Snapshot, error) {
 
 // resolveKeys resolves the namespace encryption key and opaque namespace ID.
 func (s *Store) resolveKeys(ctx context.Context) error {
-	var nsKey []byte
-	if s.config.Key != nil {
-		nsKey = s.config.Key
-	} else {
-		var err error
-		nsKey, err = getOrCreateNamespaceKey(ctx, s.backend, s.config.Namespace, s.identity, s.deviceID)
-		if err != nil {
-			return err
-		}
+	nsKey, err := getOrCreateNamespaceKey(ctx, s.backend, s.config.Namespace, s.identity, s.deviceID)
+	if err != nil {
+		return err
 	}
 
 	nsID, err := resolveNSID(ctx, s.backend, s.config.Namespace, nsKey)

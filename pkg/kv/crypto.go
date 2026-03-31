@@ -22,18 +22,20 @@ import (
 func encrypt(plaintext, encKey []byte) ([]byte, error)  { return skykey.Encrypt(plaintext, encKey) }
 func decrypt(ciphertext, encKey []byte) ([]byte, error) { return skykey.Decrypt(ciphertext, encKey) }
 
-// wrapKey wraps a data key for a recipient's public key.
 func wrapKey(dataKey []byte, pub ed25519.PublicKey) ([]byte, error) {
 	return skykey.WrapKey(dataKey, pub)
 }
 
-// unwrapKey unwraps a data key with a recipient's private key.
 func unwrapKey(wrapped []byte, priv ed25519.PrivateKey) ([]byte, error) {
 	return skykey.UnwrapKey(wrapped, priv)
 }
 
-// deriveNSID deterministically derives an opaque namespace ID from
-// the namespace key and name using HMAC-SHA256.
+// nsKeyName returns the S3 key name prefix for a KV namespace.
+// Prefixed with "kv:" to avoid collision with fs namespace names.
+func nsKeyName(namespace string) string {
+	return "kv:" + namespace
+}
+
 func deriveNSID(nsKey []byte, nsName string) string {
 	mac := hmac.New(sha256.New, nsKey)
 	mac.Write([]byte(nsName))
@@ -45,11 +47,10 @@ type nsidMeta struct {
 	Name string `json:"name"`
 }
 
-// resolveNSID returns the opaque namespace ID, writing meta.enc if needed.
 func resolveNSID(ctx context.Context, backend adapter.Backend, nsName string, nsKey []byte) (string, error) {
 	nsID := deriveNSID(nsKey, nsName)
 
-	metaKey := "keys/namespaces/" + nsName + ".meta.enc"
+	metaKey := "keys/namespaces/" + nsKeyName(nsName) + ".meta.enc"
 	if _, err := backend.Head(ctx, metaKey); errors.Is(err, adapter.ErrNotFound) {
 		meta := nsidMeta{NSID: nsID, Name: nsName}
 		plain, _ := json.Marshal(meta)
@@ -63,7 +64,6 @@ func resolveNSID(ctx context.Context, backend adapter.Backend, nsName string, ns
 	return nsID, nil
 }
 
-// cacheNSID saves the nsID to a local file for fast startup.
 func cacheNSID(nsName, nsID string) {
 	home, _ := os.UserHomeDir()
 	dir := filepath.Join(home, ".sky10", "kv", "nsids")
@@ -71,19 +71,15 @@ func cacheNSID(nsName, nsID string) {
 	os.WriteFile(filepath.Join(dir, nsName), []byte(nsID), 0600)
 }
 
-// loadCachedNSID reads a locally cached nsID.
-func loadCachedNSID(nsName string) (string, error) {
-	home, _ := os.UserHomeDir()
-	data, err := os.ReadFile(filepath.Join(home, ".sky10", "kv", "nsids", nsName))
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}
-
-// getOrCreateNamespaceKey resolves the namespace encryption key.
-// Checks S3 for device-specific wrapped key, shared key, and local cache.
-// Creates a new key if none exists.
+// getOrCreateNamespaceKey resolves the KV namespace encryption key.
+//
+// Resolution order:
+//  1. Device-specific wrapped key in S3
+//  2. Shared (base) wrapped key in S3
+//  3. Scan ALL wrapped keys for this namespace — handles the case where
+//     another device created the key and wrapped it for us (race prevention)
+//  4. Local disk cache
+//  5. Generate new key and wrap for all registered devices
 func getOrCreateNamespaceKey(
 	ctx context.Context,
 	backend adapter.Backend,
@@ -91,8 +87,10 @@ func getOrCreateNamespaceKey(
 	identity *skykey.Key,
 	deviceID string,
 ) ([]byte, error) {
-	// Try device-specific key
-	devKeyPath := "keys/namespaces/" + nsName + "." + deviceID + ".ns.enc"
+	keyName := nsKeyName(nsName)
+
+	// 1. Try device-specific wrapped key
+	devKeyPath := "keys/namespaces/" + keyName + "." + deviceID + ".ns.enc"
 	if rc, err := backend.Get(ctx, devKeyPath); err == nil {
 		wrapped, _ := io.ReadAll(rc)
 		rc.Close()
@@ -102,8 +100,8 @@ func getOrCreateNamespaceKey(
 		}
 	}
 
-	// Try shared key
-	sharedKeyPath := "keys/namespaces/" + nsName + ".ns.enc"
+	// 2. Try shared (base) key
+	sharedKeyPath := "keys/namespaces/" + keyName + ".ns.enc"
 	if rc, err := backend.Get(ctx, sharedKeyPath); err == nil {
 		wrapped, _ := io.ReadAll(rc)
 		rc.Close()
@@ -113,16 +111,41 @@ func getOrCreateNamespaceKey(
 		}
 	}
 
-	// Check local cache
+	// 3. Scan all wrapped keys for this namespace. Another device may have
+	// created the key and wrapped it for us before our device-specific path
+	// was written (race between simultaneous first starts).
+	prefix := "keys/namespaces/" + keyName + "."
+	if allKeys, err := backend.List(ctx, prefix); err == nil {
+		for _, k := range allKeys {
+			if !strings.HasSuffix(k, ".ns.enc") {
+				continue
+			}
+			rc, err := backend.Get(ctx, k)
+			if err != nil {
+				continue
+			}
+			wrapped, _ := io.ReadAll(rc)
+			rc.Close()
+			if key, err := unwrapKey(wrapped, identity.PrivateKey); err == nil {
+				// Found a key we can unwrap — write our device-specific copy
+				if w, err := wrapKey(key, identity.PublicKey); err == nil {
+					backend.Put(ctx, devKeyPath, bytes.NewReader(w), int64(len(w)))
+				}
+				cacheKeyLocally(nsName, deviceID, key)
+				return key, nil
+			}
+		}
+	}
+
+	// 4. Check local disk cache
 	if key, err := loadCachedKey(nsName, deviceID); err == nil {
-		// Re-upload to S3 so other operations can find it
 		if wrapped, err := wrapKey(key, identity.PublicKey); err == nil {
 			backend.Put(ctx, devKeyPath, bytes.NewReader(wrapped), int64(len(wrapped)))
 		}
 		return key, nil
 	}
 
-	// Generate new namespace key
+	// 5. No key exists anywhere — create new and wrap for all devices
 	key, err := skykey.GenerateSymmetricKey()
 	if err != nil {
 		return nil, err
@@ -135,9 +158,7 @@ func getOrCreateNamespaceKey(
 		return nil, err
 	}
 
-	// Wrap for all other registered devices
-	wrapForAllDevices(ctx, backend, nsName, key, deviceID)
-
+	wrapForAllDevices(ctx, backend, keyName, key, deviceID)
 	cacheKeyLocally(nsName, deviceID, key)
 	return key, nil
 }
@@ -155,7 +176,7 @@ func loadCachedKey(nsName, deviceID string) ([]byte, error) {
 }
 
 // wrapForAllDevices wraps the namespace key for all registered devices.
-func wrapForAllDevices(ctx context.Context, backend adapter.Backend, nsName string, nsKey []byte, skipDevice string) {
+func wrapForAllDevices(ctx context.Context, backend adapter.Backend, keyName string, nsKey []byte, skipDevice string) {
 	keys, err := backend.List(ctx, "devices/")
 	if err != nil {
 		return
@@ -191,7 +212,7 @@ func wrapForAllDevices(ctx context.Context, backend adapter.Backend, nsName stri
 		if err != nil {
 			continue
 		}
-		path := "keys/namespaces/" + nsName + "." + devID + ".ns.enc"
+		path := "keys/namespaces/" + keyName + "." + devID + ".ns.enc"
 		backend.Put(ctx, path, bytes.NewReader(wrapped), int64(len(wrapped)))
 	}
 }

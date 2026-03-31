@@ -534,12 +534,6 @@ type StoreInfo struct {
 // getOrCreateNamespaceKey returns the namespace key, loading from S3 or
 // creating a new one if it doesn't exist yet. Successfully loaded keys
 // are cached locally in ~/.sky10/keys/ as a recovery backup.
-// GetOrCreateNamespaceKey resolves the encryption key for a namespace.
-// Used by the daemon to share keys with other modules (e.g. KV store).
-func (s *Store) GetOrCreateNamespaceKey(ctx context.Context, namespace string) ([]byte, error) {
-	return s.getOrCreateNamespaceKey(ctx, namespace)
-}
-
 func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) ([]byte, error) {
 	// Fast path: check in-memory cache under lock
 	s.mu.Lock()
