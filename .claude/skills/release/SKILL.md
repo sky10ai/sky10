@@ -10,6 +10,25 @@ Cut a new release of sky10 (CLI + Cirrus). The version is passed as `$ARGUMENTS`
 
 If no version is provided, ask the user what version to release.
 
+## CRITICAL: Order of operations
+
+**Every step MUST happen in this exact order. Do NOT skip ahead.**
+
+1. Bump ALL version strings first
+2. Commit the bump
+3. Push the commit
+4. Tag the bump commit (NOT an earlier commit)
+5. Push the tag
+6. Build the binary (from the tagged commit)
+7. Install locally
+8. Create GitHub release with the binary
+9. Update Homebrew tap with the correct checksum
+10. Rebuild Cirrus
+11. Restart Cirrus
+
+If you tag before committing the bump, or build before tagging, or
+upload before rebuilding — you will produce a broken release.
+
 ## Steps
 
 ### 1. Bump versions in source
@@ -32,6 +51,9 @@ git push
 ```
 
 ### 3. Tag and push tag
+
+The tag MUST point to the bump commit from step 2. Verify with
+`git log --oneline -1` that HEAD is the bump commit before tagging.
 
 ```bash
 git tag v$VERSION
@@ -56,9 +78,10 @@ The date uses `git log -1 --format=%cI` (committer timestamp) instead of
 wall-clock time, so builds from the same commit are byte-identical. This
 is verified by the `verify-release` GitHub Action.
 
-Install locally immediately:
+Install locally immediately (BOTH paths — Cirrus finds bin/sky10 first):
 ```bash
 cp bin/sky10-darwin-arm64 /opt/homebrew/bin/sky10
+cp bin/sky10-darwin-arm64 bin/sky10
 ```
 
 ### 5. Create GitHub release
@@ -95,7 +118,9 @@ Update these files using the checksum from step 4:
 **`~/Documents/projects/homebrew-tap/Formula/sky10-cirrus.rb`:**
 - The `tag:` value in the `url` line
 
-Then commit and push:
+Then commit and push. **NEVER force push the tap.** Force pushing
+causes merge conflicts on machines that already pulled the old version.
+
 ```bash
 cd ~/Documents/projects/homebrew-tap
 git add Formula/sky10.rb Formula/sky10-cirrus.rb
