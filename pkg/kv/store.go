@@ -41,9 +41,10 @@ type Store struct {
 	poller    *Poller
 	baselines *BaselineStore
 
-	mu    sync.Mutex
-	nsKey []byte // namespace encryption key (resolved lazily)
-	nsID  string // opaque namespace ID
+	mu       sync.Mutex
+	nsKey    []byte // namespace encryption key (resolved lazily)
+	nsID     string // opaque namespace ID
+	notifier func(namespace string)
 }
 
 // New creates a new KV store.
@@ -99,6 +100,12 @@ func (s *Store) Set(ctx context.Context, key string, value []byte) error {
 	if s.uploader != nil {
 		s.uploader.Poke()
 	}
+	s.mu.Lock()
+	notify := s.notifier
+	s.mu.Unlock()
+	if notify != nil {
+		notify(s.config.Namespace)
+	}
 	return nil
 }
 
@@ -122,6 +129,12 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 	}
 	if s.uploader != nil {
 		s.uploader.Poke()
+	}
+	s.mu.Lock()
+	notify := s.notifier
+	s.mu.Unlock()
+	if notify != nil {
+		notify(s.config.Namespace)
 	}
 	return nil
 }
@@ -201,6 +214,21 @@ func (s *Store) SyncOnce(ctx context.Context) error {
 
 // Close is a no-op for now — Run exits when its context is cancelled.
 func (s *Store) Close() {}
+
+// SetNotifier registers a callback invoked after each successful Set/Delete.
+// Used by skylink to push sync notifications to connected peers.
+func (s *Store) SetNotifier(fn func(namespace string)) {
+	s.mu.Lock()
+	s.notifier = fn
+	s.mu.Unlock()
+}
+
+// Poke triggers an immediate poll of remote snapshots.
+func (s *Store) Poke() {
+	if s.poller != nil {
+		s.poller.Poke()
+	}
+}
 
 // Snapshot returns the current KV snapshot (for RPC/status).
 func (s *Store) Snapshot() (*Snapshot, error) {

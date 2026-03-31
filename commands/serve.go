@@ -10,9 +10,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sky10/sky10/pkg/config"
 	skyfs "github.com/sky10/sky10/pkg/fs"
 	"github.com/sky10/sky10/pkg/kv"
+	"github.com/sky10/sky10/pkg/link"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
 	"github.com/spf13/cobra"
 )
@@ -82,6 +84,29 @@ func ServeCmd() *cobra.Command {
 			go func() {
 				if err := kvStore.Run(ctx); err != nil {
 					slog.Warn("kv store failed", "error", err)
+				}
+			}()
+
+			// Skylink P2P node (private mode — own devices only).
+			linkNode, err := link.New(id, link.Config{Mode: link.Private}, nil)
+			if err != nil {
+				return fmt.Errorf("creating link node: %w", err)
+			}
+			server.RegisterHandler(link.NewRPCHandler(linkNode))
+
+			// Wire sync notifications: KV changes notify own devices.
+			kvStore.SetNotifier(func(ns string) {
+				linkNode.NotifyOwn(ctx, "kv:"+ns)
+			})
+			linkNode.OnSyncNotify(func(from peer.ID, topic string) {
+				if topic == "kv:default" {
+					kvStore.Poke()
+				}
+			})
+
+			go func() {
+				if err := linkNode.Run(ctx); err != nil {
+					slog.Warn("link node failed", "error", err)
 				}
 			}()
 

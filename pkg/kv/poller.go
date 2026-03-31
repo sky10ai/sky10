@@ -25,6 +25,7 @@ type Poller struct {
 	heartbeat func()
 	onEvent   func(string, map[string]any)
 	onChange  func() // called when remote changes are merged
+	pokeCh    chan struct{}
 }
 
 // NewPoller creates a KV snapshot poller.
@@ -52,6 +53,7 @@ func NewPoller(
 		heartbeat: func() {},
 		onEvent:   func(string, map[string]any) {},
 		onChange:  func() {},
+		pokeCh:    make(chan struct{}, 1),
 	}
 }
 
@@ -72,7 +74,17 @@ func (p *Poller) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			p.pollOnce(ctx)
+		case <-p.pokeCh:
+			p.pollOnce(ctx)
 		}
+	}
+}
+
+// Poke triggers an immediate poll cycle.
+func (p *Poller) Poke() {
+	select {
+	case p.pokeCh <- struct{}{}:
+	default:
 	}
 }
 

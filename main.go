@@ -25,6 +25,7 @@ func main() {
 	root.AddCommand(commands.KeyCmd())
 	root.AddCommand(commands.FsCmd())
 	root.AddCommand(commands.KvCmd())
+	root.AddCommand(commands.LinkCmd())
 
 	root.CompletionOptions.HiddenDefaultCmd = true
 
