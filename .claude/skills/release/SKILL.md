@@ -114,7 +114,7 @@ xcodebuild -project Cirrus.xcodeproj -scheme Cirrus -configuration Debug \
 
 Kill and relaunch:
 ```bash
-pkill -f "Cirrus.app"; pkill -f "sky10 fs serve"; sleep 1
+pkill -f "Cirrus.app"; pkill -f "sky10 serve"; sleep 1
 open .build/xcode/Build/Products/Debug/Cirrus.app
 ```
 
