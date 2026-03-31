@@ -47,6 +47,21 @@ type RPCServer struct {
 	httpAddr  string
 	httpSubMu sync.RWMutex
 	httpSubs  []*httpSubscriber
+
+	// External handlers for non-skyfs methods (e.g. skykv.*)
+	externalHandlers []ExternalHandler
+}
+
+// ExternalHandler dispatches RPC methods outside the skyfs.* namespace.
+type ExternalHandler interface {
+	Dispatch(ctx context.Context, method string, params json.RawMessage) (interface{}, error, bool)
+}
+
+// RegisterHandler adds an external RPC handler. The handler's Dispatch
+// is tried before the default "method not found" fallback. The third
+// return value indicates whether the handler recognized the method.
+func (s *RPCServer) RegisterHandler(h ExternalHandler) {
+	s.externalHandlers = append(s.externalHandlers, h)
 }
 
 // RPCEvent is a server-push event sent to all connected clients.
@@ -326,9 +341,16 @@ func (s *RPCServer) dispatch(ctx context.Context, req *RPCRequest) *RPCResponse 
 	case "skyfs.s3Delete":
 		result, err = s.rpcS3Delete(ctx, req.Params)
 	default:
+		for _, h := range s.externalHandlers {
+			if r, e, ok := h.Dispatch(ctx, req.Method, req.Params); ok {
+				result, err = r, e
+				goto done
+			}
+		}
 		resp.Error = &RPCError{Code: -32601, Message: "method not found: " + req.Method}
 		return resp
 	}
+done:
 
 	if err != nil {
 		resp.Error = &RPCError{Code: -32000, Message: err.Error()}
