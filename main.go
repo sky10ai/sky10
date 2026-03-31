@@ -2,11 +2,16 @@
 package main
 
 import (
+	"embed"
 	"os"
 
 	"github.com/sky10/sky10/commands"
+	skyrpc "github.com/sky10/sky10/pkg/rpc"
 	"github.com/spf13/cobra"
 )
+
+//go:embed web/dist
+var webDist embed.FS
 
 var (
 	version   = "dev"
@@ -15,6 +20,8 @@ var (
 )
 
 func main() {
+	skyrpc.WebDist = webDist
+
 	root := &cobra.Command{
 		Use:     "sky10",
 		Short:   "Encrypted storage & agent coordination",

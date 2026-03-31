@@ -17,7 +17,7 @@ LDFLAGS  := -s -w \
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-go build-swift test test-skyfs test-skyfs-cli test-skyfs-cli-v test-skyfs-ui-macos check vet fmt verify clean install reproduce platforms checksums
+.PHONY: all build build-go build-web build-swift test test-skyfs test-skyfs-cli test-skyfs-cli-v test-skyfs-ui-macos check vet fmt verify clean install reproduce platforms checksums
 
 # --- Default ---
 
@@ -25,7 +25,10 @@ all: check test build
 
 # --- Build ---
 
-build: build-go
+build: build-web build-go
+
+build-web:
+	cd web && bun install --frozen-lockfile && bun run build
 
 build-go:
 	go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o bin/sky10 .

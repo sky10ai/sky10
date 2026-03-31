@@ -20,10 +20,17 @@ type httpSubscriber struct {
 // ServeHTTP starts an HTTP server alongside the Unix socket.
 func (s *Server) ServeHTTP(ctx context.Context, port int) error {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", s.handleHTTPRoot)
 	mux.HandleFunc("POST /rpc", s.handleHTTPRPC)
 	mux.HandleFunc("GET /rpc/events", s.handleHTTPEvents)
 	mux.HandleFunc("GET /health", s.handleHTTPHealth)
+
+	// Serve embedded web UI if assets are available, otherwise
+	// keep the JSON info endpoint at root for API-only mode.
+	if _, err := WebDist.ReadFile("web/dist/index.html"); err == nil {
+		mux.Handle("/", webUIHandler())
+	} else {
+		mux.HandleFunc("GET /{$}", s.handleHTTPRoot)
+	}
 
 	addr := fmt.Sprintf(":%d", port)
 	ln, err := net.Listen("tcp", addr)
@@ -71,6 +78,13 @@ func (s *Server) handleHTTPRoot(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHTTPRPC(w http.ResponseWriter, r *http.Request) {
+	// Allow cross-origin requests from the Vite dev server.
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	if r.Method == http.MethodOptions {
+		return
+	}
+
 	var req Request
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
