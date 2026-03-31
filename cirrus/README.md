@@ -36,8 +36,8 @@ Cirrus macOS (SwiftUI)
 ├── JSON-RPC over Unix socket
 └── Launches sky10 Go binary as sidecar
 
-sky10 fs serve (Go)
-├── Encrypted file storage engine
-├── Sync daemon (watcher + poller)
+sky10 serve (Go)
+├── Encrypted file storage + key-value store
+├── Sync daemon (watcher + poller + snapshot exchange)
 └── All crypto here — Swift never sees plaintext
 ```
