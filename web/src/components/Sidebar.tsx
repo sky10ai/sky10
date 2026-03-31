@@ -1,5 +1,7 @@
 import { NavLink } from "react-router";
 import { Icon } from "./Icon";
+import { skyfs, skylink } from "../lib/rpc";
+import { useRPC, truncAddr } from "../lib/useRPC";
 
 const navItems = [
   { to: "/drives", icon: "folder_open", label: "Drives" },
@@ -10,6 +12,9 @@ const navItems = [
 ];
 
 export function Sidebar() {
+  const { data: health } = useRPC(() => skyfs.health());
+  const { data: linkStatus } = useRPC(() => skylink.status());
+
   return (
     <aside className="flex flex-col fixed left-0 top-0 h-screen w-64 z-40 bg-surface-container-low dark:bg-[#1a1c1d] font-body antialiased tracking-tight">
       <div className="px-6 py-8">
@@ -23,7 +28,7 @@ export function Sidebar() {
               sky10
             </h1>
             <p className="text-[10px] text-secondary tracking-widest uppercase opacity-60">
-              v0.4.2-alpha
+              {health?.version?.split(" ")[0] ?? "..."}
             </p>
           </div>
         </div>
@@ -64,11 +69,17 @@ export function Sidebar() {
           <div className="flex items-center justify-between text-[11px] font-mono text-secondary">
             <div className="flex items-center gap-2">
               <Icon name="content_copy" className="text-[14px]" />
-              <span>0x7a...f92d</span>
+              <span>
+                {linkStatus?.address
+                  ? truncAddr(linkStatus.address)
+                  : "..."}
+              </span>
             </div>
             <div className="flex items-center gap-1.5 text-emerald-500">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="font-body font-semibold">Connected</span>
+              <span className="font-body font-semibold">
+                {health ? "Connected" : "..."}
+              </span>
             </div>
           </div>
         </div>

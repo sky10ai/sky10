@@ -51,21 +51,19 @@ export async function rpc<T = unknown>(
   return data.result as T;
 }
 
-// Typed wrappers for each RPC namespace.
-
 // -- skyfs --
 export const skyfs = {
   health: () => rpc<HealthResult>("skyfs.health"),
-  driveList: () => rpc<Drive[]>("skyfs.driveList"),
+  driveList: () => rpc<DriveListResult>("skyfs.driveList"),
   driveCreate: (p: { name: string; path: string }) =>
     rpc("skyfs.driveCreate", p),
   driveStart: (p: { name: string }) => rpc("skyfs.driveStart", p),
   driveStop: (p: { name: string }) => rpc("skyfs.driveStop", p),
   list: (p: { drive: string; path?: string }) =>
-    rpc<FileEntry[]>("skyfs.list", p),
+    rpc<FileListResult>("skyfs.list", p),
   syncStatus: (p: { drive: string }) =>
     rpc<SyncStatus>("skyfs.syncStatus", p),
-  deviceList: () => rpc<Device[]>("skyfs.deviceList"),
+  deviceList: () => rpc<DeviceListResult>("skyfs.deviceList"),
   invite: () => rpc<InviteResult>("skyfs.invite"),
   approve: (p: { device_id: string }) => rpc("skyfs.approve", p),
   status: () => rpc<StatusResult>("skyfs.status"),
@@ -74,9 +72,11 @@ export const skyfs = {
 // -- skykv --
 export const skykv = {
   list: (p?: { prefix?: string; namespace?: string }) =>
-    rpc<KVEntry[]>("skykv.list", p),
+    rpc<KVListResult>("skykv.list", p),
+  getAll: (p?: { prefix?: string; namespace?: string }) =>
+    rpc<KVGetAllResult>("skykv.getAll", p),
   get: (p: { key: string; namespace?: string }) =>
-    rpc<KVEntry>("skykv.get", p),
+    rpc<KVGetResult>("skykv.get", p),
   set: (p: { key: string; value: string; namespace?: string }) =>
     rpc("skykv.set", p),
   delete: (p: { key: string; namespace?: string }) =>
@@ -87,11 +87,11 @@ export const skykv = {
 // -- skylink --
 export const skylink = {
   status: () => rpc<LinkStatus>("skylink.status"),
-  peers: () => rpc<Peer[]>("skylink.peers"),
+  peers: () => rpc<PeersResult>("skylink.peers"),
   connect: (p: { address: string }) => rpc("skylink.connect", p),
 };
 
-// Types
+// ---- Types matching actual daemon responses ----
 
 export interface HealthResult {
   status: string;
@@ -99,45 +99,61 @@ export interface HealthResult {
   uptime: string;
   drives: number;
   drives_running: number;
-  http_addr: string;
+  outbox_pending: number;
+  last_activity_ago: string;
+  rpc_clients: number;
+  rpc_subscribers: number;
+  http_addr?: string;
 }
 
 export interface Drive {
+  id: string;
   name: string;
-  path: string;
+  local_path: string;
+  namespace: string;
+  enabled: boolean;
   running: boolean;
-  file_count?: number;
-  total_size?: number;
-  last_activity?: string;
+  snapshot_files: number;
+  outbox_pending: number;
+}
+
+export interface DriveListResult {
+  drives: Drive[];
 }
 
 export interface FileEntry {
-  name: string;
   path: string;
-  is_dir: boolean;
   size: number;
   modified: string;
-  synced: boolean;
-  device?: string;
+  checksum: string;
+  namespace: string;
+  chunks: number;
+}
+
+export interface FileListResult {
+  files: FileEntry[];
 }
 
 export interface SyncStatus {
-  state: string;
-  pending_up: number;
-  pending_down: number;
-  progress?: number;
-  last_sync?: string;
+  sync_dir: string;
+  syncing: boolean;
 }
 
 export interface Device {
-  device_id: string;
-  hostname: string;
+  pubkey: string;
+  name: string;
+  joined: string;
   platform: string;
-  address: string;
-  last_seen: string;
+  ip: string;
+  location: string;
   version: string;
-  location?: string;
-  is_self?: boolean;
+  last_seen: string;
+  multiaddrs: string[];
+}
+
+export interface DeviceListResult {
+  devices: Device[];
+  this_device: string;
 }
 
 export interface InviteResult {
@@ -146,40 +162,45 @@ export interface InviteResult {
 }
 
 export interface StatusResult {
-  daemon_running: boolean;
-  drives: Drive[];
-  device_count: number;
-  connected_peers: number;
+  syncing: boolean;
 }
 
-export interface KVEntry {
+export interface KVListResult {
+  count: number;
+  keys: string[];
+}
+
+export interface KVGetAllResult {
+  count: number;
+  entries: Record<string, string>;
+}
+
+export interface KVGetResult {
   key: string;
   value: string;
-  namespace: string;
-  modified?: string;
-  device?: string;
-  size?: number;
+  found: boolean;
 }
 
 export interface KVStatus {
-  namespaces: string[];
-  total_keys: number;
-  synced: boolean;
+  namespace: string;
+  device_id: string;
+  keys: number;
 }
 
 export interface LinkStatus {
   peer_id: string;
+  address: string;
   mode: string;
-  listen_addrs: string[];
-  connected_peers: number;
-  uptime: string;
+  addrs: string[];
+  peers: number;
 }
 
 export interface Peer {
   peer_id: string;
-  device_name: string;
   address: string;
-  connection_type: string;
-  latency_ms: number;
-  connected_since: string;
+}
+
+export interface PeersResult {
+  peers: Peer[];
+  count: number;
 }
