@@ -109,8 +109,45 @@ kv/{nsID}/snapshots/{deviceID}/{timestamp}.enc
 - Watch/Subscribe (hook point: onChange callback on Poller)
 - Large value externalization (>4KB → S3 blob)
 - Counter/OR-Set CRDT types
-- Per-key encryption
+- Access control tiers (see v2 below)
 - SQLite VFS layer
+
+## v2: Access Control Tiers
+
+Three access levels, same KV store, different encryption per key prefix:
+
+### Private (v1 default)
+Encrypted with your namespace key. Only your devices can read/write.
+
+### Shared (group read)
+Encrypted with a group key. Grant access by wrapping the group key for
+each member's public key — same pattern as skyfs namespace keys
+(`WrapNamespaceKey(groupKey, memberPubKey)`). Members can read, owner
+controls membership.
+
+```
+team:reports:*  → group key, wrapped for each team member
+```
+
+### Public (read-only)
+Value stored unencrypted (or with a published key). Writer signs with
+their identity key so readers verify authenticity. Anyone with bucket
+access can read.
+
+```
+profile:*       → signed, not encrypted
+```
+
+### Implementation
+The CRDT merge and snapshot exchange work identically regardless of
+access level. What changes per prefix:
+- Which key encrypts the snapshot
+- Who can unwrap it
+- For public: snapshots signed instead of encrypted
+
+Key prefix → access policy mapping stored in the namespace metadata.
+Group key management reuses the existing `WrapNamespaceKey` /
+`UnwrapNamespaceKey` infrastructure.
 
 ## Execution Order
 
