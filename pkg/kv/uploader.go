@@ -9,6 +9,10 @@ import (
 	"github.com/sky10/sky10/pkg/adapter"
 )
 
+// uploadDebounce is the delay after a poke before uploading, to batch
+// rapid changes into a single S3 PUT.
+const uploadDebounce = 750 * time.Millisecond
+
 // Uploader serializes the local KV snapshot, encrypts it, and uploads
 // to S3. Triggered by local state changes (Set/Delete).
 type Uploader struct {
@@ -63,7 +67,7 @@ func (u *Uploader) Run(ctx context.Context) {
 			u.logger.Info("kv uploader stopped")
 			return
 		case <-u.notify:
-			timer := time.NewTimer(2 * time.Second)
+			timer := time.NewTimer(uploadDebounce)
 			select {
 			case <-ctx.Done():
 				timer.Stop()
