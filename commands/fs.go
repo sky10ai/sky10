@@ -20,7 +20,6 @@ func FsCmd() *cobra.Command {
 	cmd.AddCommand(fsPutCmd())
 	cmd.AddCommand(fsListCmd())
 	cmd.AddCommand(fsInfoCmd())
-	cmd.AddCommand(fsServeCmd())
 	cmd.AddCommand(fsSyncCmd())
 	cmd.AddCommand(fsCompactCmd())
 	cmd.AddCommand(fsGCCmd())

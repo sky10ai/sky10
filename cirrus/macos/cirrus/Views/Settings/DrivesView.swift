@@ -28,7 +28,7 @@ struct DrivesView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
-                    Text(appState.error ?? "Backend not connected. Run: sky10 fs serve")
+                    Text(appState.error ?? "Backend not connected. Run: sky10 serve")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

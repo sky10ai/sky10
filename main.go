@@ -21,6 +21,7 @@ func main() {
 		Version: version + " (" + commit + ") built " + buildDate,
 	}
 
+	root.AddCommand(commands.ServeCmd())
 	root.AddCommand(commands.KeyCmd())
 	root.AddCommand(commands.FsCmd())
 	root.AddCommand(commands.KvCmd())

@@ -55,7 +55,7 @@ class DaemonManager: ObservableObject {
         start()
     }
 
-    /// Start the sky10 fs serve process.
+    /// Start the sky10 serve process.
     func start() {
         if isRunning { return }
 
@@ -71,7 +71,7 @@ class DaemonManager: ObservableObject {
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: path)
-        proc.arguments = ["fs", "serve"]
+        proc.arguments = ["serve"]
 
         // Pass S3 credentials via environment
         var env = ProcessInfo.processInfo.environment
