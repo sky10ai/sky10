@@ -75,11 +75,12 @@ func New(ctx context.Context, cfg Config) (*Backend, error) {
 		secretKey = os.Getenv("S3_SECRET_ACCESS_KEY")
 	}
 
-	if accessKey != "" && secretKey != "" {
-		opts = append(opts, config.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
-		))
+	if accessKey == "" || secretKey == "" {
+		return nil, fmt.Errorf("s3: credentials not configured (set S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY)")
 	}
+	opts = append(opts, config.WithCredentialsProvider(
+		credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
+	))
 
 	// Transport-level timeouts for connection setup and idle management.
 	// No http.Client.Timeout — that's a wall-clock timeout that kills
