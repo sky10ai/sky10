@@ -29,9 +29,9 @@ func startTestNode(t *testing.T, n *Node) context.CancelFunc {
 	errCh := make(chan error, 1)
 	go func() { errCh <- n.Run(ctx) }()
 
-	// Wait for host to be ready.
+	// Wait for host and channels to be ready.
 	deadline := time.Now().Add(5 * time.Second)
-	for n.Host() == nil && time.Now().Before(deadline) {
+	for (n.Host() == nil || n.ChannelManager() == nil) && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if n.Host() == nil {

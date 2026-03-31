@@ -9,7 +9,7 @@ import (
 func TestRPCDispatchPrefix(t *testing.T) {
 	t.Parallel()
 	n := generateTestNode(t)
-	h := NewRPCHandler(n)
+	h := NewRPCHandler(n, nil)
 
 	_, _, handled := h.Dispatch(context.Background(), "skyfs.list", nil)
 	if handled {
@@ -26,7 +26,7 @@ func TestRPCStatus(t *testing.T) {
 	t.Parallel()
 	n := generateTestNode(t)
 	startTestNode(t, n)
-	h := NewRPCHandler(n)
+	h := NewRPCHandler(n, nil)
 
 	result, err, handled := h.Dispatch(context.Background(), "skylink.status", nil)
 	if !handled {
@@ -59,7 +59,7 @@ func TestRPCPeers(t *testing.T) {
 	t.Parallel()
 	n := generateTestNode(t)
 	startTestNode(t, n)
-	h := NewRPCHandler(n)
+	h := NewRPCHandler(n, nil)
 
 	result, err, handled := h.Dispatch(context.Background(), "skylink.peers", nil)
 	if !handled {
@@ -82,7 +82,7 @@ func TestRPCPeers(t *testing.T) {
 func TestRPCUnknownMethod(t *testing.T) {
 	t.Parallel()
 	n := generateTestNode(t)
-	h := NewRPCHandler(n)
+	h := NewRPCHandler(n, nil)
 
 	_, err, handled := h.Dispatch(context.Background(), "skylink.bogus", nil)
 	if !handled {

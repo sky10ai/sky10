@@ -15,6 +15,10 @@ func LinkCmd() *cobra.Command {
 	}
 	cmd.AddCommand(linkStatusCmd())
 	cmd.AddCommand(linkPeersCmd())
+	cmd.AddCommand(linkConnectCmd())
+	cmd.AddCommand(linkCallCmd())
+	cmd.AddCommand(linkResolveCmd())
+	cmd.AddCommand(linkPublishCmd())
 	return cmd
 }
 
@@ -44,6 +48,83 @@ func linkStatusCmd() *cobra.Command {
 			for _, a := range status.Addrs {
 				fmt.Printf("listen:   %s\n", a)
 			}
+			return nil
+		},
+	}
+}
+
+func linkConnectCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "connect <address>",
+		Short: "Connect to a peer by sky10 address",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, err := rpcCall("skylink.connect", map[string]string{"address": args[0]})
+			if err != nil {
+				return err
+			}
+			fmt.Println("connected")
+			return nil
+		},
+	}
+}
+
+func linkCallCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "call <address> <method> [params-json]",
+		Short: "Call a capability on a remote peer",
+		Args:  cobra.RangeArgs(2, 3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			params := map[string]interface{}{
+				"address": args[0],
+				"method":  args[1],
+			}
+			if len(args) > 2 {
+				params["params"] = json.RawMessage(args[2])
+			}
+			result, err := rpcCall("skylink.call", params)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(result))
+			return nil
+		},
+	}
+}
+
+func linkResolveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "resolve <address>",
+		Short: "Resolve a sky10 address to peer info",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := rpcCall("skylink.resolve", map[string]string{"address": args[0]})
+			if err != nil {
+				return err
+			}
+			// Pretty print JSON.
+			var pretty json.RawMessage
+			if err := json.Unmarshal(result, &pretty); err != nil {
+				fmt.Println(string(result))
+				return nil
+			}
+			out, _ := json.MarshalIndent(pretty, "", "  ")
+			fmt.Println(string(out))
+			return nil
+		},
+	}
+}
+
+func linkPublishCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "publish",
+		Short: "Publish agent record to DHT",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, err := rpcCall("skylink.publish", nil)
+			if err != nil {
+				return err
+			}
+			fmt.Println("published")
 			return nil
 		},
 	}

@@ -92,7 +92,8 @@ func ServeCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("creating link node: %w", err)
 			}
-			server.RegisterHandler(link.NewRPCHandler(linkNode))
+			linkResolver := link.NewResolver(linkNode, link.WithBackend(backend))
+			server.RegisterHandler(link.NewRPCHandler(linkNode, linkResolver))
 
 			// Wire sync notifications: KV changes notify own devices.
 			kvStore.SetNotifier(func(ns string) {

@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/libp2p/go-libp2p"
+	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -52,6 +53,9 @@ type Node struct {
 
 	host     host.Host
 	peerID   peer.ID
+	version  string
+	gater    *Gater
+	dht      *dht.IpfsDHT
 	registry *Registry
 	pubsub   *PubSub
 	channels *ChannelManager
@@ -106,6 +110,12 @@ func (n *Node) Capabilities() []Capability {
 	return n.registry.Capabilities()
 }
 
+// SetVersion sets the version string for agent records.
+func (n *Node) SetVersion(v string) { n.version = v }
+
+// Gater returns the connection gater.
+func (n *Node) Gater() *Gater { return n.gater }
+
 // ChannelManager returns the channel manager. Nil before Run.
 func (n *Node) ChannelManager() *ChannelManager { return n.channels }
 
@@ -132,6 +142,10 @@ func (n *Node) Run(ctx context.Context) error {
 		libp2p.NATPortMap(),
 	}
 
+	if n.gater != nil {
+		opts = append(opts, libp2p.ConnectionGater(n.gater))
+	}
+
 	if n.config.Mode == Network {
 		opts = append(opts,
 			libp2p.EnableRelayService(),
@@ -146,6 +160,14 @@ func (n *Node) Run(ctx context.Context) error {
 		return fmt.Errorf("creating libp2p host: %w", err)
 	}
 	n.host = h
+
+	// Initialize DHT in network mode.
+	if n.config.Mode == Network {
+		if err := n.initDHT(ctx); err != nil {
+			h.Close()
+			return err
+		}
+	}
 
 	// Initialize GossipSub for encrypted channels.
 	ps, err := newPubSub(ctx, n)
@@ -179,6 +201,9 @@ func (n *Node) Run(ctx context.Context) error {
 	n.running = false
 	n.mu.Unlock()
 
+	if n.dht != nil {
+		n.dht.Close()
+	}
 	if n.pubsub != nil {
 		n.pubsub.Close()
 	}
