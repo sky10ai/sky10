@@ -14,6 +14,7 @@ import (
 	s3backend "github.com/sky10/sky10/pkg/adapter/s3"
 	"github.com/sky10/sky10/pkg/config"
 	skyfs "github.com/sky10/sky10/pkg/fs"
+	"github.com/sky10/sky10/pkg/kv"
 	"github.com/spf13/cobra"
 )
 
@@ -328,6 +329,16 @@ func fsServeCmd() *cobra.Command {
 			defer skyfs.RemovePIDFile()
 
 			server := skyfs.NewRPCServer(store, sockPath, filepath.Join(cfgDir, "drives.json"), cmd.Root().Version, nil)
+
+			// Register KV store handler for skykv.* RPC methods.
+			kvStore := kv.New(backend, id, kv.Config{Namespace: "default"}, nil)
+			server.RegisterHandler(kv.NewRPCHandler(kvStore))
+			go func() {
+				if err := kvStore.Run(ctx); err != nil {
+					slog.Warn("kv store failed", "error", err)
+				}
+			}()
+
 			fmt.Println(sockPath)
 
 			// Start HTTP RPC server
