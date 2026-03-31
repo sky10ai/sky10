@@ -9,9 +9,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.12
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.97.1
 	github.com/fsnotify/fsnotify v1.9.0
+	github.com/google/uuid v1.6.0
 	github.com/jotfs/fastcdc-go v0.2.0
 	github.com/klauspost/compress v1.18.4
 	github.com/libp2p/go-libp2p v0.48.0
+	github.com/libp2p/go-libp2p-pubsub v0.15.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/crypto v0.49.0
 	modernc.org/sqlite v1.46.1
@@ -44,8 +46,9 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/filecoin-project/go-clock v0.1.0 // indirect
 	github.com/flynn/noise v1.1.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
+	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
+	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/huin/goupnp v1.3.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/ipfs/go-cid v0.6.0 // indirect

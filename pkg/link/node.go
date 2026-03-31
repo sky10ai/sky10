@@ -53,6 +53,8 @@ type Node struct {
 	host     host.Host
 	peerID   peer.ID
 	registry *Registry
+	pubsub   *PubSub
+	channels *ChannelManager
 
 	mu      sync.RWMutex
 	running bool
@@ -104,6 +106,9 @@ func (n *Node) Capabilities() []Capability {
 	return n.registry.Capabilities()
 }
 
+// ChannelManager returns the channel manager. Nil before Run.
+func (n *Node) ChannelManager() *ChannelManager { return n.channels }
+
 // ConnectedPeers returns the peer IDs of all connected peers.
 func (n *Node) ConnectedPeers() []peer.ID {
 	if n.host == nil {
@@ -142,6 +147,15 @@ func (n *Node) Run(ctx context.Context) error {
 	}
 	n.host = h
 
+	// Initialize GossipSub for encrypted channels.
+	ps, err := newPubSub(ctx, n)
+	if err != nil {
+		h.Close()
+		return fmt.Errorf("initializing pubsub: %w", err)
+	}
+	n.pubsub = ps
+	n.channels = newChannelManager(n, ps)
+
 	// Register protocol handlers.
 	h.SetStreamHandler(SyncNotifyProtocol, n.handleSyncNotify)
 	if n.registry == nil {
@@ -165,6 +179,9 @@ func (n *Node) Run(ctx context.Context) error {
 	n.running = false
 	n.mu.Unlock()
 
+	if n.pubsub != nil {
+		n.pubsub.Close()
+	}
 	if err := h.Close(); err != nil {
 		return fmt.Errorf("closing host: %w", err)
 	}
