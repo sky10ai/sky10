@@ -40,7 +40,7 @@ func resolveNSID(ctx context.Context, backend adapter.Backend, nsName string, ns
 	nsID := deriveNSID(nsKey, nsName)
 
 	// Write meta.enc if it doesn't exist (for new-device discovery)
-	metaKey := "keys/namespaces/" + nsName + ".meta.enc"
+	metaKey := "keys/namespaces/" + nsKeyName(nsName) + ".meta.enc"
 	if _, err := backend.Head(ctx, metaKey); errors.Is(err, adapter.ErrNotFound) {
 		meta := nsidMeta{NSID: nsID, Name: nsName}
 		plain, _ := json.Marshal(meta)
@@ -60,13 +60,13 @@ func cacheNSID(nsName, nsID string) {
 	home, _ := os.UserHomeDir()
 	dir := filepath.Join(home, ".sky10", "fs", "nsids")
 	os.MkdirAll(dir, 0700)
-	os.WriteFile(filepath.Join(dir, nsName), []byte(nsID), 0600)
+	os.WriteFile(filepath.Join(dir, nsKeyName(nsName)), []byte(nsID), 0600)
 }
 
 // loadCachedNSID reads a locally cached nsID.
 func loadCachedNSID(nsName string) (string, error) {
 	home, _ := os.UserHomeDir()
-	data, err := os.ReadFile(filepath.Join(home, ".sky10", "fs", "nsids", nsName))
+	data, err := os.ReadFile(filepath.Join(home, ".sky10", "fs", "nsids", nsKeyName(nsName)))
 	if err != nil {
 		return "", err
 	}

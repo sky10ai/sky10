@@ -17,7 +17,7 @@ import (
 // allowing them to decrypt files in that namespace.
 func GrantAccess(ctx context.Context, backend adapter.Backend, identity *DeviceKey, namespace string, recipientPub ed25519.PublicKey) error {
 	// Load namespace key (unwrap with our private key)
-	nsKeyPath := "keys/namespaces/" + namespace + ".ns.enc"
+	nsKeyPath := "keys/namespaces/" + nsKeyName(namespace) + ".ns.enc"
 	rc, err := backend.Get(ctx, nsKeyPath)
 	if err != nil {
 		return fmt.Errorf("loading namespace key: %w", err)
@@ -40,7 +40,7 @@ func GrantAccess(ctx context.Context, backend adapter.Backend, identity *DeviceK
 	}
 
 	recipientID := shortID(recipientPub)
-	recipientKeyPath := "keys/namespaces/" + namespace + "." + recipientID + ".ns.enc"
+	recipientKeyPath := "keys/namespaces/" + nsKeyName(namespace) + "." + recipientID + ".ns.enc"
 
 	r := bytes.NewReader(recipientWrapped)
 	if err := backend.Put(ctx, recipientKeyPath, r, int64(len(recipientWrapped))); err != nil {
@@ -54,7 +54,7 @@ func GrantAccess(ctx context.Context, backend adapter.Backend, identity *DeviceK
 // the namespace key so the revoked party cannot decrypt future data.
 func RevokeAccess(ctx context.Context, backend adapter.Backend, identity *DeviceKey, namespace string, recipientPub ed25519.PublicKey) error {
 	recipientID := shortID(recipientPub)
-	recipientKeyPath := "keys/namespaces/" + namespace + "." + recipientID + ".ns.enc"
+	recipientKeyPath := "keys/namespaces/" + nsKeyName(namespace) + "." + recipientID + ".ns.enc"
 
 	// Delete recipient's wrapped key
 	err := backend.Delete(ctx, recipientKeyPath)
@@ -71,7 +71,7 @@ func RevokeAccess(ctx context.Context, backend adapter.Backend, identity *Device
 // tiny key metadata changes.
 func RotateNamespaceKey(ctx context.Context, backend adapter.Backend, identity *DeviceKey, namespace string) error {
 	// Load old namespace key
-	nsKeyPath := "keys/namespaces/" + namespace + ".ns.enc"
+	nsKeyPath := "keys/namespaces/" + nsKeyName(namespace) + ".ns.enc"
 	rc, err := backend.Get(ctx, nsKeyPath)
 	if err != nil {
 		return fmt.Errorf("loading namespace key: %w", err)
@@ -95,14 +95,14 @@ func RotateNamespaceKey(ctx context.Context, backend adapter.Backend, identity *
 // ListAuthorizedKeys returns the S3 keys of all per-identity namespace key
 // wrappings (excluding the primary .ns.enc file).
 func ListAuthorizedKeys(ctx context.Context, backend adapter.Backend, namespace string) ([]string, error) {
-	prefix := "keys/namespaces/" + namespace + "."
+	prefix := "keys/namespaces/" + nsKeyName(namespace) + "."
 	keys, err := backend.List(ctx, prefix)
 	if err != nil {
 		return nil, err
 	}
 
 	// Filter out the primary key file
-	primary := "keys/namespaces/" + namespace + ".ns.enc"
+	primary := "keys/namespaces/" + nsKeyName(namespace) + ".ns.enc"
 	var result []string
 	for _, k := range keys {
 		if k != primary && strings.HasSuffix(k, ".ns.enc") {

@@ -28,7 +28,7 @@ func TestGrantAndReadAccess(t *testing.T) {
 
 	// Verify Bob's wrapped key exists
 	bobID := shortID(bob.PublicKey)
-	keys, _ := backend.List(ctx, "keys/namespaces/shared."+bobID)
+	keys, _ := backend.List(ctx, "keys/namespaces/fs:shared."+bobID)
 	if len(keys) != 1 {
 		t.Errorf("expected 1 key for Bob, got %d", len(keys))
 	}

@@ -534,6 +534,12 @@ type StoreInfo struct {
 // getOrCreateNamespaceKey returns the namespace key, loading from S3 or
 // creating a new one if it doesn't exist yet. Successfully loaded keys
 // are cached locally in ~/.sky10/keys/ as a recovery backup.
+// nsKeyName returns the S3 key name for an fs namespace.
+// Prefixed with "fs:" to avoid collision with other modules (kv:, link:, etc).
+func nsKeyName(namespace string) string {
+	return "fs:" + namespace
+}
+
 func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) ([]byte, error) {
 	// Fast path: check in-memory cache under lock
 	s.mu.Lock()
@@ -547,11 +553,11 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 	// Multiple goroutines may race here for the same namespace — that's fine,
 	// they'll all compute the same key and the last write to the cache wins.
 
-	// Try device-specific key first (for joined devices), then the original path
+	keyName := nsKeyName(namespace)
 	deviceID := shortPubkeyID(s.identity.Address())
 	keyPaths := []string{
-		"keys/namespaces/" + namespace + "." + deviceID + ".ns.enc",
-		"keys/namespaces/" + namespace + ".ns.enc",
+		"keys/namespaces/" + keyName + "." + deviceID + ".ns.enc",
+		"keys/namespaces/" + keyName + ".ns.enc",
 	}
 
 	keyExists := false
@@ -598,10 +604,10 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 		// Re-upload to S3 so other devices can access it
 		wrapped, wErr := WrapNamespaceKey(cached, s.identity.PublicKey)
 		if wErr == nil {
-			keyPath := "keys/namespaces/" + namespace + ".ns.enc"
+			keyPath := "keys/namespaces/" + keyName + ".ns.enc"
 			r := bytes.NewReader(wrapped)
 			s.backend.Put(ctx, keyPath, r, int64(len(wrapped)))
-			s.wrapKeyForAllDevices(ctx, namespace, cached)
+			s.wrapKeyForAllDevices(ctx, keyName, cached)
 		}
 		s.mu.Lock()
 		s.nsKeys[namespace] = cached
@@ -619,14 +625,13 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 	if err != nil {
 		return nil, fmt.Errorf("wrapping namespace key: %w", err)
 	}
-	newKeyPath := "keys/namespaces/" + namespace + ".ns.enc"
+	newKeyPath := "keys/namespaces/" + keyName + ".ns.enc"
 	r := bytes.NewReader(wrapped)
 	if err := s.backend.Put(ctx, newKeyPath, r, int64(len(wrapped))); err != nil {
 		return nil, fmt.Errorf("storing namespace key: %w", err)
 	}
 
-	// Also wrap for all other registered devices so they can access new namespaces
-	s.wrapKeyForAllDevices(ctx, namespace, nsKey)
+	s.wrapKeyForAllDevices(ctx, keyName, nsKey)
 
 	s.mu.Lock()
 	s.nsKeys[namespace] = nsKey
@@ -663,9 +668,7 @@ func (s *Store) wrapKeyForAllDevices(ctx context.Context, namespace string, nsKe
 	}
 }
 
-// cacheNamespaceKey writes the raw namespace key to ~/.sky10/keys/<id>/<namespace>.key.
-// Scoped by identity so different devices on the same machine don't collide.
-// This is a local-only backup — if S3 gets corrupted, we can recover from here.
+// cacheNamespaceKey writes the raw namespace key to local disk.
 func (s *Store) cacheNamespaceKey(namespace string, key []byte) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -674,7 +677,7 @@ func (s *Store) cacheNamespaceKey(namespace string, key []byte) {
 	id := shortPubkeyID(s.identity.Address())
 	dir := filepath.Join(home, ".sky10", "fs", "keys", id)
 	os.MkdirAll(dir, 0700)
-	path := filepath.Join(dir, namespace+".key")
+	path := filepath.Join(dir, nsKeyName(namespace)+".key")
 	os.WriteFile(path, key, 0600)
 }
 
@@ -685,7 +688,7 @@ func (s *Store) loadCachedNamespaceKey(namespace string) ([]byte, error) {
 		return nil, err
 	}
 	id := shortPubkeyID(s.identity.Address())
-	path := filepath.Join(home, ".sky10", "fs", "keys", id, namespace+".key")
+	path := filepath.Join(home, ".sky10", "fs", "keys", id, nsKeyName(namespace)+".key")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

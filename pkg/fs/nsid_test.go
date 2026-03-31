@@ -79,7 +79,7 @@ func TestResolveNSID_WritesMeta(t *testing.T) {
 	keys, _ := backend.List(ctx, "keys/namespaces/")
 	found := false
 	for _, k := range keys {
-		if k == "keys/namespaces/TestDrive.meta.enc" {
+		if k == "keys/namespaces/fs:TestDrive.meta.enc" {
 			found = true
 		}
 	}

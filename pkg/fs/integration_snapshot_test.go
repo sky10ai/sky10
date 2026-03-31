@@ -60,11 +60,11 @@ func setupTwoDevices(t *testing.T) *twoDeviceEnv {
 	nsKey, _ := GenerateNamespaceKey()
 	wA, _ := WrapNamespaceKey(nsKey, idA.PublicKey)
 	wB, _ := WrapNamespaceKey(nsKey, idB.PublicKey)
-	backend.Put(ctx, "keys/namespaces/"+nsID+"."+devIDA+".ns.enc",
+	backend.Put(ctx, "keys/namespaces/fs:"+nsID+"."+devIDA+".ns.enc",
 		bytes.NewReader(wA), int64(len(wA)))
-	backend.Put(ctx, "keys/namespaces/"+nsID+"."+devIDB+".ns.enc",
+	backend.Put(ctx, "keys/namespaces/fs:"+nsID+"."+devIDB+".ns.enc",
 		bytes.NewReader(wB), int64(len(wB)))
-	backend.Put(ctx, "keys/namespaces/"+nsID+".ns.enc",
+	backend.Put(ctx, "keys/namespaces/fs:"+nsID+".ns.enc",
 		bytes.NewReader(wA), int64(len(wA)))
 
 	dirA := t.TempDir()
