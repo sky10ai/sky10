@@ -33,6 +33,7 @@ func main() {
 	root.AddCommand(commands.FsCmd())
 	root.AddCommand(commands.KvCmd())
 	root.AddCommand(commands.LinkCmd())
+	root.AddCommand(commands.UiCmd())
 
 	root.CompletionOptions.HiddenDefaultCmd = true
 
