@@ -15,15 +15,16 @@ import (
 
 // DeviceInfo represents a registered device in the S3 registry.
 type DeviceInfo struct {
-	PubKey   string `json:"pubkey"`
-	Name     string `json:"name"`            // hostname
-	Alias    string `json:"alias,omitempty"` // user-chosen display name (e.g. "Dev A", "Living Room Mac")
-	Joined   string `json:"joined"`
-	Platform string `json:"platform,omitempty"`
-	IP       string `json:"ip,omitempty"`
-	Location string `json:"location,omitempty"`
-	Version  string `json:"version,omitempty"`
-	LastSeen string `json:"last_seen,omitempty"`
+	PubKey     string   `json:"pubkey"`
+	Name       string   `json:"name"`            // hostname
+	Alias      string   `json:"alias,omitempty"` // user-chosen display name
+	Joined     string   `json:"joined"`
+	Platform   string   `json:"platform,omitempty"`
+	IP         string   `json:"ip,omitempty"`
+	Location   string   `json:"location,omitempty"`
+	Version    string   `json:"version,omitempty"`
+	LastSeen   string   `json:"last_seen,omitempty"`
+	Multiaddrs []string `json:"multiaddrs,omitempty"` // libp2p listen addresses
 }
 
 // RegisterDevice writes this device's info to the S3 registry.
@@ -81,6 +82,26 @@ func readDevice(ctx context.Context, backend adapter.Backend, key string) (*Devi
 		return nil, err
 	}
 	return &d, nil
+}
+
+// UpdateDeviceMultiaddrs updates the multiaddrs field on an existing device entry.
+func UpdateDeviceMultiaddrs(ctx context.Context, backend adapter.Backend, pubkey string, addrs []string) error {
+	id := shortPubkeyID(pubkey)
+	key := "devices/" + id + ".json"
+
+	existing, err := readDevice(ctx, backend, key)
+	if err != nil {
+		return fmt.Errorf("reading device: %w", err)
+	}
+
+	existing.Multiaddrs = addrs
+	existing.LastSeen = time.Now().UTC().Format(time.RFC3339)
+
+	data, err := json.MarshalIndent(existing, "", "  ")
+	if err != nil {
+		return err
+	}
+	return backend.Put(ctx, key, bytes.NewReader(data), int64(len(data)))
 }
 
 // ListDevices returns all registered devices from the S3 registry.

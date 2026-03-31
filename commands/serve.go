@@ -111,6 +111,26 @@ func ServeCmd() *cobra.Command {
 				}
 			}()
 
+			// After the link node starts, publish multiaddrs and auto-connect.
+			go func() {
+				// Wait for host to be ready.
+				for linkNode.Host() == nil {
+					time.Sleep(50 * time.Millisecond)
+				}
+				// Publish our multiaddrs to the S3 device registry.
+				addrs := make([]string, 0, len(linkNode.Host().Addrs()))
+				for _, a := range linkNode.Host().Addrs() {
+					addrs = append(addrs, a.String()+"/p2p/"+linkNode.PeerID().String())
+				}
+				if err := skyfs.UpdateDeviceMultiaddrs(ctx, backend, id.Address(), addrs); err != nil {
+					slog.Warn("failed to publish multiaddrs", "error", err)
+				} else {
+					slog.Info("published multiaddrs to device registry", "count", len(addrs))
+				}
+				// Auto-connect to own devices.
+				link.AutoConnect(ctx, linkNode, backend, id.Address())
+			}()
+
 			server.OnServe(func() {
 				fsHandler.StartDrives()
 				fsHandler.StartAutoApprove(ctx)

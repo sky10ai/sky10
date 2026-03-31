@@ -100,8 +100,8 @@ func (r *Resolver) resolveFromBucket(ctx context.Context, target peer.ID, addres
 		}
 
 		var dev struct {
-			PubKey string `json:"PubKey"`
-			IP     string `json:"IP"`
+			PubKey     string   `json:"pubkey"`
+			Multiaddrs []string `json:"multiaddrs,omitempty"`
 		}
 		if err := json.NewDecoder(rc).Decode(&dev); err != nil {
 			rc.Close()
@@ -109,20 +109,92 @@ func (r *Resolver) resolveFromBucket(ctx context.Context, target peer.ID, addres
 		}
 		rc.Close()
 
-		if dev.PubKey != address || dev.IP == "" {
+		if dev.PubKey != address {
 			continue
 		}
 
-		// Try common libp2p ports — we don't know the exact port.
-		// The peerstore will handle connection attempts.
-		addrs := make([]ma.Multiaddr, 0, 2)
-		if a, err := ma.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/0", dev.IP)); err == nil {
-			addrs = append(addrs, a)
-		}
-		if len(addrs) > 0 {
-			return &peer.AddrInfo{ID: target, Addrs: addrs}, nil
+		// Use published multiaddrs (includes peer ID).
+		if len(dev.Multiaddrs) > 0 {
+			addrs := make([]ma.Multiaddr, 0, len(dev.Multiaddrs))
+			for _, s := range dev.Multiaddrs {
+				if a, err := ma.NewMultiaddr(s); err == nil {
+					addrs = append(addrs, a)
+				}
+			}
+			if len(addrs) > 0 {
+				info, err := peer.AddrInfoFromP2pAddr(addrs[0])
+				if err != nil {
+					// Fall back to constructing manually.
+					return &peer.AddrInfo{ID: target, Addrs: addrs}, nil
+				}
+				// Collect all transport addrs.
+				for _, a := range addrs[1:] {
+					if ai, err := peer.AddrInfoFromP2pAddr(a); err == nil {
+						info.Addrs = append(info.Addrs, ai.Addrs...)
+					}
+				}
+				return info, nil
+			}
 		}
 	}
 
 	return nil, fmt.Errorf("device not found in bucket")
+}
+
+// AutoConnect discovers own devices from the S3 registry and connects
+// to them via their published multiaddrs.
+func AutoConnect(ctx context.Context, node *Node, backend adapter.Backend, selfAddr string) {
+	keys, err := backend.List(ctx, "devices/")
+	if err != nil {
+		node.logger.Warn("auto-connect: failed to list devices", "error", err)
+		return
+	}
+
+	for _, key := range keys {
+		rc, err := backend.Get(ctx, key)
+		if err != nil {
+			continue
+		}
+
+		var dev struct {
+			PubKey     string   `json:"pubkey"`
+			Name       string   `json:"name"`
+			Multiaddrs []string `json:"multiaddrs,omitempty"`
+		}
+		if err := json.NewDecoder(rc).Decode(&dev); err != nil {
+			rc.Close()
+			continue
+		}
+		rc.Close()
+
+		// Skip self.
+		if dev.PubKey == selfAddr || len(dev.Multiaddrs) == 0 {
+			continue
+		}
+
+		// Parse multiaddrs and connect.
+		for _, s := range dev.Multiaddrs {
+			maddr, err := ma.NewMultiaddr(s)
+			if err != nil {
+				continue
+			}
+			info, err := peer.AddrInfoFromP2pAddr(maddr)
+			if err != nil {
+				continue
+			}
+			if err := node.host.Connect(ctx, *info); err != nil {
+				node.logger.Debug("auto-connect failed",
+					"device", dev.Name,
+					"addr", s,
+					"error", err,
+				)
+				continue
+			}
+			node.logger.Info("auto-connected to device",
+				"device", dev.Name,
+				"peer_id", info.ID.String(),
+			)
+			break // connected via one addr, done with this device
+		}
+	}
 }
