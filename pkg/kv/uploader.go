@@ -20,6 +20,7 @@ type Uploader struct {
 	logger   *slog.Logger
 	notify   chan struct{}
 	onEvent  func(string, map[string]any)
+	onUpload func() // called after successful upload (for sync notifications)
 }
 
 // NewUploader creates a KV snapshot uploader.
@@ -111,5 +112,8 @@ func (u *Uploader) Upload(ctx context.Context) error {
 
 	u.logger.Info("kv snapshot uploaded", "keys", snap.Len(), "key", latestKey)
 	u.onEvent("kv.snapshot.uploaded", map[string]any{"keys": snap.Len()})
+	if u.onUpload != nil {
+		u.onUpload()
+	}
 	return nil
 }
