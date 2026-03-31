@@ -1,21 +1,12 @@
 package commands
 
 import (
-	"context"
+	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
-	"os/signal"
 	"path/filepath"
-	"syscall"
 	"text/tabwriter"
-	"time"
 
-	s3backend "github.com/sky10/sky10/pkg/adapter/s3"
-	"github.com/sky10/sky10/pkg/config"
-	skyfs "github.com/sky10/sky10/pkg/fs"
-	"github.com/sky10/sky10/pkg/kv"
-	skyrpc "github.com/sky10/sky10/pkg/rpc"
 	"github.com/spf13/cobra"
 )
 
@@ -27,78 +18,24 @@ func FsCmd() *cobra.Command {
 
 	cmd.AddCommand(fsInitCmd())
 	cmd.AddCommand(fsPutCmd())
-	cmd.AddCommand(fsGetCmd())
 	cmd.AddCommand(fsListCmd())
-	cmd.AddCommand(fsRemoveCmd())
 	cmd.AddCommand(fsInfoCmd())
 	cmd.AddCommand(fsServeCmd())
 	cmd.AddCommand(fsSyncCmd())
 	cmd.AddCommand(fsCompactCmd())
 	cmd.AddCommand(fsGCCmd())
 	cmd.AddCommand(fsVersionsCmd())
-	cmd.AddCommand(fsRestoreCmd())
-	cmd.AddCommand(fsSnapshotsCmd())
+	cmd.AddCommand(fsResetCmd())
 	cmd.AddCommand(fsDriveCmd())
 	cmd.AddCommand(fsInviteCmd())
 	cmd.AddCommand(fsJoinCmd())
 	cmd.AddCommand(fsApproveCmd())
-	cmd.AddCommand(fsResetCmd())
+	cmd.AddCommand(fsHealthCmd())
 
 	return cmd
 }
 
-func fsInitCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "init",
-		Short: "Initialize encrypted storage",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			bucket, _ := cmd.Flags().GetString("bucket")
-			region, _ := cmd.Flags().GetString("region")
-			endpoint, _ := cmd.Flags().GetString("endpoint")
-			pathStyle, _ := cmd.Flags().GetBool("path-style")
-
-			id, err := skyfs.GenerateDeviceKey()
-			if err != nil {
-				return err
-			}
-			idPath, err := config.DefaultIdentityPath()
-			if err != nil {
-				return err
-			}
-			os.MkdirAll(filepath.Dir(idPath), 0700)
-			if err := skyfs.SaveKeyWithDescription(id, idPath, "skyfs device key"); err != nil {
-				return err
-			}
-			cfg := &config.Config{
-				Bucket: bucket, Region: region, Endpoint: endpoint,
-				ForcePathStyle: pathStyle, IdentityFile: idPath,
-			}
-			if err := config.Save(cfg); err != nil {
-				return err
-			}
-			ctx := context.Background()
-			backend, err := makeBackend(ctx, cfg)
-			if err != nil {
-				return err
-			}
-			if err := skyfs.WriteSchema(ctx, backend); err != nil {
-				return err
-			}
-			// Register this device
-			skyfs.RegisterDevice(ctx, backend, id.Address(), skyfs.GetDeviceName(), cmd.Root().Version)
-
-			fmt.Printf("Initialized skyfs\n  Schema:   v%s\n  Identity: %s\n  Bucket:   %s\n",
-				skyfs.SchemaVersion, id.Address(), cfg.Bucket)
-			return nil
-		},
-	}
-	cmd.Flags().String("bucket", "", "S3 bucket name")
-	cmd.Flags().String("region", "us-east-1", "S3 region")
-	cmd.Flags().String("endpoint", "", "Custom S3 endpoint")
-	cmd.Flags().Bool("path-style", false, "Use path-style S3 addressing")
-	cmd.MarkFlagRequired("bucket")
-	return cmd
-}
+// --- All commands below talk to the running daemon via RPC ---
 
 func fsPutCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -106,77 +43,24 @@ func fsPutCmd() *cobra.Command {
 		Short: "Encrypt and store a file",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			f, err := os.Open(args[0])
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			info, _ := f.Stat()
-
 			remotePath, _ := cmd.Flags().GetString("as")
 			if remotePath == "" {
 				remotePath = filepath.Base(args[0])
 			}
-
-			ctx := context.Background()
-			store, err := openStore(ctx)
+			localPath, _ := filepath.Abs(args[0])
+			result, err := rpcCall("skyfs.put", map[string]string{
+				"path": remotePath, "local_path": localPath,
+			})
 			if err != nil {
 				return err
 			}
-
-			pr := skyfs.NewProgressReader(f, info.Size(), func(transferred, total int64) {
-				pct := int(float64(transferred) / float64(total) * 100)
-				fmt.Fprintf(os.Stderr, "\ruploading %s  %d%%  %s / %s",
-					remotePath, pct, formatSize(transferred), formatSize(total))
-			})
-			if err := store.Put(ctx, remotePath, pr); err != nil {
-				return err
-			}
-			fmt.Fprintf(os.Stderr, "\r\033[K")
-			fmt.Printf("stored %s (%s)\n", remotePath, formatSize(info.Size()))
+			var r struct{ Size int64 }
+			json.Unmarshal(result, &r)
+			fmt.Printf("stored %s (%s)\n", remotePath, formatSize(r.Size))
 			return nil
 		},
 	}
 	cmd.Flags().String("as", "", "Remote path")
-	return cmd
-}
-
-func fsGetCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "get <path>",
-		Short: "Retrieve and decrypt a file",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			out, _ := cmd.Flags().GetString("out")
-			if out == "" {
-				out = filepath.Base(args[0])
-			}
-			ctx := context.Background()
-			store, err := openStore(ctx)
-			if err != nil {
-				return err
-			}
-			f, err := os.Create(out)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			var downloaded int64
-			pw := skyfs.NewProgressWriter(f, 0, func(transferred, _ int64) {
-				downloaded = transferred
-				fmt.Fprintf(os.Stderr, "\rdownloading %s  %s", args[0], formatSize(transferred))
-			})
-			_, _ = store, pw
-			if err := fmt.Errorf("sky10 fs get: use the sync daemon for file downloads"); err != nil {
-				os.Remove(out)
-				return err
-			}
-			fmt.Fprintf(os.Stderr, "\r\033[K")
-			fmt.Printf("retrieved %s → %s (%s)\n", args[0], out, formatSize(downloaded))
-			return nil
-		},
-	}
-	cmd.Flags().String("out", "", "Output path")
 	return cmd
 }
 
@@ -189,49 +73,28 @@ func fsListCmd() *cobra.Command {
 			if len(args) > 0 {
 				prefix = args[0]
 			}
-			ctx := context.Background()
-			store, err := openStore(ctx)
+			result, err := rpcCall("skyfs.list", map[string]string{"prefix": prefix})
 			if err != nil {
 				return err
 			}
-			_, _ = store, prefix
-			entries, err := []skyfs.ManifestEntry{}, fmt.Errorf("sky10 fs ls: use the sync daemon for file listing")
-			if err != nil {
-				return err
+			var r struct {
+				Files []struct {
+					Path     string `json:"path"`
+					Size     int64  `json:"size"`
+					Modified string `json:"modified"`
+				} `json:"files"`
 			}
-			if len(entries) == 0 {
+			json.Unmarshal(result, &r)
+			if len(r.Files) == 0 {
 				fmt.Println("no files found")
 				return nil
 			}
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintf(w, "PATH\tSIZE\tMODIFIED\tNAMESPACE\n")
-			for _, e := range entries {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-					e.Path, formatSize(e.Size),
-					e.Modified.Format("2006-01-02 15:04"), e.Namespace)
+			fmt.Fprintf(w, "PATH\tSIZE\tMODIFIED\n")
+			for _, f := range r.Files {
+				fmt.Fprintf(w, "%s\t%s\t%s\n", f.Path, formatSize(f.Size), f.Modified)
 			}
 			w.Flush()
-			return nil
-		},
-	}
-}
-
-func fsRemoveCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "rm <path>",
-		Short: "Remove a file",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
-			store, err := openStore(ctx)
-			if err != nil {
-				return err
-			}
-			_ = store
-			if err := fmt.Errorf("sky10 fs rm: use the sync daemon for file removal"); err != nil {
-				return err
-			}
-			fmt.Printf("removed %s\n", args[0])
 			return nil
 		},
 	}
@@ -242,280 +105,61 @@ func fsInfoCmd() *cobra.Command {
 		Use:   "info",
 		Short: "Show configuration and stats",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
-			store, err := openStore(ctx)
+			result, err := rpcCall("skyfs.info", nil)
 			if err != nil {
 				return err
 			}
-			_ = store
-			info, err := (*skyfs.StoreInfo)(nil), fmt.Errorf("sky10 fs info: not yet implemented in snapshot-exchange architecture")
-			if err != nil {
-				return err
+			var r struct {
+				ID         string   `json:"id"`
+				FileCount  int      `json:"file_count"`
+				TotalSize  int64    `json:"total_size"`
+				Namespaces []string `json:"namespaces"`
 			}
+			json.Unmarshal(result, &r)
 			fmt.Printf("Identity:   %s\nFiles:      %d\nTotal size: %s\n",
-				info.ID, info.FileCount, formatSize(info.TotalSize))
-			if len(info.Namespaces) > 0 {
-				fmt.Printf("Namespaces: %v\n", info.Namespaces)
+				r.ID, r.FileCount, formatSize(r.TotalSize))
+			if len(r.Namespaces) > 0 {
+				fmt.Printf("Namespaces: %v\n", r.Namespaces)
 			}
 			return nil
 		},
 	}
-}
-
-func fsServeCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "serve",
-		Short: "Start JSON-RPC server",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			go func() {
-				sigCh := make(chan os.Signal, 1)
-				signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
-				<-sigCh
-				cancel()
-			}()
-
-			// Kill any existing daemon before starting
-			if err := skyfs.KillExistingDaemon(); err != nil {
-				slog.Info("daemon: " + err.Error())
-			}
-
-			sockPath, _ := cmd.Flags().GetString("socket")
-			if sockPath == "" {
-				sockPath = skyfs.DaemonSocketPath()
-			}
-			cfgDir, _ := config.Dir()
-
-			// Create store without schema validation — serve starts fast,
-			// validates lazily when commands actually hit S3.
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-			id, err := skyfs.LoadKey(cfg.IdentityFile)
-			if err != nil {
-				return err
-			}
-			backend, err := makeBackend(ctx, cfg)
-			if err != nil {
-				return err
-			}
-
-			// Warn if S3 is unreachable, but don't exit — the daemon must
-			// stay alive so Little Snitch / firewalls can be approved, and
-			// drives will retry on their own poll intervals.
-			if _, err := backend.List(ctx, "ops/"); err != nil {
-				slog.Warn("S3 credential check failed (will retry)", "error", err)
-			}
-
-			store := skyfs.New(backend, id)
-			store.SetClient("cli/" + cmd.Root().Version)
-
-			// Register this device in background (ip-api.com can be slow)
-			go skyfs.RegisterDevice(ctx, backend, id.Address(), skyfs.GetDeviceName(), cmd.Root().Version)
-
-			// SIGUSR1 dumps all goroutine stacks to daemon.log
-			skyfs.HandleDumpSignal(slog.Default())
-
-			// Kill any stale daemon from a previous session before starting.
-			// Without this, multiple daemons run simultaneously — all watching
-			// the same directory, all uploading, creating a feedback loop.
-			if err := skyfs.KillExistingDaemon(); err != nil {
-				slog.Warn("killed stale daemon", "error", err)
-			}
-			if err := skyfs.WritePIDFile(); err != nil {
-				return fmt.Errorf("writing PID file: %w", err)
-			}
-			defer skyfs.RemovePIDFile()
-
-			server := skyrpc.NewServer(sockPath, cmd.Root().Version, nil)
-
-			// Register skyfs.* handler
-			fsHandler := skyfs.NewFSHandler(store, server, filepath.Join(cfgDir, "drives.json"))
-			server.RegisterHandler(fsHandler)
-
-			// Register skykv.* handler
-			kvStore := kv.New(backend, id, kv.Config{Namespace: "default"}, nil)
-			server.RegisterHandler(kv.NewRPCHandler(kvStore))
-			go func() {
-				if err := kvStore.Run(ctx); err != nil {
-					slog.Warn("kv store failed", "error", err)
-				}
-			}()
-
-			// Auto-start drives and invite approval after socket binds
-			server.OnServe(func() {
-				fsHandler.StartDrives()
-				fsHandler.StartAutoApprove(ctx)
-			})
-
-			fmt.Println(sockPath)
-
-			// Start HTTP RPC server
-			httpPort, _ := cmd.Flags().GetInt("http-port")
-			go func() {
-				if err := server.ServeHTTP(ctx, httpPort); err != nil {
-					slog.Error("HTTP server failed", "error", err)
-				}
-			}()
-			time.Sleep(100 * time.Millisecond)
-			if addr := server.HTTPAddr(); addr != "" {
-				fmt.Printf("http://localhost%s\n", addr)
-			}
-
-			return server.Serve(ctx)
-		},
-	}
-	cmd.Flags().String("socket", "", "Socket path")
-	cmd.Flags().Int("http-port", skyrpc.DefaultHTTPPort, "HTTP RPC port")
-	return cmd
 }
 
 func fsSyncCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sync <directory>",
-		Short: "Sync a directory",
+		Short: "Sync a directory via the daemon",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir := args[0]
-			once, _ := cmd.Flags().GetBool("once")
-			ns, _ := cmd.Flags().GetString("namespace")
-			prefix, _ := cmd.Flags().GetString("prefix")
+			dir, _ := filepath.Abs(args[0])
 			poll, _ := cmd.Flags().GetInt("poll")
-
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			go func() {
-				sigCh := make(chan os.Signal, 1)
-				signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
-				<-sigCh
-				fmt.Fprintln(os.Stderr, "\nshutting down...")
-				cancel()
-			}()
-
-			store, err := openStore(ctx)
+			_, err := rpcCall("skyfs.syncStart", map[string]interface{}{
+				"dir": dir, "poll_seconds": poll,
+			})
 			if err != nil {
 				return err
 			}
-			ignoreMatcher := skyfs.NewIgnoreMatcher(dir)
-			syncCfg := skyfs.SyncConfig{LocalRoot: dir, IgnoreFunc: ignoreMatcher.IgnoreFunc()}
-			if ns != "" {
-				syncCfg.Namespaces = []string{ns}
-			}
-			if prefix != "" {
-				syncCfg.Prefixes = []string{prefix}
-			}
-
-			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-			daemonCfg := skyfs.DaemonConfig{SyncConfig: syncCfg, PollSeconds: poll}
-
-			if once {
-				daemon, err := skyfs.NewDaemonV2_5(store, daemonCfg, logger)
-				if err != nil {
-					return err
-				}
-				daemon.SyncOnce(ctx)
-				fmt.Println("synced")
-				return nil
-			}
-			daemon, err := skyfs.NewDaemonV2_5(store, daemonCfg, logger)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("syncing %s (poll every %ds, Ctrl+C to stop)\n", dir, poll)
-			return daemon.Run(ctx)
+			fmt.Printf("syncing %s (poll every %ds)\n", dir, poll)
+			return nil
 		},
 	}
-	cmd.Flags().Bool("once", false, "Sync once and exit")
-	cmd.Flags().String("namespace", "", "Sync only this namespace")
-	cmd.Flags().String("prefix", "", "Sync only paths with this prefix")
 	cmd.Flags().Int("poll", 30, "Poll interval in seconds")
 	return cmd
 }
 
 func fsCompactCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "compact",
-		Short: "Compact ops log into snapshot",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			keep, _ := cmd.Flags().GetInt("keep")
-			ctx := context.Background()
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-			id, err := skyfs.LoadKey(cfg.IdentityFile)
-			if err != nil {
-				return err
-			}
-			backend, err := makeBackend(ctx, cfg)
-			if err != nil {
-				return err
-			}
-			_, _, _ = backend, id, keep
-			fmt.Println("Compaction is no longer needed — snapshot-exchange architecture has no ops log.")
-			return nil
-		},
-	}
-	cmd.Flags().Int("keep", 3, "Number of snapshots to keep")
-	return cmd
-}
-
-func fsResetCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "reset",
-		Short: "Delete all ops and snapshots from S3 + local state (keeps device keys)",
+		Use:   "compact",
+		Short: "Compact ops log (no-op in snapshot-exchange)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
-			cfg, err := config.Load()
+			result, err := rpcCall("skyfs.compact", nil)
 			if err != nil {
 				return err
 			}
-			backend, err := makeBackend(ctx, cfg)
-			if err != nil {
-				return err
-			}
-
-			// Delete S3 ops
-			opsKeys, err := backend.List(ctx, "ops/")
-			if err != nil {
-				return fmt.Errorf("listing ops: %w", err)
-			}
-			for _, key := range opsKeys {
-				backend.Delete(ctx, key)
-			}
-			fmt.Printf("Deleted %d S3 ops\n", len(opsKeys))
-
-			// Delete S3 snapshots
-			snapKeys, err := backend.List(ctx, "manifests/snapshot-")
-			if err != nil {
-				return fmt.Errorf("listing snapshots: %w", err)
-			}
-			for _, key := range snapKeys {
-				backend.Delete(ctx, key)
-			}
-			fmt.Printf("Deleted %d S3 snapshots\n", len(snapKeys))
-
-			// Delete local drive state files
-			home, _ := os.UserHomeDir()
-			drivesDir := filepath.Join(home, ".sky10", "fs", "drives")
-			stateFiles := []string{"ops.jsonl", "outbox.jsonl", "state.json", "inbox.jsonl", "manifest.json"}
-			localDeleted := 0
-			entries, _ := os.ReadDir(drivesDir)
-			for _, d := range entries {
-				if !d.IsDir() {
-					continue
-				}
-				for _, f := range stateFiles {
-					p := filepath.Join(drivesDir, d.Name(), f)
-					if os.Remove(p) == nil {
-						localDeleted++
-					}
-				}
-			}
-			fmt.Printf("Deleted %d local state files\n", localDeleted)
-			fmt.Println("Device keys preserved. Ready for fresh start.")
+			var r map[string]string
+			json.Unmarshal(result, &r)
+			fmt.Println(r["status"])
 			return nil
 		},
 	}
@@ -527,21 +171,12 @@ func fsGCCmd() *cobra.Command {
 		Short: "Garbage collect orphaned blobs",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			ctx := context.Background()
-			cfg, err := config.Load()
+			_, err := rpcCall("skyfs.gc", map[string]bool{"dry_run": dryRun})
 			if err != nil {
 				return err
 			}
-			id, err := skyfs.LoadKey(cfg.IdentityFile)
-			if err != nil {
-				return err
-			}
-			backend, err := makeBackend(ctx, cfg)
-			if err != nil {
-				return err
-			}
-			_, _, _ = backend, id, dryRun
-			return fmt.Errorf("sky10 fs gc: use the daemon RPC (skyfs.gc) instead")
+			fmt.Println("gc complete")
+			return nil
 		},
 	}
 	cmd.Flags().Bool("dry-run", false, "Show what would be deleted")
@@ -554,25 +189,31 @@ func fsVersionsCmd() *cobra.Command {
 		Short: "Show file version history",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
-			store, err := openStore(ctx)
+			result, err := rpcCall("skyfs.versions", map[string]string{"path": args[0]})
 			if err != nil {
 				return err
 			}
-			versions, err := skyfs.ListVersions(ctx, store, args[0])
-			if err != nil {
-				return err
+			var r struct {
+				Versions []struct {
+					Timestamp string `json:"timestamp"`
+					Device    string `json:"device"`
+					Size      int64  `json:"size"`
+					Checksum  string `json:"checksum"`
+				} `json:"versions"`
 			}
-			if len(versions) == 0 {
+			json.Unmarshal(result, &r)
+			if len(r.Versions) == 0 {
 				fmt.Println("no versions found")
 				return nil
 			}
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 			fmt.Fprintf(w, "TIMESTAMP\tDEVICE\tSIZE\tCHECKSUM\n")
-			for _, v := range versions {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-					v.Timestamp.Format("2006-01-02 15:04:05"),
-					v.Device, formatSize(v.Size), v.Checksum[:12])
+			for _, v := range r.Versions {
+				cksum := v.Checksum
+				if len(cksum) > 12 {
+					cksum = cksum[:12]
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", v.Timestamp, v.Device, formatSize(v.Size), cksum)
 			}
 			w.Flush()
 			return nil
@@ -580,112 +221,49 @@ func fsVersionsCmd() *cobra.Command {
 	}
 }
 
-func fsRestoreCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "restore <path>",
-		Short: "Restore a file version",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			at, _ := cmd.Flags().GetString("at")
-			timestamp, err := time.Parse(time.RFC3339, at)
-			if err != nil {
-				return fmt.Errorf("invalid timestamp: %w (use RFC3339)", err)
-			}
-			out, _ := cmd.Flags().GetString("out")
-			if out == "" {
-				out = filepath.Base(args[0])
-			}
-			ctx := context.Background()
-			store, err := openStore(ctx)
-			if err != nil {
-				return err
-			}
-			f, err := os.Create(out)
-			if err != nil {
-				return err
-			}
-			if err := skyfs.RestoreVersion(ctx, store, args[0], timestamp, f); err != nil {
-				f.Close()
-				os.Remove(out)
-				return err
-			}
-			info, _ := f.Stat()
-			f.Close()
-			fmt.Printf("restored %s @ %s → %s (%s)\n",
-				args[0], timestamp.Format("2006-01-02 15:04:05"), out, formatSize(info.Size()))
-			return nil
-		},
-	}
-	cmd.Flags().String("at", "", "Restore at this timestamp (RFC3339)")
-	cmd.Flags().String("out", "", "Output path")
-	cmd.MarkFlagRequired("at")
-	return cmd
-}
-
-func fsSnapshotsCmd() *cobra.Command {
+func fsResetCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "snapshots",
-		Short: "List compacted snapshots",
+		Use:   "reset",
+		Short: "Delete all ops and snapshots from S3 + local state",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
-			store, err := openStore(ctx)
+			result, err := rpcCall("skyfs.reset", nil)
 			if err != nil {
 				return err
 			}
-			snapshots, err := skyfs.ListSnapshots(ctx, store)
-			if err != nil {
-				return err
-			}
-			if len(snapshots) == 0 {
-				fmt.Println("no snapshots")
-				return nil
-			}
-			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintf(w, "TIMESTAMP\tFILES\tSIZE\n")
-			for _, s := range snapshots {
-				fmt.Fprintf(w, "%s\t%d\t%s\n",
-					s.Timestamp.Format("2006-01-02 15:04:05"), s.FileCount, formatSize(s.TotalSize))
-			}
-			w.Flush()
+			var r map[string]interface{}
+			json.Unmarshal(result, &r)
+			fmt.Printf("Deleted %v S3 objects, %v local state files\n",
+				r["s3_deleted"], r["local_deleted"])
 			return nil
 		},
 	}
 }
 
-// --- shared helpers ---
-
-func openStore(ctx context.Context) (*skyfs.Store, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, err
+func fsHealthCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "health",
+		Short: "Show daemon health",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := rpcCall("skyfs.health", nil)
+			if err != nil {
+				return err
+			}
+			var r map[string]interface{}
+			json.Unmarshal(result, &r)
+			for _, k := range []string{"status", "version", "uptime", "drives", "drives_running", "outbox_pending", "last_activity_ago"} {
+				if v, ok := r[k]; ok {
+					fmt.Printf("%-20s %v\n", k+":", v)
+				}
+			}
+			return nil
+		},
 	}
-	id, err := skyfs.LoadKey(cfg.IdentityFile)
-	if err != nil {
-		return nil, fmt.Errorf("loading identity: %w", err)
-	}
-	backend, err := makeBackend(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	if err := skyfs.ValidateSchema(ctx, backend); err != nil {
-		return nil, err
-	}
-	store := skyfs.New(backend, id)
-	store.SetClient("cli")
-	return store, nil
-}
-
-func makeBackend(ctx context.Context, cfg *config.Config) (*s3backend.Backend, error) {
-	return s3backend.New(ctx, s3backend.Config{
-		Bucket: cfg.Bucket, Region: cfg.Region,
-		Endpoint: cfg.Endpoint, ForcePathStyle: cfg.ForcePathStyle,
-	})
 }
 
 func fsDriveCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "drive",
-		Short: "Manage sync drives (~/Cirrus/ folders)",
+		Short: "Manage sync drives",
 	}
 	cmd.AddCommand(fsDriveCreateCmd())
 	cmd.AddCommand(fsDriveListCmd())
@@ -699,22 +277,24 @@ func fsDriveCreateCmd() *cobra.Command {
 		Short: "Create a new sync drive",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
-			store, err := openStore(ctx)
-			if err != nil {
-				return err
-			}
-			cfgDir, _ := config.Dir()
-			dm := skyfs.NewDriveManager(store, filepath.Join(cfgDir, "drives.json"))
 			ns, _ := cmd.Flags().GetString("namespace")
 			if ns == "" {
 				ns = args[0]
 			}
-			drive, err := dm.CreateDrive(args[0], args[1], ns)
+			path, _ := filepath.Abs(args[1])
+			result, err := rpcCall("skyfs.driveCreate", map[string]string{
+				"name": args[0], "path": path, "namespace": ns,
+			})
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Created drive %q → %s (namespace: %s)\n", drive.Name, drive.LocalPath, drive.Namespace)
+			var r struct {
+				Name      string `json:"name"`
+				LocalPath string `json:"local_path"`
+				Namespace string `json:"namespace"`
+			}
+			json.Unmarshal(result, &r)
+			fmt.Printf("Created drive %q → %s (namespace: %s)\n", r.Name, r.LocalPath, r.Namespace)
 			return nil
 		},
 	}
@@ -727,22 +307,28 @@ func fsDriveListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List all drives",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
-			store, err := openStore(ctx)
+			result, err := rpcCall("skyfs.driveList", nil)
 			if err != nil {
 				return err
 			}
-			cfgDir, _ := config.Dir()
-			dm := skyfs.NewDriveManager(store, filepath.Join(cfgDir, "drives.json"))
-			drives := dm.ListDrives()
-			if len(drives) == 0 {
-				fmt.Println("No drives. Create one with: sky10 fs drive create <name>")
+			var r struct {
+				Drives []struct {
+					Name      string `json:"name"`
+					LocalPath string `json:"local_path"`
+					Namespace string `json:"namespace"`
+					Running   bool   `json:"running"`
+					Files     int    `json:"snapshot_files"`
+				} `json:"drives"`
+			}
+			json.Unmarshal(result, &r)
+			if len(r.Drives) == 0 {
+				fmt.Println("No drives. Create one with: sky10 fs drive create <name> <path>")
 				return nil
 			}
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintf(w, "NAME\tPATH\tNAMESPACE\n")
-			for _, d := range drives {
-				fmt.Fprintf(w, "%s\t%s\t%s\n", d.Name, d.LocalPath, d.Namespace)
+			fmt.Fprintf(w, "NAME\tPATH\tNAMESPACE\tFILES\tRUNNING\n")
+			for _, d := range r.Drives {
+				fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%v\n", d.Name, d.LocalPath, d.Namespace, d.Files, d.Running)
 			}
 			w.Flush()
 			return nil
@@ -752,19 +338,12 @@ func fsDriveListCmd() *cobra.Command {
 
 func fsDriveRemoveCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "remove <name>",
-		Short: "Remove a drive (does not delete local files)",
+		Use:   "remove <id>",
+		Short: "Remove a drive",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
-			store, err := openStore(ctx)
+			_, err := rpcCall("skyfs.driveRemove", map[string]string{"id": args[0]})
 			if err != nil {
-				return err
-			}
-			cfgDir, _ := config.Dir()
-			dm := skyfs.NewDriveManager(store, filepath.Join(cfgDir, "drives.json"))
-			id := "drive_" + args[0]
-			if err := dm.RemoveDrive(id); err != nil {
 				return err
 			}
 			fmt.Printf("Removed drive %q\n", args[0])
@@ -776,137 +355,17 @@ func fsDriveRemoveCmd() *cobra.Command {
 func fsInviteCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "invite",
-		Short: "Generate an invite code for another device",
+		Short: "Generate an invite code",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
+			result, err := rpcCall("skyfs.invite", nil)
 			if err != nil {
 				return err
 			}
-			id, err := skyfs.LoadKey(cfg.IdentityFile)
-			if err != nil {
-				return err
-			}
-			ctx := context.Background()
-			backend, err := makeBackend(ctx, cfg)
-			if err != nil {
-				return err
-			}
-
-			// Read S3 credentials from environment
-			accessKey := os.Getenv("S3_ACCESS_KEY_ID")
-			secretKey := os.Getenv("S3_SECRET_ACCESS_KEY")
-			if accessKey == "" || secretKey == "" {
-				return fmt.Errorf("S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY must be set")
-			}
-
-			code, err := skyfs.CreateInvite(ctx, backend, skyfs.InviteConfig{
-				Endpoint:       cfg.Endpoint,
-				Bucket:         cfg.Bucket,
-				Region:         cfg.Region,
-				AccessKey:      accessKey,
-				SecretKey:      secretKey,
-				ForcePathStyle: cfg.ForcePathStyle,
-				DevicePubKey:   id.Address(),
-			})
-			if err != nil {
-				return err
-			}
-
+			var r struct{ Code string }
+			json.Unmarshal(result, &r)
 			fmt.Println("\nShare this invite code with the other device:")
-			fmt.Println(code)
+			fmt.Println(r.Code)
 			fmt.Println("\nThe other device runs: sky10 fs join <code>")
-			return nil
-		},
-	}
-}
-
-func fsJoinCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "join <invite-code>",
-		Short: "Join a bucket using an invite code",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			invite, err := skyfs.DecodeInvite(args[0])
-			if err != nil {
-				return err
-			}
-
-			fmt.Printf("Joining bucket %s at %s\n", invite.Bucket, invite.Endpoint)
-
-			// Generate new key for this device
-			keyPath, err := config.DefaultIdentityPath()
-			if err != nil {
-				return err
-			}
-
-			var id *skyfs.DeviceKey
-			if _, err := os.Stat(keyPath); os.IsNotExist(err) {
-				id, err = skyfs.GenerateDeviceKey()
-				if err != nil {
-					return err
-				}
-				os.MkdirAll(filepath.Dir(keyPath), 0700)
-				if err := skyfs.SaveKeyWithDescription(id, keyPath, "skyfs device key"); err != nil {
-					return err
-				}
-				fmt.Printf("Generated key: %s\n", id.Address())
-			} else {
-				id, err = skyfs.LoadKey(keyPath)
-				if err != nil {
-					return err
-				}
-				fmt.Printf("Using existing key: %s\n", id.Address())
-			}
-
-			// Write config (WITHOUT reinitializing — don't overwrite existing schema)
-			cfg := &config.Config{
-				Bucket:         invite.Bucket,
-				Region:         invite.Region,
-				Endpoint:       invite.Endpoint,
-				ForcePathStyle: invite.ForcePathStyle,
-				IdentityFile:   keyPath,
-			}
-			if err := config.Save(cfg); err != nil {
-				return err
-			}
-
-			// Connect to S3 and submit our public key
-			ctx := context.Background()
-			os.Setenv("S3_ACCESS_KEY_ID", invite.AccessKey)
-			os.Setenv("S3_SECRET_ACCESS_KEY", invite.SecretKey)
-			backend, err := makeBackend(ctx, cfg)
-			if err != nil {
-				return err
-			}
-
-			if err := skyfs.SubmitJoin(ctx, backend, invite.InviteID, id.Address()); err != nil {
-				return fmt.Errorf("submitting join request: %w", err)
-			}
-
-			fmt.Println("Join request submitted. Waiting for approval...")
-			fmt.Println("The inviting device needs to run: sky10 fs approve")
-
-			// Poll for approval
-			for i := 0; i < 60; i++ { // wait up to 5 minutes
-				granted, err := skyfs.IsGranted(ctx, backend, invite.InviteID)
-				if err != nil {
-					return err
-				}
-				if granted {
-					// Register this device now that we're approved
-					skyfs.RegisterDevice(ctx, backend, id.Address(), skyfs.GetDeviceName(), cmd.Root().Version)
-					fmt.Println("Approved! You can now sync.")
-					return nil
-				}
-				fmt.Print(".")
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-time.After(5 * time.Second):
-				}
-			}
-
-			fmt.Println("\nTimed out waiting for approval. Run 'sky10 fs join' again later.")
 			return nil
 		},
 	}
@@ -917,82 +376,20 @@ func fsApproveCmd() *cobra.Command {
 		Use:   "approve",
 		Short: "Approve a pending join request",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
+			result, err := rpcCall("skyfs.approve", nil)
 			if err != nil {
 				return err
 			}
-			id, err := skyfs.LoadKey(cfg.IdentityFile)
-			if err != nil {
-				return err
-			}
-			ctx := context.Background()
-			backend, err := makeBackend(ctx, cfg)
-			if err != nil {
-				return err
-			}
-
-			// Find pending invites
-			inviteKeys, err := backend.List(ctx, "invites/")
-			if err != nil {
-				return err
-			}
-
-			// Group by invite ID and find ones with pubkey but no granted
-			inviteIDs := make(map[string]bool)
-			for _, k := range inviteKeys {
-				// Extract invite ID from path: invites/<id>/...
-				parts := splitInvitePath(k)
-				if parts != "" {
-					inviteIDs[parts] = true
-				}
-			}
-
-			approved := 0
-			for inviteID := range inviteIDs {
-				// Check if there's a pubkey submission
-				joinerAddr, err := skyfs.CheckJoinRequest(ctx, backend, inviteID)
-				if err != nil || joinerAddr == "" {
-					continue
-				}
-
-				// Check if already granted
-				granted, _ := skyfs.IsGranted(ctx, backend, inviteID)
-				if granted {
-					continue
-				}
-
-				fmt.Printf("Approving device: %s\n", joinerAddr)
-				if err := skyfs.ApproveJoin(ctx, backend, id, joinerAddr, inviteID); err != nil {
-					fmt.Fprintf(os.Stderr, "  error: %v\n", err)
-					continue
-				}
-				fmt.Println("  Approved!")
-				approved++
-
-				// Don't cleanup yet — joiner needs to poll and see the granted marker.
-				// Invite artifacts are small and harmless; cleanup can happen later.
-			}
-
-			if approved == 0 {
+			var r struct{ Approved int }
+			json.Unmarshal(result, &r)
+			if r.Approved == 0 {
 				fmt.Println("No pending join requests found.")
+			} else {
+				fmt.Printf("Approved %d device(s)\n", r.Approved)
 			}
 			return nil
 		},
 	}
-}
-
-// splitInvitePath extracts invite ID from "invites/<id>/..." path.
-func splitInvitePath(key string) string {
-	if len(key) < 9 || key[:8] != "invites/" {
-		return ""
-	}
-	rest := key[8:]
-	for i, c := range rest {
-		if c == '/' {
-			return rest[:i]
-		}
-	}
-	return ""
 }
 
 func formatSize(bytes int64) string {
