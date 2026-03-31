@@ -64,8 +64,8 @@ func TestIntegrationHTTPRPC(t *testing.T) {
 		if body["name"] != "sky10" {
 			t.Errorf("name = %q, want sky10", body["name"])
 		}
-		if body["version"] != "test/1.0.0" {
-			t.Errorf("version = %q, want test/1.0.0", body["version"])
+		if body["version"] != "test" {
+			t.Errorf("version = %q, want test", body["version"])
 		}
 		if body["rpc"] != "POST /rpc" {
 			t.Errorf("rpc = %q, want POST /rpc", body["rpc"])
