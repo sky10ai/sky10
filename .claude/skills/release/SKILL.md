@@ -29,6 +29,13 @@ If no version is provided, ask the user what version to release.
 If you tag before committing the bump, or build before tagging, or
 upload before rebuilding — you will produce a broken release.
 
+**NEVER modify a published release.** Once a tag is pushed and a GitHub
+release is created with assets, that version is FINAL. Do not re-upload
+binaries, do not delete and recreate tags, do not edit release assets.
+If something is wrong (wrong binary, missing assets, bad checksum), cut
+a new patch release (e.g. v0.26.1). Re-uploading breaks checksums for
+anyone who already downloaded.
+
 ## Steps
 
 ### 1. Bump versions in source
@@ -63,6 +70,15 @@ git push origin v$VERSION
 ### 4. Build binary
 
 Currently only building for macOS ARM64. TODO: add other platforms later.
+
+**Build the web frontend first.** The Go binary embeds `web/dist/` via
+`go:embed`. If you skip this step the web UI will not be served.
+
+```bash
+cd web && bun install --frozen-lockfile && bun run build && cd ..
+```
+
+Then build the Go binary:
 
 ```bash
 rm -f bin/sky10-darwin-arm64

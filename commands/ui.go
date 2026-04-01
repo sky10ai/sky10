@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -36,10 +37,16 @@ func uiOpenCmd() *cobra.Command {
 				return fmt.Errorf("parsing health response: %w", err)
 			}
 			if health.HTTPAddr == "" {
-				return fmt.Errorf("daemon HTTP server is not running (start with 'sky10 serve --http-port %d')", 9101)
+				return fmt.Errorf("daemon HTTP server is not running (start with 'sky10 serve')")
 			}
 
-			url := "http://localhost" + health.HTTPAddr
+			// http_addr comes as "[::]:9101" or ":9101" — extract port.
+			port := health.HTTPAddr
+			if i := strings.LastIndex(port, ":"); i >= 0 {
+				port = port[i:]
+			}
+
+			url := "http://localhost" + port
 			fmt.Println(url)
 			return openBrowser(url)
 		},

@@ -34,6 +34,12 @@ updated: 2026-03-26
     - `test(skyfs): add parallel chunk download coverage`
     - `docs(work): add log for parallel chunk downloads`
 
+## Releases
+- **NEVER modify a published release.** Once a tag is pushed and a GitHub
+  release is created, that version is final. If something is wrong, cut a
+  new patch release. Re-uploading assets or retagging breaks checksums for
+  anyone who already downloaded the release.
+
 ## Workflow
 - Inspect existing files before editing.
 - Explain what you changed and why.
