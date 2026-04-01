@@ -17,6 +17,13 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: web/package.json
+
+      - name: Build web frontend
+        run: cd web && bun install --frozen-lockfile && bun run build
+
       - run: make check
       - run: make test-skyfs-cli
 
@@ -30,6 +37,13 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: web/package.json
+
+      - name: Build web frontend
+        run: cd web && bun install --frozen-lockfile && bun run build
 
       - name: Install MinIO
         run: |
