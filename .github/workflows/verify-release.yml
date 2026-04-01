@@ -15,11 +15,6 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - uses: oven-sh/setup-bun@v2
-
-      - name: Build web frontend
-        run: cd web && bun install --frozen-lockfile && bun run build
-
       - name: Build from source
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
