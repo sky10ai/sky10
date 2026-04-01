@@ -67,12 +67,14 @@ func ServeCmd() *cobra.Command {
 				return err
 			}
 
-			deviceID := skyfs.ShortPubkeyID(bundle.Device.Address())
+			deviceAddr := bundle.Device.Address()
+			deviceID := skyfs.ShortPubkeyID(deviceAddr)
+			deviceHex := fmt.Sprintf("%x", bundle.Device.PublicKey)
 			store := skyfs.NewWithDevice(backend, bundle.Identity, deviceID)
-			store.SetDevicePubKey(bundle.Device.Address())
+			store.SetDevicePubKey(deviceHex)
 			store.SetClient("cli/" + cmd.Root().Version)
 
-			go skyfs.RegisterDevice(ctx, backend, bundle.Address(), bundle.Device.Address(), skyfs.GetDeviceName(), cmd.Root().Version)
+			go skyfs.RegisterDevice(ctx, backend, bundle.Address(), deviceAddr, skyfs.GetDeviceName(), cmd.Root().Version)
 			skyfs.HandleDumpSignal(slog.Default())
 
 			if err := skyfs.KillExistingDaemon(); err != nil {
@@ -131,7 +133,7 @@ func ServeCmd() *cobra.Command {
 				for _, a := range linkNode.Host().Addrs() {
 					addrs = append(addrs, a.String()+"/p2p/"+linkNode.PeerID().String())
 				}
-				if err := skyfs.UpdateDeviceMultiaddrs(ctx, backend, bundle.Device.Address(), addrs); err != nil {
+				if err := skyfs.UpdateDeviceMultiaddrs(ctx, backend, deviceAddr, addrs); err != nil {
 					slog.Warn("failed to publish multiaddrs", "error", err)
 				} else {
 					slog.Info("published multiaddrs to device registry", "count", len(addrs))
