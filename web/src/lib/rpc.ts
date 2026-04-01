@@ -95,6 +95,12 @@ export const skylink = {
   connect: (p: { address: string }) => rpc("skylink.connect", p),
 };
 
+// -- identity --
+export const identity = {
+  show: () => rpc<IdentityShow>("identity.show"),
+  devices: () => rpc<IdentityDevices>("identity.devices"),
+};
+
 // ---- Types matching actual daemon responses ----
 
 export interface HealthResult {
@@ -213,4 +219,22 @@ export interface Peer {
 export interface PeersResult {
   peers: Peer[];
   count: number;
+}
+
+export interface IdentityShow {
+  address: string;
+  device_address: string;
+  device_count: number;
+}
+
+export interface IdentityDevice {
+  public_key: string;
+  name: string;
+  added_at: string;
+  current: boolean;
+}
+
+export interface IdentityDevices {
+  identity: string;
+  devices: IdentityDevice[];
 }

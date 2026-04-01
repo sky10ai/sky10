@@ -1,6 +1,6 @@
 import { Icon } from "../components/Icon";
 import { STORAGE_EVENT_TYPES } from "../lib/events";
-import { skyfs, skylink } from "../lib/rpc";
+import { skyfs, skylink, identity } from "../lib/rpc";
 import { useRPC, truncAddr } from "../lib/useRPC";
 
 export default function Settings() {
@@ -9,6 +9,12 @@ export default function Settings() {
     refreshIntervalMs: 10_000,
   });
   const { data: linkStatus } = useRPC(() => skylink.status(), [], {
+    refreshIntervalMs: 10_000,
+  });
+  const { data: idInfo } = useRPC(() => identity.show(), [], {
+    refreshIntervalMs: 10_000,
+  });
+  const { data: idDevices } = useRPC(() => identity.devices(), [], {
     refreshIntervalMs: 10_000,
   });
   const { data: deviceData } = useRPC(() => skyfs.deviceList(), [], {
@@ -50,7 +56,7 @@ export default function Settings() {
                   Identity
                 </h3>
                 <p className="text-sm text-secondary">
-                  Your unique decentralized footprint on the sky10 network.
+                  Your unique identity across all devices.
                 </p>
               </div>
               <span className="bg-primary/10 text-primary px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest">
@@ -60,11 +66,11 @@ export default function Settings() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
-                  sky10 Address
+                  Identity Address
                 </label>
                 <div className="flex items-center gap-3 bg-surface-container p-4 rounded-lg group/addr cursor-pointer">
                   <code className="text-sm font-mono text-primary flex-1 break-all">
-                    {linkStatus?.address ?? "loading..."}
+                    {idInfo?.address ?? linkStatus?.address ?? "loading..."}
                   </code>
                   <Icon
                     name="content_copy"
@@ -72,10 +78,10 @@ export default function Settings() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
-                    Peer ID
+                    Device Peer ID
                   </label>
                   <p className="font-mono text-xs text-on-surface bg-surface-container-low p-2 rounded truncate">
                     {linkStatus?.peer_id
@@ -89,6 +95,14 @@ export default function Settings() {
                   </label>
                   <p className="text-xs text-on-surface bg-surface-container-low p-2 rounded">
                     {thisDevice?.name ?? "..."}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
+                    Authorized Devices
+                  </label>
+                  <p className="text-xs text-on-surface bg-surface-container-low p-2 rounded">
+                    {idInfo?.device_count ?? "..."}
                   </p>
                 </div>
               </div>
@@ -188,40 +202,60 @@ export default function Settings() {
           </section>
         )}
 
-        {/* Device info */}
-        {thisDevice && (
-          <section className="col-span-12 lg:col-span-8 bg-surface-container-lowest rounded-xl p-8 border border-transparent space-y-6">
-            <div className="space-y-1">
-              <h3 className="text-xl font-semibold flex items-center gap-2">
-                <Icon name="laptop_mac" className="text-tertiary" />
-                This Device
-              </h3>
-              <p className="text-sm text-secondary">
-                Local device details and network identity.
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              {[
-                { label: "Hostname", value: thisDevice.name },
-                { label: "Platform", value: thisDevice.platform },
-                { label: "IP Address", value: thisDevice.ip },
-                { label: "Location", value: thisDevice.location },
-                { label: "Version", value: thisDevice.version.split(" ")[0] },
-                {
-                  label: "Joined",
-                  value: new Date(thisDevice.joined).toLocaleDateString(),
-                },
-              ].map((item) => (
-                <div key={item.label} className="space-y-1">
-                  <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
-                    {item.label}
-                  </label>
-                  <p className="text-sm font-medium">{item.value}</p>
+        {/* Authorized devices (manifest) */}
+        <section className="col-span-12 lg:col-span-8 bg-surface-container-lowest rounded-xl p-8 border border-transparent space-y-6">
+          <div className="space-y-1">
+            <h3 className="text-xl font-semibold flex items-center gap-2">
+              <Icon name="devices" className="text-tertiary" />
+              Authorized Devices
+            </h3>
+            <p className="text-sm text-secondary">
+              Devices signed into this identity's manifest.
+            </p>
+          </div>
+          <div className="space-y-3">
+            {(idDevices?.devices ?? []).map((dev) => (
+              <div
+                key={dev.public_key}
+                className={`flex items-center justify-between p-4 rounded-lg ${
+                  dev.current
+                    ? "bg-primary/5 border border-primary/20"
+                    : "bg-surface-container"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Icon
+                    name={dev.current ? "laptop_mac" : "devices_other"}
+                    className={
+                      dev.current ? "text-primary" : "text-secondary"
+                    }
+                  />
+                  <div>
+                    <p className="text-sm font-medium">
+                      {dev.name}
+                      {dev.current && (
+                        <span className="ml-2 text-[10px] font-bold uppercase tracking-widest text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                          This Device
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-secondary font-mono">
+                      {dev.public_key.slice(0, 16)}...
+                    </p>
+                  </div>
                 </div>
-              ))}
-            </div>
-          </section>
-        )}
+                <p className="text-xs text-secondary">
+                  Added {dev.added_at.split("T")[0]}
+                </p>
+              </div>
+            ))}
+            {(idDevices?.devices ?? []).length === 0 && (
+              <p className="text-sm text-secondary py-4 text-center">
+                Loading device manifest...
+              </p>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );

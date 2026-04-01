@@ -22,10 +22,15 @@ export default function Network() {
 
   const peers = peersData?.peers ?? [];
 
-  // Build a device lookup by pubkey for enriching peer data
-  const deviceMap = new Map<string, Device>();
+  // Build a device lookup by peer ID extracted from multiaddrs
+  const deviceByPeerID = new Map<string, Device>();
   for (const d of deviceData?.devices ?? []) {
-    deviceMap.set(d.pubkey, d);
+    for (const ma of d.multiaddrs ?? []) {
+      const match = ma.match(/\/p2p\/(.+)$/);
+      if (match?.[1]) {
+        deviceByPeerID.set(match[1], d);
+      }
+    }
   }
 
   return (
@@ -113,7 +118,7 @@ export default function Network() {
               const angle = (i / Math.max(peers.length, 1)) * 2 * Math.PI - Math.PI / 2;
               const x = 50 + 30 * Math.cos(angle);
               const y = 50 + 30 * Math.sin(angle);
-              const device = deviceMap.get(peer.address);
+              const device = deviceByPeerID.get(peer.peer_id);
               return (
                 <div
                   key={peer.peer_id}
@@ -124,7 +129,7 @@ export default function Network() {
                     <Icon name="laptop_mac" className="text-secondary" />
                   </div>
                   <div className="px-2 py-1 bg-surface-container-high rounded-full text-[10px] font-medium whitespace-nowrap">
-                    {device?.name ?? truncAddr(peer.address)}
+                    {device?.name ?? truncAddr(peer.peer_id)}
                   </div>
                 </div>
               );
@@ -160,7 +165,7 @@ export default function Network() {
             </h4>
             <div className="space-y-6">
               {peers.map((peer) => {
-                const device = deviceMap.get(peer.address);
+                const device = deviceByPeerID.get(peer.peer_id);
                 return (
                   <div key={peer.peer_id} className="flex items-start gap-4">
                     <div className="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center shrink-0">
