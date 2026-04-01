@@ -60,11 +60,6 @@ export function Sidebar() {
 
       {/* Bottom section */}
       <div className="mt-auto p-6 space-y-4">
-        <button className="w-full py-3 px-4 lithic-gradient text-white rounded-full font-semibold text-sm shadow-lg shadow-primary/20 flex items-center justify-center gap-2 hover:opacity-90 transition-all active:scale-95">
-          <Icon name="add" className="text-sm" />
-          New Agent
-        </button>
-
         <div className="pt-4 border-t border-outline-variant/10">
           <div className="flex items-center justify-between text-[11px] font-mono text-secondary">
             <div className="flex items-center gap-2">

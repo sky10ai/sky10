@@ -101,6 +101,8 @@ func (s *FSHandler) Dispatch(ctx context.Context, method string, params json.Raw
 		result, err = s.rpcGet(ctx, params)
 	case "skyfs.remove":
 		result, err = s.rpcRemove(ctx, params)
+	case "skyfs.mkdir":
+		result, err = s.rpcMkdir(ctx, params)
 	case "skyfs.status":
 		result, err = s.rpcStatus(ctx)
 	case "skyfs.versions":

@@ -28,7 +28,13 @@ type getResult struct {
 }
 
 type removeParams struct {
-	Path string `json:"path"`
+	Drive string `json:"drive"`
+	Path  string `json:"path"`
+}
+
+type mkdirParams struct {
+	Drive string `json:"drive"`
+	Path  string `json:"path"`
 }
 
 type versionsParams struct {
@@ -92,19 +98,77 @@ func (s *FSHandler) rpcGet(ctx context.Context, params json.RawMessage) (interfa
 	return getResult{Size: stat.Size()}, nil
 }
 
-func (s *FSHandler) rpcRemove(ctx context.Context, params json.RawMessage) (interface{}, error) {
+func (s *FSHandler) rpcRemove(_ context.Context, params json.RawMessage) (interface{}, error) {
 	var p removeParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
-
-	// TODO(snapshot-exchange): rpcRemove needs local CRDT + outbox
-	if err := fmt.Errorf("remove RPC not yet implemented in snapshot-exchange architecture"); err != nil {
-		return nil, err
+	if p.Drive == "" || p.Path == "" {
+		return nil, fmt.Errorf("drive and path are required")
 	}
 
-	s.server.Emit("file.changed", map[string]string{"path": p.Path, "type": "delete"})
+	drive := s.findDrive(p.Drive)
+	if drive == nil {
+		return nil, fmt.Errorf("drive %q not found", p.Drive)
+	}
+
+	target := filepath.Join(drive.LocalPath, filepath.Clean(p.Path))
+	if !filepath.HasPrefix(target, drive.LocalPath) {
+		return nil, fmt.Errorf("path escapes drive root")
+	}
+
+	if err := os.RemoveAll(target); err != nil {
+		return nil, fmt.Errorf("removing %s: %w", p.Path, err)
+	}
+
+	s.server.Emit("file.changed", map[string]string{"drive": p.Drive, "path": p.Path, "type": "delete"})
 	return map[string]string{"status": "ok"}, nil
+}
+
+func (s *FSHandler) rpcMkdir(_ context.Context, params json.RawMessage) (interface{}, error) {
+	var p mkdirParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.Drive == "" || p.Path == "" {
+		return nil, fmt.Errorf("drive and path are required")
+	}
+
+	drive := s.findDrive(p.Drive)
+	if drive == nil {
+		return nil, fmt.Errorf("drive %q not found", p.Drive)
+	}
+
+	target := filepath.Join(drive.LocalPath, filepath.Clean(p.Path))
+	if !filepath.HasPrefix(target, drive.LocalPath) {
+		return nil, fmt.Errorf("path escapes drive root")
+	}
+
+	if err := os.MkdirAll(target, 0755); err != nil {
+		return nil, fmt.Errorf("creating directory %s: %w", p.Path, err)
+	}
+
+	s.server.Emit("file.changed", map[string]string{"drive": p.Drive, "path": p.Path, "type": "mkdir"})
+	return map[string]string{"status": "ok"}, nil
+}
+
+// findDrive looks up a drive by ID or name.
+func (s *FSHandler) findDrive(nameOrID string) *Drive {
+	// Try by ID first (e.g. "drive_Test").
+	if d := s.driveManager.GetDrive(nameOrID); d != nil {
+		return d
+	}
+	// Fall back to "drive_<name>" convention.
+	if d := s.driveManager.GetDrive("drive_" + nameOrID); d != nil {
+		return d
+	}
+	// Search by name.
+	for _, d := range s.driveManager.ListDrives() {
+		if d.Name == nameOrID {
+			return d
+		}
+	}
+	return nil
 }
 
 func (s *FSHandler) rpcVersions(ctx context.Context, params json.RawMessage) (interface{}, error) {

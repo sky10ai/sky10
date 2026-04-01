@@ -64,6 +64,10 @@ export const skyfs = {
   syncStatus: (p: { drive: string }) =>
     rpc<SyncStatus>("skyfs.syncStatus", p),
   deviceList: () => rpc<DeviceListResult>("skyfs.deviceList"),
+  remove: (p: { drive: string; path: string }) =>
+    rpc<{ status: string }>("skyfs.remove", p),
+  mkdir: (p: { drive: string; path: string }) =>
+    rpc<{ status: string }>("skyfs.mkdir", p),
   invite: () => rpc<InviteResult>("skyfs.invite"),
   approve: (p: { device_id: string }) => rpc("skyfs.approve", p),
   status: () => rpc<StatusResult>("skyfs.status"),
