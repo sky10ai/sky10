@@ -27,8 +27,10 @@ all: check test build
 
 build: build-web build-go
 
+BUN := $(shell command -v bun 2>/dev/null || echo "$(HOME)/.bun/bin/bun")
+
 build-web:
-	cd web && bun install --frozen-lockfile && bun run build
+	cd web && $(BUN) install --frozen-lockfile && $(BUN) run build
 
 build-go:
 	go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o bin/sky10 .
