@@ -2,6 +2,7 @@
 
 | Date | Title | Summary |
 |------|-------|---------|
+| 31 | [Web Command Center](31-Web-Command-Center.md) | React web UI served by Go daemon — drives, file browser, KV CRUD, devices, network graph, settings, Cmd+K palette. Deterministic full-stack builds. v0.26.0–v0.26.3 |
 | 30 | [Snapshot Exchange Architecture](30-Snapshot-Exchange-Architecture.md) | Replace S3 ops log with per-device snapshot exchange — upload-then-record, baseline diffing, no tombstones, per-namespace blob paths, conflict copies, 497 tests |
 | 27 | [Delete Propagation & Cursor Fix](27-Delete-Propagation-And-Cursor-Fix.md) | Fix compaction losing delete propagation (bidirectional catch-up), fix `last_remote_op: 0` display bug in driveList RPC |
 | 26 | [Snapshot Catch-Up & Poller Fix](26-Snapshot-Catchup-And-Poller-Fix.md) | Close CRDT convergence gap (snapshot merge on startup), fix poller dedup blind spot (chunk-awareness), S3 browser delete |
