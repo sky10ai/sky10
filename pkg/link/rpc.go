@@ -105,11 +105,15 @@ func (h *RPCHandler) rpcCall(ctx context.Context, params json.RawMessage) (inter
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err), true
 	}
-	pid, err := PeerIDFromAddress(p.Address)
-	if err != nil {
-		return nil, err, true
+	// Resolve address to peer info, then call.
+	if h.resolver == nil {
+		return nil, fmt.Errorf("resolver not configured"), true
 	}
-	result, err := h.node.Call(ctx, pid, p.Method, p.Params)
+	info, err := h.resolver.Resolve(ctx, p.Address)
+	if err != nil {
+		return nil, fmt.Errorf("resolving %s: %w", p.Address, err), true
+	}
+	result, err := h.node.Call(ctx, info.ID, p.Method, p.Params)
 	if err != nil {
 		return nil, err, true
 	}
@@ -163,11 +167,7 @@ func (h *RPCHandler) rpcPeers() (interface{}, error, bool) {
 	connected := h.node.ConnectedPeers()
 	peers := make([]peerInfo, 0, len(connected))
 	for _, pid := range connected {
-		info := peerInfo{PeerID: pid.String()}
-		if addr, err := AddressFromPeerID(pid); err == nil {
-			info.Address = addr
-		}
-		peers = append(peers, info)
+		peers = append(peers, peerInfo{PeerID: pid.String()})
 	}
 	return peersResult{
 		Peers: peers,

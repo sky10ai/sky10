@@ -7,23 +7,22 @@ import (
 	"time"
 
 	dht "github.com/libp2p/go-libp2p-kad-dht"
-	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 // AgentRecord is the data published to the DHT. Other agents resolve this
 // to learn capabilities and connectivity info.
 type AgentRecord struct {
-	Address      string       `json:"address"`
-	PeerID       string       `json:"peer_id"`
+	Address      string       `json:"address"`        // identity sky10q...
+	DevicePeerID string       `json:"device_peer_id"` // this device's peer ID
 	Capabilities []Capability `json:"capabilities"`
 	Multiaddrs   []string     `json:"multiaddrs"`
 	Version      string       `json:"version"`
 	UpdatedAt    time.Time    `json:"updated_at"`
 }
 
-// dhtKey returns the DHT key for an agent record.
-func dhtKey(id peer.ID) string {
-	return "/skylink/agent/" + id.String()
+// dhtKey returns the DHT key for an agent record, keyed by identity address.
+func dhtKey(address string) string {
+	return "/skylink/agent/" + address
 }
 
 // initDHT initializes the Kademlia DHT on the node. Only called in
@@ -58,7 +57,7 @@ func (n *Node) PublishRecord(ctx context.Context) error {
 
 	rec := AgentRecord{
 		Address:      n.Address(),
-		PeerID:       n.peerID.String(),
+		DevicePeerID: n.peerID.String(),
 		Capabilities: caps,
 		Multiaddrs:   addrs,
 		Version:      n.version,
@@ -70,26 +69,16 @@ func (n *Node) PublishRecord(ctx context.Context) error {
 		return fmt.Errorf("marshaling agent record: %w", err)
 	}
 
-	return n.dht.PutValue(ctx, dhtKey(n.peerID), data)
+	return n.dht.PutValue(ctx, dhtKey(n.Address()), data)
 }
 
-// ResolveRecord resolves another agent's record from the DHT by sky10 address.
+// ResolveRecord resolves another agent's record from the DHT by identity address.
 func (n *Node) ResolveRecord(ctx context.Context, address string) (*AgentRecord, error) {
 	if n.dht == nil {
 		return nil, fmt.Errorf("DHT not initialized (network mode required)")
 	}
 
-	pid, err := PeerIDFromAddress(address)
-	if err != nil {
-		return nil, err
-	}
-
-	return n.resolveByPeerID(ctx, pid)
-}
-
-// resolveByPeerID resolves an agent record by peer ID.
-func (n *Node) resolveByPeerID(ctx context.Context, id peer.ID) (*AgentRecord, error) {
-	data, err := n.dht.GetValue(ctx, dhtKey(id))
+	data, err := n.dht.GetValue(ctx, dhtKey(address))
 	if err != nil {
 		return nil, fmt.Errorf("resolving agent record: %w", err)
 	}

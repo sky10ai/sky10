@@ -16,7 +16,7 @@ func generateTestNode(t *testing.T) *Node {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := New(k, Config{Mode: Private}, nil)
+	n, err := NewFromKey(k, Config{Mode: Private}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

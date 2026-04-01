@@ -81,7 +81,7 @@ func (cm *ChannelManager) CreateChannel(ctx context.Context, name string) (*Chan
 
 // JoinChannel joins an existing channel using a wrapped key.
 func (cm *ChannelManager) JoinChannel(ctx context.Context, id string, wrappedKey []byte) (*Channel, error) {
-	key, err := skykey.UnwrapKey(wrappedKey, cm.node.identity.PrivateKey)
+	key, err := skykey.UnwrapKey(wrappedKey, cm.node.bundle.Identity.PrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("unwrapping channel key: %w", err)
 	}

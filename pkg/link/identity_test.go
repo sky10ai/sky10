@@ -3,7 +3,6 @@ package link
 import (
 	"testing"
 
-	"github.com/libp2p/go-libp2p/core/peer"
 	skykey "github.com/sky10/sky10/pkg/key"
 )
 
@@ -35,54 +34,18 @@ func TestLibp2pPrivKeyPublicOnly(t *testing.T) {
 	}
 }
 
-func TestPeerIDRoundTrip(t *testing.T) {
+func TestPeerIDFromKey(t *testing.T) {
 	t.Parallel()
 	k, err := skykey.Generate()
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	// key -> peer ID -> address -> peer ID
-	id1, err := PeerIDFromKey(k)
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr, err := AddressFromPeerID(id1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if addr != k.Address() {
-		t.Fatalf("address mismatch: got %s, want %s", addr, k.Address())
-	}
-	id2, err := PeerIDFromAddress(addr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if id1 != id2 {
-		t.Fatalf("peer ID mismatch: %s != %s", id1, id2)
-	}
-}
-
-func TestPeerIDFromAddress(t *testing.T) {
-	t.Parallel()
-	k, err := skykey.Generate()
-	if err != nil {
-		t.Fatal(err)
-	}
-	id, err := PeerIDFromAddress(k.Address())
+	id, err := PeerIDFromKey(k)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if id == "" {
 		t.Fatal("expected non-empty peer ID")
-	}
-}
-
-func TestPeerIDFromInvalidAddress(t *testing.T) {
-	t.Parallel()
-	_, err := PeerIDFromAddress("invalid")
-	if err == nil {
-		t.Fatal("expected error for invalid address")
 	}
 }
 
@@ -104,13 +67,5 @@ func TestPeerIDMatchesPublicKey(t *testing.T) {
 	pub, _ := Libp2pPubKey(k.PublicKey)
 	if !id.MatchesPublicKey(pub) {
 		t.Fatal("peer ID does not match public key")
-	}
-}
-
-func TestAddressFromPeerIDInvalidID(t *testing.T) {
-	t.Parallel()
-	_, err := AddressFromPeerID(peer.ID("garbage"))
-	if err == nil {
-		t.Fatal("expected error for invalid peer ID")
 	}
 }

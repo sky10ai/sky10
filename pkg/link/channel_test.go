@@ -128,7 +128,7 @@ func TestChannelNonMemberCantDecrypt(t *testing.T) {
 
 	// n3 tries to join with a WRONG key (generate a random one).
 	fakeKey, _ := skykey.GenerateSymmetricKey()
-	fakeWrapped, _ := skykey.WrapKey(fakeKey, n3.identity.PublicKey)
+	fakeWrapped, _ := skykey.WrapKey(fakeKey, n3.Bundle().Identity.PublicKey)
 	cm3 := n3.ChannelManager()
 	_, err = cm3.JoinChannel(context.Background(), ch.ID, fakeWrapped)
 	if err != nil {

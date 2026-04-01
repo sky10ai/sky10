@@ -122,18 +122,18 @@ func TestTwoNodeUnknownMethod(t *testing.T) {
 	}
 }
 
-func TestCallPeerAddress(t *testing.T) {
+func TestCallPeerID(t *testing.T) {
 	t.Parallel()
 	n1 := generateTestNode(t)
 	n2 := generateTestNode(t)
 	startTestNode(t, n1)
 	startTestNode(t, n2)
 
-	// Register a handler that returns the caller's address.
+	// Register a handler that returns the caller's peer ID.
 	n2.RegisterCapability(
 		Capability{Name: "whoami"},
 		func(ctx context.Context, req *PeerRequest) (interface{}, error) {
-			return map[string]string{"address": req.Address}, nil
+			return map[string]string{"peer_id": req.PeerID.String()}, nil
 		},
 	)
 
@@ -149,8 +149,8 @@ func TestCallPeerAddress(t *testing.T) {
 
 	var got map[string]string
 	json.Unmarshal(result, &got)
-	if got["address"] != n1.Address() {
-		t.Fatalf("got address %q, want %q", got["address"], n1.Address())
+	if got["peer_id"] != n1.PeerID().String() {
+		t.Fatalf("got peer_id %q, want %q", got["peer_id"], n1.PeerID().String())
 	}
 }
 

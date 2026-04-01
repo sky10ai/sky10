@@ -43,30 +43,3 @@ func PeerIDFromKey(k *skykey.Key) (peer.ID, error) {
 	}
 	return id, nil
 }
-
-// PeerIDFromAddress derives a libp2p peer ID from a sky10q... address.
-func PeerIDFromAddress(address string) (peer.ID, error) {
-	k, err := skykey.ParseAddress(address)
-	if err != nil {
-		return "", err
-	}
-	return PeerIDFromKey(k)
-}
-
-// AddressFromPeerID extracts the sky10q... address from a libp2p peer ID.
-// Only works for Ed25519-based peer IDs.
-func AddressFromPeerID(id peer.ID) (string, error) {
-	pub, err := id.ExtractPublicKey()
-	if err != nil {
-		return "", fmt.Errorf("extracting public key from peer ID: %w", err)
-	}
-	raw, err := pub.Raw()
-	if err != nil {
-		return "", fmt.Errorf("extracting raw public key: %w", err)
-	}
-	if len(raw) != ed25519.PublicKeySize {
-		return "", fmt.Errorf("unexpected public key size: %d", len(raw))
-	}
-	k := skykey.FromPublicKey(ed25519.PublicKey(raw))
-	return k.Address(), nil
-}

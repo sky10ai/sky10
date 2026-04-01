@@ -12,6 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
+	"github.com/sky10/sky10/pkg/id"
 	skykey "github.com/sky10/sky10/pkg/key"
 )
 
@@ -47,9 +48,9 @@ func (c Config) listenAddrs() []string {
 // Node is the skylink P2P communication node. It wraps a libp2p host
 // and manages connections to other sky10 agents.
 type Node struct {
-	identity *skykey.Key
-	config   Config
-	logger   *slog.Logger
+	bundle *id.Bundle
+	config Config
+	logger *slog.Logger
 
 	host     host.Host
 	peerID   peer.ID
@@ -69,27 +70,47 @@ type Node struct {
 }
 
 // New creates a Node but does not start it. Call Run to start the libp2p host.
-func New(identity *skykey.Key, config Config, logger *slog.Logger) (*Node, error) {
+// The bundle's Device key is used for libp2p transport (peer ID), while the
+// Identity key provides the external sky10q... address.
+func New(bundle *id.Bundle, config Config, logger *slog.Logger) (*Node, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	pid, err := PeerIDFromKey(identity)
+	pid, err := PeerIDFromKey(bundle.Device)
 	if err != nil {
 		return nil, fmt.Errorf("deriving peer ID: %w", err)
 	}
 	return &Node{
-		identity: identity,
-		config:   config,
-		logger:   logger,
-		peerID:   pid,
+		bundle: bundle,
+		config: config,
+		logger: logger,
+		peerID: pid,
 	}, nil
+}
+
+// NewFromKey creates a Node from a single key (both identity and device).
+// This is a convenience for tests that don't need identity separation.
+func NewFromKey(k *skykey.Key, config Config, logger *slog.Logger) (*Node, error) {
+	manifest := id.NewManifest(k)
+	manifest.AddDevice(k.PublicKey, "test")
+	if err := manifest.Sign(k.PrivateKey); err != nil {
+		return nil, err
+	}
+	bundle, err := id.New(k, k, manifest)
+	if err != nil {
+		return nil, err
+	}
+	return New(bundle, config, logger)
 }
 
 // PeerID returns this node's libp2p peer ID.
 func (n *Node) PeerID() peer.ID { return n.peerID }
 
-// Address returns this node's sky10q... address.
-func (n *Node) Address() string { return n.identity.Address() }
+// Address returns this node's identity sky10q... address.
+func (n *Node) Address() string { return n.bundle.Address() }
+
+// Bundle returns the identity bundle.
+func (n *Node) Bundle() *id.Bundle { return n.bundle }
 
 // Host returns the underlying libp2p host. Nil before Run.
 func (n *Node) Host() host.Host { return n.host }
@@ -129,9 +150,9 @@ func (n *Node) ConnectedPeers() []peer.ID {
 
 // Run starts the libp2p host and blocks until ctx is cancelled.
 func (n *Node) Run(ctx context.Context) error {
-	privKey, err := Libp2pPrivKey(n.identity)
+	privKey, err := Libp2pPrivKey(n.bundle.Device)
 	if err != nil {
-		return fmt.Errorf("converting identity: %w", err)
+		return fmt.Errorf("converting device key: %w", err)
 	}
 
 	opts := []libp2p.Option{

@@ -13,6 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sky10/sky10/pkg/config"
 	skyfs "github.com/sky10/sky10/pkg/fs"
+	skyid "github.com/sky10/sky10/pkg/id"
 	"github.com/sky10/sky10/pkg/kv"
 	"github.com/sky10/sky10/pkg/link"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
@@ -48,7 +49,11 @@ func ServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			id, err := skyfs.LoadKey(cfg.IdentityFile)
+			idStore, err := skyid.NewStore()
+			if err != nil {
+				return err
+			}
+			bundle, err := idStore.Load()
 			if err != nil {
 				return err
 			}
@@ -61,10 +66,10 @@ func ServeCmd() *cobra.Command {
 				slog.Warn("S3 credential check failed (will retry)", "error", err)
 			}
 
-			store := skyfs.New(backend, id)
+			store := skyfs.New(backend, bundle.Identity)
 			store.SetClient("cli/" + cmd.Root().Version)
 
-			go skyfs.RegisterDevice(ctx, backend, id.Address(), skyfs.GetDeviceName(), cmd.Root().Version)
+			go skyfs.RegisterDevice(ctx, backend, bundle.Address(), skyfs.GetDeviceName(), cmd.Root().Version)
 			skyfs.HandleDumpSignal(slog.Default())
 
 			if err := skyfs.KillExistingDaemon(); err != nil {
@@ -79,7 +84,7 @@ func ServeCmd() *cobra.Command {
 			fsHandler := skyfs.NewFSHandler(store, server, filepath.Join(cfgDir, "drives.json"))
 			server.RegisterHandler(fsHandler)
 
-			kvStore := kv.New(backend, id, kv.Config{Namespace: "default"}, nil)
+			kvStore := kv.New(backend, bundle.Identity, kv.Config{Namespace: "default"}, nil)
 			server.RegisterHandler(kv.NewRPCHandler(kvStore))
 			go func() {
 				if err := kvStore.Run(ctx); err != nil {
@@ -88,7 +93,7 @@ func ServeCmd() *cobra.Command {
 			}()
 
 			// Skylink P2P node (private mode — own devices only).
-			linkNode, err := link.New(id, link.Config{Mode: link.Private}, nil)
+			linkNode, err := link.New(bundle, link.Config{Mode: link.Private}, nil)
 			if err != nil {
 				return fmt.Errorf("creating link node: %w", err)
 			}
@@ -122,13 +127,13 @@ func ServeCmd() *cobra.Command {
 				for _, a := range linkNode.Host().Addrs() {
 					addrs = append(addrs, a.String()+"/p2p/"+linkNode.PeerID().String())
 				}
-				if err := skyfs.UpdateDeviceMultiaddrs(ctx, backend, id.Address(), addrs); err != nil {
+				if err := skyfs.UpdateDeviceMultiaddrs(ctx, backend, bundle.Address(), addrs); err != nil {
 					slog.Warn("failed to publish multiaddrs", "error", err)
 				} else {
 					slog.Info("published multiaddrs to device registry", "count", len(addrs))
 				}
 				// Auto-connect to own devices.
-				link.AutoConnect(ctx, linkNode, backend, id.Address())
+				link.AutoConnect(ctx, linkNode, backend)
 			}()
 
 			server.OnServe(func() {

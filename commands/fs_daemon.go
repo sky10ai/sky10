@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	s3backend "github.com/sky10/sky10/pkg/adapter/s3"
 	"github.com/sky10/sky10/pkg/config"
 	skyfs "github.com/sky10/sky10/pkg/fs"
+	skyid "github.com/sky10/sky10/pkg/id"
 	"github.com/spf13/cobra"
 )
 
@@ -32,21 +32,17 @@ func fsInitCmd() *cobra.Command {
 			endpoint, _ := cmd.Flags().GetString("endpoint")
 			pathStyle, _ := cmd.Flags().GetBool("path-style")
 
-			id, err := skyfs.GenerateDeviceKey()
+			idStore, err := skyid.NewStore()
 			if err != nil {
 				return err
 			}
-			idPath, err := config.DefaultIdentityPath()
+			bundle, err := idStore.Generate(skyfs.GetDeviceName())
 			if err != nil {
-				return err
-			}
-			os.MkdirAll(filepath.Dir(idPath), 0700)
-			if err := skyfs.SaveKeyWithDescription(id, idPath, "skyfs device key"); err != nil {
 				return err
 			}
 			cfg := &config.Config{
 				Bucket: bucket, Region: region, Endpoint: endpoint,
-				ForcePathStyle: pathStyle, IdentityFile: idPath,
+				ForcePathStyle: pathStyle,
 			}
 			if err := config.Save(cfg); err != nil {
 				return err
@@ -59,10 +55,10 @@ func fsInitCmd() *cobra.Command {
 			if err := skyfs.WriteSchema(ctx, backend); err != nil {
 				return err
 			}
-			skyfs.RegisterDevice(ctx, backend, id.Address(), skyfs.GetDeviceName(), cmd.Root().Version)
+			skyfs.RegisterDevice(ctx, backend, bundle.Address(), skyfs.GetDeviceName(), cmd.Root().Version)
 
 			fmt.Printf("Initialized skyfs\n  Schema:   v%s\n  Identity: %s\n  Bucket:   %s\n",
-				skyfs.SchemaVersion, id.Address(), cfg.Bucket)
+				skyfs.SchemaVersion, bundle.Address(), cfg.Bucket)
 			return nil
 		},
 	}
@@ -86,34 +82,25 @@ func fsJoinCmd() *cobra.Command {
 			}
 			fmt.Printf("Joining bucket %s at %s\n", invite.Bucket, invite.Endpoint)
 
-			keyPath, err := config.DefaultIdentityPath()
+			idStore, err := skyid.NewStore()
 			if err != nil {
 				return err
 			}
-
-			var id *skyfs.DeviceKey
-			if _, err := os.Stat(keyPath); os.IsNotExist(err) {
-				id, err = skyfs.GenerateDeviceKey()
+			bundle, err := idStore.Load()
+			if err != nil {
+				// No existing identity — generate a new one.
+				bundle, err = idStore.Generate(skyfs.GetDeviceName())
 				if err != nil {
 					return err
 				}
-				os.MkdirAll(filepath.Dir(keyPath), 0700)
-				if err := skyfs.SaveKeyWithDescription(id, keyPath, "skyfs device key"); err != nil {
-					return err
-				}
-				fmt.Printf("Generated key: %s\n", id.Address())
+				fmt.Printf("Generated identity: %s\n", bundle.Address())
 			} else {
-				id, err = skyfs.LoadKey(keyPath)
-				if err != nil {
-					return err
-				}
-				fmt.Printf("Using existing key: %s\n", id.Address())
+				fmt.Printf("Using existing identity: %s\n", bundle.Address())
 			}
 
 			cfg := &config.Config{
 				Bucket: invite.Bucket, Region: invite.Region,
 				Endpoint: invite.Endpoint, ForcePathStyle: invite.ForcePathStyle,
-				IdentityFile: keyPath,
 			}
 			if err := config.Save(cfg); err != nil {
 				return err
@@ -127,7 +114,7 @@ func fsJoinCmd() *cobra.Command {
 				return err
 			}
 
-			if err := skyfs.SubmitJoin(ctx, backend, invite.InviteID, id.Address()); err != nil {
+			if err := skyfs.SubmitJoin(ctx, backend, invite.InviteID, bundle.Address()); err != nil {
 				return fmt.Errorf("submitting join request: %w", err)
 			}
 
@@ -138,7 +125,7 @@ func fsJoinCmd() *cobra.Command {
 					return err
 				}
 				if granted {
-					skyfs.RegisterDevice(ctx, backend, id.Address(), skyfs.GetDeviceName(), cmd.Root().Version)
+					skyfs.RegisterDevice(ctx, backend, bundle.Address(), skyfs.GetDeviceName(), cmd.Root().Version)
 					fmt.Println("Approved! You can now sync.")
 					return nil
 				}

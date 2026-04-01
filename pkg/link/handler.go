@@ -77,12 +77,10 @@ func (r *Registry) HandleStream(s network.Stream) {
 		return
 	}
 
-	addr, _ := AddressFromPeerID(s.Conn().RemotePeer())
 	req := &PeerRequest{
-		PeerID:  s.Conn().RemotePeer(),
-		Address: addr,
-		Method:  msg.Method,
-		Params:  msg.Params,
+		PeerID: s.Conn().RemotePeer(),
+		Method: msg.Method,
+		Params: msg.Params,
 	}
 
 	r.mu.RLock()
