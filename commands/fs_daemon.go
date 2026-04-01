@@ -32,14 +32,6 @@ func fsInitCmd() *cobra.Command {
 			endpoint, _ := cmd.Flags().GetString("endpoint")
 			pathStyle, _ := cmd.Flags().GetBool("path-style")
 
-			idStore, err := skyid.NewStore()
-			if err != nil {
-				return err
-			}
-			bundle, err := idStore.Generate(skyfs.GetDeviceName())
-			if err != nil {
-				return err
-			}
 			cfg := &config.Config{
 				Bucket: bucket, Region: region, Endpoint: endpoint,
 				ForcePathStyle: pathStyle,
@@ -53,6 +45,14 @@ func fsInitCmd() *cobra.Command {
 				return err
 			}
 			if err := skyfs.WriteSchema(ctx, backend); err != nil {
+				return err
+			}
+			idStore, err := skyid.NewStore()
+			if err != nil {
+				return err
+			}
+			bundle, err := skyid.SyncIdentity(ctx, idStore, backend, skyfs.GetDeviceName())
+			if err != nil {
 				return err
 			}
 			skyfs.RegisterDevice(ctx, backend, bundle.Address(), skyfs.GetDeviceName(), cmd.Root().Version)
@@ -82,22 +82,6 @@ func fsJoinCmd() *cobra.Command {
 			}
 			fmt.Printf("Joining bucket %s at %s\n", invite.Bucket, invite.Endpoint)
 
-			idStore, err := skyid.NewStore()
-			if err != nil {
-				return err
-			}
-			bundle, err := idStore.Load()
-			if err != nil {
-				// No existing identity — generate a new one.
-				bundle, err = idStore.Generate(skyfs.GetDeviceName())
-				if err != nil {
-					return err
-				}
-				fmt.Printf("Generated identity: %s\n", bundle.Address())
-			} else {
-				fmt.Printf("Using existing identity: %s\n", bundle.Address())
-			}
-
 			cfg := &config.Config{
 				Bucket: invite.Bucket, Region: invite.Region,
 				Endpoint: invite.Endpoint, ForcePathStyle: invite.ForcePathStyle,
@@ -113,6 +97,16 @@ func fsJoinCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			idStore, err := skyid.NewStore()
+			if err != nil {
+				return err
+			}
+			bundle, err := skyid.SyncIdentity(ctx, idStore, backend, skyfs.GetDeviceName())
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Identity: %s\n", bundle.Address())
 
 			if err := skyfs.SubmitJoin(ctx, backend, invite.InviteID, bundle.Address()); err != nil {
 				return fmt.Errorf("submitting join request: %w", err)

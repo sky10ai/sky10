@@ -49,14 +49,6 @@ func ServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			idStore, err := skyid.NewStore()
-			if err != nil {
-				return err
-			}
-			bundle, err := idStore.Load()
-			if err != nil {
-				return err
-			}
 			backend, err := makeBackend(ctx, cfg)
 			if err != nil {
 				return err
@@ -64,6 +56,15 @@ func ServeCmd() *cobra.Command {
 
 			if _, err := backend.List(ctx, "ops/"); err != nil {
 				slog.Warn("S3 credential check failed (will retry)", "error", err)
+			}
+
+			idStore, err := skyid.NewStore()
+			if err != nil {
+				return err
+			}
+			bundle, err := skyid.SyncIdentity(ctx, idStore, backend, skyfs.GetDeviceName())
+			if err != nil {
+				return err
 			}
 
 			store := skyfs.New(backend, bundle.Identity)
