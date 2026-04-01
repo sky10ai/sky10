@@ -164,7 +164,7 @@ export interface Device {
   location: string;
   version: string;
   last_seen: string;
-  multiaddrs: string[];
+  multiaddrs?: string[];
 }
 
 export interface DeviceListResult {

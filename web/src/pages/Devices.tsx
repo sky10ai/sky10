@@ -133,7 +133,7 @@ export default function Devices() {
                 <div className="flex items-center justify-between text-xs py-2">
                   <span className="text-secondary font-medium">P2P Addrs</span>
                   <span className="text-on-surface font-semibold">
-                    {device.multiaddrs.length}
+                    {device.multiaddrs?.length ?? 0}
                   </span>
                 </div>
               </div>
