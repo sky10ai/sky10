@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-//go:embed web/dist
+//go:embed all:web/dist
 var webDist embed.FS
 
 var (
