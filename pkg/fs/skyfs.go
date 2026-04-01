@@ -30,11 +30,12 @@ var ErrFileNotFound = errors.New("file not found")
 // encrypted chunks to a storage backend, and tracks file metadata via an
 // append-only ops log with periodic manifest snapshots.
 type Store struct {
-	backend   adapter.Backend
-	identity  *DeviceKey
-	deviceID  string
-	clientID  string // e.g. "cli/0.4.1", "cirrus/0.4.1"
-	namespace string // if set, all files use this namespace instead of path-derived
+	backend      adapter.Backend
+	identity     *DeviceKey
+	deviceID     string
+	devicePubKey string // full device sky10q... address (for device registry matching)
+	clientID     string // e.g. "cli/0.4.1", "cirrus/0.4.1"
+	namespace    string // if set, all files use this namespace instead of path-derived
 
 	mu           sync.Mutex
 	nsKeys       map[string][]byte // cached namespace keys
@@ -110,6 +111,11 @@ func NewWithDevice(backend adapter.Backend, identity *DeviceKey, deviceID string
 // SetClient sets the client identifier embedded in ops (e.g. "cli/0.4.1").
 func (s *Store) SetClient(client string) {
 	s.clientID = client
+}
+
+// SetDevicePubKey sets the device's public key address for registry matching.
+func (s *Store) SetDevicePubKey(pubkey string) {
+	s.devicePubKey = pubkey
 }
 
 // SetNamespace forces all files to use this namespace instead of

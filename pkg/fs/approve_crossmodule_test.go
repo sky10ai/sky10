@@ -24,8 +24,8 @@ func TestApproveJoin_WrapsAllModuleKeys(t *testing.T) {
 	bobID := shortPubkeyID(bob.Address())
 
 	// Register both devices
-	RegisterDevice(ctx, backend, alice.Address(), "alice-mac", "test")
-	RegisterDevice(ctx, backend, bob.Address(), "bob-mac", "test")
+	RegisterDevice(ctx, backend, alice.Address(), alice.Address(), "alice-mac", "test")
+	RegisterDevice(ctx, backend, bob.Address(), bob.Address(), "bob-mac", "test")
 
 	// Alice creates an fs namespace key
 	storeA := New(backend, alice)
@@ -89,8 +89,8 @@ func TestApproveJoin_BobCanUnwrapAllKeys(t *testing.T) {
 	bob, _ := GenerateDeviceKey()
 	aliceID := shortPubkeyID(alice.Address())
 
-	RegisterDevice(ctx, backend, alice.Address(), "alice", "test")
-	RegisterDevice(ctx, backend, bob.Address(), "bob", "test")
+	RegisterDevice(ctx, backend, alice.Address(), alice.Address(), "alice", "test")
+	RegisterDevice(ctx, backend, bob.Address(), bob.Address(), "bob", "test")
 
 	// Create fs key
 	storeA := New(backend, alice)
@@ -141,7 +141,7 @@ func TestModulePrefixes_NoCollision(t *testing.T) {
 	id, _ := GenerateDeviceKey()
 	deviceID := shortPubkeyID(id.Address())
 
-	RegisterDevice(ctx, backend, id.Address(), "dev", "test")
+	RegisterDevice(ctx, backend, id.Address(), id.Address(), "dev", "test")
 
 	// Create keys with same base name but different module prefixes
 	key1, _ := skykey.GenerateSymmetricKey()

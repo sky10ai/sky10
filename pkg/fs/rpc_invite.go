@@ -14,9 +14,13 @@ func (s *FSHandler) rpcDeviceList(ctx context.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	thisDevice := s.store.devicePubKey
+	if thisDevice == "" {
+		thisDevice = s.store.identity.Address() // fallback for non-multi-device
+	}
 	return map[string]interface{}{
 		"devices":     devices,
-		"this_device": s.store.identity.Address(),
+		"this_device": thisDevice,
 	}, nil
 }
 
@@ -111,7 +115,11 @@ func (s *FSHandler) rpcJoin(ctx context.Context, params json.RawMessage) (interf
 		}
 		if granted {
 			// Register this device
-			RegisterDevice(ctx, s.store.backend, s.store.identity.Address(), GetDeviceName(), s.version)
+			dpk := s.store.devicePubKey
+			if dpk == "" {
+				dpk = s.store.identity.Address()
+			}
+			RegisterDevice(ctx, s.store.backend, s.store.identity.Address(), dpk, GetDeviceName(), s.version)
 			return map[string]string{"status": "approved"}, nil
 		}
 		select {

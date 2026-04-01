@@ -56,7 +56,8 @@ export default function Devices() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {devices.map((device) => {
-          const isSelf = device.pubkey === thisDevice;
+          const isSelf = (device.device_pubkey ?? device.pubkey) === thisDevice;
+          const displayName = device.alias || device.name;
           const platformIcon =
             device.platform === "macOS"
               ? "laptop_mac"
@@ -92,7 +93,7 @@ export default function Devices() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-xl font-bold text-on-surface truncate">
-                    {device.name}
+                    {displayName}
                   </h3>
                   <p className="text-xs text-secondary flex items-center gap-1">
                     <Icon name="location_on" className="text-xs" />
@@ -104,10 +105,10 @@ export default function Devices() {
               <div className="space-y-4">
                 <div>
                   <label className="text-[10px] font-bold text-secondary uppercase tracking-widest block mb-1">
-                    Address
+                    Public Key
                   </label>
                   <div className="flex items-center justify-between bg-surface-container-low px-3 py-2 rounded-lg font-mono text-xs text-on-surface-variant transition-colors hover:bg-surface-container-high cursor-pointer">
-                    <span>{truncAddr(device.pubkey)}</span>
+                    <span>{truncAddr(device.device_pubkey ?? device.pubkey)}</span>
                     <Icon name="content_copy" className="text-sm" />
                   </div>
                 </div>

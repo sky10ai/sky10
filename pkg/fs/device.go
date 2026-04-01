@@ -15,26 +15,29 @@ import (
 
 // DeviceInfo represents a registered device in the S3 registry.
 type DeviceInfo struct {
-	PubKey     string   `json:"pubkey"`
-	Name       string   `json:"name"`            // hostname
-	Alias      string   `json:"alias,omitempty"` // user-chosen display name
-	Joined     string   `json:"joined"`
-	Platform   string   `json:"platform,omitempty"`
-	IP         string   `json:"ip,omitempty"`
-	Location   string   `json:"location,omitempty"`
-	Version    string   `json:"version,omitempty"`
-	LastSeen   string   `json:"last_seen,omitempty"`
-	Multiaddrs []string `json:"multiaddrs,omitempty"` // libp2p listen addresses
+	PubKey       string   `json:"pubkey"`                  // identity address (shared)
+	DevicePubKey string   `json:"device_pubkey,omitempty"` // this device's public key
+	Name         string   `json:"name"`                    // hostname
+	Alias        string   `json:"alias,omitempty"`         // user-chosen display name
+	Joined       string   `json:"joined"`
+	Platform     string   `json:"platform,omitempty"`
+	IP           string   `json:"ip,omitempty"`
+	Location     string   `json:"location,omitempty"`
+	Version      string   `json:"version,omitempty"`
+	LastSeen     string   `json:"last_seen,omitempty"`
+	Multiaddrs   []string `json:"multiaddrs,omitempty"` // libp2p listen addresses
 }
 
 // RegisterDevice writes this device's info to the S3 registry.
+// The deviceID uniquely identifies this device (e.g. short hash of device
+// public key). The pubkey is the identity address (shared across devices).
 // On re-registration (daemon restart), it preserves the original join date
 // but refreshes the IP and location.
-func RegisterDevice(ctx context.Context, backend adapter.Backend, pubkey string, name string, version string) error {
-	id := shortPubkeyID(pubkey)
+func RegisterDevice(ctx context.Context, backend adapter.Backend, identityAddr string, devicePubKey string, name string, version string) error {
+	id := shortPubkeyID(devicePubKey)
 	key := "devices/" + id + ".json"
 
-	// Preserve original join date and alias if device already registered
+	// Preserve original join date and alias if device already registered.
 	joined := time.Now().UTC().Format(time.RFC3339)
 	alias := ""
 	if existing, err := readDevice(ctx, backend, key); err == nil {
@@ -47,15 +50,16 @@ func RegisterDevice(ctx context.Context, backend adapter.Backend, pubkey string,
 	ip, location := fetchIPLocation()
 
 	info := DeviceInfo{
-		PubKey:   pubkey,
-		Name:     name,
-		Alias:    alias,
-		Joined:   joined,
-		Platform: detectPlatform(),
-		IP:       ip,
-		Location: location,
-		Version:  version,
-		LastSeen: time.Now().UTC().Format(time.RFC3339),
+		PubKey:       identityAddr,
+		DevicePubKey: devicePubKey,
+		Name:         name,
+		Alias:        alias,
+		Joined:       joined,
+		Platform:     detectPlatform(),
+		IP:           ip,
+		Location:     location,
+		Version:      version,
+		LastSeen:     time.Now().UTC().Format(time.RFC3339),
 	}
 
 	data, err := json.MarshalIndent(info, "", "  ")
@@ -85,8 +89,8 @@ func readDevice(ctx context.Context, backend adapter.Backend, key string) (*Devi
 }
 
 // UpdateDeviceMultiaddrs updates the multiaddrs field on an existing device entry.
-func UpdateDeviceMultiaddrs(ctx context.Context, backend adapter.Backend, pubkey string, addrs []string) error {
-	id := shortPubkeyID(pubkey)
+func UpdateDeviceMultiaddrs(ctx context.Context, backend adapter.Backend, devicePubKey string, addrs []string) error {
+	id := shortPubkeyID(devicePubKey)
 	key := "devices/" + id + ".json"
 
 	existing, err := readDevice(ctx, backend, key)
@@ -154,12 +158,17 @@ func fetchIPLocation() (ip string, location string) {
 	return result.Query, loc
 }
 
-func shortPubkeyID(pubkey string) string {
-	// sky10q<data> — take first 16 chars after the prefix
+// ShortPubkeyID extracts a short 16-char identifier from a sky10q... address.
+func ShortPubkeyID(pubkey string) string {
 	if len(pubkey) > 21 {
 		return pubkey[5:21] // skip "sky10" prefix, take 16
 	}
 	return pubkey
+}
+
+// shortPubkeyID is the unexported version for internal use.
+func shortPubkeyID(pubkey string) string {
+	return ShortPubkeyID(pubkey)
 }
 
 func detectPlatform() string {

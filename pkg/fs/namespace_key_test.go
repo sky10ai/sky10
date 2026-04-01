@@ -134,8 +134,8 @@ func TestWrapKeyForAllDevices_FsPrefix(t *testing.T) {
 	bob, _ := GenerateDeviceKey()
 
 	// Register both devices
-	RegisterDevice(ctx, backend, alice.Address(), "alice-mac", "test")
-	RegisterDevice(ctx, backend, bob.Address(), "bob-mac", "test")
+	RegisterDevice(ctx, backend, alice.Address(), alice.Address(), "alice-mac", "test")
+	RegisterDevice(ctx, backend, bob.Address(), bob.Address(), "bob-mac", "test")
 
 	storeA := New(backend, alice)
 	storeA.Put(ctx, "docs/file.txt", strings.NewReader("content"))
