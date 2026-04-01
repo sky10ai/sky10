@@ -1,11 +1,16 @@
 import { useNavigate } from "react-router";
 import { Icon } from "../components/Icon";
+import { RelativeTime } from "../components/RelativeTime";
+import { STORAGE_EVENT_TYPES } from "../lib/events";
 import { skyfs } from "../lib/rpc";
-import { useRPC, timeAgo, truncAddr } from "../lib/useRPC";
+import { useRPC, truncAddr } from "../lib/useRPC";
 
 export default function Devices() {
   const navigate = useNavigate();
-  const { data, loading, error } = useRPC(() => skyfs.deviceList());
+  const { data, loading, error } = useRPC(() => skyfs.deviceList(), [], {
+    live: STORAGE_EVENT_TYPES,
+    refreshIntervalMs: 10_000,
+  });
 
   const devices = data?.devices ?? [];
   const thisDevice = data?.this_device ?? "";
@@ -52,7 +57,6 @@ export default function Devices() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {devices.map((device) => {
           const isSelf = device.pubkey === thisDevice;
-          const lastSeen = timeAgo(device.last_seen);
           const platformIcon =
             device.platform === "macOS"
               ? "laptop_mac"
@@ -115,9 +119,10 @@ export default function Devices() {
                 </div>
                 <div className="flex items-center justify-between text-xs py-2 border-b border-surface-container-high">
                   <span className="text-secondary font-medium">Last seen</span>
-                  <span className="text-on-surface font-semibold">
-                    {lastSeen}
-                  </span>
+                  <RelativeTime
+                    className="font-semibold text-on-surface"
+                    value={device.last_seen}
+                  />
                 </div>
                 <div className="flex items-center justify-between text-xs py-2 border-b border-surface-container-high">
                   <span className="text-secondary font-medium">Version</span>

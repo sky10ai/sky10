@@ -1,12 +1,24 @@
 import { Icon } from "../components/Icon";
+import { RelativeTime } from "../components/RelativeTime";
+import { STORAGE_EVENT_TYPES } from "../lib/events";
 import { skylink, skyfs, type Device } from "../lib/rpc";
-import { useRPC, truncAddr, timeAgo } from "../lib/useRPC";
+import { useRPC, truncAddr } from "../lib/useRPC";
 
 export default function Network() {
-  const { data: linkStatus } = useRPC(() => skylink.status());
-  const { data: peersData } = useRPC(() => skylink.peers());
-  const { data: deviceData } = useRPC(() => skyfs.deviceList());
-  const { data: health } = useRPC(() => skyfs.health());
+  const { data: linkStatus } = useRPC(() => skylink.status(), [], {
+    refreshIntervalMs: 5_000,
+  });
+  const { data: peersData } = useRPC(() => skylink.peers(), [], {
+    refreshIntervalMs: 5_000,
+  });
+  const { data: deviceData } = useRPC(() => skyfs.deviceList(), [], {
+    live: STORAGE_EVENT_TYPES,
+    refreshIntervalMs: 10_000,
+  });
+  const { data: health } = useRPC(() => skyfs.health(), [], {
+    live: STORAGE_EVENT_TYPES,
+    refreshIntervalMs: 10_000,
+  });
 
   const peers = peersData?.peers ?? [];
 
@@ -171,7 +183,8 @@ export default function Network() {
                       </div>
                       {device && (
                         <div className="text-[10px] text-secondary">
-                          {device.platform} &middot; {device.location || device.ip} &middot; seen {timeAgo(device.last_seen)}
+                          {device.platform} &middot; {device.location || device.ip} &middot; seen{" "}
+                          <RelativeTime value={device.last_seen} />
                         </div>
                       )}
                     </div>

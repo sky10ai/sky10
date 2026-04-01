@@ -59,7 +59,7 @@ export const skyfs = {
     rpc("skyfs.driveCreate", p),
   driveStart: (p: { name: string }) => rpc("skyfs.driveStart", p),
   driveStop: (p: { name: string }) => rpc("skyfs.driveStop", p),
-  list: (p: { drive: string; path?: string }) =>
+  list: (p?: { prefix?: string }) =>
     rpc<FileListResult>("skyfs.list", p),
   syncStatus: (p: { drive: string }) =>
     rpc<SyncStatus>("skyfs.syncStatus", p),
@@ -134,8 +134,14 @@ export interface FileEntry {
   chunks: number;
 }
 
+export interface DirectoryEntry {
+  path: string;
+  namespace: string;
+}
+
 export interface FileListResult {
   files: FileEntry[];
+  dirs: DirectoryEntry[];
 }
 
 export interface SyncStatus {

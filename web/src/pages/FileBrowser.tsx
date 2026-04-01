@@ -1,119 +1,295 @@
-import { useCallback, useRef, useState } from "react";
-import { useParams } from "react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router";
+import { EmptyState } from "../components/EmptyState";
+import {
+  BrowserContextMenu,
+  type BrowserContextMenuState,
+} from "../components/files/BrowserContextMenu";
+import { BrowserTable, type BrowserRow } from "../components/files/BrowserTable";
+import { NewFolderForm } from "../components/files/NewFolderForm";
 import { Icon } from "../components/Icon";
+import { PageHeader } from "../components/PageHeader";
+import { StatusBadge } from "../components/StatusBadge";
+import { STORAGE_EVENT_TYPES } from "../lib/events";
 import { skyfs } from "../lib/rpc";
-import { useRPC, formatBytes, timeAgo } from "../lib/useRPC";
+import { useRPC } from "../lib/useRPC";
 
-interface ContextMenu {
-  x: number;
-  y: number;
-  filePath: string | null; // null = background right-click
+function isDirectChild(path: string, currentPath: string) {
+  if (!currentPath) {
+    return !path.includes("/");
+  }
+
+  if (!path.startsWith(`${currentPath}/`)) {
+    return false;
+  }
+
+  const remainder = path.slice(currentPath.length + 1);
+  return remainder !== "" && !remainder.includes("/");
+}
+
+function joinPath(base: string, name: string) {
+  return base ? `${base}/${name}` : name;
+}
+
+function encodePathSegments(path: string) {
+  return path
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
 }
 
 export default function FileBrowser() {
-  const { name } = useParams();
+  const navigate = useNavigate();
+  const { name, "*": splat } = useParams();
   const driveName = name ?? "default";
+  const currentPath = splat?.replace(/^\/+|\/+$/g, "") ?? "";
+  const listPrefix = currentPath ? `${currentPath}/` : "";
 
-  const { data, loading, error, refetch } = useRPC(
-    () => skyfs.list({ drive: driveName }),
-    [driveName]
+  const { data: driveList, loading: drivesLoading } = useRPC(
+    () => skyfs.driveList(),
+    [],
+    {
+      live: STORAGE_EVENT_TYPES,
+      refreshIntervalMs: 10_000,
+    }
+  );
+  const { data, loading, error, mutate, refreshing, refetch } = useRPC(
+    () => skyfs.list(listPrefix ? { prefix: listPrefix } : undefined),
+    [listPrefix],
+    {
+      live: [...STORAGE_EVENT_TYPES, "file.changed"],
+      refreshIntervalMs: 10_000,
+    }
   );
 
-  const [ctx, setCtx] = useState<ContextMenu | null>(null);
+  const [ctx, setCtx] = useState<BrowserContextMenuState | null>(null);
   const [newFolderName, setNewFolderName] = useState("");
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const files = data?.files ?? [];
+  const currentDrive = (driveList?.drives ?? []).find(
+    (drive) => drive.name === driveName
+  );
+
+  useEffect(() => {
+    if (!showNewFolder) return;
+
+    const timer = window.setTimeout(() => {
+      inputRef.current?.focus();
+    }, 50);
+
+    return () => window.clearTimeout(timer);
+  }, [showNewFolder]);
+
+  const rows = useMemo(() => {
+    if (!data) return [];
+
+    const namespace = currentDrive?.namespace;
+    const dirs = (data.dirs ?? [])
+      .filter((dir) => !namespace || dir.namespace === namespace)
+      .filter((dir) => isDirectChild(dir.path, currentPath))
+      .map((entry) => ({ entry, kind: "dir" as const }));
+
+    const files = data.files
+      .filter((file) => !namespace || file.namespace === namespace)
+      .filter((file) => isDirectChild(file.path, currentPath))
+      .map((entry) => ({ entry, kind: "file" as const }));
+
+    return [...dirs, ...files].sort((left, right) => {
+      if (left.kind !== right.kind) {
+        return left.kind === "dir" ? -1 : 1;
+      }
+      return left.entry.path.localeCompare(right.entry.path);
+    });
+  }, [currentDrive?.namespace, currentPath, data]);
+
+  const breadcrumbParts = currentPath.split("/").filter(Boolean);
+  const folderCount = rows.filter((row) => row.kind === "dir").length;
+  const fileCount = rows.filter((row) => row.kind === "file").length;
 
   const onContextMenu = useCallback(
-    (e: React.MouseEvent, filePath: string | null) => {
-      e.preventDefault();
-      setCtx({ x: e.clientX, y: e.clientY, filePath });
+    (event: React.MouseEvent, row: BrowserRow | null) => {
+      event.preventDefault();
+      setCtx({ x: event.clientX, y: event.clientY, row });
     },
     []
   );
 
   const closeMenu = useCallback(() => setCtx(null), []);
 
+  const navigateToPath = useCallback(
+    (path: string) => {
+      navigate(
+        path
+          ? `/drives/${encodeURIComponent(driveName)}/${encodePathSegments(path)}`
+          : `/drives/${encodeURIComponent(driveName)}`
+      );
+    },
+    [driveName, navigate]
+  );
+
   const handleDelete = useCallback(
-    async (path: string) => {
+    async (row: BrowserRow) => {
       setCtx(null);
       setActionError(null);
+      const path = row.entry.path;
+
+      mutate((previous) => {
+        if (!previous) return previous;
+
+        return {
+          ...previous,
+          dirs: (previous.dirs ?? []).filter(
+            (dir) => dir.path !== path && !dir.path.startsWith(`${path}/`)
+          ),
+          files: previous.files.filter(
+            (file) => file.path !== path && !file.path.startsWith(`${path}/`)
+          ),
+        };
+      });
+
       try {
-        await skyfs.remove({ drive: driveName, path });
-        refetch();
+        await skyfs.remove({ drive: currentDrive?.id ?? driveName, path });
+        refetch({ background: true });
       } catch (e: unknown) {
-        setActionError(
-          e instanceof Error ? e.message : "Failed to delete"
-        );
+        setActionError(e instanceof Error ? e.message : "Failed to delete");
+        refetch();
       }
     },
-    [driveName, refetch]
+    [currentDrive?.id, driveName, mutate, refetch]
   );
 
   const handleNewFolder = useCallback(() => {
     setCtx(null);
     setShowNewFolder(true);
     setNewFolderName("");
-    setTimeout(() => inputRef.current?.focus(), 50);
   }, []);
 
   const submitNewFolder = useCallback(async () => {
     if (!newFolderName.trim()) return;
     setActionError(null);
+    const targetPath = joinPath(currentPath, newFolderName.trim());
+
+    mutate((previous) => {
+      if (!previous) return previous;
+      if ((previous.dirs ?? []).some((dir) => dir.path === targetPath)) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+        dirs: [
+          ...(previous.dirs ?? []),
+          {
+            namespace: currentDrive?.namespace ?? "",
+            path: targetPath,
+          },
+        ],
+      };
+    });
+
     try {
-      await skyfs.mkdir({ drive: driveName, path: newFolderName.trim() });
+      await skyfs.mkdir({
+        drive: currentDrive?.id ?? driveName,
+        path: targetPath,
+      });
       setShowNewFolder(false);
       setNewFolderName("");
-      refetch();
+      refetch({ background: true });
     } catch (e: unknown) {
       setActionError(
         e instanceof Error ? e.message : "Failed to create folder"
       );
+      refetch();
     }
-  }, [driveName, newFolderName, refetch]);
+  }, [
+    currentDrive?.id,
+    currentDrive?.namespace,
+    currentPath,
+    driveName,
+    mutate,
+    newFolderName,
+    refetch,
+  ]);
 
   return (
-    // Close context menu on click anywhere
-    <div
-      className="flex flex-1 overflow-hidden"
-      onClick={closeMenu}
-    >
+    <div className="flex flex-1 overflow-hidden" onClick={closeMenu}>
       <div
-        className="flex-1 flex flex-col bg-surface overflow-y-auto relative"
-        onContextMenu={(e) => onContextMenu(e, null)}
+        className="relative flex-1 overflow-y-auto bg-surface"
+        onContextMenu={(event) => onContextMenu(event, null)}
       >
-        <div className="p-8">
-          <div className="flex items-end justify-between mb-8">
-            <div>
-              <h2 className="text-3xl font-bold tracking-tight text-on-surface">
-                {driveName}
-              </h2>
-              <p className="text-sm text-on-surface-variant">
-                {files.length} encrypted object
-                {files.length !== 1 ? "s" : ""} in this vault.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleNewFolder}
-                className="flex items-center gap-2 px-4 py-2 bg-surface-container-high rounded-lg text-sm font-medium hover:bg-surface-container-highest transition-colors"
-              >
-                <Icon name="create_new_folder" className="text-lg" />
-                New Folder
-              </button>
-            </div>
+        <div className="mx-auto max-w-7xl space-y-6 p-8">
+          <PageHeader
+            actions={
+              <>
+                {refreshing ? (
+                  <StatusBadge icon="sync" tone="neutral">
+                    Refreshing
+                  </StatusBadge>
+                ) : (
+                  <StatusBadge pulse tone="live">
+                    Live
+                  </StatusBadge>
+                )}
+                <button
+                  className="flex items-center gap-2 rounded-full bg-surface-container-high px-4 py-2 text-sm font-medium text-on-surface transition-colors hover:bg-surface-container-highest"
+                  onClick={handleNewFolder}
+                  type="button"
+                >
+                  <Icon className="text-lg" name="create_new_folder" />
+                  New Folder
+                </button>
+              </>
+            }
+            description={
+              currentDrive
+                ? `${folderCount} folder${folderCount === 1 ? "" : "s"} and ${fileCount} file${fileCount === 1 ? "" : "s"} in ${currentPath || "the drive root"}.`
+                : "Loading drive details..."
+            }
+            eyebrow={currentDrive?.namespace ?? "Drive Browser"}
+            title={driveName}
+          />
+
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-outline-variant/10 bg-surface-container-lowest px-4 py-3 text-sm text-secondary shadow-sm">
+            <Icon className="text-sm text-primary" name="folder" />
+            <button
+              className="font-medium text-on-surface transition-colors hover:text-primary"
+              onClick={() => navigateToPath("")}
+              type="button"
+            >
+              /
+            </button>
+            {breadcrumbParts.map((part, index) => {
+              const path = breadcrumbParts.slice(0, index + 1).join("/");
+              return (
+                <button
+                  className="flex items-center gap-2 transition-colors hover:text-primary"
+                  key={path}
+                  onClick={() => navigateToPath(path)}
+                  type="button"
+                >
+                  <span className="text-outline">/</span>
+                  <span className="font-medium text-on-surface">{part}</span>
+                </button>
+              );
+            })}
+            {currentDrive && (
+              <span className="ml-auto truncate font-mono text-xs text-outline">
+                {currentDrive.local_path}
+              </span>
+            )}
           </div>
 
           {(error || actionError) && (
-            <div className="mb-4 p-4 bg-error-container/20 text-error rounded-xl text-sm flex justify-between items-center">
+            <div className="flex items-center justify-between rounded-xl bg-error-container/20 p-4 text-sm text-error">
               <span>{actionError ?? error}</span>
               {actionError && (
                 <button
+                  className="text-xs text-error transition-colors hover:underline"
                   onClick={() => setActionError(null)}
-                  className="text-error hover:underline text-xs"
+                  type="button"
                 >
                   dismiss
                 </button>
@@ -121,165 +297,70 @@ export default function FileBrowser() {
             </div>
           )}
 
-          {/* New folder inline input */}
           {showNewFolder && (
-            <div className="mb-4 flex items-center gap-3 bg-surface-container-lowest p-4 rounded-xl border border-primary/20">
-              <Icon
-                name="folder"
-                filled
-                className="text-2xl text-amber-400"
-              />
-              <input
-                ref={inputRef}
-                value={newFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") submitNewFolder();
-                  if (e.key === "Escape") setShowNewFolder(false);
-                }}
-                className="flex-1 bg-transparent border-none focus:ring-0 text-sm font-medium p-0"
-                placeholder="Folder name..."
-              />
-              <button
-                onClick={submitNewFolder}
-                className="px-4 py-1.5 bg-primary text-white rounded-full text-xs font-semibold"
-              >
-                Create
-              </button>
-              <button
-                onClick={() => setShowNewFolder(false)}
-                className="text-secondary text-xs hover:text-on-surface"
-              >
-                Cancel
-              </button>
-            </div>
+            <NewFolderForm
+              inputRef={inputRef}
+              onCancel={() => setShowNewFolder(false)}
+              onCreate={submitNewFolder}
+              onNameChange={setNewFolderName}
+              value={newFolderName}
+            />
           )}
 
-          {loading && files.length === 0 && (
+          {drivesLoading && !currentDrive && (
             <div className="space-y-2">
-              {[1, 2, 3].map((i) => (
+              {[1, 2, 3].map((index) => (
                 <div
-                  key={i}
-                  className="h-16 bg-surface-container-low rounded-xl animate-pulse"
+                  className="h-16 animate-pulse rounded-xl bg-surface-container-low"
+                  key={index}
                 />
               ))}
             </div>
           )}
 
-          {!loading && files.length === 0 && !error && (
-            <div className="flex flex-col items-center justify-center py-24 text-center">
-              <Icon
-                name="folder_open"
-                className="text-6xl text-outline mb-4"
-              />
-              <h3 className="text-lg font-bold text-secondary mb-1">
-                No files yet
-              </h3>
-              <p className="text-sm text-outline">
-                Right-click to create a folder, or drop files into the local
-                sync directory.
-              </p>
+          {!drivesLoading && !currentDrive && (
+            <EmptyState
+              description="This drive no longer exists or its metadata has not loaded yet."
+              icon="folder_off"
+              title="Drive not found"
+            />
+          )}
+
+          {loading && rows.length === 0 && currentDrive && (
+            <div className="space-y-2">
+              {[1, 2, 3].map((index) => (
+                <div
+                  className="h-16 animate-pulse rounded-xl bg-surface-container-low"
+                  key={index}
+                />
+              ))}
             </div>
           )}
 
-          {/* File table */}
-          {files.length > 0 && (
-            <div className="w-full">
-              <div className="grid grid-cols-[1fr_100px_150px_80px_100px] px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-on-surface-variant border-b border-surface-container-high mb-2">
-                <div>Name</div>
-                <div>Size</div>
-                <div>Modified</div>
-                <div>Chunks</div>
-                <div>Checksum</div>
-              </div>
-              {files.map((file) => {
-                const ext =
-                  file.path.split(".").pop()?.toLowerCase() ?? "";
-                const iconMap: Record<string, [string, string]> = {
-                  txt: ["description", "text-blue-500"],
-                  md: ["description", "text-blue-500"],
-                  pdf: ["picture_as_pdf", "text-red-500"],
-                  png: ["image", "text-sky-500"],
-                  jpg: ["image", "text-sky-500"],
-                  jpeg: ["image", "text-sky-500"],
-                  zip: ["folder_zip", "text-amber-500"],
-                  json: ["data_object", "text-emerald-500"],
-                };
-                const [icon, iconColor] = iconMap[ext] ?? [
-                  "draft",
-                  "text-on-surface-variant",
-                ];
+          {!loading && rows.length === 0 && !error && currentDrive && (
+            <EmptyState
+              description="Create a folder here or drop files into the local sync directory and they’ll appear as the daemon picks them up."
+              icon="folder_open"
+              title="This folder is empty"
+            />
+          )}
 
-                return (
-                  <div
-                    key={file.path}
-                    onContextMenu={(e) => onContextMenu(e, file.path)}
-                    className="grid grid-cols-[1fr_100px_150px_80px_100px] items-center px-4 py-4 hover:bg-surface-container-low rounded-xl transition-all group/item cursor-pointer"
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-lg bg-surface-container-high flex items-center justify-center flex-shrink-0">
-                        <Icon
-                          name={icon}
-                          filled
-                          className={`text-xl ${iconColor}`}
-                        />
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-on-surface">
-                          {file.path}
-                        </p>
-                        <p className="text-[10px] text-on-surface-variant font-mono">
-                          {file.namespace}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-sm text-on-surface-variant font-mono">
-                      {formatBytes(file.size)}
-                    </div>
-                    <div className="text-sm text-on-surface-variant">
-                      {timeAgo(file.modified)}
-                    </div>
-                    <div className="text-sm text-on-surface-variant">
-                      {file.chunks}
-                    </div>
-                    <div className="text-xs font-mono text-outline truncate">
-                      {file.checksum.slice(0, 8)}...
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+          {rows.length > 0 && currentDrive && (
+            <BrowserTable
+              entries={rows}
+              onContextMenu={onContextMenu}
+              onOpenDirectory={navigateToPath}
+            />
           )}
         </div>
       </div>
 
-      {/* Context menu */}
       {ctx && (
-        <div
-          className="fixed z-[200] bg-surface-container-lowest rounded-xl shadow-2xl border border-outline-variant/20 py-1 min-w-[180px]"
-          style={{ left: ctx.x, top: ctx.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button
-            onClick={handleNewFolder}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-on-surface hover:bg-primary/5 transition-colors"
-          >
-            <Icon name="create_new_folder" className="text-lg text-primary" />
-            New Folder
-          </button>
-          {ctx.filePath && (
-            <>
-              <div className="border-t border-outline-variant/10 my-1" />
-              <button
-                onClick={() => handleDelete(ctx.filePath!)}
-                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-error hover:bg-error-container/10 transition-colors"
-              >
-                <Icon name="delete" className="text-lg" />
-                Delete
-              </button>
-            </>
-          )}
-        </div>
+        <BrowserContextMenu
+          onDelete={handleDelete}
+          onNewFolder={handleNewFolder}
+          state={ctx}
+        />
       )}
     </div>
   );

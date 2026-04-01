@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
+import { OPEN_COMMAND_PALETTE_EVENT } from "../lib/commandPalette";
 import { Icon } from "./Icon";
 
 interface Command {
@@ -57,13 +58,19 @@ const commands: Command[] = [
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
   const navigate = useNavigate();
+  const deferredQuery = useDeferredValue(query);
 
-  const filtered = query
-    ? commands.filter((c) =>
-        c.label.toLowerCase().includes(query.toLowerCase())
-      )
-    : commands;
+  const filtered = useMemo(
+    () =>
+      deferredQuery
+        ? commands.filter((c) =>
+            c.label.toLowerCase().includes(deferredQuery.toLowerCase())
+          )
+        : commands,
+    [deferredQuery]
+  );
 
   const sections = [...new Set(filtered.map((c) => c.section))];
 
@@ -71,10 +78,15 @@ export function CommandPalette() {
     (cmd: Command) => {
       setOpen(false);
       setQuery("");
+      setActiveIndex(0);
       navigate(cmd.action);
     },
     [navigate]
   );
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [deferredQuery, open]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -82,14 +94,49 @@ export function CommandPalette() {
         e.preventDefault();
         setOpen((prev) => !prev);
       }
+      if (open && e.key === "ArrowDown") {
+        e.preventDefault();
+        setActiveIndex((prev) =>
+          filtered.length === 0 ? 0 : (prev + 1) % filtered.length
+        );
+      }
+      if (open && e.key === "ArrowUp") {
+        e.preventDefault();
+        setActiveIndex((prev) =>
+          filtered.length === 0
+            ? 0
+            : (prev - 1 + filtered.length) % filtered.length
+        );
+      }
+      if (open && e.key === "Enter" && filtered[activeIndex]) {
+        e.preventDefault();
+        run(filtered[activeIndex]);
+      }
       if (e.key === "Escape") {
         setOpen(false);
         setQuery("");
+        setActiveIndex(0);
       }
     }
+
+    function onOpen() {
+      setOpen(true);
+    }
+
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+    window.addEventListener(
+      OPEN_COMMAND_PALETTE_EVENT,
+      onOpen as EventListener
+    );
+
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener(
+        OPEN_COMMAND_PALETTE_EVENT,
+        onOpen as EventListener
+      );
+    };
+  }, [activeIndex, filtered, open, run]);
 
   if (!open) return null;
 
@@ -131,24 +178,33 @@ export function CommandPalette() {
               </p>
               {filtered
                 .filter((c) => c.section === section)
-                .map((cmd) => (
+                .map((cmd) => {
+                  const index = filtered.findIndex((entry) => entry.id === cmd.id);
+                  return (
                   <button
                     key={cmd.id}
                     onClick={() => run(cmd)}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-on-surface hover:bg-primary/5 transition-colors cursor-pointer"
+                    className={`flex w-full items-center justify-between gap-3 px-4 py-2.5 text-sm transition-colors ${
+                      activeIndex === index
+                        ? "bg-primary/10 text-on-surface"
+                        : "text-on-surface hover:bg-primary/5"
+                    }`}
                   >
-                    <Icon
-                      name={cmd.icon}
-                      className="text-on-surface-variant text-lg"
-                    />
-                    <span className="flex-1 text-left">{cmd.label}</span>
+                    <span className="flex items-center gap-3">
+                      <Icon
+                        name={cmd.icon}
+                        className="text-on-surface-variant text-lg"
+                      />
+                      <span className="flex-1 text-left">{cmd.label}</span>
+                    </span>
                     {cmd.shortcut && (
                       <span className="text-[10px] font-mono text-outline">
                         {cmd.shortcut}
                       </span>
                     )}
                   </button>
-                ))}
+                );
+                })}
             </div>
           ))}
           {filtered.length === 0 && (

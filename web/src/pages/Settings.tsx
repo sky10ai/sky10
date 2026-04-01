@@ -1,11 +1,20 @@
 import { Icon } from "../components/Icon";
+import { STORAGE_EVENT_TYPES } from "../lib/events";
 import { skyfs, skylink } from "../lib/rpc";
 import { useRPC, truncAddr } from "../lib/useRPC";
 
 export default function Settings() {
-  const { data: health } = useRPC(() => skyfs.health());
-  const { data: linkStatus } = useRPC(() => skylink.status());
-  const { data: deviceData } = useRPC(() => skyfs.deviceList());
+  const { data: health } = useRPC(() => skyfs.health(), [], {
+    live: STORAGE_EVENT_TYPES,
+    refreshIntervalMs: 10_000,
+  });
+  const { data: linkStatus } = useRPC(() => skylink.status(), [], {
+    refreshIntervalMs: 10_000,
+  });
+  const { data: deviceData } = useRPC(() => skyfs.deviceList(), [], {
+    live: STORAGE_EVENT_TYPES,
+    refreshIntervalMs: 10_000,
+  });
 
   const thisDevice = (deviceData?.devices ?? []).find(
     (d) => d.pubkey === deviceData?.this_device
