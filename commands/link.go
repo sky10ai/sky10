@@ -41,8 +41,8 @@ func linkStatusCmd() *cobra.Command {
 			if err := json.Unmarshal(result, &status); err != nil {
 				return err
 			}
+			fmt.Printf("identity: %s\n", status.Address)
 			fmt.Printf("peer id:  %s\n", status.PeerID)
-			fmt.Printf("address:  %s\n", status.Address)
 			fmt.Printf("mode:     %s\n", status.Mode)
 			fmt.Printf("peers:    %d\n", status.Peers)
 			for _, a := range status.Addrs {

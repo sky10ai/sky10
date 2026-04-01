@@ -99,6 +99,7 @@ func ServeCmd() *cobra.Command {
 			}
 			linkResolver := link.NewResolver(linkNode, link.WithBackend(backend))
 			server.RegisterHandler(link.NewRPCHandler(linkNode, linkResolver))
+			server.RegisterHandler(skyid.NewRPCHandler(bundle))
 
 			// Wire sync notifications: KV changes notify own devices.
 			kvStore.SetNotifier(func(ns string) {
