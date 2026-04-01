@@ -126,6 +126,157 @@ func TestNewBundleRejectsDeviceNotInManifest(t *testing.T) {
 	}
 }
 
+func TestBundleAddressDeterministic(t *testing.T) {
+	t.Parallel()
+	b := generateTestBundle(t)
+
+	// Same bundle should produce identical address on every call.
+	a1 := b.Address()
+	a2 := b.Address()
+	if a1 != a2 {
+		t.Errorf("Address() not deterministic: %s != %s", a1, a2)
+	}
+}
+
+func TestBundleAddressMatchesKeyAddress(t *testing.T) {
+	t.Parallel()
+	// Generate a known identity key, create bundle, verify address
+	// matches what pkg/key would produce.
+	identity, _ := skykey.Generate()
+	device, _ := skykey.Generate()
+
+	manifest := NewManifest(identity)
+	manifest.AddDevice(device.PublicKey, "test")
+	manifest.Sign(identity.PrivateKey)
+
+	b, err := New(identity, device, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Address from bundle must match address from raw key.
+	keyAddr := identity.Address()
+	bundleAddr := b.Address()
+	if keyAddr != bundleAddr {
+		t.Errorf("bundle address %s != key address %s", bundleAddr, keyAddr)
+	}
+
+	// Verify it round-trips through ParseAddress.
+	parsed, err := skykey.ParseAddress(bundleAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !parsed.PublicKey.Equal(identity.PublicKey) {
+		t.Error("parsed public key doesn't match identity")
+	}
+}
+
+func TestTwoDevicesSameIdentity(t *testing.T) {
+	t.Parallel()
+	identity, _ := skykey.Generate()
+	deviceA, _ := skykey.Generate()
+	deviceB, _ := skykey.Generate()
+
+	manifest := NewManifest(identity)
+	manifest.AddDevice(deviceA.PublicKey, "laptop")
+	manifest.AddDevice(deviceB.PublicKey, "phone")
+	manifest.Sign(identity.PrivateKey)
+
+	bundleA, err := New(identity, deviceA, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleB, err := New(identity, deviceB, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Same identity address.
+	if bundleA.Address() != bundleB.Address() {
+		t.Error("two devices with same identity should have same address")
+	}
+
+	// Different device addresses.
+	if bundleA.DeviceAddress() == bundleB.DeviceAddress() {
+		t.Error("two devices should have different device addresses")
+	}
+
+	// Each bundle authorizes the other's device.
+	if !bundleA.IsDeviceAuthorized(deviceB.PublicKey) {
+		t.Error("bundleA should authorize deviceB")
+	}
+	if !bundleB.IsDeviceAuthorized(deviceA.PublicKey) {
+		t.Error("bundleB should authorize deviceA")
+	}
+}
+
+func TestBundleRejectsValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		make func() (*skykey.Key, *skykey.Key, *DeviceManifest)
+	}{
+		{
+			name: "public-only identity",
+			make: func() (*skykey.Key, *skykey.Key, *DeviceManifest) {
+				id, _ := skykey.Generate()
+				dev, _ := skykey.Generate()
+				m := NewManifest(id)
+				m.AddDevice(dev.PublicKey, "x")
+				m.Sign(id.PrivateKey)
+				return skykey.FromPublicKey(id.PublicKey), dev, m
+			},
+		},
+		{
+			name: "public-only device",
+			make: func() (*skykey.Key, *skykey.Key, *DeviceManifest) {
+				id, _ := skykey.Generate()
+				dev, _ := skykey.Generate()
+				m := NewManifest(id)
+				m.AddDevice(dev.PublicKey, "x")
+				m.Sign(id.PrivateKey)
+				return id, skykey.FromPublicKey(dev.PublicKey), m
+			},
+		},
+		{
+			name: "wrong signer",
+			make: func() (*skykey.Key, *skykey.Key, *DeviceManifest) {
+				id, _ := skykey.Generate()
+				dev, _ := skykey.Generate()
+				other, _ := skykey.Generate()
+				m := NewManifest(id)
+				m.AddDevice(dev.PublicKey, "x")
+				m.Sign(other.PrivateKey)
+				return id, dev, m
+			},
+		},
+		{
+			name: "device not in manifest",
+			make: func() (*skykey.Key, *skykey.Key, *DeviceManifest) {
+				id, _ := skykey.Generate()
+				dev, _ := skykey.Generate()
+				other, _ := skykey.Generate()
+				m := NewManifest(id)
+				m.AddDevice(other.PublicKey, "other")
+				m.Sign(id.PrivateKey)
+				return id, dev, m
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			id, dev, m := tt.make()
+			_, err := New(id, dev, m)
+			if err == nil {
+				t.Error("expected error")
+			}
+		})
+	}
+}
+
 func TestManifestSignVerify(t *testing.T) {
 	t.Parallel()
 	identity, _ := skykey.Generate()
