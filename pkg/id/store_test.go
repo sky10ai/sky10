@@ -21,7 +21,7 @@ func TestGenerate(t *testing.T) {
 	if b.Address() == "" {
 		t.Error("expected non-empty identity address")
 	}
-	if b.Address() == b.DeviceAddress() {
+	if b.Address() == b.DeviceID() {
 		t.Error("identity and device addresses should differ")
 	}
 	if !b.Manifest.Verify(b.Identity.PublicKey) {
@@ -63,8 +63,8 @@ func TestSaveLoad(t *testing.T) {
 	if loaded.Address() != original.Address() {
 		t.Errorf("loaded address = %s, want %s", loaded.Address(), original.Address())
 	}
-	if loaded.DeviceAddress() != original.DeviceAddress() {
-		t.Errorf("loaded device address = %s, want %s", loaded.DeviceAddress(), original.DeviceAddress())
+	if loaded.DeviceID() != original.DeviceID() {
+		t.Errorf("loaded device address = %s, want %s", loaded.DeviceID(), original.DeviceID())
 	}
 	if !loaded.Manifest.Verify(loaded.Identity.PublicKey) {
 		t.Error("loaded manifest should verify")
@@ -100,7 +100,7 @@ func TestMigrate(t *testing.T) {
 	}
 
 	// Device key should be different from identity.
-	if b.DeviceAddress() == b.Address() {
+	if b.DeviceID() == b.Address() {
 		t.Error("device address should differ from identity after migration")
 	}
 
@@ -177,8 +177,8 @@ func TestLoadAfterMigrate(t *testing.T) {
 	if loaded.Address() != migrated.Address() {
 		t.Errorf("loaded = %s, migrated = %s", loaded.Address(), migrated.Address())
 	}
-	if loaded.DeviceAddress() != migrated.DeviceAddress() {
-		t.Errorf("loaded device = %s, migrated device = %s", loaded.DeviceAddress(), migrated.DeviceAddress())
+	if loaded.DeviceID() != migrated.DeviceID() {
+		t.Errorf("loaded device = %s, migrated device = %s", loaded.DeviceID(), migrated.DeviceID())
 	}
 }
 

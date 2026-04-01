@@ -35,16 +35,18 @@ func (h *RPCHandler) Dispatch(_ context.Context, method string, _ json.RawMessag
 }
 
 type showResult struct {
-	Address       string `json:"address"`
-	DeviceAddress string `json:"device_address"`
-	DeviceCount   int    `json:"device_count"`
+	Address      string `json:"address"`
+	DeviceID     string `json:"device_id"`
+	DevicePubKey string `json:"device_pubkey"`
+	DeviceCount  int    `json:"device_count"`
 }
 
 func (h *RPCHandler) rpcShow() (interface{}, error, bool) {
 	return showResult{
-		Address:       h.bundle.Address(),
-		DeviceAddress: h.bundle.DeviceAddress(),
-		DeviceCount:   len(h.bundle.Manifest.Devices),
+		Address:      h.bundle.Address(),
+		DeviceID:     h.bundle.DeviceID(),
+		DevicePubKey: h.bundle.DevicePubKeyHex(),
+		DeviceCount:  len(h.bundle.Manifest.Devices),
 	}, nil, true
 }
 

@@ -35,17 +35,29 @@ func TestBundleAddress(t *testing.T) {
 	if b.Address() != b.Identity.Address() {
 		t.Errorf("Address() = %s, want identity address %s", b.Address(), b.Identity.Address())
 	}
-	if b.Address() == b.DeviceAddress() {
+	if b.Address() == b.DeviceID() {
 		t.Error("identity and device addresses should differ")
 	}
 }
 
-func TestBundleDeviceAddress(t *testing.T) {
+func TestBundleDeviceID(t *testing.T) {
 	t.Parallel()
 	b := generateTestBundle(t)
 
-	if b.DeviceAddress() != b.Device.Address() {
-		t.Errorf("DeviceAddress() = %s, want device address %s", b.DeviceAddress(), b.Device.Address())
+	// DeviceID is 16 chars derived from device key's sky10q address.
+	id := b.DeviceID()
+	if len(id) != 16 {
+		t.Errorf("DeviceID() length = %d, want 16", len(id))
+	}
+}
+
+func TestBundleDevicePubKeyHex(t *testing.T) {
+	t.Parallel()
+	b := generateTestBundle(t)
+
+	hex := b.DevicePubKeyHex()
+	if len(hex) != 64 { // 32 bytes = 64 hex chars
+		t.Errorf("DevicePubKeyHex() length = %d, want 64", len(hex))
 	}
 }
 
@@ -197,7 +209,7 @@ func TestTwoDevicesSameIdentity(t *testing.T) {
 	}
 
 	// Different device addresses.
-	if bundleA.DeviceAddress() == bundleB.DeviceAddress() {
+	if bundleA.DeviceID() == bundleB.DeviceID() {
 		t.Error("two devices should have different device addresses")
 	}
 

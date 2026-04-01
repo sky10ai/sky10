@@ -27,7 +27,7 @@ func TestSyncIdentityFirstDevice(t *testing.T) {
 	if bundleA.Address() == "" {
 		t.Error("expected non-empty identity address")
 	}
-	if bundleA.Address() == bundleA.DeviceAddress() {
+	if bundleA.Address() == bundleA.DeviceID() {
 		t.Error("identity and device addresses should differ")
 	}
 	if !bundleA.Manifest.Verify(bundleA.Identity.PublicKey) {
@@ -75,7 +75,7 @@ func TestSyncIdentitySecondDeviceAdoptsFirst(t *testing.T) {
 	}
 
 	// Device keys must differ.
-	if bundleA.DeviceAddress() == bundleB.DeviceAddress() {
+	if bundleA.DeviceID() == bundleB.DeviceID() {
 		t.Error("device addresses should differ")
 	}
 
@@ -124,10 +124,10 @@ func TestSyncIdentityThreeDevicesAllConverge(t *testing.T) {
 	// All three should have unique device addresses.
 	seen := make(map[string]bool)
 	for i, b := range bundles {
-		if seen[b.DeviceAddress()] {
+		if seen[b.DeviceID()] {
 			t.Errorf("device %d has duplicate device address", i)
 		}
-		seen[b.DeviceAddress()] = true
+		seen[b.DeviceID()] = true
 	}
 }
 
@@ -240,7 +240,7 @@ func TestSyncIdentityIdempotent(t *testing.T) {
 	if bundle1.Address() != bundle2.Address() {
 		t.Error("identity should be stable across calls")
 	}
-	if bundle1.DeviceAddress() != bundle2.DeviceAddress() {
+	if bundle1.DeviceID() != bundle2.DeviceID() {
 		t.Error("device should be stable across calls")
 	}
 }

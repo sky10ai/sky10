@@ -8,6 +8,7 @@ package id
 
 import (
 	"crypto/ed25519"
+	"encoding/hex"
 	"fmt"
 
 	skykey "github.com/sky10/sky10/pkg/key"
@@ -48,10 +49,22 @@ func (b *Bundle) Address() string {
 	return b.Identity.Address()
 }
 
-// DeviceAddress returns this device's sky10q... address. Used for device
-// identification (e.g. S3 device registry, ops log attribution).
-func (b *Bundle) DeviceAddress() string {
-	return b.Device.Address()
+// DeviceID returns a short 16-char identifier for this device, derived
+// from the device key's sky10q address. Used as the S3 filename key
+// for the device registry (e.g. devices/<deviceID>.json).
+func (b *Bundle) DeviceID() string {
+	addr := b.Device.Address()
+	if len(addr) > 21 {
+		return addr[5:21]
+	}
+	return addr
+}
+
+// DevicePubKeyHex returns the device's raw Ed25519 public key as hex.
+// This is the device identifier shown in the UI — distinct from the
+// sky10q identity address.
+func (b *Bundle) DevicePubKeyHex() string {
+	return hex.EncodeToString(b.Device.PublicKey)
 }
 
 // IsDeviceAuthorized checks whether a device public key is listed in the

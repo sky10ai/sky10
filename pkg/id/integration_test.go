@@ -137,12 +137,11 @@ type deviceJSON struct {
 }
 
 func registerDevice(t *testing.T, backend *s3backend.Backend,
-	identityAddr, deviceAddr, name string) {
+	identityAddr, deviceID, name string) {
 	t.Helper()
-	id := deviceAddr[5:21] // skip "sky10" prefix, take 16 chars
 	dev := deviceJSON{PubKey: identityAddr, Name: name}
 	data, _ := json.Marshal(dev)
-	if err := backend.Put(context.Background(), "devices/"+id+".json",
+	if err := backend.Put(context.Background(), "devices/"+deviceID+".json",
 		bytes.NewReader(data), int64(len(data))); err != nil {
 		t.Fatalf("register device: %v", err)
 	}
@@ -180,8 +179,8 @@ func TestTwoDevicesSharedBucketIntegration(t *testing.T) {
 	}
 
 	// Both devices register with the same identity address.
-	registerDevice(t, backend, bundleA.Address(), bundleA.DeviceAddress(), "laptop")
-	registerDevice(t, backend, bundleB.Address(), bundleB.DeviceAddress(), "phone")
+	registerDevice(t, backend, bundleA.Address(), bundleA.DeviceID(), "laptop")
+	registerDevice(t, backend, bundleB.Address(), bundleB.DeviceID(), "phone")
 
 	// Verify both devices are discoverable from S3.
 	keys, err := backend.List(ctx, "devices/")
@@ -302,7 +301,7 @@ func TestDeviceAddedAfterInitialSync(t *testing.T) {
 	manifest.Sign(identity.PrivateKey)
 
 	bundleA, _ := New(identity, deviceA, manifest)
-	registerDevice(t, backend, bundleA.Address(), bundleA.DeviceAddress(), "laptop")
+	registerDevice(t, backend, bundleA.Address(), bundleA.DeviceID(), "laptop")
 
 	// Upload manifest to S3.
 	data, _ := json.Marshal(manifest)
@@ -328,7 +327,7 @@ func TestDeviceAddedAfterInitialSync(t *testing.T) {
 	// Upload updated manifest.
 	data, _ = json.Marshal(&downloaded)
 	backend.Put(ctx, mKey, bytes.NewReader(data), int64(len(data)))
-	registerDevice(t, backend, bundleB.Address(), bundleB.DeviceAddress(), "phone")
+	registerDevice(t, backend, bundleB.Address(), bundleB.DeviceID(), "phone")
 
 	// Verify both bundles agree on identity.
 	if bundleA.Address() != bundleB.Address() {

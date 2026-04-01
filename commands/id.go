@@ -28,16 +28,18 @@ func idShowCmd() *cobra.Command {
 				return err
 			}
 			var info struct {
-				Address       string `json:"address"`
-				DeviceAddress string `json:"device_address"`
-				DeviceCount   int    `json:"device_count"`
+				Address      string `json:"address"`
+				DeviceID     string `json:"device_id"`
+				DevicePubKey string `json:"device_pubkey"`
+				DeviceCount  int    `json:"device_count"`
 			}
 			if err := json.Unmarshal(result, &info); err != nil {
 				return err
 			}
-			fmt.Printf("identity:  %s\n", info.Address)
-			fmt.Printf("device:    %s\n", info.DeviceAddress)
-			fmt.Printf("devices:   %d\n", info.DeviceCount)
+			fmt.Printf("identity:    %s\n", info.Address)
+			fmt.Printf("device id:   %s\n", info.DeviceID)
+			fmt.Printf("device key:  %s\n", info.DevicePubKey)
+			fmt.Printf("devices:     %d\n", info.DeviceCount)
 			return nil
 		},
 	}
