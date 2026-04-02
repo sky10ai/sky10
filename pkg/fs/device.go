@@ -15,10 +15,10 @@ import (
 
 // DeviceInfo represents a registered device in the S3 registry.
 type DeviceInfo struct {
-	ID         string   `json:"id"`                    // 16-char device identifier
-	PubKey     string   `json:"pubkey"`                // hex-encoded Ed25519 device public key
-	Name       string   `json:"name"`                  // hostname
-	Alias      string   `json:"alias,omitempty"`       // user-chosen display name
+	ID         string   `json:"id"`              // 16-char device identifier
+	PubKey     string   `json:"pubkey"`          // hex-encoded Ed25519 device public key
+	Name       string   `json:"name"`            // hostname
+	Alias      string   `json:"alias,omitempty"` // user-chosen display name
 	Joined     string   `json:"joined"`
 	Platform   string   `json:"platform,omitempty"`
 	IP         string   `json:"ip,omitempty"`
