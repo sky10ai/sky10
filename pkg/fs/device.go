@@ -15,8 +15,9 @@ import (
 
 // DeviceInfo represents a registered device in the S3 registry.
 type DeviceInfo struct {
+	DeviceID     string   `json:"device_id,omitempty"`     // 16-char device identifier
 	PubKey       string   `json:"pubkey"`                  // identity address (shared)
-	DevicePubKey string   `json:"device_pubkey,omitempty"` // this device's public key
+	DevicePubKey string   `json:"device_pubkey,omitempty"` // this device's public key (hex)
 	Name         string   `json:"name"`                    // hostname
 	Alias        string   `json:"alias,omitempty"`         // user-chosen display name
 	Joined       string   `json:"joined"`
@@ -50,6 +51,7 @@ func RegisterDevice(ctx context.Context, backend adapter.Backend, identityAddr s
 	ip, location := fetchIPLocation()
 
 	info := DeviceInfo{
+		DeviceID:     id,
 		PubKey:       identityAddr,
 		DevicePubKey: devicePubKey,
 		Name:         name,
