@@ -55,7 +55,7 @@ func fsInitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			skyfs.RegisterDevice(ctx, backend, bundle.Address(), bundle.DevicePubKeyHex(), skyfs.GetDeviceName(), cmd.Root().Version)
+			skyfs.RegisterDevice(ctx, backend, bundle.DeviceID(), bundle.DevicePubKeyHex(), skyfs.GetDeviceName(), cmd.Root().Version)
 
 			fmt.Printf("Initialized skyfs\n  Schema:   v%s\n  Identity: %s\n  Bucket:   %s\n",
 				skyfs.SchemaVersion, bundle.Address(), cfg.Bucket)
@@ -119,7 +119,7 @@ func fsJoinCmd() *cobra.Command {
 					return err
 				}
 				if granted {
-					skyfs.RegisterDevice(ctx, backend, bundle.Address(), bundle.DevicePubKeyHex(), skyfs.GetDeviceName(), cmd.Root().Version)
+					skyfs.RegisterDevice(ctx, backend, bundle.DeviceID(), bundle.DevicePubKeyHex(), skyfs.GetDeviceName(), cmd.Root().Version)
 					fmt.Println("Approved! You can now sync.")
 					return nil
 				}

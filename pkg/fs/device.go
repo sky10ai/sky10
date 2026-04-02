@@ -15,28 +15,26 @@ import (
 
 // DeviceInfo represents a registered device in the S3 registry.
 type DeviceInfo struct {
-	DeviceID     string   `json:"device_id,omitempty"`     // 16-char device identifier
-	PubKey       string   `json:"pubkey"`                  // identity address (shared)
-	DevicePubKey string   `json:"device_pubkey,omitempty"` // this device's public key (hex)
-	Name         string   `json:"name"`                    // hostname
-	Alias        string   `json:"alias,omitempty"`         // user-chosen display name
-	Joined       string   `json:"joined"`
-	Platform     string   `json:"platform,omitempty"`
-	IP           string   `json:"ip,omitempty"`
-	Location     string   `json:"location,omitempty"`
-	Version      string   `json:"version,omitempty"`
-	LastSeen     string   `json:"last_seen,omitempty"`
-	Multiaddrs   []string `json:"multiaddrs,omitempty"` // libp2p listen addresses
+	ID         string   `json:"id"`                    // 16-char device identifier
+	PubKey     string   `json:"pubkey"`                // hex-encoded Ed25519 device public key
+	Name       string   `json:"name"`                  // hostname
+	Alias      string   `json:"alias,omitempty"`       // user-chosen display name
+	Joined     string   `json:"joined"`
+	Platform   string   `json:"platform,omitempty"`
+	IP         string   `json:"ip,omitempty"`
+	Location   string   `json:"location,omitempty"`
+	Version    string   `json:"version,omitempty"`
+	LastSeen   string   `json:"last_seen,omitempty"`
+	Multiaddrs []string `json:"multiaddrs,omitempty"` // libp2p listen addresses
 }
 
 // RegisterDevice writes this device's info to the S3 registry.
-// The deviceID uniquely identifies this device (e.g. short hash of device
-// public key). The pubkey is the identity address (shared across devices).
+// deviceID is the 16-char identifier, pubKeyHex is the hex-encoded
+// Ed25519 device public key.
 // On re-registration (daemon restart), it preserves the original join date
 // but refreshes the IP and location.
-func RegisterDevice(ctx context.Context, backend adapter.Backend, identityAddr string, devicePubKey string, name string, version string) error {
-	id := shortPubkeyID(devicePubKey)
-	key := "devices/" + id + ".json"
+func RegisterDevice(ctx context.Context, backend adapter.Backend, deviceID string, pubKeyHex string, name string, version string) error {
+	key := "devices/" + deviceID + ".json"
 
 	// Preserve original join date and alias if device already registered.
 	joined := time.Now().UTC().Format(time.RFC3339)
@@ -51,17 +49,16 @@ func RegisterDevice(ctx context.Context, backend adapter.Backend, identityAddr s
 	ip, location := fetchIPLocation()
 
 	info := DeviceInfo{
-		DeviceID:     id,
-		PubKey:       identityAddr,
-		DevicePubKey: devicePubKey,
-		Name:         name,
-		Alias:        alias,
-		Joined:       joined,
-		Platform:     detectPlatform(),
-		IP:           ip,
-		Location:     location,
-		Version:      version,
-		LastSeen:     time.Now().UTC().Format(time.RFC3339),
+		ID:       deviceID,
+		PubKey:   pubKeyHex,
+		Name:     name,
+		Alias:    alias,
+		Joined:   joined,
+		Platform: detectPlatform(),
+		IP:       ip,
+		Location: location,
+		Version:  version,
+		LastSeen: time.Now().UTC().Format(time.RFC3339),
 	}
 
 	data, err := json.MarshalIndent(info, "", "  ")
@@ -91,9 +88,8 @@ func readDevice(ctx context.Context, backend adapter.Backend, key string) (*Devi
 }
 
 // UpdateDeviceMultiaddrs updates the multiaddrs field on an existing device entry.
-func UpdateDeviceMultiaddrs(ctx context.Context, backend adapter.Backend, devicePubKey string, addrs []string) error {
-	id := shortPubkeyID(devicePubKey)
-	key := "devices/" + id + ".json"
+func UpdateDeviceMultiaddrs(ctx context.Context, backend adapter.Backend, deviceID string, addrs []string) error {
+	key := "devices/" + deviceID + ".json"
 
 	existing, err := readDevice(ctx, backend, key)
 	if err != nil {
