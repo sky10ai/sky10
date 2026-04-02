@@ -14,10 +14,22 @@ LDFLAGS  := -s -w \
 	-X 'main.version=$(VERSION)' \
 	-X 'main.commit=$(COMMIT)' \
 	-X 'main.buildDate=$(DATE)'
+UNAME_S  := $(shell uname -s)
+WEB_DEV_PORT ?= 5173
+WEB_DEV_PATH ?= /
+WEB_RPC_TARGET ?= http://localhost:9102
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-go build-web build-swift test test-skyfs test-skyfs-cli test-skyfs-cli-v test-skyfs-ui-macos check vet fmt verify clean install reproduce platforms checksums
+ifeq ($(UNAME_S),Darwin)
+OPEN_CMD := open
+else ifeq ($(UNAME_S),Linux)
+OPEN_CMD := xdg-open
+else
+OPEN_CMD :=
+endif
+
+.PHONY: all build build-go build-web web-dev build-swift test test-skyfs test-skyfs-cli test-skyfs-cli-v test-skyfs-ui-macos check vet fmt verify clean install reproduce platforms checksums
 
 # --- Default ---
 
@@ -31,6 +43,15 @@ BUN := $(shell command -v bun 2>/dev/null || echo "$(HOME)/.bun/bin/bun")
 
 build-web:
 	cd web && $(BUN) install --frozen-lockfile && $(BUN) run build
+
+web-dev:
+	cd web && $(BUN) install --frozen-lockfile
+	@echo "Starting web dev UI on http://localhost:$(WEB_DEV_PORT)$(WEB_DEV_PATH)"
+	@echo "Proxying /rpc and /health to $(WEB_RPC_TARGET)"
+	@curl -fsS "$(WEB_RPC_TARGET)/health" >/dev/null 2>&1 || echo "Warning: no daemon responding at $(WEB_RPC_TARGET)"
+	@echo "Override with: make web-dev WEB_RPC_TARGET=http://localhost:9101 WEB_DEV_PATH=/bucket"
+	@if [ -n "$(OPEN_CMD)" ]; then (sleep 1; $(OPEN_CMD) "http://localhost:$(WEB_DEV_PORT)$(WEB_DEV_PATH)" >/dev/null 2>&1 || true) & fi
+	cd web && SKY10_WEB_RPC_TARGET=$(WEB_RPC_TARGET) $(BUN) run dev -- --host 0.0.0.0 --port $(WEB_DEV_PORT) --strictPort
 
 build-go:
 	go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o bin/sky10 .

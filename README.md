@@ -42,10 +42,17 @@ sky10 key generate
 ```bash
 make          # check + test + build → bin/sky10
 make test     # Go + Swift tests
+make web-dev  # Vite dev UI on :5173, opens browser, defaults RPC proxy to :9102
 make reproduce  # prove build determinism
 ```
 
 Deterministic builds: same source + same Go version = identical binary.
+
+For a specific route or daemon target:
+
+```bash
+make web-dev WEB_DEV_PATH=/bucket WEB_RPC_TARGET=http://localhost:9101
+```
 
 ### S3 Credentials
 

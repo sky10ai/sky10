@@ -1,4 +1,4 @@
-import { NavLink } from "react-router";
+import { NavLink, useLocation } from "react-router";
 import { STORAGE_EVENT_TYPES } from "../lib/events";
 import { Icon } from "./Icon";
 import { skyfs, skylink } from "../lib/rpc";
@@ -6,14 +6,20 @@ import { useRPC, truncAddr } from "../lib/useRPC";
 import { StatusBadge } from "./StatusBadge";
 
 const navItems = [
-  { to: "/drives", icon: "folder_open", label: "Drives" },
-  { to: "/kv", icon: "database", label: "Key-Value" },
-  { to: "/devices", icon: "devices", label: "Devices" },
-  { to: "/network", icon: "hub", label: "Network" },
-  { to: "/settings", icon: "settings", label: "Settings" },
+  {
+    to: "/drives",
+    icon: "folder_open",
+    label: "Drives",
+    matchPrefixes: ["/drives", "/bucket"],
+  },
+  { to: "/kv", icon: "database", label: "Key-Value", matchPrefixes: ["/kv"] },
+  { to: "/devices", icon: "devices", label: "Devices", matchPrefixes: ["/devices"] },
+  { to: "/network", icon: "hub", label: "Network", matchPrefixes: ["/network"] },
+  { to: "/settings", icon: "settings", label: "Settings", matchPrefixes: ["/settings"] },
 ];
 
 export function Sidebar() {
+  const location = useLocation();
   const { data: health, refreshing } = useRPC(() => skyfs.health(), [], {
     live: STORAGE_EVENT_TYPES,
     refreshIntervalMs: 10_000,
@@ -44,26 +50,32 @@ export function Sidebar() {
 
         {/* Navigation */}
         <nav className="space-y-1.5">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  isActive
-                    ? "text-[#007AFF] bg-surface-container-lowest dark:bg-[#2a2c2e] shadow-sm"
-                    : "text-[#71717a] dark:text-[#a1a1aa] hover:bg-surface-container-high dark:hover:bg-[#2a2c2e]"
-                }`
-              }
-            >
-              {({ isActive }) => (
+          {navItems.map((item) => {
+            const isActive = item.matchPrefixes.some(
+              (prefix) =>
+                location.pathname === prefix ||
+                location.pathname.startsWith(`${prefix}/`)
+            );
+
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={() =>
+                  `flex items-center gap-3 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    isActive
+                      ? "text-[#007AFF] bg-surface-container-lowest dark:bg-[#2a2c2e] shadow-sm"
+                      : "text-[#71717a] dark:text-[#a1a1aa] hover:bg-surface-container-high dark:hover:bg-[#2a2c2e]"
+                  }`
+                }
+              >
                 <>
                   <Icon name={item.icon} filled={isActive} />
                   <span>{item.label}</span>
                 </>
-              )}
-            </NavLink>
-          ))}
+              </NavLink>
+            );
+          })}
         </nav>
       </div>
 

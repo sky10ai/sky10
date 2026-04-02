@@ -38,6 +38,14 @@ const commands: Command[] = [
     section: "Suggestions",
   },
   {
+    id: "bucket",
+    label: "Open Bucket",
+    icon: "deployed_code",
+    action: "/bucket",
+    shortcut: "⌘ B",
+    section: "Storage",
+  },
+  {
     id: "network",
     label: "Network Dashboard",
     icon: "hub",

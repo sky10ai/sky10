@@ -22,6 +22,13 @@ function getRouteMeta(pathname: string) {
     };
   }
 
+  if (pathname.startsWith("/bucket")) {
+    return {
+      description: "Inspect the raw S3 prefix tree and object keys without mixing it into your drive list.",
+      title: "Bucket",
+    };
+  }
+
   if (pathname.startsWith("/kv")) {
     return {
       description: "Inspect replicated key-value entries and edit them live.",

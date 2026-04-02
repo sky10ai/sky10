@@ -71,6 +71,7 @@ export const skyfs = {
   invite: () => rpc<InviteResult>("skyfs.invite"),
   approve: (p: { device_id: string }) => rpc("skyfs.approve", p),
   status: () => rpc<StatusResult>("skyfs.status"),
+  s3List: (p: { prefix: string }) => rpc<S3ListResult>("skyfs.s3List", p),
 };
 
 // -- skykv --
@@ -181,6 +182,18 @@ export interface InviteResult {
 
 export interface StatusResult {
   syncing: boolean;
+}
+
+export interface S3ObjectEntry {
+  key: string;
+  size: number;
+}
+
+export interface S3ListResult {
+  files: S3ObjectEntry[];
+  dirs: string[];
+  prefix: string;
+  total: number;
 }
 
 export interface KVListResult {

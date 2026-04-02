@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router";
+import { BucketAccessCard } from "../components/drives/BucketAccessCard";
 import { DriveCard } from "../components/drives/DriveCard";
 import { EmptyState } from "../components/EmptyState";
 import { Icon } from "../components/Icon";
@@ -111,6 +112,8 @@ export default function Drives() {
           ))}
         </div>
       )}
+
+      <BucketAccessCard />
 
       {health && (
         <div className="grid grid-cols-1 gap-4 border-t border-outline-variant/10 pt-10 md:grid-cols-2 xl:grid-cols-4">

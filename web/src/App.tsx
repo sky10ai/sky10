@@ -7,6 +7,7 @@ import Devices from "./pages/Devices";
 import InviteDevice from "./pages/InviteDevice";
 import Network from "./pages/Network";
 import Settings from "./pages/Settings";
+import Bucket from "./pages/Bucket";
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
           <Route index element={<Navigate to="/drives" replace />} />
           <Route path="drives" element={<Drives />} />
           <Route path="drives/:name/*" element={<FileBrowser />} />
+          <Route path="bucket/*" element={<Bucket />} />
           <Route path="kv" element={<KVStore />} />
           <Route path="devices" element={<Devices />} />
           <Route path="devices/invite" element={<InviteDevice />} />
