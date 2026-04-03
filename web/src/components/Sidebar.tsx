@@ -6,16 +6,16 @@ import { useRPC, truncAddr } from "../lib/useRPC";
 import { StatusBadge } from "./StatusBadge";
 
 const navItems = [
+  { to: "/kv", icon: "database", label: "Key-Value", matchPrefixes: ["/kv"] },
+  { to: "/devices", icon: "devices", label: "Devices", matchPrefixes: ["/devices"] },
+  { to: "/network", icon: "hub", label: "Network", matchPrefixes: ["/network"] },
+  { to: "/settings", icon: "settings", label: "Settings", matchPrefixes: ["/settings"] },
   {
     to: "/drives",
     icon: "folder_open",
     label: "Drives",
     matchPrefixes: ["/drives", "/bucket"],
   },
-  { to: "/kv", icon: "database", label: "Key-Value", matchPrefixes: ["/kv"] },
-  { to: "/devices", icon: "devices", label: "Devices", matchPrefixes: ["/devices"] },
-  { to: "/network", icon: "hub", label: "Network", matchPrefixes: ["/network"] },
-  { to: "/settings", icon: "settings", label: "Settings", matchPrefixes: ["/settings"] },
 ];
 
 export function Sidebar() {
