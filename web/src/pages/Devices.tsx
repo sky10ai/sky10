@@ -74,6 +74,13 @@ export default function Devices() {
                   : "bg-surface-container-lowest ring-1 ring-outline-variant/10"
               }`}
             >
+              {isSelf && (
+                <div className="mb-3">
+                  <span className="bg-primary-fixed text-on-primary-fixed-variant text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider">
+                    This Device
+                  </span>
+                </div>
+              )}
               <div className="flex items-start gap-4 mb-6">
                 <div
                   className={`w-14 h-14 rounded-2xl flex items-center justify-center ${
@@ -88,11 +95,6 @@ export default function Devices() {
                   <h3 className="text-xl font-bold text-on-surface truncate">
                     {displayName}
                   </h3>
-                  {isSelf && (
-                    <span className="inline-block bg-primary-fixed text-on-primary-fixed-variant text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider mt-1">
-                      This Device
-                    </span>
-                  )}
                   <p className="text-xs text-secondary flex items-center gap-1">
                     <Icon name="location_on" className="text-xs" />
                     {device.location || device.ip}
