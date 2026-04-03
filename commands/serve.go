@@ -71,7 +71,7 @@ func ServeCmd() *cobra.Command {
 			store.SetDevicePubKey(bundle.DevicePubKeyHex())
 			store.SetClient("cli/" + cmd.Root().Version)
 
-			go skyfs.RegisterDevice(ctx, backend, bundle.DeviceID(), bundle.DevicePubKeyHex(), skyfs.GetDeviceName(), cmd.Root().Version)
+			skyfs.RegisterDevice(ctx, backend, bundle.DeviceID(), bundle.DevicePubKeyHex(), skyfs.GetDeviceName(), cmd.Root().Version)
 			skyfs.HandleDumpSignal(slog.Default())
 
 			if err := skyfs.KillExistingDaemon(); err != nil {
