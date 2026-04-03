@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
 	"sync"
 )
 
@@ -98,15 +99,18 @@ func (dm *DriveManager) RemoveDrive(id string) error {
 	return nil
 }
 
-// ListDrives returns all configured drives.
+// ListDrives returns all configured drives, sorted by name.
 func (dm *DriveManager) ListDrives() []*Drive {
 	dm.mu.RLock()
 	defer dm.mu.RUnlock()
 
-	var result []*Drive
+	result := make([]*Drive, 0, len(dm.drives))
 	for _, d := range dm.drives {
 		result = append(result, d)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
 	return result
 }
 
