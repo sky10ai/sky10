@@ -157,6 +157,7 @@ export interface SyncStatus {
 }
 
 export interface Device {
+  id: string;
   pubkey: string;
   device_pubkey?: string;
   name: string;

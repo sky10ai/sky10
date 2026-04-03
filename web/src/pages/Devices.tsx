@@ -56,7 +56,7 @@ export default function Devices() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {devices.map((device) => {
-          const isSelf = (device.device_pubkey ?? device.pubkey) === thisDevice;
+          const isSelf = device.id === thisDevice;
           const displayName = device.alias || device.name;
           const platformIcon =
             device.platform === "macOS"
@@ -67,7 +67,7 @@ export default function Devices() {
 
           return (
             <div
-              key={device.pubkey}
+              key={device.id}
               className={`rounded-xl p-6 shadow-sm hover:shadow-xl transition-all duration-500 ${
                 isSelf
                   ? "bg-surface-container-lowest ring-1 ring-primary/20 relative overflow-hidden"
@@ -105,10 +105,10 @@ export default function Devices() {
               <div className="space-y-4">
                 <div>
                   <label className="text-[10px] font-bold text-secondary uppercase tracking-widest block mb-1">
-                    Public Key
+                    Device ID
                   </label>
                   <div className="flex items-center justify-between bg-surface-container-low px-3 py-2 rounded-lg font-mono text-xs text-on-surface-variant transition-colors hover:bg-surface-container-high cursor-pointer">
-                    <span>{truncAddr(device.device_pubkey ?? device.pubkey)}</span>
+                    <span>{device.id}</span>
                     <Icon name="content_copy" className="text-sm" />
                   </div>
                 </div>
