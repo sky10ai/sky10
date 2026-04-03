@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/sky10/sky10/pkg/adapter"
@@ -113,15 +114,33 @@ func ListDevices(ctx context.Context, backend adapter.Backend) ([]DeviceInfo, er
 		return nil, err
 	}
 
-	var devices []DeviceInfo
-	for _, k := range keys {
-		d, err := readDevice(ctx, backend, k)
-		if err != nil {
-			continue
-		}
-		devices = append(devices, *d)
+	type result struct {
+		idx int
+		dev *DeviceInfo
+	}
+	ch := make(chan result, len(keys))
+	for i, k := range keys {
+		go func(idx int, key string) {
+			d, err := readDevice(ctx, backend, key)
+			if err != nil {
+				ch <- result{idx: idx}
+				return
+			}
+			ch <- result{idx: idx, dev: d}
+		}(i, k)
 	}
 
+	devices := make([]DeviceInfo, 0, len(keys))
+	for range keys {
+		r := <-ch
+		if r.dev != nil {
+			devices = append(devices, *r.dev)
+		}
+	}
+
+	sort.Slice(devices, func(i, j int) bool {
+		return devices[i].Name < devices[j].Name
+	})
 	return devices, nil
 }
 
