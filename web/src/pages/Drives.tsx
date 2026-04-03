@@ -4,7 +4,6 @@ import { DriveCard } from "../components/drives/DriveCard";
 import { EmptyState } from "../components/EmptyState";
 import { Icon } from "../components/Icon";
 import { PageHeader } from "../components/PageHeader";
-import { StatCard } from "../components/StatCard";
 import { StatusBadge } from "../components/StatusBadge";
 import { openCommandPalette } from "../lib/commandPalette";
 import { STORAGE_EVENT_TYPES } from "../lib/events";
@@ -30,7 +29,7 @@ export default function Drives() {
   const pending = health?.outbox_pending ?? 0;
 
   return (
-    <section className="mx-auto w-full max-w-7xl space-y-10 p-12">
+    <section className="mx-auto flex min-h-full w-full max-w-7xl flex-col gap-10 p-12">
       <PageHeader
         actions={
           <>
@@ -113,26 +112,9 @@ export default function Drives() {
         </div>
       )}
 
-      <BucketAccessCard />
-
-      {health && (
-        <div className="grid grid-cols-1 gap-4 border-t border-outline-variant/10 pt-10 md:grid-cols-2 xl:grid-cols-4">
-          <StatCard
-            label="Version"
-            value={<span className="font-mono">{health.version}</span>}
-          />
-          <StatCard label="Uptime" value={health.uptime} />
-          <StatCard
-            label="Drives Running"
-            value={`${health.drives_running} / ${health.drives}`}
-          />
-          <StatCard
-            detail="Connected browsers and app shells"
-            label="RPC Clients"
-            value={health.rpc_clients}
-          />
-        </div>
-      )}
+      <div className="mt-auto pt-10">
+        <BucketAccessCard />
+      </div>
     </section>
   );
 }
