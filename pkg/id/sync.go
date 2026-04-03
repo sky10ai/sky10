@@ -19,8 +19,12 @@ const (
 	s3ManifestKey = "identity/manifest.json"
 )
 
-// SyncIdentity ensures this device has the correct shared identity for
-// the S3 bucket. It handles three cases:
+// SyncIdentity ensures this device has the correct shared identity.
+//
+// When backend is nil (S3-free mode), the identity is loaded from or
+// generated on local disk only — no remote sync.
+//
+// When backend is non-nil, it handles three cases:
 //
 //  1. No local identity, no S3 identity → generate both, publish to S3
 //  2. No local identity, S3 identity exists → adopt S3 identity
@@ -30,6 +34,10 @@ const (
 // from the identity address. Any device with bucket access can read the
 // address and decrypt the key. The bucket IS the trust boundary.
 func SyncIdentity(ctx context.Context, store *Store, backend adapter.Backend, deviceName string) (*Bundle, error) {
+	if backend == nil {
+		return localIdentity(store, deviceName)
+	}
+
 	remoteIdentity, err := downloadIdentity(ctx, backend)
 	if err != nil && !errors.Is(err, adapter.ErrNotFound) {
 		return nil, fmt.Errorf("fetching remote identity: %w", err)
@@ -67,6 +75,15 @@ func SyncIdentity(ctx context.Context, store *Store, backend adapter.Backend, de
 		}
 		return bundle, nil
 	}
+}
+
+// localIdentity loads from disk or generates a fresh identity locally.
+// Used in S3-free mode (backend == nil).
+func localIdentity(store *Store, deviceName string) (*Bundle, error) {
+	if bundle, err := store.Load(); err == nil {
+		return bundle, nil
+	}
+	return store.Generate(deviceName)
 }
 
 // adoptIdentity replaces the local identity with the remote one,

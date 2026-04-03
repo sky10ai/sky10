@@ -15,13 +15,34 @@ const (
 	keyFile      = "key.json"
 )
 
+// DefaultNostrRelays are used when no relays are configured.
+var DefaultNostrRelays = []string{
+	"wss://relay.damus.io",
+	"wss://nos.lol",
+	"wss://relay.nostr.band",
+}
+
 // Config holds storage configuration.
 type Config struct {
-	Bucket         string `json:"bucket"`
-	Region         string `json:"region,omitempty"`
-	Endpoint       string `json:"endpoint,omitempty"`
-	ForcePathStyle bool   `json:"force_path_style,omitempty"`
-	IdentityFile   string `json:"identity_file,omitempty"`
+	Bucket         string   `json:"bucket,omitempty"`
+	Region         string   `json:"region,omitempty"`
+	Endpoint       string   `json:"endpoint,omitempty"`
+	ForcePathStyle bool     `json:"force_path_style,omitempty"`
+	IdentityFile   string   `json:"identity_file,omitempty"`
+	NostrRelays    []string `json:"nostr_relays,omitempty"`
+}
+
+// HasStorage reports whether an S3-compatible storage backend is configured.
+func (c *Config) HasStorage() bool {
+	return c != nil && c.Bucket != ""
+}
+
+// Relays returns the configured Nostr relays, falling back to defaults.
+func (c *Config) Relays() []string {
+	if c != nil && len(c.NostrRelays) > 0 {
+		return c.NostrRelays
+	}
+	return DefaultNostrRelays
 }
 
 // Dir returns the skyfs configuration directory path (~/.sky10/fs/).
@@ -104,7 +125,10 @@ func Load() (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("no config found — run 'sky10 fs init' first")
+			// No config file — return empty config (S3-free mode).
+			cfg := &Config{}
+			cfg.IdentityFile = resolveIdentityPath("")
+			return cfg, nil
 		}
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
@@ -114,17 +138,22 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 
-	if cfg.IdentityFile == "" || !fileExists(cfg.IdentityFile) {
-		keysDir, _ := KeysDir()
-		newPath := filepath.Join(keysDir, keyFile)
-		if fileExists(newPath) {
-			cfg.IdentityFile = newPath
-		} else if cfg.IdentityFile == "" {
-			cfg.IdentityFile = newPath
-		}
-	}
-
+	cfg.IdentityFile = resolveIdentityPath(cfg.IdentityFile)
 	return &cfg, nil
+}
+
+// resolveIdentityPath returns the best identity file path, falling back to
+// the default ~/.sky10/keys/key.json when current is empty or missing.
+func resolveIdentityPath(current string) string {
+	if current != "" && fileExists(current) {
+		return current
+	}
+	keysDir, _ := KeysDir()
+	newPath := filepath.Join(keysDir, keyFile)
+	if current == "" || fileExists(newPath) {
+		return newPath
+	}
+	return current
 }
 
 // Save writes the config to the default location.

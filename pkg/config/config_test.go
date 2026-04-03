@@ -48,10 +48,52 @@ func TestSaveAndLoad(t *testing.T) {
 func TestLoadNoConfig(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
-	_, err := Load()
-	if err == nil {
-		t.Error("expected error when config doesn't exist")
+	// No config.json → empty config (S3-free mode), not an error.
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load should succeed without config.json: %v", err)
 	}
+	if cfg.HasStorage() {
+		t.Error("empty config should not have storage")
+	}
+	if cfg.IdentityFile == "" {
+		t.Error("IdentityFile should have a default path")
+	}
+}
+
+func TestHasStorage(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *Config
+		want bool
+	}{
+		{"nil config", nil, false},
+		{"empty bucket", &Config{}, false},
+		{"with bucket", &Config{Bucket: "my-bucket"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.HasStorage(); got != tt.want {
+				t.Errorf("HasStorage() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRelays(t *testing.T) {
+	t.Run("defaults", func(t *testing.T) {
+		cfg := &Config{}
+		if got := cfg.Relays(); len(got) == 0 {
+			t.Error("Relays() should return defaults when none configured")
+		}
+	})
+	t.Run("custom", func(t *testing.T) {
+		cfg := &Config{NostrRelays: []string{"wss://custom.relay"}}
+		got := cfg.Relays()
+		if len(got) != 1 || got[0] != "wss://custom.relay" {
+			t.Errorf("Relays() = %v, want [wss://custom.relay]", got)
+		}
+	})
 }
 
 func TestMigrateFromFlatLayout(t *testing.T) {

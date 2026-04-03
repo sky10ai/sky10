@@ -9,6 +9,36 @@ import (
 	skykey "github.com/sky10/sky10/pkg/key"
 )
 
+// TestSyncIdentityNilBackend verifies that SyncIdentity with a nil backend
+// loads or generates an identity locally without touching S3.
+func TestSyncIdentityNilBackend(t *testing.T) {
+	store := NewStoreAt(t.TempDir())
+
+	// First call generates a fresh identity.
+	bundle, err := SyncIdentity(context.Background(), store, nil, "laptop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bundle.Address() == "" {
+		t.Error("expected non-empty identity address")
+	}
+	if !bundle.Manifest.HasDevice(bundle.Device.PublicKey) {
+		t.Error("manifest should include device")
+	}
+
+	// Second call returns the same identity (loaded from disk).
+	bundle2, err := SyncIdentity(context.Background(), store, nil, "laptop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bundle.Address() != bundle2.Address() {
+		t.Error("identity should be stable across calls")
+	}
+	if bundle.DeviceID() != bundle2.DeviceID() {
+		t.Error("device should be stable across calls")
+	}
+}
+
 // TestSyncIdentityFirstDevice verifies that the first device to call
 // SyncIdentity publishes its identity key to S3 and returns a valid bundle.
 func TestSyncIdentityFirstDevice(t *testing.T) {

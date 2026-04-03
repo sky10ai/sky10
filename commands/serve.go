@@ -54,8 +54,10 @@ func ServeCmd() *cobra.Command {
 				return err
 			}
 
-			if _, err := backend.List(ctx, "ops/"); err != nil {
-				slog.Warn("S3 credential check failed (will retry)", "error", err)
+			if backend != nil {
+				if _, err := backend.List(ctx, "ops/"); err != nil {
+					slog.Warn("S3 credential check failed (will retry)", "error", err)
+				}
 			}
 
 			idStore, err := skyid.NewStore()
@@ -71,8 +73,15 @@ func ServeCmd() *cobra.Command {
 			store.SetDevicePubKey(bundle.DevicePubKeyHex())
 			store.SetClient("cli/" + cmd.Root().Version)
 
-			skyfs.RegisterDevice(ctx, backend, bundle.DeviceID(), bundle.DevicePubKeyHex(), skyfs.GetDeviceName(), cmd.Root().Version)
+			if backend != nil {
+				skyfs.RegisterDevice(ctx, backend, bundle.DeviceID(), bundle.DevicePubKeyHex(), skyfs.GetDeviceName(), cmd.Root().Version)
+			}
 			skyfs.HandleDumpSignal(slog.Default())
+
+			hasStorage := backend != nil
+			if !hasStorage {
+				slog.Info("starting in P2P-only mode (no S3 storage configured)")
+			}
 
 			if err := skyfs.KillExistingDaemon(); err != nil {
 				slog.Warn("killed stale daemon", "error", err)
@@ -88,10 +97,9 @@ func ServeCmd() *cobra.Command {
 
 			kvStore := kv.New(backend, bundle.Identity, kv.Config{Namespace: "default"}, nil)
 			server.RegisterHandler(kv.NewRPCHandler(kvStore))
+			kvRunErr := make(chan error, 1)
 			go func() {
-				if err := kvStore.Run(ctx); err != nil {
-					slog.Warn("kv store failed", "error", err)
-				}
+				kvRunErr <- kvStore.Run(ctx)
 			}()
 
 			// Skylink P2P node (private mode — own devices only).
@@ -99,7 +107,12 @@ func ServeCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("creating link node: %w", err)
 			}
-			linkResolver := link.NewResolver(linkNode, link.WithBackend(backend))
+			var resolverOpts []link.ResolverOption
+			if backend != nil {
+				resolverOpts = append(resolverOpts, link.WithBackend(backend))
+			}
+			resolverOpts = append(resolverOpts, link.WithNostr(cfg.Relays()))
+			linkResolver := link.NewResolver(linkNode, resolverOpts...)
 			server.RegisterHandler(link.NewRPCHandler(linkNode, linkResolver))
 			server.RegisterHandler(skyid.NewRPCHandler(bundle))
 
@@ -113,6 +126,10 @@ func ServeCmd() *cobra.Command {
 				}
 			})
 
+			// In P2P-only mode, wire direct KV snapshot sync over libp2p.
+			kvSync := kv.NewP2PSync(kvStore, linkNode, bundle.Identity, nil)
+			kvStore.SetP2PSync(kvSync)
+
 			go func() {
 				if err := linkNode.Run(ctx); err != nil {
 					slog.Warn("link node failed", "error", err)
@@ -125,23 +142,51 @@ func ServeCmd() *cobra.Command {
 				for linkNode.Host() == nil {
 					time.Sleep(50 * time.Millisecond)
 				}
-				// Publish our multiaddrs to the S3 device registry.
-				addrs := make([]string, 0, len(linkNode.Host().Addrs()))
-				for _, a := range linkNode.Host().Addrs() {
-					addrs = append(addrs, a.String()+"/p2p/"+linkNode.PeerID().String())
+
+				addrs := link.HostMultiaddrs(linkNode)
+
+				// Publish multiaddrs to S3 device registry (if configured).
+				if backend != nil {
+					if err := skyfs.UpdateDeviceMultiaddrs(ctx, backend, bundle.DeviceID(), addrs); err != nil {
+						slog.Warn("failed to publish multiaddrs to S3", "error", err)
+					} else {
+						slog.Info("published multiaddrs to S3 device registry", "count", len(addrs))
+					}
 				}
-				if err := skyfs.UpdateDeviceMultiaddrs(ctx, backend, bundle.DeviceID(), addrs); err != nil {
-					slog.Warn("failed to publish multiaddrs", "error", err)
+
+				// Publish multiaddrs to Nostr relays.
+				nostr := link.NewNostrDiscovery(cfg.Relays(), nil)
+				nostrSK := link.NostrSecretKey(bundle.Device)
+				if err := nostr.Publish(ctx, nostrSK, bundle.Address(), addrs); err != nil {
+					slog.Warn("failed to publish multiaddrs to Nostr", "error", err)
 				} else {
-					slog.Info("published multiaddrs to device registry", "count", len(addrs))
+					slog.Info("published multiaddrs to Nostr", "count", len(addrs))
 				}
+
 				// Auto-connect to own devices.
-				link.AutoConnect(ctx, linkNode, backend)
+				link.AutoConnect(ctx, linkNode, backend, cfg.Relays())
+
+				// Register KV sync protocol handler after link is ready.
+				kvSync.RegisterProtocol()
+
+				// Register P2P join handler.
+				joinHandler := link.NewJoinHandler(bundle, nil, nil)
+				linkNode.Host().SetStreamHandler(link.JoinProtocol, joinHandler.HandleStream)
+				slog.Info("P2P join handler registered")
+			}()
+
+			// Log KV startup errors but don't block the daemon.
+			go func() {
+				if err := <-kvRunErr; err != nil {
+					slog.Warn("kv store failed", "error", err)
+				}
 			}()
 
 			server.OnServe(func() {
-				fsHandler.StartDrives()
-				fsHandler.StartAutoApprove(ctx)
+				if hasStorage {
+					fsHandler.StartDrives()
+					fsHandler.StartAutoApprove(ctx)
+				}
 			})
 
 			fmt.Println(sockPath)

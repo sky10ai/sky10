@@ -15,6 +15,7 @@ import (
 type Resolver struct {
 	node    *Node
 	backend adapter.Backend // optional: same-bucket discovery
+	nostr   *NostrDiscovery // optional: Nostr relay discovery
 	logger  *slog.Logger
 }
 
@@ -38,6 +39,15 @@ func WithBackend(b adapter.Backend) ResolverOption {
 	return func(r *Resolver) { r.backend = b }
 }
 
+// WithNostr enables Nostr relay discovery.
+func WithNostr(relays []string) ResolverOption {
+	return func(r *Resolver) {
+		if len(relays) > 0 {
+			r.nostr = NewNostrDiscovery(relays, r.logger)
+		}
+	}
+}
+
 // Resolve finds a peer's addresses. Tries layers in order:
 // 1. Same bucket (S3 devices/ registry) — own devices
 // 2. DHT — any agent (network mode only)
@@ -54,7 +64,26 @@ func (r *Resolver) Resolve(ctx context.Context, address string) (*peer.AddrInfo,
 		r.logger.Debug("same-bucket resolve failed", "address", address, "error", err)
 	}
 
-	// Layer 2: DHT agent record (network mode only).
+	// Layer 2: Nostr relay discovery.
+	if r.nostr != nil {
+		multiaddrs, err := r.nostr.Query(ctx, address)
+		if err == nil {
+			for _, s := range multiaddrs {
+				maddr, err := ma.NewMultiaddr(s)
+				if err != nil {
+					continue
+				}
+				info, err := peer.AddrInfoFromP2pAddr(maddr)
+				if err != nil {
+					continue
+				}
+				return info, nil
+			}
+		}
+		r.logger.Debug("nostr resolve failed", "address", address, "error", err)
+	}
+
+	// Layer 3: DHT agent record (network mode only).
 	if r.node.dht != nil {
 		rec, err := r.node.ResolveRecord(ctx, address)
 		if err == nil && len(rec.Multiaddrs) > 0 {
@@ -125,18 +154,29 @@ func (r *Resolver) resolveFromBucket(ctx context.Context, address string) (*peer
 	return nil, fmt.Errorf("device not found in bucket")
 }
 
-// AutoConnect discovers own devices from the S3 registry and connects
-// to them via their published multiaddrs. Skips self by comparing peer IDs
-// extracted from multiaddrs (not identity address, since all own devices
-// share the same identity).
-func AutoConnect(ctx context.Context, node *Node, backend adapter.Backend) {
+// AutoConnect discovers own devices and connects to them via their published
+// multiaddrs. Tries S3 device registry (if backend is non-nil) and Nostr
+// relays. Skips self by comparing peer IDs.
+func AutoConnect(ctx context.Context, node *Node, backend adapter.Backend, nostrRelays []string) {
+	selfPeerID := node.PeerID().String()
+
+	// Layer 1: S3 device registry.
+	if backend != nil {
+		autoConnectFromS3(ctx, node, backend, selfPeerID)
+	}
+
+	// Layer 2: Nostr relays — query our own identity address.
+	if len(nostrRelays) > 0 {
+		autoConnectFromNostr(ctx, node, nostrRelays, selfPeerID)
+	}
+}
+
+func autoConnectFromS3(ctx context.Context, node *Node, backend adapter.Backend, selfPeerID string) {
 	keys, err := backend.List(ctx, "devices/")
 	if err != nil {
 		node.logger.Warn("auto-connect: failed to list devices", "error", err)
 		return
 	}
-
-	selfPeerID := node.PeerID().String()
 
 	for _, key := range keys {
 		rc, err := backend.Get(ctx, key)
@@ -155,36 +195,45 @@ func AutoConnect(ctx context.Context, node *Node, backend adapter.Backend) {
 		}
 		rc.Close()
 
-		if len(dev.Multiaddrs) == 0 {
+		connectMultiaddrs(ctx, node, dev.Name, dev.Multiaddrs, selfPeerID)
+	}
+}
+
+func autoConnectFromNostr(ctx context.Context, node *Node, relays []string, selfPeerID string) {
+	nd := NewNostrDiscovery(relays, node.logger)
+	addrs, err := nd.Query(ctx, node.Address())
+	if err != nil {
+		node.logger.Debug("auto-connect nostr query failed", "error", err)
+		return
+	}
+	connectMultiaddrs(ctx, node, "nostr-peer", addrs, selfPeerID)
+}
+
+func connectMultiaddrs(ctx context.Context, node *Node, name string, addrs []string, selfPeerID string) {
+	for _, s := range addrs {
+		maddr, err := ma.NewMultiaddr(s)
+		if err != nil {
 			continue
 		}
-
-		// Parse multiaddrs and connect. Skip self by peer ID.
-		for _, s := range dev.Multiaddrs {
-			maddr, err := ma.NewMultiaddr(s)
-			if err != nil {
-				continue
-			}
-			info, err := peer.AddrInfoFromP2pAddr(maddr)
-			if err != nil {
-				continue
-			}
-			if info.ID.String() == selfPeerID {
-				break // this is us
-			}
-			if err := node.host.Connect(ctx, *info); err != nil {
-				node.logger.Debug("auto-connect failed",
-					"device", dev.Name,
-					"addr", s,
-					"error", err,
-				)
-				continue
-			}
-			node.logger.Info("auto-connected to device",
-				"device", dev.Name,
-				"peer_id", info.ID.String(),
-			)
-			break // connected via one addr, done with this device
+		info, err := peer.AddrInfoFromP2pAddr(maddr)
+		if err != nil {
+			continue
 		}
+		if info.ID.String() == selfPeerID {
+			break // this is us
+		}
+		if err := node.host.Connect(ctx, *info); err != nil {
+			node.logger.Debug("auto-connect failed",
+				"device", name,
+				"addr", s,
+				"error", err,
+			)
+			continue
+		}
+		node.logger.Info("auto-connected to device",
+			"device", name,
+			"peer_id", info.ID.String(),
+		)
+		break
 	}
 }

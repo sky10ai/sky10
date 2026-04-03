@@ -73,13 +73,16 @@ func cacheNSID(nsName, nsID string) {
 
 // getOrCreateNamespaceKey resolves the KV namespace encryption key.
 //
-// Resolution order:
+// With S3 backend, resolution order:
 //  1. Device-specific wrapped key in S3
 //  2. Shared (base) wrapped key in S3
-//  3. Scan ALL wrapped keys for this namespace — handles the case where
-//     another device created the key and wrapped it for us (race prevention)
+//  3. Scan ALL wrapped keys for this namespace
 //  4. Local disk cache
 //  5. Generate new key and wrap for all registered devices
+//
+// Without S3 (backend == nil):
+//  1. Local disk cache
+//  2. Generate new key (cached locally)
 func getOrCreateNamespaceKey(
 	ctx context.Context,
 	backend adapter.Backend,
@@ -87,6 +90,10 @@ func getOrCreateNamespaceKey(
 	identity *skykey.Key,
 	deviceID string,
 ) ([]byte, error) {
+	if backend == nil {
+		return getOrCreateNamespaceKeyLocal(nsName, deviceID)
+	}
+
 	keyName := nsKeyName(nsName)
 
 	// 1. Try device-specific wrapped key
@@ -159,6 +166,20 @@ func getOrCreateNamespaceKey(
 	}
 
 	wrapForAllDevices(ctx, backend, keyName, key, deviceID)
+	cacheKeyLocally(nsName, deviceID, key)
+	return key, nil
+}
+
+// getOrCreateNamespaceKeyLocal resolves namespace key from local cache only.
+// Generates a new key if none is cached. Used in S3-free mode.
+func getOrCreateNamespaceKeyLocal(nsName, deviceID string) ([]byte, error) {
+	if key, err := loadCachedKey(nsName, deviceID); err == nil {
+		return key, nil
+	}
+	key, err := skykey.GenerateSymmetricKey()
+	if err != nil {
+		return nil, err
+	}
 	cacheKeyLocally(nsName, deviceID, key)
 	return key, nil
 }

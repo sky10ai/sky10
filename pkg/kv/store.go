@@ -45,6 +45,7 @@ type Store struct {
 	nsKey    []byte // namespace encryption key (resolved lazily)
 	nsID     string // opaque namespace ID
 	notifier func(namespace string)
+	p2pSync  *P2PSync // optional: P2P snapshot sync
 }
 
 // New creates a new KV store.
@@ -84,7 +85,7 @@ func New(
 	}
 }
 
-// Set stores a key-value pair. Appends to local log and pokes uploader.
+// Set stores a key-value pair. Appends to local log and triggers sync.
 func (s *Store) Set(ctx context.Context, key string, value []byte) error {
 	if len(value) > MaxValueSize {
 		return ErrValueTooLarge
@@ -97,9 +98,7 @@ func (s *Store) Set(ctx context.Context, key string, value []byte) error {
 	}); err != nil {
 		return fmt.Errorf("kv set: %w", err)
 	}
-	if s.uploader != nil {
-		s.uploader.Poke()
-	}
+	s.pokeSync(ctx)
 	return nil
 }
 
@@ -112,7 +111,7 @@ func (s *Store) Get(key string) ([]byte, bool) {
 	return vi.Value, true
 }
 
-// Delete removes a key. Appends delete to local log and pokes uploader.
+// Delete removes a key. Appends delete to local log and triggers sync.
 func (s *Store) Delete(ctx context.Context, key string) error {
 	if err := s.localLog.AppendLocal(Entry{
 		Type:      Delete,
@@ -121,10 +120,21 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 	}); err != nil {
 		return fmt.Errorf("kv delete: %w", err)
 	}
+	s.pokeSync(ctx)
+	return nil
+}
+
+// pokeSync triggers the appropriate sync mechanism (S3 upload and/or P2P push).
+func (s *Store) pokeSync(ctx context.Context) {
 	if s.uploader != nil {
 		s.uploader.Poke()
 	}
-	return nil
+	s.mu.Lock()
+	p2p := s.p2pSync
+	s.mu.Unlock()
+	if p2p != nil {
+		go p2p.PushToAll(ctx)
+	}
 }
 
 // List returns all keys with the given prefix, sorted.
@@ -154,20 +164,34 @@ func (s *Store) GetAll(prefix string) map[string][]byte {
 	return result
 }
 
-// Run resolves the namespace key, polls once, uploads, then starts the
-// uploader and poller goroutines. Blocks until ctx is cancelled.
+// Run resolves the namespace key, then starts sync goroutines.
+// With an S3 backend: polls remote snapshots and uploads local changes.
+// Without S3 (P2P-only): waits for P2P sync pushes from connected peers.
+// Blocks until ctx is cancelled.
 func (s *Store) Run(ctx context.Context) error {
 	if err := s.resolveKeys(ctx); err != nil {
 		return fmt.Errorf("resolving kv namespace key: %w", err)
+	}
+
+	// S3-free mode: keys resolved locally, sync via P2P only.
+	if s.backend == nil {
+		s.logger.Info("kv store running in P2P-only mode")
+		<-ctx.Done()
+		return nil
 	}
 
 	s.uploader = NewUploader(s.backend, s.localLog, s.deviceID, s.nsID, s.nsKey, s.logger)
 	s.uploader.onUpload = func() {
 		s.mu.Lock()
 		notify := s.notifier
+		p2p := s.p2pSync
 		s.mu.Unlock()
 		if notify != nil {
 			notify(s.config.Namespace)
+		}
+		// Also push to connected peers for faster convergence.
+		if p2p != nil {
+			go p2p.PushToAll(context.Background())
 		}
 	}
 	s.poller = NewPoller(s.backend, s.localLog, s.deviceID, s.nsID, s.nsKey, s.config.PollInterval, s.baselines, s.logger)
@@ -221,6 +245,13 @@ func (s *Store) SetNotifier(fn func(namespace string)) {
 	s.mu.Unlock()
 }
 
+// SetP2PSync attaches a P2P sync handler for direct peer-to-peer KV exchange.
+func (s *Store) SetP2PSync(sync *P2PSync) {
+	s.mu.Lock()
+	s.p2pSync = sync
+	s.mu.Unlock()
+}
+
 // Poke triggers an immediate poll of remote snapshots.
 func (s *Store) Poke() {
 	if s.poller != nil {
@@ -234,15 +265,19 @@ func (s *Store) Snapshot() (*Snapshot, error) {
 }
 
 // resolveKeys resolves the namespace encryption key and opaque namespace ID.
+// With nil backend, resolves from local cache or generates new keys.
 func (s *Store) resolveKeys(ctx context.Context) error {
 	nsKey, err := getOrCreateNamespaceKey(ctx, s.backend, s.config.Namespace, s.identity, s.deviceID)
 	if err != nil {
 		return err
 	}
 
-	nsID, err := resolveNSID(ctx, s.backend, s.config.Namespace, nsKey)
-	if err != nil {
-		return err
+	nsID := deriveNSID(nsKey, s.config.Namespace)
+	if s.backend != nil {
+		nsID, err = resolveNSID(ctx, s.backend, s.config.Namespace, nsKey)
+		if err != nil {
+			return err
+		}
 	}
 
 	cacheNSID(s.config.Namespace, nsID)

@@ -149,7 +149,7 @@ func (p *Poller) syncDevice(ctx context.Context, remoteID string) (int, error) {
 		baseline = nil
 	}
 
-	merged := p.diffAndMerge(remote, baseline)
+	merged := p.diffAndMergeLocal(remote, baseline)
 
 	if err := p.baselines.Save(remoteID, remote); err != nil {
 		p.logger.Warn("kv poll: saving baseline failed", "device", remoteID, "error", err)
@@ -158,9 +158,14 @@ func (p *Poller) syncDevice(ctx context.Context, remoteID string) (int, error) {
 	return merged, nil
 }
 
+func (p *Poller) diffAndMergeLocal(remote, baseline *Snapshot) int {
+	return diffAndMerge(p.localLog, remote, baseline, p.logger)
+}
+
 // diffAndMerge compares a remote snapshot against the baseline and merges
-// changes into the local CRDT. No conflict copies — pure LWW.
-func (p *Poller) diffAndMerge(remote, baseline *Snapshot) int {
+// changes into the local CRDT. No conflict copies — pure LWW. Shared by
+// both the S3 poller and P2P sync handler.
+func diffAndMerge(localLog *LocalLog, remote, baseline *Snapshot, logger *slog.Logger) int {
 	merged := 0
 	remoteEntries := remote.Entries()
 	var baselineEntries map[string]ValueInfo
@@ -176,7 +181,7 @@ func (p *Poller) diffAndMerge(remote, baseline *Snapshot) int {
 			continue // unchanged
 		}
 
-		if err := p.localLog.Append(Entry{
+		if err := localLog.Append(Entry{
 			Type:      Set,
 			Key:       key,
 			Value:     remoteVI.Value,
@@ -184,7 +189,7 @@ func (p *Poller) diffAndMerge(remote, baseline *Snapshot) int {
 			Timestamp: remoteVI.Modified.Unix(),
 			Seq:       remoteVI.Seq,
 		}); err != nil {
-			p.logger.Warn("kv poll: merge failed", "key", key, "error", err)
+			logger.Warn("kv merge failed", "key", key, "error", err)
 			continue
 		}
 		merged++
@@ -199,14 +204,14 @@ func (p *Poller) diffAndMerge(remote, baseline *Snapshot) int {
 				if baseVI.Modified.Unix() >= deleteTS {
 					deleteTS = baseVI.Modified.Unix() + 1
 				}
-				if err := p.localLog.Append(Entry{
+				if err := localLog.Append(Entry{
 					Type:      Delete,
 					Key:       key,
 					Device:    baseVI.Device,
 					Timestamp: deleteTS,
 					Seq:       baseVI.Seq + 1,
 				}); err != nil {
-					p.logger.Warn("kv poll: delete merge failed", "key", key, "error", err)
+					logger.Warn("kv delete merge failed", "key", key, "error", err)
 					continue
 				}
 				merged++
