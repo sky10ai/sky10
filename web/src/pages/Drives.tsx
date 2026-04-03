@@ -29,7 +29,7 @@ export default function Drives() {
   const pending = health?.outbox_pending ?? 0;
 
   return (
-    <section className="mx-auto flex min-h-full w-full max-w-7xl flex-col gap-10 p-12">
+    <section className="mx-auto flex flex-1 w-full max-w-7xl flex-col gap-10 p-12">
       <PageHeader
         actions={
           <>
