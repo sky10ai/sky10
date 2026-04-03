@@ -1,3 +1,4 @@
+import { useCallback, useRef, useState } from "react";
 import { EmptyState } from "../EmptyState";
 import { Icon } from "../Icon";
 
@@ -14,17 +15,39 @@ export function KeyListPane({
   entries,
   loading,
   onSelect,
+  onDelete,
   selectedKey,
 }: {
   entries: Record<string, string>;
   loading: boolean;
   onSelect: (key: string) => void;
+  onDelete: (key: string) => void;
   selectedKey: string | null;
 }) {
   const keys = Object.keys(entries).sort();
+  const [contextMenu, setContextMenu] = useState<{
+    key: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const paneRef = useRef<HTMLDivElement>(null);
+
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, key: string) => {
+      e.preventDefault();
+      setContextMenu({ key, x: e.clientX, y: e.clientY });
+    },
+    []
+  );
+
+  const closeMenu = useCallback(() => setContextMenu(null), []);
 
   return (
-    <div className="flex w-80 flex-col border-r border-outline-variant/10 bg-surface-container-low/50">
+    <div
+      className="flex w-80 flex-col border-r border-outline-variant/10 bg-surface-container-low/50"
+      onClick={closeMenu}
+      ref={paneRef}
+    >
       <div className="border-b border-outline-variant/10 px-4 py-3">
         <div className="flex items-center gap-2 rounded-xl bg-surface-container-lowest px-3 py-2 text-[11px] font-semibold text-secondary shadow-sm">
           <Icon className="text-xs" name="filter_list" />
@@ -63,6 +86,7 @@ export function KeyListPane({
                 }`}
                 key={key}
                 onClick={() => onSelect(key)}
+                onContextMenu={(e) => handleContextMenu(e, key)}
                 type="button"
               >
                 <div className="mb-1 flex items-start justify-between gap-2">
@@ -85,6 +109,28 @@ export function KeyListPane({
           </div>
         )}
       </div>
+
+      {contextMenu && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={closeMenu} onContextMenu={(e) => { e.preventDefault(); closeMenu(); }} />
+          <div
+            className="fixed z-50 min-w-[160px] rounded-lg border border-outline-variant/15 bg-surface-container-lowest py-1 shadow-xl"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+          >
+            <button
+              className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-error transition-colors hover:bg-error-container/20"
+              onClick={() => {
+                onDelete(contextMenu.key);
+                setContextMenu(null);
+              }}
+              type="button"
+            >
+              <Icon className="text-sm" name="delete" />
+              Delete "{contextMenu.key}"
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

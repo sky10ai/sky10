@@ -3,7 +3,7 @@ import { Icon } from "../components/Icon";
 import { RelativeTime } from "../components/RelativeTime";
 import { STORAGE_EVENT_TYPES } from "../lib/events";
 import { skyfs } from "../lib/rpc";
-import { useRPC, truncAddr } from "../lib/useRPC";
+import { useRPC } from "../lib/useRPC";
 
 export default function Devices() {
   const navigate = useNavigate();

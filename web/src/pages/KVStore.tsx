@@ -97,10 +97,8 @@ export default function KVStore() {
     }
   }, [editValue, entries, mutate, refetch, refetchStatus, selectedKey]);
 
-  const deleteKey = useCallback(async () => {
-    if (!selectedKey) return;
-
-    const deletedKey = selectedKey;
+  const deleteKeyByName = useCallback(async (keyToDelete: string) => {
+    const deletedKey = keyToDelete;
     const hadKey = Object.prototype.hasOwnProperty.call(entries, deletedKey);
 
     setActionError(null);
@@ -139,7 +137,12 @@ export default function KVStore() {
       refetch();
       refetchStatus();
     }
-  }, [entries, mutate, mutateStatus, refetch, refetchStatus, selectedKey]);
+  }, [entries, mutate, mutateStatus, refetch, refetchStatus]);
+
+  const deleteKey = useCallback(async () => {
+    if (!selectedKey) return;
+    deleteKeyByName(selectedKey);
+  }, [deleteKeyByName, selectedKey]);
 
   const createKey = useCallback(async () => {
     const key = newKey.trim();
@@ -221,6 +224,7 @@ export default function KVStore() {
         <KeyListPane
           entries={entries}
           loading={loading}
+          onDelete={deleteKeyByName}
           onSelect={selectKey}
           selectedKey={selectedKey}
         />
