@@ -99,28 +99,33 @@ func (s *P2PSync) pushToPeer(ctx context.Context, pid peer.ID) {
 
 	snap, err := s.store.localLog.Snapshot()
 	if err != nil || snap.Len() == 0 {
+		s.logger.Debug("kv p2p push: no snapshot", "peer", pid, "err", err)
 		return
 	}
 
 	nsKey := s.store.nsKey
 	nsID := s.store.nsID
 	if nsKey == nil || nsID == "" {
+		s.logger.Debug("kv p2p push: namespace not resolved", "peer", pid)
 		return
 	}
 
 	data, err := MarshalSnapshot(snap)
 	if err != nil {
+		s.logger.Debug("kv p2p push: marshal failed", "peer", pid, "error", err)
 		return
 	}
 	encrypted, err := encrypt(data, nsKey)
 	if err != nil {
+		s.logger.Debug("kv p2p push: encrypt failed", "peer", pid, "error", err)
 		return
 	}
 
+	encJSON, _ := json.Marshal(encrypted)
 	msg := p2pSyncMsg{
 		Type: "snapshot",
 		NSID: nsID,
-		Data: json.RawMessage(fmt.Sprintf("%q", encrypted)),
+		Data: encJSON,
 	}
 	payload, err := json.Marshal(msg)
 	if err != nil {
