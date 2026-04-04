@@ -203,7 +203,7 @@ fn icon_for_state(state: &TrayState) -> &'static [u8] {
 
 fn set_tray_state(tray: &TrayIcon, state: &TrayState) {
     let bytes = icon_for_state(state);
-    if let Ok(img) = Image::from_png_bytes(bytes) {
+    if let Ok(img) = Image::from_bytes(bytes) {
         let _ = tray.set_icon(Some(img));
     }
 
@@ -227,7 +227,7 @@ fn main() {
             let menu = build_menu(app, &info)?;
 
             let tray = TrayIconBuilder::new()
-                .icon(Image::from_png_bytes(icon_for_state(&info.state))?)
+                .icon(Image::from_bytes(icon_for_state(&info.state))?)
                 .menu(&menu)
                 .tooltip("sky10")
                 .on_menu_event(|app, event| match event.id().as_ref() {
