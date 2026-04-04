@@ -34,7 +34,7 @@ type Store struct {
 	identity     *DeviceKey
 	deviceID     string
 	devicePubKey string // full device sky10q... address (for device registry matching)
-	clientID     string // e.g. "cli/0.4.1", "cirrus/0.4.1"
+	clientID     string // e.g. "cli/0.4.1"
 	namespace    string // if set, all files use this namespace instead of path-derived
 
 	mu           sync.Mutex

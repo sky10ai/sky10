@@ -1,15 +1,34 @@
-import type { Drive } from "../../lib/rpc";
+import { useState } from "react";
+import { type Drive, skyfs } from "../../lib/rpc";
 import { Icon } from "../Icon";
 import { StatusBadge } from "../StatusBadge";
 
 export function DriveCard({
   drive,
   onOpen,
+  onChanged,
 }: {
   drive: Drive;
   onOpen: (drive: Drive) => void;
+  onChanged?: () => void;
 }) {
   const isSyncing = drive.outbox_pending > 0;
+  const [toggling, setToggling] = useState(false);
+
+  const toggleDrive = async (event: React.MouseEvent) => {
+    event.stopPropagation();
+    setToggling(true);
+    try {
+      if (drive.running) {
+        await skyfs.driveStop({ name: drive.name });
+      } else {
+        await skyfs.driveStart({ name: drive.name });
+      }
+      onChanged?.();
+    } finally {
+      setToggling(false);
+    }
+  };
 
   return (
     <button
@@ -22,19 +41,34 @@ export function DriveCard({
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-white">
           <Icon name="folder_open" className="text-3xl" />
         </div>
-        {drive.running ? (
-          isSyncing ? (
-            <StatusBadge icon="sync" pulse tone="processing">
-              Syncing
-            </StatusBadge>
+        <div className="flex items-center gap-2">
+          {drive.running ? (
+            isSyncing ? (
+              <StatusBadge icon="sync" pulse tone="processing">
+                Syncing
+              </StatusBadge>
+            ) : (
+              <StatusBadge icon="check_circle" tone="live">
+                Synced
+              </StatusBadge>
+            )
           ) : (
-            <StatusBadge icon="check_circle" tone="live">
-              Synced
-            </StatusBadge>
-          )
-        ) : (
-          <StatusBadge tone="neutral">Stopped</StatusBadge>
-        )}
+            <StatusBadge tone="neutral">Stopped</StatusBadge>
+          )}
+          <button
+            className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
+              drive.running
+                ? "bg-error/10 text-error hover:bg-error/20"
+                : "bg-primary/10 text-primary hover:bg-primary/20"
+            } ${toggling ? "opacity-50" : ""}`}
+            disabled={toggling}
+            onClick={toggleDrive}
+            title={drive.running ? "Stop drive" : "Start drive"}
+            type="button"
+          >
+            <Icon className="text-base" name={drive.running ? "stop" : "play_arrow"} />
+          </button>
+        </div>
       </div>
 
       <div className="mt-6">

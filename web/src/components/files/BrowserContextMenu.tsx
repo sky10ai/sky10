@@ -9,10 +9,12 @@ export interface BrowserContextMenuState {
 
 export function BrowserContextMenu({
   onDelete,
+  onDownload,
   onNewFolder,
   state,
 }: {
   onDelete: (row: BrowserRow) => void;
+  onDownload: (row: BrowserRow) => void;
   onNewFolder: () => void;
   state: BrowserContextMenuState;
 }) {
@@ -35,6 +37,18 @@ export function BrowserContextMenu({
       </button>
       {state.row && (
         <>
+          {state.row.kind === "file" && (
+            <button
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-on-surface transition-colors hover:bg-primary/5"
+              onClick={() => {
+                if (state.row) onDownload(state.row);
+              }}
+              type="button"
+            >
+              <Icon className="text-lg text-primary" name="download" />
+              Download
+            </button>
+          )}
           <div className="my-1 border-t border-outline-variant/10" />
           <button
             className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-error transition-colors hover:bg-error-container/20"

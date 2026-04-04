@@ -96,6 +96,8 @@ func ServeCmd() *cobra.Command {
 			server := skyrpc.NewServer(sockPath, cmd.Root().Version, nil)
 			fsHandler := skyfs.NewFSHandler(store, server, filepath.Join(cfgDir, "drives.json"))
 			server.RegisterHandler(fsHandler)
+			server.HandleHTTP("POST /upload", fsHandler.HandleUpload)
+			server.HandleHTTP("GET /download", fsHandler.HandleDownload)
 
 			kvStore := kv.New(backend, bundle.Identity, kv.Config{Namespace: "default"}, nil)
 			server.RegisterHandler(kv.NewRPCHandler(kvStore))

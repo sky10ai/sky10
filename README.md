@@ -75,7 +75,7 @@ Works with any S3-compatible store: Backblaze B2, Cloudflare R2, DigitalOcean Sp
 
 ```bash
 make          # check + test + build → bin/sky10
-make test     # Go + Swift tests
+make test     # Go tests
 make web-dev  # Vite dev UI on :5173
 make platforms  # cross-compile for linux/macOS amd64/arm64
 make reproduce  # prove build determinism

@@ -1,18 +1,20 @@
+import { useState } from "react";
 import { useNavigate } from "react-router";
 import { BucketAccessCard } from "../components/drives/BucketAccessCard";
 import { DriveCard } from "../components/drives/DriveCard";
+import { NewDriveForm } from "../components/drives/NewDriveForm";
 import { EmptyState } from "../components/EmptyState";
 import { Icon } from "../components/Icon";
 import { PageHeader } from "../components/PageHeader";
 import { StatusBadge } from "../components/StatusBadge";
-import { openCommandPalette } from "../lib/commandPalette";
 import { STORAGE_EVENT_TYPES } from "../lib/events";
 import { skyfs } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
 export default function Drives() {
   const navigate = useNavigate();
-  const { data: driveList, loading, error, refreshing } = useRPC(
+  const [showNewDrive, setShowNewDrive] = useState(false);
+  const { data: driveList, loading, error, refreshing, refetch } = useRPC(
     () => skyfs.driveList(),
     [],
     {
@@ -48,18 +50,18 @@ export default function Drives() {
               </StatusBadge>
             )}
             <button
-              className="flex items-center gap-2 rounded-full bg-surface-container-high px-4 py-2 text-sm font-medium text-on-surface transition-colors hover:bg-surface-container-highest"
-              onClick={openCommandPalette}
+              className="flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-primary/20 transition-colors hover:bg-primary/90"
+              onClick={() => setShowNewDrive(true)}
               type="button"
             >
-              <Icon name="search" />
-              Command Palette
+              <Icon name="add" />
+              New Drive
             </button>
           </>
         }
         description={
           drives.length === 0
-            ? "No drives are configured yet. Once a drive is mounted, its sync state and file counts will update here automatically."
+            ? "No drives are configured yet. Create a drive to start syncing files."
             : `Managing ${drives.length} encrypted volume${drives.length === 1 ? "" : "s"} with live sync status.`
         }
         eyebrow="Encrypted Storage"
@@ -70,6 +72,16 @@ export default function Drives() {
         <div className="rounded-xl bg-error-container/20 p-4 text-sm text-error">
           {error}
         </div>
+      )}
+
+      {showNewDrive && (
+        <NewDriveForm
+          onCancel={() => setShowNewDrive(false)}
+          onCreated={() => {
+            setShowNewDrive(false);
+            refetch();
+          }}
+        />
       )}
 
       {loading && drives.length === 0 && (
@@ -83,18 +95,18 @@ export default function Drives() {
         </div>
       )}
 
-      {!loading && drives.length === 0 ? (
+      {!loading && drives.length === 0 && !showNewDrive ? (
         <EmptyState
           action={
             <button
               className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-primary/20"
-              onClick={openCommandPalette}
+              onClick={() => setShowNewDrive(true)}
               type="button"
             >
-              Open Command Palette
+              Create Your First Drive
             </button>
           }
-          description="Mount a drive and it will appear here with file counts, running state, and sync activity."
+          description="Create a drive to start syncing encrypted files across your devices."
           icon="folder_open"
           title="No drives yet"
         />
@@ -104,6 +116,7 @@ export default function Drives() {
             <DriveCard
               drive={drive}
               key={drive.id}
+              onChanged={() => refetch({ background: true })}
               onOpen={(nextDrive) =>
                 navigate(`/drives/${encodeURIComponent(nextDrive.name)}`)
               }

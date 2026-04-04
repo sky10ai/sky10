@@ -39,7 +39,7 @@ type Op struct {
 	Device       string   `json:"device"`
 	Timestamp    int64    `json:"timestamp"`
 	Seq          int      `json:"seq"`
-	Client       string   `json:"client,omitempty"` // e.g. "cirrus/0.4.1", "cli/0.4.1"
+	Client       string   `json:"client,omitempty"` // e.g. "cli/0.4.1"
 }
 
 // OpEnvelope is the plaintext header prepended to every op blob.

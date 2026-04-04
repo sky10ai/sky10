@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Icon } from "../components/Icon";
 import { RelativeTime } from "../components/RelativeTime";
 import { STORAGE_EVENT_TYPES } from "../lib/events";
@@ -5,6 +6,9 @@ import { skylink, skyfs, type Device } from "../lib/rpc";
 import { useRPC, truncAddr } from "../lib/useRPC";
 
 export default function Network() {
+  const [connectAddr, setConnectAddr] = useState("");
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
   const { data: linkStatus } = useRPC(() => skylink.status(), [], {
     refreshIntervalMs: 5_000,
   });
@@ -79,6 +83,40 @@ export default function Network() {
           )}
         </div>
       </section>
+
+      {/* Connect to peer */}
+      <div className="flex items-center gap-3">
+        <input
+          className="flex-1 rounded-lg border border-outline-variant/20 bg-surface-container px-4 py-2 font-mono text-sm text-on-surface outline-none focus:border-primary"
+          onChange={(e) => { setConnectAddr(e.target.value); setConnectError(null); }}
+          placeholder="/ip4/1.2.3.4/tcp/9100/p2p/12D3..."
+          value={connectAddr}
+        />
+        <button
+          className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-primary/20 hover:bg-primary/90 disabled:opacity-50"
+          disabled={connecting || !connectAddr.trim()}
+          onClick={async () => {
+            setConnecting(true);
+            setConnectError(null);
+            try {
+              await skylink.connect({ address: connectAddr.trim() });
+              setConnectAddr("");
+            } catch (e: unknown) {
+              setConnectError(e instanceof Error ? e.message : "Failed to connect");
+            } finally {
+              setConnecting(false);
+            }
+          }}
+          type="button"
+        >
+          {connecting ? "Connecting..." : "Connect"}
+        </button>
+      </div>
+      {connectError && (
+        <div className="rounded-lg bg-error-container/20 p-3 text-sm text-error">
+          {connectError}
+        </div>
+      )}
 
       <div className="grid grid-cols-12 gap-8">
         {/* Connection graph */}

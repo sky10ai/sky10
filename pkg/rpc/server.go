@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
@@ -28,12 +29,24 @@ type Server struct {
 	handlers    []Handler
 
 	// HTTP
-	httpAddr  string
-	httpSubMu sync.RWMutex
-	httpSubs  []*httpSubscriber
+	httpAddr   string
+	httpSubMu  sync.RWMutex
+	httpSubs   []*httpSubscriber
+	httpRoutes []httpRoute
 
 	// Callbacks
 	onServe func() // called after listener is bound, before accept loop
+}
+
+type httpRoute struct {
+	pattern string
+	handler http.HandlerFunc
+}
+
+// HandleHTTP registers an HTTP handler on the server's HTTP mux.
+// Must be called before ServeHTTP.
+func (s *Server) HandleHTTP(pattern string, handler http.HandlerFunc) {
+	s.httpRoutes = append(s.httpRoutes, httpRoute{pattern, handler})
 }
 
 // NewServer creates an RPC server.

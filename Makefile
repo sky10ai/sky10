@@ -29,7 +29,7 @@ else
 OPEN_CMD :=
 endif
 
-.PHONY: all build build-go build-web web-dev build-swift test test-skyfs test-skyfs-cli test-skyfs-cli-v test-skyfs-ui-macos check vet fmt verify clean install reproduce platforms checksums
+.PHONY: all build build-go build-web web-dev test test-skyfs test-skyfs-cli test-skyfs-cli-v check vet fmt verify clean install reproduce platforms checksums
 
 # --- Default ---
 
@@ -56,21 +56,17 @@ web-dev:
 build-go:
 	go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o bin/sky10 .
 
-build-swift:
-	cd cirrus/macos && swift build
-
 # --- Test ---
 #
 # Hierarchy:
 #   make test                     run all tests
-#   make test-skyfs               run all skyfs tests (cli + ui)
+#   make test-skyfs               run all skyfs tests
 #   make test-skyfs-cli           Go library + CLI tests
 #   make test-skyfs-cli-v         Go tests verbose
-#   make test-skyfs-ui-macos      Swift macOS UI tests
 
 test: test-skyfs
 
-test-skyfs: test-skyfs-cli test-skyfs-ui-macos
+test-skyfs: test-skyfs-cli
 
 test-skyfs-cli:
 	@echo "=== test-skyfs-cli (Go) ==="
@@ -78,16 +74,6 @@ test-skyfs-cli:
 
 test-skyfs-cli-v:
 	go test ./... -v -count=1
-
-test-skyfs-ui-macos:
-	@echo "=== test-skyfs-ui-macos (Swift) ==="
-	@if xcode-select -p 2>/dev/null | grep -q "Xcode.app"; then \
-		cd cirrus/macos && swift test 2>&1 | tail -20; \
-	else \
-		echo "Requires full Xcode (xcode-select -s /Applications/Xcode.app)"; \
-		echo "Swift library builds OK: make build-swift"; \
-		echo "37 test cases at skyshare/skyshare-tests/"; \
-	fi
 
 # --- Lint ---
 

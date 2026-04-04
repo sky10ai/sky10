@@ -112,10 +112,10 @@ func NewDaemonLoggerAt(buf *LogBuffer, logPath string) *slog.Logger {
 		return NewBufferedLogger(buf)
 	}
 
-	// Write to file only — NOT stderr. When Cirrus launches the daemon,
-	// stderr is a pipe. If Cirrus doesn't drain it fast enough, the pipe
-	// buffer (64KB) fills and write() blocks. Since slog holds an internal
-	// mutex during Handle(), this freezes the entire daemon.
+	// Write to file only — NOT stderr. When a parent process launches the
+	// daemon, stderr is a pipe. If the parent doesn't drain it fast enough,
+	// the pipe buffer (64KB) fills and write() blocks. Since slog holds an
+	// internal mutex during Handle(), this freezes the entire daemon.
 	textHandler := slog.NewTextHandler(f, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	})

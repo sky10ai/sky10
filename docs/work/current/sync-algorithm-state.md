@@ -143,7 +143,7 @@ Compact exists (`skyfs.compact` RPC) but isn't automated. 90+ ops
 accumulate, making any accidental `loadCurrentState` call expensive.
 
 ### 4. `store.Get` still exists
-Used by RPC `rpcGet` (manual file download from Cirrus). If called,
+Used by RPC `rpcGet` (manual file download). If called,
 triggers full ops load even with caching (first call is expensive).
 Only safe daemon path is `GetChunks`.
 

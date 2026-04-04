@@ -24,6 +24,11 @@ func (s *Server) ServeHTTP(ctx context.Context, port int) error {
 	mux.HandleFunc("GET /rpc/events", s.handleHTTPEvents)
 	mux.HandleFunc("GET /health", s.handleHTTPHealth)
 
+	// Register any custom HTTP routes (upload, download, etc.)
+	for _, route := range s.httpRoutes {
+		mux.HandleFunc(route.pattern, route.handler)
+	}
+
 	// Serve embedded web UI if assets are available, otherwise
 	// keep the JSON info endpoint at root for API-only mode.
 	if _, err := WebDist.ReadFile("web/dist/index.html"); err == nil {

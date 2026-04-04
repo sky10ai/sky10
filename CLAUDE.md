@@ -29,7 +29,7 @@ updated: 2026-03-26
   - Format: `<type>(<scope>): <description>`
   - Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`, `ci`
   - Scope is optional but encouraged. Common scopes include `fs`, `s3`,
-    `keys`, `kv`, `db`, `auth`, `link`, `cirrus`, `transfer`, `config`,
+    `keys`, `kv`, `db`, `auth`, `link`, `transfer`, `config`,
     `reconciler`, `poller`, `daemon` — use whatever fits the change
   - Description is lowercase, imperative, no period
   - Body (after blank line) explains *why*, not *what*
@@ -113,7 +113,6 @@ Delete old dumps from S3 before requesting a new one to avoid confusion.
 - **Before every push**, run ALL tests and lint:
   - `make check` (gofmt + go vet)
   - `go test ./... -count=1`
-  - `cd cirrus/macos && swift test` (Swift/UI tests)
   - Do NOT push if any test fails. Fix first.
 - Integration tests that require external services (S3, etc.) should be
   skippable via build tags or environment checks, but must exist.

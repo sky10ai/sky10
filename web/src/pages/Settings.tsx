@@ -169,17 +169,17 @@ export default function Settings() {
                 Control how this vault interacts with the decentralized cloud.
               </p>
             </div>
-            <div className="relative z-10 flex bg-on-primary-fixed-variant/40 p-1 rounded-full">
-              <button
-                className={`flex-1 py-2 text-xs font-bold rounded-full ${linkStatus.mode === "private" ? "bg-white text-primary" : "text-primary-fixed-dim hover:text-white transition-colors"}`}
+            <div className="relative z-10 flex bg-on-primary-fixed-variant/40 p-1 rounded-full" title="Mode is set at daemon startup via sky10 serve flags">
+              <div
+                className={`flex-1 py-2 text-xs font-bold rounded-full text-center ${linkStatus.mode === "private" ? "bg-white text-primary" : "text-primary-fixed-dim"}`}
               >
                 Private
-              </button>
-              <button
-                className={`flex-1 py-2 text-xs font-bold rounded-full ${linkStatus.mode === "network" ? "bg-white text-primary" : "text-primary-fixed-dim hover:text-white transition-colors"}`}
+              </div>
+              <div
+                className={`flex-1 py-2 text-xs font-bold rounded-full text-center ${linkStatus.mode === "network" ? "bg-white text-primary" : "text-primary-fixed-dim"}`}
               >
                 Network
-              </button>
+              </div>
             </div>
             <div className="relative z-10 space-y-4">
               <div className="space-y-1">

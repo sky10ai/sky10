@@ -39,6 +39,7 @@ func main() {
 	root.AddCommand(commands.IdCmd())
 	root.AddCommand(commands.UiCmd())
 	root.AddCommand(commands.UpdateCmd())
+	root.AddCommand(commands.DaemonCmd())
 
 	root.CompletionOptions.HiddenDefaultCmd = true
 

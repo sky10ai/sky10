@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router";
 import { Icon } from "../components/Icon";
 import { RelativeTime } from "../components/RelativeTime";
@@ -7,7 +8,8 @@ import { useRPC } from "../lib/useRPC";
 
 export default function Devices() {
   const navigate = useNavigate();
-  const { data, loading, error } = useRPC(() => skyfs.deviceList(), [], {
+  const [actionError, setActionError] = useState<string | null>(null);
+  const { data, loading, error, refetch } = useRPC(() => skyfs.deviceList(), [], {
     live: STORAGE_EVENT_TYPES,
     refreshIntervalMs: 10_000,
   });
@@ -37,9 +39,14 @@ export default function Devices() {
         </button>
       </div>
 
-      {error && (
-        <div className="mb-8 p-4 bg-error-container/20 text-error rounded-xl text-sm">
-          {error}
+      {(error || actionError) && (
+        <div className="mb-8 p-4 bg-error-container/20 text-error rounded-xl text-sm flex justify-between">
+          <span>{actionError ?? error}</span>
+          {actionError && (
+            <button className="text-xs hover:underline" onClick={() => setActionError(null)}>
+              dismiss
+            </button>
+          )}
         </div>
       )}
 
@@ -138,6 +145,24 @@ export default function Devices() {
                   </span>
                 </div>
               </div>
+              {!isSelf && (
+                <button
+                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-error/20 px-3 py-2 text-xs font-medium text-error transition-colors hover:bg-error-container/20"
+                  onClick={async () => {
+                    if (!confirm(`Remove device "${displayName}"?`)) return;
+                    try {
+                      await skyfs.deviceRemove({ pubkey: device.pubkey });
+                      refetch();
+                    } catch (e: unknown) {
+                      setActionError(e instanceof Error ? e.message : "Failed to remove device");
+                    }
+                  }}
+                  type="button"
+                >
+                  <Icon className="text-sm" name="person_remove" />
+                  Remove Device
+                </button>
+              )}
             </div>
           );
         })}

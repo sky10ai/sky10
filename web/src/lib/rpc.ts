@@ -72,6 +72,10 @@ export const skyfs = {
   approve: (p: { device_id: string }) => rpc("skyfs.approve", p),
   status: () => rpc<StatusResult>("skyfs.status"),
   s3List: (p: { prefix: string }) => rpc<S3ListResult>("skyfs.s3List", p),
+  s3Delete: (p: { key: string }) => rpc("skyfs.s3Delete", p),
+  syncActivity: () => rpc<SyncActivityResult>("skyfs.syncActivity"),
+  deviceRemove: (p: { pubkey: string }) => rpc("skyfs.deviceRemove", p),
+  driveRemove: (p: { name: string }) => rpc("skyfs.driveRemove", p),
 };
 
 // -- skykv --
@@ -253,4 +257,17 @@ export interface IdentityDevice {
 export interface IdentityDevices {
   identity: string;
   devices: IdentityDevice[];
+}
+
+export interface SyncActivityEntry {
+  direction: string;
+  op: string;
+  path: string;
+  drive_id: string;
+  drive_name: string;
+  ts: number;
+}
+
+export interface SyncActivityResult {
+  pending: SyncActivityEntry[];
 }

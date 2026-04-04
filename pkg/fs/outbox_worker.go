@@ -18,7 +18,7 @@ type OutboxWorker struct {
 	localLog  *opslog.LocalOpsLog
 	logger    *slog.Logger
 	notify    chan struct{}                // poked when new entries arrive
-	onEvent   func(string, map[string]any) // push events to Cirrus
+	onEvent   func(string, map[string]any) // push events to caller
 	heartbeat func()                       // watchdog heartbeat
 	driveName string
 }

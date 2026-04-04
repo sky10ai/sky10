@@ -8,7 +8,7 @@ model: claude-opus-4-6
 ## Problem
 
 The reconciler misses files during normal operation. Files exist in the CRDT
-snapshot (visible in Cirrus) but are never downloaded to disk. Restarting the
+snapshot but are never downloaded to disk. Restarting the
 daemon fixes it — `seedStateFromDisk` triggers a fresh reconcile pass that
 picks up the stranded files.
 
@@ -48,7 +48,7 @@ Files from step 3 are in the snapshot but never reconciled.
 
 - Daemon logs show reconciler downloading files at 23:09-23:10, then idle
 - Poller shows `poll ops=0` from 23:27 onward — no more pokes
-- Cirrus shows files without Merkle hashes (in snapshot, not on disk)
+- Web UI shows files without Merkle hashes (in snapshot, not on disk)
 - Restarting daemon triggers `seedStateFromDisk` which finds and downloads
   the missing files every time
 
@@ -110,4 +110,4 @@ Option C (periodic tick) is a good belt-and-suspenders addition regardless.
 ## Related bugs (not yet fixed)
 
 - Directory deletion doesn't remove empty folders on remote machine
-- Cirrus Merkle hash misclassifies macOS packages (cosmetic, not sync)
+- Merkle hash misclassifies macOS packages (cosmetic, not sync)

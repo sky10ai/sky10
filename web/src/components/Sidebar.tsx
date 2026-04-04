@@ -16,6 +16,7 @@ const navItems = [
     label: "Drives",
     matchPrefixes: ["/drives", "/bucket"],
   },
+  { to: "/activity", icon: "monitor_heart", label: "Activity", matchPrefixes: ["/activity"] },
   { to: "/settings", icon: "settings", label: "Settings", matchPrefixes: ["/settings"] },
 ];
 

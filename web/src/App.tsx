@@ -9,6 +9,7 @@ import KVStore from "./pages/KVStore";
 import Drives from "./pages/Drives";
 import FileBrowser from "./pages/FileBrowser";
 import Bucket from "./pages/Bucket";
+import Activity from "./pages/Activity";
 import Settings from "./pages/Settings";
 
 export default function App() {
@@ -26,6 +27,7 @@ export default function App() {
           <Route path="drives" element={<Drives />} />
           <Route path="drives/:name/*" element={<FileBrowser />} />
           <Route path="bucket/*" element={<Bucket />} />
+          <Route path="activity" element={<Activity />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

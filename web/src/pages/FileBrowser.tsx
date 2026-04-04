@@ -14,6 +14,38 @@ import { STORAGE_EVENT_TYPES } from "../lib/events";
 import { skyfs } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
+async function uploadFiles(
+  files: FileList,
+  driveID: string,
+  currentPath: string
+) {
+  const results: { name: string; ok: boolean; error?: string }[] = [];
+  for (const file of Array.from(files)) {
+    const filePath = currentPath ? `${currentPath}/${file.name}` : file.name;
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      const res = await fetch(
+        `/upload?drive=${encodeURIComponent(driveID)}&path=${encodeURIComponent(filePath)}`,
+        { method: "POST", body: form }
+      );
+      if (!res.ok) {
+        const text = await res.text();
+        results.push({ name: file.name, ok: false, error: text });
+      } else {
+        results.push({ name: file.name, ok: true });
+      }
+    } catch (e: unknown) {
+      results.push({
+        name: file.name,
+        ok: false,
+        error: e instanceof Error ? e.message : "upload failed",
+      });
+    }
+  }
+  return results;
+}
+
 function isDirectChild(path: string, currentPath: string) {
   if (!currentPath) {
     return !path.includes("/");
@@ -67,7 +99,9 @@ export default function FileBrowser() {
   const [newFolderName, setNewFolderName] = useState("");
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentDrive = (driveList?.drives ?? []).find(
     (drive) => drive.name === driveName
@@ -214,6 +248,44 @@ export default function FileBrowser() {
     refetch,
   ]);
 
+  const handleUpload = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = event.target.files;
+      if (!files || files.length === 0) return;
+      setActionError(null);
+      setUploading(true);
+      try {
+        const results = await uploadFiles(
+          files,
+          currentDrive?.id ?? driveName,
+          currentPath
+        );
+        const failed = results.filter((r) => !r.ok);
+        if (failed.length > 0) {
+          setActionError(
+            `Failed to upload: ${failed.map((f) => `${f.name} (${f.error})`).join(", ")}`
+          );
+        }
+        refetch({ background: true });
+      } finally {
+        setUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    },
+    [currentDrive?.id, currentPath, driveName, refetch]
+  );
+
+  const handleDownload = useCallback(
+    (row: BrowserRow) => {
+      setCtx(null);
+      if (row.kind !== "file") return;
+      const driveID = currentDrive?.id ?? driveName;
+      const url = `/download?drive=${encodeURIComponent(driveID)}&path=${encodeURIComponent(row.entry.path)}`;
+      window.open(url, "_blank");
+    },
+    [currentDrive?.id, driveName]
+  );
+
   return (
     <div className="flex flex-1 overflow-hidden" onClick={closeMenu}>
       <div
@@ -233,6 +305,22 @@ export default function FileBrowser() {
                     Live
                   </StatusBadge>
                 )}
+                <button
+                  className="flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-primary/20 transition-colors hover:bg-primary/90 disabled:opacity-50"
+                  disabled={uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                  type="button"
+                >
+                  <Icon className="text-lg" name="upload" />
+                  {uploading ? "Uploading..." : "Upload"}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  className="hidden"
+                  multiple
+                  onChange={handleUpload}
+                  type="file"
+                />
                 <button
                   className="flex items-center gap-2 rounded-full bg-surface-container-high px-4 py-2 text-sm font-medium text-on-surface transition-colors hover:bg-surface-container-highest"
                   onClick={handleNewFolder}
@@ -358,6 +446,7 @@ export default function FileBrowser() {
       {ctx && (
         <BrowserContextMenu
           onDelete={handleDelete}
+          onDownload={handleDownload}
           onNewFolder={handleNewFolder}
           state={ctx}
         />

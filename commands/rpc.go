@@ -14,7 +14,7 @@ func dialDaemon() (net.Conn, error) {
 	sockPath := skyfs.DaemonSocketPath()
 	conn, err := net.Dial("unix", sockPath)
 	if err != nil {
-		return nil, fmt.Errorf("daemon not running (start with 'sky10 fs serve' or Cirrus): %w", err)
+		return nil, fmt.Errorf("daemon not running (start with 'sky10 serve'): %w", err)
 	}
 	return conn, nil
 }

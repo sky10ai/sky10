@@ -29,8 +29,8 @@ func DumpGoroutines(logger *slog.Logger) {
 		f.Close()
 	}
 
-	// Don't write to stderr — when Cirrus owns the pipe, a full buffer
-	// blocks write() and freezes the process.
+	// Don't write to stderr — when a parent process owns the pipe, a full
+	// buffer blocks write() and freezes the process.
 }
 
 // HandleDumpSignal listens for SIGUSR1 and dumps all goroutine stacks.
