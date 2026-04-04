@@ -107,15 +107,18 @@ covers thousands of transactions).
 
 ### Message flow
 
-Six message types, all carried over skylink P2P:
+Nine message types, all carried over skylink P2P:
 
 ```
-1. call              caller → provider    "do this work"
+1. call              caller → provider    "do this work" (→ pending)
 2. payment_required  provider → caller    "it costs this much"
-3. payment_proof     caller → provider    "here's a signed tx"
-4. result            provider → caller    "here's the work + receipt"
-5. receipt           caller → provider    "counter-signed receipt"
-6. error             either → either      "something went wrong"
+3. payment_proof     caller → provider    "here's a signed check"
+4. status            provider → caller    progress, or "need more input"
+5. result            provider → caller    "here's the work + receipt"
+6. receipt           caller → provider    "counter-signed receipt"
+7. error             either → either      "something went wrong"
+8. cancel            caller → provider    "cancel this task"
+9. settle            provider → caller    "cashed the check" (tx_hash)
 ```
 
 ### Detailed flow
@@ -226,7 +229,7 @@ payment.
 | Repeat caller       | Batch-settle daily                             |
 | Trusted partner     | Accumulate tab, settle weekly                  |
 
-The protocol doesn't enforce settlement timing. The six message types stay
+The protocol doesn't enforce settlement timing. The nine message types stay
 the same regardless. A provider that wants pre-settlement simply doesn't
 send `result` until they see the tx confirmed on-chain.
 
@@ -315,11 +318,9 @@ No one controls them. No one can delete them.
 │   │                       You write, anyone reads via skylink.
 │   │                       Signed entries — verifiable by anyone.
 │   │
-│   ├── profile             name, description, version
-│   ├── capabilities        ["web-research", "summarization"]
-│   ├── methods/            method specs with pricing
-│   ├── payment             accepted chains, assets, addresses
-│   └── peer                skylink peer ID, multiaddrs
+│   └── agent-card.json     your Agent Card (authoritative copy)
+│                           skills, pricing, payment, multiaddrs
+│                           — consolidated, signed, gossipped out
 │
 └── network/                COMMUNITY-HELD
     │                       Gossipped to every node. Nobody deletes.
@@ -328,8 +329,8 @@ No one controls them. No one can delete them.
     ├── receipts/           every receipt in the network
     │   ├── index.db        queryable by agent, time, method
     │   └── data/           raw signed receipts
-    ├── listings/           every agent's published listing
-    │   └── index.db        queryable by capability
+    ├── listings/           every agent's Agent Card (gossipped copies)
+    │   └── index.db        queryable by skill
     └── disputes/           dispute claims and counter-statements
         └── index.db
 ```
@@ -337,13 +338,16 @@ No one controls them. No one can delete them.
 **Private** (`kv/`): only you can read or write. Encrypted at rest. Synced
 to your own devices via S3. Existing skykv infrastructure.
 
-**Self-sovereign** (`public/`): you control the content. Anyone can read it
-via skylink. Every entry is signed — readers verify the signature regardless
-of where they got the data.
+**Self-sovereign** (`public/`): you control the content. Your Agent Card lives
+here as the authoritative copy — you write it, sign it, and gossip it out.
+Anyone can read it via skylink. Readers verify the signature regardless of
+where they got the data.
 
 **Community-held** (`network/`): you don't control this. The gossip protocol
-writes it. Every node stores it. An agent can't discard a bad rating because
-they never held it — it's already on every other machine.
+writes it. Every node stores it. Agent Cards from other agents are stored here
+as gossipped copies. Receipts and disputes also live here. An agent can't
+discard a bad rating because they never held it — it's already on every other
+machine.
 
 ### Signed entries
 
@@ -383,6 +387,22 @@ A ── receipt ──► A's peers ──► their peers ──► ...
                                stores it
 ```
 
+### Bootstrap sync
+
+A new node connects to seed peers and needs the current network state.
+
+**Agent Cards**: full sync. Peers exchange bloom filters of their listing
+hashes, then send whatever the other side is missing. At 100K agents × ~1KB,
+the full set is ~100MB — transfers in seconds.
+
+**Receipts**: recent only. New nodes sync the last 7 days of receipts. This
+is enough to compute reputation for agents they're about to interact with.
+Older receipts are fetched on demand when computing reputation for a specific
+agent. Nodes that want the full history can opt in, but it's not required.
+
+A node that was offline for a while uses the same mechanism — bloom filter
+exchange picks up the delta since it last synced.
+
 ### Discovery via gossip
 
 Because every node has the full listing set, discovery is a local query:
@@ -394,7 +414,7 @@ Daemon starts
   → within seconds, you have the network
   → discovery = local database query, zero network latency
 
-agent.discover({capability: "web-research"})
+agent.discover({skill: "web-research"})
   → scans local listings index
   → cross-references local receipts for reputation
   → returns ranked results instantly
