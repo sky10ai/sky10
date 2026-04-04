@@ -1,8 +1,30 @@
 # sky10
 
-Encrypted storage and agent coordination. Your data encrypted, your keys yours, no server sees plaintext.
+Encrypted storage and agent coordination over P2P. Your data encrypted, your keys yours, no server sees plaintext.
 
-Built in Go. Backed by any S3-compatible store.
+Built in Go. Runs on macOS and Linux. S3 optional.
+
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sky10ai/sky10/main/install.sh | bash
+```
+
+Or with Homebrew (macOS):
+
+```bash
+brew install sky10ai/tap/sky10
+```
+
+## Quick Start
+
+```bash
+sky10 serve              # start the daemon (generates identity automatically)
+sky10 invite             # generate an invite code for another device
+sky10 join <code>        # join from the other device
+```
+
+The daemon starts in P2P-only mode — no S3 needed. Devices discover each other via Nostr relays and sync KV data directly over libp2p.
 
 ## CLI
 
@@ -37,31 +59,29 @@ sky10 key generate
   Address: sky10qvx2mz9...
 ```
 
+### S3 (Optional)
+
+S3 is an opt-in storage backend for durable file storage. The daemon runs fully without it.
+
+```bash
+export S3_ACCESS_KEY_ID=your-key
+export S3_SECRET_ACCESS_KEY=your-secret
+sky10 fs init --bucket my-bucket --endpoint https://s3.example.com
+```
+
+Works with any S3-compatible store: Backblaze B2, Cloudflare R2, DigitalOcean Spaces, Wasabi, MinIO, AWS S3.
+
 ### Build
 
 ```bash
 make          # check + test + build → bin/sky10
 make test     # Go + Swift tests
-make web-dev  # Vite dev UI on :5173, opens browser, defaults RPC proxy to :9102
+make web-dev  # Vite dev UI on :5173
+make platforms  # cross-compile for linux/macOS amd64/arm64
 make reproduce  # prove build determinism
 ```
 
 Deterministic builds: same source + same Go version = identical binary.
-
-For a specific route or daemon target:
-
-```bash
-make web-dev WEB_DEV_PATH=/bucket WEB_RPC_TARGET=http://localhost:9101
-```
-
-### S3 Credentials
-
-```bash
-export S3_ACCESS_KEY_ID=your-key
-export S3_SECRET_ACCESS_KEY=your-secret
-```
-
-Works with any S3-compatible store: Backblaze B2, Cloudflare R2, DigitalOcean Spaces, Wasabi, MinIO, AWS S3.
 
 ## Architecture
 
@@ -69,15 +89,21 @@ Works with any S3-compatible store: Backblaze B2, Cloudflare R2, DigitalOcean Sp
 sky10/
 ├── main.go               CLI entry point
 ├── commands/              CLI wiring (cobra)
+│   ├── serve.go           sky10 serve (daemon)
+│   ├── invite.go          sky10 invite
+│   ├── join.go            sky10 join
 │   ├── key.go             sky10 key *
 │   └── fs.go              sky10 fs *
 ├── pkg/
 │   ├── key/               crypto primitives (Ed25519, Bech32m, Seal/Open, Sign/Verify)
-│   ├── fs/                encrypted file storage (chunking, encryption, sync, ops log)
+│   ├── id/                identity + device keys, manifest signing
+│   ├── join/              invite/join flows (P2P + S3)
+│   ├── kv/                replicated key-value store (LWW-Register-Map)
+│   ├── link/              P2P communication (libp2p, Nostr discovery)
+│   ├── fs/                encrypted file storage (chunking, encryption, sync)
 │   ├── adapter/           storage backend interface + S3 implementation
 │   └── config/            ~/.sky10/ configuration
-├── cirrus/              desktop apps
-│   └── macos/           SwiftUI macOS app
+├── web/                   React web UI (Vite + TypeScript)
 └── docs/                  guides, work logs
 ```
 

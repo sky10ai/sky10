@@ -67,9 +67,7 @@ git tag v$VERSION
 git push origin v$VERSION
 ```
 
-### 4. Build binary
-
-Currently only building for macOS ARM64. TODO: add other platforms later.
+### 4. Build binaries (all platforms)
 
 **Build the web frontend first.** The Go binary embeds `web/dist/` via
 `go:embed`. If you skip this step the web UI will not be served.
@@ -78,16 +76,21 @@ Currently only building for macOS ARM64. TODO: add other platforms later.
 cd web && bun install --frozen-lockfile && bun run build && cd ..
 ```
 
-Then build the Go binary:
+Then build all four platform binaries:
 
 ```bash
-rm -f bin/sky10-darwin-arm64
+rm -f bin/sky10-*
 COMMIT=$(git rev-parse --short HEAD)
 DATE=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ)
-CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -buildvcs=false \
-  -ldflags "-s -w -X 'main.version=v$VERSION' -X 'main.commit=$COMMIT' -X 'main.buildDate=$DATE'" \
-  -o bin/sky10-darwin-arm64 .
-cd bin && shasum -a 256 sky10-darwin-arm64 > checksums.txt && cat checksums.txt
+LDFLAGS="-s -w -X 'main.version=v$VERSION' -X 'main.commit=$COMMIT' -X 'main.buildDate=$DATE'"
+GOFLAGS="-trimpath -buildvcs=false"
+
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build $GOFLAGS -ldflags "$LDFLAGS" -o bin/sky10-darwin-arm64 .
+CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build $GOFLAGS -ldflags "$LDFLAGS" -o bin/sky10-darwin-amd64 .
+CGO_ENABLED=0 GOOS=linux  GOARCH=arm64 go build $GOFLAGS -ldflags "$LDFLAGS" -o bin/sky10-linux-arm64 .
+CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build $GOFLAGS -ldflags "$LDFLAGS" -o bin/sky10-linux-amd64 .
+
+cd bin && shasum -a 256 sky10-* > checksums.txt && cat checksums.txt
 ```
 
 The date uses `git log -1 --format=%cI` (committer timestamp) instead of
@@ -105,6 +108,9 @@ cp bin/sky10-darwin-arm64 bin/sky10
 ```bash
 gh release create v$VERSION \
   bin/sky10-darwin-arm64 \
+  bin/sky10-darwin-amd64 \
+  bin/sky10-linux-arm64 \
+  bin/sky10-linux-amd64 \
   bin/checksums.txt \
   --title "v$VERSION — <short summary>" \
   --notes "<release notes>"
