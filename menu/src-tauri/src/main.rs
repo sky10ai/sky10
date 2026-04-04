@@ -248,6 +248,10 @@ fn set_tray_tooltip(tray: &TrayIcon, state: &TrayState) {
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
+            // Hide from Dock on macOS — this is a tray-only app.
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             // On Linux, create a hidden window so GTK drives the event loop
             // and the tray icon registers on DBus (StatusNotifierItem).
             #[cfg(target_os = "linux")]
