@@ -19,11 +19,27 @@ interface ChatMessage {
 export default function AgentChat() {
   const { agentId } = useParams<{ agentId: string }>();
   const navigate = useNavigate();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const storageKey = `sky10:chat:${agentId}`;
+  const sessionKey = `sky10:session:${agentId}`;
+
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [waiting, setWaiting] = useState(false);
-  const [sessionId] = useState(() => crypto.randomUUID());
+  const [sessionId] = useState(() => {
+    const existing = localStorage.getItem(sessionKey);
+    if (existing) return existing;
+    const id = crypto.randomUUID();
+    localStorage.setItem(sessionKey, id);
+    return id;
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const waitingTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -71,10 +87,15 @@ export default function AgentChat() {
     return () => es.close();
   }, [sessionId]);
 
-  // Auto-scroll to bottom.
+  // Auto-scroll to bottom + persist.
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(messages));
+    } catch {
+      // storage full or unavailable
+    }
+  }, [messages, storageKey]);
 
   // Focus input on mount, clean up timer on unmount.
   useEffect(() => {
