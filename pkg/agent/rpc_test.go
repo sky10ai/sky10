@@ -155,7 +155,7 @@ func TestRPCCallAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("call by name: %v", err)
 	}
-	cr := result.(CallResult)
+	cr := result.(*CallResult)
 	if cr.Error != "" {
 		t.Fatalf("call error: %s", cr.Error)
 	}
@@ -172,7 +172,7 @@ func TestRPCCallAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("call by ID: %v", err)
 	}
-	cr = result.(CallResult)
+	cr = result.(*CallResult)
 	if cr.Error != "" {
 		t.Fatalf("call error: %s", cr.Error)
 	}

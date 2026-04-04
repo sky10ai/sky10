@@ -14,12 +14,19 @@ type Emitter func(event string, data interface{})
 type RPCHandler struct {
 	registry *Registry
 	caller   *Caller
+	router   *Router // nil until cross-device wiring (Phase 2)
 	emit     Emitter
 }
 
 // NewRPCHandler creates an agent RPC handler.
 func NewRPCHandler(registry *Registry, caller *Caller, emit Emitter) *RPCHandler {
 	return &RPCHandler{registry: registry, caller: caller, emit: emit}
+}
+
+// SetRouter attaches a cross-device router. Once set, agent.call and
+// agent.list use the router for remote dispatch and aggregation.
+func (h *RPCHandler) SetRouter(r *Router) {
+	h.router = r
 }
 
 // Dispatch handles agent.* methods.
@@ -40,6 +47,8 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		result, err = h.rpcList(ctx, params)
 	case "agent.call":
 		result, err = h.rpcCall(ctx, params)
+	case "agent.discover":
+		result, err = h.rpcDiscover(ctx, params)
 	case "agent.status":
 		result, err = h.rpcStatus(ctx)
 	default:
@@ -111,8 +120,13 @@ func (h *RPCHandler) rpcDeregister(_ context.Context, params json.RawMessage) (i
 	return map[string]string{"status": "ok"}, nil
 }
 
-func (h *RPCHandler) rpcList(_ context.Context, _ json.RawMessage) (interface{}, error) {
-	agents := h.registry.List()
+func (h *RPCHandler) rpcList(ctx context.Context, _ json.RawMessage) (interface{}, error) {
+	var agents []AgentInfo
+	if h.router != nil {
+		agents = h.router.List(ctx)
+	} else {
+		agents = h.registry.List()
+	}
 	return map[string]interface{}{
 		"agents": agents,
 		"count":  len(agents),
@@ -131,17 +145,47 @@ func (h *RPCHandler) rpcCall(ctx context.Context, params json.RawMessage) (inter
 		return nil, fmt.Errorf("method is required")
 	}
 
-	// For Phase 1, only local dispatch. Phase 2 adds cross-device routing.
+	if h.router != nil {
+		return h.router.Call(ctx, p)
+	}
+
+	// Local-only fallback (no router wired).
 	info := h.registry.Resolve(p.Agent)
 	if info == nil {
 		return nil, ErrAgentNotFound
 	}
-
 	result, err := h.caller.Call(ctx, info.Endpoint, p.Method, p.Params)
 	if err != nil {
 		return CallResult{Error: err.Error()}, nil
 	}
-	return CallResult{Result: result}, nil
+	return &CallResult{Result: result}, nil
+}
+
+func (h *RPCHandler) rpcDiscover(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p struct {
+		Capability string `json:"capability"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.Capability == "" {
+		return nil, fmt.Errorf("capability is required")
+	}
+
+	var agents []AgentInfo
+	if h.router != nil {
+		agents = h.router.Discover(ctx, p.Capability)
+	} else {
+		for _, a := range h.registry.List() {
+			if a.HasCapability(p.Capability) {
+				agents = append(agents, a)
+			}
+		}
+	}
+	return map[string]interface{}{
+		"agents": agents,
+		"count":  len(agents),
+	}, nil
 }
 
 func (h *RPCHandler) rpcStatus(_ context.Context) (interface{}, error) {

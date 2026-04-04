@@ -122,10 +122,14 @@ func ServeCmd() *cobra.Command {
 			server.RegisterHandler(skyid.NewRPCHandler(bundle))
 			server.RegisterHandler(skyupdate.NewRPCHandler(Version, server.Emit))
 
-			// Agent registry — local agent registration and dispatch.
+			// Agent registry — local agent registration and cross-device routing.
 			agentRegistry := skyagent.NewRegistry(bundle.DeviceID(), skyfs.GetDeviceName(), nil)
 			agentCaller := skyagent.NewCaller()
-			server.RegisterHandler(skyagent.NewRPCHandler(agentRegistry, agentCaller, server.Emit))
+			agentRPC := skyagent.NewRPCHandler(agentRegistry, agentCaller, server.Emit)
+			server.RegisterHandler(agentRPC)
+			skyagent.RegisterLinkHandlers(linkNode, agentRegistry, agentCaller)
+			agentRouter := skyagent.NewRouter(agentRegistry, agentCaller, linkNode, bundle.DeviceID(), nil)
+			agentRPC.SetRouter(agentRouter)
 			go skyagent.NewHealthChecker(agentRegistry, agentCaller, server.Emit, nil).Run(ctx)
 
 			// Show connected P2P peers in device list.
