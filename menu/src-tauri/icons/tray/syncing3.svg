@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44">
-  <!-- Octagon hub: 8 outer points connected to center via spokes -->
+  <!-- Syncing frame 3: rotated 90° — bottom-right + top-left pairs -->
 
-  <!-- Spokes (center to each vertex) -->
+  <!-- Spokes -->
   <line x1="22" y1="22" x2="22" y2="8" stroke="black" stroke-width="1.2" stroke-linecap="round"/>
   <line x1="22" y1="22" x2="32" y2="12" stroke="black" stroke-width="1.2" stroke-linecap="round"/>
   <line x1="22" y1="22" x2="36" y2="22" stroke="black" stroke-width="1.2" stroke-linecap="round"/>
@@ -11,7 +11,11 @@
   <line x1="22" y1="22" x2="8" y2="22" stroke="black" stroke-width="1.2" stroke-linecap="round"/>
   <line x1="22" y1="22" x2="12" y2="12" stroke="black" stroke-width="1.2" stroke-linecap="round"/>
 
-  <!-- Center node -->
+  <!-- Active arcs: bottom-right + top-left pairs -->
+  <line x1="36" y1="22" x2="32" y2="32" stroke="black" stroke-width="1.8" stroke-linecap="round"/>
+  <line x1="8" y1="22" x2="12" y2="12" stroke="black" stroke-width="1.8" stroke-linecap="round"/>
+
+  <!-- Center -->
   <circle cx="22" cy="22" r="3" fill="black"/>
 
   <!-- Outer nodes -->

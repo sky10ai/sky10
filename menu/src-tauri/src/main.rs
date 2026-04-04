@@ -18,8 +18,13 @@ static RPC_ID: AtomicU32 = AtomicU32::new(1);
 const ICON_CONNECTED: &[u8] = include_bytes!("../icons/tray/connected.png");
 const ICON_DISCONNECTED: &[u8] = include_bytes!("../icons/tray/disconnected.png");
 const ICON_UPDATE: &[u8] = include_bytes!("../icons/tray/update.png");
-const ICON_SYNCING: &[u8] = include_bytes!("../icons/tray/syncing.png");
 const ICON_ERROR: &[u8] = include_bytes!("../icons/tray/error.png");
+const ICON_SYNCING: [&[u8]; 4] = [
+    include_bytes!("../icons/tray/syncing1.png"),
+    include_bytes!("../icons/tray/syncing2.png"),
+    include_bytes!("../icons/tray/syncing3.png"),
+    include_bytes!("../icons/tray/syncing4.png"),
+];
 
 // --- RPC helpers ---
 
@@ -191,22 +196,24 @@ fn build_menu(app: &tauri::App, info: &DaemonInfo) -> tauri::Result<tauri::menu:
     menu.item(&sep2).item(&quit).build()
 }
 
-fn icon_for_state(state: &TrayState) -> &'static [u8] {
+fn icon_for_state(state: &TrayState, frame: usize) -> &'static [u8] {
     match state {
         TrayState::Connected => ICON_CONNECTED,
         TrayState::Disconnected => ICON_DISCONNECTED,
-        TrayState::Syncing => ICON_SYNCING,
+        TrayState::Syncing => ICON_SYNCING[frame % 4],
         TrayState::UpdateAvailable => ICON_UPDATE,
         TrayState::Error => ICON_ERROR,
     }
 }
 
-fn set_tray_state(tray: &TrayIcon, state: &TrayState) {
-    let bytes = icon_for_state(state);
+fn set_tray_icon(tray: &TrayIcon, state: &TrayState, frame: usize) {
+    let bytes = icon_for_state(state, frame);
     if let Ok(img) = Image::from_bytes(bytes) {
         let _ = tray.set_icon(Some(img));
     }
+}
 
+fn set_tray_tooltip(tray: &TrayIcon, state: &TrayState) {
     let tooltip = match state {
         TrayState::Connected => "sky10",
         TrayState::Disconnected => "sky10 (not running)",
@@ -227,7 +234,7 @@ fn main() {
             let menu = build_menu(app, &info)?;
 
             let tray = TrayIconBuilder::new()
-                .icon(Image::from_bytes(icon_for_state(&info.state))?)
+                .icon(Image::from_bytes(icon_for_state(&info.state, 0))?)
                 .menu(&menu)
                 .tooltip("sky10")
                 .on_menu_event(|app, event| match event.id().as_ref() {
@@ -241,18 +248,34 @@ fn main() {
                 })
                 .build(app)?;
 
-            set_tray_state(&tray, &info.state);
+            set_tray_tooltip(&tray, &info.state);
 
-            // Poll daemon state every 30 seconds, update icon.
+            // Poll daemon state. When syncing, animate at 250ms.
+            // Otherwise check every 10 seconds.
             let tray_clone = tray.clone();
             std::thread::spawn(move || {
                 let mut prev_state = info.state.clone();
+                let mut frame: usize = 0;
                 loop {
-                    std::thread::sleep(Duration::from_secs(30));
                     let new_info = query_daemon();
-                    if new_info.state != prev_state {
-                        set_tray_state(&tray_clone, &new_info.state);
-                        prev_state = new_info.state;
+
+                    if new_info.state == TrayState::Syncing {
+                        // Animate: cycle through 4 frames
+                        set_tray_icon(&tray_clone, &TrayState::Syncing, frame);
+                        frame = (frame + 1) % 4;
+                        if prev_state != TrayState::Syncing {
+                            set_tray_tooltip(&tray_clone, &TrayState::Syncing);
+                        }
+                        prev_state = TrayState::Syncing;
+                        std::thread::sleep(Duration::from_millis(250));
+                    } else {
+                        if new_info.state != prev_state {
+                            set_tray_icon(&tray_clone, &new_info.state, 0);
+                            set_tray_tooltip(&tray_clone, &new_info.state);
+                            prev_state = new_info.state;
+                        }
+                        frame = 0;
+                        std::thread::sleep(Duration::from_secs(10));
                     }
                 }
             });
