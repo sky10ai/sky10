@@ -97,6 +97,8 @@ func (s *FSHandler) Dispatch(ctx context.Context, method string, params json.Raw
 	switch method {
 	case "skyfs.ping":
 		return map[string]string{"status": "ok"}, nil, true
+	case "skyfs.logs":
+		result, err = s.rpcLogs(ctx, params)
 	case "skyfs.health":
 		result, err = s.rpcHealth(ctx)
 	case "skyfs.list", "skyfs.info", "skyfs.put", "skyfs.get",
