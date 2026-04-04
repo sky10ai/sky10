@@ -57,10 +57,24 @@ function getRouteMeta(pathname: string) {
     };
   }
 
+  if (pathname.startsWith("/agents")) {
+    return {
+      description: "Coordinate agents across the P2P network.",
+      title: "Agents",
+    };
+  }
+
   if (pathname.startsWith("/settings")) {
     return {
       description: "Review identity, runtime, and local node configuration details.",
       title: "Settings",
+    };
+  }
+
+  if (pathname.startsWith("/getting-started")) {
+    return {
+      description: "Set up your sky10 node and connect devices.",
+      title: "Getting Started",
     };
   }
 
