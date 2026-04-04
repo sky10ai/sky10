@@ -134,6 +134,8 @@ func (s *Store) pokeSync(ctx context.Context) {
 	s.mu.Unlock()
 	if p2p != nil {
 		go p2p.PushToAll(ctx)
+	} else {
+		s.logger.Info("kv pokeSync: p2pSync is nil")
 	}
 }
 
