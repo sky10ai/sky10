@@ -62,55 +62,23 @@ fi
 
 echo "sky10 ${LATEST} installed to ${INSTALL_DIR}/${BINARY}"
 
-# On Linux with systemd: install service for background daemon
-if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
+# Install daemon as a system service (launchd on macOS, systemd on Linux)
+echo ""
+echo "Setting up background daemon..."
+if "${INSTALL_DIR}/${BINARY}" daemon install; then
   echo ""
-  echo "Setting up systemd service..."
-
-  mkdir -p "$LOG_DIR"
-
-  SERVICE_FILE="/etc/systemd/system/sky10.service"
-  SUDO=""
-  if [ "$(id -u)" -ne 0 ]; then
-    SUDO="sudo"
-  fi
-
-  $SUDO tee "$SERVICE_FILE" >/dev/null <<UNIT
-[Unit]
-Description=sky10 daemon
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=${INSTALL_DIR}/${BINARY} serve
-Restart=on-failure
-RestartSec=5
-User=$(whoami)
-Environment=HOME=$(eval echo ~$(whoami))
-StandardOutput=append:${LOG_DIR}/daemon.log
-StandardError=append:${LOG_DIR}/daemon.log
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-
-  $SUDO systemctl daemon-reload
-  $SUDO systemctl enable sky10
-  $SUDO systemctl restart sky10
-
-  echo "sky10 service started"
-  echo ""
-  echo "Logs:       tail -f ${LOG_DIR}/daemon.log"
-  echo "Status:     systemctl status sky10"
-  echo "Restart:    sudo systemctl restart sky10"
+  echo "Daemon is running. Manage with:"
+  echo "  sky10 daemon status   # check status"
+  echo "  sky10 daemon restart  # restart"
+  echo "  sky10 daemon stop     # stop"
+  echo "  sky10 ui open         # open web UI"
   echo ""
   echo "Next steps:"
   echo "  sky10 invite          # invite another device"
   echo "  sky10 join <code>     # join an existing device"
 else
   echo ""
-  echo "Get started:"
+  echo "Could not install daemon service. Start manually:"
   echo "  sky10 serve           # start the daemon"
   echo "  sky10 invite          # invite another device"
   echo "  sky10 join <code>     # join an existing device"
