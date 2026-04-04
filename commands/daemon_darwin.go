@@ -11,7 +11,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const launchdLabel = "ai.sky10.daemon"
+const (
+	launchdLabel     = "ai.sky10.daemon"
+	launchdMenuLabel = "ai.sky10.menu"
+)
 
 var plistTemplate = template.Must(template.New("plist").Parse(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -22,17 +25,17 @@ var plistTemplate = template.Must(template.New("plist").Parse(`<?xml version="1.
     <string>{{.Label}}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{{.Binary}}</string>
-        <string>serve</string>
+        <string>{{.Binary}}</string>{{range .Args}}
+        <string>{{.}}</string>{{end}}
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/tmp/sky10/daemon.stdout.log</string>
+    <string>{{.LogOut}}</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/sky10/daemon.stderr.log</string>
+    <string>{{.LogErr}}</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
@@ -42,9 +45,22 @@ var plistTemplate = template.Must(template.New("plist").Parse(`<?xml version="1.
 </plist>
 `))
 
-func plistPath() string {
+type plistData struct {
+	Label  string
+	Binary string
+	Args   []string
+	Home   string
+	LogOut string
+	LogErr string
+}
+
+func launchdPlistPath(label string) string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "Library", "LaunchAgents", launchdLabel+".plist")
+	return filepath.Join(home, "Library", "LaunchAgents", label+".plist")
+}
+
+func plistPath() string {
+	return launchdPlistPath(launchdLabel)
 }
 
 func findBinary() string {
@@ -58,6 +74,58 @@ func findBinary() string {
 
 func launchdTarget() string {
 	return fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdLabel)
+}
+
+func launchdMenuTarget() string {
+	return fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdMenuLabel)
+}
+
+func findMenuBinary() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".bin", "sky10-menu")
+}
+
+func installMenuAgent() {
+	menuBin := findMenuBinary()
+	if _, err := os.Stat(menuBin); err != nil {
+		return
+	}
+
+	home, _ := os.UserHomeDir()
+	path := launchdPlistPath(launchdMenuLabel)
+	os.MkdirAll(filepath.Dir(path), 0755)
+
+	f, err := os.Create(path)
+	if err != nil {
+		return
+	}
+	data := plistData{
+		Label:  launchdMenuLabel,
+		Binary: menuBin,
+		Home:   home,
+		LogOut: "/tmp/sky10/menu.stdout.log",
+		LogErr: "/tmp/sky10/menu.stderr.log",
+	}
+	if err := plistTemplate.Execute(f, data); err != nil {
+		f.Close()
+		return
+	}
+	f.Close()
+
+	exec.Command("launchctl", "bootout", launchdMenuTarget()).Run()
+	gui := fmt.Sprintf("gui/%d", os.Getuid())
+	if out, err := exec.Command("launchctl", "bootstrap", gui, path).CombinedOutput(); err != nil {
+		fmt.Printf("Warning: could not start sky10-menu: %s\n", strings.TrimSpace(string(out)))
+		return
+	}
+	fmt.Printf("Installed: %s\n", path)
+	fmt.Println("Menu bar app will start now and on every login.")
+}
+
+func uninstallMenuAgent() {
+	exec.Command("launchctl", "bootout", launchdMenuTarget()).Run()
+	path := launchdPlistPath(launchdMenuLabel)
+	os.Remove(path)
 }
 
 func daemonInstallCmd() *cobra.Command {
@@ -74,14 +142,13 @@ func daemonInstallCmd() *cobra.Command {
 			}
 
 			home, _ := os.UserHomeDir()
-			data := struct {
-				Label  string
-				Binary string
-				Home   string
-			}{
+			data := plistData{
 				Label:  launchdLabel,
 				Binary: findBinary(),
+				Args:   []string{"serve"},
 				Home:   home,
+				LogOut: "/tmp/sky10/daemon.stdout.log",
+				LogErr: "/tmp/sky10/daemon.stderr.log",
 			}
 			if err := plistTemplate.Execute(f, data); err != nil {
 				f.Close()
@@ -92,7 +159,8 @@ func daemonInstallCmd() *cobra.Command {
 			// Unload first in case it's already loaded (ignore error).
 			exec.Command("launchctl", "bootout", launchdTarget()).Run()
 
-			out, err := exec.Command("launchctl", "bootstrap", fmt.Sprintf("gui/%d", os.Getuid()), path).CombinedOutput()
+			gui := fmt.Sprintf("gui/%d", os.Getuid())
+			out, err := exec.Command("launchctl", "bootstrap", gui, path).CombinedOutput()
 			if err != nil {
 				return fmt.Errorf("launchctl bootstrap: %s (%w)", strings.TrimSpace(string(out)), err)
 			}
@@ -100,6 +168,8 @@ func daemonInstallCmd() *cobra.Command {
 			fmt.Printf("Installed: %s\n", path)
 			fmt.Println("Daemon will start now and on every login.")
 			fmt.Println("Run 'sky10 ui open' to open the web UI.")
+
+			installMenuAgent()
 			return nil
 		},
 	}
@@ -116,6 +186,8 @@ func daemonUninstallCmd() *cobra.Command {
 			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 				return fmt.Errorf("removing plist: %w", err)
 			}
+
+			uninstallMenuAgent()
 
 			fmt.Println("Daemon uninstalled.")
 			return nil

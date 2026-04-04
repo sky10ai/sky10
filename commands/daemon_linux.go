@@ -5,12 +5,58 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 )
 
 const systemdUnit = "sky10"
+
+func findMenuBinaryLinux() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".bin", "sky10-menu")
+}
+
+func installMenuAutostart() {
+	menuBin := findMenuBinaryLinux()
+	if _, err := os.Stat(menuBin); err != nil {
+		return
+	}
+
+	home, _ := os.UserHomeDir()
+	dir := filepath.Join(home, ".config", "autostart")
+	os.MkdirAll(dir, 0755)
+
+	path := filepath.Join(dir, "sky10-menu.desktop")
+	content := fmt.Sprintf(`[Desktop Entry]
+Type=Application
+Name=sky10 Menu
+Exec=%s
+Icon=sky10
+Terminal=false
+X-GNOME-Autostart-enabled=true
+`, menuBin)
+
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return
+	}
+
+	// Start it now if not already running.
+	exec.Command(menuBin).Start()
+
+	fmt.Printf("Installed: %s\n", path)
+	fmt.Println("Menu bar app will start now and on every login.")
+}
+
+func uninstallMenuAutostart() {
+	home, _ := os.UserHomeDir()
+	path := filepath.Join(home, ".config", "autostart", "sky10-menu.desktop")
+	os.Remove(path)
+
+	// Kill running instance.
+	exec.Command("pkill", "-f", "sky10-menu").Run()
+}
 
 func systemdUnitContent() string {
 	binary, err := exec.LookPath("sky10")
@@ -94,6 +140,8 @@ func daemonInstallCmd() *cobra.Command {
 			fmt.Printf("Installed: %s\n", unitPath)
 			fmt.Println("Daemon started and enabled on boot.")
 			fmt.Println("Run 'sky10 ui open' to open the web UI.")
+
+			installMenuAutostart()
 			return nil
 		},
 	}
@@ -110,6 +158,8 @@ func daemonUninstallCmd() *cobra.Command {
 			unitPath := "/etc/systemd/system/" + systemdUnit + ".service"
 			sudo("rm", "-f", unitPath)
 			sudo("systemctl", "daemon-reload")
+
+			uninstallMenuAutostart()
 
 			fmt.Println("Daemon uninstalled.")
 			return nil
