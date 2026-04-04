@@ -26,7 +26,7 @@ export default function AgentChat() {
   const [sessionId] = useState(() => crypto.randomUUID());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const waitingTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const waitingTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Fetch agent info.
   const { data } = useRPC(() => agent.list(), [], {
