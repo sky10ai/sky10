@@ -34,7 +34,7 @@ export default function Agents() {
     "method": "agent.register",
     "params": {
       "name": "my-agent",
-      "capabilities": ["code", "test"]
+      "skills": ["code", "test"]
     },
     "id": 1
   }'`}
@@ -116,30 +116,23 @@ export default function Agents() {
                 </div>
               </div>
 
-              {a.capabilities && a.capabilities.length > 0 && (
+              {a.skills && a.skills.length > 0 && (
                 <div>
                   <label className="text-[10px] font-bold text-secondary uppercase tracking-widest block mb-1.5">
-                    Capabilities
+                    Skills
                   </label>
                   <div className="flex flex-wrap gap-1.5">
-                    {a.capabilities.map((cap) => (
+                    {a.skills.map((skill) => (
                       <span
-                        key={cap}
+                        key={skill}
                         className="bg-primary-fixed/20 text-primary text-[10px] font-semibold px-2 py-0.5 rounded-full"
                       >
-                        {cap}
+                        {skill}
                       </span>
                     ))}
                   </div>
                 </div>
               )}
-
-              <div className="flex items-center justify-between text-xs py-2 border-b border-surface-container-high">
-                <span className="text-secondary font-medium">Methods</span>
-                <span className="text-on-surface font-semibold">
-                  {a.methods?.length ?? 0}
-                </span>
-              </div>
 
               <div className="flex items-center justify-between text-xs py-2">
                 <span className="text-secondary font-medium">Connected</span>

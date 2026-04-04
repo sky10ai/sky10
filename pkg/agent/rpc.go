@@ -92,10 +92,10 @@ func (h *RPCHandler) rpcRegister(_ context.Context, params json.RawMessage) (int
 
 	if h.emit != nil {
 		h.emit("agent.connected", map[string]interface{}{
-			"id":           info.ID,
-			"name":         info.Name,
-			"device_id":    info.DeviceID,
-			"capabilities": info.Capabilities,
+			"id":        info.ID,
+			"name":      info.Name,
+			"device_id": info.DeviceID,
+			"skills":    info.Skills,
 		})
 	}
 	if h.notify != nil {
@@ -196,21 +196,21 @@ func (h *RPCHandler) rpcHeartbeat(_ context.Context, params json.RawMessage) (in
 
 func (h *RPCHandler) rpcDiscover(ctx context.Context, params json.RawMessage) (interface{}, error) {
 	var p struct {
-		Capability string `json:"capability"`
+		Skill string `json:"skill"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
-	if p.Capability == "" {
-		return nil, fmt.Errorf("capability is required")
+	if p.Skill == "" {
+		return nil, fmt.Errorf("skill is required")
 	}
 
 	var agents []AgentInfo
 	if h.router != nil {
-		agents = h.router.Discover(ctx, p.Capability)
+		agents = h.router.Discover(ctx, p.Skill)
 	} else {
 		for _, a := range h.registry.List() {
-			if a.HasCapability(p.Capability) {
+			if a.HasSkill(p.Skill) {
 				agents = append(agents, a)
 			}
 		}
@@ -223,18 +223,18 @@ func (h *RPCHandler) rpcDiscover(ctx context.Context, params json.RawMessage) (i
 
 func (h *RPCHandler) rpcStatus(_ context.Context) (interface{}, error) {
 	agents := h.registry.List()
-	caps := make(map[string]bool)
+	skills := make(map[string]bool)
 	for _, a := range agents {
-		for _, c := range a.Capabilities {
-			caps[c] = true
+		for _, s := range a.Skills {
+			skills[s] = true
 		}
 	}
-	capList := make([]string, 0, len(caps))
-	for c := range caps {
-		capList = append(capList, c)
+	skillList := make([]string, 0, len(skills))
+	for s := range skills {
+		skillList = append(skillList, s)
 	}
 	return map[string]interface{}{
-		"agents":       len(agents),
-		"capabilities": capList,
+		"agents": len(agents),
+		"skills": skillList,
 	}, nil
 }

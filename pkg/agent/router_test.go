@@ -147,11 +147,11 @@ func TestRouterListAggregation(t *testing.T) {
 
 	nodeA := makeTestNode(t)
 	regA := NewRegistry("D-deviceAA", "hostA", nil)
-	regA.Register(RegisterParams{Name: "coder", Capabilities: []string{"code"}}, "A-localA0100000000")
+	regA.Register(RegisterParams{Name: "coder", Skills: []string{"code"}}, "A-localA0100000000")
 
 	nodeB := makeTestNode(t)
 	regB := NewRegistry("D-deviceBB", "hostB", nil)
-	regB.Register(RegisterParams{Name: "researcher", Capabilities: []string{"research"}}, "A-remoteB100000000")
+	regB.Register(RegisterParams{Name: "researcher", Skills: []string{"research"}}, "A-remoteB100000000")
 
 	RegisterLinkHandlers(nodeB, regB, nil)
 
@@ -180,11 +180,11 @@ func TestRouterDiscover(t *testing.T) {
 
 	nodeA := makeTestNode(t)
 	regA := NewRegistry("D-deviceAA", "hostA", nil)
-	regA.Register(RegisterParams{Name: "coder", Capabilities: []string{"code"}}, "A-localA0100000000")
+	regA.Register(RegisterParams{Name: "coder", Skills: []string{"code"}}, "A-localA0100000000")
 
 	nodeB := makeTestNode(t)
 	regB := NewRegistry("D-deviceBB", "hostB", nil)
-	regB.Register(RegisterParams{Name: "researcher", Capabilities: []string{"research"}}, "A-remoteB100000000")
+	regB.Register(RegisterParams{Name: "researcher", Skills: []string{"research"}}, "A-remoteB100000000")
 
 	RegisterLinkHandlers(nodeB, regB, nil)
 	startNode(t, nodeA)

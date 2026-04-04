@@ -1,7 +1,7 @@
 // Package agent manages local agent registration and cross-device routing.
 // Agents are separate processes that register with the sky10 daemon via
-// HTTP RPC, declaring their capabilities. The daemon routes messages
-// between agents and humans via SSE (local) and libp2p (cross-device).
+// HTTP RPC, declaring their skills. The daemon routes messages between
+// agents and humans via SSE (local) and libp2p (cross-device).
 package agent
 
 import (
@@ -15,44 +15,25 @@ import (
 // Sentinel errors for agent operations.
 var (
 	ErrAgentNotFound    = errors.New("agent not found")
-	ErrMethodNotFound   = errors.New("method not found")
 	ErrAgentUnavailable = errors.New("agent unavailable")
 	ErrDuplicateName    = errors.New("agent name already registered")
 )
 
-// MethodSpec describes a single method an agent exposes.
-type MethodSpec struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Params      json.RawMessage `json:"params,omitempty"` // JSON schema or freeform
-}
-
 // AgentInfo is the public view of a registered agent.
 type AgentInfo struct {
-	ID           string       `json:"id"`          // A-<16 chars>
-	Name         string       `json:"name"`        // human-chosen name
-	DeviceID     string       `json:"device_id"`   // D-<8 chars> of hosting device
-	DeviceName   string       `json:"device_name"` // hostname of hosting device
-	Capabilities []string     `json:"capabilities"`
-	Methods      []MethodSpec `json:"methods,omitempty"`
-	Status       string       `json:"status"` // "connected" or "disconnected"
-	ConnectedAt  time.Time    `json:"connected_at"`
+	ID          string    `json:"id"`          // A-<16 chars>
+	Name        string    `json:"name"`        // human-chosen name
+	DeviceID    string    `json:"device_id"`   // D-<8 chars> of hosting device
+	DeviceName  string    `json:"device_name"` // hostname of hosting device
+	Skills      []string  `json:"skills"`
+	Status      string    `json:"status"` // "connected" or "disconnected"
+	ConnectedAt time.Time `json:"connected_at"`
 }
 
-// HasMethod reports whether the agent declares a method with the given name.
-func (a *AgentInfo) HasMethod(method string) bool {
-	for _, m := range a.Methods {
-		if m.Name == method {
-			return true
-		}
-	}
-	return false
-}
-
-// HasCapability reports whether the agent declares the given capability.
-func (a *AgentInfo) HasCapability(cap string) bool {
-	for _, c := range a.Capabilities {
-		if c == cap {
+// HasSkill reports whether the agent declares the given skill.
+func (a *AgentInfo) HasSkill(skill string) bool {
+	for _, s := range a.Skills {
+		if s == skill {
 			return true
 		}
 	}
@@ -61,9 +42,8 @@ func (a *AgentInfo) HasCapability(cap string) bool {
 
 // RegisterParams is the input to agent.register.
 type RegisterParams struct {
-	Name         string       `json:"name"`
-	Capabilities []string     `json:"capabilities"`
-	Methods      []MethodSpec `json:"methods,omitempty"`
+	Name   string   `json:"name"`
+	Skills []string `json:"skills"`
 }
 
 // RegisterResult is the response from agent.register.

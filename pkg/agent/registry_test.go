@@ -15,8 +15,8 @@ func TestRegistryRegisterAndList(t *testing.T) {
 	r := newTestRegistry()
 
 	info, err := r.Register(RegisterParams{
-		Name:         "coder",
-		Capabilities: []string{"code", "test"},
+		Name:   "coder",
+		Skills: []string{"code", "test"},
 	}, "A-abc1234567890123")
 	if err != nil {
 		t.Fatalf("Register: %v", err)

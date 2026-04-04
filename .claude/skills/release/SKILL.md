@@ -23,8 +23,8 @@ downloading the binary from GitHub releases.
 1. Tag the current commit
 2. Push the tag
 3. Build binaries (from the tagged commit)
-4. Install locally
-5. Create GitHub release with binaries
+4. Create GitHub release with binaries
+5. Dogfood: run `sky10 update` locally to verify the upgrade path
 6. Restart daemon
 
 If you build before tagging or upload before building — you will
@@ -63,28 +63,21 @@ cd web && bun install --frozen-lockfile && bun run build && cd ..
 Then build all four platform binaries:
 
 ```bash
-rm -f bin/sky10-*
+mkdir -p bin
 COMMIT=$(git rev-parse --short HEAD)
 DATE=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS="-s -w -X 'main.version=v$VERSION' -X 'main.commit=$COMMIT' -X 'main.buildDate=$DATE'"
-GOFLAGS="-trimpath -buildvcs=false"
 
-CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build $GOFLAGS -ldflags "$LDFLAGS" -o bin/sky10-darwin-arm64 .
-CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build $GOFLAGS -ldflags "$LDFLAGS" -o bin/sky10-darwin-amd64 .
-CGO_ENABLED=0 GOOS=linux  GOARCH=arm64 go build $GOFLAGS -ldflags "$LDFLAGS" -o bin/sky10-linux-arm64 .
-CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build $GOFLAGS -ldflags "$LDFLAGS" -o bin/sky10-linux-amd64 .
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o bin/sky10-darwin-arm64 .
+CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o bin/sky10-darwin-amd64 .
+CGO_ENABLED=0 GOOS=linux  GOARCH=arm64 go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o bin/sky10-linux-arm64 .
+CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o bin/sky10-linux-amd64 .
 
 cd bin && shasum -a 256 sky10-* > checksums.txt && cat checksums.txt
 ```
 
 The date uses `git log -1 --format=%cI` (committer timestamp) instead of
 wall-clock time, so builds from the same commit are byte-identical.
-
-Install locally:
-```bash
-mkdir -p ~/.bin
-cp bin/sky10-darwin-arm64 ~/.bin/sky10
-```
 
 ### 3. Create GitHub release
 
@@ -106,13 +99,42 @@ commit list, link each commit hash to its GitHub URL using markdown:
 - [`abc1234`](https://github.com/sky10ai/sky10/commit/abc1234) Commit message here
 ```
 
-### 4. Restart daemon
+### 4. Dogfood the upgrade
+
+After the GitHub release is published, use sky10's own update mechanism
+to verify the upgrade path works end-to-end:
 
 ```bash
-sky10 daemon restart
+~/.bin/sky10 update
 ```
 
-### 5. Summary
+This downloads the release from GitHub and replaces the local binary.
+Verify the version is correct:
+
+```bash
+~/.bin/sky10 --version
+```
+
+If `sky10 update` fails, there's a problem with the release assets or
+the update mechanism — investigate before telling users to upgrade.
+
+### 5. Restart daemon
+
+The menu app does NOT manage the daemon lifecycle. Kill the old process
+and start a new one manually:
+
+```bash
+pkill -f "sky10 serve" 2>/dev/null
+sleep 1
+~/.bin/sky10 serve &
+```
+
+Verify it's running:
+```bash
+ps aux | grep "sky10 serve" | grep -v grep
+```
+
+### 6. Summary
 
 Print upgrade instructions for the user:
 ```
@@ -124,5 +146,4 @@ Or manual download:
 # Download from GitHub releases
 curl -fsSL https://github.com/sky10ai/sky10/releases/download/v$VERSION/sky10-darwin-arm64 -o ~/.bin/sky10
 chmod +x ~/.bin/sky10
-sky10 daemon restart
 ```

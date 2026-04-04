@@ -140,12 +140,12 @@ func (r *Router) List(ctx context.Context) []AgentInfo {
 	return all
 }
 
-// Discover returns agents matching a capability from local + remote.
-func (r *Router) Discover(ctx context.Context, capability string) []AgentInfo {
+// Discover returns agents matching a skill from local + remote.
+func (r *Router) Discover(ctx context.Context, skill string) []AgentInfo {
 	all := r.List(ctx)
 	var matched []AgentInfo
 	for _, a := range all {
-		if a.HasCapability(capability) {
+		if a.HasSkill(skill) {
 			matched = append(matched, a)
 		}
 	}

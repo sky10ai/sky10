@@ -29,8 +29,8 @@ func TestRPCRegisterAndList(t *testing.T) {
 	ctx := context.Background()
 
 	params, _ := json.Marshal(RegisterParams{
-		Name:         "coder",
-		Capabilities: []string{"code"},
+		Name:   "coder",
+		Skills: []string{"code"},
 	})
 	result, err, handled := h.Dispatch(ctx, "agent.register", params)
 	if !handled || err != nil {
@@ -174,10 +174,10 @@ func TestRPCDiscover(t *testing.T) {
 	h := NewRPCHandler(r, nil)
 	ctx := context.Background()
 
-	r.Register(RegisterParams{Name: "coder", Capabilities: []string{"code"}}, "A-coder00000000000")
-	r.Register(RegisterParams{Name: "tester", Capabilities: []string{"test"}}, "A-tester0000000000")
+	r.Register(RegisterParams{Name: "coder", Skills: []string{"code"}}, "A-coder00000000000")
+	r.Register(RegisterParams{Name: "tester", Skills: []string{"test"}}, "A-tester0000000000")
 
-	params, _ := json.Marshal(map[string]string{"capability": "code"})
+	params, _ := json.Marshal(map[string]string{"skill": "code"})
 	result, err, _ := h.Dispatch(ctx, "agent.discover", params)
 	if err != nil {
 		t.Fatalf("discover: %v", err)
@@ -195,8 +195,8 @@ func TestRPCStatus(t *testing.T) {
 	ctx := context.Background()
 
 	r.Register(RegisterParams{
-		Name:         "coder",
-		Capabilities: []string{"code", "test"},
+		Name:   "coder",
+		Skills: []string{"code", "test"},
 	}, "A-coder00000000000")
 
 	result, err, _ := h.Dispatch(ctx, "agent.status", nil)

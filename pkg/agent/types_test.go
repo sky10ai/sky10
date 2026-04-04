@@ -40,31 +40,15 @@ func TestGenerateAgentIDUnique(t *testing.T) {
 	}
 }
 
-func TestAgentInfoHasMethod(t *testing.T) {
+func TestAgentInfoHasSkill(t *testing.T) {
 	t.Parallel()
 	info := AgentInfo{
-		Methods: []MethodSpec{
-			{Name: "search"},
-			{Name: "summarize"},
-		},
+		Skills: []string{"code", "test"},
 	}
-	if !info.HasMethod("search") {
-		t.Error("HasMethod(search) = false, want true")
+	if !info.HasSkill("code") {
+		t.Error("HasSkill(code) = false, want true")
 	}
-	if info.HasMethod("missing") {
-		t.Error("HasMethod(missing) = true, want false")
-	}
-}
-
-func TestAgentInfoHasCapability(t *testing.T) {
-	t.Parallel()
-	info := AgentInfo{
-		Capabilities: []string{"code", "test"},
-	}
-	if !info.HasCapability("code") {
-		t.Error("HasCapability(code) = false, want true")
-	}
-	if info.HasCapability("missing") {
-		t.Error("HasCapability(missing) = true, want false")
+	if info.HasSkill("missing") {
+		t.Error("HasSkill(missing) = true, want false")
 	}
 }

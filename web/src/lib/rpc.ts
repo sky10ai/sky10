@@ -278,18 +278,12 @@ export interface SyncActivityResult {
   pending: SyncActivityEntry[];
 }
 
-export interface AgentMethodSpec {
-  name: string;
-  description?: string;
-}
-
 export interface AgentInfo {
   id: string;
   name: string;
   device_id: string;
   device_name: string;
-  capabilities: string[];
-  methods?: AgentMethodSpec[];
+  skills: string[];
   status: string;
   connected_at: string;
 }
@@ -301,5 +295,5 @@ export interface AgentListResult {
 
 export interface AgentStatus {
   agents: number;
-  capabilities: string[];
+  skills: string[];
 }

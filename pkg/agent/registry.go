@@ -51,14 +51,13 @@ func (r *Registry) Register(p RegisterParams, agentID string) (*AgentInfo, error
 
 	now := time.Now().UTC()
 	info := &AgentInfo{
-		ID:           agentID,
-		Name:         p.Name,
-		DeviceID:     r.deviceID,
-		DeviceName:   r.deviceName,
-		Capabilities: p.Capabilities,
-		Methods:      p.Methods,
-		Status:       "connected",
-		ConnectedAt:  now,
+		ID:          agentID,
+		Name:        p.Name,
+		DeviceID:    r.deviceID,
+		DeviceName:  r.deviceName,
+		Skills:      p.Skills,
+		Status:      "connected",
+		ConnectedAt: now,
 	}
 
 	r.agents[agentID] = info
