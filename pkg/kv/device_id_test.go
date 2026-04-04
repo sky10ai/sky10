@@ -16,10 +16,10 @@ func TestDeviceID_MatchesFS(t *testing.T) {
 	}
 
 	kvID := ShortDeviceID(id)
-	fsID := fsStyleDeviceID(id.Address())
+	fsID := "D-" + skykey.ShortIDFromAddress(id.Address())
 
 	if kvID != fsID {
-		t.Errorf("device ID mismatch: kv=%q fs=%q (address=%s)", kvID, fsID, id.Address())
+		t.Errorf("device ID mismatch: kv=%q fs=%q", kvID, fsID)
 	}
 }
 
@@ -32,18 +32,12 @@ func TestDeviceID_Format(t *testing.T) {
 	if !strings.HasPrefix(devID, "D-") {
 		t.Errorf("device ID should start with D-, got %q", devID)
 	}
-	if len(devID) != 10 { // "D-" + 8 chars
+	if len(devID) != 10 {
 		t.Errorf("device ID length = %d, want 10", len(devID))
-	}
-
-	addr := id.Address()
-	expected := "D-" + addr[5:13]
-	if devID != expected {
-		t.Errorf("device ID = %q, want %q", devID, expected)
 	}
 }
 
-// Verify consistency across multiple keys.
+// Verify different keys produce different IDs.
 func TestDeviceID_DifferentKeysProduceDifferentIDs(t *testing.T) {
 	t.Parallel()
 	idA, _ := skykey.Generate()
@@ -55,9 +49,4 @@ func TestDeviceID_DifferentKeysProduceDifferentIDs(t *testing.T) {
 	if a == b {
 		t.Errorf("different keys produced same device ID: %s", a)
 	}
-}
-
-// fsStyleDeviceID replicates the fs package's ShortPubkeyID for testing.
-func fsStyleDeviceID(pubkey string) string {
-	return "D-" + skykey.ShortIDFromAddress(pubkey)
 }
