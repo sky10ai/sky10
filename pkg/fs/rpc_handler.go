@@ -34,6 +34,7 @@ type FSHandler struct {
 
 	mu               sync.Mutex
 	completedInvites map[string]bool
+	peerDevices      func() []DeviceInfo // returns connected peer devices (P2P mode)
 }
 
 // NewFSHandler creates an FSHandler wired to the given store and rpc.Server.
@@ -67,6 +68,12 @@ func NewFSHandler(store *Store, server *rpc.Server, driveCfgPath string) *FSHand
 	}
 
 	return h
+}
+
+// SetPeerDevices sets a callback that returns connected peer device info.
+// Used in P2P-only mode to include peers in the device list.
+func (s *FSHandler) SetPeerDevices(fn func() []DeviceInfo) {
+	s.peerDevices = fn
 }
 
 // StartDrives auto-starts all enabled drives. Called from server.OnServe.

@@ -40,6 +40,15 @@ func (s *FSHandler) rpcDeviceList(ctx context.Context) (interface{}, error) {
 		}}, devices...)
 	}
 
+	// Include connected P2P peers.
+	if s.peerDevices != nil {
+		for _, pd := range s.peerDevices() {
+			if !hasDevice(devices, pd.ID) {
+				devices = append(devices, pd)
+			}
+		}
+	}
+
 	return map[string]interface{}{
 		"devices":     devices,
 		"this_device": s.store.deviceID,
