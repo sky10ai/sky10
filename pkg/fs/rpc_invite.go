@@ -26,12 +26,15 @@ func (s *FSHandler) rpcDeviceList(ctx context.Context) (interface{}, error) {
 	// Always include this device, even without S3.
 	if !hasDevice(devices, s.store.deviceID) {
 		hostname, _ := os.Hostname()
+		ip, location := fetchIPLocation()
 		devices = append([]DeviceInfo{{
 			ID:       s.store.deviceID,
 			PubKey:   s.store.identity.Address(),
 			Name:     hostname,
 			Platform: detectPlatform(),
 			Version:  s.version,
+			IP:       ip,
+			Location: location,
 			Joined:   time.Now().UTC().Format(time.RFC3339),
 			LastSeen: time.Now().UTC().Format(time.RFC3339),
 		}}, devices...)
