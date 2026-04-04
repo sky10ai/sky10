@@ -46,22 +46,12 @@ func NewRouter(registry *Registry, node *link.Node, emit Emitter, deviceID strin
 // Send routes a message to the target agent or identity. Local targets
 // get an SSE event. Remote targets are forwarded via skylink.
 func (r *Router) Send(ctx context.Context, msg Message) (interface{}, error) {
-	// Try local first — check if the target is a local agent.
+	// Local delivery — target is a local agent or the device itself.
 	if msg.DeviceID == "" || msg.DeviceID == r.deviceID {
-		if r.registry.Resolve(msg.To) != nil {
-			if r.emit != nil {
-				r.emit("agent.message", msg)
-			}
-			return map[string]string{"id": msg.ID, "status": "sent"}, nil
+		if r.emit != nil {
+			r.emit("agent.message", msg)
 		}
-		// Not a local agent. If no device_id specified, emit locally
-		// anyway (could be a human on this device).
-		if msg.DeviceID == "" {
-			if r.emit != nil {
-				r.emit("agent.message", msg)
-			}
-			return map[string]string{"id": msg.ID, "status": "sent"}, nil
-		}
+		return map[string]string{"id": msg.ID, "status": "sent"}, nil
 	}
 
 	// Remote — route via skylink.

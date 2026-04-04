@@ -50,6 +50,9 @@ export default function AgentChat() {
         // Only show messages for this session.
         if (msg.session_id !== sessionId) return;
 
+        // Skip echoes — messages TO the agent are our outbound, not responses.
+        if (msg.to === agentInfo?.id || msg.to === agentInfo?.name) return;
+
         setWaiting(false);
         setMessages((prev) => [
           ...prev,
