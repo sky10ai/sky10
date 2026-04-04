@@ -272,6 +272,7 @@ fn main() {
 
             let tray = TrayIconBuilder::new()
                 .icon(Image::from_bytes(icon_for_state(&info.state, 0))?)
+                .icon_as_template(cfg!(target_os = "macos"))
                 .menu(&menu)
                 .tooltip("sky10")
                 .on_menu_event(|app, event| match event.id().as_ref() {
