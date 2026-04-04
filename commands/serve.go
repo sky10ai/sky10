@@ -177,11 +177,20 @@ func ServeCmd() *cobra.Command {
 					slog.Info("published multiaddrs to Nostr", "count", len(addrs))
 				}
 
-				// Auto-connect to own devices.
+				// Auto-connect to own devices. Retry after 15s in case the
+				// other device hasn't published its new addrs to Nostr yet.
 				link.AutoConnect(ctx, linkNode, backend, cfg.Relays())
 
 				// Register KV sync protocol handler after link is ready.
 				kvSync.RegisterProtocol()
+
+				go func() {
+					time.Sleep(15 * time.Second)
+					if len(linkNode.ConnectedPeers()) == 0 {
+						slog.Info("retrying auto-connect...")
+						link.AutoConnect(ctx, linkNode, backend, cfg.Relays())
+					}
+				}()
 
 				// Register P2P join handler (auto-approve — invite code is auth).
 				joinHandler := skyjoin.NewHandler(bundle, nil, nil)
