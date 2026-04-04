@@ -3,6 +3,7 @@ package fs
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -91,34 +92,43 @@ func (s *FSHandler) Dispatch(ctx context.Context, method string, params json.Raw
 		return map[string]string{"status": "ok"}, nil, true
 	case "skyfs.health":
 		result, err = s.rpcHealth(ctx)
-	case "skyfs.list":
-		result, err = s.rpcList(ctx, params)
-	case "skyfs.info":
-		result, err = s.rpcInfo(ctx)
-	case "skyfs.put":
-		result, err = s.rpcPut(ctx, params)
-	case "skyfs.get":
-		result, err = s.rpcGet(ctx, params)
-	case "skyfs.remove":
-		result, err = s.rpcRemove(ctx, params)
-	case "skyfs.mkdir":
-		result, err = s.rpcMkdir(ctx, params)
+	case "skyfs.list", "skyfs.info", "skyfs.put", "skyfs.get",
+		"skyfs.remove", "skyfs.mkdir", "skyfs.versions",
+		"skyfs.compact", "skyfs.gc", "skyfs.reset",
+		"skyfs.syncStart", "skyfs.syncStop", "skyfs.syncStatus":
+		if s.store.backend == nil {
+			return nil, fmt.Errorf("requires storage — add S3 with 'sky10 storage add s3'"), true
+		}
+		switch method {
+		case "skyfs.list":
+			result, err = s.rpcList(ctx, params)
+		case "skyfs.info":
+			result, err = s.rpcInfo(ctx)
+		case "skyfs.put":
+			result, err = s.rpcPut(ctx, params)
+		case "skyfs.get":
+			result, err = s.rpcGet(ctx, params)
+		case "skyfs.remove":
+			result, err = s.rpcRemove(ctx, params)
+		case "skyfs.mkdir":
+			result, err = s.rpcMkdir(ctx, params)
+		case "skyfs.versions":
+			result, err = s.rpcVersions(ctx, params)
+		case "skyfs.compact":
+			result, err = s.rpcCompact(ctx, params)
+		case "skyfs.gc":
+			result, err = s.rpcGC(ctx, params)
+		case "skyfs.reset":
+			result, err = s.rpcReset(ctx)
+		case "skyfs.syncStart":
+			result, err = s.rpcSyncStart(ctx, params)
+		case "skyfs.syncStop":
+			result, err = s.rpcSyncStop(ctx)
+		case "skyfs.syncStatus":
+			result, err = s.rpcSyncStatus(ctx)
+		}
 	case "skyfs.status":
 		result, err = s.rpcStatus(ctx)
-	case "skyfs.versions":
-		result, err = s.rpcVersions(ctx, params)
-	case "skyfs.compact":
-		result, err = s.rpcCompact(ctx, params)
-	case "skyfs.gc":
-		result, err = s.rpcGC(ctx, params)
-	case "skyfs.reset":
-		result, err = s.rpcReset(ctx)
-	case "skyfs.syncStart":
-		result, err = s.rpcSyncStart(ctx, params)
-	case "skyfs.syncStop":
-		result, err = s.rpcSyncStop(ctx)
-	case "skyfs.syncStatus":
-		result, err = s.rpcSyncStatus(ctx)
 	case "skyfs.driveCreate":
 		result, err = s.rpcDriveCreate(ctx, params)
 	case "skyfs.driveRemove":
@@ -143,16 +153,23 @@ func (s *FSHandler) Dispatch(ctx context.Context, method string, params json.Raw
 		result, err = s.rpcSyncActivity(ctx)
 	case "skyfs.driveState":
 		result, err = s.rpcDriveState(ctx, params)
-	case "skyfs.debugDump":
-		result, err = s.rpcDebugDump(ctx)
-	case "skyfs.debugList":
-		result, err = s.rpcDebugList(ctx)
-	case "skyfs.debugGet":
-		result, err = s.rpcDebugGet(ctx, params)
-	case "skyfs.s3List":
-		result, err = s.rpcS3List(ctx, params)
-	case "skyfs.s3Delete":
-		result, err = s.rpcS3Delete(ctx, params)
+	case "skyfs.debugDump", "skyfs.debugList", "skyfs.debugGet",
+		"skyfs.s3List", "skyfs.s3Delete":
+		if s.store.backend == nil {
+			return nil, fmt.Errorf("requires S3 storage"), true
+		}
+		switch method {
+		case "skyfs.debugDump":
+			result, err = s.rpcDebugDump(ctx)
+		case "skyfs.debugList":
+			result, err = s.rpcDebugList(ctx)
+		case "skyfs.debugGet":
+			result, err = s.rpcDebugGet(ctx, params)
+		case "skyfs.s3List":
+			result, err = s.rpcS3List(ctx, params)
+		case "skyfs.s3Delete":
+			result, err = s.rpcS3Delete(ctx, params)
+		}
 	default:
 		return nil, nil, false
 	}

@@ -13,6 +13,12 @@ import (
 )
 
 func (s *FSHandler) rpcDeviceList(ctx context.Context) (interface{}, error) {
+	if s.store.backend == nil {
+		return map[string]interface{}{
+			"devices":     []DeviceInfo{},
+			"this_device": s.store.deviceID,
+		}, nil
+	}
 	devices, err := ListDevices(ctx, s.store.backend)
 	if err != nil {
 		return nil, err
@@ -24,6 +30,9 @@ func (s *FSHandler) rpcDeviceList(ctx context.Context) (interface{}, error) {
 }
 
 func (s *FSHandler) rpcDeviceRemove(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	if s.store.backend == nil {
+		return nil, fmt.Errorf("device removal requires S3 storage")
+	}
 	var p struct {
 		Pubkey string `json:"pubkey"`
 	}
@@ -105,6 +114,9 @@ func (s *FSHandler) rpcP2PInvite(_ context.Context) (interface{}, error) {
 }
 
 func (s *FSHandler) rpcJoin(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	if s.store.backend == nil {
+		return nil, fmt.Errorf("S3 join requires storage — use 'sky10 join' for P2P")
+	}
 	var p struct {
 		InviteID string `json:"invite_id"`
 	}
@@ -142,6 +154,9 @@ func (s *FSHandler) rpcJoin(ctx context.Context, params json.RawMessage) (interf
 }
 
 func (s *FSHandler) rpcApprove(ctx context.Context) (interface{}, error) {
+	if s.store.backend == nil {
+		return map[string]int{"approved": 0}, nil
+	}
 	// Find pending invites
 	inviteKeys, err := s.store.backend.List(ctx, "invites/")
 	if err != nil {
