@@ -21,6 +21,7 @@ import (
 	"github.com/sky10/sky10/pkg/link"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
 	skyupdate "github.com/sky10/sky10/pkg/update"
+	skywallet "github.com/sky10/sky10/pkg/wallet"
 	"github.com/spf13/cobra"
 )
 
@@ -135,6 +136,13 @@ func ServeCmd() *cobra.Command {
 			})
 			// TODO: re-enable health checker once agents reliably heartbeat.
 			// go skyagent.NewHealthChecker(agentRegistry, server.Emit, nil).Run(ctx)
+
+			// Wallet handler — opt-in, only active when ows is installed.
+			walletClient := skywallet.NewClient()
+			if walletClient != nil {
+				slog.Info("wallet: OWS detected, enabling wallet RPC")
+			}
+			server.RegisterHandler(skywallet.NewRPCHandler(walletClient))
 
 			// Show connected P2P peers in device list.
 			fsHandler.SetPeerDevices(func() []skyfs.DeviceInfo {
