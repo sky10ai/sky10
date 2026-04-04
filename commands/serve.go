@@ -14,6 +14,7 @@ import (
 	"github.com/sky10/sky10/pkg/config"
 	skyfs "github.com/sky10/sky10/pkg/fs"
 	skyid "github.com/sky10/sky10/pkg/id"
+	skyjoin "github.com/sky10/sky10/pkg/join"
 	"github.com/sky10/sky10/pkg/kv"
 	"github.com/sky10/sky10/pkg/link"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
@@ -170,15 +171,15 @@ func ServeCmd() *cobra.Command {
 				kvSync.RegisterProtocol()
 
 				// Register P2P join handler (auto-approve — invite code is auth).
-				joinHandler := link.NewJoinHandler(bundle, nil, nil)
-				joinHandler.SetNSKeyProvider(func() []link.NSKey {
+				joinHandler := skyjoin.NewHandler(bundle, nil, nil)
+				joinHandler.SetNSKeyProvider(func() []skyjoin.NSKey {
 					ns, key := kvStore.NamespaceKey()
 					if key == nil {
 						return nil
 					}
-					return []link.NSKey{{Namespace: ns, Key: key}}
+					return []skyjoin.NSKey{{Namespace: ns, Key: key}}
 				})
-				linkNode.Host().SetStreamHandler(link.JoinProtocol, joinHandler.HandleStream)
+				linkNode.Host().SetStreamHandler(skyjoin.Protocol, joinHandler.HandleStream)
 				slog.Info("P2P join handler registered")
 			}()
 

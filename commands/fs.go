@@ -26,8 +26,6 @@ func FsCmd() *cobra.Command {
 	cmd.AddCommand(fsVersionsCmd())
 	cmd.AddCommand(fsResetCmd())
 	cmd.AddCommand(fsDriveCmd())
-	cmd.AddCommand(fsInviteCmd())
-	cmd.AddCommand(fsJoinCmd())
 	cmd.AddCommand(fsApproveCmd())
 	cmd.AddCommand(fsHealthCmd())
 
@@ -346,25 +344,6 @@ func fsDriveRemoveCmd() *cobra.Command {
 				return err
 			}
 			fmt.Printf("Removed drive %q\n", args[0])
-			return nil
-		},
-	}
-}
-
-func fsInviteCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "invite",
-		Short: "Generate an invite code",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := rpcCall("skyfs.invite", nil)
-			if err != nil {
-				return err
-			}
-			var r struct{ Code string }
-			json.Unmarshal(result, &r)
-			fmt.Println("\nShare this invite code with the other device:")
-			fmt.Println(r.Code)
-			fmt.Println("\nThe other device runs: sky10 fs join <code>")
 			return nil
 		},
 	}

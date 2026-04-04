@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/sky10/sky10/pkg/config"
-	"github.com/sky10/sky10/pkg/link"
+	"github.com/sky10/sky10/pkg/join"
 )
 
 func (s *FSHandler) rpcDeviceList(ctx context.Context) (interface{}, error) {
@@ -80,7 +80,7 @@ func (s *FSHandler) rpcInvite(ctx context.Context) (interface{}, error) {
 		pathStyle = cfg.ForcePathStyle
 	}
 
-	code, err := CreateInvite(ctx, s.store.backend, InviteConfig{
+	code, err := join.CreateS3Invite(ctx, s.store.backend, join.S3InviteConfig{
 		Endpoint:       endpoint,
 		Bucket:         bucket,
 		Region:         region,
@@ -97,7 +97,7 @@ func (s *FSHandler) rpcInvite(ctx context.Context) (interface{}, error) {
 
 func (s *FSHandler) rpcP2PInvite(_ context.Context) (interface{}, error) {
 	cfg, _ := config.Load()
-	code, err := link.CreateP2PInvite(s.store.identity.Address(), cfg.Relays())
+	code, err := join.CreateP2PInvite(s.store.identity.Address(), cfg.Relays())
 	if err != nil {
 		return nil, err
 	}
@@ -116,13 +116,13 @@ func (s *FSHandler) rpcJoin(ctx context.Context, params json.RawMessage) (interf
 	}
 
 	// Submit this device's pubkey to the invite mailbox
-	if err := SubmitJoin(ctx, s.store.backend, p.InviteID, s.store.identity.Address()); err != nil {
+	if err := join.SubmitJoin(ctx, s.store.backend, p.InviteID, s.store.identity.Address()); err != nil {
 		return nil, fmt.Errorf("submitting join: %w", err)
 	}
 
 	// Poll for approval (up to 60 seconds)
 	for i := 0; i < 12; i++ {
-		granted, err := IsGranted(ctx, s.store.backend, p.InviteID)
+		granted, err := join.IsGranted(ctx, s.store.backend, p.InviteID)
 		if err != nil {
 			return nil, err
 		}
@@ -157,17 +157,17 @@ func (s *FSHandler) rpcApprove(ctx context.Context) (interface{}, error) {
 
 	approved := 0
 	for inviteID := range inviteIDs {
-		joinerAddr, err := CheckJoinRequest(ctx, s.store.backend, inviteID)
+		joinerAddr, err := join.CheckJoinRequest(ctx, s.store.backend, inviteID)
 		if err != nil || joinerAddr == "" {
 			continue
 		}
-		granted, _ := IsGranted(ctx, s.store.backend, inviteID)
+		granted, _ := join.IsGranted(ctx, s.store.backend, inviteID)
 		if granted {
 			if s.joinerHasAllKeys(ctx, joinerAddr) {
 				continue
 			}
 		}
-		if err := ApproveJoin(ctx, s.store.backend, s.store.identity, joinerAddr, inviteID); err != nil {
+		if err := join.ApproveJoin(ctx, s.store.backend, s.store.identity, joinerAddr, inviteID); err != nil {
 			continue
 		}
 		// Register the joiner as a device
@@ -227,11 +227,11 @@ func (s *FSHandler) tryAutoApprove(ctx context.Context) {
 		}
 		s.mu.Unlock()
 
-		joinerAddr, err := CheckJoinRequest(cycleCtx, s.store.backend, inviteID)
+		joinerAddr, err := join.CheckJoinRequest(cycleCtx, s.store.backend, inviteID)
 		if err != nil || joinerAddr == "" {
 			continue
 		}
-		granted, _ := IsGranted(cycleCtx, s.store.backend, inviteID)
+		granted, _ := join.IsGranted(cycleCtx, s.store.backend, inviteID)
 		if granted {
 			if s.joinerHasAllKeys(cycleCtx, joinerAddr) {
 				s.logger.Debug("auto-approve: already complete", "invite", inviteID[:8])
@@ -241,7 +241,7 @@ func (s *FSHandler) tryAutoApprove(ctx context.Context) {
 				continue
 			}
 		}
-		if err := ApproveJoin(cycleCtx, s.store.backend, s.store.identity, joinerAddr, inviteID); err != nil {
+		if err := join.ApproveJoin(cycleCtx, s.store.backend, s.store.identity, joinerAddr, inviteID); err != nil {
 			s.logger.Warn("auto-approve failed", "invite", inviteID, "error", err)
 			continue
 		}

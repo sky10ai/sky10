@@ -29,6 +29,8 @@ func main() {
 	}
 
 	root.AddCommand(commands.ServeCmd())
+	root.AddCommand(commands.InviteCmd())
+	root.AddCommand(commands.JoinCmd())
 	root.AddCommand(commands.KeyCmd())
 	root.AddCommand(commands.FsCmd())
 	root.AddCommand(commands.KvCmd())
