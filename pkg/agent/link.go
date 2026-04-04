@@ -9,10 +9,10 @@ import (
 
 // RegisterLinkHandlers registers skylink capability handlers so remote
 // devices can send messages to and list agents on this device.
-func RegisterLinkHandlers(node *link.Node, registry *Registry, emit Emitter) {
+func RegisterLinkHandlers(node *link.Node, registry *Registry, emit Emitter, router *Router) {
 	node.RegisterCapability(
 		link.Capability{Name: "agent.send", Description: "send a message to a local agent"},
-		agentSendHandler(registry, emit),
+		agentSendHandler(registry, emit, router),
 	)
 	node.RegisterCapability(
 		link.Capability{Name: "agent.list", Description: "list local agents"},
@@ -20,14 +20,19 @@ func RegisterLinkHandlers(node *link.Node, registry *Registry, emit Emitter) {
 	)
 }
 
-func agentSendHandler(registry *Registry, emit Emitter) link.HandlerFunc {
+func agentSendHandler(registry *Registry, emit Emitter, router *Router) link.HandlerFunc {
 	return func(_ context.Context, req *link.PeerRequest) (interface{}, error) {
 		var msg Message
 		if err := json.Unmarshal(req.Params, &msg); err != nil {
 			return nil, err
 		}
 
-		// Verify the target is a local agent (or emit for local human).
+		// Cache the sender's device ID → peer ID so we can route
+		// responses back without needing agent.list first.
+		if msg.From != "" && router != nil {
+			router.cachePeer(msg.From, req.PeerID)
+		}
+
 		if emit != nil {
 			emit("agent.message", msg)
 		}

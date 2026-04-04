@@ -109,7 +109,7 @@ func TestRouterSendRemote(t *testing.T) {
 			receivedOnB = append(receivedOnB, msg)
 		}
 	}
-	RegisterLinkHandlers(nodeB, regB, emitB)
+	RegisterLinkHandlers(nodeB, regB, emitB, nil)
 
 	startNode(t, nodeA)
 	startNode(t, nodeB)
@@ -153,7 +153,7 @@ func TestRouterListAggregation(t *testing.T) {
 	regB := NewRegistry("D-deviceBB", "hostB", nil)
 	regB.Register(RegisterParams{Name: "researcher", Skills: []string{"research"}}, "A-remoteB100000000")
 
-	RegisterLinkHandlers(nodeB, regB, nil)
+	RegisterLinkHandlers(nodeB, regB, nil, nil)
 
 	startNode(t, nodeA)
 	startNode(t, nodeB)
@@ -186,7 +186,7 @@ func TestRouterDiscover(t *testing.T) {
 	regB := NewRegistry("D-deviceBB", "hostB", nil)
 	regB.Register(RegisterParams{Name: "researcher", Skills: []string{"research"}}, "A-remoteB100000000")
 
-	RegisterLinkHandlers(nodeB, regB, nil)
+	RegisterLinkHandlers(nodeB, regB, nil, nil)
 	startNode(t, nodeA)
 	startNode(t, nodeB)
 	connectNodes(t, nodeA, nodeB)
@@ -237,7 +237,7 @@ func TestRouterListPopulatesPeerCache(t *testing.T) {
 	regB := NewRegistry("D-deviceBB", "hostB", nil)
 	regB.Register(RegisterParams{Name: "researcher"}, "A-remoteB100000000")
 
-	RegisterLinkHandlers(nodeB, regB, nil)
+	RegisterLinkHandlers(nodeB, regB, nil, nil)
 	startNode(t, nodeA)
 	startNode(t, nodeB)
 	connectNodes(t, nodeA, nodeB)
