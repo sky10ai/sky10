@@ -1,6 +1,6 @@
 ---
 name: release
-description: Cut a new sky10 release — tag, build, GitHub release, update Homebrew tap
+description: Cut a new sky10 release — tag, build, GitHub release
 allowed-tools: Read, Edit, Write, Bash, Glob, Grep
 ---
 
@@ -9,6 +9,12 @@ allowed-tools: Read, Edit, Write, Bash, Glob, Grep
 Cut a new release of sky10. The version is passed as `$ARGUMENTS` (e.g. `/release 0.5.0`).
 
 If no version is provided, ask the user what version to release.
+
+## Installation model
+
+sky10 installs to `~/.bin/sky10` via `install.sh` (curl pipe). No
+Homebrew, no sudo. Users upgrade by re-running the install script or
+downloading the binary from GitHub releases.
 
 ## CRITICAL: Order of operations
 
@@ -19,10 +25,9 @@ If no version is provided, ask the user what version to release.
 3. Build binaries (from the tagged commit)
 4. Install locally
 5. Create GitHub release with binaries
-6. Update Homebrew tap with the correct checksum
-7. Restart daemon
+6. Restart daemon
 
-If you build before tagging, or upload before building — you will
+If you build before tagging or upload before building — you will
 produce a broken release.
 
 **NEVER modify a published release.** Once a tag is pushed and a GitHub
@@ -73,13 +78,12 @@ cd bin && shasum -a 256 sky10-* > checksums.txt && cat checksums.txt
 ```
 
 The date uses `git log -1 --format=%cI` (committer timestamp) instead of
-wall-clock time, so builds from the same commit are byte-identical. This
-is verified by the `verify-release` GitHub Action.
+wall-clock time, so builds from the same commit are byte-identical.
 
-Install locally immediately:
+Install locally:
 ```bash
-cp bin/sky10-darwin-arm64 /opt/homebrew/bin/sky10
-cp bin/sky10-darwin-arm64 bin/sky10
+mkdir -p ~/.bin
+cp bin/sky10-darwin-arm64 ~/.bin/sky10
 ```
 
 ### 3. Create GitHub release
@@ -95,43 +99,30 @@ gh release create v$VERSION \
   --notes "<release notes>"
 ```
 
-Generate release notes from `git log` since the previous tag. In the commit list, link each commit hash to its GitHub URL using markdown:
+Generate release notes from `git log` since the previous tag. In the
+commit list, link each commit hash to its GitHub URL using markdown:
 
 ```
 - [`abc1234`](https://github.com/sky10ai/sky10/commit/abc1234) Commit message here
 ```
 
-### 4. Update Homebrew tap
-
-The tap repo is at `~/Documents/projects/homebrew-tap`. If it doesn't exist, clone it:
-```bash
-git clone https://github.com/sky10ai/homebrew-tap.git ~/Documents/projects/homebrew-tap
-```
-
-Update `~/Documents/projects/homebrew-tap/Formula/sky10.rb`:
-- `version` field
-- The darwin-arm64 `url` field — update the tag in the URL
-- The darwin-arm64 `sha256` field — from checksums.txt
-
-Then commit and push. **NEVER force push the tap.** Force pushing
-causes merge conflicts on machines that already pulled the old version.
-
-```bash
-cd ~/Documents/projects/homebrew-tap
-git add Formula/sky10.rb
-git commit -m "Bump to v$VERSION"
-git push origin main
-```
-
-### 5. Restart daemon
+### 4. Restart daemon
 
 ```bash
 sky10 daemon restart
 ```
 
-### 6. Summary
+### 5. Summary
 
 Print upgrade instructions for the user:
 ```
-brew update && brew upgrade sky10
+curl -fsSL https://raw.githubusercontent.com/sky10ai/sky10/main/install.sh | bash
+```
+
+Or manual download:
+```
+# Download from GitHub releases
+curl -fsSL https://github.com/sky10ai/sky10/releases/download/v$VERSION/sky10-darwin-arm64 -o ~/.bin/sky10
+chmod +x ~/.bin/sky10
+sky10 daemon restart
 ```

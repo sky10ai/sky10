@@ -10,10 +10,15 @@ Built in Go. Runs on macOS and Linux. S3 optional.
 curl -fsSL https://raw.githubusercontent.com/sky10ai/sky10/main/install.sh | bash
 ```
 
-Or with Homebrew (macOS):
+Installs to `~/.bin/sky10`, sets up the background daemon (launchd on
+macOS, systemd on Linux), no sudo required.
+
+**Migrating from Homebrew?**
 
 ```bash
-brew install sky10ai/tap/sky10
+brew uninstall sky10
+brew untap sky10ai/tap        # optional, removes the tap
+curl -fsSL https://raw.githubusercontent.com/sky10ai/sky10/main/install.sh | bash
 ```
 
 ## Quick Start
