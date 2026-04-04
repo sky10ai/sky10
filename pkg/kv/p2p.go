@@ -100,25 +100,25 @@ func (s *P2PSync) pushToPeer(ctx context.Context, pid peer.ID) {
 
 	snap, err := s.store.localLog.Snapshot()
 	if err != nil || snap.Len() == 0 {
-		s.logger.Debug("kv p2p push: no snapshot", "peer", pid, "err", err)
+		s.logger.Warn("kv p2p push: no snapshot", "peer", pid, "err", err)
 		return
 	}
 
 	nsKey := s.store.nsKey
 	nsID := s.store.nsID
 	if nsKey == nil || nsID == "" {
-		s.logger.Debug("kv p2p push: namespace not resolved", "peer", pid)
+		s.logger.Warn("kv p2p push: namespace not resolved", "peer", pid)
 		return
 	}
 
 	data, err := MarshalSnapshot(snap)
 	if err != nil {
-		s.logger.Debug("kv p2p push: marshal failed", "peer", pid, "error", err)
+		s.logger.Warn("kv p2p push: marshal failed", "peer", pid, "error", err)
 		return
 	}
 	encrypted, err := encrypt(data, nsKey)
 	if err != nil {
-		s.logger.Debug("kv p2p push: encrypt failed", "peer", pid, "error", err)
+		s.logger.Warn("kv p2p push: encrypt failed", "peer", pid, "error", err)
 		return
 	}
 
@@ -140,13 +140,13 @@ func (s *P2PSync) pushToPeer(ctx context.Context, pid peer.ID) {
 
 	stream, err := h.NewStream(ctx, pid, KVSyncProtocol)
 	if err != nil {
-		s.logger.Debug("kv p2p push: open stream failed", "peer", pid, "error", err)
+		s.logger.Warn("kv p2p push: open stream failed", "peer", pid, "error", err)
 		return
 	}
 	defer stream.Close()
 
 	if err := writeMsg(stream, payload); err != nil {
-		s.logger.Debug("kv p2p push: write failed", "peer", pid, "error", err)
+		s.logger.Warn("kv p2p push: write failed", "peer", pid, "error", err)
 		return
 	}
 	s.logger.Info("kv p2p push: sent snapshot", "peer", pid, "keys", snap.Len())
@@ -158,13 +158,13 @@ func (s *P2PSync) handleStream(stream network.Stream) {
 
 	payload, err := readMsg(stream)
 	if err != nil {
-		s.logger.Debug("kv p2p: read failed", "error", err)
+		s.logger.Warn("kv p2p: read failed", "error", err)
 		return
 	}
 
 	var msg p2pSyncMsg
 	if err := json.Unmarshal(payload, &msg); err != nil {
-		s.logger.Debug("kv p2p: unmarshal failed", "error", err)
+		s.logger.Warn("kv p2p: unmarshal failed", "error", err)
 		return
 	}
 
@@ -172,7 +172,7 @@ func (s *P2PSync) handleStream(stream network.Stream) {
 	case "snapshot":
 		s.handleSnapshot(msg, stream.Conn().RemotePeer())
 	default:
-		s.logger.Debug("kv p2p: unknown message type", "type", msg.Type)
+		s.logger.Warn("kv p2p: unknown message type", "type", msg.Type)
 	}
 }
 
@@ -181,30 +181,30 @@ func (s *P2PSync) handleSnapshot(msg p2pSyncMsg, from peer.ID) {
 	nsKey := s.store.nsKey
 	nsID := s.store.nsID
 	if nsKey == nil || nsID == "" {
-		s.logger.Debug("kv p2p: namespace not resolved, ignoring snapshot")
+		s.logger.Warn("kv p2p: namespace not resolved, ignoring snapshot")
 		return
 	}
 	if msg.NSID != nsID {
-		s.logger.Debug("kv p2p: namespace mismatch", "got", msg.NSID, "want", nsID)
+		s.logger.Warn("kv p2p: namespace mismatch", "got", msg.NSID, "want", nsID)
 		return
 	}
 
 	// Unquote the base64/hex encoded encrypted data.
 	var encrypted []byte
 	if err := json.Unmarshal(msg.Data, &encrypted); err != nil {
-		s.logger.Debug("kv p2p: decode encrypted data failed", "error", err)
+		s.logger.Warn("kv p2p: decode encrypted data failed", "error", err)
 		return
 	}
 
 	plain, err := decrypt(encrypted, nsKey)
 	if err != nil {
-		s.logger.Debug("kv p2p: decrypt failed", "error", err)
+		s.logger.Warn("kv p2p: decrypt failed", "error", err)
 		return
 	}
 
 	remote, err := UnmarshalSnapshot(plain)
 	if err != nil {
-		s.logger.Debug("kv p2p: unmarshal snapshot failed", "error", err)
+		s.logger.Warn("kv p2p: unmarshal snapshot failed", "error", err)
 		return
 	}
 
