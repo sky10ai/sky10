@@ -19,6 +19,7 @@ func WalletCmd() *cobra.Command {
 	cmd.AddCommand(walletListCmd())
 	cmd.AddCommand(walletAddressCmd())
 	cmd.AddCommand(walletBalanceCmd())
+	cmd.AddCommand(walletDepositCmd())
 	cmd.AddCommand(walletPayCmd())
 	cmd.AddCommand(walletTransferCmd())
 
@@ -160,6 +161,38 @@ func walletBalanceCmd() *cobra.Command {
 			}
 			for _, t := range r.Tokens {
 				fmt.Printf("  %s %s\n", t.Balance, t.Symbol)
+			}
+			return nil
+		},
+	}
+}
+
+func walletDepositCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "deposit <wallet>",
+		Short: "Fund a wallet via on-ramp (MoonPay)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := rpcCall("wallet.deposit", map[string]string{
+				"wallet": args[0],
+			})
+			if err != nil {
+				return err
+			}
+			var r struct {
+				Address string `json:"address"`
+				Chain   string `json:"chain"`
+				URL     string `json:"url"`
+				Status  string `json:"status"`
+			}
+			json.Unmarshal(result, &r)
+			if r.URL != "" {
+				fmt.Printf("deposit: %s\n", r.URL)
+			}
+			fmt.Printf("address: %s\n", r.Address)
+			fmt.Printf("chain:   %s\n", r.Chain)
+			if r.Status != "" {
+				fmt.Printf("status:  %s\n", r.Status)
 			}
 			return nil
 		},

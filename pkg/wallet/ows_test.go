@@ -33,6 +33,7 @@ func TestClient_NilReturnsErrNotInstalled(t *testing.T) {
 		{"Address", func() (err error) { _, err = c.Address(ctx, "test"); return }},
 		{"Balance", func() (err error) { _, err = c.Balance(ctx, "test"); return }},
 		{"Pay", func() (err error) { _, err = c.Pay(ctx, "test", "https://example.com"); return }},
+		{"Deposit", func() (err error) { _, err = c.Deposit(ctx, "test"); return }},
 		{"Transfer", func() (err error) { _, err = c.Transfer(ctx, "test", "addr", "1.0", "SOL"); return }},
 	}
 
@@ -109,6 +110,19 @@ func TestRPCHandler_CreateRequiresName(t *testing.T) {
 	}
 	if err == nil {
 		t.Fatal("empty name should return error")
+	}
+}
+
+func TestRPCHandler_DepositRequiresWallet(t *testing.T) {
+	t.Parallel()
+	h := NewRPCHandler(&Client{bin: "ows"})
+	params, _ := json.Marshal(map[string]string{"wallet": ""})
+	_, err, handled := h.Dispatch(context.Background(), "wallet.deposit", params)
+	if !handled {
+		t.Fatal("should be handled")
+	}
+	if err == nil || err.Error() != "wallet is required" {
+		t.Errorf("got %v, want %q", err, "wallet is required")
 	}
 }
 

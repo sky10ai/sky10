@@ -41,6 +41,8 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		result, err = h.rpcBalance(ctx, params)
 	case "wallet.pay":
 		result, err = h.rpcPay(ctx, params)
+	case "wallet.deposit":
+		result, err = h.rpcDeposit(ctx, params)
 	case "wallet.transfer":
 		result, err = h.rpcTransfer(ctx, params)
 	default:
@@ -131,6 +133,17 @@ func (h *RPCHandler) rpcPay(ctx context.Context, params json.RawMessage) (interf
 		return nil, fmt.Errorf("url is required")
 	}
 	return h.client.Pay(ctx, p.Wallet, p.URL)
+}
+
+func (h *RPCHandler) rpcDeposit(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p walletParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.Wallet == "" {
+		return nil, fmt.Errorf("wallet is required")
+	}
+	return h.client.Deposit(ctx, p.Wallet)
 }
 
 type transferParams struct {

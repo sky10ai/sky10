@@ -206,6 +206,31 @@ func (c *Client) Pay(ctx context.Context, walletName, url string) (*PayResult, e
 	return &result, nil
 }
 
+// DepositResult holds the result of a deposit request.
+type DepositResult struct {
+	Address string `json:"address"`
+	Chain   string `json:"chain"`
+	URL     string `json:"url,omitempty"`
+	Status  string `json:"status"`
+}
+
+// Deposit initiates a fiat-to-crypto on-ramp for the given wallet on Solana.
+func (c *Client) Deposit(ctx context.Context, walletName string) (*DepositResult, error) {
+	if c == nil {
+		return nil, ErrNotInstalled
+	}
+	out, err := c.run(ctx, "fund", "deposit", "--wallet", walletName, "--chain", ChainSolana, "--output", "json")
+	if err != nil {
+		return nil, fmt.Errorf("deposit for wallet %q: %w", walletName, err)
+	}
+	var result DepositResult
+	if err := json.Unmarshal(out, &result); err != nil {
+		return nil, fmt.Errorf("parsing deposit result: %w", err)
+	}
+	result.Chain = ChainSolana
+	return &result, nil
+}
+
 // Transfer sends tokens from the wallet to a Solana address.
 func (c *Client) Transfer(ctx context.Context, walletName, to, amount, token string) (*PayResult, error) {
 	if c == nil {
