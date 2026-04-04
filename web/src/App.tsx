@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router";
 import { Layout } from "./components/Layout";
+import { skyfs } from "./lib/rpc";
+import { useRPC } from "./lib/useRPC";
 import GettingStarted from "./pages/GettingStarted";
 import Devices from "./pages/Devices";
 import InviteDevice from "./pages/InviteDevice";
@@ -12,12 +14,19 @@ import Bucket from "./pages/Bucket";
 import Activity from "./pages/Activity";
 import Settings from "./pages/Settings";
 
+function HomeRedirect() {
+  const { data } = useRPC(() => skyfs.deviceList(), []);
+  const deviceCount = data?.devices?.length ?? 0;
+  if (!data) return null;
+  return <Navigate to={deviceCount >= 2 ? "/drives" : "/getting-started"} replace />;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route element={<Layout />}>
-          <Route index element={<Navigate to="/getting-started" replace />} />
+          <Route index element={<HomeRedirect />} />
           <Route path="getting-started" element={<GettingStarted />} />
           <Route path="devices" element={<Devices />} />
           <Route path="devices/invite" element={<InviteDevice />} />
