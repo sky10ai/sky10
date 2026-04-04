@@ -75,6 +75,29 @@ fi
 
 echo "sky10 ${LATEST} installed to ${INSTALL_DIR}/${BINARY}"
 
+# Clean up old install location if present
+OLD_BIN="/usr/local/bin/${BINARY}"
+if [ -f "$OLD_BIN" ] && [ "$OLD_BIN" != "${INSTALL_DIR}/${BINARY}" ]; then
+  echo ""
+  echo "Found old install at ${OLD_BIN} — removing..."
+  if [ -w "$OLD_BIN" ]; then
+    rm -f "$OLD_BIN"
+  else
+    sudo rm -f "$OLD_BIN"
+  fi
+  echo "Removed ${OLD_BIN}"
+fi
+
+# On macOS, clean up old Homebrew install if present
+if [ "$OS" = "darwin" ] && command -v brew >/dev/null 2>&1; then
+  if brew list sky10 >/dev/null 2>&1; then
+    echo ""
+    echo "Found Homebrew install — removing..."
+    brew uninstall sky10 2>/dev/null || true
+    echo "Removed Homebrew sky10"
+  fi
+fi
+
 # Install daemon as a system service (launchd on macOS, systemd on Linux)
 echo ""
 echo "Setting up background daemon..."
