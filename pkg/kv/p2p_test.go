@@ -2,6 +2,7 @@ package kv
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
@@ -96,6 +97,126 @@ func TestStoreNilBackendNamespaceKeyStable(t *testing.T) {
 		t.Errorf("Get(x) = %q, %v; want 1, true", val, ok)
 	}
 	cancel2()
+}
+
+// Regression: encrypted snapshot was encoded with fmt.Sprintf("%q") which
+// produces Go string escaping ("\x00\x01..."), not valid JSON. The
+// receiver's json.Unmarshal silently failed, so KV never synced over P2P.
+func TestP2PSyncMsgEncoding(t *testing.T) {
+	t.Parallel()
+
+	// Build a snapshot with real data.
+	snap := buildSnapshot(nil, []Entry{
+		{Type: Set, Key: "hello", Value: []byte("world"), Device: "dev1",
+			Timestamp: time.Now().Unix(), Seq: 1},
+	})
+
+	data, err := MarshalSnapshot(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Encrypt with a test key.
+	nsKey, _ := skykey.GenerateSymmetricKey()
+	encrypted, err := encrypt(data, nsKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Encode the sync message the same way pushToPeer does.
+	encJSON, _ := json.Marshal(encrypted)
+	msg := p2pSyncMsg{
+		Type: "snapshot",
+		NSID: "test-ns",
+		Data: encJSON,
+	}
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Decode the same way handleSnapshot does.
+	var decoded p2pSyncMsg
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("unmarshal sync msg: %v", err)
+	}
+	if decoded.Type != "snapshot" || decoded.NSID != "test-ns" {
+		t.Fatalf("wrong type/nsid: %s/%s", decoded.Type, decoded.NSID)
+	}
+
+	var decryptedBytes []byte
+	if err := json.Unmarshal(decoded.Data, &decryptedBytes); err != nil {
+		t.Fatalf("unmarshal encrypted data: %v", err)
+	}
+
+	plain, err := decrypt(decryptedBytes, nsKey)
+	if err != nil {
+		t.Fatalf("decrypt: %v", err)
+	}
+
+	remote, err := UnmarshalSnapshot(plain)
+	if err != nil {
+		t.Fatalf("unmarshal snapshot: %v", err)
+	}
+
+	vi, ok := remote.Lookup("hello")
+	if !ok || string(vi.Value) != "world" {
+		t.Errorf("roundtrip failed: got %q, %v; want world, true", vi.Value, ok)
+	}
+}
+
+// Regression: verify the full push→receive→merge pipeline works end-to-end
+// without a real libp2p connection. Simulates what pushToPeer sends and
+// what handleSnapshot receives.
+func TestP2PSyncRoundtrip(t *testing.T) {
+	t.Parallel()
+
+	nsKey, _ := skykey.GenerateSymmetricKey()
+	nsID := deriveNSID(nsKey, "roundtrip-ns")
+
+	// Device A: source.
+	dirA := t.TempDir()
+	logA := NewLocalLog(filepath.Join(dirA, "ops.jsonl"), "devA")
+	logA.AppendLocal(Entry{Type: Set, Key: "from-a", Value: []byte("value-a")})
+
+	snapA, _ := logA.Snapshot()
+	dataA, _ := MarshalSnapshot(snapA)
+	encA, _ := encrypt(dataA, nsKey)
+	encJSON, _ := json.Marshal(encA)
+
+	// Simulate the wire message.
+	msg := p2pSyncMsg{Type: "snapshot", NSID: nsID, Data: encJSON}
+
+	// Device B: receiver.
+	dirB := t.TempDir()
+	logB := NewLocalLog(filepath.Join(dirB, "ops.jsonl"), "devB")
+	baselinesB := NewBaselineStore(filepath.Join(dirB, "baselines"))
+
+	// Decode message (same as handleSnapshot).
+	var encrypted []byte
+	if err := json.Unmarshal(msg.Data, &encrypted); err != nil {
+		t.Fatal(err)
+	}
+	plain, err := decrypt(encrypted, nsKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote, err := UnmarshalSnapshot(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	merged := diffAndMerge(logB, remote, nil, nil)
+	if merged != 1 {
+		t.Fatalf("merged = %d, want 1", merged)
+	}
+	baselinesB.Save("devA", remote)
+
+	// Device B should now have the key.
+	vi, ok := logB.Lookup("from-a")
+	if !ok || string(vi.Value) != "value-a" {
+		t.Errorf("from-a = %q, %v; want value-a, true", vi.Value, ok)
+	}
 }
 
 // TestDiffAndMergeFunction verifies the shared diffAndMerge logic used by
