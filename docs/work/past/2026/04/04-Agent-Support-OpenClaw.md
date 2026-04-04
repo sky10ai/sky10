@@ -261,6 +261,15 @@ openclaw-sky10-channel/
    enabled. Randy's gateway had `/v1/responses` enabled. Fixed to try
    responses first, fall back to chat/completions.
 
+8. **Triple responses from gateway reloads**: Every inbound message
+   dispatched to `/v1/responses` caused OpenClaw to re-evaluate config,
+   triggering a gateway reload. The reload spawned a new plugin instance
+   (with a new SSE connection) without closing the old one. After the
+   first message: 2 SSE listeners. After the second: 3. Each fired for
+   the same incoming message, causing duplicate responses. Fixed with a
+   `Map<messageId, timestamp>` dedup with 30s TTL — first listener to
+   see a message ID processes it, the rest skip.
+
 ## Decisions
 
 - **Skills, not capabilities or methods**: Standardized vocabulary across
