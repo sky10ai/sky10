@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
+	skyagent "github.com/sky10/sky10/pkg/agent"
 	"github.com/sky10/sky10/pkg/config"
 	skyfs "github.com/sky10/sky10/pkg/fs"
 	skyid "github.com/sky10/sky10/pkg/id"
@@ -120,6 +121,12 @@ func ServeCmd() *cobra.Command {
 			server.RegisterHandler(link.NewRPCHandler(linkNode, linkResolver))
 			server.RegisterHandler(skyid.NewRPCHandler(bundle))
 			server.RegisterHandler(skyupdate.NewRPCHandler(Version, server.Emit))
+
+			// Agent registry — local agent registration and dispatch.
+			agentRegistry := skyagent.NewRegistry(bundle.DeviceID(), skyfs.GetDeviceName(), nil)
+			agentCaller := skyagent.NewCaller()
+			server.RegisterHandler(skyagent.NewRPCHandler(agentRegistry, agentCaller, server.Emit))
+			go skyagent.NewHealthChecker(agentRegistry, agentCaller, server.Emit, nil).Run(ctx)
 
 			// Show connected P2P peers in device list.
 			fsHandler.SetPeerDevices(func() []skyfs.DeviceInfo {
