@@ -6,6 +6,7 @@ export default function InviteDevice() {
   const [invite, setInvite] = useState<InviteResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const generateInvite = async () => {
     setLoading(true);
@@ -69,12 +70,14 @@ export default function InviteDevice() {
                       {invite.code}
                     </code>
                     <button
-                      onClick={() =>
-                        navigator.clipboard.writeText(invite.code)
-                      }
-                      className="ml-auto text-outline hover:text-primary transition-colors"
+                      onClick={() => {
+                        navigator.clipboard.writeText(invite.code);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }}
+                      className={`ml-auto transition-colors ${copied ? "text-primary" : "text-outline hover:text-primary"}`}
                     >
-                      <Icon name="content_copy" />
+                      <Icon name={copied ? "check" : "content_copy"} />
                     </button>
                   </div>
                   {invite.expires && (
