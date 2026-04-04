@@ -14,6 +14,7 @@ import (
 	skyfs "github.com/sky10/sky10/pkg/fs"
 	skyid "github.com/sky10/sky10/pkg/id"
 	skykey "github.com/sky10/sky10/pkg/key"
+	"github.com/sky10/sky10/pkg/kv"
 	"github.com/sky10/sky10/pkg/link"
 	"github.com/spf13/cobra"
 )
@@ -181,6 +182,18 @@ func joinP2P(cmd *cobra.Command, code string) error {
 	}
 	if err := idStore.Save(bundle); err != nil {
 		return err
+	}
+
+	// Cache namespace keys locally so KV sync works on next serve.
+	deviceID := kv.ShortDeviceID(identityKey)
+	for _, nsk := range resp.NSKeys {
+		nsKey, err := skykey.UnwrapKey(nsk.Wrapped, identityKey.PrivateKey)
+		if err != nil {
+			fmt.Printf("  Warning: could not unwrap key for namespace %q\n", nsk.Namespace)
+			continue
+		}
+		kv.CacheKeyLocally(nsk.Namespace, deviceID, nsKey)
+		fmt.Printf("  Namespace key: %s\n", nsk.Namespace)
 	}
 
 	// Save config with Nostr relays (no S3 needed).

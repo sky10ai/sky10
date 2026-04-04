@@ -163,8 +163,8 @@ func setupTwoDevices(t *testing.T) *twoDeviceEnv {
 
 	idA, _ := skykey.Generate()
 	idB, _ := skykey.Generate()
-	devIDA := shortDeviceID(idA)
-	devIDB := shortDeviceID(idB)
+	devIDA := ShortDeviceID(idA)
+	devIDB := ShortDeviceID(idB)
 
 	// Register devices
 	regDev(t, backend, devIDA)

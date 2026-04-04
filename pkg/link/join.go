@@ -10,6 +10,7 @@ import (
 	"log/slog"
 
 	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/sky10/sky10/pkg/id"
 	skykey "github.com/sky10/sky10/pkg/key"
@@ -71,35 +72,53 @@ type joinRequest struct {
 	DeviceName   string `json:"device_name"`
 }
 
-// joinResponse is sent by the inviter after approval.
-type joinResponse struct {
+// JoinResponse is sent by the inviter after approval.
+type JoinResponse struct {
 	Approved    bool            `json:"approved"`
 	IdentityKey json.RawMessage `json:"identity_key,omitempty"` // encrypted identity private key
 	Manifest    json.RawMessage `json:"manifest,omitempty"`     // signed device manifest
-	NSKeys      []wrappedNSKey  `json:"ns_keys,omitempty"`      // namespace keys wrapped for joiner
+	NSKeys      []WrappedNSKey  `json:"ns_keys,omitempty"`      // namespace keys wrapped for joiner
 	Error       string          `json:"error,omitempty"`
 }
 
-// wrappedNSKey is a namespace key wrapped for the joiner's identity.
-type wrappedNSKey struct {
+// WrappedNSKey is a namespace key wrapped for the joiner's identity.
+type WrappedNSKey struct {
 	Namespace string `json:"namespace"`
 	Wrapped   []byte `json:"wrapped"` // key wrapped with identity pubkey
 }
 
-// JoinHandler handles incoming join requests on the inviter side.
-type JoinHandler struct {
-	bundle  *id.Bundle
-	logger  *slog.Logger
-	approve func(req joinRequest) bool // callback to approve/deny
+// NSKeyProvider returns namespace keys to send to a joining device.
+// Each key is a namespace name + the raw symmetric key (will be wrapped
+// for the joiner's identity before sending).
+type NSKeyProvider func() []NSKey
+
+// NSKey is a namespace name and its symmetric encryption key.
+type NSKey struct {
+	Namespace string
+	Key       []byte
 }
 
-// NewJoinHandler creates a join handler. The approve callback is called
-// when a join request arrives — return true to approve, false to deny.
+// JoinHandler handles incoming join requests on the inviter side.
+type JoinHandler struct {
+	bundle    *id.Bundle
+	logger    *slog.Logger
+	approve   func(req joinRequest) bool // nil = auto-approve
+	nsKeyProv NSKeyProvider              // optional: provides namespace keys
+}
+
+// NewJoinHandler creates a join handler. If approve is nil, all requests
+// are auto-approved (the invite code itself is the authorization).
 func NewJoinHandler(bundle *id.Bundle, approve func(joinRequest) bool, logger *slog.Logger) *JoinHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &JoinHandler{bundle: bundle, approve: approve, logger: logger}
+}
+
+// SetNSKeyProvider sets a function that returns namespace keys to share
+// with joining devices.
+func (h *JoinHandler) SetNSKeyProvider(fn NSKeyProvider) {
+	h.nsKeyProv = fn
 }
 
 // HandleStream processes an incoming join stream.
@@ -125,68 +144,97 @@ func (h *JoinHandler) HandleStream(s network.Stream) {
 		"pubkey", req.DevicePubKey,
 	)
 
-	resp := joinResponse{Approved: false}
+	// Auto-approve when callback is nil (invite code = authorization).
+	approved := h.approve == nil || h.approve(req)
 
-	if h.approve != nil && h.approve(req) {
-		resp.Approved = true
-
-		// Encrypt identity private key for transfer.
-		// Use a shared secret derived from the joiner's address.
-		joinerKey, err := skykey.ParseAddress(req.DevicePubKey)
-		if err != nil {
-			resp.Error = "invalid device pubkey"
-			writeJoinResponse(s, msg.ID, resp)
-			return
-		}
-
-		// Wrap identity private key with joiner's public key.
-		wrappedIdentity, err := skykey.WrapKey(h.bundle.Identity.PrivateKey, joinerKey.PublicKey)
-		if err != nil {
-			resp.Error = "failed to wrap identity key"
-			writeJoinResponse(s, msg.ID, resp)
-			return
-		}
-		resp.IdentityKey = json.RawMessage(fmt.Sprintf("%q", wrappedIdentity))
-
-		// Add joiner to manifest.
-		manifest := h.bundle.Manifest
-		if !manifest.HasDevice(joinerKey.PublicKey) {
-			manifest.AddDevice(joinerKey.PublicKey, req.DeviceName)
-			manifest.Sign(h.bundle.Identity.PrivateKey)
-		}
-		manifestData, _ := json.Marshal(manifest)
-		resp.Manifest = manifestData
-
-		h.logger.Info("join approved", "device", req.DeviceName)
-	} else {
+	resp := JoinResponse{Approved: approved}
+	if !approved {
 		h.logger.Info("join denied", "device", req.DeviceName)
+		writeJoinResponse(s, msg.ID, resp)
+		return
 	}
 
+	joinerKey, err := skykey.ParseAddress(req.DevicePubKey)
+	if err != nil {
+		resp.Approved = false
+		resp.Error = "invalid device pubkey"
+		writeJoinResponse(s, msg.ID, resp)
+		return
+	}
+
+	// Wrap identity private key with joiner's public key.
+	wrappedIdentity, err := skykey.WrapKey(h.bundle.Identity.PrivateKey, joinerKey.PublicKey)
+	if err != nil {
+		resp.Approved = false
+		resp.Error = "failed to wrap identity key"
+		writeJoinResponse(s, msg.ID, resp)
+		return
+	}
+	identityJSON, _ := json.Marshal(wrappedIdentity)
+	resp.IdentityKey = identityJSON
+
+	// Add joiner to manifest.
+	manifest := h.bundle.Manifest
+	if !manifest.HasDevice(joinerKey.PublicKey) {
+		manifest.AddDevice(joinerKey.PublicKey, req.DeviceName)
+		manifest.Sign(h.bundle.Identity.PrivateKey)
+	}
+	manifestData, _ := json.Marshal(manifest)
+	resp.Manifest = manifestData
+
+	// Include namespace keys (wrapped for the shared identity).
+	if h.nsKeyProv != nil {
+		for _, nsk := range h.nsKeyProv() {
+			wrapped, err := skykey.WrapKey(nsk.Key, h.bundle.Identity.PublicKey)
+			if err != nil {
+				continue
+			}
+			resp.NSKeys = append(resp.NSKeys, WrappedNSKey{
+				Namespace: nsk.Namespace,
+				Wrapped:   wrapped,
+			})
+		}
+	}
+
+	h.logger.Info("join approved", "device", req.DeviceName, "ns_keys", len(resp.NSKeys))
 	writeJoinResponse(s, msg.ID, resp)
 }
 
-func writeJoinResponse(s network.Stream, reqID string, resp joinResponse) {
+func writeJoinResponse(s network.Stream, reqID string, resp JoinResponse) {
 	data, _ := json.Marshal(resp)
 	WriteMessage(s, &Message{
 		ID:     reqID,
 		Result: data,
 	})
+	s.CloseWrite()
 }
 
 // RequestJoin connects to the inviter and requests to join. Blocks until
-// the inviter responds (approved or denied).
-func RequestJoin(ctx context.Context, node *Node, resolver *Resolver, invite *P2PInvite, devicePubKey string, deviceName string) (*joinResponse, error) {
-	// Resolve and connect to inviter.
-	info, err := resolver.Resolve(ctx, invite.Address)
-	if err != nil {
-		return nil, fmt.Errorf("resolving inviter: %w", err)
-	}
-	if err := node.host.Connect(ctx, *info); err != nil {
-		return nil, fmt.Errorf("connecting to inviter: %w", err)
+// the inviter responds (approved or denied). If resolver is nil, the
+// node must already be connected to the inviter (uses first connected peer).
+func RequestJoin(ctx context.Context, node *Node, resolver *Resolver, invite *P2PInvite, devicePubKey string, deviceName string) (*JoinResponse, error) {
+	var targetPeerID peer.ID
+
+	if resolver != nil {
+		info, err := resolver.Resolve(ctx, invite.Address)
+		if err != nil {
+			return nil, fmt.Errorf("resolving inviter: %w", err)
+		}
+		if err := node.host.Connect(ctx, *info); err != nil {
+			return nil, fmt.Errorf("connecting to inviter: %w", err)
+		}
+		targetPeerID = info.ID
+	} else {
+		// No resolver — use first connected peer.
+		peers := node.host.Network().Peers()
+		if len(peers) == 0 {
+			return nil, fmt.Errorf("no connected peers and no resolver")
+		}
+		targetPeerID = peers[0]
 	}
 
 	// Open join stream.
-	s, err := node.host.NewStream(ctx, info.ID, JoinProtocol)
+	s, err := node.host.NewStream(ctx, targetPeerID, JoinProtocol)
 	if err != nil {
 		return nil, fmt.Errorf("opening join stream: %w", err)
 	}
@@ -214,7 +262,7 @@ func RequestJoin(ctx context.Context, node *Node, resolver *Resolver, invite *P2
 		return nil, fmt.Errorf("reading join response: %w", err)
 	}
 
-	var resp joinResponse
+	var resp JoinResponse
 	if err := json.Unmarshal(respMsg.Result, &resp); err != nil {
 		return nil, fmt.Errorf("parsing join response: %w", err)
 	}

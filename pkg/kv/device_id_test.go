@@ -17,7 +17,7 @@ func TestDeviceID_MatchesFS(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	kvID := shortDeviceID(id)
+	kvID := ShortDeviceID(id)
 	fsID := fsStyleDeviceID(id.Address())
 
 	if kvID != fsID {
@@ -29,7 +29,7 @@ func TestDeviceID_MatchesFS(t *testing.T) {
 func TestDeviceID_Format(t *testing.T) {
 	t.Parallel()
 	id, _ := skykey.Generate()
-	devID := shortDeviceID(id)
+	devID := ShortDeviceID(id)
 
 	if len(devID) != 16 {
 		t.Errorf("device ID length = %d, want 16", len(devID))
@@ -48,8 +48,8 @@ func TestDeviceID_DifferentKeysProduceDifferentIDs(t *testing.T) {
 	idA, _ := skykey.Generate()
 	idB, _ := skykey.Generate()
 
-	a := shortDeviceID(idA)
-	b := shortDeviceID(idB)
+	a := ShortDeviceID(idA)
+	b := ShortDeviceID(idB)
 
 	if a == b {
 		t.Errorf("different keys produced same device ID: %s", a)

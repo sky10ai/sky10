@@ -7,6 +7,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/sky10/sky10/pkg/config"
+	"github.com/sky10/sky10/pkg/link"
 )
 
 func (s *FSHandler) rpcDeviceList(ctx context.Context) (interface{}, error) {
@@ -50,6 +53,11 @@ func (s *FSHandler) rpcDeviceRemove(ctx context.Context, params json.RawMessage)
 }
 
 func (s *FSHandler) rpcInvite(ctx context.Context) (interface{}, error) {
+	// P2P invite when no S3 backend is configured.
+	if s.store.backend == nil {
+		return s.rpcP2PInvite(ctx)
+	}
+
 	accessKey := os.Getenv("S3_ACCESS_KEY_ID")
 	secretKey := os.Getenv("S3_SECRET_ACCESS_KEY")
 
@@ -81,6 +89,15 @@ func (s *FSHandler) rpcInvite(ctx context.Context) (interface{}, error) {
 		ForcePathStyle: pathStyle,
 		DevicePubKey:   s.store.identity.Address(),
 	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{"code": code}, nil
+}
+
+func (s *FSHandler) rpcP2PInvite(_ context.Context) (interface{}, error) {
+	cfg, _ := config.Load()
+	code, err := link.CreateP2PInvite(s.store.identity.Address(), cfg.Relays())
 	if err != nil {
 		return nil, err
 	}

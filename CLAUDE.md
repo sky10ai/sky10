@@ -11,6 +11,11 @@ updated: 2026-03-26
 - Language: Go
 - Purpose: Document agent collaboration guidelines and Go style for this repo.
 
+## Communication
+- When the user asks a question, answer the question. Do not interpret
+  questions as implicit requests to write code. A question is a question.
+- Only write code when explicitly asked to implement, fix, or change something.
+
 ## General Rules
 - Prefer minimal, targeted changes.
 - Keep outputs concise and actionable.

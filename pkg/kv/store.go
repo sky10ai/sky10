@@ -62,7 +62,7 @@ func New(
 		config.PollInterval = 30 * time.Second
 	}
 
-	deviceID := shortDeviceID(identity)
+	deviceID := ShortDeviceID(identity)
 
 	dataDir := config.DataDir
 	if dataDir == "" {
@@ -264,6 +264,15 @@ func (s *Store) Snapshot() (*Snapshot, error) {
 	return s.localLog.Snapshot()
 }
 
+// NamespaceKey returns the resolved namespace name and symmetric key,
+// or empty values if not yet resolved. Used by the join handler to share
+// keys with joining devices.
+func (s *Store) NamespaceKey() (string, []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.config.Namespace, s.nsKey
+}
+
 // resolveKeys resolves the namespace encryption key and opaque namespace ID.
 // With nil backend, resolves from local cache or generates new keys.
 func (s *Store) resolveKeys(ctx context.Context) error {
@@ -290,10 +299,10 @@ func (s *Store) resolveKeys(ctx context.Context) error {
 	return nil
 }
 
-// shortDeviceID derives a short device ID from the identity key.
+// ShortDeviceID derives a short device ID from the identity key.
 // Must match shortPubkeyID in pkg/fs/device.go — the device registry
 // and poller use this ID to match snapshot paths to registered devices.
-func shortDeviceID(identity *skykey.Key) string {
+func ShortDeviceID(identity *skykey.Key) string {
 	addr := identity.Address()
 	if len(addr) > 21 {
 		return addr[5:21] // skip "sky10" prefix, take 16 chars

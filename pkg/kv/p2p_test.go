@@ -67,7 +67,7 @@ func TestStoreNilBackendNamespaceKeyStable(t *testing.T) {
 	t.Parallel()
 	identity, _ := skykey.Generate()
 	dataDir := t.TempDir()
-	deviceID := shortDeviceID(identity)
+	deviceID := ShortDeviceID(identity)
 
 	// First run — generates key.
 	store1 := New(nil, identity, Config{Namespace: "stable-ns", DataDir: dataDir}, nil)

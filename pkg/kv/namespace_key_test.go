@@ -34,7 +34,7 @@ func TestGetOrCreateNamespaceKey_KvPrefix(t *testing.T) {
 	ctx := context.Background()
 	backend := s3adapter.NewMemory()
 	id, _ := skykey.Generate()
-	deviceID := shortDeviceID(id)
+	deviceID := ShortDeviceID(id)
 
 	// Register device
 	regDev2(t, backend, deviceID, id.Address())
@@ -67,8 +67,8 @@ func TestGetOrCreateNamespaceKey_SharedAcrossDevices(t *testing.T) {
 	backend := s3adapter.NewMemory()
 	idA, _ := skykey.Generate()
 	idB, _ := skykey.Generate()
-	devA := shortDeviceID(idA)
-	devB := shortDeviceID(idB)
+	devA := ShortDeviceID(idA)
+	devB := ShortDeviceID(idB)
 
 	regDev2(t, backend, devA, idA.Address())
 	regDev2(t, backend, devB, idB.Address())
@@ -98,8 +98,8 @@ func TestGetOrCreateNamespaceKey_RacePrevention(t *testing.T) {
 	backend := s3adapter.NewMemory()
 	idA, _ := skykey.Generate()
 	idB, _ := skykey.Generate()
-	devA := shortDeviceID(idA)
-	devB := shortDeviceID(idB)
+	devA := ShortDeviceID(idA)
+	devB := ShortDeviceID(idB)
 
 	// Only register A — don't register B, so A doesn't wrap for B
 	regDev2(t, backend, devA, idA.Address())

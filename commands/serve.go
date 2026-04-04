@@ -169,8 +169,15 @@ func ServeCmd() *cobra.Command {
 				// Register KV sync protocol handler after link is ready.
 				kvSync.RegisterProtocol()
 
-				// Register P2P join handler.
+				// Register P2P join handler (auto-approve — invite code is auth).
 				joinHandler := link.NewJoinHandler(bundle, nil, nil)
+				joinHandler.SetNSKeyProvider(func() []link.NSKey {
+					ns, key := kvStore.NamespaceKey()
+					if key == nil {
+						return nil
+					}
+					return []link.NSKey{{Namespace: ns, Key: key}}
+				})
 				linkNode.Host().SetStreamHandler(link.JoinProtocol, joinHandler.HandleStream)
 				slog.Info("P2P join handler registered")
 			}()

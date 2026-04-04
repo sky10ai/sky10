@@ -102,7 +102,7 @@ func getOrCreateNamespaceKey(
 		wrapped, _ := io.ReadAll(rc)
 		rc.Close()
 		if key, err := unwrapKey(wrapped, identity.PrivateKey); err == nil {
-			cacheKeyLocally(nsName, deviceID, key)
+			CacheKeyLocally(nsName, deviceID, key)
 			return key, nil
 		}
 	}
@@ -113,7 +113,7 @@ func getOrCreateNamespaceKey(
 		wrapped, _ := io.ReadAll(rc)
 		rc.Close()
 		if key, err := unwrapKey(wrapped, identity.PrivateKey); err == nil {
-			cacheKeyLocally(nsName, deviceID, key)
+			CacheKeyLocally(nsName, deviceID, key)
 			return key, nil
 		}
 	}
@@ -138,7 +138,7 @@ func getOrCreateNamespaceKey(
 				if w, err := wrapKey(key, identity.PublicKey); err == nil {
 					backend.Put(ctx, devKeyPath, bytes.NewReader(w), int64(len(w)))
 				}
-				cacheKeyLocally(nsName, deviceID, key)
+				CacheKeyLocally(nsName, deviceID, key)
 				return key, nil
 			}
 		}
@@ -166,7 +166,7 @@ func getOrCreateNamespaceKey(
 	}
 
 	wrapForAllDevices(ctx, backend, keyName, key, deviceID)
-	cacheKeyLocally(nsName, deviceID, key)
+	CacheKeyLocally(nsName, deviceID, key)
 	return key, nil
 }
 
@@ -180,11 +180,13 @@ func getOrCreateNamespaceKeyLocal(nsName, deviceID string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	cacheKeyLocally(nsName, deviceID, key)
+	CacheKeyLocally(nsName, deviceID, key)
 	return key, nil
 }
 
-func cacheKeyLocally(nsName, deviceID string, key []byte) {
+// CacheKeyLocally stores a namespace key on disk for the given device.
+// Used by the join flow to pre-populate keys received from the inviter.
+func CacheKeyLocally(nsName, deviceID string, key []byte) {
 	home, _ := os.UserHomeDir()
 	dir := filepath.Join(home, ".sky10", "kv", "keys", deviceID)
 	os.MkdirAll(dir, 0700)
