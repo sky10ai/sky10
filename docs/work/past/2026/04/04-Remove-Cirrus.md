@@ -34,16 +34,18 @@ directly by the daemon — no separate app to build, sign, or distribute.
 - Platform-specific files with build tags
 
 ### Tauri menu bar app (`sky10-menu`)
-- Constellation tray icons with 5 states (connected, disconnected,
-  syncing, update available, error)
+- Octagon hub tray icons with 5 states (connected, disconnected,
+  syncing with 4-frame animation, update available, error)
+- White icon variants for Linux dark panels (black template icons for macOS)
+- Hidden window on Linux so GTK drives the event loop for DBus tray registration
 - Menu: version display, Open, update section, Quit
 - Queries daemon via JSON-RPC over HTTP for version and update status
-- Polls every 30s, switches icon based on state
-- CI workflow builds for all 4 platforms on release tag
+- Polls every 10s, 250ms during syncing animation
+- CI workflow builds for darwin-arm64, darwin-amd64, linux-amd64, linux-arm64
 
 ### Install changes
 - Binary installs to `~/.bin/sky10` (no sudo)
-- `install.sh` cleans up old `/usr/local/bin` and Homebrew installs
+- `install.sh` warns about old `/usr/local/bin` installs (can't sudo in pipe)
 - Downloads `sky10-menu` alongside CLI binary
 - Adds `~/.bin` to PATH in shell rc
 
