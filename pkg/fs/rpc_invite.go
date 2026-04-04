@@ -13,20 +13,43 @@ import (
 )
 
 func (s *FSHandler) rpcDeviceList(ctx context.Context) (interface{}, error) {
-	if s.store.backend == nil {
-		return map[string]interface{}{
-			"devices":     []DeviceInfo{},
-			"this_device": s.store.deviceID,
-		}, nil
+	var devices []DeviceInfo
+
+	if s.store.backend != nil {
+		var err error
+		devices, err = ListDevices(ctx, s.store.backend)
+		if err != nil {
+			return nil, err
+		}
 	}
-	devices, err := ListDevices(ctx, s.store.backend)
-	if err != nil {
-		return nil, err
+
+	// Always include this device, even without S3.
+	if !hasDevice(devices, s.store.deviceID) {
+		hostname, _ := os.Hostname()
+		devices = append([]DeviceInfo{{
+			ID:       s.store.deviceID,
+			PubKey:   s.store.identity.Address(),
+			Name:     hostname,
+			Platform: detectPlatform(),
+			Version:  s.version,
+			Joined:   time.Now().UTC().Format(time.RFC3339),
+			LastSeen: time.Now().UTC().Format(time.RFC3339),
+		}}, devices...)
 	}
+
 	return map[string]interface{}{
 		"devices":     devices,
 		"this_device": s.store.deviceID,
 	}, nil
+}
+
+func hasDevice(devices []DeviceInfo, id string) bool {
+	for _, d := range devices {
+		if d.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *FSHandler) rpcDeviceRemove(ctx context.Context, params json.RawMessage) (interface{}, error) {

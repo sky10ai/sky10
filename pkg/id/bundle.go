@@ -49,15 +49,10 @@ func (b *Bundle) Address() string {
 	return b.Identity.Address()
 }
 
-// DeviceID returns a short 16-char identifier for this device, derived
-// from the device key's sky10q address. Used as the S3 filename key
-// for the device registry (e.g. devices/<deviceID>.json).
+// DeviceID returns a short identifier for this device.
+// Format: "D-" + 8 chars, derived from the device key's address.
 func (b *Bundle) DeviceID() string {
-	addr := b.Device.Address()
-	if len(addr) > 21 {
-		return addr[5:21]
-	}
-	return addr
+	return b.Device.ShortID()
 }
 
 // DevicePubKeyHex returns the device's raw Ed25519 public key as hex.

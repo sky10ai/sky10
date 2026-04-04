@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sky10/sky10/pkg/adapter"
+	skykey "github.com/sky10/sky10/pkg/key"
 )
 
 // DeviceInfo represents a registered device in the S3 registry.
@@ -176,12 +177,9 @@ func fetchIPLocation() (ip string, location string) {
 }
 
 // ShortPubkeyID extracts a short device ID from a sky10q... address.
-// Format: "D-" + 8 chars from the address (after the "sky10" prefix).
+// Delegates to key.ShortIDFromAddress — "D-" + 8 chars.
 func ShortPubkeyID(pubkey string) string {
-	if len(pubkey) > 13 {
-		return "D-" + pubkey[5:13]
-	}
-	return pubkey
+	return skykey.ShortIDFromAddress(pubkey)
 }
 
 // shortPubkeyID is the unexported version for internal use.

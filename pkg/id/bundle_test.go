@@ -44,10 +44,13 @@ func TestBundleDeviceID(t *testing.T) {
 	t.Parallel()
 	b := generateTestBundle(t)
 
-	// DeviceID is 16 chars derived from device key's sky10q address.
+	// DeviceID is "D-" + 8 chars derived from device key's sky10q address.
 	id := b.DeviceID()
-	if len(id) != 16 {
-		t.Errorf("DeviceID() length = %d, want 16", len(id))
+	if len(id) != 10 {
+		t.Errorf("DeviceID() length = %d, want 10", len(id))
+	}
+	if id[:2] != "D-" {
+		t.Errorf("DeviceID() should start with D-, got %q", id)
 	}
 }
 

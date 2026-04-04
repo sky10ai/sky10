@@ -300,13 +300,7 @@ func (s *Store) resolveKeys(ctx context.Context) error {
 }
 
 // ShortDeviceID derives a short device ID from the identity key.
-// Must match ShortPubkeyID in pkg/fs/device.go — the device registry
-// and poller use this ID to match snapshot paths to registered devices.
-// Format: "D-" + 8 chars.
+// Delegates to Key.ShortID() — "D-" + 8 chars.
 func ShortDeviceID(identity *skykey.Key) string {
-	addr := identity.Address()
-	if len(addr) > 13 {
-		return "D-" + addr[5:13]
-	}
-	return addr
+	return identity.ShortID()
 }

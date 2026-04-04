@@ -48,6 +48,24 @@ func (k *Key) Address() string {
 	return addr
 }
 
+// ShortID returns a short human-readable identifier: "D-" + 8 chars
+// derived from the address. Used as device IDs, S3 path components, etc.
+func (k *Key) ShortID() string {
+	addr := k.Address()
+	if len(addr) > 13 {
+		return "D-" + addr[5:13]
+	}
+	return addr
+}
+
+// ShortIDFromAddress extracts a short ID from an already-computed address.
+func ShortIDFromAddress(addr string) string {
+	if len(addr) > 13 {
+		return "D-" + addr[5:13]
+	}
+	return addr
+}
+
 // ParseAddress decodes a sky10q... address into a public-only Key.
 func ParseAddress(address string) (*Key, error) {
 	hrp, version, data, err := Bech32mDecode(address)
