@@ -77,14 +77,18 @@ func (d *NostrDiscovery) Publish(ctx context.Context, sk string, address string,
 	return nil
 }
 
-// Query looks up multiaddrs for a sky10 address on Nostr relays.
-func (d *NostrDiscovery) Query(ctx context.Context, address string) ([]string, error) {
+// QueryAll looks up multiaddrs for a sky10 address on Nostr relays.
+// Returns all discovered multiaddr sets (one per device that published).
+// Multiple devices sharing the same identity each publish under different
+// Nostr pubkeys, so we need all events — not just the first.
+func (d *NostrDiscovery) QueryAll(ctx context.Context, address string) ([][]string, error) {
 	filter := nostr.Filter{
 		Kinds: []int{Sky10NostrKind},
 		Tags:  nostr.TagMap{"d": []string{"sky10:" + address}},
-		Limit: 1,
+		Limit: 10,
 	}
 
+	var allAddrs [][]string
 	for _, relay := range d.relays {
 		r, err := nostr.RelayConnect(ctx, relay)
 		if err != nil {
@@ -105,10 +109,26 @@ func (d *NostrDiscovery) Query(ctx context.Context, address string) ([]string, e
 				continue
 			}
 			if len(ne.Multiaddrs) > 0 {
-				return ne.Multiaddrs, nil
+				allAddrs = append(allAddrs, ne.Multiaddrs)
 			}
+		}
+		if len(allAddrs) > 0 {
+			return allAddrs, nil
 		}
 	}
 
+	return nil, fmt.Errorf("no multiaddrs found for %s on nostr", address)
+}
+
+// Query looks up multiaddrs for a sky10 address on Nostr relays.
+// Returns the first set of multiaddrs found (for resolver compatibility).
+func (d *NostrDiscovery) Query(ctx context.Context, address string) ([]string, error) {
+	all, err := d.QueryAll(ctx, address)
+	if err != nil {
+		return nil, err
+	}
+	if len(all) > 0 {
+		return all[0], nil
+	}
 	return nil, fmt.Errorf("no multiaddrs found for %s on nostr", address)
 }

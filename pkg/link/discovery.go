@@ -201,12 +201,14 @@ func autoConnectFromS3(ctx context.Context, node *Node, backend adapter.Backend,
 
 func autoConnectFromNostr(ctx context.Context, node *Node, relays []string, selfPeerID string) {
 	nd := NewNostrDiscovery(relays, node.logger)
-	addrs, err := nd.Query(ctx, node.Address())
+	allAddrs, err := nd.QueryAll(ctx, node.Address())
 	if err != nil {
 		node.logger.Debug("auto-connect nostr query failed", "error", err)
 		return
 	}
-	connectMultiaddrs(ctx, node, "nostr-peer", addrs, selfPeerID)
+	for _, addrs := range allAddrs {
+		connectMultiaddrs(ctx, node, "nostr-peer", addrs, selfPeerID)
+	}
 }
 
 func connectMultiaddrs(ctx context.Context, node *Node, name string, addrs []string, selfPeerID string) {
