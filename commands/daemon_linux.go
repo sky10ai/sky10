@@ -15,7 +15,8 @@ const systemdUnit = "sky10"
 func systemdUnitContent() string {
 	binary, err := exec.LookPath("sky10")
 	if err != nil {
-		binary = "/usr/local/bin/sky10"
+		home, _ := os.UserHomeDir()
+		binary = home + "/.bin/sky10"
 	}
 
 	u, _ := user.Current()

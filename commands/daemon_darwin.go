@@ -36,7 +36,7 @@ var plistTemplate = template.Must(template.New("plist").Parse(`<?xml version="1.
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>{{.Home}}/.bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     </dict>
 </dict>
 </plist>
@@ -52,7 +52,8 @@ func findBinary() string {
 		abs, _ := filepath.Abs(p)
 		return abs
 	}
-	return "/opt/homebrew/bin/sky10"
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".bin", "sky10")
 }
 
 func launchdTarget() string {
@@ -72,12 +73,15 @@ func daemonInstallCmd() *cobra.Command {
 				return fmt.Errorf("creating plist: %w", err)
 			}
 
+			home, _ := os.UserHomeDir()
 			data := struct {
 				Label  string
 				Binary string
+				Home   string
 			}{
 				Label:  launchdLabel,
 				Binary: findBinary(),
+				Home:   home,
 			}
 			if err := plistTemplate.Execute(f, data); err != nil {
 				f.Close()

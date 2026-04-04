@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO="sky10ai/sky10"
 BINARY="sky10"
-INSTALL_DIR="/usr/local/bin"
+INSTALL_DIR="$HOME/.bin"
 LOG_DIR="/tmp/sky10"
 
 # Detect OS
@@ -53,11 +53,24 @@ fi
 chmod +x "$TMP"
 
 # Install binary
-if [ -w "$INSTALL_DIR" ]; then
-  mv "$TMP" "${INSTALL_DIR}/${BINARY}"
-else
-  echo "Need sudo to install to ${INSTALL_DIR}"
-  sudo mv "$TMP" "${INSTALL_DIR}/${BINARY}"
+mkdir -p "$INSTALL_DIR"
+mv "$TMP" "${INSTALL_DIR}/${BINARY}"
+
+# Add ~/.bin to PATH if not already there
+if ! echo "$PATH" | grep -q "$INSTALL_DIR"; then
+  SHELL_NAME=$(basename "$SHELL")
+  case "$SHELL_NAME" in
+    zsh)  RC="$HOME/.zshrc" ;;
+    bash) RC="$HOME/.bashrc" ;;
+    *)    RC="" ;;
+  esac
+  if [ -n "$RC" ]; then
+    echo "export PATH=\"\$HOME/.bin:\$PATH\"" >> "$RC"
+    echo "Added ~/.bin to PATH in $RC (restart your shell or run: source $RC)"
+  else
+    echo "Add ~/.bin to your PATH: export PATH=\"\$HOME/.bin:\$PATH\""
+  fi
+  export PATH="$INSTALL_DIR:$PATH"
 fi
 
 echo "sky10 ${LATEST} installed to ${INSTALL_DIR}/${BINARY}"
