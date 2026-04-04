@@ -48,20 +48,16 @@ func (k *Key) Address() string {
 	return addr
 }
 
-// ShortID returns a short human-readable identifier: "D-" + 8 chars
-// derived from the address. Used as device IDs, S3 path components, etc.
+// ShortID returns 8 chars derived from the address. Callers add the
+// prefix: "D-" for devices, "A-" for agents, etc.
 func (k *Key) ShortID() string {
-	addr := k.Address()
-	if len(addr) > 13 {
-		return "D-" + addr[5:13]
-	}
-	return addr
+	return ShortIDFromAddress(k.Address())
 }
 
-// ShortIDFromAddress extracts a short ID from an already-computed address.
+// ShortIDFromAddress extracts 8 chars from an already-computed address.
 func ShortIDFromAddress(addr string) string {
 	if len(addr) > 13 {
-		return "D-" + addr[5:13]
+		return addr[5:13]
 	}
 	return addr
 }

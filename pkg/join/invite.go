@@ -246,7 +246,7 @@ func CleanupInvite(ctx context.Context, backend adapter.Backend, inviteID string
 }
 
 func shortPubkeyID(address string) string {
-	return skykey.ShortIDFromAddress(address)
+	return "D-" + skykey.ShortIDFromAddress(address)
 }
 
 func extractNamespaceName(path string) string {

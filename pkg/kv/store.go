@@ -299,8 +299,8 @@ func (s *Store) resolveKeys(ctx context.Context) error {
 	return nil
 }
 
-// ShortDeviceID derives a short device ID from the identity key.
-// Delegates to Key.ShortID() — "D-" + 8 chars.
+// ShortDeviceID derives a device ID from the identity key.
+// Format: "D-" + 8 chars.
 func ShortDeviceID(identity *skykey.Key) string {
-	return identity.ShortID()
+	return "D-" + identity.ShortID()
 }

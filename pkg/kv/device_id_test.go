@@ -59,8 +59,5 @@ func TestDeviceID_DifferentKeysProduceDifferentIDs(t *testing.T) {
 
 // fsStyleDeviceID replicates the fs package's ShortPubkeyID for testing.
 func fsStyleDeviceID(pubkey string) string {
-	if len(pubkey) > 13 {
-		return "D-" + pubkey[5:13]
-	}
-	return pubkey
+	return "D-" + skykey.ShortIDFromAddress(pubkey)
 }

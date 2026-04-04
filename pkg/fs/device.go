@@ -176,10 +176,10 @@ func fetchIPLocation() (ip string, location string) {
 	return result.Query, loc
 }
 
-// ShortPubkeyID extracts a short device ID from a sky10q... address.
-// Delegates to key.ShortIDFromAddress — "D-" + 8 chars.
+// ShortPubkeyID extracts a device ID from a sky10q... address.
+// Format: "D-" + 8 chars.
 func ShortPubkeyID(pubkey string) string {
-	return skykey.ShortIDFromAddress(pubkey)
+	return "D-" + skykey.ShortIDFromAddress(pubkey)
 }
 
 // shortPubkeyID is the unexported version for internal use.

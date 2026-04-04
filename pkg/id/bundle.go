@@ -52,7 +52,7 @@ func (b *Bundle) Address() string {
 // DeviceID returns a short identifier for this device.
 // Format: "D-" + 8 chars, derived from the device key's address.
 func (b *Bundle) DeviceID() string {
-	return b.Device.ShortID()
+	return "D-" + b.Device.ShortID()
 }
 
 // DevicePubKeyHex returns the device's raw Ed25519 public key as hex.
