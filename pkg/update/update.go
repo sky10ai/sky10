@@ -36,7 +36,14 @@ type Info struct {
 
 // Check queries GitHub for the latest release and compares to current.
 func Check(currentVersion string) (*Info, error) {
-	resp, err := http.Get(checkURL)
+	req, err := http.NewRequest("GET", checkURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("building request: %w", err)
+	}
+	req.Header.Set("User-Agent", "sky10/"+currentVersion)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetching latest release: %w", err)
 	}

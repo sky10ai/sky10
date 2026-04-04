@@ -34,6 +34,35 @@ func TestCheck(t *testing.T) {
 	}
 }
 
+// Regression: bare http.Get without User-Agent header causes GitHub API
+// to return 403 on many Linux hosts / cloud IPs.
+func TestCheckSendsUserAgent(t *testing.T) {
+	asset := fmt.Sprintf("sky10-%s-%s", runtime.GOOS, runtime.GOARCH)
+	var gotUA string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"tag_name": "v1.0.0",
+			"assets": []map[string]string{
+				{"name": asset, "browser_download_url": "https://example.com/" + asset},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	origCheck := checkURL
+	checkURL = srv.URL
+	defer func() { checkURL = origCheck }()
+
+	_, err := Check("v1.0.0")
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if gotUA == "" || gotUA == "Go-http-client/1.1" || gotUA == "Go-http-client/2.0" {
+		t.Errorf("expected custom User-Agent, got %q", gotUA)
+	}
+}
+
 func TestCheckUpToDate(t *testing.T) {
 	asset := fmt.Sprintf("sky10-%s-%s", runtime.GOOS, runtime.GOARCH)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
