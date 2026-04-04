@@ -80,6 +80,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+ExecStartPre=/bin/mkdir -p /tmp/sky10
 ExecStart=%s serve
 Restart=on-failure
 RestartSec=5

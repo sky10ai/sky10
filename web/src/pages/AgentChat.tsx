@@ -3,7 +3,6 @@ import { useParams, useNavigate } from "react-router";
 import { Icon } from "../components/Icon";
 import { StatusBadge } from "../components/StatusBadge";
 import { AGENT_EVENT_TYPES } from "../lib/events";
-import { subscribe } from "../lib/events";
 import { agent, AgentInfo } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
@@ -40,34 +39,33 @@ export default function AgentChat() {
 
   // Subscribe to incoming messages via SSE.
   useEffect(() => {
-    const unsub = subscribe((event, data) => {
-      if (event !== "agent.message") return;
-      const msg = data as {
-        id: string;
-        session_id: string;
-        from: string;
-        to: string;
-        type: string;
-        content: { text?: string };
-      };
-      if (msg.session_id !== sessionId) return;
-      // Message from the agent to us.
-      if (msg.from === agentId || msg.from === agentInfo?.name) {
+    const es = new EventSource("/rpc/events");
+    es.addEventListener("agent.message", (e) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        const msg = parsed.data ?? parsed;
+        if (!msg || !msg.to) return;
+
+        // Only show messages for this session.
+        if (msg.session_id !== sessionId) return;
+
         setWaiting(false);
         setMessages((prev) => [
           ...prev,
           {
-            id: msg.id,
-            from: "agent",
+            id: msg.id || crypto.randomUUID(),
+            from: "agent" as const,
             type: msg.type || "text",
             content: msg.content?.text || JSON.stringify(msg.content),
             timestamp: new Date(),
           },
         ]);
+      } catch {
+        // ignore parse errors
       }
-    }, ["agent.message"]);
-    return unsub;
-  }, [agentId, agentInfo?.name, sessionId]);
+    });
+    return () => es.close();
+  }, [sessionId]);
 
   // Auto-scroll to bottom.
   useEffect(() => {

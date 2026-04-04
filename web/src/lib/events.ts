@@ -34,6 +34,7 @@ export const AGENT_EVENT_TYPES = [
   "agent.disconnected",
   "agent:connected",
   "agent:disconnected",
+  "agent.message",
 ] as const;
 
 export const LEGACY_EVENT_TYPES = [
