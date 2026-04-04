@@ -144,11 +144,18 @@ func (s *Server) ClientCount() int {
 	return len(s.clients)
 }
 
-// SubscriberCount returns the number of event subscribers.
+// SubscriberCount returns the total number of event subscribers
+// (Unix socket + HTTP SSE).
 func (s *Server) SubscriberCount() int {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.subscribers)
+	sockSubs := len(s.subscribers)
+	s.mu.Unlock()
+
+	s.httpSubMu.RLock()
+	httpSubs := len(s.httpSubs)
+	s.httpSubMu.RUnlock()
+
+	return sockSubs + httpSubs
 }
 
 func (s *Server) handleConn(ctx context.Context, conn net.Conn) {

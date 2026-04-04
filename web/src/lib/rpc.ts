@@ -110,6 +110,7 @@ export const identity = {
 export const agent = {
   list: () => rpc<AgentListResult>("agent.list"),
   status: () => rpc<AgentStatus>("agent.status"),
+  send: (p: AgentSendParams) => rpc<AgentSendResult>("agent.send", p),
 };
 
 // ---- Types matching actual daemon responses ----
@@ -296,4 +297,17 @@ export interface AgentListResult {
 export interface AgentStatus {
   agents: number;
   skills: string[];
+}
+
+export interface AgentSendParams {
+  to: string;
+  device_id?: string;
+  session_id: string;
+  type: string;
+  content: unknown;
+}
+
+export interface AgentSendResult {
+  id: string;
+  status: string;
 }

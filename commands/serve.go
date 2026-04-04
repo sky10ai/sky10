@@ -133,7 +133,8 @@ func ServeCmd() *cobra.Command {
 			agentRPC.SetPeerNotifier(func(ctx context.Context, topic string) {
 				linkNode.NotifyOwn(ctx, topic)
 			})
-			go skyagent.NewHealthChecker(agentRegistry, server.Emit, nil).Run(ctx)
+			// TODO: re-enable health checker once agents reliably heartbeat.
+			// go skyagent.NewHealthChecker(agentRegistry, server.Emit, nil).Run(ctx)
 
 			// Show connected P2P peers in device list.
 			fsHandler.SetPeerDevices(func() []skyfs.DeviceInfo {

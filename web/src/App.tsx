@@ -6,6 +6,7 @@ import GettingStarted from "./pages/GettingStarted";
 import Devices from "./pages/Devices";
 import InviteDevice from "./pages/InviteDevice";
 import Agents from "./pages/Agents";
+import AgentChat from "./pages/AgentChat";
 import Network from "./pages/Network";
 import KVStore from "./pages/KVStore";
 import Drives from "./pages/Drives";
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="devices" element={<Devices />} />
           <Route path="devices/invite" element={<InviteDevice />} />
           <Route path="agents" element={<Agents />} />
+          <Route path="agents/:agentId" element={<AgentChat />} />
           <Route path="network" element={<Network />} />
           <Route path="kv" element={<KVStore />} />
           <Route path="drives" element={<Drives />} />

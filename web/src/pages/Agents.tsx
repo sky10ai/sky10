@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router";
 import { Icon } from "../components/Icon";
 import { RelativeTime } from "../components/RelativeTime";
 import { StatusBadge } from "../components/StatusBadge";
@@ -6,6 +7,7 @@ import { agent } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
 export default function Agents() {
+  const navigate = useNavigate();
   const { data, loading, error } = useRPC(() => agent.list(), [], {
     live: AGENT_EVENT_TYPES,
     refreshIntervalMs: 5_000,
@@ -49,23 +51,22 @@ export default function Agents() {
 
   return (
     <div className="p-12 max-w-7xl mx-auto">
-      <div className="flex justify-between items-end mb-12">
-        <div>
-          <h1 className="text-4xl font-bold tracking-tight text-on-surface mb-2">
-            Agents
-          </h1>
-          <p className="text-secondary font-medium">
-            {agents.length} agent{agents.length !== 1 ? "s" : ""} across{" "}
-            {deviceSet.size} device{deviceSet.size !== 1 ? "s" : ""}
-          </p>
-        </div>
-      </div>
-
       {error && (
         <div className="mb-8 p-4 bg-error-container/20 text-error rounded-xl text-sm">
           {error}
         </div>
       )}
+
+      {/* My Agents */}
+      <div className="mb-8">
+        <h1 className="text-4xl font-bold tracking-tight text-on-surface mb-2">
+          My Agents
+        </h1>
+        <p className="text-secondary font-medium">
+          {agents.length} agent{agents.length !== 1 ? "s" : ""} across{" "}
+          {deviceSet.size} device{deviceSet.size !== 1 ? "s" : ""}
+        </p>
+      </div>
 
       {loading && agents.length === 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -78,11 +79,12 @@ export default function Agents() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-16">
         {agents.map((a) => (
           <div
             key={`${a.device_id}-${a.id}`}
-            className="rounded-xl p-6 shadow-sm hover:shadow-xl transition-all duration-500 bg-surface-container-lowest ring-1 ring-outline-variant/10"
+            onClick={() => navigate(`/agents/${a.id}`)}
+            className="rounded-xl p-6 shadow-sm hover:shadow-xl transition-all duration-500 bg-surface-container-lowest ring-1 ring-outline-variant/10 cursor-pointer active:scale-[0.98]"
           >
             <div className="flex items-center justify-between mb-3 h-5">
               <StatusBadge pulse tone="live">
@@ -107,15 +109,6 @@ export default function Agents() {
             </div>
 
             <div className="space-y-4">
-              <div>
-                <label className="text-[10px] font-bold text-secondary uppercase tracking-widest block mb-1">
-                  Agent ID
-                </label>
-                <div className="bg-surface-container-low px-3 py-2 rounded-lg font-mono text-xs text-on-surface-variant">
-                  {a.id}
-                </div>
-              </div>
-
               {a.skills && a.skills.length > 0 && (
                 <div>
                   <label className="text-[10px] font-bold text-secondary uppercase tracking-widest block mb-1.5">
@@ -144,6 +137,16 @@ export default function Agents() {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* sky10 Network Agents — placeholder */}
+      <div className="border-t border-outline-variant/10 pt-8">
+        <h2 className="text-2xl font-bold tracking-tight text-on-surface mb-2">
+          sky10 Network
+        </h2>
+        <p className="text-secondary text-sm">
+          Browse agents on the sky10 network. Coming soon.
+        </p>
       </div>
     </div>
   );
