@@ -56,7 +56,7 @@ func (d *NostrDiscovery) Publish(ctx context.Context, sk string, address string,
 		PubKey:    pk,
 		CreatedAt: nostr.Now(),
 		Kind:      Sky10NostrKind,
-		Tags:      nostr.Tags{{"d", "sky10-discovery"}, {"sky10", address}},
+		Tags:      nostr.Tags{{"d", "sky10:" + address}},
 		Content:   string(content),
 	}
 	if err := ev.Sign(sk); err != nil {
@@ -81,7 +81,7 @@ func (d *NostrDiscovery) Publish(ctx context.Context, sk string, address string,
 func (d *NostrDiscovery) Query(ctx context.Context, address string) ([]string, error) {
 	filter := nostr.Filter{
 		Kinds: []int{Sky10NostrKind},
-		Tags:  nostr.TagMap{"sky10": []string{address}},
+		Tags:  nostr.TagMap{"d": []string{"sky10:" + address}},
 		Limit: 1,
 	}
 
