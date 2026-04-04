@@ -101,12 +101,17 @@ UNIT
 
   echo "sky10 service started"
   echo ""
-  echo "Logs:    tail -f ${LOG_DIR}/daemon.log"
-  echo "Status:  systemctl status sky10"
-  echo "Restart: sudo systemctl restart sky10"
+  echo "Logs:       tail -f ${LOG_DIR}/daemon.log"
+  echo "Status:     systemctl status sky10"
+  echo "Restart:    sudo systemctl restart sky10"
+  echo ""
+  echo "Next steps:"
+  echo "  sky10 invite          # invite another device"
+  echo "  sky10 join <code>     # join an existing device"
 else
   echo ""
   echo "Get started:"
-  echo "  sky10 serve    # start the daemon"
-  echo "  sky10 invite   # invite another device"
+  echo "  sky10 serve           # start the daemon"
+  echo "  sky10 invite          # invite another device"
+  echo "  sky10 join <code>     # join an existing device"
 fi
