@@ -34,7 +34,6 @@ export default function Agents() {
     "method": "agent.register",
     "params": {
       "name": "my-agent",
-      "endpoint": "http://localhost:8200/rpc",
       "capabilities": ["code", "test"]
     },
     "id": 1

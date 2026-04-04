@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 // Emitter sends SSE events to connected subscribers.
@@ -16,19 +19,17 @@ type PeerNotifier func(ctx context.Context, topic string)
 // RPCHandler dispatches agent.* RPC methods.
 type RPCHandler struct {
 	registry *Registry
-	caller   *Caller
-	router   *Router // nil until cross-device wiring (Phase 2)
+	router   *Router // nil until cross-device wiring
 	emit     Emitter
-	notify   PeerNotifier // broadcasts to own devices via skylink
+	notify   PeerNotifier
 }
 
 // NewRPCHandler creates an agent RPC handler.
-func NewRPCHandler(registry *Registry, caller *Caller, emit Emitter) *RPCHandler {
-	return &RPCHandler{registry: registry, caller: caller, emit: emit}
+func NewRPCHandler(registry *Registry, emit Emitter) *RPCHandler {
+	return &RPCHandler{registry: registry, emit: emit}
 }
 
-// SetRouter attaches a cross-device router. Once set, agent.call and
-// agent.list use the router for remote dispatch and aggregation.
+// SetRouter attaches a cross-device router.
 func (h *RPCHandler) SetRouter(r *Router) {
 	h.router = r
 }
@@ -55,8 +56,10 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		result, err = h.rpcDeregister(ctx, params)
 	case "agent.list":
 		result, err = h.rpcList(ctx, params)
-	case "agent.call":
-		result, err = h.rpcCall(ctx, params)
+	case "agent.send":
+		result, err = h.rpcSend(ctx, params)
+	case "agent.heartbeat":
+		result, err = h.rpcHeartbeat(ctx, params)
 	case "agent.discover":
 		result, err = h.rpcDiscover(ctx, params)
 	case "agent.status":
@@ -68,21 +71,13 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 	return result, err, true
 }
 
-func (h *RPCHandler) rpcRegister(ctx context.Context, params json.RawMessage) (interface{}, error) {
+func (h *RPCHandler) rpcRegister(_ context.Context, params json.RawMessage) (interface{}, error) {
 	var p RegisterParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
 	if p.Name == "" {
 		return nil, fmt.Errorf("name is required")
-	}
-	if p.Endpoint == "" {
-		return nil, fmt.Errorf("endpoint is required")
-	}
-
-	// Verify agent is reachable before accepting registration.
-	if err := h.caller.Ping(ctx, p.Endpoint); err != nil {
-		return nil, fmt.Errorf("agent not reachable at %s: %w", p.Endpoint, err)
 	}
 
 	agentID, _, err := GenerateAgentID()
@@ -149,32 +144,54 @@ func (h *RPCHandler) rpcList(ctx context.Context, _ json.RawMessage) (interface{
 	}, nil
 }
 
-func (h *RPCHandler) rpcCall(ctx context.Context, params json.RawMessage) (interface{}, error) {
-	var p CallParams
+func (h *RPCHandler) rpcSend(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p SendParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
-	if p.Agent == "" {
-		return nil, fmt.Errorf("agent is required")
+	if p.To == "" {
+		return nil, fmt.Errorf("to is required")
 	}
-	if p.Method == "" {
-		return nil, fmt.Errorf("method is required")
+	if p.SessionID == "" {
+		return nil, fmt.Errorf("session_id is required")
 	}
 
+	msg := Message{
+		ID:        uuid.NewString(),
+		SessionID: p.SessionID,
+		To:        p.To,
+		DeviceID:  p.DeviceID,
+		Type:      p.Type,
+		Content:   p.Content,
+		Timestamp: time.Now().UTC(),
+	}
+
+	// Route the message.
 	if h.router != nil {
-		return h.router.Call(ctx, p)
+		return h.router.Send(ctx, msg)
 	}
 
-	// Local-only fallback (no router wired).
-	info := h.registry.Resolve(p.Agent)
-	if info == nil {
+	// Local-only fallback: emit as SSE event.
+	if h.emit != nil {
+		h.emit("agent.message", msg)
+	}
+	return map[string]string{"id": msg.ID, "status": "sent"}, nil
+}
+
+func (h *RPCHandler) rpcHeartbeat(_ context.Context, params json.RawMessage) (interface{}, error) {
+	var p struct {
+		AgentID string `json:"agent_id"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.AgentID == "" {
+		return nil, fmt.Errorf("agent_id is required")
+	}
+	if !h.registry.Heartbeat(p.AgentID) {
 		return nil, ErrAgentNotFound
 	}
-	result, err := h.caller.Call(ctx, info.Endpoint, p.Method, p.Params)
-	if err != nil {
-		return CallResult{Error: err.Error()}, nil
-	}
-	return &CallResult{Result: result}, nil
+	return map[string]string{"status": "ok"}, nil
 }
 
 func (h *RPCHandler) rpcDiscover(ctx context.Context, params json.RawMessage) (interface{}, error) {

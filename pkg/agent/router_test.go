@@ -3,9 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -55,167 +52,114 @@ func connectNodes(t *testing.T, a, b *link.Node) {
 	}
 }
 
-func testAgentServer(t *testing.T) *httptest.Server {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Method string          `json:"method"`
-			Params json.RawMessage `json:"params,omitempty"`
-			ID     int64           `json:"id"`
-		}
-		json.NewDecoder(r.Body).Decode(&req)
-
-		resp := map[string]interface{}{"jsonrpc": "2.0", "id": req.ID}
-		switch req.Method {
-		case "ping":
-			resp["result"] = map[string]string{"status": "ok"}
-		case "search":
-			resp["result"] = map[string]string{"answer": "42"}
-		default:
-			resp["error"] = map[string]interface{}{"code": -32601, "message": "unknown: " + req.Method}
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
-	}))
-	t.Cleanup(srv.Close)
-	return srv
-}
-
-func TestRouterLocalCall(t *testing.T) {
+func TestRouterSendLocal(t *testing.T) {
 	t.Parallel()
 
-	agent := testAgentServer(t)
 	reg := NewRegistry("D-device01", "host1", nil)
-	reg.Register(RegisterParams{
-		Name:     "coder",
-		Endpoint: agent.URL,
-		Methods:  []MethodSpec{{Name: "search"}},
-	}, "A-agent001")
+	reg.Register(RegisterParams{Name: "coder"}, "A-agent00100000000")
+
+	var emitted []Message
+	emit := func(event string, data interface{}) {
+		if msg, ok := data.(Message); ok {
+			emitted = append(emitted, msg)
+		}
+	}
 
 	node := makeTestNode(t)
-	router := NewRouter(reg, NewCaller(), node, "D-device01", nil)
+	router := NewRouter(reg, node, emit, "D-device01", nil)
 
-	result, err := router.Call(context.Background(), CallParams{
-		Agent:  "coder",
-		Method: "search",
-	})
+	msg := Message{
+		ID:        "msg-1",
+		SessionID: "session-1",
+		To:        "coder",
+		Type:      "text",
+		Content:   json.RawMessage(`{"text":"hello"}`),
+	}
+	result, err := router.Send(context.Background(), msg)
 	if err != nil {
-		t.Fatalf("local call: %v", err)
+		t.Fatalf("local send: %v", err)
 	}
-	if result.Error != "" {
-		t.Fatalf("call error: %s", result.Error)
+	m := result.(map[string]string)
+	if m["status"] != "sent" {
+		t.Errorf("status = %s, want sent", m["status"])
 	}
-	if result.Result == nil {
-		t.Fatal("result is nil")
+	if len(emitted) != 1 {
+		t.Fatalf("emitted %d messages, want 1", len(emitted))
+	}
+	if emitted[0].To != "coder" {
+		t.Errorf("emitted to = %s, want coder", emitted[0].To)
 	}
 }
 
-func TestRouterLocalCallSelfDeviceID(t *testing.T) {
+func TestRouterSendRemote(t *testing.T) {
 	t.Parallel()
 
-	agent := testAgentServer(t)
-	reg := NewRegistry("D-device01", "host1", nil)
-	reg.Register(RegisterParams{
-		Name:     "coder",
-		Endpoint: agent.URL,
-	}, "A-agent001")
-
-	node := makeTestNode(t)
-	router := NewRouter(reg, NewCaller(), node, "D-device01", nil)
-
-	// Explicit device_id matching self should still route locally.
-	result, err := router.Call(context.Background(), CallParams{
-		Agent:    "coder",
-		DeviceID: "D-device01",
-		Method:   "search",
-	})
-	if err != nil {
-		t.Fatalf("local call with self device_id: %v", err)
-	}
-	if result.Error != "" {
-		t.Fatalf("call error: %s", result.Error)
-	}
-}
-
-func TestRouterRemoteCall(t *testing.T) {
-	t.Parallel()
-
-	// Node A: no local agents, will call remote.
+	// Node A: sender, no local agents.
 	nodeA := makeTestNode(t)
 	regA := NewRegistry("D-deviceAA", "hostA", nil)
 
-	// Node B: has a local agent.
+	// Node B: receiver, has agent.
 	nodeB := makeTestNode(t)
 	regB := NewRegistry("D-deviceBB", "hostB", nil)
-	agentSrv := testAgentServer(t)
-	regB.Register(RegisterParams{
-		Name:         "researcher",
-		Endpoint:     agentSrv.URL,
-		Capabilities: []string{"research"},
-		Methods:      []MethodSpec{{Name: "search"}},
-	}, "A-remote01")
+	regB.Register(RegisterParams{Name: "researcher"}, "A-remote0100000000")
 
-	// Register link handlers on node B so it can serve agent.call.
-	callerB := NewCaller()
-	RegisterLinkHandlers(nodeB, regB, callerB)
+	var receivedOnB []Message
+	emitB := func(event string, data interface{}) {
+		if msg, ok := data.(Message); ok {
+			receivedOnB = append(receivedOnB, msg)
+		}
+	}
+	RegisterLinkHandlers(nodeB, regB, emitB)
 
 	startNode(t, nodeA)
 	startNode(t, nodeB)
 	connectNodes(t, nodeA, nodeB)
 
-	// Set up router on A, manually cache the peer mapping.
-	routerA := NewRouter(regA, NewCaller(), nodeA, "D-deviceAA", nil)
+	routerA := NewRouter(regA, nodeA, nil, "D-deviceAA", nil)
 	routerA.cachePeer("D-deviceBB", nodeB.PeerID())
 
-	result, err := routerA.Call(context.Background(), CallParams{
-		Agent:    "researcher",
-		DeviceID: "D-deviceBB",
-		Method:   "search",
-	})
+	msg := Message{
+		ID:        "msg-remote",
+		SessionID: "session-1",
+		To:        "researcher",
+		DeviceID:  "D-deviceBB",
+		Type:      "text",
+		Content:   json.RawMessage(`{"text":"search this"}`),
+	}
+	result, err := routerA.Send(context.Background(), msg)
 	if err != nil {
-		t.Fatalf("remote call: %v", err)
+		t.Fatalf("remote send: %v", err)
 	}
-	if result.Error != "" {
-		t.Fatalf("call error: %s", result.Error)
+	m := result.(map[string]string)
+	if m["status"] != "sent" {
+		t.Errorf("status = %s, want sent", m["status"])
 	}
-
-	var got map[string]string
-	json.Unmarshal(result.Result, &got)
-	if got["answer"] != "42" {
-		t.Fatalf("got %v, want answer=42", got)
+	if len(receivedOnB) != 1 {
+		t.Fatalf("node B received %d messages, want 1", len(receivedOnB))
+	}
+	if receivedOnB[0].To != "researcher" {
+		t.Errorf("received to = %s, want researcher", receivedOnB[0].To)
 	}
 }
 
 func TestRouterListAggregation(t *testing.T) {
 	t.Parallel()
 
-	// Node A: one local agent.
 	nodeA := makeTestNode(t)
 	regA := NewRegistry("D-deviceAA", "hostA", nil)
-	agentA := testAgentServer(t)
-	regA.Register(RegisterParams{
-		Name:         "coder",
-		Endpoint:     agentA.URL,
-		Capabilities: []string{"code"},
-	}, "A-localA01")
+	regA.Register(RegisterParams{Name: "coder", Capabilities: []string{"code"}}, "A-localA0100000000")
 
-	// Node B: one local agent.
 	nodeB := makeTestNode(t)
 	regB := NewRegistry("D-deviceBB", "hostB", nil)
-	agentB := testAgentServer(t)
-	regB.Register(RegisterParams{
-		Name:         "researcher",
-		Endpoint:     agentB.URL,
-		Capabilities: []string{"research"},
-	}, "A-remoteB1")
+	regB.Register(RegisterParams{Name: "researcher", Capabilities: []string{"research"}}, "A-remoteB100000000")
 
-	RegisterLinkHandlers(nodeB, regB, NewCaller())
+	RegisterLinkHandlers(nodeB, regB, nil)
 
 	startNode(t, nodeA)
 	startNode(t, nodeB)
 	connectNodes(t, nodeA, nodeB)
 
-	routerA := NewRouter(regA, NewCaller(), nodeA, "D-deviceAA", nil)
+	routerA := NewRouter(regA, nodeA, nil, "D-deviceAA", nil)
 
 	agents := routerA.List(context.Background())
 	if len(agents) != 2 {
@@ -236,91 +180,50 @@ func TestRouterDiscover(t *testing.T) {
 
 	nodeA := makeTestNode(t)
 	regA := NewRegistry("D-deviceAA", "hostA", nil)
-	agentA := testAgentServer(t)
-	regA.Register(RegisterParams{
-		Name:         "coder",
-		Endpoint:     agentA.URL,
-		Capabilities: []string{"code"},
-	}, "A-localA01")
+	regA.Register(RegisterParams{Name: "coder", Capabilities: []string{"code"}}, "A-localA0100000000")
 
 	nodeB := makeTestNode(t)
 	regB := NewRegistry("D-deviceBB", "hostB", nil)
-	agentB := testAgentServer(t)
-	regB.Register(RegisterParams{
-		Name:         "researcher",
-		Endpoint:     agentB.URL,
-		Capabilities: []string{"research"},
-	}, "A-remoteB1")
+	regB.Register(RegisterParams{Name: "researcher", Capabilities: []string{"research"}}, "A-remoteB100000000")
 
-	RegisterLinkHandlers(nodeB, regB, NewCaller())
+	RegisterLinkHandlers(nodeB, regB, nil)
 	startNode(t, nodeA)
 	startNode(t, nodeB)
 	connectNodes(t, nodeA, nodeB)
 
-	routerA := NewRouter(regA, NewCaller(), nodeA, "D-deviceAA", nil)
+	routerA := NewRouter(regA, nodeA, nil, "D-deviceAA", nil)
 
-	// Discover "code" → only coder.
 	found := routerA.Discover(context.Background(), "code")
 	if len(found) != 1 || found[0].Name != "coder" {
 		t.Fatalf("Discover(code) = %v, want [coder]", found)
 	}
 
-	// Discover "research" → only researcher.
 	found = routerA.Discover(context.Background(), "research")
 	if len(found) != 1 || found[0].Name != "researcher" {
 		t.Fatalf("Discover(research) = %v, want [researcher]", found)
 	}
 
-	// Discover "missing" → empty.
 	found = routerA.Discover(context.Background(), "missing")
 	if len(found) != 0 {
 		t.Fatalf("Discover(missing) = %v, want []", found)
 	}
 }
 
-func TestRouterRemoteCallUnknownDevice(t *testing.T) {
+func TestRouterSendUnknownDevice(t *testing.T) {
 	t.Parallel()
 
 	node := makeTestNode(t)
 	reg := NewRegistry("D-device01", "host1", nil)
-	router := NewRouter(reg, NewCaller(), node, "D-device01", nil)
+	router := NewRouter(reg, node, nil, "D-device01", nil)
 
-	_, err := router.Call(context.Background(), CallParams{
-		Agent:    "missing",
+	msg := Message{
+		ID:       "msg-1",
+		To:       "missing",
 		DeviceID: "D-unknown0",
-		Method:   "search",
-	})
+	}
+	_, err := router.Send(context.Background(), msg)
 	if err == nil {
 		t.Fatal("expected error for unknown device")
-	}
-}
-
-func TestRouterRemoteCallAgentNotFound(t *testing.T) {
-	t.Parallel()
-
-	nodeA := makeTestNode(t)
-	regA := NewRegistry("D-deviceAA", "hostA", nil)
-
-	nodeB := makeTestNode(t)
-	regB := NewRegistry("D-deviceBB", "hostB", nil)
-	// Node B has no agents registered.
-	RegisterLinkHandlers(nodeB, regB, NewCaller())
-
-	startNode(t, nodeA)
-	startNode(t, nodeB)
-	connectNodes(t, nodeA, nodeB)
-
-	routerA := NewRouter(regA, NewCaller(), nodeA, "D-deviceAA", nil)
-	routerA.cachePeer("D-deviceBB", nodeB.PeerID())
-
-	result, err := routerA.Call(context.Background(), CallParams{
-		Agent:    "missing",
-		DeviceID: "D-deviceBB",
-		Method:   "search",
-	})
-	if err == nil && result != nil && result.Error == "" {
-		fmt.Printf("result: %+v\n", result)
-		t.Fatal("expected error for missing agent on remote device")
 	}
 }
 
@@ -332,26 +235,20 @@ func TestRouterListPopulatesPeerCache(t *testing.T) {
 
 	nodeB := makeTestNode(t)
 	regB := NewRegistry("D-deviceBB", "hostB", nil)
-	agentB := testAgentServer(t)
-	regB.Register(RegisterParams{
-		Name:     "researcher",
-		Endpoint: agentB.URL,
-	}, "A-remoteB1")
+	regB.Register(RegisterParams{Name: "researcher"}, "A-remoteB100000000")
 
-	RegisterLinkHandlers(nodeB, regB, NewCaller())
+	RegisterLinkHandlers(nodeB, regB, nil)
 	startNode(t, nodeA)
 	startNode(t, nodeB)
 	connectNodes(t, nodeA, nodeB)
 
-	routerA := NewRouter(regA, NewCaller(), nodeA, "D-deviceAA", nil)
+	routerA := NewRouter(regA, nodeA, nil, "D-deviceAA", nil)
 
-	// Before List, peer cache is empty.
 	_, ok := routerA.lookupPeer("D-deviceBB")
 	if ok {
 		t.Fatal("peer cache should be empty before List")
 	}
 
-	// List populates the cache.
 	routerA.List(context.Background())
 
 	pid, ok := routerA.lookupPeer("D-deviceBB")

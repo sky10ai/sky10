@@ -12,10 +12,11 @@ type Registry struct {
 	deviceName string
 	logger     *slog.Logger
 
-	// mu protects agents.
-	mu     sync.RWMutex
-	agents map[string]*AgentInfo // keyed by agent ID
-	byName map[string]string     // name -> agent ID
+	// mu protects agents, byName, and lastHeartbeat.
+	mu            sync.RWMutex
+	agents        map[string]*AgentInfo // keyed by agent ID
+	byName        map[string]string     // name -> agent ID
+	lastHeartbeat map[string]time.Time  // agent ID -> last heartbeat
 }
 
 // NewRegistry creates an agent registry for the given device.
@@ -24,11 +25,12 @@ func NewRegistry(deviceID, deviceName string, logger *slog.Logger) *Registry {
 		logger = slog.Default()
 	}
 	return &Registry{
-		deviceID:   deviceID,
-		deviceName: deviceName,
-		logger:     logger,
-		agents:     make(map[string]*AgentInfo),
-		byName:     make(map[string]string),
+		deviceID:      deviceID,
+		deviceName:    deviceName,
+		logger:        logger,
+		agents:        make(map[string]*AgentInfo),
+		byName:        make(map[string]string),
+		lastHeartbeat: make(map[string]time.Time),
 	}
 }
 
@@ -47,21 +49,22 @@ func (r *Registry) Register(p RegisterParams, agentID string) (*AgentInfo, error
 		delete(r.byName, p.Name)
 	}
 
+	now := time.Now().UTC()
 	info := &AgentInfo{
 		ID:           agentID,
 		Name:         p.Name,
 		DeviceID:     r.deviceID,
 		DeviceName:   r.deviceName,
-		Endpoint:     p.Endpoint,
 		Capabilities: p.Capabilities,
 		Methods:      p.Methods,
 		Status:       "connected",
-		ConnectedAt:  time.Now().UTC(),
+		ConnectedAt:  now,
 	}
 
 	r.agents[agentID] = info
 	r.byName[p.Name] = agentID
-	r.logger.Info("agent registered", "id", agentID, "name", p.Name, "endpoint", p.Endpoint)
+	r.lastHeartbeat[agentID] = now
+	r.logger.Info("agent registered", "id", agentID, "name", p.Name)
 	return info, nil
 }
 
@@ -76,7 +79,27 @@ func (r *Registry) Deregister(agentID string) {
 	}
 	delete(r.agents, agentID)
 	delete(r.byName, info.Name)
+	delete(r.lastHeartbeat, agentID)
 	r.logger.Info("agent deregistered", "id", agentID, "name", info.Name)
+}
+
+// Heartbeat records a heartbeat from an agent.
+func (r *Registry) Heartbeat(agentID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.agents[agentID]; !ok {
+		return false
+	}
+	r.lastHeartbeat[agentID] = time.Now().UTC()
+	return true
+}
+
+// LastHeartbeat returns the last heartbeat time for an agent.
+func (r *Registry) LastHeartbeat(agentID string) (time.Time, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	t, ok := r.lastHeartbeat[agentID]
+	return t, ok
 }
 
 // Get returns an agent by ID. Returns nil if not found.
@@ -133,4 +156,9 @@ func (r *Registry) Resolve(nameOrID string) *AgentInfo {
 		return info
 	}
 	return r.GetByName(nameOrID)
+}
+
+// DeviceID returns this registry's device ID.
+func (r *Registry) DeviceID() string {
+	return r.deviceID
 }

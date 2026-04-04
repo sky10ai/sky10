@@ -1,7 +1,7 @@
 // Package agent manages local agent registration and cross-device routing.
 // Agents are separate processes that register with the sky10 daemon via
-// HTTP RPC, declaring their capabilities and an HTTP callback endpoint.
-// The daemon advertises agents to the P2P swarm and routes calls.
+// HTTP RPC, declaring their capabilities. The daemon routes messages
+// between agents and humans via SSE (local) and libp2p (cross-device).
 package agent
 
 import (
@@ -29,11 +29,10 @@ type MethodSpec struct {
 
 // AgentInfo is the public view of a registered agent.
 type AgentInfo struct {
-	ID           string       `json:"id"`          // A-<8 chars>
+	ID           string       `json:"id"`          // A-<16 chars>
 	Name         string       `json:"name"`        // human-chosen name
 	DeviceID     string       `json:"device_id"`   // D-<8 chars> of hosting device
 	DeviceName   string       `json:"device_name"` // hostname of hosting device
-	Endpoint     string       `json:"endpoint"`    // HTTP RPC callback URL
 	Capabilities []string     `json:"capabilities"`
 	Methods      []MethodSpec `json:"methods,omitempty"`
 	Status       string       `json:"status"` // "connected" or "disconnected"
@@ -63,7 +62,6 @@ func (a *AgentInfo) HasCapability(cap string) bool {
 // RegisterParams is the input to agent.register.
 type RegisterParams struct {
 	Name         string       `json:"name"`
-	Endpoint     string       `json:"endpoint"` // e.g. "http://localhost:8200/rpc"
 	Capabilities []string     `json:"capabilities"`
 	Methods      []MethodSpec `json:"methods,omitempty"`
 }
@@ -79,26 +77,38 @@ type DeregisterParams struct {
 	AgentID string `json:"agent_id"`
 }
 
-// CallParams is the input to agent.call.
-type CallParams struct {
-	Agent    string          `json:"agent"`               // agent name or ID
-	DeviceID string          `json:"device_id,omitempty"` // empty = local
-	Method   string          `json:"method"`
-	Params   json.RawMessage `json:"params,omitempty"`
+// Message is a routable message between agents and/or humans. The daemon
+// routes by `To` — locally via SSE, cross-device via libp2p.
+type Message struct {
+	ID        string          `json:"id"`
+	SessionID string          `json:"session_id"`
+	From      string          `json:"from"`                // agent ID or identity address
+	To        string          `json:"to"`                  // agent ID or identity address
+	DeviceID  string          `json:"device_id,omitempty"` // target device for routing
+	Type      string          `json:"type"`                // "text", "tool_call", "diff", "permission", "done"
+	Content   json.RawMessage `json:"content"`
+	Timestamp time.Time       `json:"timestamp"`
 }
 
-// CallResult is the response from agent.call.
-type CallResult struct {
-	Result json.RawMessage `json:"result,omitempty"`
-	Error  string          `json:"error,omitempty"`
+// SendParams is the input to agent.send.
+type SendParams struct {
+	To        string          `json:"to"`                  // agent ID or identity address
+	DeviceID  string          `json:"device_id,omitempty"` // empty = local
+	SessionID string          `json:"session_id"`
+	Type      string          `json:"type"` // "text", "tool_call", "diff", "permission", "done"
+	Content   json.RawMessage `json:"content"`
 }
 
 // GenerateAgentID creates a new keypair and returns the A- prefixed ID
-// and the key. The key is persisted by the caller.
+// and the key. Uses 16 chars (80 bits) for global uniqueness.
 func GenerateAgentID() (string, *skykey.Key, error) {
 	k, err := skykey.Generate()
 	if err != nil {
 		return "", nil, err
+	}
+	addr := k.Address()
+	if len(addr) > 21 {
+		return "A-" + addr[5:21], k, nil
 	}
 	return "A-" + k.ShortID(), k, nil
 }

@@ -14,11 +14,12 @@ import (
 
 const peerQueryTimeout = 3 * time.Second
 
-// Router dispatches agent calls locally or to remote devices via skylink.
+// Router dispatches messages locally via SSE or to remote devices via
+// skylink. It also aggregates agent lists across the swarm.
 type Router struct {
 	registry *Registry
-	caller   *Caller
 	node     *link.Node
+	emit     Emitter
 	deviceID string
 	logger   *slog.Logger
 
@@ -27,62 +28,56 @@ type Router struct {
 	peerDevices map[string]peer.ID // device_id -> peer.ID
 }
 
-// NewRouter creates an agent router.
-func NewRouter(registry *Registry, caller *Caller, node *link.Node, deviceID string, logger *slog.Logger) *Router {
+// NewRouter creates a message router.
+func NewRouter(registry *Registry, node *link.Node, emit Emitter, deviceID string, logger *slog.Logger) *Router {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Router{
 		registry:    registry,
-		caller:      caller,
 		node:        node,
+		emit:        emit,
 		deviceID:    deviceID,
 		logger:      logger,
 		peerDevices: make(map[string]peer.ID),
 	}
 }
 
-// Call dispatches to a local or remote agent. If deviceID is empty or
-// matches self, the call goes to the local registry. Otherwise it routes
-// through skylink to the remote device's daemon.
-func (r *Router) Call(ctx context.Context, p CallParams) (*CallResult, error) {
-	if p.DeviceID == "" || p.DeviceID == r.deviceID {
-		return r.callLocal(ctx, p)
+// Send routes a message to the target agent or identity. Local targets
+// get an SSE event. Remote targets are forwarded via skylink.
+func (r *Router) Send(ctx context.Context, msg Message) (interface{}, error) {
+	// Try local first — check if the target is a local agent.
+	if msg.DeviceID == "" || msg.DeviceID == r.deviceID {
+		if r.registry.Resolve(msg.To) != nil {
+			if r.emit != nil {
+				r.emit("agent.message", msg)
+			}
+			return map[string]string{"id": msg.ID, "status": "sent"}, nil
+		}
+		// Not a local agent. If no device_id specified, emit locally
+		// anyway (could be a human on this device).
+		if msg.DeviceID == "" {
+			if r.emit != nil {
+				r.emit("agent.message", msg)
+			}
+			return map[string]string{"id": msg.ID, "status": "sent"}, nil
+		}
 	}
-	return r.callRemote(ctx, p)
-}
 
-func (r *Router) callLocal(ctx context.Context, p CallParams) (*CallResult, error) {
-	info := r.registry.Resolve(p.Agent)
-	if info == nil {
-		return nil, ErrAgentNotFound
-	}
-	result, err := r.caller.Call(ctx, info.Endpoint, p.Method, p.Params)
-	if err != nil {
-		return &CallResult{Error: err.Error()}, nil
-	}
-	return &CallResult{Result: result}, nil
-}
-
-func (r *Router) callRemote(ctx context.Context, p CallParams) (*CallResult, error) {
-	pid, ok := r.lookupPeer(p.DeviceID)
+	// Remote — route via skylink.
+	pid, ok := r.lookupPeer(msg.DeviceID)
 	if !ok {
-		return nil, fmt.Errorf("device %s not connected", p.DeviceID)
+		return nil, fmt.Errorf("device %s not connected", msg.DeviceID)
 	}
 
-	callCtx, cancel := context.WithTimeout(ctx, peerQueryTimeout)
+	sendCtx, cancel := context.WithTimeout(ctx, peerQueryTimeout)
 	defer cancel()
 
-	raw, err := r.node.Call(callCtx, pid, "agent.call", p)
+	_, err := r.node.Call(sendCtx, pid, "agent.send", msg)
 	if err != nil {
-		return nil, fmt.Errorf("remote call to %s: %w", p.DeviceID, err)
+		return nil, fmt.Errorf("remote send to %s: %w", msg.DeviceID, err)
 	}
-
-	var result CallResult
-	if err := json.Unmarshal(raw, &result); err != nil {
-		return nil, fmt.Errorf("parsing remote result: %w", err)
-	}
-	return &result, nil
+	return map[string]string{"id": msg.ID, "status": "sent"}, nil
 }
 
 // List returns agents from the local registry and all connected peers.

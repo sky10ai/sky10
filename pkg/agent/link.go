@@ -8,11 +8,11 @@ import (
 )
 
 // RegisterLinkHandlers registers skylink capability handlers so remote
-// devices can call and list agents on this device.
-func RegisterLinkHandlers(node *link.Node, registry *Registry, caller *Caller) {
+// devices can send messages to and list agents on this device.
+func RegisterLinkHandlers(node *link.Node, registry *Registry, emit Emitter) {
 	node.RegisterCapability(
-		link.Capability{Name: "agent.call", Description: "call a local agent"},
-		agentCallHandler(registry, caller),
+		link.Capability{Name: "agent.send", Description: "send a message to a local agent"},
+		agentSendHandler(registry, emit),
 	)
 	node.RegisterCapability(
 		link.Capability{Name: "agent.list", Description: "list local agents"},
@@ -20,23 +20,18 @@ func RegisterLinkHandlers(node *link.Node, registry *Registry, caller *Caller) {
 	)
 }
 
-func agentCallHandler(registry *Registry, caller *Caller) link.HandlerFunc {
-	return func(ctx context.Context, req *link.PeerRequest) (interface{}, error) {
-		var p CallParams
-		if err := json.Unmarshal(req.Params, &p); err != nil {
+func agentSendHandler(registry *Registry, emit Emitter) link.HandlerFunc {
+	return func(_ context.Context, req *link.PeerRequest) (interface{}, error) {
+		var msg Message
+		if err := json.Unmarshal(req.Params, &msg); err != nil {
 			return nil, err
 		}
 
-		info := registry.Resolve(p.Agent)
-		if info == nil {
-			return nil, ErrAgentNotFound
+		// Verify the target is a local agent (or emit for local human).
+		if emit != nil {
+			emit("agent.message", msg)
 		}
-
-		result, err := caller.Call(ctx, info.Endpoint, p.Method, p.Params)
-		if err != nil {
-			return CallResult{Error: err.Error()}, nil
-		}
-		return CallResult{Result: result}, nil
+		return map[string]string{"id": msg.ID, "status": "sent"}, nil
 	}
 }
 

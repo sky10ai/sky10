@@ -14,8 +14,8 @@ func TestGenerateAgentID(t *testing.T) {
 	if !strings.HasPrefix(id, "A-") {
 		t.Errorf("agent ID %q missing A- prefix", id)
 	}
-	if len(id) != 10 { // "A-" + 8 chars
-		t.Errorf("agent ID length = %d, want 10", len(id))
+	if len(id) != 18 { // "A-" + 16 chars
+		t.Errorf("agent ID length = %d, want 18", len(id))
 	}
 	if key == nil {
 		t.Fatal("key is nil")

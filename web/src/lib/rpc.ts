@@ -288,7 +288,6 @@ export interface AgentInfo {
   name: string;
   device_id: string;
   device_name: string;
-  endpoint: string;
   capabilities: string[];
   methods?: AgentMethodSpec[];
   status: string;

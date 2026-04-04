@@ -3,47 +3,13 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 )
-
-// newTestAgent starts a test HTTP server that responds to JSON-RPC calls.
-// Returns the server and its URL.
-func newTestAgent(t *testing.T, handler func(method string, params json.RawMessage) (interface{}, error)) *httptest.Server {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			JSONRPC string          `json:"jsonrpc"`
-			Method  string          `json:"method"`
-			Params  json.RawMessage `json:"params,omitempty"`
-			ID      int64           `json:"id"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		result, err := handler(req.Method, req.Params)
-
-		resp := map[string]interface{}{"jsonrpc": "2.0", "id": req.ID}
-		if err != nil {
-			resp["error"] = map[string]interface{}{"code": -32000, "message": err.Error()}
-		} else {
-			resp["result"] = result
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
-	}))
-	t.Cleanup(srv.Close)
-	return srv
-}
 
 func TestRPCDispatchPrefix(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()
-	h := NewRPCHandler(r, NewCaller(), nil)
+	h := NewRPCHandler(r, nil)
 
 	_, _, handled := h.Dispatch(context.Background(), "skyfs.list", nil)
 	if handled {
@@ -58,21 +24,12 @@ func TestRPCDispatchPrefix(t *testing.T) {
 
 func TestRPCRegisterAndList(t *testing.T) {
 	t.Parallel()
-	agent := newTestAgent(t, func(method string, _ json.RawMessage) (interface{}, error) {
-		if method == "ping" {
-			return map[string]string{"status": "ok"}, nil
-		}
-		return nil, fmt.Errorf("unknown method: %s", method)
-	})
-
 	r := newTestRegistry()
-	h := NewRPCHandler(r, NewCaller(), nil)
+	h := NewRPCHandler(r, nil)
 	ctx := context.Background()
 
-	// Register.
 	params, _ := json.Marshal(RegisterParams{
 		Name:         "coder",
-		Endpoint:     agent.URL,
 		Capabilities: []string{"code"},
 	})
 	result, err, handled := h.Dispatch(ctx, "agent.register", params)
@@ -86,6 +43,9 @@ func TestRPCRegisterAndList(t *testing.T) {
 	if reg.AgentID == "" {
 		t.Error("agent_id is empty")
 	}
+	if len(reg.AgentID) != 18 { // A- + 16
+		t.Errorf("agent_id length = %d, want 18", len(reg.AgentID))
+	}
 
 	// List.
 	result, err, _ = h.Dispatch(ctx, "agent.list", nil)
@@ -98,109 +58,103 @@ func TestRPCRegisterAndList(t *testing.T) {
 	}
 }
 
-func TestRPCRegisterUnreachable(t *testing.T) {
+func TestRPCRegisterMissingName(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()
-	h := NewRPCHandler(r, NewCaller(), nil)
+	h := NewRPCHandler(r, nil)
 
-	params, _ := json.Marshal(RegisterParams{
-		Name:     "ghost",
-		Endpoint: "http://localhost:1/rpc", // unreachable
-	})
+	params, _ := json.Marshal(RegisterParams{})
 	_, err, handled := h.Dispatch(context.Background(), "agent.register", params)
 	if !handled {
 		t.Fatal("should be handled")
 	}
 	if err == nil {
-		t.Fatal("expected error for unreachable agent")
+		t.Fatal("expected error for missing name")
 	}
 }
 
-func TestRPCCallAgent(t *testing.T) {
+func TestRPCSend(t *testing.T) {
 	t.Parallel()
-	agent := newTestAgent(t, func(method string, params json.RawMessage) (interface{}, error) {
-		switch method {
-		case "ping":
-			return map[string]string{"status": "ok"}, nil
-		case "search":
-			return map[string]string{"answer": "42"}, nil
-		default:
-			return nil, fmt.Errorf("unknown: %s", method)
-		}
-	})
-
 	r := newTestRegistry()
-	caller := NewCaller()
-	h := NewRPCHandler(r, caller, nil)
+
+	var emitted []interface{}
+	emit := func(event string, data interface{}) {
+		emitted = append(emitted, data)
+	}
+
+	h := NewRPCHandler(r, emit)
 	ctx := context.Background()
 
-	// Register agent.
-	regParams, _ := json.Marshal(RegisterParams{
-		Name:     "researcher",
-		Endpoint: agent.URL,
-		Methods:  []MethodSpec{{Name: "search"}},
-	})
-	result, err, _ := h.Dispatch(ctx, "agent.register", regParams)
-	if err != nil {
-		t.Fatalf("register: %v", err)
-	}
-	agentID := result.(RegisterResult).AgentID
+	// Register an agent so there's a local target.
+	regParams, _ := json.Marshal(RegisterParams{Name: "coder"})
+	h.Dispatch(ctx, "agent.register", regParams)
 
-	// Call by name.
-	callParams, _ := json.Marshal(CallParams{
-		Agent:  "researcher",
-		Method: "search",
+	// Send a message to the agent.
+	sendParams, _ := json.Marshal(SendParams{
+		To:        "coder",
+		SessionID: "session-1",
+		Type:      "text",
+		Content:   json.RawMessage(`{"text":"hello agent"}`),
 	})
-	result, err, _ = h.Dispatch(ctx, "agent.call", callParams)
-	if err != nil {
-		t.Fatalf("call by name: %v", err)
-	}
-	cr := result.(*CallResult)
-	if cr.Error != "" {
-		t.Fatalf("call error: %s", cr.Error)
-	}
-	if cr.Result == nil {
-		t.Fatal("result is nil")
+	result, err, handled := h.Dispatch(ctx, "agent.send", sendParams)
+	if !handled || err != nil {
+		t.Fatalf("send: handled=%v, err=%v", handled, err)
 	}
 
-	// Call by ID.
-	callParams, _ = json.Marshal(CallParams{
-		Agent:  agentID,
-		Method: "search",
-	})
-	result, err, _ = h.Dispatch(ctx, "agent.call", callParams)
-	if err != nil {
-		t.Fatalf("call by ID: %v", err)
+	// Check we got a message ID back.
+	m := result.(map[string]string)
+	if m["status"] != "sent" {
+		t.Errorf("status = %s, want sent", m["status"])
 	}
-	cr = result.(*CallResult)
-	if cr.Error != "" {
-		t.Fatalf("call error: %s", cr.Error)
+	if m["id"] == "" {
+		t.Error("message id is empty")
+	}
+
+	// Check SSE event was emitted (register + message = at least 2 events).
+	found := false
+	for _, e := range emitted {
+		if msg, ok := e.(Message); ok && msg.To == "coder" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected agent.message SSE event for coder")
 	}
 }
 
-func TestRPCCallAgentNotFound(t *testing.T) {
+func TestRPCHeartbeat(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()
-	h := NewRPCHandler(r, NewCaller(), nil)
+	h := NewRPCHandler(r, nil)
+	ctx := context.Background()
 
-	params, _ := json.Marshal(CallParams{Agent: "missing", Method: "search"})
-	_, err, _ := h.Dispatch(context.Background(), "agent.call", params)
+	// Register.
+	regParams, _ := json.Marshal(RegisterParams{Name: "coder"})
+	result, _, _ := h.Dispatch(ctx, "agent.register", regParams)
+	agentID := result.(RegisterResult).AgentID
+
+	// Heartbeat.
+	hbParams, _ := json.Marshal(map[string]string{"agent_id": agentID})
+	_, err, handled := h.Dispatch(ctx, "agent.heartbeat", hbParams)
+	if !handled || err != nil {
+		t.Fatalf("heartbeat: handled=%v, err=%v", handled, err)
+	}
+
+	// Heartbeat for missing agent.
+	hbParams, _ = json.Marshal(map[string]string{"agent_id": "A-missing000000000"})
+	_, err, _ = h.Dispatch(ctx, "agent.heartbeat", hbParams)
 	if err != ErrAgentNotFound {
-		t.Errorf("err = %v, want ErrAgentNotFound", err)
+		t.Errorf("heartbeat missing: err = %v, want ErrAgentNotFound", err)
 	}
 }
 
 func TestRPCDeregister(t *testing.T) {
 	t.Parallel()
-	agent := newTestAgent(t, func(method string, _ json.RawMessage) (interface{}, error) {
-		return map[string]string{"status": "ok"}, nil
-	})
-
 	r := newTestRegistry()
-	h := NewRPCHandler(r, NewCaller(), nil)
+	h := NewRPCHandler(r, nil)
 	ctx := context.Background()
 
-	regParams, _ := json.Marshal(RegisterParams{Name: "tmp", Endpoint: agent.URL})
+	regParams, _ := json.Marshal(RegisterParams{Name: "tmp"})
 	result, _, _ := h.Dispatch(ctx, "agent.register", regParams)
 	agentID := result.(RegisterResult).AgentID
 
@@ -214,22 +168,36 @@ func TestRPCDeregister(t *testing.T) {
 	}
 }
 
-func TestRPCStatus(t *testing.T) {
+func TestRPCDiscover(t *testing.T) {
 	t.Parallel()
-	agent := newTestAgent(t, func(string, json.RawMessage) (interface{}, error) {
-		return map[string]string{"status": "ok"}, nil
-	})
-
 	r := newTestRegistry()
-	h := NewRPCHandler(r, NewCaller(), nil)
+	h := NewRPCHandler(r, nil)
 	ctx := context.Background()
 
-	regParams, _ := json.Marshal(RegisterParams{
+	r.Register(RegisterParams{Name: "coder", Capabilities: []string{"code"}}, "A-coder00000000000")
+	r.Register(RegisterParams{Name: "tester", Capabilities: []string{"test"}}, "A-tester0000000000")
+
+	params, _ := json.Marshal(map[string]string{"capability": "code"})
+	result, err, _ := h.Dispatch(ctx, "agent.discover", params)
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	disc := result.(map[string]interface{})
+	if disc["count"].(int) != 1 {
+		t.Errorf("discover count = %v, want 1", disc["count"])
+	}
+}
+
+func TestRPCStatus(t *testing.T) {
+	t.Parallel()
+	r := newTestRegistry()
+	h := NewRPCHandler(r, nil)
+	ctx := context.Background()
+
+	r.Register(RegisterParams{
 		Name:         "coder",
-		Endpoint:     agent.URL,
 		Capabilities: []string{"code", "test"},
-	})
-	h.Dispatch(ctx, "agent.register", regParams)
+	}, "A-coder00000000000")
 
 	result, err, _ := h.Dispatch(ctx, "agent.status", nil)
 	if err != nil {

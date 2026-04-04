@@ -3,6 +3,7 @@ package agent
 import (
 	"sync"
 	"testing"
+	"time"
 )
 
 func newTestRegistry() *Registry {
@@ -15,14 +16,13 @@ func TestRegistryRegisterAndList(t *testing.T) {
 
 	info, err := r.Register(RegisterParams{
 		Name:         "coder",
-		Endpoint:     "http://localhost:8200/rpc",
 		Capabilities: []string{"code", "test"},
-	}, "A-abc12345")
+	}, "A-abc1234567890123")
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	if info.ID != "A-abc12345" {
-		t.Errorf("ID = %s, want A-abc12345", info.ID)
+	if info.ID != "A-abc1234567890123" {
+		t.Errorf("ID = %s, want A-abc1234567890123", info.ID)
 	}
 	if info.DeviceID != "D-testdev1" {
 		t.Errorf("DeviceID = %s, want D-testdev1", info.DeviceID)
@@ -44,12 +44,12 @@ func TestRegistryDuplicateName(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()
 
-	_, err := r.Register(RegisterParams{Name: "coder", Endpoint: "http://localhost:8200/rpc"}, "A-first000")
+	_, err := r.Register(RegisterParams{Name: "coder"}, "A-first00000000000")
 	if err != nil {
 		t.Fatalf("first Register: %v", err)
 	}
 
-	_, err = r.Register(RegisterParams{Name: "coder", Endpoint: "http://localhost:8201/rpc"}, "A-second00")
+	_, err = r.Register(RegisterParams{Name: "coder"}, "A-second0000000000")
 	if err != ErrDuplicateName {
 		t.Errorf("second Register error = %v, want ErrDuplicateName", err)
 	}
@@ -59,13 +59,13 @@ func TestRegistryDeregister(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()
 
-	r.Register(RegisterParams{Name: "coder", Endpoint: "http://localhost:8200/rpc"}, "A-abc12345")
-	r.Deregister("A-abc12345")
+	r.Register(RegisterParams{Name: "coder"}, "A-abc1234567890123")
+	r.Deregister("A-abc1234567890123")
 
 	if r.Len() != 0 {
 		t.Errorf("Len() = %d after deregister, want 0", r.Len())
 	}
-	if r.Get("A-abc12345") != nil {
+	if r.Get("A-abc1234567890123") != nil {
 		t.Error("Get returned non-nil after deregister")
 	}
 	if r.GetByName("coder") != nil {
@@ -77,11 +77,10 @@ func TestRegistryReregisterAfterDeregister(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()
 
-	r.Register(RegisterParams{Name: "coder", Endpoint: "http://localhost:8200/rpc"}, "A-first000")
-	r.Deregister("A-first000")
+	r.Register(RegisterParams{Name: "coder"}, "A-first00000000000")
+	r.Deregister("A-first00000000000")
 
-	// Should succeed — name is free again.
-	_, err := r.Register(RegisterParams{Name: "coder", Endpoint: "http://localhost:8201/rpc"}, "A-second00")
+	_, err := r.Register(RegisterParams{Name: "coder"}, "A-second0000000000")
 	if err != nil {
 		t.Fatalf("re-register after deregister: %v", err)
 	}
@@ -94,14 +93,14 @@ func TestRegistryGetByName(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()
 
-	r.Register(RegisterParams{Name: "coder", Endpoint: "http://localhost:8200/rpc"}, "A-abc12345")
+	r.Register(RegisterParams{Name: "coder"}, "A-abc1234567890123")
 
 	info := r.GetByName("coder")
 	if info == nil {
 		t.Fatal("GetByName returned nil")
 	}
-	if info.ID != "A-abc12345" {
-		t.Errorf("ID = %s, want A-abc12345", info.ID)
+	if info.ID != "A-abc1234567890123" {
+		t.Errorf("ID = %s, want A-abc1234567890123", info.ID)
 	}
 
 	if r.GetByName("missing") != nil {
@@ -113,19 +112,38 @@ func TestRegistryResolve(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()
 
-	r.Register(RegisterParams{Name: "coder", Endpoint: "http://localhost:8200/rpc"}, "A-abc12345")
+	r.Register(RegisterParams{Name: "coder"}, "A-abc1234567890123")
 
-	// Resolve by ID.
-	if info := r.Resolve("A-abc12345"); info == nil || info.Name != "coder" {
+	if info := r.Resolve("A-abc1234567890123"); info == nil || info.Name != "coder" {
 		t.Error("Resolve by ID failed")
 	}
-	// Resolve by name.
-	if info := r.Resolve("coder"); info == nil || info.ID != "A-abc12345" {
+	if info := r.Resolve("coder"); info == nil || info.ID != "A-abc1234567890123" {
 		t.Error("Resolve by name failed")
 	}
-	// Resolve missing.
 	if r.Resolve("missing") != nil {
 		t.Error("Resolve(missing) returned non-nil")
+	}
+}
+
+func TestRegistryHeartbeat(t *testing.T) {
+	t.Parallel()
+	r := newTestRegistry()
+
+	r.Register(RegisterParams{Name: "coder"}, "A-abc1234567890123")
+
+	if !r.Heartbeat("A-abc1234567890123") {
+		t.Error("Heartbeat for existing agent returned false")
+	}
+	if r.Heartbeat("A-missing000000000") {
+		t.Error("Heartbeat for missing agent returned true")
+	}
+
+	last, ok := r.LastHeartbeat("A-abc1234567890123")
+	if !ok {
+		t.Fatal("LastHeartbeat returned false for existing agent")
+	}
+	if time.Since(last) > time.Second {
+		t.Errorf("LastHeartbeat too old: %v", last)
 	}
 }
 
@@ -140,9 +158,10 @@ func TestRegistryConcurrent(t *testing.T) {
 			defer wg.Done()
 			id, _, _ := GenerateAgentID()
 			name := "agent-" + id
-			r.Register(RegisterParams{Name: name, Endpoint: "http://localhost:8200/rpc"}, id)
+			r.Register(RegisterParams{Name: name}, id)
 			r.List()
 			r.Resolve(name)
+			r.Heartbeat(id)
 			r.Deregister(id)
 		}(i)
 	}
