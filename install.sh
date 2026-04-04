@@ -1,14 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-# Do NOT run this script with sudo. It installs to ~/.bin (no root needed).
-# The script will use sudo only when removing old root-owned files.
-if [ "$(id -u)" -eq 0 ]; then
-  echo "Do not run this script as root or with sudo."
-  echo "Run: curl -fsSL https://raw.githubusercontent.com/sky10ai/sky10/main/install.sh | bash"
-  exit 1
-fi
-
 REPO="sky10ai/sky10"
 BINARY="sky10"
 INSTALL_DIR="$HOME/.bin"
@@ -38,9 +30,15 @@ esac
 # Clean up old install locations before installing
 OLD_BIN="/usr/local/bin/${BINARY}"
 if [ -f "$OLD_BIN" ]; then
-  echo "Found old install at ${OLD_BIN} — removing..."
-  sudo rm -f "$OLD_BIN"
-  echo "Removed ${OLD_BIN}"
+  if [ -w "$OLD_BIN" ]; then
+    rm -f "$OLD_BIN"
+    echo "Removed old install at ${OLD_BIN}"
+  else
+    echo ""
+    echo "WARNING: Old install found at ${OLD_BIN} (owned by root)."
+    echo "Remove it manually:  sudo rm ${OLD_BIN}"
+    echo ""
+  fi
 fi
 
 if [ "$OS" = "darwin" ] && command -v brew >/dev/null 2>&1; then
