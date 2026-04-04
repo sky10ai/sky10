@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router";
+import Markdown from "react-markdown";
 import { Icon } from "../components/Icon";
 import { StatusBadge } from "../components/StatusBadge";
 import { AGENT_EVENT_TYPES } from "../lib/events";
@@ -194,15 +195,45 @@ export default function AgentChat() {
               className={`flex ${msg.from === "user" ? "justify-end" : "justify-start"}`}
             >
               <div
-                className={`max-w-[70%] rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap ${
+                className={`max-w-[70%] rounded-2xl px-4 py-3 text-sm ${
                   msg.from === "user"
-                    ? "bg-primary text-on-primary rounded-br-md"
+                    ? "bg-primary text-on-primary rounded-br-md whitespace-pre-wrap"
                     : msg.type === "error"
-                      ? "bg-error-container/20 text-error rounded-bl-md"
+                      ? "bg-error-container/20 text-error rounded-bl-md whitespace-pre-wrap"
                       : "bg-surface-container-lowest ring-1 ring-outline-variant/10 text-on-surface rounded-bl-md"
                 }`}
               >
-                {msg.content}
+                {msg.from === "agent" && msg.type !== "error" ? (
+                  <Markdown
+                    components={{
+                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc ml-4 mb-2">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal ml-4 mb-2">{children}</ol>,
+                      li: ({ children }) => <li className="mb-0.5">{children}</li>,
+                      code: ({ children, className }) =>
+                        className ? (
+                          <pre className="bg-surface-container rounded-lg p-3 my-2 overflow-x-auto text-xs">
+                            <code>{children}</code>
+                          </pre>
+                        ) : (
+                          <code className="bg-surface-container rounded px-1.5 py-0.5 text-xs">{children}</code>
+                        ),
+                      h1: ({ children }) => <h1 className="text-base font-bold mb-2">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-sm font-bold mb-1.5">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1">{children}</h3>,
+                      strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                      a: ({ href, children }) => (
+                        <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                          {children}
+                        </a>
+                      ),
+                    }}
+                  >
+                    {msg.content}
+                  </Markdown>
+                ) : (
+                  msg.content
+                )}
               </div>
             </div>
             {msg.from === "user" && msg.delivered && (
