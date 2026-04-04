@@ -106,6 +106,12 @@ export const identity = {
   devices: () => rpc<IdentityDevices>("identity.devices"),
 };
 
+// -- agent --
+export const agent = {
+  list: () => rpc<AgentListResult>("agent.list"),
+  status: () => rpc<AgentStatus>("agent.status"),
+};
+
 // ---- Types matching actual daemon responses ----
 
 export interface HealthResult {
@@ -270,4 +276,31 @@ export interface SyncActivityEntry {
 
 export interface SyncActivityResult {
   pending: SyncActivityEntry[];
+}
+
+export interface AgentMethodSpec {
+  name: string;
+  description?: string;
+}
+
+export interface AgentInfo {
+  id: string;
+  name: string;
+  device_id: string;
+  device_name: string;
+  endpoint: string;
+  capabilities: string[];
+  methods?: AgentMethodSpec[];
+  status: string;
+  connected_at: string;
+}
+
+export interface AgentListResult {
+  agents: AgentInfo[];
+  count: number;
+}
+
+export interface AgentStatus {
+  agents: number;
+  capabilities: string[];
 }
