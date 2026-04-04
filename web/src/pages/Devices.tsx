@@ -128,7 +128,7 @@ export default function Devices() {
                 <div className="flex items-center justify-between text-xs py-2 border-b border-surface-container-high">
                   <span className="text-secondary font-medium">Version</span>
                   <span className="text-on-surface font-mono text-[11px]">
-                    {device.version.split(" ")[0]}
+                    {(device.version || "—").split(" ")[0]}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-xs py-2">
