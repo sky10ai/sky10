@@ -14,12 +14,12 @@ use tauri::{
 
 static RPC_ID: AtomicU32 = AtomicU32::new(1);
 
-// Tray icon SVGs embedded at compile time.
-const ICON_CONNECTED: &[u8] = include_bytes!("../icons/tray/connected.svg");
-const ICON_DISCONNECTED: &[u8] = include_bytes!("../icons/tray/disconnected.svg");
-const ICON_UPDATE: &[u8] = include_bytes!("../icons/tray/update.svg");
-const ICON_SYNCING: &[u8] = include_bytes!("../icons/tray/syncing.svg");
-const ICON_ERROR: &[u8] = include_bytes!("../icons/tray/error.svg");
+// Tray icon PNGs embedded at compile time.
+const ICON_CONNECTED: &[u8] = include_bytes!("../icons/tray/connected.png");
+const ICON_DISCONNECTED: &[u8] = include_bytes!("../icons/tray/disconnected.png");
+const ICON_UPDATE: &[u8] = include_bytes!("../icons/tray/update.png");
+const ICON_SYNCING: &[u8] = include_bytes!("../icons/tray/syncing.png");
+const ICON_ERROR: &[u8] = include_bytes!("../icons/tray/error.png");
 
 // --- RPC helpers ---
 
@@ -202,8 +202,8 @@ fn icon_for_state(state: &TrayState) -> &'static [u8] {
 }
 
 fn set_tray_state(tray: &TrayIcon, state: &TrayState) {
-    let svg = icon_for_state(state);
-    if let Ok(img) = Image::from_bytes(svg) {
+    let bytes = icon_for_state(state);
+    if let Ok(img) = Image::from_png_bytes(bytes) {
         let _ = tray.set_icon(Some(img));
     }
 
@@ -227,7 +227,7 @@ fn main() {
             let menu = build_menu(app, &info)?;
 
             let tray = TrayIconBuilder::new()
-                .icon(Image::from_bytes(icon_for_state(&info.state))?)
+                .icon(Image::from_png_bytes(icon_for_state(&info.state))?)
                 .menu(&menu)
                 .tooltip("sky10")
                 .on_menu_event(|app, event| match event.id().as_ref() {
