@@ -75,6 +75,19 @@ fi
 
 echo "sky10 ${LATEST} installed to ${INSTALL_DIR}/${BINARY}"
 
+# Download sky10-menu (system tray app) — optional, don't fail if missing
+MENU_ASSET="sky10-menu-${OS}-${ARCH}"
+MENU_URL="https://github.com/${REPO}/releases/download/${LATEST}/${MENU_ASSET}"
+MENU_TMP=$(mktemp)
+if curl -fsSL "$MENU_URL" -o "$MENU_TMP" 2>/dev/null; then
+  chmod +x "$MENU_TMP"
+  mv "$MENU_TMP" "${INSTALL_DIR}/sky10-menu"
+  echo "sky10-menu installed to ${INSTALL_DIR}/sky10-menu"
+else
+  rm -f "$MENU_TMP"
+  echo "sky10-menu not available for ${OS}/${ARCH} (skipping)"
+fi
+
 # Clean up old install location if present
 OLD_BIN="/usr/local/bin/${BINARY}"
 if [ -f "$OLD_BIN" ] && [ "$OLD_BIN" != "${INSTALL_DIR}/${BINARY}" ]; then
