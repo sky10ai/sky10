@@ -1,10 +1,17 @@
 #!/bin/bash
 set -euo pipefail
 
+# Do NOT run this script with sudo. It installs to ~/.bin (no root needed).
+# The script will use sudo only when removing old root-owned files.
+if [ "$(id -u)" -eq 0 ]; then
+  echo "Do not run this script as root or with sudo."
+  echo "Run: curl -fsSL https://raw.githubusercontent.com/sky10ai/sky10/main/install.sh | bash"
+  exit 1
+fi
+
 REPO="sky10ai/sky10"
 BINARY="sky10"
 INSTALL_DIR="$HOME/.bin"
-LOG_DIR="/tmp/sky10"
 
 # Detect OS
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -27,6 +34,22 @@ case "$ARCH" in
     exit 1
     ;;
 esac
+
+# Clean up old install locations before installing
+OLD_BIN="/usr/local/bin/${BINARY}"
+if [ -f "$OLD_BIN" ]; then
+  echo "Found old install at ${OLD_BIN} — removing..."
+  sudo rm -f "$OLD_BIN"
+  echo "Removed ${OLD_BIN}"
+fi
+
+if [ "$OS" = "darwin" ] && command -v brew >/dev/null 2>&1; then
+  if brew list sky10 >/dev/null 2>&1; then
+    echo "Found Homebrew install — removing..."
+    brew uninstall sky10 2>/dev/null || true
+    echo "Removed Homebrew sky10"
+  fi
+fi
 
 ASSET="${BINARY}-${OS}-${ARCH}"
 echo "Installing sky10 (${OS}/${ARCH})..."
@@ -86,29 +109,6 @@ if curl -fsSL "$MENU_URL" -o "$MENU_TMP" 2>/dev/null; then
 else
   rm -f "$MENU_TMP"
   echo "sky10-menu not available for ${OS}/${ARCH} (skipping)"
-fi
-
-# Clean up old install location if present
-OLD_BIN="/usr/local/bin/${BINARY}"
-if [ -f "$OLD_BIN" ] && [ "$OLD_BIN" != "${INSTALL_DIR}/${BINARY}" ]; then
-  echo ""
-  echo "Found old install at ${OLD_BIN} — removing..."
-  if [ -w "$OLD_BIN" ]; then
-    rm -f "$OLD_BIN"
-  else
-    sudo rm -f "$OLD_BIN"
-  fi
-  echo "Removed ${OLD_BIN}"
-fi
-
-# On macOS, clean up old Homebrew install if present
-if [ "$OS" = "darwin" ] && command -v brew >/dev/null 2>&1; then
-  if brew list sky10 >/dev/null 2>&1; then
-    echo ""
-    echo "Found Homebrew install — removing..."
-    brew uninstall sky10 2>/dev/null || true
-    echo "Removed Homebrew sky10"
-  fi
 fi
 
 # Install daemon as a system service (launchd on macOS, systemd on Linux)
