@@ -62,10 +62,10 @@ fi
 
 echo "sky10 ${LATEST} installed to ${INSTALL_DIR}/${BINARY}"
 
-# On Debian/Ubuntu: install systemd service for background daemon
-if [ "$OS" = "linux" ] && command -v dpkg >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1; then
+# On Linux with systemd: install service for background daemon
+if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
   echo ""
-  echo "Debian-based system detected — setting up systemd service..."
+  echo "Setting up systemd service..."
 
   mkdir -p "$LOG_DIR"
 
