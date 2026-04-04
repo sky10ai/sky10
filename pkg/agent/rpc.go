@@ -10,12 +10,16 @@ import (
 // Emitter sends SSE events to connected subscribers.
 type Emitter func(event string, data interface{})
 
+// PeerNotifier broadcasts agent events to connected devices.
+type PeerNotifier func(ctx context.Context, topic string)
+
 // RPCHandler dispatches agent.* RPC methods.
 type RPCHandler struct {
 	registry *Registry
 	caller   *Caller
 	router   *Router // nil until cross-device wiring (Phase 2)
 	emit     Emitter
+	notify   PeerNotifier // broadcasts to own devices via skylink
 }
 
 // NewRPCHandler creates an agent RPC handler.
@@ -27,6 +31,12 @@ func NewRPCHandler(registry *Registry, caller *Caller, emit Emitter) *RPCHandler
 // agent.list use the router for remote dispatch and aggregation.
 func (h *RPCHandler) SetRouter(r *Router) {
 	h.router = r
+}
+
+// SetPeerNotifier attaches a function that broadcasts agent events to
+// connected devices (e.g. linkNode.NotifyOwn).
+func (h *RPCHandler) SetPeerNotifier(fn PeerNotifier) {
+	h.notify = fn
 }
 
 // Dispatch handles agent.* methods.
@@ -93,6 +103,9 @@ func (h *RPCHandler) rpcRegister(ctx context.Context, params json.RawMessage) (i
 			"capabilities": info.Capabilities,
 		})
 	}
+	if h.notify != nil {
+		go h.notify(context.Background(), "agent:connected")
+	}
 
 	return RegisterResult{AgentID: agentID, Status: "registered"}, nil
 }
@@ -115,6 +128,9 @@ func (h *RPCHandler) rpcDeregister(_ context.Context, params json.RawMessage) (i
 			"name":      info.Name,
 			"device_id": info.DeviceID,
 		})
+	}
+	if h.notify != nil {
+		go h.notify(context.Background(), "agent:disconnected")
 	}
 
 	return map[string]string{"status": "ok"}, nil

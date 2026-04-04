@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -130,6 +131,9 @@ func ServeCmd() *cobra.Command {
 			skyagent.RegisterLinkHandlers(linkNode, agentRegistry, agentCaller)
 			agentRouter := skyagent.NewRouter(agentRegistry, agentCaller, linkNode, bundle.DeviceID(), nil)
 			agentRPC.SetRouter(agentRouter)
+			agentRPC.SetPeerNotifier(func(ctx context.Context, topic string) {
+				linkNode.NotifyOwn(ctx, topic)
+			})
 			go skyagent.NewHealthChecker(agentRegistry, agentCaller, server.Emit, nil).Run(ctx)
 
 			// Show connected P2P peers in device list.
@@ -150,8 +154,12 @@ func ServeCmd() *cobra.Command {
 				linkNode.NotifyOwn(ctx, "kv:"+ns)
 			})
 			linkNode.OnSyncNotify(func(from peer.ID, topic string) {
-				if topic == "kv:default" {
+				switch {
+				case topic == "kv:default":
 					kvStore.Poke()
+				case strings.HasPrefix(topic, "agent:"):
+					// Remote device agent change — emit SSE so web UI refreshes.
+					server.Emit(topic, map[string]string{"from": from.String()})
 				}
 			})
 
