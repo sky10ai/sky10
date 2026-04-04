@@ -155,8 +155,9 @@ func (r *Resolver) resolveFromBucket(ctx context.Context, address string) (*peer
 }
 
 // AutoConnect discovers own devices and connects to them via their published
-// multiaddrs. Tries S3 device registry (if backend is non-nil) and Nostr
-// relays. Skips self by comparing peer IDs.
+// multiaddrs. Tries S3 device registry (if backend is non-nil), Nostr
+// relays, and DHT FindPeer using device public keys from the manifest.
+// Skips self by comparing peer IDs.
 func AutoConnect(ctx context.Context, node *Node, backend adapter.Backend, nostrRelays []string) {
 	selfPeerID := node.PeerID().String()
 
@@ -169,6 +170,9 @@ func AutoConnect(ctx context.Context, node *Node, backend adapter.Backend, nostr
 	if len(nostrRelays) > 0 {
 		autoConnectFromNostr(ctx, node, nostrRelays, selfPeerID)
 	}
+
+	// Layer 3: DHT FindPeer — compute peer IDs from manifest device keys.
+	autoConnectFromManifest(ctx, node, selfPeerID)
 }
 
 func autoConnectFromS3(ctx context.Context, node *Node, backend adapter.Backend, selfPeerID string) {
@@ -208,6 +212,50 @@ func autoConnectFromNostr(ctx context.Context, node *Node, relays []string, self
 	}
 	for _, addrs := range allAddrs {
 		connectMultiaddrs(ctx, node, "nostr-peer", addrs, selfPeerID)
+	}
+}
+
+func autoConnectFromManifest(ctx context.Context, node *Node, selfPeerID string) {
+	manifest := node.Bundle().Manifest
+	if manifest == nil {
+		return
+	}
+	if node.dht == nil {
+		node.logger.Debug("auto-connect: no DHT, skipping manifest discovery")
+		return
+	}
+	for _, dev := range manifest.Devices {
+		pid, err := PeerIDFromPubKey(dev.PublicKey)
+		if err != nil {
+			continue
+		}
+		if pid.String() == selfPeerID {
+			continue
+		}
+		// Already connected?
+		if node.host.Network().Connectedness(pid) == 1 { // Connected
+			continue
+		}
+		info, err := node.dht.FindPeer(ctx, pid)
+		if err != nil {
+			node.logger.Debug("auto-connect: DHT FindPeer failed",
+				"device", dev.Name,
+				"peer_id", pid.String()[:16],
+				"error", err,
+			)
+			continue
+		}
+		if err := node.host.Connect(ctx, info); err != nil {
+			node.logger.Debug("auto-connect: manifest peer connect failed",
+				"device", dev.Name,
+				"error", err,
+			)
+			continue
+		}
+		node.logger.Info("auto-connected via DHT FindPeer",
+			"device", dev.Name,
+			"peer_id", pid.String()[:16],
+		)
 	}
 }
 

@@ -33,11 +33,16 @@ func Libp2pPubKey(pub ed25519.PublicKey) (libcrypto.PubKey, error) {
 
 // PeerIDFromKey derives a libp2p peer ID from a sky10 key.
 func PeerIDFromKey(k *skykey.Key) (peer.ID, error) {
-	pub, err := Libp2pPubKey(k.PublicKey)
+	return PeerIDFromPubKey(k.PublicKey)
+}
+
+// PeerIDFromPubKey derives a libp2p peer ID from a raw Ed25519 public key.
+func PeerIDFromPubKey(pub ed25519.PublicKey) (peer.ID, error) {
+	libpub, err := Libp2pPubKey(pub)
 	if err != nil {
 		return "", err
 	}
-	id, err := peer.IDFromPublicKey(pub)
+	id, err := peer.IDFromPublicKey(libpub)
 	if err != nil {
 		return "", fmt.Errorf("deriving peer ID: %w", err)
 	}

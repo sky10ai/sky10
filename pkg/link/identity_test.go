@@ -69,3 +69,16 @@ func TestPeerIDMatchesPublicKey(t *testing.T) {
 		t.Fatal("peer ID does not match public key")
 	}
 }
+
+// TestPeerIDFromPubKey verifies that PeerIDFromPubKey produces the same
+// peer ID as PeerIDFromKey — so manifest device public keys can be used
+// to compute peer IDs for DHT FindPeer without the private key.
+func TestPeerIDFromPubKey(t *testing.T) {
+	t.Parallel()
+	k, _ := skykey.Generate()
+	fromKey, _ := PeerIDFromKey(k)
+	fromPub, _ := PeerIDFromPubKey(k.PublicKey)
+	if fromKey != fromPub {
+		t.Errorf("PeerIDFromKey=%s != PeerIDFromPubKey=%s", fromKey, fromPub)
+	}
+}
