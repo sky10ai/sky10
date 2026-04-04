@@ -26,11 +26,11 @@ export default function InviteDevice() {
         {/* Editorial header */}
         <div className="mb-16">
           <h1 className="text-[3.5rem] font-bold tracking-tight text-on-surface leading-tight max-w-2xl">
-            Expand Your <span className="text-primary">Ethereal Vault</span>
+            Expand <span className="text-primary">sky10</span>
           </h1>
           <p className="text-outline text-lg mt-4 max-w-xl">
-            Bring a new node into your secure mesh. Our multi-step handshake
-            ensures your data remains encapsulated and private during transit.
+            Add another device to your network. Share the invite code and
+            they'll sync automatically over P2P.
           </p>
         </div>
 
