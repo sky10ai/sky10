@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync/atomic"
 )
@@ -71,6 +72,11 @@ func (h *RPCHandler) rpcUpdate() (interface{}, error, bool) {
 			h.emit("update:error", map[string]string{"message": err.Error()})
 			return
 		}
+
+		if err := ApplyMenu(info); err != nil {
+			slog.Warn("could not update sky10-menu", "error", err)
+		}
+
 		h.emit("update:complete", map[string]string{
 			"previous": info.Current,
 			"updated":  info.Latest,

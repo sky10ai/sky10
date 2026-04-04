@@ -61,11 +61,13 @@ func TestCheckUpToDate(t *testing.T) {
 
 func TestCheckUpdateAvailable(t *testing.T) {
 	asset := fmt.Sprintf("sky10-%s-%s", runtime.GOOS, runtime.GOARCH)
+	menuAsset := fmt.Sprintf("sky10-menu-%s-%s", runtime.GOOS, runtime.GOARCH)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"tag_name": "v2.0.0",
 			"assets": []map[string]string{
 				{"name": asset, "browser_download_url": "https://example.com/" + asset},
+				{"name": menuAsset, "browser_download_url": "https://example.com/" + menuAsset},
 			},
 		})
 	}))
@@ -87,6 +89,9 @@ func TestCheckUpdateAvailable(t *testing.T) {
 	}
 	if info.AssetURL == "" {
 		t.Error("expected asset URL for current platform")
+	}
+	if info.MenuAssetURL == "" {
+		t.Error("expected menu asset URL for current platform")
 	}
 }
 

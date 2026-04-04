@@ -41,6 +41,12 @@ func UpdateCmd() *cobra.Command {
 				return err
 			}
 
+			if err := update.ApplyMenu(info); err != nil {
+				fmt.Printf("warning: could not update sky10-menu: %v\n", err)
+			} else if info.MenuAssetURL != "" {
+				fmt.Println("sky10-menu updated")
+			}
+
 			fmt.Printf("updated to %s\nrestart the daemon to use the new version\n", info.Latest)
 			return nil
 		},

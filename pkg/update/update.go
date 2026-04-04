@@ -27,10 +27,11 @@ type ProgressFunc func(downloaded, total int64)
 
 // Info holds version information for an update check.
 type Info struct {
-	Current   string `json:"current"`
-	Latest    string `json:"latest"`
-	Available bool   `json:"available"`
-	AssetURL  string `json:"asset_url,omitempty"`
+	Current      string `json:"current"`
+	Latest       string `json:"latest"`
+	Available    bool   `json:"available"`
+	AssetURL     string `json:"asset_url,omitempty"`
+	MenuAssetURL string `json:"menu_asset_url,omitempty"`
 }
 
 // Check queries GitHub for the latest release and compares to current.
@@ -63,10 +64,13 @@ func Check(currentVersion string) (*Info, error) {
 	}
 
 	asset := fmt.Sprintf("sky10-%s-%s", runtime.GOOS, runtime.GOARCH)
+	menuAsset := fmt.Sprintf("sky10-menu-%s-%s", runtime.GOOS, runtime.GOARCH)
 	for _, a := range release.Assets {
 		if a.Name == asset {
 			info.AssetURL = a.BrowserDownloadURL
-			break
+		}
+		if a.Name == menuAsset {
+			info.MenuAssetURL = a.BrowserDownloadURL
 		}
 	}
 
@@ -125,6 +129,55 @@ func Apply(info *Info, onProgress ProgressFunc) error {
 
 	if err := os.Rename(tmpPath, execPath); err != nil {
 		return fmt.Errorf("replacing binary (try running with sudo): %w", err)
+	}
+
+	return nil
+}
+
+// ApplyMenu downloads the latest sky10-menu binary to ~/.bin/sky10-menu.
+// Skips silently if no menu asset is available in the release.
+func ApplyMenu(info *Info) error {
+	if info.MenuAssetURL == "" {
+		return nil
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("finding home dir: %w", err)
+	}
+
+	dest := filepath.Join(home, ".bin", "sky10-menu")
+
+	resp, err := http.Get(info.MenuAssetURL)
+	if err != nil {
+		return fmt.Errorf("downloading sky10-menu: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("sky10-menu download returned %d", resp.StatusCode)
+	}
+
+	dir := filepath.Dir(dest)
+	tmp, err := os.CreateTemp(dir, "sky10-menu-update-*")
+	if err != nil {
+		return fmt.Errorf("creating temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := io.Copy(tmp, resp.Body); err != nil {
+		tmp.Close()
+		return fmt.Errorf("writing sky10-menu: %w", err)
+	}
+	tmp.Close()
+
+	if err := os.Chmod(tmpPath, 0755); err != nil {
+		return fmt.Errorf("setting permissions: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, dest); err != nil {
+		return fmt.Errorf("replacing sky10-menu: %w", err)
 	}
 
 	return nil
