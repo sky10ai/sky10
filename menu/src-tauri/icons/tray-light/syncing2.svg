@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44">
+  <!-- Syncing frame 2: rotated 45° — right pair + left pair -->
+
+  <!-- Spokes -->
+  <line x1="22" y1="22" x2="22" y2="8" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="22" y1="22" x2="32" y2="12" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="22" y1="22" x2="36" y2="22" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="22" y1="22" x2="32" y2="32" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="22" y1="22" x2="22" y2="36" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="22" y1="22" x2="12" y2="32" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="22" y1="22" x2="8" y2="22" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="22" y1="22" x2="12" y2="12" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
+
+  <!-- Active arcs: right + left pairs -->
+  <line x1="32" y1="12" x2="36" y2="22" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+  <line x1="12" y1="32" x2="8" y2="22" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+
+  <!-- Center -->
+  <circle cx="22" cy="22" r="3" fill="white"/>
+
+  <!-- Outer nodes -->
+  <circle cx="22" cy="8" r="2" fill="white"/>
+  <circle cx="32" cy="12" r="2" fill="white"/>
+  <circle cx="36" cy="22" r="2" fill="white"/>
+  <circle cx="32" cy="32" r="2" fill="white"/>
+  <circle cx="22" cy="36" r="2" fill="white"/>
+  <circle cx="12" cy="32" r="2" fill="white"/>
+  <circle cx="8" cy="22" r="2" fill="white"/>
+  <circle cx="12" cy="12" r="2" fill="white"/>
+</svg>

@@ -15,16 +15,35 @@ use tauri::{
 static RPC_ID: AtomicU32 = AtomicU32::new(1);
 
 // Tray icon PNGs embedded at compile time.
-const ICON_CONNECTED: &[u8] = include_bytes!("../icons/tray/connected.png");
-const ICON_DISCONNECTED: &[u8] = include_bytes!("../icons/tray/disconnected.png");
-const ICON_UPDATE: &[u8] = include_bytes!("../icons/tray/update.png");
-const ICON_ERROR: &[u8] = include_bytes!("../icons/tray/error.png");
-const ICON_SYNCING: [&[u8]; 4] = [
-    include_bytes!("../icons/tray/syncing1.png"),
-    include_bytes!("../icons/tray/syncing2.png"),
-    include_bytes!("../icons/tray/syncing3.png"),
-    include_bytes!("../icons/tray/syncing4.png"),
-];
+// macOS: black on transparent (template image, OS handles dark/light).
+// Linux: white on transparent (most panels are dark).
+#[cfg(target_os = "macos")]
+mod icons {
+    pub const CONNECTED: &[u8] = include_bytes!("../icons/tray/connected.png");
+    pub const DISCONNECTED: &[u8] = include_bytes!("../icons/tray/disconnected.png");
+    pub const UPDATE: &[u8] = include_bytes!("../icons/tray/update.png");
+    pub const ERROR: &[u8] = include_bytes!("../icons/tray/error.png");
+    pub const SYNCING: [&[u8]; 4] = [
+        include_bytes!("../icons/tray/syncing1.png"),
+        include_bytes!("../icons/tray/syncing2.png"),
+        include_bytes!("../icons/tray/syncing3.png"),
+        include_bytes!("../icons/tray/syncing4.png"),
+    ];
+}
+
+#[cfg(not(target_os = "macos"))]
+mod icons {
+    pub const CONNECTED: &[u8] = include_bytes!("../icons/tray-light/connected.png");
+    pub const DISCONNECTED: &[u8] = include_bytes!("../icons/tray-light/disconnected.png");
+    pub const UPDATE: &[u8] = include_bytes!("../icons/tray-light/update.png");
+    pub const ERROR: &[u8] = include_bytes!("../icons/tray-light/error.png");
+    pub const SYNCING: [&[u8]; 4] = [
+        include_bytes!("../icons/tray-light/syncing1.png"),
+        include_bytes!("../icons/tray-light/syncing2.png"),
+        include_bytes!("../icons/tray-light/syncing3.png"),
+        include_bytes!("../icons/tray-light/syncing4.png"),
+    ];
+}
 
 // --- RPC helpers ---
 
@@ -198,11 +217,11 @@ fn build_menu(app: &tauri::App, info: &DaemonInfo) -> tauri::Result<tauri::menu:
 
 fn icon_for_state(state: &TrayState, frame: usize) -> &'static [u8] {
     match state {
-        TrayState::Connected => ICON_CONNECTED,
-        TrayState::Disconnected => ICON_DISCONNECTED,
-        TrayState::Syncing => ICON_SYNCING[frame % 4],
-        TrayState::UpdateAvailable => ICON_UPDATE,
-        TrayState::Error => ICON_ERROR,
+        TrayState::Connected => icons::CONNECTED,
+        TrayState::Disconnected => icons::DISCONNECTED,
+        TrayState::Syncing => icons::SYNCING[frame % 4],
+        TrayState::UpdateAvailable => icons::UPDATE,
+        TrayState::Error => icons::ERROR,
     }
 }
 
@@ -229,6 +248,20 @@ fn set_tray_tooltip(tray: &TrayIcon, state: &TrayState) {
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
+            // On Linux, create a hidden window so GTK drives the event loop
+            // and the tray icon registers on DBus (StatusNotifierItem).
+            #[cfg(target_os = "linux")]
+            {
+                let _win = tauri::WebviewWindowBuilder::new(
+                    app,
+                    "hidden",
+                    tauri::WebviewUrl::App("index.html".into()),
+                )
+                .visible(false)
+                .skip_taskbar(true)
+                .build()?;
+            }
+
             let info = query_daemon();
 
             let menu = build_menu(app, &info)?;
