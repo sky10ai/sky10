@@ -175,10 +175,11 @@ func fetchIPLocation() (ip string, location string) {
 	return result.Query, loc
 }
 
-// ShortPubkeyID extracts a short 16-char identifier from a sky10q... address.
+// ShortPubkeyID extracts a short device ID from a sky10q... address.
+// Format: "D-" + 8 chars from the address (after the "sky10" prefix).
 func ShortPubkeyID(pubkey string) string {
-	if len(pubkey) > 21 {
-		return pubkey[5:21] // skip "sky10" prefix, take 16
+	if len(pubkey) > 13 {
+		return "D-" + pubkey[5:13]
 	}
 	return pubkey
 }

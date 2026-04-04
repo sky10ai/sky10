@@ -1,15 +1,13 @@
 package kv
 
 import (
+	"strings"
 	"testing"
 
 	skykey "github.com/sky10/sky10/pkg/key"
 )
 
-// Regression: KV used last 12 chars of address as device ID while fs
-// used chars 5-21 (16 chars after "sky10" prefix). The poller lists
-// devices from devices/ (fs-style IDs) but looked for KV snapshots
-// under KV-style IDs — never found them.
+// Regression: KV and fs must produce the same device ID from the same address.
 func TestDeviceID_MatchesFS(t *testing.T) {
 	t.Parallel()
 	id, err := skykey.Generate()
@@ -25,20 +23,23 @@ func TestDeviceID_MatchesFS(t *testing.T) {
 	}
 }
 
-// Verify the format: 16 chars, from position 5-21 of the address.
+// Verify the format: "D-" + 8 chars.
 func TestDeviceID_Format(t *testing.T) {
 	t.Parallel()
 	id, _ := skykey.Generate()
 	devID := ShortDeviceID(id)
 
-	if len(devID) != 16 {
-		t.Errorf("device ID length = %d, want 16", len(devID))
+	if !strings.HasPrefix(devID, "D-") {
+		t.Errorf("device ID should start with D-, got %q", devID)
+	}
+	if len(devID) != 10 { // "D-" + 8 chars
+		t.Errorf("device ID length = %d, want 10", len(devID))
 	}
 
 	addr := id.Address()
-	expected := addr[5:21]
+	expected := "D-" + addr[5:13]
 	if devID != expected {
-		t.Errorf("device ID = %q, want addr[5:21] = %q", devID, expected)
+		t.Errorf("device ID = %q, want %q", devID, expected)
 	}
 }
 
@@ -56,12 +57,10 @@ func TestDeviceID_DifferentKeysProduceDifferentIDs(t *testing.T) {
 	}
 }
 
-// fsStyleDeviceID replicates the fs package's shortPubkeyID for testing.
-// If this function's logic ever diverges from pkg/fs/device.go, the
-// TestDeviceID_MatchesFS test above will catch it.
+// fsStyleDeviceID replicates the fs package's ShortPubkeyID for testing.
 func fsStyleDeviceID(pubkey string) string {
-	if len(pubkey) > 21 {
-		return pubkey[5:21]
+	if len(pubkey) > 13 {
+		return "D-" + pubkey[5:13]
 	}
 	return pubkey
 }

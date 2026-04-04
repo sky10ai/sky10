@@ -246,8 +246,8 @@ func CleanupInvite(ctx context.Context, backend adapter.Backend, inviteID string
 }
 
 func shortPubkeyID(address string) string {
-	if len(address) > 21 {
-		return address[5:21]
+	if len(address) > 13 {
+		return "D-" + address[5:13]
 	}
 	return address
 }
