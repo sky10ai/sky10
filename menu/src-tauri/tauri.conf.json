@@ -21,26 +21,5 @@
       "icons/icon.ico"
     ]
   },
-  "plugins": {
-    "shell": {
-      "open": true,
-      "scope": [
-        {
-          "name": "sky10",
-          "cmd": "sky10",
-          "args": true
-        },
-        {
-          "name": "open-url",
-          "cmd": "open",
-          "args": true
-        },
-        {
-          "name": "xdg-open",
-          "cmd": "xdg-open",
-          "args": true
-        }
-      ]
-    }
-  }
+  "plugins": {}
 }

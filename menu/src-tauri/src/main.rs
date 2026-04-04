@@ -1,79 +1,99 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::process::Command;
-use std::time::Duration;
+use std::sync::atomic::{AtomicU32, Ordering};
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
     tray::TrayIconBuilder,
     Manager,
 };
 
-fn get_version() -> String {
-    let output = Command::new("sky10").arg("--version").output();
-    match output {
-        Ok(o) if o.status.success() => {
-            let raw = String::from_utf8_lossy(&o.stdout);
-            // Output is like "sky10 version v0.35.0 (abc1234) built 2026-04-01"
-            // Extract just the version tag.
-            raw.split_whitespace()
-                .find(|s| s.starts_with('v'))
-                .unwrap_or("unknown")
-                .to_string()
-        }
-        _ => "not running".to_string(),
-    }
+static RPC_ID: AtomicU32 = AtomicU32::new(1);
+
+/// Call a JSON-RPC method on the daemon's HTTP endpoint.
+/// Uses raw TCP to avoid pulling in an HTTP client crate.
+fn rpc(method: &str) -> Option<String> {
+    let id = RPC_ID.fetch_add(1, Ordering::Relaxed);
+    let body = format!(
+        r#"{{"jsonrpc":"2.0","method":"{}","id":{}}}"#,
+        method, id
+    );
+    let req = format!(
+        "POST /rpc HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+
+    let mut stream = TcpStream::connect("127.0.0.1:9101").ok()?;
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(3))).ok()?;
+    stream.write_all(req.as_bytes()).ok()?;
+
+    let mut response = String::new();
+    stream.read_to_string(&mut response).ok()?;
+
+    // Skip HTTP headers — body starts after \r\n\r\n.
+    let body_start = response.find("\r\n\r\n")? + 4;
+    Some(response[body_start..].to_string())
 }
 
-fn get_latest_release() -> Option<String> {
-    // Quick GitHub API check — timeout fast so the menu isn't slow.
-    let output = Command::new("curl")
-        .args([
-            "-fsSL",
-            "--max-time",
-            "3",
-            "https://api.github.com/repos/sky10ai/sky10/releases/latest",
-        ])
-        .output()
-        .ok()?;
+/// Extract a string field from a JSON blob.
+fn json_str<'a>(json: &'a str, field: &str) -> Option<&'a str> {
+    let needle = format!("\"{}\"", field);
+    let idx = json.find(&needle)? + needle.len();
+    let rest = &json[idx..];
+    let start = rest.find('"')? + 1;
+    let end = start + rest[start..].find('"')?;
+    Some(&rest[start..end])
+}
 
-    if !output.status.success() {
-        return None;
+struct DaemonInfo {
+    version: String,
+    update_available: bool,
+    latest_version: String,
+}
+
+fn query_daemon() -> DaemonInfo {
+    let mut info = DaemonInfo {
+        version: "not running".to_string(),
+        update_available: false,
+        latest_version: String::new(),
+    };
+
+    // Get current version from health RPC.
+    if let Some(resp) = rpc("skyfs.health") {
+        if let Some(v) = json_str(&resp, "version") {
+            info.version = v.split_whitespace().next().unwrap_or(v).to_string();
+        }
     }
 
-    let body = String::from_utf8_lossy(&output.stdout);
-    // Parse "tag_name": "v0.36.0" without pulling in a JSON library for this.
-    let tag = body
-        .split("\"tag_name\"")
-        .nth(1)?
-        .split('"')
-        .find(|s| s.starts_with('v'))?;
+    // Check for updates via daemon RPC.
+    if let Some(resp) = rpc("system.checkUpdate") {
+        if resp.contains("\"available\":true") {
+            info.update_available = true;
+            if let Some(latest) = json_str(&resp, "latest") {
+                info.latest_version = latest.to_string();
+            }
+        }
+    }
 
-    Some(tag.to_string())
+    info
 }
 
 fn open_ui() {
     #[cfg(target_os = "macos")]
-    {
-        let _ = Command::new("open").arg("http://localhost:9101").spawn();
-    }
+    { let _ = Command::new("open").arg("http://localhost:9101").spawn(); }
+
     #[cfg(target_os = "linux")]
-    {
-        let _ = Command::new("xdg-open")
-            .arg("http://localhost:9101")
-            .spawn();
-    }
+    { let _ = Command::new("xdg-open").arg("http://localhost:9101").spawn(); }
+
     #[cfg(target_os = "windows")]
-    {
-        let _ = Command::new("cmd")
-            .args(["/C", "start", "http://localhost:9101"])
-            .spawn();
-    }
+    { let _ = Command::new("cmd").args(["/C", "start", "http://localhost:9101"]).spawn(); }
 }
 
 fn restart_daemon() {
-    let _ = Command::new("sky10")
-        .args(["daemon", "restart"])
-        .spawn();
+    let _ = Command::new("sky10").args(["daemon", "restart"]).spawn();
 }
 
 fn stop_daemon() {
@@ -82,12 +102,11 @@ fn stop_daemon() {
 
 fn main() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
-            let version = get_version();
+            let info = query_daemon();
 
-            let label = format!("sky10 {}", version);
-            let version_item = MenuItemBuilder::with_id("version", &label)
+            let version_label = format!("sky10 {}", info.version);
+            let version_item = MenuItemBuilder::with_id("version", &version_label)
                 .enabled(false)
                 .build(app)?;
             let sep1 = PredefinedMenuItem::separator(app)?;
@@ -95,32 +114,20 @@ fn main() {
             let sep2 = PredefinedMenuItem::separator(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
-            // Check for updates in background.
-            let latest = get_latest_release();
-            let has_update = latest
-                .as_ref()
-                .map(|l| l != &version)
-                .unwrap_or(false);
-
             let mut menu = MenuBuilder::new(app)
                 .item(&version_item)
                 .item(&sep1)
                 .item(&open);
 
-            if has_update {
-                let update_label = format!(
-                    "Update available ({})",
-                    latest.as_deref().unwrap_or("?")
-                );
-                let update_item =
-                    MenuItemBuilder::with_id("update_info", &update_label)
-                        .enabled(false)
-                        .build(app)?;
-                let restart_update =
-                    MenuItemBuilder::with_id("restart_update", "Restart to update")
-                        .build(app)?;
+            if info.update_available {
+                let update_label = format!("Update available ({})", info.latest_version);
+                let update_item = MenuItemBuilder::with_id("update_info", &update_label)
+                    .enabled(false)
+                    .build(app)?;
+                let restart_item = MenuItemBuilder::with_id("restart_update", "Restart to update")
+                    .build(app)?;
                 let sep3 = PredefinedMenuItem::separator(app)?;
-                menu = menu.item(&sep3).item(&update_item).item(&restart_update);
+                menu = menu.item(&sep3).item(&update_item).item(&restart_item);
             }
 
             let menu = menu.item(&sep2).item(&quit).build()?;
@@ -139,17 +146,6 @@ fn main() {
                     _ => {}
                 })
                 .build(app)?;
-
-            // Periodically check for updates (every 6 hours).
-            let app_handle = app.handle().clone();
-            std::thread::spawn(move || loop {
-                std::thread::sleep(Duration::from_secs(6 * 3600));
-                // Re-checking would require rebuilding the menu.
-                // For now, the initial check on startup is sufficient.
-                // A full implementation would use app_handle to update
-                // the tray menu dynamically.
-                let _ = app_handle;
-            });
 
             Ok(())
         })
