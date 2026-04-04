@@ -2,9 +2,7 @@
 
 ## Current
 
-| Plan | Status | Summary |
-|------|--------|---------|
-| [Remove Cirrus](current/remove-cirrus-plan.md) | in progress | Replace Cirrus SwiftUI app with web UI + launchd + Tauri tray |
+No active plans.
 
 ## Past
 
