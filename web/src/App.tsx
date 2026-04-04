@@ -14,7 +14,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route element={<Layout />}>
-          <Route index element={<Navigate to="/kv" replace />} />
+          <Route index element={<Navigate to="/devices" replace />} />
           <Route path="drives" element={<Drives />} />
           <Route path="drives/:name/*" element={<FileBrowser />} />
           <Route path="bucket/*" element={<Bucket />} />

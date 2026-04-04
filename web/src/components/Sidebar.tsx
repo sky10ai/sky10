@@ -6,8 +6,8 @@ import { useRPC, truncAddr } from "../lib/useRPC";
 import { StatusBadge } from "./StatusBadge";
 
 const navItems = [
-  { to: "/kv", icon: "database", label: "Key-Value", matchPrefixes: ["/kv"] },
   { to: "/devices", icon: "devices", label: "Devices", matchPrefixes: ["/devices"] },
+  { to: "/kv", icon: "database", label: "Key-Value", matchPrefixes: ["/kv"] },
   { to: "/network", icon: "hub", label: "Network", matchPrefixes: ["/network"] },
   {
     to: "/drives",
