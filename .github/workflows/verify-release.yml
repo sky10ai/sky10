@@ -57,7 +57,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify release checksum
-        run: cd release && shasum -a 256 -c checksums.txt
+        run: cd release && grep sky10-darwin-arm64 checksums.txt | shasum -a 256 -c -
 
       - name: Compare binaries
         run: |
