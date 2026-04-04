@@ -169,6 +169,24 @@ fn open_ui() {
     }
 }
 
+fn update_and_restart() {
+    // Ask the daemon to download the new binary, then restart.
+    rpc("system.update");
+    // Give the download a moment, then poll until done.
+    std::thread::sleep(Duration::from_secs(2));
+    for _ in 0..60 {
+        if let Some(resp) = rpc("system.checkUpdate") {
+            if resp.contains("\"available\":false") {
+                break;
+            }
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    let _ = Command::new("sky10")
+        .args(["daemon", "restart"])
+        .spawn();
+}
+
 fn restart_daemon() {
     let _ = Command::new("sky10")
         .args(["daemon", "restart"])
@@ -277,7 +295,9 @@ fn main() {
                 .tooltip("sky10")
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "open" => open_ui(),
-                    "restart_update" => restart_daemon(),
+                    "restart_update" => {
+                        std::thread::spawn(update_and_restart);
+                    }
                     "quit" => {
                         stop_daemon();
                         app.exit(0);
