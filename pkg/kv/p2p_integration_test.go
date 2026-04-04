@@ -107,6 +107,83 @@ func TestP2PSyncMultipleKeys(t *testing.T) {
 	}
 }
 
+// Regression: pokeSync used to pass the caller's context to PushToAll.
+// When Set was called from an RPC handler, the context was cancelled as
+// soon as the response was sent — killing the push mid-stream. The fix
+// uses context.Background() so pushes survive caller cancellation.
+func TestP2PSyncCancelledContext(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	nsKey, _ := skykey.GenerateSymmetricKey()
+	nodeA, storeA, _ := startTestNode(t, ctx, "nodeA", nsKey)
+	nodeB, storeB, _ := startTestNode(t, ctx, "nodeB", nsKey)
+
+	infoB := nodeB.Host().Peerstore().PeerInfo(nodeB.PeerID())
+	if err := nodeA.Host().Connect(ctx, infoB); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	// Simulate an RPC context that gets cancelled immediately after Set.
+	rpcCtx, rpcCancel := context.WithCancel(ctx)
+	if err := storeA.Set(rpcCtx, "survives-cancel", []byte("yes")); err != nil {
+		t.Fatal(err)
+	}
+	rpcCancel() // RPC response sent — context dead
+
+	waitFor(t, 5*time.Second, func() bool {
+		val, ok := storeB.Get("survives-cancel")
+		return ok && string(val) == "yes"
+	})
+
+	val, ok := storeB.Get("survives-cancel")
+	if !ok || string(val) != "yes" {
+		t.Errorf("B.Get(survives-cancel) = %q, %v; want yes", val, ok)
+	}
+}
+
+// Regression: a per-peer rate limiter silently dropped pushes that
+// happened within the same second. RegisterProtocol's initial PushToAll
+// set the lastPush timestamp, then Set's pokeSync was blocked. Rapid
+// sequential Sets must all propagate.
+func TestP2PSyncRapidSets(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	nsKey, _ := skykey.GenerateSymmetricKey()
+	nodeA, storeA, _ := startTestNode(t, ctx, "nodeA", nsKey)
+	nodeB, storeB, _ := startTestNode(t, ctx, "nodeB", nsKey)
+
+	infoB := nodeB.Host().Peerstore().PeerInfo(nodeB.PeerID())
+	if err := nodeA.Host().Connect(ctx, infoB); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	// Simulate RegisterProtocol's initial push.
+	storeA.Set(ctx, "init", []byte("warmup"))
+	time.Sleep(50 * time.Millisecond)
+
+	// Rapid-fire sets — no delay between them.
+	for i := 0; i < 5; i++ {
+		storeA.Set(ctx, "rapid", []byte(string(rune('a'+i))))
+	}
+
+	// The last write wins (LWW). B must see the final value.
+	waitFor(t, 5*time.Second, func() bool {
+		val, ok := storeB.Get("rapid")
+		return ok && string(val) == "e"
+	})
+
+	val, ok := storeB.Get("rapid")
+	if !ok || string(val) != "e" {
+		t.Errorf("B.Get(rapid) = %q, %v; want e", val, ok)
+	}
+}
+
 // --- helpers ---
 
 func startTestNode(t *testing.T, ctx context.Context, name string, nsKey []byte) (*link.Node, *Store, *P2PSync) {
