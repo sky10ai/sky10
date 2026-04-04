@@ -103,8 +103,8 @@ func ServeCmd() *cobra.Command {
 				kvRunErr <- kvStore.Run(ctx)
 			}()
 
-			// Skylink P2P node (private mode — own devices only).
-			linkNode, err := link.New(bundle, link.Config{Mode: link.Private}, nil)
+			// Skylink P2P node — network mode enables DHT, relay, and external peers.
+			linkNode, err := link.New(bundle, link.Config{Mode: link.Network}, nil)
 			if err != nil {
 				return fmt.Errorf("creating link node: %w", err)
 			}
