@@ -78,6 +78,7 @@ func (s *P2PSync) RegisterProtocol() {
 // PushToAll sends the current snapshot to all connected peers.
 func (s *P2PSync) PushToAll(ctx context.Context) {
 	peers := s.node.ConnectedPeers()
+	s.logger.Info("kv p2p push: broadcasting", "peers", len(peers))
 	for _, pid := range peers {
 		if pid == s.node.PeerID() {
 			continue
@@ -148,7 +149,7 @@ func (s *P2PSync) pushToPeer(ctx context.Context, pid peer.ID) {
 		s.logger.Debug("kv p2p push: write failed", "peer", pid, "error", err)
 		return
 	}
-	s.logger.Debug("kv p2p push: sent snapshot", "peer", pid, "keys", snap.Len())
+	s.logger.Info("kv p2p push: sent snapshot", "peer", pid, "keys", snap.Len())
 }
 
 // handleStream processes an incoming KV sync stream.
