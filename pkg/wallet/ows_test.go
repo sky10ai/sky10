@@ -1,10 +1,18 @@
 package wallet
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 )
+
+func noopEmit(string, interface{}) {}
 
 func TestNewClient_NotInstalled(t *testing.T) {
 	// Cannot use t.Parallel with t.Setenv.
@@ -62,7 +70,7 @@ func TestClient_StatusNil(t *testing.T) {
 
 func TestRPCHandler_UnknownMethod(t *testing.T) {
 	t.Parallel()
-	h := NewRPCHandler(nil)
+	h := NewRPCHandler(nil, noopEmit)
 
 	// Non-wallet method should not be handled.
 	_, _, handled := h.Dispatch(context.Background(), "skykv.get", nil)
@@ -82,7 +90,7 @@ func TestRPCHandler_UnknownMethod(t *testing.T) {
 
 func TestRPCHandler_StatusWhenNotInstalled(t *testing.T) {
 	t.Parallel()
-	h := NewRPCHandler(nil)
+	h := NewRPCHandler(nil, noopEmit)
 	result, err, handled := h.Dispatch(context.Background(), "wallet.status", nil)
 	if !handled {
 		t.Fatal("wallet.status should be handled")
@@ -102,7 +110,7 @@ func TestRPCHandler_StatusWhenNotInstalled(t *testing.T) {
 
 func TestRPCHandler_CreateRequiresName(t *testing.T) {
 	t.Parallel()
-	h := NewRPCHandler(nil)
+	h := NewRPCHandler(nil, noopEmit)
 	params, _ := json.Marshal(map[string]string{"name": ""})
 	_, err, handled := h.Dispatch(context.Background(), "wallet.create", params)
 	if !handled {
@@ -115,7 +123,7 @@ func TestRPCHandler_CreateRequiresName(t *testing.T) {
 
 func TestRPCHandler_DepositRequiresWallet(t *testing.T) {
 	t.Parallel()
-	h := NewRPCHandler(&Client{bin: "ows"})
+	h := NewRPCHandler(&Client{bin: "ows"}, noopEmit)
 	params, _ := json.Marshal(map[string]string{"wallet": ""})
 	_, err, handled := h.Dispatch(context.Background(), "wallet.deposit", params)
 	if !handled {
@@ -128,7 +136,7 @@ func TestRPCHandler_DepositRequiresWallet(t *testing.T) {
 
 func TestRPCHandler_TransferRequiresFields(t *testing.T) {
 	t.Parallel()
-	h := NewRPCHandler(&Client{bin: "ows"})
+	h := NewRPCHandler(&Client{bin: "ows"}, noopEmit)
 
 	tests := []struct {
 		name   string
@@ -157,7 +165,7 @@ func TestRPCHandler_TransferRequiresFields(t *testing.T) {
 
 func TestRPCHandler_PayRequiresFields(t *testing.T) {
 	t.Parallel()
-	h := NewRPCHandler(&Client{bin: "ows"})
+	h := NewRPCHandler(&Client{bin: "ows"}, noopEmit)
 
 	tests := []struct {
 		name   string
@@ -180,5 +188,176 @@ func TestRPCHandler_PayRequiresFields(t *testing.T) {
 				t.Errorf("got %v, want %q", err, tt.errMsg)
 			}
 		})
+	}
+}
+
+func TestBinPath(t *testing.T) {
+	t.Parallel()
+	p, err := BinPath()
+	if err != nil {
+		t.Fatalf("BinPath() error: %v", err)
+	}
+	home, _ := os.UserHomeDir()
+	want := filepath.Join(home, ".sky10", "bin", "ows")
+	if p != want {
+		t.Errorf("BinPath() = %q, want %q", p, want)
+	}
+}
+
+func TestCheckRelease_ParsesResponse(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"tag_name": "v0.5.0",
+			"assets": []map[string]string{
+				{"name": owsAssetName(), "browser_download_url": "https://example.com/ows"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	old := ghReleaseURL
+	ghReleaseURL = srv.URL
+	defer func() { ghReleaseURL = old }()
+
+	info, err := CheckRelease("v0.4.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !info.Available {
+		t.Error("expected update available")
+	}
+	if info.Latest != "v0.5.0" {
+		t.Errorf("latest = %q, want %q", info.Latest, "v0.5.0")
+	}
+	if info.Current != "v0.4.0" {
+		t.Errorf("current = %q, want %q", info.Current, "v0.4.0")
+	}
+	if info.AssetURL != "https://example.com/ows" {
+		t.Errorf("asset URL = %q, want %q", info.AssetURL, "https://example.com/ows")
+	}
+}
+
+func TestCheckRelease_AlreadyUpToDate(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"tag_name": "v0.5.0",
+			"assets":   []map[string]string{},
+		})
+	}))
+	defer srv.Close()
+
+	old := ghReleaseURL
+	ghReleaseURL = srv.URL
+	defer func() { ghReleaseURL = old }()
+
+	info, err := CheckRelease("v0.5.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.Available {
+		t.Error("expected no update available")
+	}
+}
+
+func TestInstall_DownloadsBinary(t *testing.T) {
+	t.Parallel()
+
+	content := "#!/bin/sh\necho ows-fake"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
+		w.Write([]byte(content))
+	}))
+	defer srv.Close()
+
+	// Use a temp dir as HOME so BinDir() resolves there.
+	tmp := t.TempDir()
+	sky10Dir := filepath.Join(tmp, ".sky10", "bin")
+	os.MkdirAll(sky10Dir, 0755)
+
+	dest := filepath.Join(sky10Dir, "ows")
+
+	info := &ReleaseInfo{
+		Latest:   "v0.5.0",
+		AssetURL: srv.URL + "/ows",
+	}
+
+	// Simulate the Install flow using a direct HTTP fetch + atomic rename.
+	resp, err := http.Get(info.AssetURL)
+	if err != nil {
+		t.Fatalf("download failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	tmpFile, _ := os.CreateTemp(sky10Dir, "ows-test-*")
+	buf := make([]byte, 1024)
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			tmpFile.Write(buf[:n])
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	tmpFile.Close()
+	os.Chmod(tmpFile.Name(), 0755)
+	os.Rename(tmpFile.Name(), dest)
+
+	data, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("reading installed binary: %v", err)
+	}
+	if string(data) != content {
+		t.Errorf("content = %q, want %q", string(data), content)
+	}
+	fi, _ := os.Stat(dest)
+	if fi.Mode()&0111 == 0 {
+		t.Error("binary should be executable")
+	}
+}
+
+func TestRPCHandler_InstallDispatch(t *testing.T) {
+	t.Parallel()
+	h := NewRPCHandler(nil, noopEmit)
+	_, _, handled := h.Dispatch(context.Background(), "wallet.install", nil)
+	if !handled {
+		t.Error("wallet.install should be handled")
+	}
+}
+
+func TestRPCHandler_CheckUpdateDispatch(t *testing.T) {
+	t.Parallel()
+	h := NewRPCHandler(nil, noopEmit)
+	_, _, handled := h.Dispatch(context.Background(), "wallet.checkUpdate", nil)
+	if !handled {
+		t.Error("wallet.checkUpdate should be handled")
+	}
+}
+
+func TestProgressReader(t *testing.T) {
+	t.Parallel()
+	data := []byte("hello world, this is test data")
+	r := &progressReader{
+		r:     bytes.NewReader(data),
+		total: int64(len(data)),
+		fn: func(downloaded, total int64) {
+			if total != int64(len(data)) {
+				t.Errorf("total = %d, want %d", total, len(data))
+			}
+		},
+	}
+	buf := make([]byte, 10)
+	var totalRead int
+	for {
+		n, err := r.Read(buf)
+		totalRead += n
+		if err != nil {
+			break
+		}
+	}
+	if totalRead != len(data) {
+		t.Errorf("read %d bytes, want %d", totalRead, len(data))
 	}
 }

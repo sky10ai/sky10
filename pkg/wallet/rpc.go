@@ -5,18 +5,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 )
 
 // RPCHandler dispatches wallet.* RPC methods. All methods return a
 // helpful error when the ows binary is not installed.
 type RPCHandler struct {
-	client *Client
+	client     *Client
+	emit       Emitter
+	installing atomic.Bool
 }
 
 // NewRPCHandler creates an RPC handler for wallet operations.
 // A nil client is allowed; methods will return ErrNotInstalled.
-func NewRPCHandler(client *Client) *RPCHandler {
-	return &RPCHandler{client: client}
+// Pass emit to receive install/update progress events.
+func NewRPCHandler(client *Client, emit Emitter) *RPCHandler {
+	return &RPCHandler{client: client, emit: emit}
 }
 
 // Dispatch implements rpc.Handler.
@@ -31,6 +35,10 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 	switch method {
 	case "wallet.status":
 		result, err = h.rpcStatus(ctx)
+	case "wallet.install":
+		result, err = h.rpcInstall()
+	case "wallet.checkUpdate":
+		result, err = h.rpcCheckUpdate()
 	case "wallet.create":
 		result, err = h.rpcCreate(ctx, params)
 	case "wallet.list":
@@ -54,6 +62,56 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 
 func (h *RPCHandler) rpcStatus(ctx context.Context) (interface{}, error) {
 	return h.client.Status(ctx)
+}
+
+func (h *RPCHandler) rpcInstall() (interface{}, error) {
+	if !h.installing.CompareAndSwap(false, true) {
+		return nil, fmt.Errorf("install already in progress")
+	}
+
+	go func() {
+		defer h.installing.Store(false)
+
+		current := InstalledVersion()
+		info, err := CheckRelease(current)
+		if err != nil {
+			h.emit("wallet:install:error", map[string]string{"message": err.Error()})
+			return
+		}
+		if !info.Available {
+			h.emit("wallet:install:complete", map[string]string{
+				"version": info.Current,
+				"status":  "already up to date",
+			})
+			return
+		}
+
+		err = Install(info, func(downloaded, total int64) {
+			h.emit("wallet:install:progress", map[string]int64{
+				"downloaded": downloaded,
+				"total":      total,
+			})
+		})
+		if err != nil {
+			h.emit("wallet:install:error", map[string]string{"message": err.Error()})
+			return
+		}
+
+		// Refresh client now that the binary is installed.
+		h.client = NewClient()
+
+		h.emit("wallet:install:complete", map[string]string{
+			"version": info.Latest,
+			"status":  "installed",
+		})
+	}()
+
+	return map[string]string{"status": "installing"}, nil
+}
+
+func (h *RPCHandler) rpcCheckUpdate() (interface{}, error) {
+	current := InstalledVersion()
+	return CheckRelease(current)
 }
 
 type createParams struct {

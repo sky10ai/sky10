@@ -15,6 +15,8 @@ func WalletCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(walletStatusCmd())
+	cmd.AddCommand(walletInstallCmd())
+	cmd.AddCommand(walletCheckUpdateCmd())
 	cmd.AddCommand(walletCreateCmd())
 	cmd.AddCommand(walletListCmd())
 	cmd.AddCommand(walletAddressCmd())
@@ -36,17 +38,76 @@ func walletStatusCmd() *cobra.Command {
 				return err
 			}
 			var s struct {
-				Installed bool `json:"installed"`
-				Wallets   int  `json:"wallets"`
+				Installed bool   `json:"installed"`
+				Wallets   int    `json:"wallets"`
+				Version   string `json:"version"`
+				BinPath   string `json:"bin_path"`
 			}
 			json.Unmarshal(result, &s)
 			if !s.Installed {
 				fmt.Println("ows: not installed")
-				fmt.Println("install: https://openwallet.sh")
+				fmt.Println("run: sky10 wallet install")
 				return nil
 			}
 			fmt.Println("ows: installed")
+			if s.Version != "" {
+				fmt.Printf("version: %s\n", s.Version)
+			}
+			if s.BinPath != "" {
+				fmt.Printf("binary:  %s\n", s.BinPath)
+			}
 			fmt.Printf("wallets: %d\n", s.Wallets)
+			return nil
+		},
+	}
+}
+
+func walletInstallCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "install",
+		Short: "Install or update the OWS wallet binary",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := rpcCall("wallet.install", nil)
+			if err != nil {
+				return err
+			}
+			var r struct {
+				Status string `json:"status"`
+			}
+			json.Unmarshal(result, &r)
+			fmt.Printf("%s — check progress with 'sky10 wallet status'\n", r.Status)
+			return nil
+		},
+	}
+}
+
+func walletCheckUpdateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "check-update",
+		Short: "Check for OWS wallet updates",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := rpcCall("wallet.checkUpdate", nil)
+			if err != nil {
+				return err
+			}
+			var r struct {
+				Installed bool   `json:"installed"`
+				Current   string `json:"current"`
+				Latest    string `json:"latest"`
+				Available bool   `json:"available"`
+			}
+			json.Unmarshal(result, &r)
+			if !r.Installed {
+				fmt.Printf("not installed (latest: %s)\n", r.Latest)
+				fmt.Println("run: sky10 wallet install")
+				return nil
+			}
+			if r.Available {
+				fmt.Printf("update available: %s → %s\n", r.Current, r.Latest)
+				fmt.Println("run: sky10 wallet install")
+			} else {
+				fmt.Printf("up to date: %s\n", r.Current)
+			}
 			return nil
 		},
 	}

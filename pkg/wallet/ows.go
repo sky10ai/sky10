@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -24,15 +25,25 @@ type Client struct {
 	bin string
 }
 
-// NewClient returns a Client if the ows binary is found on PATH.
-// Returns nil otherwise. Callers should check Available() or handle
-// ErrNotInstalled from individual methods.
+// NewClient returns a Client if the ows binary is found.
+// Checks ~/.sky10/bin/ows first, then PATH. Returns nil if not found.
 func NewClient() *Client {
-	bin, err := exec.LookPath("ows")
-	if err != nil {
-		return nil
+	return findClient()
+}
+
+// findClient locates the ows binary, preferring the managed install.
+func findClient() *Client {
+	// Check managed install location first.
+	if p, err := BinPath(); err == nil {
+		if _, err := os.Stat(p); err == nil {
+			return &Client{bin: p}
+		}
 	}
-	return &Client{bin: bin}
+	// Fall back to PATH.
+	if bin, err := exec.LookPath("ows"); err == nil {
+		return &Client{bin: bin}
+	}
+	return nil
 }
 
 // Available reports whether the ows binary was found.
@@ -77,13 +88,17 @@ func (c *Client) Status(ctx context.Context) (*StatusResult, error) {
 	return &StatusResult{
 		Installed: true,
 		Wallets:   len(wallets),
+		Version:   InstalledVersion(),
+		BinPath:   c.bin,
 	}, nil
 }
 
 // StatusResult summarizes OWS state.
 type StatusResult struct {
-	Installed bool `json:"installed"`
-	Wallets   int  `json:"wallets"`
+	Installed bool   `json:"installed"`
+	Wallets   int    `json:"wallets"`
+	Version   string `json:"version,omitempty"`
+	BinPath   string `json:"bin_path,omitempty"`
 }
 
 // CreateWallet creates a new wallet with the given name.

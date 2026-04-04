@@ -142,7 +142,7 @@ func ServeCmd() *cobra.Command {
 			if walletClient != nil {
 				slog.Info("wallet: OWS detected, enabling wallet RPC")
 			}
-			server.RegisterHandler(skywallet.NewRPCHandler(walletClient))
+			server.RegisterHandler(skywallet.NewRPCHandler(walletClient, server.Emit))
 
 			// Show connected P2P peers in device list.
 			fsHandler.SetPeerDevices(func() []skyfs.DeviceInfo {
