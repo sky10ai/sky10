@@ -21,6 +21,7 @@ var (
 
 func main() {
 	skyrpc.WebDist = webDist
+	commands.Version = version
 
 	root := &cobra.Command{
 		Use:     "sky10",
@@ -37,6 +38,7 @@ func main() {
 	root.AddCommand(commands.LinkCmd())
 	root.AddCommand(commands.IdCmd())
 	root.AddCommand(commands.UiCmd())
+	root.AddCommand(commands.UpdateCmd())
 
 	root.CompletionOptions.HiddenDefaultCmd = true
 

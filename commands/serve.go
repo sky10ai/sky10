@@ -18,6 +18,7 @@ import (
 	"github.com/sky10/sky10/pkg/kv"
 	"github.com/sky10/sky10/pkg/link"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
+	skyupdate "github.com/sky10/sky10/pkg/update"
 	"github.com/spf13/cobra"
 )
 
@@ -116,6 +117,7 @@ func ServeCmd() *cobra.Command {
 			linkResolver := link.NewResolver(linkNode, resolverOpts...)
 			server.RegisterHandler(link.NewRPCHandler(linkNode, linkResolver))
 			server.RegisterHandler(skyid.NewRPCHandler(bundle))
+			server.RegisterHandler(skyupdate.NewRPCHandler(Version, server.Emit))
 
 			// Show connected P2P peers in device list.
 			fsHandler.SetPeerDevices(func() []skyfs.DeviceInfo {
@@ -211,6 +213,9 @@ func ServeCmd() *cobra.Command {
 					slog.Warn("kv store failed", "error", err)
 				}
 			}()
+
+			// Check for updates on startup and every 2 hours.
+			go skyupdate.PeriodicCheck(ctx, Version, server.Emit)
 
 			server.OnServe(func() {
 				if hasStorage {
