@@ -77,7 +77,7 @@ func TestP2PSyncMultipleKeys(t *testing.T) {
 	defer cancel()
 
 	nsKey, _ := skykey.GenerateSymmetricKey()
-	nodeA, storeA, syncA := startTestNode(t, ctx, "nodeA", nsKey)
+	nodeA, storeA, _ := startTestNode(t, ctx, "nodeA", nsKey)
 	nodeB, storeB, _ := startTestNode(t, ctx, "nodeB", nsKey)
 
 	infoB := nodeB.Host().Peerstore().PeerInfo(nodeB.PeerID())
@@ -86,17 +86,11 @@ func TestP2PSyncMultipleKeys(t *testing.T) {
 	}
 	time.Sleep(200 * time.Millisecond)
 
-	// Set 10 keys on A.
+	// Set 10 keys on A. Each Set triggers a push with the full snapshot.
 	for i := 0; i < 10; i++ {
 		key := "key-" + string(rune('a'+i))
 		storeA.Set(ctx, key, []byte("val-"+key))
 	}
-
-	// Rate limiter allows 1 push/peer/sec. The rapid Sets may only
-	// trigger one push with a partial snapshot. Wait for rate limit
-	// to expire, then push again with the complete snapshot.
-	time.Sleep(1100 * time.Millisecond)
-	syncA.PushToAll(ctx)
 
 	waitFor(t, 5*time.Second, func() bool {
 		_, ok := storeB.Get("key-j")
@@ -158,6 +152,12 @@ func startTestNode(t *testing.T, ctx context.Context, name string, nsKey []byte)
 	sync := NewP2PSync(store, node, identity, nil)
 	store.SetP2PSync(sync)
 	node.Host().SetStreamHandler(KVSyncProtocol, sync.handleStream)
+
+	// Shut down the host before t.TempDir cleanup removes the data dir.
+	// t.Cleanup is LIFO, so this runs before TempDir's RemoveAll.
+	t.Cleanup(func() {
+		node.Close()
+	})
 
 	return node, store, sync
 }
