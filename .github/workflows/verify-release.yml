@@ -5,9 +5,29 @@ on:
     tags: ["v*"]
 
 jobs:
-  verify-darwin-arm64:
-    name: Verify darwin/arm64 binary
-    runs-on: macos-latest
+  verify:
+    name: Verify ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: arm64
+            runner: macos-latest
+            asset: sky10-darwin-arm64
+          - goos: darwin
+            goarch: amd64
+            runner: macos-latest
+            asset: sky10-darwin-amd64
+          - goos: linux
+            goarch: arm64
+            runner: ubuntu-latest
+            asset: sky10-linux-arm64
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-latest
+            asset: sky10-linux-amd64
     steps:
       - uses: actions/checkout@v4
 
@@ -27,7 +47,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           COMMIT="$(git rev-parse --short HEAD)"
           DATE="$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ)"
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -buildvcs=false \
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -trimpath -buildvcs=false \
             -ldflags "-s -w -X 'main.version=v${VERSION}' -X 'main.commit=${COMMIT}' -X 'main.buildDate=${DATE}'" \
             -o sky10-rebuilt .
           shasum -a 256 sky10-rebuilt
@@ -35,7 +55,7 @@ jobs:
       - name: Wait for release asset
         run: |
           for i in $(seq 1 30); do
-            if gh release view "${GITHUB_REF_NAME}" --json assets -q '.assets[].name' 2>/dev/null | grep -q sky10-darwin-arm64; then
+            if gh release view "${GITHUB_REF_NAME}" --json assets -q '.assets[].name' 2>/dev/null | grep -q "${{ matrix.asset }}"; then
               echo "Release asset found"
               exit 0
             fi
@@ -50,24 +70,24 @@ jobs:
       - name: Download release asset
         run: |
           gh release download "${GITHUB_REF_NAME}" \
-            --pattern "sky10-darwin-arm64" \
+            --pattern "${{ matrix.asset }}" \
             --pattern "checksums.txt" \
             --dir release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify release checksum
-        run: cd release && grep sky10-darwin-arm64 checksums.txt | shasum -a 256 -c -
+        run: cd release && grep "${{ matrix.asset }}" checksums.txt | shasum -a 256 -c -
 
       - name: Compare binaries
         run: |
           HASH_REBUILT="$(shasum -a 256 sky10-rebuilt | awk '{print $1}')"
-          HASH_RELEASE="$(shasum -a 256 release/sky10-darwin-arm64 | awk '{print $1}')"
+          HASH_RELEASE="$(shasum -a 256 release/${{ matrix.asset }} | awk '{print $1}')"
           echo "Rebuilt:  ${HASH_REBUILT}"
           echo "Release:  ${HASH_RELEASE}"
           if [ "${HASH_REBUILT}" != "${HASH_RELEASE}" ]; then
             echo "::error::Binary mismatch — release asset does not match source"
-            ls -la sky10-rebuilt release/sky10-darwin-arm64
+            ls -la sky10-rebuilt release/${{ matrix.asset }}
             exit 1
           fi
           echo "Reproducible build verified — binaries are byte-identical"
