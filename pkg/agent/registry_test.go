@@ -40,18 +40,30 @@ func TestRegistryRegisterAndList(t *testing.T) {
 	}
 }
 
-func TestRegistryDuplicateName(t *testing.T) {
+func TestRegistryIdempotentReregister(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()
 
-	_, err := r.Register(RegisterParams{Name: "coder"}, "A-first00000000000")
+	first, err := r.Register(RegisterParams{Name: "coder", Skills: []string{"code"}}, "A-first00000000000")
 	if err != nil {
 		t.Fatalf("first Register: %v", err)
 	}
 
-	_, err = r.Register(RegisterParams{Name: "coder"}, "A-second0000000000")
-	if err != ErrDuplicateName {
-		t.Errorf("second Register error = %v, want ErrDuplicateName", err)
+	// Re-register with same name returns existing ID.
+	second, err := r.Register(RegisterParams{Name: "coder", Skills: []string{"code", "test"}}, "A-second0000000000")
+	if err != nil {
+		t.Fatalf("second Register: %v", err)
+	}
+	if second.ID != first.ID {
+		t.Errorf("re-register ID = %s, want %s", second.ID, first.ID)
+	}
+	// Skills should be updated.
+	if len(second.Skills) != 2 {
+		t.Errorf("skills = %v, want [code, test]", second.Skills)
+	}
+	// Only one agent in registry.
+	if r.Len() != 1 {
+		t.Errorf("Len() = %d, want 1", r.Len())
 	}
 }
 

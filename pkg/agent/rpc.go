@@ -102,7 +102,7 @@ func (h *RPCHandler) rpcRegister(_ context.Context, params json.RawMessage) (int
 		go h.notify(context.Background(), "agent:connected")
 	}
 
-	return RegisterResult{AgentID: agentID, Status: "registered"}, nil
+	return RegisterResult{AgentID: info.ID, Status: "registered"}, nil
 }
 
 func (h *RPCHandler) rpcDeregister(_ context.Context, params json.RawMessage) (interface{}, error) {
@@ -159,6 +159,7 @@ func (h *RPCHandler) rpcSend(ctx context.Context, params json.RawMessage) (inter
 	msg := Message{
 		ID:        uuid.NewString(),
 		SessionID: p.SessionID,
+		From:      h.registry.DeviceID(),
 		To:        p.To,
 		DeviceID:  p.DeviceID,
 		Type:      p.Type,

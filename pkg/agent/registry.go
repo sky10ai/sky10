@@ -41,11 +41,17 @@ func (r *Registry) Register(p RegisterParams, agentID string) (*AgentInfo, error
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// Idempotent: if an agent with this name already exists, update it
+	// and return the existing ID. The name is the stable identifier.
 	if existingID, ok := r.byName[p.Name]; ok {
-		if _, exists := r.agents[existingID]; exists {
-			return nil, ErrDuplicateName
+		if existing, alive := r.agents[existingID]; alive {
+			existing.Skills = p.Skills
+			existing.Status = "connected"
+			r.lastHeartbeat[existingID] = time.Now().UTC()
+			r.logger.Info("agent re-registered", "id", existingID, "name", p.Name)
+			cp := *existing
+			return &cp, nil
 		}
-		// Stale entry — clean up.
 		delete(r.byName, p.Name)
 	}
 
