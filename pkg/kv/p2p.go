@@ -89,15 +89,6 @@ func (s *P2PSync) PushToAll(ctx context.Context) {
 
 // pushToPeer sends the current encrypted snapshot to a single peer.
 func (s *P2PSync) pushToPeer(ctx context.Context, pid peer.ID) {
-	// Rate-limit: at most one push per peer per second.
-	s.mu.Lock()
-	if last, ok := s.lastPush[pid]; ok && time.Since(last) < time.Second {
-		s.mu.Unlock()
-		return
-	}
-	s.lastPush[pid] = time.Now()
-	s.mu.Unlock()
-
 	snap, err := s.store.localLog.Snapshot()
 	if err != nil || snap.Len() == 0 {
 		s.logger.Warn("kv p2p push: no snapshot", "peer", pid, "err", err)
