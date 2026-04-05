@@ -35,6 +35,7 @@ export default function Settings() {
   // -- Wallet --
   const {
     data: walletStatus,
+    error: walletError,
     refetch: refetchWallet,
   } = useRPC(() => wallet.status(), [], {
     live: WALLET_EVENT_TYPES,
@@ -279,8 +280,8 @@ export default function Settings() {
             </p>
           </div>
 
-          {/* Not installed */}
-          {walletStatus && !walletStatus.installed && !installing && (
+          {/* Not installed (or RPC unavailable) */}
+          {((walletStatus && !walletStatus.installed) || walletError) && !installing && (
             <div className="flex-1 flex flex-col items-center justify-center gap-4 py-4">
               <div className="w-12 h-12 rounded-full bg-tertiary/10 flex items-center justify-center">
                 <Icon name="download" className="text-tertiary text-2xl" />
@@ -425,7 +426,7 @@ export default function Settings() {
           )}
 
           {/* Loading state */}
-          {!walletStatus && !installing && (
+          {!walletStatus && !walletError && !installing && (
             <div className="flex-1 flex items-center justify-center py-4">
               <p className="text-sm text-secondary">Loading...</p>
             </div>
