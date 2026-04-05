@@ -144,9 +144,9 @@ func Apply(info *Info, onProgress ProgressFunc) error {
 }
 
 // ApplyMenu downloads the latest sky10-menu binary to ~/.bin/sky10-menu.
-// Returns true if the binary was actually replaced (new version differs).
+// Returns true if the installed binary changed (different from previous).
 // Skips silently if no menu asset is available in the release.
-func ApplyMenu(info *Info) (updated bool, err error) {
+func ApplyMenu(info *Info) (changed bool, err error) {
 	if info.MenuAssetURL == "" {
 		return false, nil
 	}
@@ -157,6 +157,7 @@ func ApplyMenu(info *Info) (updated bool, err error) {
 	}
 
 	dest := filepath.Join(home, ".bin", "sky10-menu")
+	oldHash := hashFile(dest)
 
 	resp, err := http.Get(info.MenuAssetURL)
 	if err != nil {
@@ -182,10 +183,6 @@ func ApplyMenu(info *Info) (updated bool, err error) {
 	}
 	tmp.Close()
 
-	if hashFile(tmpPath) == hashFile(dest) {
-		return false, nil
-	}
-
 	if err := os.Chmod(tmpPath, 0755); err != nil {
 		return false, fmt.Errorf("setting permissions: %w", err)
 	}
@@ -194,7 +191,7 @@ func ApplyMenu(info *Info) (updated bool, err error) {
 		return false, fmt.Errorf("replacing sky10-menu: %w", err)
 	}
 
-	return true, nil
+	return hashFile(dest) != oldHash, nil
 }
 
 // hashFile returns the hex SHA-256 of a file, or "" on any error.
