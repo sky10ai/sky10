@@ -67,3 +67,23 @@ jobs:
           gh release upload "${GITHUB_REF_NAME}" "${{ matrix.asset }}" --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  checksums:
+    name: Generate menu checksums
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sky10-menu-*
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: shasum -a 256 sky10-menu-* > checksums-menu.txt && cat checksums-menu.txt
+
+      - name: Attach to release
+        run: gh release upload "${GITHUB_REF_NAME}" checksums-menu.txt --clobber --repo "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

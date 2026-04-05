@@ -31,12 +31,12 @@ type ProgressFunc func(downloaded, total int64)
 
 // Info holds version information for an update check.
 type Info struct {
-	Current      string `json:"current"`
-	Latest       string `json:"latest"`
-	Available    bool   `json:"available"`
-	AssetURL     string `json:"asset_url,omitempty"`
-	MenuAssetURL string `json:"menu_asset_url,omitempty"`
-	ChecksumsURL string `json:"checksums_url,omitempty"`
+	Current          string `json:"current"`
+	Latest           string `json:"latest"`
+	Available        bool   `json:"available"`
+	AssetURL         string `json:"asset_url,omitempty"`
+	MenuAssetURL     string `json:"menu_asset_url,omitempty"`
+	MenuChecksumsURL string `json:"menu_checksums_url,omitempty"`
 }
 
 // Check queries GitHub for the latest release and compares to current.
@@ -83,8 +83,8 @@ func Check(currentVersion string) (*Info, error) {
 			info.AssetURL = a.BrowserDownloadURL
 		case menuAsset:
 			info.MenuAssetURL = a.BrowserDownloadURL
-		case "checksums.txt":
-			info.ChecksumsURL = a.BrowserDownloadURL
+		case "checksums-menu.txt":
+			info.MenuChecksumsURL = a.BrowserDownloadURL
 		}
 	}
 
@@ -165,10 +165,10 @@ func ApplyMenu(info *Info) (changed bool, err error) {
 	menuAsset := fmt.Sprintf("sky10-menu-%s-%s", runtime.GOOS, runtime.GOARCH)
 
 	// Check if local binary already matches the release checksum.
-	if info.ChecksumsURL != "" {
+	if info.MenuChecksumsURL != "" {
 		localHash := hashFile(dest)
 		if localHash != "" {
-			if remoteHash, err := fetchChecksum(info.ChecksumsURL, menuAsset); err == nil && localHash == remoteHash {
+			if remoteHash, err := fetchChecksum(info.MenuChecksumsURL, menuAsset); err == nil && localHash == remoteHash {
 				return false, nil
 			}
 		}
