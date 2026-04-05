@@ -73,7 +73,7 @@ func (h *RPCHandler) rpcUpdate() (interface{}, error, bool) {
 			return
 		}
 
-		if err := ApplyMenu(info); err != nil {
+		if _, err := ApplyMenu(info); err != nil {
 			slog.Warn("could not update sky10-menu", "error", err)
 		}
 

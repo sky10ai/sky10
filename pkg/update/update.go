@@ -3,6 +3,8 @@ package update
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -142,52 +144,71 @@ func Apply(info *Info, onProgress ProgressFunc) error {
 }
 
 // ApplyMenu downloads the latest sky10-menu binary to ~/.bin/sky10-menu.
+// Returns true if the binary was actually replaced (new version differs).
 // Skips silently if no menu asset is available in the release.
-func ApplyMenu(info *Info) error {
+func ApplyMenu(info *Info) (updated bool, err error) {
 	if info.MenuAssetURL == "" {
-		return nil
+		return false, nil
 	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return fmt.Errorf("finding home dir: %w", err)
+		return false, fmt.Errorf("finding home dir: %w", err)
 	}
 
 	dest := filepath.Join(home, ".bin", "sky10-menu")
 
 	resp, err := http.Get(info.MenuAssetURL)
 	if err != nil {
-		return fmt.Errorf("downloading sky10-menu: %w", err)
+		return false, fmt.Errorf("downloading sky10-menu: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("sky10-menu download returned %d", resp.StatusCode)
+		return false, fmt.Errorf("sky10-menu download returned %d", resp.StatusCode)
 	}
 
 	dir := filepath.Dir(dest)
 	tmp, err := os.CreateTemp(dir, "sky10-menu-update-*")
 	if err != nil {
-		return fmt.Errorf("creating temp file: %w", err)
+		return false, fmt.Errorf("creating temp file: %w", err)
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
 
 	if _, err := io.Copy(tmp, resp.Body); err != nil {
 		tmp.Close()
-		return fmt.Errorf("writing sky10-menu: %w", err)
+		return false, fmt.Errorf("writing sky10-menu: %w", err)
 	}
 	tmp.Close()
 
+	if hashFile(tmpPath) == hashFile(dest) {
+		return false, nil
+	}
+
 	if err := os.Chmod(tmpPath, 0755); err != nil {
-		return fmt.Errorf("setting permissions: %w", err)
+		return false, fmt.Errorf("setting permissions: %w", err)
 	}
 
 	if err := os.Rename(tmpPath, dest); err != nil {
-		return fmt.Errorf("replacing sky10-menu: %w", err)
+		return false, fmt.Errorf("replacing sky10-menu: %w", err)
 	}
 
-	return nil
+	return true, nil
+}
+
+// hashFile returns the hex SHA-256 of a file, or "" on any error.
+func hashFile(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // PeriodicCheck checks for updates on startup and every 2 hours,
