@@ -57,7 +57,7 @@ export default function AgentChat() {
   const waitingTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Fetch agent info.
-  const { data } = useRPC(() => agent.list(), [], {
+  const { data, loading } = useRPC(() => agent.list(), [], {
     live: AGENT_EVENT_TYPES,
     refreshIntervalMs: 5_000,
   });
@@ -180,6 +180,18 @@ export default function AgentChat() {
   };
 
   if (!agentInfo) {
+    if (loading) {
+      return (
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="text-center space-y-4">
+            <Icon name="smart_toy" className="text-5xl text-secondary animate-pulse" />
+            <h1 className="text-xl font-bold text-on-surface">
+              Connecting...
+            </h1>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="text-center space-y-4">
