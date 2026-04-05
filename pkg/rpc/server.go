@@ -130,10 +130,25 @@ func (s *Server) Serve(ctx context.Context) error {
 }
 
 // Emit sends an event to all connected subscribers.
+// It tries a non-blocking send first, then falls back to a short
+// blocking wait so that critical events (like agent responses) are
+// not silently dropped when the buffer is temporarily full.
 func (s *Server) Emit(event string, data interface{}) {
+	ev := Event{Name: event, Data: data}
 	select {
-	case s.events <- Event{Name: event, Data: data}:
+	case s.events <- ev:
+		return
 	default:
+	}
+
+	// Buffer full — wait briefly rather than dropping.
+	t := time.NewTimer(500 * time.Millisecond)
+	defer t.Stop()
+	select {
+	case s.events <- ev:
+	case <-t.C:
+		s.logger.Warn("event dropped (buffer full after 500ms wait)",
+			"event", event)
 	}
 }
 
@@ -227,6 +242,11 @@ func (s *Server) dispatch(ctx context.Context, req *Request) *Response {
 
 func (s *Server) broadcastLoop() {
 	for event := range s.events {
+		// Broadcast to HTTP/SSE subscribers FIRST — this is
+		// non-blocking (channel send) so the web UI gets events
+		// without waiting for potentially-slow Unix socket writes.
+		s.broadcastToHTTP(event)
+
 		msg := map[string]interface{}{
 			"jsonrpc": "2.0",
 			"method":  "event",
@@ -249,7 +269,5 @@ func (s *Server) broadcastLoop() {
 				conn.Close()
 			}
 		}
-
-		s.broadcastToHTTP(event)
 	}
 }

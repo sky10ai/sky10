@@ -176,7 +176,19 @@ func (s *Server) broadcastToHTTP(event Event) {
 	for _, sub := range subs {
 		select {
 		case sub.ch <- event:
+			continue
 		default:
 		}
+
+		// Subscriber channel full — wait briefly before dropping.
+		t := time.NewTimer(200 * time.Millisecond)
+		select {
+		case sub.ch <- event:
+		case <-sub.done:
+		case <-t.C:
+			s.logger.Warn("SSE subscriber event dropped",
+				"event", event.Name)
+		}
+		t.Stop()
 	}
 }
