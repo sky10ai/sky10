@@ -56,62 +56,70 @@ export const KNOWN_EVENT_TYPES = [
   ]),
 ] as const;
 
-function emitParsed(
-  handler: EventHandler,
-  raw: string,
-  fallbackEvent?: string
-) {
+// --- Singleton EventSource ---
+// All subscribers share a single SSE connection to avoid exhausting the
+// browser's per-origin HTTP/1.1 connection pool (6 connections max).
+
+const handlers = new Set<EventHandler>();
+let sharedES: EventSource | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+function dispatch(event: string, raw: string) {
+  let parsed: { event?: string; data?: unknown };
   try {
-    const parsed = JSON.parse(raw) as {
-      event?: string;
-      data?: unknown;
-    };
-    handler(parsed.event ?? fallbackEvent ?? "message", parsed.data ?? parsed);
+    parsed = JSON.parse(raw) as { event?: string; data?: unknown };
   } catch {
-    if (fallbackEvent) {
-      handler(fallbackEvent, raw);
-    }
+    return;
+  }
+  const name = parsed.event ?? event;
+  const data = parsed.data ?? parsed;
+  for (const h of handlers) {
+    h(name, data);
   }
 }
 
-export function subscribe(
-  handler: EventHandler,
-  eventTypes: readonly string[] = KNOWN_EVENT_TYPES
-): () => void {
-  let es: EventSource | null = null;
-  let closed = false;
+function ensureConnection() {
+  if (sharedES) return;
 
-  function connect() {
-    if (closed) return;
-    es = new EventSource(SSE_URL);
+  const es = new EventSource(SSE_URL);
 
-    es.onmessage = (msg) => {
-      emitParsed(handler, msg.data);
-    };
+  es.onmessage = (msg) => {
+    dispatch("message", msg.data);
+  };
 
-    // Named events from the server use the event name as the SSE event type.
-    // The server sends: `event: <name>\ndata: ...\n\n`
-    // EventSource routes named events to addEventListener, not onmessage.
-    // We listen for known event types emitted by the daemon.
-    for (const type of [...new Set(eventTypes)]) {
-      es.addEventListener(type, (e) => {
-        emitParsed(handler, (e as MessageEvent).data, type);
-      });
-    }
-
-    es.onerror = () => {
-      es?.close();
-      // Reconnect after a short delay.
-      if (!closed) {
-        setTimeout(connect, 3000);
-      }
-    };
+  for (const type of KNOWN_EVENT_TYPES) {
+    es.addEventListener(type, (e) => {
+      dispatch(type, (e as MessageEvent).data);
+    });
   }
 
-  connect();
+  es.onerror = () => {
+    es.close();
+    sharedES = null;
+    if (handlers.size > 0 && !reconnectTimer) {
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        if (handlers.size > 0) ensureConnection();
+      }, 3000);
+    }
+  };
+
+  sharedES = es;
+}
+
+export function subscribe(handler: EventHandler): () => void {
+  handlers.add(handler);
+  ensureConnection();
 
   return () => {
-    closed = true;
-    es?.close();
+    handlers.delete(handler);
+    if (handlers.size === 0 && sharedES) {
+      sharedES.close();
+      sharedES = null;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    }
   };
 }

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router";
 import Markdown from "react-markdown";
 import { Icon } from "../components/Icon";
 import { StatusBadge } from "../components/StatusBadge";
-import { AGENT_EVENT_TYPES } from "../lib/events";
+import { AGENT_EVENT_TYPES, subscribe } from "../lib/events";
 import { agent, AgentInfo } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
@@ -72,41 +72,37 @@ export default function AgentChat() {
     agentInfoRef.current = agentInfo;
   }, [agentInfo]);
 
-  // Subscribe to incoming messages via SSE.
+  // Subscribe to incoming messages via the shared SSE connection.
   useEffect(() => {
-    const es = new EventSource("/rpc/events");
-    es.addEventListener("agent.message", (e) => {
-      try {
-        const parsed = JSON.parse(e.data);
-        const msg = parsed.data ?? parsed;
-        if (!msg || !msg.to) return;
+    return subscribe((event, data) => {
+      if (event !== "agent.message") return;
+      const msg = data as Record<string, unknown> | null;
+      if (!msg || !msg.to) return;
 
-        // Only show messages for this session.
-        if (msg.session_id !== sessionId) return;
+      // Only show messages for this session.
+      if (msg.session_id !== sessionId) return;
 
-        // Skip echoes — outbound messages have `to` set to the agent.
-        // Check both the URL param (available immediately) and the
-        // resolved agent info (available after first fetch).
-        if (msg.to === agentId) return;
-        const ai = agentInfoRef.current;
-        if (ai && (msg.to === ai.id || msg.to === ai.name)) return;
+      // Skip echoes — outbound messages have `to` set to the agent.
+      // Check both the URL param (available immediately) and the
+      // resolved agent info (available after first fetch).
+      if (msg.to === agentId) return;
+      const ai = agentInfoRef.current;
+      if (ai && (msg.to === ai.id || msg.to === ai.name)) return;
 
-        setWaiting(false);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: msg.id || uuid(),
-            from: "agent" as const,
-            type: msg.type || "text",
-            content: msg.content?.text || JSON.stringify(msg.content),
-            timestamp: new Date(),
-          },
-        ]);
-      } catch {
-        // ignore parse errors
-      }
+      setWaiting(false);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (msg.id as string) || uuid(),
+          from: "agent" as const,
+          type: (msg.type as string) || "text",
+          content:
+            (msg.content as { text?: string })?.text ||
+            JSON.stringify(msg.content),
+          timestamp: new Date(),
+        },
+      ]);
     });
-    return () => es.close();
   }, [sessionId, agentId]);
 
   // Auto-scroll to bottom + persist.

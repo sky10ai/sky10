@@ -58,7 +58,7 @@ export default function Activity() {
         ];
         return next.length > 200 ? next.slice(-200) : next;
       });
-    }, STORAGE_EVENT_TYPES);
+    });
     return unsub;
   }, []);
 
