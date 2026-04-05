@@ -39,16 +39,18 @@ anyone who already downloaded.
 
 ## Steps
 
-### 1. Tag and push tag
+### 1. Release commit, tag, and push
 
+Create a release commit so releases are visible when scanning `git log`.
 The CLI version comes from git tags via the Makefile — no hardcoded
 version to update. The schema version (`pkg/fs/schema.go`
 `SchemaVersion`) is a DATA FORMAT version and should NOT be bumped
 during a release unless the storage format changed.
 
 ```bash
+git commit --allow-empty -m "release: v$VERSION"
 git tag v$VERSION
-git push origin v$VERSION
+git push && git push origin v$VERSION
 ```
 
 ### 2. Build binaries (all platforms)
