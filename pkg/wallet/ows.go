@@ -6,7 +6,6 @@ package wallet
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -83,7 +82,7 @@ func (c *Client) Status(ctx context.Context) (*StatusResult, error) {
 	}
 	wallets, err := c.ListWallets(ctx)
 	if err != nil {
-		return &StatusResult{Installed: true}, err
+		return &StatusResult{Installed: true, Version: InstalledVersion(), BinPath: c.bin}, err
 	}
 	return &StatusResult{
 		Installed: true,
@@ -110,13 +109,13 @@ func (c *Client) CreateWallet(ctx context.Context, name string) (*Wallet, error)
 	if err != nil {
 		return nil, fmt.Errorf("creating wallet: %w", err)
 	}
-	var w Wallet
-	if err := json.Unmarshal(out, &w); err != nil {
-		// CLI may output non-JSON; try to extract name.
-		w.Name = name
-	}
-	if w.Name == "" {
-		w.Name = name
+	// Parse: "Wallet created: <id>"
+	w := Wallet{Name: name}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Wallet created:") {
+			w.ID = strings.TrimSpace(strings.TrimPrefix(line, "Wallet created:"))
+		}
 	}
 	return &w, nil
 }
@@ -126,31 +125,40 @@ func (c *Client) ListWallets(ctx context.Context) ([]Wallet, error) {
 	if c == nil {
 		return nil, ErrNotInstalled
 	}
-	out, err := c.run(ctx, "wallet", "list", "--output", "json")
+	out, err := c.run(ctx, "wallet", "list")
 	if err != nil {
 		return nil, fmt.Errorf("listing wallets: %w", err)
 	}
-	var wallets []Wallet
-	if err := json.Unmarshal(out, &wallets); err != nil {
-		return nil, fmt.Errorf("parsing wallet list: %w", err)
-	}
-	return wallets, nil
+	return parseWalletList(string(out)), nil
 }
 
-// GetWallet returns info for a single wallet by name.
-func (c *Client) GetWallet(ctx context.Context, name string) (*Wallet, error) {
-	if c == nil {
-		return nil, ErrNotInstalled
+// parseWalletList parses the text output of `ows wallet list`.
+// Format:
+//
+//	ID:      <uuid>
+//	Name:    <name>
+//	...
+func parseWalletList(output string) []Wallet {
+	if strings.Contains(output, "No wallets found") {
+		return nil
 	}
-	out, err := c.run(ctx, "wallet", "info", "--name", name, "--output", "json")
-	if err != nil {
-		return nil, fmt.Errorf("getting wallet %q: %w", name, err)
+	var wallets []Wallet
+	var current Wallet
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "ID:") {
+			if current.ID != "" {
+				wallets = append(wallets, current)
+			}
+			current = Wallet{ID: strings.TrimSpace(strings.TrimPrefix(line, "ID:"))}
+		} else if strings.HasPrefix(line, "Name:") {
+			current.Name = strings.TrimSpace(strings.TrimPrefix(line, "Name:"))
+		}
 	}
-	var w Wallet
-	if err := json.Unmarshal(out, &w); err != nil {
-		return nil, fmt.Errorf("parsing wallet info: %w", err)
+	if current.ID != "" {
+		wallets = append(wallets, current)
 	}
-	return &w, nil
+	return wallets
 }
 
 // Address returns the Solana address for the given wallet.
@@ -158,31 +166,29 @@ func (c *Client) Address(ctx context.Context, walletName string) (string, error)
 	if c == nil {
 		return "", ErrNotInstalled
 	}
-	out, err := c.run(ctx, "wallet", "info", "--name", walletName, "--chain", ChainSolana, "--output", "json")
+	// wallet list shows all addresses; find the solana line for this wallet.
+	out, err := c.run(ctx, "wallet", "list")
 	if err != nil {
 		return "", fmt.Errorf("getting address: %w", err)
 	}
-	var info struct {
-		Address  string            `json:"address"`
-		Chains   map[string]string `json:"chains"`
-		Accounts []struct {
-			Chain   string `json:"chain"`
-			Address string `json:"address"`
-		} `json:"accounts"`
-	}
-	if err := json.Unmarshal(out, &info); err != nil {
-		return "", fmt.Errorf("parsing address: %w", err)
-	}
-	// Try top-level address first, then chain map, then accounts list.
-	if info.Address != "" {
-		return info.Address, nil
-	}
-	if addr, ok := info.Chains[ChainSolana]; ok {
-		return addr, nil
-	}
-	for _, a := range info.Accounts {
-		if a.Chain == ChainSolana {
-			return a.Address, nil
+	return parseSolanaAddress(string(out), walletName)
+}
+
+// parseSolanaAddress extracts the Solana address from wallet list output.
+// Looks for a line containing "solana:" with "→" pointing to the address.
+func parseSolanaAddress(output, walletName string) (string, error) {
+	inWallet := false
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "Name:") {
+			name := strings.TrimSpace(strings.TrimPrefix(trimmed, "Name:"))
+			inWallet = name == walletName
+		}
+		if inWallet && strings.Contains(trimmed, "solana:") && strings.Contains(trimmed, "→") {
+			parts := strings.SplitN(trimmed, "→", 2)
+			if len(parts) == 2 {
+				return strings.TrimSpace(parts[1]), nil
+			}
 		}
 	}
 	return "", fmt.Errorf("no Solana address found for wallet %q", walletName)
@@ -193,16 +199,25 @@ func (c *Client) Balance(ctx context.Context, walletName string) (*BalanceResult
 	if c == nil {
 		return nil, ErrNotInstalled
 	}
-	out, err := c.run(ctx, "fund", "balance", "--wallet", walletName, "--chain", ChainSolana, "--output", "json")
+	out, err := c.run(ctx, "fund", "balance", "--wallet", walletName, "--chain", ChainSolana)
 	if err != nil {
 		return nil, fmt.Errorf("checking balance: %w", err)
 	}
-	var result BalanceResult
-	if err := json.Unmarshal(out, &result); err != nil {
-		return nil, fmt.Errorf("parsing balance: %w", err)
+	result := &BalanceResult{Chain: ChainSolana}
+	text := string(out)
+	// "No tokens found for <addr> on solana"
+	if strings.Contains(text, "No tokens found for") {
+		parts := strings.Fields(text)
+		for i, p := range parts {
+			if p == "for" && i+1 < len(parts) {
+				result.Address = parts[i+1]
+				break
+			}
+		}
+		return result, nil
 	}
-	result.Chain = ChainSolana
-	return &result, nil
+	// TODO: parse token balance table when tokens exist.
+	return result, nil
 }
 
 // Pay makes an x402 payment to a URL using the given wallet.
@@ -210,15 +225,11 @@ func (c *Client) Pay(ctx context.Context, walletName, url string) (*PayResult, e
 	if c == nil {
 		return nil, ErrNotInstalled
 	}
-	out, err := c.run(ctx, "pay", "request", url, "--wallet", walletName, "--output", "json")
+	out, err := c.run(ctx, "pay", "request", url, "--wallet", walletName)
 	if err != nil {
 		return nil, fmt.Errorf("paying %q: %w", url, err)
 	}
-	var result PayResult
-	if err := json.Unmarshal(out, &result); err != nil {
-		return nil, fmt.Errorf("parsing payment result: %w", err)
-	}
-	return &result, nil
+	return &PayResult{Status: string(out)}, nil
 }
 
 // DepositResult holds the result of a deposit request.
@@ -234,16 +245,20 @@ func (c *Client) Deposit(ctx context.Context, walletName string) (*DepositResult
 	if c == nil {
 		return nil, ErrNotInstalled
 	}
-	out, err := c.run(ctx, "fund", "deposit", "--wallet", walletName, "--chain", ChainSolana, "--output", "json")
+	out, err := c.run(ctx, "fund", "deposit", "--wallet", walletName, "--chain", ChainSolana)
 	if err != nil {
 		return nil, fmt.Errorf("deposit for wallet %q: %w", walletName, err)
 	}
-	var result DepositResult
-	if err := json.Unmarshal(out, &result); err != nil {
-		return nil, fmt.Errorf("parsing deposit result: %w", err)
+	result := &DepositResult{Chain: ChainSolana, Status: string(out)}
+	// Look for a URL in the output.
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://") {
+			result.URL = line
+			break
+		}
 	}
-	result.Chain = ChainSolana
-	return &result, nil
+	return result, nil
 }
 
 // Transfer sends tokens from the wallet to a Solana address.
@@ -260,16 +275,11 @@ func (c *Client) Transfer(ctx context.Context, walletName, to, amount, token str
 	if token != "" {
 		args = append(args, "--token", token)
 	}
-	args = append(args, "--output", "json")
 	out, err := c.run(ctx, args...)
 	if err != nil {
 		return nil, fmt.Errorf("transfer to %s: %w", to, err)
 	}
-	var result PayResult
-	if err := json.Unmarshal(out, &result); err != nil {
-		return nil, fmt.Errorf("parsing transfer result: %w", err)
-	}
-	return &result, nil
+	return &PayResult{Status: string(out)}, nil
 }
 
 // run executes the ows CLI with the given arguments.

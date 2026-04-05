@@ -61,6 +61,11 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 }
 
 func (h *RPCHandler) rpcStatus(ctx context.Context) (interface{}, error) {
+	// Re-check for the binary if we don't have a client yet.
+	// Handles manual installs or installs by other processes.
+	if h.client == nil {
+		h.client = NewClient()
+	}
 	return h.client.Status(ctx)
 }
 
