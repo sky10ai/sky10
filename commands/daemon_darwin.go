@@ -31,7 +31,7 @@ var plistTemplate = template.Must(template.New("plist").Parse(`<?xml version="1.
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <true/>
+    <{{if .KeepAlive}}true{{else}}false{{end}}/>
     <key>StandardOutPath</key>
     <string>{{.LogOut}}</string>
     <key>StandardErrorPath</key>
@@ -46,12 +46,13 @@ var plistTemplate = template.Must(template.New("plist").Parse(`<?xml version="1.
 `))
 
 type plistData struct {
-	Label  string
-	Binary string
-	Args   []string
-	Home   string
-	LogOut string
-	LogErr string
+	Label     string
+	Binary    string
+	Args      []string
+	Home      string
+	LogOut    string
+	LogErr    string
+	KeepAlive bool
 }
 
 func launchdPlistPath(label string) string {
@@ -100,11 +101,12 @@ func installMenuAgent() {
 		return
 	}
 	data := plistData{
-		Label:  launchdMenuLabel,
-		Binary: menuBin,
-		Home:   home,
-		LogOut: "/tmp/sky10/menu.stdout.log",
-		LogErr: "/tmp/sky10/menu.stderr.log",
+		Label:     launchdMenuLabel,
+		Binary:    menuBin,
+		Home:      home,
+		LogOut:    "/tmp/sky10/menu.stdout.log",
+		LogErr:    "/tmp/sky10/menu.stderr.log",
+		KeepAlive: false,
 	}
 	if err := plistTemplate.Execute(f, data); err != nil {
 		f.Close()
@@ -143,12 +145,13 @@ func daemonInstallCmd() *cobra.Command {
 
 			home, _ := os.UserHomeDir()
 			data := plistData{
-				Label:  launchdLabel,
-				Binary: findBinary(),
-				Args:   []string{"serve"},
-				Home:   home,
-				LogOut: "/tmp/sky10/daemon.stdout.log",
-				LogErr: "/tmp/sky10/daemon.stderr.log",
+				Label:     launchdLabel,
+				Binary:    findBinary(),
+				Args:      []string{"serve"},
+				Home:      home,
+				LogOut:    "/tmp/sky10/daemon.stdout.log",
+				LogErr:    "/tmp/sky10/daemon.stderr.log",
+				KeepAlive: true,
 			}
 			if err := plistTemplate.Execute(f, data); err != nil {
 				f.Close()
