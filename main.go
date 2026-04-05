@@ -40,7 +40,6 @@ func main() {
 	root.AddCommand(commands.UiCmd())
 	root.AddCommand(commands.UpdateCmd())
 	root.AddCommand(commands.DaemonCmd())
-	root.AddCommand(commands.WalletCmd())
 
 	root.CompletionOptions.HiddenDefaultCmd = true
 
