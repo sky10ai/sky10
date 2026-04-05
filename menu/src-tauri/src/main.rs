@@ -131,19 +131,23 @@ fn query_daemon() -> DaemonInfo {
         }
     }
 
-    // Check for updates.
+    info.state = TrayState::Connected;
+    info
+}
+
+/// Check GitHub for updates. Called infrequently to avoid rate limits.
+fn check_for_update(info: &mut DaemonInfo) {
+    if info.state == TrayState::Disconnected {
+        return;
+    }
     if let Some(update_resp) = rpc("system.checkUpdate") {
         if update_resp.contains("\"available\":true") {
             info.state = TrayState::UpdateAvailable;
             if let Some(latest) = json_str(&update_resp, "latest") {
                 info.latest_version = latest.to_string();
             }
-            return info;
         }
     }
-
-    info.state = TrayState::Connected;
-    info
 }
 
 // --- Actions ---
@@ -284,7 +288,8 @@ fn main() {
                 .build()?;
             }
 
-            let info = query_daemon();
+            let mut info = query_daemon();
+            check_for_update(&mut info);
 
             let menu = build_menu(app, &info)?;
 
@@ -309,13 +314,22 @@ fn main() {
             set_tray_tooltip(&tray, &info.state);
 
             // Poll daemon state. When syncing, animate at 250ms.
-            // Otherwise check every 10 seconds.
+            // Otherwise check every 10 seconds. Update checks run
+            // every 60 minutes to avoid GitHub API rate limits.
             let tray_clone = tray.clone();
             std::thread::spawn(move || {
                 let mut prev_state = info.state.clone();
                 let mut frame: usize = 0;
+                let update_interval = Duration::from_secs(60 * 60);
+                let mut last_update_check = std::time::Instant::now();
                 loop {
-                    let new_info = query_daemon();
+                    let mut new_info = query_daemon();
+
+                    // Check for updates infrequently.
+                    if last_update_check.elapsed() >= update_interval {
+                        check_for_update(&mut new_info);
+                        last_update_check = std::time::Instant::now();
+                    }
 
                     if new_info.state == TrayState::Syncing {
                         // Animate: cycle through 4 frames
