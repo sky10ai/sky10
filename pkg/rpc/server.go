@@ -22,11 +22,11 @@ type Server struct {
 	listener net.Listener
 	logger   *slog.Logger
 
-	mu          sync.Mutex
-	clients     map[net.Conn]bool
-	subscribers map[net.Conn]*json.Encoder
-	events      chan Event
-	handlers    []Handler
+	mu       sync.Mutex
+	clients  map[net.Conn]bool
+	unixSubs []*unixSubscriber
+	events   chan Event
+	handlers []Handler
 
 	// HTTP
 	httpAddr   string
@@ -43,6 +43,11 @@ type httpRoute struct {
 	handler http.HandlerFunc
 }
 
+type unixSubscriber struct {
+	ch   chan Event
+	done chan struct{}
+}
+
 // HandleHTTP registers an HTTP handler on the server's HTTP mux.
 // Must be called before ServeHTTP.
 func (s *Server) HandleHTTP(pattern string, handler http.HandlerFunc) {
@@ -55,12 +60,11 @@ func NewServer(sockPath, version string, logger *slog.Logger) *Server {
 		logger = slog.Default()
 	}
 	return &Server{
-		sockPath:    sockPath,
-		version:     version,
-		logger:      logger,
-		clients:     make(map[net.Conn]bool),
-		subscribers: make(map[net.Conn]*json.Encoder),
-		events:      make(chan Event, 100),
+		sockPath: sockPath,
+		version:  version,
+		logger:   logger,
+		clients:  make(map[net.Conn]bool),
+		events:   make(chan Event, 100),
 	}
 }
 
@@ -163,7 +167,7 @@ func (s *Server) ClientCount() int {
 // (Unix socket + HTTP SSE).
 func (s *Server) SubscriberCount() int {
 	s.mu.Lock()
-	sockSubs := len(s.subscribers)
+	sockSubs := len(s.unixSubs)
 	s.mu.Unlock()
 
 	s.httpSubMu.RLock()
@@ -199,11 +203,43 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 			s.logger.Debug("rpc", "method", req.Method)
 			resp := &Response{JSONRPC: "2.0", ID: req.ID, Result: map[string]string{"status": "subscribed"}}
 			encoder.Encode(resp)
+
+			sub := &unixSubscriber{
+				ch:   make(chan Event, 100),
+				done: make(chan struct{}),
+			}
 			s.mu.Lock()
-			s.subscribers[conn] = encoder
+			s.unixSubs = append(s.unixSubs, sub)
 			s.mu.Unlock()
-			<-ctx.Done()
-			return
+
+			defer func() {
+				close(sub.done)
+				s.mu.Lock()
+				for i, ss := range s.unixSubs {
+					if ss == sub {
+						s.unixSubs = append(s.unixSubs[:i], s.unixSubs[i+1:]...)
+						break
+					}
+				}
+				s.mu.Unlock()
+			}()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case ev := <-sub.ch:
+					conn.SetWriteDeadline(time.Now().Add(time.Second))
+					msg := map[string]interface{}{
+						"jsonrpc": "2.0",
+						"method":  "event",
+						"params":  map[string]interface{}{"event": ev.Name, "data": ev.Data},
+					}
+					if err := encoder.Encode(msg); err != nil {
+						return
+					}
+				}
+			}
 		}
 
 		start := time.Now()
@@ -242,32 +278,33 @@ func (s *Server) dispatch(ctx context.Context, req *Request) *Response {
 
 func (s *Server) broadcastLoop() {
 	for event := range s.events {
-		// Broadcast to HTTP/SSE subscribers FIRST — this is
-		// non-blocking (channel send) so the web UI gets events
-		// without waiting for potentially-slow Unix socket writes.
 		s.broadcastToHTTP(event)
+		s.broadcastToUnix(event)
+	}
+}
 
-		msg := map[string]interface{}{
-			"jsonrpc": "2.0",
-			"method":  "event",
-			"params":  map[string]interface{}{"event": event.Name, "data": event.Data},
+func (s *Server) broadcastToUnix(event Event) {
+	s.mu.Lock()
+	subs := make([]*unixSubscriber, len(s.unixSubs))
+	copy(subs, s.unixSubs)
+	s.mu.Unlock()
+
+	for _, sub := range subs {
+		select {
+		case sub.ch <- event:
+			continue
+		default:
 		}
 
-		s.mu.Lock()
-		subs := make(map[net.Conn]*json.Encoder, len(s.subscribers))
-		for conn, enc := range s.subscribers {
-			subs[conn] = enc
+		// Subscriber channel full — wait briefly before dropping.
+		t := time.NewTimer(200 * time.Millisecond)
+		select {
+		case sub.ch <- event:
+		case <-sub.done:
+		case <-t.C:
+			s.logger.Warn("Unix subscriber event dropped",
+				"event", event.Name)
 		}
-		s.mu.Unlock()
-
-		for conn, enc := range subs {
-			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			if err := enc.Encode(msg); err != nil {
-				s.mu.Lock()
-				delete(s.subscribers, conn)
-				s.mu.Unlock()
-				conn.Close()
-			}
-		}
+		t.Stop()
 	}
 }
