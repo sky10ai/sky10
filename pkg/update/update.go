@@ -2,6 +2,7 @@
 package update
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -34,6 +36,7 @@ type Info struct {
 	Available    bool   `json:"available"`
 	AssetURL     string `json:"asset_url,omitempty"`
 	MenuAssetURL string `json:"menu_asset_url,omitempty"`
+	ChecksumsURL string `json:"checksums_url,omitempty"`
 }
 
 // Check queries GitHub for the latest release and compares to current.
@@ -75,11 +78,13 @@ func Check(currentVersion string) (*Info, error) {
 	asset := fmt.Sprintf("sky10-%s-%s", runtime.GOOS, runtime.GOARCH)
 	menuAsset := fmt.Sprintf("sky10-menu-%s-%s", runtime.GOOS, runtime.GOARCH)
 	for _, a := range release.Assets {
-		if a.Name == asset {
+		switch a.Name {
+		case asset:
 			info.AssetURL = a.BrowserDownloadURL
-		}
-		if a.Name == menuAsset {
+		case menuAsset:
 			info.MenuAssetURL = a.BrowserDownloadURL
+		case "checksums.txt":
+			info.ChecksumsURL = a.BrowserDownloadURL
 		}
 	}
 
@@ -144,8 +149,8 @@ func Apply(info *Info, onProgress ProgressFunc) error {
 }
 
 // ApplyMenu downloads the latest sky10-menu binary to ~/.bin/sky10-menu.
-// Returns true if the installed binary changed (different from previous).
-// Skips silently if no menu asset is available in the release.
+// Returns true if the binary was updated. Skips the download entirely
+// when checksums.txt shows the local binary is already current.
 func ApplyMenu(info *Info) (changed bool, err error) {
 	if info.MenuAssetURL == "" {
 		return false, nil
@@ -157,7 +162,17 @@ func ApplyMenu(info *Info) (changed bool, err error) {
 	}
 
 	dest := filepath.Join(home, ".bin", "sky10-menu")
-	oldHash := hashFile(dest)
+	menuAsset := fmt.Sprintf("sky10-menu-%s-%s", runtime.GOOS, runtime.GOARCH)
+
+	// Check if local binary already matches the release checksum.
+	if info.ChecksumsURL != "" {
+		localHash := hashFile(dest)
+		if localHash != "" {
+			if remoteHash, err := fetchChecksum(info.ChecksumsURL, menuAsset); err == nil && localHash == remoteHash {
+				return false, nil
+			}
+		}
+	}
 
 	resp, err := http.Get(info.MenuAssetURL)
 	if err != nil {
@@ -191,7 +206,30 @@ func ApplyMenu(info *Info) (changed bool, err error) {
 		return false, fmt.Errorf("replacing sky10-menu: %w", err)
 	}
 
-	return hashFile(dest) != oldHash, nil
+	return true, nil
+}
+
+// fetchChecksum fetches checksums.txt and returns the SHA-256 for the named asset.
+func fetchChecksum(url, asset string) (string, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("checksums returned %d", resp.StatusCode)
+	}
+
+	// Format: "<hash>  <filename>" (two spaces, matching shasum output).
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		parts := strings.Fields(scanner.Text())
+		if len(parts) == 2 && parts[1] == asset {
+			return parts[0], nil
+		}
+	}
+	return "", fmt.Errorf("asset %s not found in checksums", asset)
 }
 
 // hashFile returns the hex SHA-256 of a file, or "" on any error.
