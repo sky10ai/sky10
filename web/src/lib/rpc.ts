@@ -113,6 +113,18 @@ export const agent = {
   send: (p: AgentSendParams) => rpc<AgentSendResult>("agent.send", p),
 };
 
+// -- wallet --
+export const wallet = {
+  status: () => rpc<WalletStatus>("wallet.status"),
+  install: () => rpc<{ status: string }>("wallet.install"),
+  checkUpdate: () => rpc<WalletReleaseInfo>("wallet.checkUpdate"),
+  create: (p: { name: string }) => rpc<WalletInfo>("wallet.create", p),
+  list: () => rpc<WalletListResult>("wallet.list"),
+  address: (p: { wallet: string }) => rpc<WalletAddress>("wallet.address", p),
+  balance: (p: { wallet: string }) => rpc<WalletBalance>("wallet.balance", p),
+  deposit: (p: { wallet: string }) => rpc<WalletDeposit>("wallet.deposit", p),
+};
+
 // ---- Types matching actual daemon responses ----
 
 export interface HealthResult {
@@ -309,5 +321,57 @@ export interface AgentSendParams {
 
 export interface AgentSendResult {
   id: string;
+  status: string;
+}
+
+// -- Wallet types --
+
+export interface WalletStatus {
+  installed: boolean;
+  wallets: number;
+  version?: string;
+  bin_path?: string;
+}
+
+export interface WalletReleaseInfo {
+  installed: boolean;
+  current?: string;
+  latest?: string;
+  available: boolean;
+  asset_url?: string;
+}
+
+export interface WalletInfo {
+  id: string;
+  name: string;
+}
+
+export interface WalletListResult {
+  wallets: WalletInfo[];
+  count: number;
+}
+
+export interface WalletAddress {
+  wallet: string;
+  chain: string;
+  address: string;
+}
+
+export interface TokenBalance {
+  symbol: string;
+  balance: string;
+  mint?: string;
+}
+
+export interface WalletBalance {
+  address: string;
+  chain: string;
+  tokens: TokenBalance[];
+}
+
+export interface WalletDeposit {
+  address: string;
+  chain: string;
+  url?: string;
   status: string;
 }

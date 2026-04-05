@@ -37,6 +37,12 @@ export const AGENT_EVENT_TYPES = [
   "agent.message",
 ] as const;
 
+export const WALLET_EVENT_TYPES = [
+  "wallet:install:progress",
+  "wallet:install:complete",
+  "wallet:install:error",
+] as const;
+
 export const LEGACY_EVENT_TYPES = [
   "sync.progress",
   "sync.complete",
@@ -52,6 +58,7 @@ export const KNOWN_EVENT_TYPES = [
     ...KV_EVENT_TYPES,
     ...LINK_EVENT_TYPES,
     ...AGENT_EVENT_TYPES,
+    ...WALLET_EVENT_TYPES,
     ...LEGACY_EVENT_TYPES,
   ]),
 ] as const;

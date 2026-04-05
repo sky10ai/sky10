@@ -1,6 +1,7 @@
+import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../components/Icon";
-import { STORAGE_EVENT_TYPES } from "../lib/events";
-import { skyfs, skylink, identity } from "../lib/rpc";
+import { STORAGE_EVENT_TYPES, WALLET_EVENT_TYPES, subscribe } from "../lib/events";
+import { skyfs, skylink, identity, wallet } from "../lib/rpc";
 import { useRPC, truncAddr } from "../lib/useRPC";
 
 export default function Settings() {
@@ -29,6 +30,70 @@ export default function Settings() {
   const version = health?.version ?? "";
   const versionParts = version.match(
     /^(v[\d.]+(?:-\w+)?)\s+\((\w+)\)\s+built\s+(.+)$/
+  );
+
+  // -- Wallet --
+  const {
+    data: walletStatus,
+    refetch: refetchWallet,
+  } = useRPC(() => wallet.status(), [], {
+    live: WALLET_EVENT_TYPES,
+    refreshIntervalMs: 30_000,
+  });
+
+  const [installProgress, setInstallProgress] = useState<{
+    downloaded: number;
+    total: number;
+  } | null>(null);
+  const [installError, setInstallError] = useState<string | null>(null);
+  const [installing, setInstalling] = useState(false);
+
+  // Subscribe to wallet install progress events.
+  useEffect(() => {
+    return subscribe((event, data) => {
+      if (event === "wallet:install:progress") {
+        const d = data as { downloaded: number; total: number };
+        setInstallProgress(d);
+      } else if (event === "wallet:install:complete") {
+        setInstalling(false);
+        setInstallProgress(null);
+        refetchWallet();
+      } else if (event === "wallet:install:error") {
+        const d = data as { message: string };
+        setInstalling(false);
+        setInstallProgress(null);
+        setInstallError(d.message);
+      }
+    });
+  }, [refetchWallet]);
+
+  const handleInstall = useCallback(async () => {
+    setInstalling(true);
+    setInstallError(null);
+    setInstallProgress(null);
+    try {
+      await wallet.install();
+    } catch (e: unknown) {
+      setInstalling(false);
+      setInstallError(e instanceof Error ? e.message : "Install failed");
+    }
+  }, []);
+
+  // Fetch wallet details once installed and wallets exist.
+  const hasWallets = walletStatus?.installed && (walletStatus.wallets ?? 0) > 0;
+  const { data: walletList } = useRPC(
+    () => (hasWallets ? wallet.list() : Promise.resolve(null)),
+    [hasWallets],
+  );
+  const firstWallet = walletList?.wallets?.[0]?.name;
+  const { data: walletAddr } = useRPC(
+    () => (firstWallet ? wallet.address({ wallet: firstWallet }) : Promise.resolve(null)),
+    [firstWallet],
+  );
+  const { data: walletBal } = useRPC(
+    () => (firstWallet ? wallet.balance({ wallet: firstWallet }) : Promise.resolve(null)),
+    [firstWallet],
+    { refreshIntervalMs: 60_000 },
   );
 
   return (
@@ -201,6 +266,171 @@ export default function Settings() {
             </div>
           </section>
         )}
+
+        {/* Wallet */}
+        <section className="col-span-12 lg:col-span-4 bg-surface-container-lowest rounded-xl p-8 border border-transparent space-y-6 flex flex-col">
+          <div className="space-y-1">
+            <h3 className="text-xl font-semibold flex items-center gap-2">
+              <Icon name="account_balance_wallet" className="text-tertiary" />
+              Wallet
+            </h3>
+            <p className="text-sm text-secondary">
+              Agent payments powered by OWS.
+            </p>
+          </div>
+
+          {/* Not installed */}
+          {walletStatus && !walletStatus.installed && !installing && (
+            <div className="flex-1 flex flex-col items-center justify-center gap-4 py-4">
+              <div className="w-12 h-12 rounded-full bg-tertiary/10 flex items-center justify-center">
+                <Icon name="download" className="text-tertiary text-2xl" />
+              </div>
+              <p className="text-sm text-secondary text-center">
+                Install the Open Wallet Standard to enable agent-to-agent payments on Solana.
+              </p>
+              <button
+                onClick={handleInstall}
+                className="bg-tertiary text-on-tertiary px-6 py-2.5 rounded-full text-sm font-semibold shadow-lg hover:shadow-xl transition-all active:scale-95"
+              >
+                Install Wallet
+              </button>
+              {installError && (
+                <p className="text-xs text-error text-center">{installError}</p>
+              )}
+            </div>
+          )}
+
+          {/* Installing — progress bar */}
+          {installing && (
+            <div className="flex-1 flex flex-col items-center justify-center gap-4 py-4">
+              <div className="w-12 h-12 rounded-full bg-tertiary/10 flex items-center justify-center">
+                <Icon name="downloading" className="text-tertiary text-2xl animate-pulse" />
+              </div>
+              <p className="text-sm text-secondary">Installing OWS...</p>
+              <div className="w-full bg-surface-container rounded-full h-2 overflow-hidden">
+                <div
+                  className="h-full bg-tertiary rounded-full transition-all duration-300"
+                  style={{
+                    width: installProgress && installProgress.total > 0
+                      ? `${Math.round((installProgress.downloaded / installProgress.total) * 100)}%`
+                      : "0%",
+                  }}
+                />
+              </div>
+              {installProgress && installProgress.total > 0 && (
+                <p className="text-[10px] text-secondary">
+                  {Math.round(installProgress.downloaded / 1024 / 1024)}
+                  {" / "}
+                  {Math.round(installProgress.total / 1024 / 1024)} MB
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Installed but no wallets */}
+          {walletStatus?.installed && !installing && !hasWallets && (
+            <div className="flex-1 flex flex-col items-center justify-center gap-4 py-4">
+              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                <Icon name="add_card" className="text-primary text-2xl" />
+              </div>
+              <p className="text-sm text-secondary text-center">
+                OWS installed. Create a wallet to get started.
+              </p>
+              {walletStatus.version && (
+                <p className="text-[10px] text-secondary">
+                  {walletStatus.version}
+                </p>
+              )}
+              <button
+                onClick={async () => {
+                  try {
+                    await wallet.create({ name: "default" });
+                    refetchWallet();
+                  } catch (e: unknown) {
+                    setInstallError(e instanceof Error ? e.message : "Failed to create wallet");
+                  }
+                }}
+                className="bg-primary text-on-primary px-6 py-2.5 rounded-full text-sm font-semibold shadow-lg hover:shadow-xl transition-all active:scale-95"
+              >
+                Create Wallet
+              </button>
+              {installError && (
+                <p className="text-xs text-error text-center">{installError}</p>
+              )}
+            </div>
+          )}
+
+          {/* Installed with wallets — show info */}
+          {walletStatus?.installed && !installing && hasWallets && (
+            <div className="space-y-4 flex-1">
+              {/* Address */}
+              {walletAddr?.address && (
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
+                    Solana Address
+                  </label>
+                  <div className="flex items-center gap-2 bg-surface-container p-3 rounded-lg group/addr cursor-pointer"
+                    onClick={() => navigator.clipboard.writeText(walletAddr.address)}>
+                    <code className="text-xs font-mono text-primary flex-1 truncate">
+                      {walletAddr.address}
+                    </code>
+                    <Icon name="content_copy" className="text-secondary group-hover/addr:text-primary transition-colors text-sm" />
+                  </div>
+                </div>
+              )}
+
+              {/* Balances */}
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
+                  Balances
+                </label>
+                {walletBal?.tokens && walletBal.tokens.length > 0 ? (
+                  <div className="space-y-2">
+                    {walletBal.tokens.map((t) => (
+                      <div key={t.symbol} className="flex justify-between items-center bg-surface-container p-3 rounded-lg">
+                        <span className="text-sm font-medium">{t.symbol}</span>
+                        <span className="text-sm font-semibold font-mono">{t.balance}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="bg-surface-container p-3 rounded-lg text-sm text-secondary text-center">
+                    No balances
+                  </div>
+                )}
+              </div>
+
+              {/* Version + Deposit */}
+              <div className="flex items-center justify-between pt-2">
+                {walletStatus.version && (
+                  <p className="text-[10px] text-secondary">{walletStatus.version}</p>
+                )}
+                <button
+                  onClick={async () => {
+                    if (!firstWallet) return;
+                    try {
+                      const result = await wallet.deposit({ wallet: firstWallet });
+                      if (result.url) window.open(result.url, "_blank");
+                    } catch {
+                      // deposit may not return a URL on all platforms
+                    }
+                  }}
+                  className="text-xs font-semibold text-tertiary hover:text-tertiary/80 transition-colors flex items-center gap-1"
+                >
+                  <Icon name="add" className="text-sm" />
+                  Fund Wallet
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Loading state */}
+          {!walletStatus && !installing && (
+            <div className="flex-1 flex items-center justify-center py-4">
+              <p className="text-sm text-secondary">Loading...</p>
+            </div>
+          )}
+        </section>
 
         {/* Authorized devices (manifest) */}
         <section className="col-span-12 lg:col-span-8 bg-surface-container-lowest rounded-xl p-8 border border-transparent space-y-6">
