@@ -170,8 +170,16 @@ func InstalledVersion() string {
 }
 
 // owsAssetName returns the expected GitHub release asset name for this platform.
+// OWS uses aarch64/x86_64 naming, not Go's arm64/amd64.
 func owsAssetName() string {
-	return fmt.Sprintf("ows-%s-%s", runtime.GOOS, runtime.GOARCH)
+	arch := runtime.GOARCH
+	switch arch {
+	case "arm64":
+		arch = "aarch64"
+	case "amd64":
+		arch = "x86_64"
+	}
+	return fmt.Sprintf("ows-%s-%s", runtime.GOOS, arch)
 }
 
 // progressReader wraps an io.Reader and reports download progress.
