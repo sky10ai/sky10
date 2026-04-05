@@ -8,7 +8,7 @@
 
 VERSION  := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT   := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-DATE     := $(shell git show -s --format=%ci HEAD 2>/dev/null || echo "unknown")
+DATE     := $(shell TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "unknown")
 GOFLAGS  := -trimpath -buildvcs=false
 LDFLAGS  := -s -w \
 	-X 'main.version=$(VERSION)' \
