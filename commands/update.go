@@ -54,6 +54,10 @@ func UpdateCmd() *cobra.Command {
 				fmt.Println("daemon restarted")
 			}
 
+			if err := RestartMenu(); err != nil {
+				fmt.Printf("warning: could not restart sky10-menu: %v\n", err)
+			}
+
 			fmt.Printf("updated to %s\n", info.Latest)
 			return nil
 		},

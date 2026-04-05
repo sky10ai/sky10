@@ -245,6 +245,17 @@ func RestartDaemon() error {
 	return err
 }
 
+// RestartMenu restarts the launchd menu agent if installed.
+// Returns nil if the menu agent is not installed.
+func RestartMenu() error {
+	path := launchdPlistPath(launchdMenuLabel)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil
+	}
+	_, err := exec.Command("launchctl", "kickstart", "-k", launchdMenuTarget()).CombinedOutput()
+	return err
+}
+
 func daemonStopCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop",

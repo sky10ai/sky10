@@ -214,6 +214,16 @@ func RestartDaemon() error {
 	return err
 }
 
+// RestartMenu kills and restarts the sky10-menu process if it exists.
+func RestartMenu() error {
+	menuBin := findMenuBinaryLinux()
+	if _, err := os.Stat(menuBin); os.IsNotExist(err) {
+		return nil
+	}
+	exec.Command("pkill", "-f", "sky10-menu").Run()
+	return exec.Command(menuBin).Start()
+}
+
 func daemonStopCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop",
