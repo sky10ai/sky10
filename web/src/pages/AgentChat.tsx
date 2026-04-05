@@ -72,10 +72,6 @@ export default function AgentChat() {
     agentInfoRef.current = agentInfo;
   }, [agentInfo]);
 
-  // Track outbound message IDs so we can filter echoes reliably,
-  // even before agentInfo loads.
-  const sentIDs = useRef(new Set<string>());
-
   // Subscribe to incoming messages via SSE.
   useEffect(() => {
     const es = new EventSource("/rpc/events");
@@ -88,8 +84,10 @@ export default function AgentChat() {
         // Only show messages for this session.
         if (msg.session_id !== sessionId) return;
 
-        // Skip echoes — messages we sent, or messages TO the agent.
-        if (sentIDs.current.has(msg.id)) return;
+        // Skip echoes — outbound messages have `to` set to the agent.
+        // Check both the URL param (available immediately) and the
+        // resolved agent info (available after first fetch).
+        if (msg.to === agentId) return;
         const ai = agentInfoRef.current;
         if (ai && (msg.to === ai.id || msg.to === ai.name)) return;
 
@@ -109,7 +107,7 @@ export default function AgentChat() {
       }
     });
     return () => es.close();
-  }, [sessionId]);
+  }, [sessionId, agentId]);
 
   // Auto-scroll to bottom + persist.
   useEffect(() => {
@@ -143,14 +141,13 @@ export default function AgentChat() {
     setSending(true);
 
     try {
-      const result = await agent.send({
+      await agent.send({
         to: agentInfo.id,
         device_id: agentInfo.device_id,
         session_id: sessionId,
         type: "text",
         content: { text },
       });
-      sentIDs.current.add(result.id);
       // Mark as delivered, show typing indicator with timeout.
       setMessages((prev) =>
         prev.map((m) => (m.id === userMsg.id ? { ...m, delivered: true } : m))
