@@ -46,9 +46,13 @@ func UpdateCmd() *cobra.Command {
 				fmt.Printf("warning: could not update sky10-menu: %v\n", err)
 			} else if menuUpdated {
 				fmt.Println("sky10-menu updated")
-				if err := RestartMenu(); err != nil {
-					fmt.Printf("warning: could not restart sky10-menu: %v\n", err)
-				}
+			}
+
+			// Always restart the menu so it picks up daemon changes
+			// (new version, new RPC state) even if the menu binary
+			// itself didn't change.
+			if err := RestartMenu(); err != nil {
+				fmt.Printf("warning: could not restart sky10-menu: %v\n", err)
 			}
 
 			if err := RestartDaemon(); err != nil {
