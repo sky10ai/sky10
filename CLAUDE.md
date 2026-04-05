@@ -40,10 +40,17 @@ updated: 2026-03-26
     - `docs(work): add log for parallel chunk downloads`
 
 ## Releases
+- **Always use the `/release` skill** to cut releases. When the user says
+  "cut a release", "new patch", "new minor", "ship it", or any variation —
+  invoke `/release <version>`. The skill has the exact build order, ldflags,
+  dogfooding steps, and release notes format. Do NOT improvise the release
+  process.
 - **NEVER modify a published release.** Once a tag is pushed and a GitHub
   release is created, that version is final. If something is wrong, cut a
   new patch release. Re-uploading assets or retagging breaks checksums for
   anyone who already downloaded the release.
+- **Build order is tag → build → release.** Never build before tagging.
+  The `/release` skill enforces this — use it.
 
 ## Workflow
 - Inspect existing files before editing.

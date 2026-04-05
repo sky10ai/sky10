@@ -76,8 +76,19 @@ CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -trimpath -buildvcs=false -ldfla
 cd bin && shasum -a 256 sky10-* > checksums.txt && cat checksums.txt
 ```
 
-The date uses `git log -1 --format=%cI` (committer timestamp) instead of
-wall-clock time, so builds from the same commit are byte-identical.
+The date uses `TZ=UTC git log -1 --format=%cd --date=format-local:...`
+(committer timestamp in UTC) instead of wall-clock time, so builds from
+the same commit are byte-identical.
+
+**CRITICAL: The date format MUST match the CI workflow
+(`.github/workflows/verify-release.yml`) and the Makefile exactly.**
+All three use:
+```
+TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ
+```
+If any of these diverge, the verify-release CI check will fail because
+the ldflags produce different binaries. If updating the format in one
+place, update all three.
 
 ### 3. Create GitHub release
 
