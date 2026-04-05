@@ -52,6 +52,16 @@ updated: 2026-03-26
 - **Build order is tag → build → release.** Never build before tagging.
   The `/release` skill enforces this — use it.
 
+## Branching and Merging
+- **No merge commits.** Always rebase onto `main` — never `git merge`.
+  Use `git rebase origin/main` to update a branch, then fast-forward main.
+- **Delete branches after merging.** Once a branch is on `main`, delete
+  both the local and remote branch immediately:
+  ```
+  git branch -d <branch>
+  git push origin --delete <branch>
+  ```
+
 ## Workflow
 - Inspect existing files before editing.
 - Explain what you changed and why.
