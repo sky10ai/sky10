@@ -23,9 +23,16 @@ type Router struct {
 	deviceID string
 	logger   *slog.Logger
 
-	// mu protects peerDevices.
-	mu          sync.RWMutex
-	peerDevices map[string]peer.ID // device_id -> peer.ID
+	// mu protects peerDevices and peerAgentCache.
+	mu             sync.RWMutex
+	peerDevices    map[string]peer.ID // device_id -> peer.ID
+	peerAgentCache map[peer.ID]cachedAgents
+}
+
+// cachedAgents holds the last successful agent list from a peer.
+type cachedAgents struct {
+	agents []AgentInfo
+	at     time.Time
 }
 
 // NewRouter creates a message router.
@@ -34,12 +41,13 @@ func NewRouter(registry *Registry, node *link.Node, emit Emitter, deviceID strin
 		logger = slog.Default()
 	}
 	return &Router{
-		registry:    registry,
-		node:        node,
-		emit:        emit,
-		deviceID:    deviceID,
-		logger:      logger,
-		peerDevices: make(map[string]peer.ID),
+		registry:       registry,
+		node:           node,
+		emit:           emit,
+		deviceID:       deviceID,
+		logger:         logger,
+		peerDevices:    make(map[string]peer.ID),
+		peerAgentCache: make(map[peer.ID]cachedAgents),
 	}
 }
 
@@ -70,7 +78,13 @@ func (r *Router) Send(ctx context.Context, msg Message) (interface{}, error) {
 	return map[string]string{"id": msg.ID, "status": "sent"}, nil
 }
 
+// peerAgentCacheTTL is how long cached agent lists remain valid when a
+// live query fails. Prevents the UI from flashing "No Agents" on transient
+// P2P timeouts.
+const peerAgentCacheTTL = 30 * time.Second
+
 // List returns agents from the local registry and all connected peers.
+// On peer query failure, returns cached results if still within TTL.
 func (r *Router) List(ctx context.Context) []AgentInfo {
 	local := r.registry.List()
 
@@ -82,6 +96,7 @@ func (r *Router) List(ctx context.Context) []AgentInfo {
 	type peerResult struct {
 		agents []AgentInfo
 		peerID peer.ID
+		ok     bool
 	}
 
 	results := make(chan peerResult, len(peers))
@@ -97,6 +112,7 @@ func (r *Router) List(ctx context.Context) []AgentInfo {
 			raw, err := r.node.Call(queryCtx, pid, "agent.list", nil)
 			if err != nil {
 				r.logger.Debug("agent.list from peer failed", "peer", pid, "error", err)
+				results <- peerResult{peerID: pid, ok: false}
 				return
 			}
 
@@ -105,6 +121,7 @@ func (r *Router) List(ctx context.Context) []AgentInfo {
 			}
 			if err := json.Unmarshal(raw, &resp); err != nil {
 				r.logger.Debug("parsing agent.list response", "peer", pid, "error", err)
+				results <- peerResult{peerID: pid, ok: false}
 				return
 			}
 
@@ -113,7 +130,7 @@ func (r *Router) List(ctx context.Context) []AgentInfo {
 				r.cachePeer(a.DeviceID, pid)
 			}
 
-			results <- peerResult{agents: resp.Agents, peerID: pid}
+			results <- peerResult{agents: resp.Agents, peerID: pid, ok: true}
 		}(pid)
 	}
 
@@ -122,11 +139,29 @@ func (r *Router) List(ctx context.Context) []AgentInfo {
 		close(results)
 	}()
 
+	now := time.Now()
 	all := make([]AgentInfo, len(local))
 	copy(all, local)
+
 	for pr := range results {
-		all = append(all, pr.agents...)
+		if pr.ok {
+			// Fresh result — use it and update cache.
+			all = append(all, pr.agents...)
+			r.mu.Lock()
+			r.peerAgentCache[pr.peerID] = cachedAgents{agents: pr.agents, at: now}
+			r.mu.Unlock()
+		} else {
+			// Query failed — fall back to cached agents if fresh enough.
+			r.mu.RLock()
+			cached, hasCached := r.peerAgentCache[pr.peerID]
+			r.mu.RUnlock()
+			if hasCached && now.Sub(cached.at) < peerAgentCacheTTL {
+				r.logger.Debug("using cached agent list", "peer", pr.peerID, "age", now.Sub(cached.at))
+				all = append(all, cached.agents...)
+			}
+		}
 	}
+
 	return all
 }
 
