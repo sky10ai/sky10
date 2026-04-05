@@ -42,6 +42,8 @@ export default function Settings() {
     refreshIntervalMs: 30_000,
   });
 
+  const [copied, setCopied] = useState(false);
+
   const [installProgress, setInstallProgress] = useState<{
     downloaded: number;
     total: number;
@@ -371,11 +373,19 @@ export default function Settings() {
                     Solana Address
                   </label>
                   <div className="flex items-center gap-2 bg-surface-container p-3 rounded-lg group/addr cursor-pointer"
-                    onClick={() => navigator.clipboard.writeText(walletAddr.address)}>
+                    onClick={() => {
+                      navigator.clipboard.writeText(walletAddr.address);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }}>
                     <code className="text-xs font-mono text-primary flex-1 truncate">
                       {walletAddr.address}
                     </code>
-                    <Icon name="content_copy" className="text-secondary group-hover/addr:text-primary transition-colors text-sm" />
+                    {copied ? (
+                      <Icon name="check" className="text-primary text-sm" />
+                    ) : (
+                      <Icon name="content_copy" className="text-secondary group-hover/addr:text-primary transition-colors text-sm" />
+                    )}
                   </div>
                 </div>
               )}
@@ -385,20 +395,21 @@ export default function Settings() {
                 <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
                   Balances
                 </label>
-                {walletBal?.tokens && walletBal.tokens.length > 0 ? (
-                  <div className="space-y-2">
-                    {walletBal.tokens.map((t) => (
-                      <div key={t.symbol} className="flex justify-between items-center bg-surface-container p-3 rounded-lg">
-                        <span className="text-sm font-medium">{t.symbol}</span>
-                        <span className="text-sm font-semibold font-mono">{t.balance}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="bg-surface-container p-3 rounded-lg text-sm text-secondary text-center">
-                    No balances
-                  </div>
-                )}
+                {(() => {
+                  const tokens = walletBal?.tokens && walletBal.tokens.length > 0
+                    ? walletBal.tokens
+                    : [{ symbol: "SOL", balance: "0" }, { symbol: "USDC", balance: "0" }];
+                  return (
+                    <div className="space-y-2">
+                      {tokens.map((t) => (
+                        <div key={t.symbol} className="flex justify-between items-center bg-surface-container p-3 rounded-lg">
+                          <span className="text-sm font-medium">{t.symbol}</span>
+                          <span className="text-sm font-semibold font-mono">{t.balance}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Version + Deposit */}
