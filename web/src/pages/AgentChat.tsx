@@ -7,6 +7,18 @@ import { AGENT_EVENT_TYPES } from "../lib/events";
 import { agent, AgentInfo } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
+// uuid() is only available in secure contexts (HTTPS or
+// localhost). Fall back to getRandomValues for plain HTTP hosts like
+// http://linuxvm:9101.
+function uuid(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6]! = (b[6]! & 0x0f) | 0x40;
+  b[8]! = (b[8]! & 0x3f) | 0x80;
+  const h = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
 interface ChatMessage {
   id: string;
   from: "user" | "agent";
@@ -36,7 +48,7 @@ export default function AgentChat() {
   const [sessionId] = useState(() => {
     const existing = localStorage.getItem(sessionKey);
     if (existing) return existing;
-    const id = crypto.randomUUID();
+    const id = uuid();
     localStorage.setItem(sessionKey, id);
     return id;
   });
@@ -73,7 +85,7 @@ export default function AgentChat() {
         setMessages((prev) => [
           ...prev,
           {
-            id: msg.id || crypto.randomUUID(),
+            id: msg.id || uuid(),
             from: "agent" as const,
             type: msg.type || "text",
             content: msg.content?.text || JSON.stringify(msg.content),
@@ -108,7 +120,7 @@ export default function AgentChat() {
     if (!text || !agentInfo) return;
 
     const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: uuid(),
       from: "user",
       type: "text",
       content: text,
@@ -137,7 +149,7 @@ export default function AgentChat() {
       setMessages((prev) => [
         ...prev,
         {
-          id: crypto.randomUUID(),
+          id: uuid(),
           from: "agent",
           type: "error",
           content: e instanceof Error ? e.message : "Failed to send",
