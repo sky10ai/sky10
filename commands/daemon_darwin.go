@@ -235,6 +235,16 @@ func daemonRestartCmd() *cobra.Command {
 	}
 }
 
+// RestartDaemon restarts the launchd daemon if installed.
+// Returns nil if the daemon is not installed (nothing to restart).
+func RestartDaemon() error {
+	if _, err := os.Stat(plistPath()); os.IsNotExist(err) {
+		return nil
+	}
+	_, err := exec.Command("launchctl", "kickstart", "-k", launchdTarget()).CombinedOutput()
+	return err
+}
+
 func daemonStopCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop",

@@ -200,6 +200,20 @@ func daemonRestartCmd() *cobra.Command {
 	}
 }
 
+// RestartDaemon restarts the systemd daemon if installed.
+// Returns nil if systemd or the unit is not available.
+func RestartDaemon() error {
+	if _, err := exec.LookPath("systemctl"); err != nil {
+		return nil
+	}
+	unitPath := "/etc/systemd/system/" + systemdUnit + ".service"
+	if _, err := os.Stat(unitPath); os.IsNotExist(err) {
+		return nil
+	}
+	_, err := sudo("systemctl", "restart", systemdUnit)
+	return err
+}
+
 func daemonStopCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop",
