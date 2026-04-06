@@ -37,6 +37,8 @@ As of `2026-04-06`, the first causal-metadata checkpoint has landed:
   legacy clock only for concurrent writes
 - P2P anti-entropy now exchanges summaries first and sends only missing state
   deltas instead of always blasting a full snapshot
+- the store now runs periodic bounded anti-entropy in the background, including
+  the real daemon lifecycle where `Run()` starts before `SetP2PSync()`
 
 ## Current State
 
@@ -260,7 +262,8 @@ Current status:
 - push on local mutation: shipped
 - push on reconnect: shipped
 - summary-first delta anti-entropy: shipped for P2P sync
-- periodic anti-entropy without writes: still outstanding
+- periodic anti-entropy without writes: shipped
+- bounded per-exchange timeouts: shipped
 
 This keeps convergence working after:
 
@@ -344,7 +347,8 @@ Status:
 Status:
 
 - summary exchange + state delta transfer shipped
-- periodic background anti-entropy still missing
+- periodic background anti-entropy shipped
+- bounded per-exchange deadlines shipped
 
 ### Phase 4: Tombstones And GC
 

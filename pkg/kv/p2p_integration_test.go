@@ -216,6 +216,111 @@ func TestP2PSyncSingleInitiatorConvergesBothPeers(t *testing.T) {
 	})
 }
 
+func TestP2PSyncPeriodicAntiEntropyWithoutWrites(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	nsKey, _ := skykey.GenerateSymmetricKey()
+
+	identity, _ := skykey.Generate()
+	deviceA, _ := skykey.Generate()
+	deviceB, _ := skykey.Generate()
+	manifest := id.NewManifest(identity)
+	manifest.AddDevice(deviceA.PublicKey, "nodeA")
+	manifest.AddDevice(deviceB.PublicKey, "nodeB")
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatal(err)
+	}
+	bundleA, err := id.New(identity, deviceA, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleB, err := id.New(identity, deviceB, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	CacheKeyLocally("test-sync", bundleA.DeviceID(), nsKey)
+	CacheKeyLocally("test-sync", bundleB.DeviceID(), nsKey)
+
+	nodeA, err := link.New(bundleA, link.Config{Mode: link.Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodeB, err := link.New(bundleB, link.Config{Mode: link.Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go nodeA.Run(ctx)
+	go nodeB.Run(ctx)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for nodeA.Host() == nil || nodeB.Host() == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("hosts did not start")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	storeA := New(nil, bundleA.Identity, Config{
+		Namespace:           "test-sync",
+		DataDir:             t.TempDir(),
+		DeviceID:            bundleA.DeviceID(),
+		ActorID:             bundleA.DevicePubKeyHex(),
+		AntiEntropyInterval: 200 * time.Millisecond,
+	}, nil)
+	storeB := New(nil, bundleB.Identity, Config{
+		Namespace:           "test-sync",
+		DataDir:             t.TempDir(),
+		DeviceID:            bundleB.DeviceID(),
+		ActorID:             bundleB.DevicePubKeyHex(),
+		AntiEntropyInterval: 200 * time.Millisecond,
+	}, nil)
+
+	runErrA := make(chan error, 1)
+	runErrB := make(chan error, 1)
+	go func() { runErrA <- storeA.Run(ctx) }()
+	go func() { runErrB <- storeB.Run(ctx) }()
+
+	syncA := NewP2PSync(storeA, nodeA, bundleA.Identity, nil)
+	syncB := NewP2PSync(storeB, nodeB, bundleB.Identity, nil)
+	storeA.SetP2PSync(syncA)
+	storeB.SetP2PSync(syncB)
+	syncA.RegisterProtocol()
+	syncB.RegisterProtocol()
+
+	infoB := nodeB.Host().Peerstore().PeerInfo(nodeB.PeerID())
+	if err := nodeA.Host().Connect(ctx, infoB); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	// Bypass Set so convergence depends on periodic anti-entropy rather than
+	// the immediate write-triggered push path.
+	if err := storeA.localLog.AppendLocal(Entry{Type: Set, Key: "from-a", Value: []byte("hello-from-a")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storeB.localLog.AppendLocal(Entry{Type: Set, Key: "from-b", Value: []byte("hello-from-b")}); err != nil {
+		t.Fatal(err)
+	}
+
+	waitFor(t, 8*time.Second, func() bool {
+		val, ok := storeA.Get("from-b")
+		return ok && string(val) == "hello-from-b"
+	})
+	waitFor(t, 8*time.Second, func() bool {
+		val, ok := storeB.Get("from-a")
+		return ok && string(val) == "hello-from-a"
+	})
+
+	cancel()
+	<-runErrA
+	<-runErrB
+}
+
 // --- helpers ---
 
 func startTestNode(t *testing.T, ctx context.Context, name string, nsKey []byte) (*link.Node, *Store, *P2PSync) {

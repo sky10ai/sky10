@@ -288,3 +288,18 @@ func TestDiffAndMergeAppliesExplicitRemoteTombstoneWithoutBaseline(t *testing.T)
 		t.Fatal("gone should be deleted")
 	}
 }
+
+func TestBoundedSyncContext(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := boundedSyncContext(context.Background())
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("expected bounded sync context to have a deadline")
+	}
+	if remaining := time.Until(deadline); remaining > syncExchangeTimeout || remaining <= 0 {
+		t.Fatalf("remaining deadline = %v, want (0,%v]", remaining, syncExchangeTimeout)
+	}
+}

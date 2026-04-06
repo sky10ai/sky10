@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -17,6 +18,8 @@ import (
 
 // KVSyncProtocol is the libp2p protocol ID for KV anti-entropy sync.
 const KVSyncProtocol = protocol.ID("/sky10/kv-sync/1.0.0")
+
+const syncExchangeTimeout = 5 * time.Second
 
 // p2pNode is the subset of link.Node that P2PSync needs. Avoids import
 // cycle between kv and link.
@@ -77,7 +80,11 @@ func (s *P2PSync) PushToAll(ctx context.Context) {
 		if pid == s.node.PeerID() {
 			continue
 		}
-		go s.syncWithPeer(ctx, pid)
+		go func(pid peer.ID) {
+			boundedCtx, cancel := boundedSyncContext(ctx)
+			defer cancel()
+			s.syncWithPeer(boundedCtx, pid)
+		}(pid)
 	}
 }
 
@@ -221,6 +228,7 @@ func (s *P2PSync) sendSnapshotMessage(ctx context.Context, pid peer.ID, kind str
 // handleStream processes an incoming KV sync stream.
 func (s *P2PSync) handleStream(stream network.Stream) {
 	defer stream.Close()
+	_ = stream.SetDeadline(time.Now().Add(syncExchangeTimeout))
 
 	payload, err := readMsg(stream)
 	if err != nil {
@@ -379,6 +387,16 @@ func (s *P2PSync) decodeSnapshotData(data json.RawMessage) (*Snapshot, error) {
 
 func summaryPtr(summary SnapshotSummary) *SnapshotSummary {
 	return &summary
+}
+
+func boundedSyncContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	if deadline, ok := parent.Deadline(); ok && time.Until(deadline) <= syncExchangeTimeout {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, syncExchangeTimeout)
 }
 
 // writeMsg writes a length-prefixed message to a stream.

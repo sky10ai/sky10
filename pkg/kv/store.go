@@ -17,16 +17,21 @@ import (
 // MaxValueSize is the maximum inline value size for v1.
 const MaxValueSize = 4096
 
+// defaultAntiEntropyInterval is the background P2P sync cadence when no
+// writes or reconnect events occur.
+const defaultAntiEntropyInterval = 30 * time.Second
+
 // ErrValueTooLarge is returned when a value exceeds MaxValueSize.
 var ErrValueTooLarge = errors.New("value exceeds 4KB limit")
 
 // Config holds KV store configuration.
 type Config struct {
-	Namespace    string        // KV namespace name
-	DataDir      string        // local data directory (ops log, baselines)
-	PollInterval time.Duration // remote snapshot poll interval
-	DeviceID     string        // local device ID for key-cache scoping
-	ActorID      string        // stable per-device actor ID for causal metadata
+	Namespace           string        // KV namespace name
+	DataDir             string        // local data directory (ops log, baselines)
+	PollInterval        time.Duration // remote snapshot poll interval
+	DeviceID            string        // local device ID for key-cache scoping
+	ActorID             string        // stable per-device actor ID for causal metadata
+	AntiEntropyInterval time.Duration // background P2P anti-entropy cadence
 }
 
 // Store is the main KV store. It provides Get/Set/Delete/List and manages
@@ -43,11 +48,13 @@ type Store struct {
 	poller    *Poller
 	baselines *BaselineStore
 
-	mu       sync.Mutex
-	nsKey    []byte // namespace encryption key (resolved lazily)
-	nsID     string // opaque namespace ID
-	notifier func(namespace string)
-	p2pSync  *P2PSync // optional: P2P snapshot sync
+	mu             sync.Mutex
+	nsKey          []byte // namespace encryption key (resolved lazily)
+	nsID           string // opaque namespace ID
+	notifier       func(namespace string)
+	p2pSync        *P2PSync // optional: P2P snapshot sync
+	runCtx         context.Context
+	p2pLoopStarted bool
 }
 
 // New creates a new KV store.
@@ -62,6 +69,9 @@ func New(
 	}
 	if config.PollInterval == 0 {
 		config.PollInterval = 30 * time.Second
+	}
+	if config.AntiEntropyInterval == 0 {
+		config.AntiEntropyInterval = defaultAntiEntropyInterval
 	}
 
 	deviceID := ShortDeviceID(identity)
@@ -184,6 +194,11 @@ func (s *Store) Run(ctx context.Context) error {
 		return fmt.Errorf("resolving kv namespace key: %w", err)
 	}
 
+	s.mu.Lock()
+	s.runCtx = ctx
+	s.startP2PAntiEntropyLocked()
+	s.mu.Unlock()
+
 	// S3-free mode: keys resolved locally, sync via P2P only.
 	if s.backend == nil {
 		s.logger.Info("kv store running in P2P-only mode")
@@ -260,7 +275,34 @@ func (s *Store) SetNotifier(fn func(namespace string)) {
 func (s *Store) SetP2PSync(sync *P2PSync) {
 	s.mu.Lock()
 	s.p2pSync = sync
+	s.startP2PAntiEntropyLocked()
 	s.mu.Unlock()
+}
+
+func (s *Store) startP2PAntiEntropyLocked() {
+	if s.p2pLoopStarted || s.p2pSync == nil || s.runCtx == nil {
+		return
+	}
+	ctx := s.runCtx
+	sync := s.p2pSync
+	interval := s.config.AntiEntropyInterval
+	if interval <= 0 {
+		interval = defaultAntiEntropyInterval
+	}
+	s.p2pLoopStarted = true
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				sync.PushToAll(ctx)
+			}
+		}
+	}()
 }
 
 // Poke triggers an immediate poll of remote snapshots.
