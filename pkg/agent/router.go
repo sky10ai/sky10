@@ -88,7 +88,7 @@ const peerAgentCacheTTL = 30 * time.Second
 func (r *Router) List(ctx context.Context) []AgentInfo {
 	local := r.registry.List()
 
-	peers := r.node.ConnectedPeers()
+	peers := r.node.ConnectedPrivateNetworkPeers()
 	if len(peers) == 0 {
 		return local
 	}

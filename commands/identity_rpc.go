@@ -28,7 +28,6 @@ func configureIdentityRPCHandler(
 	idStore *skyid.Store,
 	backend adapter.Backend,
 	linkNode *link.Node,
-	resolver *link.Resolver,
 	relays []string,
 	refreshPrivateNetwork func(),
 ) {
@@ -37,7 +36,7 @@ func configureIdentityRPCHandler(
 	}
 
 	handler.SetDeviceMetadataProvider(func(ctx context.Context) (map[string]skyid.DeviceMetadata, error) {
-		return privateNetworkDeviceMetadata(ctx, bundle, backend, linkNode, resolver)
+		return privateNetworkDeviceMetadata(ctx, bundle, backend, linkNode)
 	})
 	handler.SetInviteHandler(func(ctx context.Context) (string, error) {
 		return createIdentityInvite(ctx, backend, bundle, relays)
@@ -66,7 +65,6 @@ func privateNetworkDeviceMetadata(
 	bundle *skyid.Bundle,
 	backend adapter.Backend,
 	linkNode *link.Node,
-	resolver *link.Resolver,
 ) (map[string]skyid.DeviceMetadata, error) {
 	metadata := make(map[string]skyid.DeviceMetadata)
 
@@ -104,28 +102,31 @@ func privateNetworkDeviceMetadata(
 			meta.Multiaddrs = appendUniqueStrings(meta.Multiaddrs, rec.Multiaddrs...)
 			metadata[rec.DevicePubKey] = meta
 		}
-	}
-
-	if resolver != nil {
-		resolveCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		defer cancel()
-
-		resolution, err := resolver.ResolveAll(resolveCtx, bundle.Address())
-		if err == nil {
-			for _, peer := range resolution.Peers {
-				if peer == nil || peer.Info == nil {
+		if host := linkNode.Host(); host != nil && bundle.Manifest != nil {
+			deviceByPeerID := make(map[string]string, len(bundle.Manifest.Devices))
+			for _, device := range bundle.Manifest.Devices {
+				pid, err := link.PeerIDFromPubKey(device.PublicKey)
+				if err != nil {
 					continue
 				}
-				meta := metadata[strings.ToLower(peer.DevicePubKey)]
-				addrs := make([]string, 0, len(peer.Info.Addrs))
-				for _, addr := range peer.Info.Addrs {
-					addrs = append(addrs, addr.String())
+				deviceByPeerID[pid.String()] = strings.ToLower(hex.EncodeToString(device.PublicKey))
+			}
+			for _, pid := range linkNode.ConnectedPrivateNetworkPeers() {
+				pubHex, ok := deviceByPeerID[pid.String()]
+				if !ok {
+					continue
+				}
+				info := host.Peerstore().PeerInfo(pid)
+				meta := metadata[pubHex]
+				addrs := make([]string, 0, len(info.Addrs))
+				for _, addr := range info.Addrs {
+					addrs = append(addrs, addr.String()+"/p2p/"+pid.String())
 				}
 				meta.Multiaddrs = appendUniqueStrings(meta.Multiaddrs, addrs...)
-				if !peer.PublishedAt.IsZero() {
-					meta.LastSeen = peer.PublishedAt.UTC().Format(time.RFC3339)
+				if meta.LastSeen == "" {
+					meta.LastSeen = time.Now().UTC().Format(time.RFC3339)
 				}
-				metadata[strings.ToLower(peer.DevicePubKey)] = meta
+				metadata[pubHex] = meta
 			}
 		}
 	}

@@ -186,7 +186,7 @@ func ServeCmd() *cobra.Command {
 					go kvSync.PushToAll(context.Background())
 				}
 			}
-			configureIdentityRPCHandler(identityRPC, bundle, idStore, backend, linkNode, linkResolver, cfg.Relays(), refreshPrivateNetwork)
+			configureIdentityRPCHandler(identityRPC, bundle, idStore, backend, linkNode, cfg.Relays(), refreshPrivateNetwork)
 
 			// Agent registry — local agent registration and message routing.
 			agentRegistry := skyagent.NewRegistry(bundle.DeviceID(), skyfs.GetDeviceName(), nil)

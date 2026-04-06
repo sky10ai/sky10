@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	skyid "github.com/sky10/sky10/pkg/id"
 	skykey "github.com/sky10/sky10/pkg/key"
 	"github.com/sky10/sky10/pkg/link"
 )
@@ -21,6 +22,50 @@ func makeTestNode(t *testing.T) *link.Node {
 		t.Fatal(err)
 	}
 	return n
+}
+
+func makeSharedTestNodes(t *testing.T) (*link.Node, *link.Node) {
+	t.Helper()
+
+	identity, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceA, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceB, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := skyid.NewManifest(identity)
+	manifest.AddDevice(deviceA.PublicKey, "node-a")
+	manifest.AddDevice(deviceB.PublicKey, "node-b")
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatal(err)
+	}
+
+	bundleA, err := skyid.New(identity, deviceA, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleB, err := skyid.New(identity, deviceB, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	nodeA, err := link.New(bundleA, link.Config{Mode: link.Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodeB, err := link.New(bundleB, link.Config{Mode: link.Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return nodeA, nodeB
 }
 
 func startNode(t *testing.T, n *link.Node) {
@@ -95,11 +140,10 @@ func TestRouterSendRemote(t *testing.T) {
 	t.Parallel()
 
 	// Node A: sender, no local agents.
-	nodeA := makeTestNode(t)
+	nodeA, nodeB := makeSharedTestNodes(t)
 	regA := NewRegistry("D-deviceAA", "hostA", nil)
 
 	// Node B: receiver, has agent.
-	nodeB := makeTestNode(t)
 	regB := NewRegistry("D-deviceBB", "hostB", nil)
 	regB.Register(RegisterParams{Name: "researcher"}, "A-remote0100000000")
 
@@ -145,11 +189,10 @@ func TestRouterSendRemote(t *testing.T) {
 func TestRouterListAggregation(t *testing.T) {
 	t.Parallel()
 
-	nodeA := makeTestNode(t)
+	nodeA, nodeB := makeSharedTestNodes(t)
 	regA := NewRegistry("D-deviceAA", "hostA", nil)
 	regA.Register(RegisterParams{Name: "coder", Skills: []string{"code"}}, "A-localA0100000000")
 
-	nodeB := makeTestNode(t)
 	regB := NewRegistry("D-deviceBB", "hostB", nil)
 	regB.Register(RegisterParams{Name: "researcher", Skills: []string{"research"}}, "A-remoteB100000000")
 
@@ -178,11 +221,10 @@ func TestRouterListAggregation(t *testing.T) {
 func TestRouterDiscover(t *testing.T) {
 	t.Parallel()
 
-	nodeA := makeTestNode(t)
+	nodeA, nodeB := makeSharedTestNodes(t)
 	regA := NewRegistry("D-deviceAA", "hostA", nil)
 	regA.Register(RegisterParams{Name: "coder", Skills: []string{"code"}}, "A-localA0100000000")
 
-	nodeB := makeTestNode(t)
 	regB := NewRegistry("D-deviceBB", "hostB", nil)
 	regB.Register(RegisterParams{Name: "researcher", Skills: []string{"research"}}, "A-remoteB100000000")
 
@@ -230,10 +272,9 @@ func TestRouterSendUnknownDevice(t *testing.T) {
 func TestRouterListPopulatesPeerCache(t *testing.T) {
 	t.Parallel()
 
-	nodeA := makeTestNode(t)
+	nodeA, nodeB := makeSharedTestNodes(t)
 	regA := NewRegistry("D-deviceAA", "hostA", nil)
 
-	nodeB := makeTestNode(t)
 	regB := NewRegistry("D-deviceBB", "hostB", nil)
 	regB.Register(RegisterParams{Name: "researcher"}, "A-remoteB100000000")
 
@@ -257,5 +298,47 @@ func TestRouterListPopulatesPeerCache(t *testing.T) {
 	}
 	if pid != nodeB.PeerID() {
 		t.Fatalf("cached peer = %s, want %s", pid, nodeB.PeerID())
+	}
+}
+
+func TestRouterListIgnoresPublicPeers(t *testing.T) {
+	t.Parallel()
+
+	nodeA, nodeB := makeSharedTestNodes(t)
+	nodePublic := makeTestNode(t)
+
+	regA := NewRegistry("D-deviceAA", "hostA", nil)
+	regA.Register(RegisterParams{Name: "coder", Skills: []string{"code"}}, "A-localA0100000000")
+
+	regB := NewRegistry("D-deviceBB", "hostB", nil)
+	regB.Register(RegisterParams{Name: "researcher", Skills: []string{"research"}}, "A-remoteB100000000")
+	RegisterLinkHandlers(nodeB, regB, nil, nil)
+
+	regPublic := NewRegistry("D-deviceCC", "hostC", nil)
+	regPublic.Register(RegisterParams{Name: "outsider", Skills: []string{"noise"}}, "A-publicC100000000")
+	RegisterLinkHandlers(nodePublic, regPublic, nil, nil)
+
+	startNode(t, nodeA)
+	startNode(t, nodeB)
+	startNode(t, nodePublic)
+
+	connectNodes(t, nodeA, nodeB)
+	connectNodes(t, nodeA, nodePublic)
+
+	routerA := NewRouter(regA, nodeA, nil, "D-deviceAA", nil)
+	agents := routerA.List(context.Background())
+
+	names := make(map[string]struct{}, len(agents))
+	for _, agent := range agents {
+		names[agent.Name] = struct{}{}
+	}
+	if _, ok := names["coder"]; !ok {
+		t.Fatalf("expected local agent in list, got %v", names)
+	}
+	if _, ok := names["researcher"]; !ok {
+		t.Fatalf("expected private-network remote agent in list, got %v", names)
+	}
+	if _, ok := names["outsider"]; ok {
+		t.Fatalf("public peer agent leaked into list: %v", names)
 	}
 }
