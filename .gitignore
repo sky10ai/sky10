@@ -21,6 +21,8 @@ profile.cov
 bin/
 .build/
 cirrus/macos/.build/
+menu/src-tauri/target/
+menu/src-tauri/gen/
 
 # Dependency directories (remove the comment below to include it)
 # vendor/

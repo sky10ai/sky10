@@ -23,13 +23,19 @@ export CGO_ENABLED := 0
 
 ifeq ($(UNAME_S),Darwin)
 OPEN_CMD := open
+MENU_LINK_RUSTFLAGS := -C link-arg=-Wl,-oso_prefix,$(CURDIR)
 else ifeq ($(UNAME_S),Linux)
 OPEN_CMD := xdg-open
+MENU_LINK_RUSTFLAGS := -C link-arg=-Wl,--build-id=none
 else
 OPEN_CMD :=
+MENU_LINK_RUSTFLAGS :=
 endif
 
-.PHONY: all build build-go build-web web-dev test test-skyfs test-skyfs-cli test-skyfs-cli-v check vet fmt verify clean install reproduce platforms checksums
+MENU_SOURCE_DATE_EPOCH := $(shell git log -1 --format=%ct 2>/dev/null || echo 0)
+MENU_RUSTFLAGS := --remap-path-prefix=$(CURDIR)=/workspace $(MENU_LINK_RUSTFLAGS)
+
+.PHONY: all build build-go build-web build-menu web-dev test test-skyfs test-skyfs-cli test-skyfs-cli-v check vet fmt verify clean install reproduce reproduce-menu platforms checksums
 
 # --- Default ---
 
@@ -38,6 +44,9 @@ all: check test build
 # --- Build ---
 
 build: build-web build-go
+
+build-menu:
+	cd menu/src-tauri && SOURCE_DATE_EPOCH=$(MENU_SOURCE_DATE_EPOCH) CARGO_INCREMENTAL=0 RUSTFLAGS='$(MENU_RUSTFLAGS)' cargo build --release --locked
 
 BUN := $(shell command -v bun 2>/dev/null || echo "$(HOME)/.bun/bin/bun")
 
@@ -134,3 +143,19 @@ reproduce:
 		exit 1; \
 	fi
 	@rm -f /tmp/sky10-build1 /tmp/sky10-build2
+
+reproduce-menu:
+	@echo "Build 1..."
+	@rm -rf /tmp/sky10-menu-build1 /tmp/sky10-menu-build2
+	@cd menu/src-tauri && SOURCE_DATE_EPOCH=$(MENU_SOURCE_DATE_EPOCH) CARGO_INCREMENTAL=0 RUSTFLAGS='$(MENU_RUSTFLAGS)' cargo build --release --locked --target-dir /tmp/sky10-menu-build1
+	@echo "Build 2..."
+	@cd menu/src-tauri && SOURCE_DATE_EPOCH=$(MENU_SOURCE_DATE_EPOCH) CARGO_INCREMENTAL=0 RUSTFLAGS='$(MENU_RUSTFLAGS)' cargo build --release --locked --target-dir /tmp/sky10-menu-build2
+	@if cmp -s /tmp/sky10-menu-build1/release/sky10-menu /tmp/sky10-menu-build2/release/sky10-menu; then \
+		echo "Deterministic: both menu builds are identical"; \
+		shasum -a 256 /tmp/sky10-menu-build1/release/sky10-menu /tmp/sky10-menu-build2/release/sky10-menu; \
+	else \
+		echo "NOT deterministic: menu builds differ"; \
+		shasum -a 256 /tmp/sky10-menu-build1/release/sky10-menu /tmp/sky10-menu-build2/release/sky10-menu; \
+		exit 1; \
+	fi
+	@rm -rf /tmp/sky10-menu-build1 /tmp/sky10-menu-build2

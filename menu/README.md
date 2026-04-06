@@ -12,14 +12,28 @@ no bundled browser engine. Binary is ~3MB.
 ## Build
 
 Requires Rust. The binary is built automatically by CI on every release
-tag — you don't need Rust locally.
+tag — you don't need Rust locally. `menu/src-tauri/rust-toolchain.toml`
+pins the exact Rust toolchain used for release builds, and
+`menu/src-tauri/Cargo.lock` pins the dependency graph.
 
 ```bash
 cd menu/src-tauri
-cargo build --release
+cargo build --release --locked
 ```
 
 The binary is at `target/release/sky10-menu`.
+
+For a release-equivalent local build from the repo root:
+
+```bash
+make build-menu
+```
+
+To prove two clean local builds are byte-identical:
+
+```bash
+make reproduce-menu
+```
 
 ## Icons
 
