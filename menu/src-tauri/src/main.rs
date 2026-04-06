@@ -100,6 +100,7 @@ enum TrayState {
     Error,
 }
 
+#[derive(Clone, PartialEq)]
 struct DaemonInfo {
     version: String,
     state: TrayState,
@@ -203,7 +204,10 @@ fn stop_daemon() {
 
 // --- Menu building ---
 
-fn build_menu(app: &tauri::App, info: &DaemonInfo) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+fn build_menu<M: Manager<tauri::Wry>>(
+    app: &M,
+    info: &DaemonInfo,
+) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     let version_label = format!("sky10 {}", info.version);
     let version_item = MenuItemBuilder::with_id("version", &version_label)
         .enabled(false)
@@ -292,6 +296,7 @@ fn main() {
             check_for_update(&mut info);
 
             let menu = build_menu(app, &info)?;
+            let app_handle = app.handle().clone();
 
             let tray = TrayIconBuilder::new()
                 .icon(Image::from_bytes(icon_for_state(&info.state, 0))?)
@@ -318,6 +323,7 @@ fn main() {
             // every 60 minutes to avoid GitHub API rate limits.
             let tray_clone = tray.clone();
             std::thread::spawn(move || {
+                let mut prev_info = info.clone();
                 let mut prev_state = info.state.clone();
                 let mut frame: usize = 0;
                 let update_interval = Duration::from_secs(60 * 60);
@@ -329,6 +335,12 @@ fn main() {
                     if last_update_check.elapsed() >= update_interval {
                         check_for_update(&mut new_info);
                         last_update_check = std::time::Instant::now();
+                    }
+
+                    if new_info != prev_info {
+                        if let Ok(menu) = build_menu(&app_handle, &new_info) {
+                            let _ = tray_clone.set_menu(Some(menu));
+                        }
                     }
 
                     if new_info.state == TrayState::Syncing {
@@ -349,6 +361,8 @@ fn main() {
                         frame = 0;
                         std::thread::sleep(Duration::from_secs(10));
                     }
+
+                    prev_info = new_info;
                 }
             });
 
