@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+// SnapshotSummary is a compact causal summary used for anti-entropy.
+type SnapshotSummary struct {
+	Vector     VersionVector `json:"vector,omitempty"`
+	Keys       int           `json:"keys"`
+	Tombstones int           `json:"tombstones"`
+}
+
 // Snapshot is an immutable point-in-time view of the KV store.
 // Produced by replaying log entries on top of an optional base.
 type Snapshot struct {
@@ -82,6 +89,71 @@ func (s *Snapshot) Tombstones() map[string]TombstoneInfo {
 // Vector returns a copy of the snapshot's causal summary.
 func (s *Snapshot) Vector() VersionVector {
 	return s.vector.Clone()
+}
+
+// Summary returns a compact description of the snapshot's causal state.
+func (s *Snapshot) Summary() SnapshotSummary {
+	if s == nil {
+		return SnapshotSummary{}
+	}
+	return SnapshotSummary{
+		Vector:     s.vector.Clone(),
+		Keys:       len(s.entries),
+		Tombstones: len(s.deleted),
+	}
+}
+
+// HasState reports whether the snapshot carries any live or deleted key state.
+func (s *Snapshot) HasState() bool {
+	return s != nil && (len(s.entries) > 0 || len(s.deleted) > 0)
+}
+
+// DeltaSince returns the subset of state not already covered by the provided
+// causal summary. The returned snapshot still carries the full local vector.
+func (s *Snapshot) DeltaSince(seen VersionVector) *Snapshot {
+	if s == nil {
+		return &Snapshot{
+			entries: make(map[string]ValueInfo),
+			deleted: make(map[string]TombstoneInfo),
+			vector:  make(VersionVector),
+		}
+	}
+
+	delta := &Snapshot{
+		entries: make(map[string]ValueInfo),
+		deleted: make(map[string]TombstoneInfo),
+		vector:  s.vector.Clone(),
+		created: s.created,
+		updated: s.updated,
+	}
+	if delta.vector == nil {
+		delta.vector = make(VersionVector)
+	}
+
+	for key, vi := range s.entries {
+		if seen.Dominates(CausalVersion(
+			effectiveActor(vi.Actor, vi.Device),
+			effectiveCounter(vi.Counter, vi.Seq),
+			vi.Context,
+		)) {
+			continue
+		}
+		vi.Context = vi.Context.Clone()
+		delta.entries[key] = vi
+	}
+	for key, tomb := range s.deleted {
+		if seen.Dominates(CausalVersion(
+			effectiveActor(tomb.Actor, tomb.Device),
+			effectiveCounter(tomb.Counter, tomb.Seq),
+			tomb.Context,
+		)) {
+			continue
+		}
+		tomb.Context = tomb.Context.Clone()
+		delta.deleted[key] = tomb
+	}
+
+	return delta
 }
 
 // buildSnapshot materializes KV state from a base snapshot and new entries

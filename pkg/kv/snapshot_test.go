@@ -258,3 +258,42 @@ func TestBuildSnapshotCausalOrderBeatsWallClock(t *testing.T) {
 		t.Fatalf("k = %q, want from-b", vi.Value)
 	}
 }
+
+func TestSnapshotDeltaSince(t *testing.T) {
+	t.Parallel()
+
+	snap := buildSnapshot(nil, []Entry{
+		{
+			Type:      Set,
+			Key:       "keep",
+			Value:     []byte("v1"),
+			Device:    "dev-a",
+			Timestamp: 100,
+			Seq:       1,
+			Actor:     "actor-a",
+			Counter:   1,
+		},
+		{
+			Type:      Delete,
+			Key:       "gone",
+			Device:    "dev-b",
+			Timestamp: 200,
+			Seq:       1,
+			Actor:     "actor-b",
+			Counter:   1,
+		},
+	})
+
+	delta := snap.DeltaSince(VersionVector{"actor-a": 1})
+	if delta.Len() != 0 {
+		t.Fatalf("delta live keys = %d, want 0", delta.Len())
+	}
+	if !delta.DeletedKeys()["gone"] {
+		t.Fatal("delta should retain missing tombstone")
+	}
+
+	full := snap.DeltaSince(nil)
+	if full.Len() != 1 || !full.DeletedKeys()["gone"] {
+		t.Fatalf("full delta should include both live and deleted state")
+	}
+}

@@ -35,6 +35,8 @@ As of `2026-04-06`, the first causal-metadata checkpoint has landed:
   no longer depends only on a lucky stored baseline
 - merge order now prefers causal ordering when available and falls back to the
   legacy clock only for concurrent writes
+- P2P anti-entropy now exchanges summaries first and sends only missing state
+  deltas instead of always blasting a full snapshot
 
 ## Current State
 
@@ -253,6 +255,13 @@ Required behavior:
 - periodic anti-entropy even when no new writes occur
 - anti-entropy bounded by short request timeouts
 
+Current status:
+
+- push on local mutation: shipped
+- push on reconnect: shipped
+- summary-first delta anti-entropy: shipped for P2P sync
+- periodic anti-entropy without writes: still outstanding
+
 This keeps convergence working after:
 
 - daemon restart
@@ -329,8 +338,13 @@ Status:
 ### Phase 3: Anti-Entropy Protocol
 
 - exchange version vectors on reconnect
-- ship only missing ops
+- ship only missing state first, with ops/deltas as an optimization later
 - add retry-safe bounded sync loops
+
+Status:
+
+- summary exchange + state delta transfer shipped
+- periodic background anti-entropy still missing
 
 ### Phase 4: Tombstones And GC
 

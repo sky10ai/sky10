@@ -180,6 +180,42 @@ func TestP2PSyncRapidSets(t *testing.T) {
 	}
 }
 
+func TestP2PSyncSingleInitiatorConvergesBothPeers(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	nsKey, _ := skykey.GenerateSymmetricKey()
+	nodeA, storeA, _, nodeB, storeB, _ := startSharedTestPair(t, ctx, nsKey)
+
+	infoB := nodeB.Host().Peerstore().PeerInfo(nodeB.PeerID())
+	if err := nodeA.Host().Connect(ctx, infoB); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	if err := storeA.localLog.AppendLocal(Entry{Type: Set, Key: "from-a", Value: []byte("hello-from-a")}); err != nil {
+		t.Fatalf("append on A: %v", err)
+	}
+	if err := storeB.localLog.AppendLocal(Entry{Type: Set, Key: "from-b", Value: []byte("hello-from-b")}); err != nil {
+		t.Fatalf("append on B: %v", err)
+	}
+
+	// Only A initiates anti-entropy. The summary response should bring A up to
+	// date and A's follow-up delta should heal B in the same round.
+	storeA.p2pSync.PushToAll(ctx)
+
+	waitFor(t, 5*time.Second, func() bool {
+		val, ok := storeA.Get("from-b")
+		return ok && string(val) == "hello-from-b"
+	})
+
+	waitFor(t, 5*time.Second, func() bool {
+		val, ok := storeB.Get("from-a")
+		return ok && string(val) == "hello-from-a"
+	})
+}
+
 // --- helpers ---
 
 func startTestNode(t *testing.T, ctx context.Context, name string, nsKey []byte) (*link.Node, *Store, *P2PSync) {
@@ -213,6 +249,8 @@ func startTestNode(t *testing.T, ctx context.Context, name string, nsKey []byte)
 	store := New(nil, identity, Config{
 		Namespace: "test-sync",
 		DataDir:   t.TempDir(),
+		DeviceID:  bundle.DeviceID(),
+		ActorID:   bundle.DevicePubKeyHex(),
 	}, nil)
 
 	// Resolve keys with the shared nsKey (bypass the normal resolution).
@@ -292,6 +330,8 @@ func startTestNodeFromBundle(t *testing.T, ctx context.Context, bundle *id.Bundl
 	store := New(nil, bundle.Identity, Config{
 		Namespace: "test-sync",
 		DataDir:   t.TempDir(),
+		DeviceID:  bundle.DeviceID(),
+		ActorID:   bundle.DevicePubKeyHex(),
 	}, nil)
 
 	nsID := deriveNSID(nsKey, "test-sync")

@@ -219,6 +219,8 @@ func startNetworkKVNodeFromBundle(t *testing.T, ctx context.Context, bundle *id.
 	store := New(nil, bundle.Identity, Config{
 		Namespace: "test-sync",
 		DataDir:   dataDir,
+		DeviceID:  bundle.DeviceID(),
+		ActorID:   bundle.DevicePubKeyHex(),
 	}, nil)
 
 	store.mu.Lock()
