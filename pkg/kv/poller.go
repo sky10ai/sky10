@@ -177,7 +177,8 @@ func diffAndMerge(localLog *LocalLog, remote, baseline *Snapshot, logger *slog.L
 	for key, remoteVI := range remoteEntries {
 		baseVI, inBaseline := baselineEntries[key]
 		if inBaseline && string(baseVI.Value) == string(remoteVI.Value) &&
-			baseVI.Device == remoteVI.Device && baseVI.Seq == remoteVI.Seq {
+			baseVI.Device == remoteVI.Device && baseVI.Seq == remoteVI.Seq &&
+			baseVI.Actor == remoteVI.Actor && baseVI.Counter == remoteVI.Counter {
 			continue // unchanged
 		}
 
@@ -188,6 +189,9 @@ func diffAndMerge(localLog *LocalLog, remote, baseline *Snapshot, logger *slog.L
 			Device:    remoteVI.Device,
 			Timestamp: remoteVI.Modified.Unix(),
 			Seq:       remoteVI.Seq,
+			Actor:     remoteVI.Actor,
+			Counter:   remoteVI.Counter,
+			Context:   remoteVI.Context.Clone(),
 		}); err != nil {
 			logger.Warn("kv merge failed", "key", key, "error", err)
 			continue
@@ -195,11 +199,37 @@ func diffAndMerge(localLog *LocalLog, remote, baseline *Snapshot, logger *slog.L
 		merged++
 	}
 
-	// Deletes: in baseline but not in remote
+	// Explicit tombstones: preferred over baseline-derived delete inference.
+	for key, tomb := range remote.Tombstones() {
+		if baseline != nil {
+			if baseTomb, ok := baseline.Tombstones()[key]; ok &&
+				baseTomb.Device == tomb.Device && baseTomb.Seq == tomb.Seq &&
+				baseTomb.Actor == tomb.Actor && baseTomb.Counter == tomb.Counter {
+				continue
+			}
+		}
+		if err := localLog.Append(Entry{
+			Type:      Delete,
+			Key:       key,
+			Device:    tomb.Device,
+			Timestamp: tomb.Modified.Unix(),
+			Seq:       tomb.Seq,
+			Actor:     tomb.Actor,
+			Counter:   tomb.Counter,
+			Context:   tomb.Context.Clone(),
+		}); err != nil {
+			logger.Warn("kv tombstone merge failed", "key", key, "error", err)
+			continue
+		}
+		merged++
+	}
+
+	// Legacy delete inference for snapshots that do not yet carry tombstones.
 	if baseline != nil {
 		now := time.Now().Unix()
+		remoteTombstones := remote.DeletedKeys()
 		for key, baseVI := range baselineEntries {
-			if _, inRemote := remoteEntries[key]; !inRemote {
+			if _, inRemote := remoteEntries[key]; !inRemote && !remoteTombstones[key] {
 				deleteTS := now
 				if baseVI.Modified.Unix() >= deleteTS {
 					deleteTS = baseVI.Modified.Unix() + 1
@@ -210,6 +240,9 @@ func diffAndMerge(localLog *LocalLog, remote, baseline *Snapshot, logger *slog.L
 					Device:    baseVI.Device,
 					Timestamp: deleteTS,
 					Seq:       baseVI.Seq + 1,
+					Actor:     effectiveActor(baseVI.Actor, baseVI.Device),
+					Counter:   effectiveCounter(baseVI.Counter, baseVI.Seq) + 1,
+					Context:   remote.Vector(),
 				}); err != nil {
 					logger.Warn("kv delete merge failed", "key", key, "error", err)
 					continue

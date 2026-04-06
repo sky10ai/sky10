@@ -15,13 +15,16 @@ const (
 
 // Entry is a single operation in the local KV ops log.
 type Entry struct {
-	Type      EntryType `json:"op"`
-	Key       string    `json:"key"`
-	Value     []byte    `json:"value,omitempty"` // inline, max 4KB for v1
-	Namespace string    `json:"namespace,omitempty"`
-	Device    string    `json:"device"`
-	Timestamp int64     `json:"timestamp"`
-	Seq       int       `json:"seq"`
+	Type      EntryType     `json:"op"`
+	Key       string        `json:"key"`
+	Value     []byte        `json:"value,omitempty"` // inline, max 4KB for v1
+	Namespace string        `json:"namespace,omitempty"`
+	Device    string        `json:"device"`
+	Timestamp int64         `json:"timestamp"`
+	Seq       int           `json:"seq"`
+	Actor     string        `json:"actor,omitempty"`
+	Counter   uint64        `json:"counter,omitempty"`
+	Context   VersionVector `json:"context,omitempty"`
 }
 
 // clockTuple is the comparison key for LWW conflict resolution.
@@ -68,8 +71,21 @@ func ClockOf(vi ValueInfo) Clock {
 
 // ValueInfo describes a value at a point in time.
 type ValueInfo struct {
-	Value    []byte    `json:"value"`
-	Modified time.Time `json:"modified"`
-	Device   string    `json:"device,omitempty"`
-	Seq      int       `json:"seq,omitempty"`
+	Value    []byte        `json:"value"`
+	Modified time.Time     `json:"modified"`
+	Device   string        `json:"device,omitempty"`
+	Seq      int           `json:"seq,omitempty"`
+	Actor    string        `json:"actor,omitempty"`
+	Counter  uint64        `json:"counter,omitempty"`
+	Context  VersionVector `json:"context,omitempty"`
+}
+
+// TombstoneInfo describes a delete at a point in time.
+type TombstoneInfo struct {
+	Modified time.Time     `json:"modified"`
+	Device   string        `json:"device,omitempty"`
+	Seq      int           `json:"seq,omitempty"`
+	Actor    string        `json:"actor,omitempty"`
+	Counter  uint64        `json:"counter,omitempty"`
+	Context  VersionVector `json:"context,omitempty"`
 }

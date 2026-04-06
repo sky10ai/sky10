@@ -26,6 +26,16 @@ This document separates:
 - **v2 redesign**: move to a full CRDT model with explicit causality and
   tombstones
 
+As of `2026-04-06`, the first causal-metadata checkpoint has landed:
+
+- KV entries now carry per-device actor/counter/context metadata
+- actor identity is tied to the device public key, not the shared private-network
+  identity
+- snapshots now replicate tombstones and a causal summary, so delete propagation
+  no longer depends only on a lucky stored baseline
+- merge order now prefers causal ordering when available and falls back to the
+  legacy clock only for concurrent writes
+
 ## Current State
 
 Today KV is:
@@ -33,7 +43,7 @@ Today KV is:
 - a local JSONL op log on disk
 - a materialized LWW snapshot in memory
 - snapshot exchange over direct skylink/libp2p streams
-- baseline-assisted delete inference
+- replicated tombstones plus baseline-assisted legacy delete inference
 
 Relevant code:
 
@@ -46,15 +56,16 @@ This converges for many common cases, but it is **not** a full CRDT.
 
 ## Why It Is Not A Full CRDT Yet
 
-### 1. Deletes are not first-class
+### 1. Deletes are only partially first-class
 
-Snapshots only contain live entries. A delete is inferred by comparing a new
-snapshot against a prior baseline.
+The current snapshot model now carries tombstones directly, which is a major
+reliability improvement over pure absence-based delete inference.
 
-That means delete correctness depends on what a peer previously saw. A true
-CRDT should carry explicit delete intent as a tombstone or remove op.
+But the system still is not a full CRDT because tombstone lifecycle and causal
+GC are not fully defined, and legacy paths still infer deletes from baseline
+diffs.
 
-### 2. Merge authority still depends on wall-clock timestamps
+### 2. Merge authority still falls back to wall-clock timestamps
 
 Current LWW ordering uses:
 
@@ -62,11 +73,12 @@ Current LWW ordering uses:
 2. device ID
 3. sequence
 
-That is simple, but it means clock skew influences conflict resolution. A full
-CRDT should use explicit causal metadata rather than wall-clock time as the
-main merge authority.
+That is better than before because causal ordering wins when known, but truly
+concurrent writes still fall back to the legacy clock. A full CRDT should make
+causal metadata the primary authority and keep clock use minimal and clearly
+bounded.
 
-### 3. Sync is snapshot-based, not op-based or delta-based
+### 3. Sync is still snapshot-based, not delta- or op-first
 
 On reconnect, peers exchange whole snapshots. That is workable, but it is less
 precise than exchanging:
@@ -75,8 +87,9 @@ precise than exchanging:
 - missing ops
 - or compact deltas
 
-Snapshot sync also makes deletes and concurrent histories harder to reason
-about.
+Snapshot sync is workable, especially now that snapshots carry tombstones and a
+causal summary, but it is still less precise than a sync protocol built around
+causal summaries and missing ops.
 
 ### 4. Tombstone GC is undefined
 
@@ -101,11 +114,12 @@ For `sky10`, a full-CRDT KV should satisfy these properties:
 
 Use:
 
-- **OR-Map<String, LWW-Register<bytes>>** for v2
-- persisted per-device op log
+- **state-based OR-Map<String, LWW-Register<bytes>>** as the near-term target
+- persisted per-device actor/counter history
 - dotted version vectors for causality
 - explicit tombstones for delete/remove
 - anti-entropy on reconnect
+- optional delta/op sync later, once the state model is correct
 
 This keeps the user-facing semantics familiar:
 
@@ -120,7 +134,7 @@ But it replaces the current fragile parts:
 
 ## Data Model
 
-Each replicated mutation should be an explicit op:
+Each local mutation should still be representable as an explicit op:
 
 ```json
 {
@@ -166,8 +180,15 @@ Deletes should also be explicit ops:
 
 ### Derived State
 
-Materialized key state should be a cache derived from ops, not the sole source
-of truth.
+Materialized key state should be a cache derived from durable replicated state,
+not the sole source of truth.
+
+For a state-based design, the replicated snapshot itself must be self-sufficient
+to heal an offline peer:
+
+- live entries
+- tombstones
+- causal summary
 
 ## Conflict Semantics
 
@@ -192,11 +213,11 @@ separate decision, not mixed into the first CRDT refactor.
 
 ## Delete Semantics
 
-Deletes must become first-class replicated state.
+Deletes must remain first-class replicated state.
 
 Required rules:
 
-- a delete is an op, not just absence from a snapshot
+- a delete must be replicated explicitly, not inferred from absence alone
 - a tombstone must dominate older visible values
 - tombstones must replicate like any other op
 - tombstones can only be garbage-collected after causal stability
@@ -218,8 +239,8 @@ On connection or periodic anti-entropy:
 
 This is the core change from the current model:
 
-- not “send whole snapshot and infer deletes”
-- instead “exchange causal summaries and missing ops”
+- not “send whole snapshot and infer deletes from absence alone”
+- instead “exchange causal summaries and enough replicated state to heal”
 
 ## Anti-Entropy
 
@@ -289,13 +310,21 @@ confidence in the current model.
 
 - introduce actor IDs and per-actor counters
 - define version vector format
-- stop depending on wall clock as primary merge authority
+- prefer causal ordering over clock ordering
 
-### Phase 2: Explicit Ops
+Status:
 
-- represent set/delete as explicit replicated ops
-- persist ops durably
-- add idempotent apply logic
+- shipped as an initial checkpoint
+
+### Phase 2: Replicated Delete State And Causal Snapshots
+
+- keep tombstones in replicated snapshots
+- persist enough metadata for reconnect healing without old per-peer baselines
+- define a stable snapshot summary format
+
+Status:
+
+- partially shipped; tombstones and causal summaries are now in snapshots
 
 ### Phase 3: Anti-Entropy Protocol
 
@@ -308,7 +337,12 @@ confidence in the current model.
 - replicate explicit tombstones
 - implement causal-stability-based GC
 
-### Phase 5: Compaction
+### Phase 5: Delta Or Op Exchange
+
+- exchange missing ops or compact deltas when peers are already close
+- keep full-state sync as the correctness fallback
+
+### Phase 6: Compaction
 
 - compact retained history without losing convergence guarantees
 - keep checkpoints, vectors, and unstable tombstones

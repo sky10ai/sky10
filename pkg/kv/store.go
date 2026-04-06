@@ -25,6 +25,8 @@ type Config struct {
 	Namespace    string        // KV namespace name
 	DataDir      string        // local data directory (ops log, baselines)
 	PollInterval time.Duration // remote snapshot poll interval
+	DeviceID     string        // local device ID for key-cache scoping
+	ActorID      string        // stable per-device actor ID for causal metadata
 }
 
 // Store is the main KV store. It provides Get/Set/Delete/List and manages
@@ -63,6 +65,13 @@ func New(
 	}
 
 	deviceID := ShortDeviceID(identity)
+	if config.DeviceID != "" {
+		deviceID = config.DeviceID
+	}
+	actorID := deviceID
+	if config.ActorID != "" {
+		actorID = config.ActorID
+	}
 
 	dataDir := config.DataDir
 	if dataDir == "" {
@@ -71,7 +80,7 @@ func New(
 	}
 	os.MkdirAll(dataDir, 0700)
 
-	localLog := NewLocalLog(filepath.Join(dataDir, "kv-ops.jsonl"), deviceID)
+	localLog := NewLocalLogWithActor(filepath.Join(dataDir, "kv-ops.jsonl"), deviceID, actorID)
 	baselines := NewBaselineStore(filepath.Join(dataDir, "baselines"))
 
 	return &Store{

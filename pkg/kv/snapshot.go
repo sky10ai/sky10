@@ -12,7 +12,8 @@ import (
 // Produced by replaying log entries on top of an optional base.
 type Snapshot struct {
 	entries map[string]ValueInfo
-	deleted map[string]bool // keys with an explicit delete as last op
+	deleted map[string]TombstoneInfo
+	vector  VersionVector
 	created time.Time
 	updated time.Time
 }
@@ -52,6 +53,7 @@ func (s *Snapshot) Len() int { return len(s.entries) }
 func (s *Snapshot) Entries() map[string]ValueInfo {
 	cp := make(map[string]ValueInfo, len(s.entries))
 	for k, v := range s.entries {
+		v.Context = v.Context.Clone()
 		cp[k] = v
 	}
 	return cp
@@ -67,55 +69,90 @@ func (s *Snapshot) DeletedKeys() map[string]bool {
 	return cp
 }
 
+// Tombstones returns a copy of the tombstone map. Safe to mutate.
+func (s *Snapshot) Tombstones() map[string]TombstoneInfo {
+	cp := make(map[string]TombstoneInfo, len(s.deleted))
+	for k, v := range s.deleted {
+		v.Context = v.Context.Clone()
+		cp[k] = v
+	}
+	return cp
+}
+
+// Vector returns a copy of the snapshot's causal summary.
+func (s *Snapshot) Vector() VersionVector {
+	return s.vector.Clone()
+}
+
 // buildSnapshot materializes KV state from a base snapshot and new entries
 // using LWW-Register-Map semantics. For each key, the entry with the
 // highest clock wins. Processing order is irrelevant (commutative).
 func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 	snap := &Snapshot{
 		entries: make(map[string]ValueInfo),
-		deleted: make(map[string]bool),
+		deleted: make(map[string]TombstoneInfo),
+		vector:  make(VersionVector),
 		created: time.Now().UTC(),
 		updated: time.Now().UTC(),
 	}
 
-	// Per-key clock tracking. Entries (including deletes) must beat
-	// the existing clock to take effect.
-	clocks := make(map[string]clockTuple)
-
 	if base != nil {
 		snap.created = base.created
 		for k, v := range base.entries {
+			v.Context = v.Context.Clone()
 			snap.entries[k] = v
-			clocks[k] = clockTuple{ts: v.Modified.Unix(), device: v.Device, seq: v.Seq}
 		}
-		for k := range base.deleted {
-			snap.deleted[k] = true
+		for k, v := range base.deleted {
+			v.Context = v.Context.Clone()
+			snap.deleted[k] = v
+		}
+		snap.vector = base.vector.Clone()
+		if snap.vector == nil {
+			snap.vector = make(VersionVector)
 		}
 	}
 
 	for _, e := range entries {
-		ec := clockTuple{ts: e.Timestamp, device: e.Device, seq: e.Seq}
+		e = normalizeEntry(e)
+		snap.vector.Merge(e.Context)
+		snap.vector.Observe(e.Actor, e.Counter)
 
 		switch e.Type {
 		case Set:
-			if prev, ok := clocks[e.Key]; ok && !ec.beats(prev) {
-				continue
-			}
-			clocks[e.Key] = ec
-			delete(snap.deleted, e.Key)
-			snap.entries[e.Key] = ValueInfo{
+			incoming := ValueInfo{
 				Value:    e.Value,
 				Modified: time.Unix(e.Timestamp, 0).UTC(),
 				Device:   e.Device,
 				Seq:      e.Seq,
+				Actor:    e.Actor,
+				Counter:  e.Counter,
+				Context:  e.Context.Clone(),
 			}
-		case Delete:
-			if prev, ok := clocks[e.Key]; ok && !ec.beats(prev) {
+			if prev, ok := snap.entries[e.Key]; ok && !valueInfoBeats(incoming, prev) {
 				continue
 			}
-			clocks[e.Key] = ec
+			if tomb, ok := snap.deleted[e.Key]; ok && !valueBeatsTombstone(incoming, tomb) {
+				continue
+			}
+			delete(snap.deleted, e.Key)
+			snap.entries[e.Key] = incoming
+		case Delete:
+			incoming := TombstoneInfo{
+				Modified: time.Unix(e.Timestamp, 0).UTC(),
+				Device:   e.Device,
+				Seq:      e.Seq,
+				Actor:    e.Actor,
+				Counter:  e.Counter,
+				Context:  e.Context.Clone(),
+			}
+			if prev, ok := snap.entries[e.Key]; ok && !tombstoneBeatsValue(incoming, prev) {
+				continue
+			}
+			if prev, ok := snap.deleted[e.Key]; ok && !tombstoneInfoBeats(incoming, prev) {
+				continue
+			}
 			delete(snap.entries, e.Key)
-			snap.deleted[e.Key] = true
+			snap.deleted[e.Key] = incoming
 		}
 	}
 
@@ -125,18 +162,18 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 
 // --- Serialization ---
 
-// MarshalSnapshot serializes a Snapshot to JSON for S3 upload.
-// Only live entries are included — no tombstones.
+// MarshalSnapshot serializes a Snapshot to JSON for sync.
 func MarshalSnapshot(snap *Snapshot) ([]byte, error) {
 	if snap == nil {
-		return json.Marshal(snapshotJSON{Version: 1, Entries: map[string]valueInfoJSON{}})
+		return json.Marshal(snapshotJSON{Version: 2, Entries: map[string]valueInfoJSON{}})
 	}
 
 	m := snapshotJSON{
-		Version: 1,
+		Version: 2,
 		Created: snap.created,
 		Updated: time.Now().UTC(),
 		Entries: make(map[string]valueInfoJSON, len(snap.entries)),
+		Vector:  snap.vector.Clone(),
 	}
 
 	for key, vi := range snap.entries {
@@ -145,6 +182,23 @@ func MarshalSnapshot(snap *Snapshot) ([]byte, error) {
 			Modified: vi.Modified,
 			Device:   vi.Device,
 			Seq:      vi.Seq,
+			Actor:    vi.Actor,
+			Counter:  vi.Counter,
+			Context:  vi.Context.Clone(),
+		}
+	}
+
+	if len(snap.deleted) > 0 {
+		m.Tombstones = make(map[string]tombstoneInfoJSON, len(snap.deleted))
+		for key, tomb := range snap.deleted {
+			m.Tombstones[key] = tombstoneInfoJSON{
+				Modified: tomb.Modified,
+				Device:   tomb.Device,
+				Seq:      tomb.Seq,
+				Actor:    tomb.Actor,
+				Counter:  tomb.Counter,
+				Context:  tomb.Context.Clone(),
+			}
 		}
 	}
 
@@ -160,9 +214,13 @@ func UnmarshalSnapshot(data []byte) (*Snapshot, error) {
 
 	snap := &Snapshot{
 		entries: make(map[string]ValueInfo, len(m.Entries)),
-		deleted: make(map[string]bool),
+		deleted: make(map[string]TombstoneInfo, len(m.Tombstones)),
+		vector:  m.Vector.Clone(),
 		created: m.Created,
 		updated: m.Updated,
+	}
+	if snap.vector == nil {
+		snap.vector = make(VersionVector)
 	}
 
 	for key, vi := range m.Entries {
@@ -171,7 +229,25 @@ func UnmarshalSnapshot(data []byte) (*Snapshot, error) {
 			Modified: vi.Modified,
 			Device:   vi.Device,
 			Seq:      vi.Seq,
+			Actor:    vi.Actor,
+			Counter:  vi.Counter,
+			Context:  vi.Context.Clone(),
 		}
+		snap.vector.Merge(vi.Context)
+		snap.vector.Observe(effectiveActor(vi.Actor, vi.Device), effectiveCounter(vi.Counter, vi.Seq))
+	}
+
+	for key, tomb := range m.Tombstones {
+		snap.deleted[key] = TombstoneInfo{
+			Modified: tomb.Modified,
+			Device:   tomb.Device,
+			Seq:      tomb.Seq,
+			Actor:    tomb.Actor,
+			Counter:  tomb.Counter,
+			Context:  tomb.Context.Clone(),
+		}
+		snap.vector.Merge(tomb.Context)
+		snap.vector.Observe(effectiveActor(tomb.Actor, tomb.Device), effectiveCounter(tomb.Counter, tomb.Seq))
 	}
 
 	return snap, nil
@@ -179,15 +255,112 @@ func UnmarshalSnapshot(data []byte) (*Snapshot, error) {
 
 // snapshotJSON is the wire format for KV snapshots.
 type snapshotJSON struct {
-	Version int                      `json:"version"`
-	Created time.Time                `json:"created"`
-	Updated time.Time                `json:"updated"`
-	Entries map[string]valueInfoJSON `json:"entries"`
+	Version    int                          `json:"version"`
+	Created    time.Time                    `json:"created"`
+	Updated    time.Time                    `json:"updated"`
+	Entries    map[string]valueInfoJSON     `json:"entries"`
+	Tombstones map[string]tombstoneInfoJSON `json:"tombstones,omitempty"`
+	Vector     VersionVector                `json:"vector,omitempty"`
 }
 
 type valueInfoJSON struct {
-	Value    []byte    `json:"value"`
-	Modified time.Time `json:"modified"`
-	Device   string    `json:"device,omitempty"`
-	Seq      int       `json:"seq,omitempty"`
+	Value    []byte        `json:"value"`
+	Modified time.Time     `json:"modified"`
+	Device   string        `json:"device,omitempty"`
+	Seq      int           `json:"seq,omitempty"`
+	Actor    string        `json:"actor,omitempty"`
+	Counter  uint64        `json:"counter,omitempty"`
+	Context  VersionVector `json:"context,omitempty"`
+}
+
+type tombstoneInfoJSON struct {
+	Modified time.Time     `json:"modified"`
+	Device   string        `json:"device,omitempty"`
+	Seq      int           `json:"seq,omitempty"`
+	Actor    string        `json:"actor,omitempty"`
+	Counter  uint64        `json:"counter,omitempty"`
+	Context  VersionVector `json:"context,omitempty"`
+}
+
+func normalizeEntry(e Entry) Entry {
+	e.Actor = effectiveActor(e.Actor, e.Device)
+	e.Counter = effectiveCounter(e.Counter, e.Seq)
+	e.Context = e.Context.Clone()
+	return e
+}
+
+func effectiveActor(actor, device string) string {
+	if actor != "" {
+		return actor
+	}
+	return device
+}
+
+func effectiveCounter(counter uint64, seq int) uint64 {
+	if counter != 0 {
+		return counter
+	}
+	if seq > 0 {
+		return uint64(seq)
+	}
+	return 0
+}
+
+func clockCompare(a, b clockTuple) int {
+	switch {
+	case a.beats(b):
+		return 1
+	case b.beats(a):
+		return -1
+	default:
+		return 0
+	}
+}
+
+func valueClock(v ValueInfo) clockTuple {
+	return clockTuple{ts: v.Modified.Unix(), device: v.Device, seq: v.Seq}
+}
+
+func tombstoneClock(v TombstoneInfo) clockTuple {
+	return clockTuple{ts: v.Modified.Unix(), device: v.Device, seq: v.Seq}
+}
+
+func valueInfoBeats(a, b ValueInfo) bool {
+	if causal := compareCausal(
+		effectiveActor(a.Actor, a.Device), effectiveCounter(a.Counter, a.Seq), a.Context,
+		effectiveActor(b.Actor, b.Device), effectiveCounter(b.Counter, b.Seq), b.Context,
+	); causal != 0 {
+		return causal > 0
+	}
+	return clockCompare(valueClock(a), valueClock(b)) > 0
+}
+
+func valueBeatsTombstone(a ValueInfo, b TombstoneInfo) bool {
+	if causal := compareCausal(
+		effectiveActor(a.Actor, a.Device), effectiveCounter(a.Counter, a.Seq), a.Context,
+		effectiveActor(b.Actor, b.Device), effectiveCounter(b.Counter, b.Seq), b.Context,
+	); causal != 0 {
+		return causal > 0
+	}
+	return clockCompare(valueClock(a), tombstoneClock(b)) > 0
+}
+
+func tombstoneBeatsValue(a TombstoneInfo, b ValueInfo) bool {
+	if causal := compareCausal(
+		effectiveActor(a.Actor, a.Device), effectiveCounter(a.Counter, a.Seq), a.Context,
+		effectiveActor(b.Actor, b.Device), effectiveCounter(b.Counter, b.Seq), b.Context,
+	); causal != 0 {
+		return causal > 0
+	}
+	return clockCompare(tombstoneClock(a), valueClock(b)) > 0
+}
+
+func tombstoneInfoBeats(a, b TombstoneInfo) bool {
+	if causal := compareCausal(
+		effectiveActor(a.Actor, a.Device), effectiveCounter(a.Counter, a.Seq), a.Context,
+		effectiveActor(b.Actor, b.Device), effectiveCounter(b.Counter, b.Seq), b.Context,
+	); causal != 0 {
+		return causal > 0
+	}
+	return clockCompare(tombstoneClock(a), tombstoneClock(b)) > 0
 }

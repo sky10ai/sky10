@@ -103,7 +103,11 @@ func ServeCmd() *cobra.Command {
 			server.HandleHTTP("POST /upload", fsHandler.HandleUpload)
 			server.HandleHTTP("GET /download", fsHandler.HandleDownload)
 
-			kvStore := kv.New(backend, bundle.Identity, kv.Config{Namespace: "default"}, nil)
+			kvStore := kv.New(backend, bundle.Identity, kv.Config{
+				Namespace: "default",
+				DeviceID:  bundle.DeviceID(),
+				ActorID:   bundle.DevicePubKeyHex(),
+			}, nil)
 			server.RegisterHandler(kv.NewRPCHandler(kvStore))
 			kvRunErr := make(chan error, 1)
 			go func() {

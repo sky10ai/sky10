@@ -20,15 +20,25 @@ type LocalLog struct {
 	mu       sync.Mutex
 	path     string    // path to kv-ops.jsonl
 	deviceID string    // local device ID
+	actorID  string    // stable per-device actor ID for causal metadata
 	cache    *Snapshot // cached snapshot, nil = cold
 	seq      int       // per-device sequence counter
 }
 
 // NewLocalLog creates a local KV ops log backed by the file at path.
 func NewLocalLog(path, deviceID string) *LocalLog {
+	return NewLocalLogWithActor(path, deviceID, deviceID)
+}
+
+// NewLocalLogWithActor creates a local KV ops log with an explicit actor ID.
+func NewLocalLogWithActor(path, deviceID, actorID string) *LocalLog {
+	if actorID == "" {
+		actorID = deviceID
+	}
 	return &LocalLog{
 		path:     path,
 		deviceID: deviceID,
+		actorID:  actorID,
 	}
 }
 
@@ -54,12 +64,22 @@ func (l *LocalLog) AppendLocal(entry Entry) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	if l.cache == nil {
+		if _, err := l.rebuildLocked(); err != nil {
+			return err
+		}
+	}
+
+	context := l.cache.Vector()
 	l.seq++
 	entry.Device = l.deviceID
+	entry.Actor = l.actorID
 	if entry.Timestamp == 0 {
 		entry.Timestamp = time.Now().Unix()
 	}
 	entry.Seq = l.seq
+	entry.Counter = uint64(l.seq)
+	entry.Context = context
 
 	if err := l.appendToFile(entry); err != nil {
 		return err
@@ -121,12 +141,39 @@ func (l *LocalLog) Compact() error {
 			Device:    vi.Device,
 			Timestamp: vi.Modified.Unix(),
 			Seq:       vi.Seq,
+			Actor:     vi.Actor,
+			Counter:   vi.Counter,
+			Context:   vi.Context.Clone(),
 		}
 		data, err := json.Marshal(e)
 		if err != nil {
 			f.Close()
 			os.Remove(tmpPath)
 			return fmt.Errorf("marshaling entry: %w", err)
+		}
+		data = append(data, '\n')
+		if _, err := f.Write(data); err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return err
+		}
+	}
+	for key, tomb := range l.cache.deleted {
+		e := Entry{
+			Type:      Delete,
+			Key:       key,
+			Device:    tomb.Device,
+			Timestamp: tomb.Modified.Unix(),
+			Seq:       tomb.Seq,
+			Actor:     tomb.Actor,
+			Counter:   tomb.Counter,
+			Context:   tomb.Context.Clone(),
+		}
+		data, err := json.Marshal(e)
+		if err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("marshaling tombstone entry: %w", err)
 		}
 		data = append(data, '\n')
 		if _, err := f.Write(data); err != nil {

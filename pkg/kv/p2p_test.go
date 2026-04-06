@@ -258,3 +258,33 @@ func TestDiffAndMergeFunction(t *testing.T) {
 		t.Errorf("remote-only = %q, %v; want yes, true", vi.Value, ok)
 	}
 }
+
+func TestDiffAndMergeAppliesExplicitRemoteTombstoneWithoutBaseline(t *testing.T) {
+	t.Parallel()
+
+	localDir := t.TempDir()
+	localLog := NewLocalLog(filepath.Join(localDir, "ops.jsonl"), "deviceA")
+	if err := localLog.AppendLocal(Entry{Type: Set, Key: "gone", Value: []byte("local")}); err != nil {
+		t.Fatal(err)
+	}
+
+	remoteSnap := buildSnapshot(nil, []Entry{
+		{
+			Type:      Delete,
+			Key:       "gone",
+			Device:    "deviceB",
+			Timestamp: time.Now().Unix(),
+			Seq:       1,
+			Actor:     "actor-b",
+			Counter:   1,
+		},
+	})
+
+	merged := diffAndMerge(localLog, remoteSnap, nil, nil)
+	if merged != 1 {
+		t.Fatalf("merged = %d, want 1", merged)
+	}
+	if _, ok := localLog.Lookup("gone"); ok {
+		t.Fatal("gone should be deleted")
+	}
+}

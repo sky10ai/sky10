@@ -125,7 +125,7 @@ func runJoinP2P(cmd *cobra.Command, code string) error {
 	}
 
 	// Cache namespace keys locally.
-	deviceID := kv.ShortDeviceID(identityKey)
+	deviceID := bundle.DeviceID()
 	for _, nsk := range resp.NSKeys {
 		nsKey, err := skykey.UnwrapKey(nsk.Wrapped, identityKey.PrivateKey)
 		if err != nil {

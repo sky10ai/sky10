@@ -257,7 +257,7 @@ func joinIdentityP2P(
 		return nil, fmt.Errorf("saving joined private-network bundle: %w", err)
 	}
 
-	deviceID := kv.ShortDeviceID(identityKey)
+	deviceID := joinedBundle.DeviceID()
 	for _, nsk := range resp.NSKeys {
 		nsKey, err := skykey.UnwrapKey(nsk.Wrapped, identityKey.PrivateKey)
 		if err != nil {

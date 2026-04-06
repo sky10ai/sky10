@@ -221,3 +221,34 @@ func TestLocalLogPresetTimestamp(t *testing.T) {
 		t.Errorf("modified = %d, want 9999", vi.Modified.Unix())
 	}
 }
+
+func TestLocalLogAppendLocalSetsActorCounterAndContext(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	log := NewLocalLogWithActor(filepath.Join(dir, "kv-ops.jsonl"), "dev1", "actor-1")
+
+	if err := log.AppendLocal(Entry{Type: Set, Key: "a", Value: []byte("1")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := log.AppendLocal(Entry{Type: Set, Key: "b", Value: []byte("2")}); err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := log.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	vi, ok := snap.Lookup("b")
+	if !ok {
+		t.Fatal("b not found")
+	}
+	if vi.Actor != "actor-1" {
+		t.Fatalf("actor = %q, want actor-1", vi.Actor)
+	}
+	if vi.Counter != 2 {
+		t.Fatalf("counter = %d, want 2", vi.Counter)
+	}
+	if vi.Context["actor-1"] != 1 {
+		t.Fatalf("context[actor-1] = %d, want 1", vi.Context["actor-1"])
+	}
+}
