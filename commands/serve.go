@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -124,6 +125,56 @@ func ServeCmd() *cobra.Command {
 			server.RegisterHandler(skyid.NewRPCHandler(bundle))
 			server.RegisterHandler(skyupdate.NewRPCHandler(Version, server.Emit))
 
+			var privateNetworkMu sync.Mutex
+			refreshPrivateNetwork := func() {
+				privateNetworkMu.Lock()
+				defer privateNetworkMu.Unlock()
+
+				membership, source, err := linkResolver.ResolveMembership(ctx, bundle.Address())
+				if err != nil {
+					slog.Warn("private-network membership resolve failed", "error", err)
+				} else if source != "local" {
+					manifest, err := membership.ToManifest(bundle.Identity)
+					if err != nil {
+						slog.Warn("private-network membership cache rebuild failed", "error", err)
+					} else if !manifest.HasDevice(bundle.Device.PublicKey) {
+						slog.Warn("resolved membership missing current device; keeping local cache",
+							"identity", bundle.Address(),
+						)
+					} else {
+						bundle.Manifest = manifest
+						if err := idStore.Save(bundle); err != nil {
+							slog.Warn("saving refreshed private-network cache failed", "error", err)
+						}
+					}
+				}
+
+				if err := linkNode.PublishRecord(ctx); err != nil {
+					slog.Warn("failed to publish private-network records to DHT", "error", err)
+				} else {
+					slog.Info("published private-network records to DHT")
+				}
+
+				if len(cfg.Relays()) > 0 {
+					nostr := link.NewNostrDiscovery(cfg.Relays(), nil)
+					membershipRecord, err := linkNode.CurrentMembershipRecord()
+					if err != nil {
+						slog.Warn("building private-network membership record failed", "error", err)
+					} else if err := nostr.PublishMembership(ctx, bundle.Identity, membershipRecord); err != nil {
+						slog.Warn("failed to publish private-network membership to Nostr", "error", err)
+					}
+
+					presenceRecord, err := linkNode.CurrentPresenceRecord(0)
+					if err != nil {
+						slog.Warn("building private-network presence record failed", "error", err)
+					} else if err := nostr.PublishPresence(ctx, bundle.Device, presenceRecord); err != nil {
+						slog.Warn("failed to publish private-network presence to Nostr", "error", err)
+					}
+				}
+
+				link.AutoConnect(ctx, linkResolver)
+			}
+
 			// Agent registry — local agent registration and message routing.
 			agentRegistry := skyagent.NewRegistry(bundle.DeviceID(), skyfs.GetDeviceName(), nil)
 			agentRouter := skyagent.NewRouter(agentRegistry, linkNode, server.Emit, bundle.DeviceID(), nil)
@@ -188,6 +239,25 @@ func ServeCmd() *cobra.Command {
 					time.Sleep(50 * time.Millisecond)
 				}
 
+				// Register P2P join handler as soon as the host exists.
+				joinHandler := skyjoin.NewHandler(bundle, nil, nil)
+				joinHandler.SetNSKeyProvider(func() []skyjoin.NSKey {
+					ns, key := kvStore.NamespaceKey()
+					if key == nil {
+						return nil
+					}
+					return []skyjoin.NSKey{{Namespace: ns, Key: key}}
+				})
+				joinHandler.SetOnBundleUpdated(func(updated *skyid.Bundle) error {
+					if err := idStore.Save(updated); err != nil {
+						return err
+					}
+					go refreshPrivateNetwork()
+					return nil
+				})
+				linkNode.Host().SetStreamHandler(skyjoin.Protocol, joinHandler.HandleStream)
+				slog.Info("P2P join handler registered")
+
 				addrs := link.HostMultiaddrs(linkNode)
 
 				// Publish multiaddrs to S3 device registry (if configured).
@@ -199,41 +269,23 @@ func ServeCmd() *cobra.Command {
 					}
 				}
 
-				// Publish multiaddrs to Nostr relays.
-				nostr := link.NewNostrDiscovery(cfg.Relays(), nil)
-				nostrSK := link.NostrSecretKey(bundle.Device)
-				if err := nostr.Publish(ctx, nostrSK, bundle.Address(), addrs); err != nil {
-					slog.Warn("failed to publish multiaddrs to Nostr", "error", err)
-				} else {
-					slog.Info("published multiaddrs to Nostr", "count", len(addrs))
-				}
-
-				// Auto-connect to own devices. Retry after 15s in case the
-				// other device hasn't published its new addrs to Nostr yet.
-				link.AutoConnect(ctx, linkNode, backend, cfg.Relays())
+				refreshPrivateNetwork()
 
 				// Register KV sync protocol handler after link is ready.
 				kvSync.RegisterProtocol()
 
 				go func() {
-					time.Sleep(15 * time.Second)
-					if len(linkNode.ConnectedPeers()) == 0 {
-						slog.Info("retrying auto-connect...")
-						link.AutoConnect(ctx, linkNode, backend, cfg.Relays())
+					ticker := time.NewTicker(2 * time.Minute)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-ctx.Done():
+							return
+						case <-ticker.C:
+							refreshPrivateNetwork()
+						}
 					}
 				}()
-
-				// Register P2P join handler (auto-approve — invite code is auth).
-				joinHandler := skyjoin.NewHandler(bundle, nil, nil)
-				joinHandler.SetNSKeyProvider(func() []skyjoin.NSKey {
-					ns, key := kvStore.NamespaceKey()
-					if key == nil {
-						return nil
-					}
-					return []skyjoin.NSKey{{Namespace: ns, Key: key}}
-				})
-				linkNode.Host().SetStreamHandler(skyjoin.Protocol, joinHandler.HandleStream)
-				slog.Info("P2P join handler registered")
 			}()
 
 			// Log KV startup errors but don't block the daemon.

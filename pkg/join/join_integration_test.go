@@ -30,10 +30,15 @@ func TestP2PJoinHandshake(t *testing.T) {
 	waitForHost(t, inviterNode)
 
 	testNSKey, _ := skykey.GenerateSymmetricKey()
+	var bundleUpdated bool
 
 	joinHandler := NewHandler(inviterBundle, nil, nil)
 	joinHandler.SetNSKeyProvider(func() []NSKey {
 		return []NSKey{{Namespace: "default", Key: testNSKey}}
+	})
+	joinHandler.SetOnBundleUpdated(func(updated *id.Bundle) error {
+		bundleUpdated = true
+		return nil
 	})
 	inviterNode.Host().SetStreamHandler(Protocol, joinHandler.HandleStream)
 
@@ -90,6 +95,9 @@ func TestP2PJoinHandshake(t *testing.T) {
 	}
 	if !manifest.HasDevice(joinerKey.PublicKey) {
 		t.Error("manifest should contain joiner's device")
+	}
+	if !bundleUpdated {
+		t.Error("expected inviter bundle update callback to run for new device")
 	}
 
 	// Verify namespace keys.

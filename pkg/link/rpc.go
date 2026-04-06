@@ -130,25 +130,32 @@ func (h *RPCHandler) rpcResolve(ctx context.Context, params json.RawMessage) (in
 		return nil, fmt.Errorf("invalid params: %w", err), true
 	}
 
-	// Try agent record from DHT first.
-	if h.node.dht != nil {
-		rec, err := h.node.ResolveRecord(ctx, p.Address)
-		if err == nil {
-			return rec, nil, true
-		}
-	}
-
-	// Fall back to resolver for address info.
 	if h.resolver != nil {
-		info, err := h.resolver.Resolve(ctx, p.Address)
+		resolution, err := h.resolver.ResolveAll(ctx, p.Address)
 		if err == nil {
-			addrs := make([]string, 0, len(info.Addrs))
-			for _, a := range info.Addrs {
-				addrs = append(addrs, a.String())
+			peers := make([]map[string]interface{}, 0, len(resolution.Peers))
+			for _, resolved := range resolution.Peers {
+				if resolved == nil || resolved.Info == nil || resolved.Presence == nil {
+					continue
+				}
+				addrs := make([]string, 0, len(resolved.Info.Addrs))
+				for _, addr := range resolved.Info.Addrs {
+					addrs = append(addrs, addr.String())
+				}
+				peers = append(peers, map[string]interface{}{
+					"peer_id":       resolved.Info.ID.String(),
+					"device_pubkey": resolved.Presence.DevicePubKey,
+					"published_at":  resolved.Presence.PublishedAt,
+					"expires_at":    resolved.Presence.ExpiresAt,
+					"source":        resolved.Source,
+					"multiaddrs":    addrs,
+				})
 			}
 			return map[string]interface{}{
-				"peer_id":    info.ID.String(),
-				"multiaddrs": addrs,
+				"identity":          resolution.Identity,
+				"membership_source": resolution.MembershipSource,
+				"membership":        resolution.Membership,
+				"peers":             peers,
 			}, nil, true
 		}
 	}

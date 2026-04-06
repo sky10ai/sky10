@@ -47,10 +47,11 @@ type WrappedNSKey struct {
 
 // Handler handles incoming join requests on the inviter side.
 type Handler struct {
-	bundle    *id.Bundle
-	logger    *slog.Logger
-	approve   func(req Request) bool // nil = auto-approve
-	nsKeyProv NSKeyProvider
+	bundle          *id.Bundle
+	logger          *slog.Logger
+	approve         func(req Request) bool // nil = auto-approve
+	nsKeyProv       NSKeyProvider
+	onBundleUpdated func(*id.Bundle) error
 }
 
 // NewHandler creates a join handler. If approve is nil, all requests
@@ -66,6 +67,13 @@ func NewHandler(bundle *id.Bundle, approve func(Request) bool, logger *slog.Logg
 // with joining devices.
 func (h *Handler) SetNSKeyProvider(fn NSKeyProvider) {
 	h.nsKeyProv = fn
+}
+
+// SetOnBundleUpdated registers a callback invoked after the join handler
+// mutates the bundle manifest. Returning an error rejects the join so the
+// inviter never hands out a membership update it failed to persist locally.
+func (h *Handler) SetOnBundleUpdated(fn func(*id.Bundle) error) {
+	h.onBundleUpdated = fn
 }
 
 // HandleStream processes an incoming join stream.
@@ -118,9 +126,19 @@ func (h *Handler) HandleStream(s network.Stream) {
 	resp.IdentityKey = identityJSON
 
 	manifest := h.bundle.Manifest
+	changed := false
 	if !manifest.HasDevice(joinerKey.PublicKey) {
 		manifest.AddDevice(joinerKey.PublicKey, req.DeviceName)
 		manifest.Sign(h.bundle.Identity.PrivateKey)
+		changed = true
+	}
+	if changed && h.onBundleUpdated != nil {
+		if err := h.onBundleUpdated(h.bundle); err != nil {
+			resp.Approved = false
+			resp.Error = "failed to persist private-network membership"
+			writeResponse(s, msg.ID, resp)
+			return
+		}
 	}
 	manifestData, _ := json.Marshal(manifest)
 	resp.Manifest = manifestData

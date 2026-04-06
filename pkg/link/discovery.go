@@ -2,20 +2,37 @@ package link
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
+	"time"
 
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
-	ma "github.com/multiformats/go-multiaddr"
 	"github.com/sky10/sky10/pkg/adapter"
 )
 
-// Resolver finds peer addresses through multiple discovery layers.
+// ResolvedPeer is one reachable device in a private network.
+type ResolvedPeer struct {
+	Info     *peer.AddrInfo
+	Presence *PresenceRecord
+	Source   string
+}
+
+// Resolution contains the winning membership record plus the currently
+// reachable peers discovered for that identity.
+type Resolution struct {
+	Identity         string            `json:"identity"`
+	Membership       *MembershipRecord `json:"membership,omitempty"`
+	MembershipSource string            `json:"membership_source,omitempty"`
+	Peers            []*ResolvedPeer   `json:"peers,omitempty"`
+}
+
+// Resolver finds peer addresses through the private-network discovery layers.
 type Resolver struct {
 	node    *Node
-	backend adapter.Backend // optional: same-bucket discovery
-	nostr   *NostrDiscovery // optional: Nostr relay discovery
+	backend adapter.Backend // deprecated; kept for construction compatibility
+	nostr   *NostrDiscovery
 	logger  *slog.Logger
 }
 
@@ -34,12 +51,14 @@ func NewResolver(node *Node, opts ...ResolverOption) *Resolver {
 	return r
 }
 
-// WithBackend enables same-bucket discovery via S3 device registry.
+// WithBackend keeps construction compatibility with the older resolver shape.
+// Private-network discovery no longer treats the S3 device registry as an
+// authoritative or required discovery path.
 func WithBackend(b adapter.Backend) ResolverOption {
 	return func(r *Resolver) { r.backend = b }
 }
 
-// WithNostr enables Nostr relay discovery.
+// WithNostr enables Nostr relay discovery fallback.
 func WithNostr(relays []string) ResolverOption {
 	return func(r *Resolver) {
 		if len(relays) > 0 {
@@ -48,57 +67,160 @@ func WithNostr(relays []string) ResolverOption {
 	}
 }
 
-// Resolve finds a peer's addresses. Tries layers in order:
-// 1. Same bucket (S3 devices/ registry) — own devices
-// 2. DHT — any agent (network mode only)
-//
-// Identity address and peer ID are no longer 1:1, so resolution
-// goes through the device registry or DHT records.
-func (r *Resolver) Resolve(ctx context.Context, address string) (*peer.AddrInfo, error) {
-	// Layer 1: Same bucket — S3 device registry.
-	if r.backend != nil {
-		info, err := r.resolveFromBucket(ctx, address)
-		if err == nil && info != nil {
-			return info, nil
-		}
-		r.logger.Debug("same-bucket resolve failed", "address", address, "error", err)
+func (r *Resolver) localMembershipCandidate(address string) *MembershipRecord {
+	if r.node == nil || r.node.Bundle() == nil || r.node.Bundle().Manifest == nil {
+		return nil
+	}
+	if r.node.Address() != address {
+		return nil
+	}
+	rec := membershipRecordFromManifest(r.node.Bundle().Manifest)
+	if rec == nil {
+		return nil
+	}
+	if err := rec.Sign(r.node.Bundle().Identity.PrivateKey); err != nil {
+		r.logger.Debug("signing local membership candidate failed", "error", err)
+		return nil
+	}
+	return rec
+}
+
+// ResolveMembership returns the best verified membership record for an
+// identity, choosing between local cache (for the current node), DHT, and
+// Nostr fallback.
+func (r *Resolver) ResolveMembership(ctx context.Context, address string) (*MembershipRecord, string, error) {
+	type candidate struct {
+		record *MembershipRecord
+		source string
 	}
 
-	// Layer 2: Nostr relay discovery.
-	if r.nostr != nil {
-		multiaddrs, err := r.nostr.Query(ctx, address)
+	var candidates []candidate
+	if local := r.localMembershipCandidate(address); local != nil {
+		candidates = append(candidates, candidate{record: local, source: "local"})
+	}
+	if r.node != nil && r.node.dht != nil {
+		rec, err := r.node.ResolveMembershipRecord(ctx, address)
 		if err == nil {
-			for _, s := range multiaddrs {
-				maddr, err := ma.NewMultiaddr(s)
-				if err != nil {
-					continue
-				}
-				info, err := peer.AddrInfoFromP2pAddr(maddr)
-				if err != nil {
-					continue
-				}
-				return info, nil
-			}
+			candidates = append(candidates, candidate{record: rec, source: "dht"})
+		} else {
+			r.logger.Debug("DHT membership resolve failed", "address", address, "error", err)
 		}
-		r.logger.Debug("nostr resolve failed", "address", address, "error", err)
+	}
+	if r.nostr != nil {
+		rec, err := r.nostr.QueryMembership(ctx, address)
+		if err == nil {
+			candidates = append(candidates, candidate{record: rec, source: "nostr"})
+		} else {
+			r.logger.Debug("nostr membership resolve failed", "address", address, "error", err)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil, "", fmt.Errorf("could not resolve membership for %s", address)
 	}
 
-	// Layer 3: DHT agent record (network mode only).
-	if r.node.dht != nil {
-		rec, err := r.node.ResolveRecord(ctx, address)
-		if err == nil && len(rec.Multiaddrs) > 0 {
-			for _, s := range rec.Multiaddrs {
-				if a, err := ma.NewMultiaddr(s); err == nil {
-					if info, err := peer.AddrInfoFromP2pAddr(a); err == nil {
-						return info, nil
-					}
+	best := candidates[0]
+	for _, candidate := range candidates[1:] {
+		if compareMembershipRecords(candidate.record, best.record) > 0 {
+			best = candidate
+		}
+	}
+	return best.record, best.source, nil
+}
+
+// ResolveAll rebuilds the reachable peer set for a private network identity.
+func (r *Resolver) ResolveAll(ctx context.Context, address string) (*Resolution, error) {
+	membership, membershipSource, err := r.ResolveMembership(ctx, address)
+	if err != nil {
+		return nil, err
+	}
+
+	type presenceCandidate struct {
+		record *PresenceRecord
+		source string
+	}
+
+	now := time.Now().UTC()
+	byDevice := make(map[string]presenceCandidate, len(membership.Devices))
+	if r.node != nil && r.node.dht != nil {
+		for _, device := range membership.Devices {
+			rec, err := r.node.ResolvePresenceRecord(ctx, address, device.PublicKey)
+			if err != nil {
+				r.logger.Debug("DHT presence resolve failed",
+					"identity", address,
+					"device_pubkey", device.PublicKey,
+					"error", err,
+				)
+				continue
+			}
+			if !rec.Usable(membership, now) {
+				continue
+			}
+			byDevice[device.PublicKey] = presenceCandidate{record: rec, source: "dht"}
+		}
+	}
+	if r.nostr != nil {
+		recs, err := r.nostr.QueryPresenceAll(ctx, address)
+		if err != nil {
+			r.logger.Debug("nostr presence resolve failed", "identity", address, "error", err)
+		} else {
+			for _, rec := range recs {
+				if !rec.Usable(membership, now) {
+					continue
+				}
+				current := byDevice[rec.DevicePubKey]
+				if comparePresenceRecords(rec, current.record) > 0 {
+					byDevice[rec.DevicePubKey] = presenceCandidate{record: rec, source: "nostr"}
 				}
 			}
 		}
-		r.logger.Debug("DHT resolve failed", "address", address, "error", err)
 	}
 
-	return nil, fmt.Errorf("could not resolve %s", address)
+	peers := make([]*ResolvedPeer, 0, len(byDevice))
+	for _, device := range membership.Devices {
+		candidate, ok := byDevice[device.PublicKey]
+		if !ok || candidate.record == nil {
+			continue
+		}
+		info, err := addrInfoFromMultiaddrStrings(candidate.record.Multiaddrs)
+		if err != nil {
+			r.logger.Debug("presence addr conversion failed",
+				"identity", address,
+				"device_pubkey", device.PublicKey,
+				"error", err,
+			)
+			continue
+		}
+		peers = append(peers, &ResolvedPeer{
+			Info:     info,
+			Presence: candidate.record,
+			Source:   candidate.source,
+		})
+	}
+	sort.Slice(peers, func(i, j int) bool {
+		return comparePresenceRecords(peers[i].Presence, peers[j].Presence) > 0
+	})
+
+	if len(peers) == 0 {
+		return nil, fmt.Errorf("could not resolve any live peers for %s", address)
+	}
+	return &Resolution{
+		Identity:         address,
+		Membership:       membership,
+		MembershipSource: membershipSource,
+		Peers:            peers,
+	}, nil
+}
+
+// Resolve returns the freshest reachable peer for the given identity.
+func (r *Resolver) Resolve(ctx context.Context, address string) (*peer.AddrInfo, error) {
+	resolution, err := r.ResolveAll(ctx, address)
+	if err != nil {
+		return nil, err
+	}
+	if len(resolution.Peers) == 0 {
+		return nil, fmt.Errorf("could not resolve %s", address)
+	}
+	return resolution.Peers[0].Info, nil
 }
 
 // Connect resolves a peer's addresses and establishes a connection.
@@ -110,180 +232,39 @@ func (r *Resolver) Connect(ctx context.Context, address string) error {
 	return r.node.host.Connect(ctx, *info)
 }
 
-// resolveFromBucket looks up devices by identity address in the S3 device registry.
-func (r *Resolver) resolveFromBucket(ctx context.Context, address string) (*peer.AddrInfo, error) {
-	keys, err := r.backend.List(ctx, "devices/")
+// AutoConnect discovers all reachable peers in the current node's private
+// network and connects to them. It is resilient to stale local cache because
+// the resolver chooses the best signed membership first.
+func AutoConnect(ctx context.Context, resolver *Resolver) {
+	if resolver == nil || resolver.node == nil {
+		return
+	}
+
+	resolution, err := resolver.ResolveAll(ctx, resolver.node.Address())
 	if err != nil {
-		return nil, err
-	}
-
-	for _, key := range keys {
-		rc, err := r.backend.Get(ctx, key)
-		if err != nil {
-			continue
-		}
-
-		var dev struct {
-			PubKey     string   `json:"pubkey"`
-			Multiaddrs []string `json:"multiaddrs,omitempty"`
-		}
-		if err := json.NewDecoder(rc).Decode(&dev); err != nil {
-			rc.Close()
-			continue
-		}
-		rc.Close()
-
-		if dev.PubKey != address {
-			continue
-		}
-
-		// Parse multiaddrs (each contains /p2p/<peerID>).
-		for _, s := range dev.Multiaddrs {
-			maddr, err := ma.NewMultiaddr(s)
-			if err != nil {
-				continue
-			}
-			info, err := peer.AddrInfoFromP2pAddr(maddr)
-			if err != nil {
-				continue
-			}
-			return info, nil
-		}
-	}
-
-	return nil, fmt.Errorf("device not found in bucket")
-}
-
-// AutoConnect discovers own devices and connects to them via their published
-// multiaddrs. Tries S3 device registry (if backend is non-nil), Nostr
-// relays, and DHT FindPeer using device public keys from the manifest.
-// Skips self by comparing peer IDs.
-func AutoConnect(ctx context.Context, node *Node, backend adapter.Backend, nostrRelays []string) {
-	selfPeerID := node.PeerID().String()
-
-	// Layer 1: S3 device registry.
-	if backend != nil {
-		autoConnectFromS3(ctx, node, backend, selfPeerID)
-	}
-
-	// Layer 2: Nostr relays — query our own identity address.
-	if len(nostrRelays) > 0 {
-		autoConnectFromNostr(ctx, node, nostrRelays, selfPeerID)
-	}
-
-	// Layer 3: DHT FindPeer — compute peer IDs from manifest device keys.
-	autoConnectFromManifest(ctx, node, selfPeerID)
-}
-
-func autoConnectFromS3(ctx context.Context, node *Node, backend adapter.Backend, selfPeerID string) {
-	keys, err := backend.List(ctx, "devices/")
-	if err != nil {
-		node.logger.Warn("auto-connect: failed to list devices", "error", err)
+		resolver.logger.Debug("auto-connect resolve failed", "error", err)
 		return
 	}
 
-	for _, key := range keys {
-		rc, err := backend.Get(ctx, key)
-		if err != nil {
+	selfPeerID := resolver.node.PeerID()
+	for _, resolved := range resolution.Peers {
+		if resolved.Info == nil || resolved.Info.ID == selfPeerID {
 			continue
 		}
-
-		var dev struct {
-			PubKey     string   `json:"pubkey"`
-			Name       string   `json:"name"`
-			Multiaddrs []string `json:"multiaddrs,omitempty"`
-		}
-		if err := json.NewDecoder(rc).Decode(&dev); err != nil {
-			rc.Close()
+		if resolver.node.host.Network().Connectedness(resolved.Info.ID) == network.Connected {
 			continue
 		}
-		rc.Close()
-
-		connectMultiaddrs(ctx, node, dev.Name, dev.Multiaddrs, selfPeerID)
-	}
-}
-
-func autoConnectFromNostr(ctx context.Context, node *Node, relays []string, selfPeerID string) {
-	nd := NewNostrDiscovery(relays, node.logger)
-	allAddrs, err := nd.QueryAll(ctx, node.Address())
-	if err != nil {
-		node.logger.Debug("auto-connect nostr query failed", "error", err)
-		return
-	}
-	for _, addrs := range allAddrs {
-		connectMultiaddrs(ctx, node, "nostr-peer", addrs, selfPeerID)
-	}
-}
-
-func autoConnectFromManifest(ctx context.Context, node *Node, selfPeerID string) {
-	manifest := node.Bundle().Manifest
-	if manifest == nil {
-		return
-	}
-	if node.dht == nil {
-		node.logger.Debug("auto-connect: no DHT, skipping manifest discovery")
-		return
-	}
-	for _, dev := range manifest.Devices {
-		pid, err := PeerIDFromPubKey(dev.PublicKey)
-		if err != nil {
-			continue
-		}
-		if pid.String() == selfPeerID {
-			continue
-		}
-		// Already connected?
-		if node.host.Network().Connectedness(pid) == 1 { // Connected
-			continue
-		}
-		info, err := node.dht.FindPeer(ctx, pid)
-		if err != nil {
-			node.logger.Debug("auto-connect: DHT FindPeer failed",
-				"device", dev.Name,
-				"peer_id", pid.String()[:16],
+		if err := resolver.node.host.Connect(ctx, *resolved.Info); err != nil {
+			resolver.logger.Debug("auto-connect failed",
+				"peer_id", resolved.Info.ID.String(),
+				"source", resolved.Source,
 				"error", err,
 			)
 			continue
 		}
-		if err := node.host.Connect(ctx, info); err != nil {
-			node.logger.Debug("auto-connect: manifest peer connect failed",
-				"device", dev.Name,
-				"error", err,
-			)
-			continue
-		}
-		node.logger.Info("auto-connected via DHT FindPeer",
-			"device", dev.Name,
-			"peer_id", pid.String()[:16],
+		resolver.logger.Info("auto-connected to private-network peer",
+			"peer_id", resolved.Info.ID.String(),
+			"source", resolved.Source,
 		)
-	}
-}
-
-func connectMultiaddrs(ctx context.Context, node *Node, name string, addrs []string, selfPeerID string) {
-	for _, s := range addrs {
-		maddr, err := ma.NewMultiaddr(s)
-		if err != nil {
-			continue
-		}
-		info, err := peer.AddrInfoFromP2pAddr(maddr)
-		if err != nil {
-			continue
-		}
-		if info.ID.String() == selfPeerID {
-			break // this is us
-		}
-		if err := node.host.Connect(ctx, *info); err != nil {
-			node.logger.Debug("auto-connect failed",
-				"device", name,
-				"addr", s,
-				"error", err,
-			)
-			continue
-		}
-		node.logger.Info("auto-connected to device",
-			"device", name,
-			"peer_id", info.ID.String(),
-		)
-		break
 	}
 }

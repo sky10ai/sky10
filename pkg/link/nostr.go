@@ -5,24 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/nbd-wtf/go-nostr"
+	skykey "github.com/sky10/sky10/pkg/key"
 )
 
-// NostrDiscovery publishes and queries multiaddrs via Nostr relays.
-// This is a dumb pipe for discovery only — zero application traffic.
+// NostrDiscovery publishes and queries private-network discovery records via
+// Nostr relays. This is a discovery fallback only — never application traffic.
 type NostrDiscovery struct {
 	relays []string
 	logger *slog.Logger
-}
-
-// nostrEvent is the content of a sky10 discovery event on Nostr.
-type nostrEvent struct {
-	Address    string   `json:"address"`    // sky10q... address
-	Multiaddrs []string `json:"multiaddrs"` // libp2p multiaddrs
-	Version    string   `json:"version,omitempty"`
-	UpdatedAt  int64    `json:"updated_at"` // unix timestamp
 }
 
 // Sky10NostrKind is a NIP-78 application-specific event kind for sky10.
@@ -36,17 +28,11 @@ func NewNostrDiscovery(relays []string, logger *slog.Logger) *NostrDiscovery {
 	return &NostrDiscovery{relays: relays, logger: logger}
 }
 
-// Publish publishes the agent's multiaddrs to Nostr relays.
-func (d *NostrDiscovery) Publish(ctx context.Context, sk string, address string, multiaddrs []string) error {
-	content, err := json.Marshal(nostrEvent{
-		Address:    address,
-		Multiaddrs: multiaddrs,
-		UpdatedAt:  time.Now().Unix(),
-	})
-	if err != nil {
-		return fmt.Errorf("marshaling nostr event: %w", err)
+func (d *NostrDiscovery) publish(ctx context.Context, signer *skykey.Key, tags nostr.Tags, content []byte) error {
+	if signer == nil || !signer.IsPrivate() {
+		return fmt.Errorf("nostr signer must have a private key")
 	}
-
+	sk := NostrSecretKey(signer)
 	pk, err := nostr.GetPublicKey(sk)
 	if err != nil {
 		return fmt.Errorf("deriving nostr public key: %w", err)
@@ -56,13 +42,14 @@ func (d *NostrDiscovery) Publish(ctx context.Context, sk string, address string,
 		PubKey:    pk,
 		CreatedAt: nostr.Now(),
 		Kind:      Sky10NostrKind,
-		Tags:      nostr.Tags{{"d", "sky10:" + address}},
+		Tags:      tags,
 		Content:   string(content),
 	}
 	if err := ev.Sign(sk); err != nil {
 		return fmt.Errorf("signing nostr event: %w", err)
 	}
 
+	var published bool
 	for _, relay := range d.relays {
 		r, err := nostr.RelayConnect(ctx, relay)
 		if err != nil {
@@ -71,64 +58,129 @@ func (d *NostrDiscovery) Publish(ctx context.Context, sk string, address string,
 		}
 		if err := r.Publish(ctx, ev); err != nil {
 			d.logger.Debug("nostr publish failed", "relay", relay, "error", err)
+			r.Close()
+			continue
 		}
+		published = true
 		r.Close()
+	}
+	if !published {
+		return fmt.Errorf("failed to publish to any nostr relay")
 	}
 	return nil
 }
 
-// QueryAll looks up multiaddrs for a sky10 address on Nostr relays.
-// Returns all discovered multiaddr sets (one per device that published).
-// Multiple devices sharing the same identity each publish under different
-// Nostr pubkeys, so we need all events — not just the first.
-func (d *NostrDiscovery) QueryAll(ctx context.Context, address string) ([][]string, error) {
-	filter := nostr.Filter{
-		Kinds: []int{Sky10NostrKind},
-		Tags:  nostr.TagMap{"d": []string{"sky10:" + address}},
-		Limit: 10,
-	}
-
-	var allAddrs [][]string
+func (d *NostrDiscovery) queryEvents(ctx context.Context, filter nostr.Filter) ([]*nostr.Event, error) {
+	var events []*nostr.Event
 	for _, relay := range d.relays {
 		r, err := nostr.RelayConnect(ctx, relay)
 		if err != nil {
 			d.logger.Debug("nostr relay connect failed", "relay", relay, "error", err)
 			continue
 		}
-
 		evs, err := r.QuerySync(ctx, filter)
 		r.Close()
 		if err != nil {
 			d.logger.Debug("nostr query failed", "relay", relay, "error", err)
 			continue
 		}
-
-		for _, ev := range evs {
-			var ne nostrEvent
-			if err := json.Unmarshal([]byte(ev.Content), &ne); err != nil {
-				continue
-			}
-			if len(ne.Multiaddrs) > 0 {
-				allAddrs = append(allAddrs, ne.Multiaddrs)
-			}
-		}
-		if len(allAddrs) > 0 {
-			return allAddrs, nil
-		}
+		events = append(events, evs...)
 	}
-
-	return nil, fmt.Errorf("no multiaddrs found for %s on nostr", address)
+	if len(events) == 0 {
+		return nil, fmt.Errorf("no nostr discovery events found")
+	}
+	return events, nil
 }
 
-// Query looks up multiaddrs for a sky10 address on Nostr relays.
-// Returns the first set of multiaddrs found (for resolver compatibility).
-func (d *NostrDiscovery) Query(ctx context.Context, address string) ([]string, error) {
-	all, err := d.QueryAll(ctx, address)
+func (d *NostrDiscovery) PublishMembership(ctx context.Context, identity *skykey.Key, rec *MembershipRecord) error {
+	data, err := json.Marshal(rec)
+	if err != nil {
+		return fmt.Errorf("marshaling nostr membership record: %w", err)
+	}
+	tags := nostr.Tags{
+		{"d", membershipNostrDTag(rec.Identity)},
+		{"i", rec.Identity},
+		{"r", "membership"},
+	}
+	return d.publish(ctx, identity, tags, data)
+}
+
+func (d *NostrDiscovery) PublishPresence(ctx context.Context, device *skykey.Key, rec *PresenceRecord) error {
+	data, err := json.Marshal(rec)
+	if err != nil {
+		return fmt.Errorf("marshaling nostr presence record: %w", err)
+	}
+	tags := nostr.Tags{
+		{"d", presenceNostrDTag(rec.Identity, rec.DevicePubKey)},
+		{"i", rec.Identity},
+		{"r", "presence"},
+		{"x", rec.DevicePubKey},
+	}
+	return d.publish(ctx, device, tags, data)
+}
+
+func (d *NostrDiscovery) QueryMembership(ctx context.Context, identity string) (*MembershipRecord, error) {
+	events, err := d.queryEvents(ctx, nostr.Filter{
+		Kinds: []int{Sky10NostrKind},
+		Tags:  nostr.TagMap{"d": []string{membershipNostrDTag(identity)}},
+		Limit: 16,
+	})
 	if err != nil {
 		return nil, err
 	}
-	if len(all) > 0 {
-		return all[0], nil
+
+	var best *MembershipRecord
+	for _, ev := range events {
+		var rec MembershipRecord
+		if err := json.Unmarshal([]byte(ev.Content), &rec); err != nil {
+			continue
+		}
+		if err := rec.Validate(membershipDHTKey(identity)); err != nil {
+			continue
+		}
+		candidate := rec
+		best = selectBestMembership(best, &candidate)
 	}
-	return nil, fmt.Errorf("no multiaddrs found for %s on nostr", address)
+	if best == nil {
+		return nil, fmt.Errorf("no valid nostr membership record found for %s", identity)
+	}
+	return best, nil
+}
+
+func (d *NostrDiscovery) QueryPresenceAll(ctx context.Context, identity string) ([]*PresenceRecord, error) {
+	events, err := d.queryEvents(ctx, nostr.Filter{
+		Kinds: []int{Sky10NostrKind},
+		Tags: nostr.TagMap{
+			"i": []string{identity},
+			"r": []string{"presence"},
+		},
+		Limit: 128,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	byDevice := make(map[string]*PresenceRecord)
+	for _, ev := range events {
+		var rec PresenceRecord
+		if err := json.Unmarshal([]byte(ev.Content), &rec); err != nil {
+			continue
+		}
+		key := presenceDHTKey(rec.Identity, rec.DevicePubKey)
+		if err := rec.Validate(key); err != nil {
+			continue
+		}
+		candidate := rec
+		deviceKey := candidate.DevicePubKey
+		byDevice[deviceKey] = selectBestPresence(byDevice[deviceKey], &candidate)
+	}
+	if len(byDevice) == 0 {
+		return nil, fmt.Errorf("no valid nostr presence records found for %s", identity)
+	}
+
+	out := make([]*PresenceRecord, 0, len(byDevice))
+	for _, rec := range byDevice {
+		out = append(out, rec)
+	}
+	return out, nil
 }

@@ -33,14 +33,22 @@ func TestResolverNostrFallback(t *testing.T) {
 	go nodeA.Run(ctx)
 	waitForHost(t, nodeA)
 
-	// Publish A's multiaddrs to Nostr.
-	addrsA := HostMultiaddrs(nodeA)
 	nostrA := NewNostrDiscovery(relays, nil)
-	skA := NostrSecretKey(bundleA.Device)
-	if err := nostrA.Publish(ctx, skA, bundleA.Address(), addrsA); err != nil {
-		t.Fatalf("publish A: %v", err)
+	membershipA, err := nodeA.CurrentMembershipRecord()
+	if err != nil {
+		t.Fatalf("membership record A: %v", err)
 	}
-	t.Logf("published A: %s (%d addrs)", bundleA.Address(), len(addrsA))
+	presenceA, err := nodeA.CurrentPresenceRecord(0)
+	if err != nil {
+		t.Fatalf("presence record A: %v", err)
+	}
+	if err := nostrA.PublishMembership(ctx, bundleA.Identity, membershipA); err != nil {
+		t.Fatalf("publish membership A: %v", err)
+	}
+	if err := nostrA.PublishPresence(ctx, bundleA.Device, presenceA); err != nil {
+		t.Fatalf("publish presence A: %v", err)
+	}
+	t.Logf("published A: %s", bundleA.Address())
 
 	// Give relays time to index.
 	time.Sleep(2 * time.Second)
@@ -93,11 +101,21 @@ func TestResolverS3ThenNostr(t *testing.T) {
 	go nodeA.Run(ctx)
 	waitForHost(t, nodeA)
 
-	// Publish A to Nostr only (no S3).
-	addrsA := HostMultiaddrs(nodeA)
 	nostr := NewNostrDiscovery(relays, nil)
-	sk := NostrSecretKey(bundleA.Device)
-	nostr.Publish(ctx, sk, bundleA.Address(), addrsA)
+	membershipA, err := nodeA.CurrentMembershipRecord()
+	if err != nil {
+		t.Fatalf("membership record A: %v", err)
+	}
+	presenceA, err := nodeA.CurrentPresenceRecord(0)
+	if err != nil {
+		t.Fatalf("presence record A: %v", err)
+	}
+	if err := nostr.PublishMembership(ctx, bundleA.Identity, membershipA); err != nil {
+		t.Fatalf("publish membership A: %v", err)
+	}
+	if err := nostr.PublishPresence(ctx, bundleA.Device, presenceA); err != nil {
+		t.Fatalf("publish presence A: %v", err)
+	}
 	time.Sleep(2 * time.Second)
 
 	// Resolver with no backend (S3 layer skipped) + Nostr.
