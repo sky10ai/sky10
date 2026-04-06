@@ -2,6 +2,7 @@ package commands
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,8 +18,9 @@ var Version string
 
 var (
 	updateCheck         = update.Check
-	updateApply         = func(info *update.Info) error { return update.Apply(info, nil) }
-	updateApplyMenu     = update.ApplyMenu
+	updateDownload      = func(info *update.Info) (*update.StagedRelease, error) { return update.Stage(info, nil) }
+	updateStatus        = update.Status
+	updateInstall       = update.InstallStaged
 	updateStopMenu      = StopMenu
 	updateStartMenu     = StartMenu
 	updateRestartDaemon = RestartDaemon
@@ -28,88 +30,253 @@ var (
 // UpdateCmd returns the `sky10 update` command (aliased as `upgrade`).
 func UpdateCmd() *cobra.Command {
 	var checkOnly bool
+
 	cmd := &cobra.Command{
 		Use:     "update",
 		Aliases: []string{"upgrade"},
-		Short:   "Update sky10 to the latest version",
-		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
-			fmt.Printf("current: %s\n", Version)
-
-			startMenuOnReturn := false
-			if !checkOnly {
-				if err := updateStopMenu(); err != nil {
-					fmt.Printf("warning: could not stop sky10-menu: %v\n", err)
-				} else {
-					startMenuOnReturn = true
-				}
-				defer func() {
-					if !startMenuOnReturn {
-						return
-					}
-					if err := updateStartMenu(); err != nil {
-						fmt.Printf("warning: could not start sky10-menu: %v\n", err)
-					}
-				}()
+		Short:   "Check, download, and install sky10 updates",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if checkOnly {
+				return runUpdateCheck(false)
 			}
+			return runUpdateApply()
+		},
+	}
+
+	cmd.Flags().BoolVar(&checkOnly, "check", false, "Check for updates without installing")
+	cmd.AddCommand(updateCheckCmd())
+	cmd.AddCommand(updateDownloadCmd())
+	cmd.AddCommand(updateInstallCmd())
+	cmd.AddCommand(updateStatusCmd())
+	return cmd
+}
+
+func updateCheckCmd() *cobra.Command {
+	var jsonOut bool
+	cmd := &cobra.Command{
+		Use:   "check",
+		Short: "Check whether a new sky10 release is available",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runUpdateCheck(jsonOut)
+		},
+	}
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Print machine-readable JSON")
+	return cmd
+}
+
+func updateDownloadCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "download",
+		Short: "Download and stage the latest sky10 release without installing it",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			fmt.Printf("current: %s\n", Version)
 
 			info, err := updateCheck(Version)
 			if err != nil {
 				return err
 			}
-
 			if !info.Available {
-				// CLI is current, but the menu binary may still
-				// need updating (e.g. menu assets arrived after
-				// the CLI was already updated).
-				menuUpdated, err := updateApplyMenu(info)
-				if err != nil {
-					fmt.Printf("warning: could not update sky10-menu: %v\n", err)
-				}
-				if menuUpdated {
-					fmt.Println("sky10-menu updated")
-				} else {
-					fmt.Println("already up to date")
-				}
+				fmt.Println("already up to date")
 				return nil
 			}
 
-			fmt.Printf("update available: %s -> %s\n", info.Current, info.Latest)
-
-			if checkOnly {
-				return nil
-			}
-
+			fmt.Println(describeAvailable(info))
 			fmt.Println("downloading...")
-			if err := updateApply(info); err != nil {
+
+			staged, err := updateDownload(info)
+			if err != nil {
 				return err
 			}
-
-			menuUpdated, err := updateApplyMenu(info)
-			if err != nil {
-				fmt.Printf("warning: could not update sky10-menu: %v\n", err)
-			} else if menuUpdated {
-				fmt.Println("sky10-menu updated")
+			if staged == nil {
+				fmt.Println("already up to date")
+				return nil
 			}
 
-			if err := updateRestartDaemon(); err != nil {
-				fmt.Printf("warning: could not restart daemon: %v\n", err)
-				fmt.Println("restart the daemon manually to use the new version")
-				startMenuOnReturn = false
-			} else {
-				fmt.Println("daemon restarted")
-				if err := updateWaitHTTPReady(); err != nil {
-					fmt.Printf("warning: daemon HTTP server is not ready yet: %v\n", err)
-					fmt.Println("start sky10-menu manually once the daemon is healthy")
-					startMenuOnReturn = false
-				}
-			}
-
-			fmt.Printf("updated to %s\n", info.Latest)
+			fmt.Printf("staged %s (%s)\n", staged.Latest, describeStagedComponents(staged.CLIStaged, staged.MenuStaged))
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&checkOnly, "check", false, "Check for updates without installing")
+}
+
+func updateInstallCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "install",
+		Short: "Install the staged sky10 release and restart affected processes",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runUpdateInstall()
+		},
+	}
+}
+
+func updateStatusCmd() *cobra.Command {
+	var jsonOut bool
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "Show whether a downloaded sky10 update is staged locally",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			status, err := updateStatus(Version)
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				return printJSON(status)
+			}
+			fmt.Printf("current: %s\n", status.Current)
+			if !status.Ready {
+				fmt.Println("no staged update")
+				return nil
+			}
+			fmt.Printf("staged: %s (%s)\n", status.Latest, describeStagedComponents(status.CLIStaged, status.MenuStaged))
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Print machine-readable JSON")
 	return cmd
+}
+
+func runUpdateCheck(jsonOut bool) error {
+	info, err := updateCheck(Version)
+	if err != nil {
+		return err
+	}
+	if jsonOut {
+		return printJSON(info)
+	}
+
+	fmt.Printf("current: %s\n", Version)
+	if !info.Available {
+		fmt.Println("already up to date")
+		return nil
+	}
+	fmt.Println(describeAvailable(info))
+	return nil
+}
+
+func runUpdateApply() error {
+	fmt.Printf("current: %s\n", Version)
+
+	status, err := updateStatus(Version)
+	if err != nil {
+		return err
+	}
+	if status.Ready {
+		fmt.Printf("installing staged %s (%s)\n", status.Latest, describeStagedComponents(status.CLIStaged, status.MenuStaged))
+		return runUpdateInstall()
+	}
+
+	info, err := updateCheck(Version)
+	if err != nil {
+		return err
+	}
+	if !info.Available {
+		fmt.Println("already up to date")
+		return nil
+	}
+
+	fmt.Println(describeAvailable(info))
+	fmt.Println("downloading...")
+	staged, err := updateDownload(info)
+	if err != nil {
+		return err
+	}
+	if staged == nil {
+		fmt.Println("already up to date")
+		return nil
+	}
+	fmt.Printf("staged %s (%s)\n", staged.Latest, describeStagedComponents(staged.CLIStaged, staged.MenuStaged))
+	return runUpdateInstall()
+}
+
+func runUpdateInstall() (runErr error) {
+	status, err := updateStatus(Version)
+	if err != nil {
+		return err
+	}
+	if !status.Ready {
+		fmt.Println("no staged update")
+		return nil
+	}
+
+	startMenuOnReturn := false
+	if err := updateStopMenu(); err != nil {
+		fmt.Printf("warning: could not stop sky10-menu: %v\n", err)
+	} else {
+		startMenuOnReturn = true
+	}
+	defer func() {
+		if !startMenuOnReturn {
+			return
+		}
+		if err := updateStartMenu(); err != nil {
+			fmt.Printf("warning: could not start sky10-menu: %v\n", err)
+		}
+	}()
+
+	staged, err := updateInstall()
+	if err != nil {
+		if errors.Is(err, update.ErrNoStagedUpdate) {
+			fmt.Println("no staged update")
+			return nil
+		}
+		return err
+	}
+
+	if staged.MenuStaged {
+		fmt.Println("sky10-menu updated")
+	}
+
+	if staged.CLIStaged {
+		if err := updateRestartDaemon(); err != nil {
+			fmt.Printf("warning: could not restart daemon: %v\n", err)
+			fmt.Println("restart the daemon manually to use the new version")
+			startMenuOnReturn = false
+		} else {
+			fmt.Println("daemon restarted")
+			if err := updateWaitHTTPReady(); err != nil {
+				fmt.Printf("warning: daemon HTTP server is not ready yet: %v\n", err)
+				fmt.Println("start sky10-menu manually once the daemon is healthy")
+				startMenuOnReturn = false
+			}
+		}
+	}
+
+	fmt.Printf("updated to %s\n", staged.Latest)
+	return nil
+}
+
+func describeAvailable(info *update.Info) string {
+	switch {
+	case info.CLIAvailable && info.MenuAvailable:
+		return fmt.Sprintf("update available: %s -> %s (cli and menu)", info.Current, info.Latest)
+	case info.CLIAvailable:
+		return fmt.Sprintf("update available: %s -> %s", info.Current, info.Latest)
+	case info.MenuAvailable:
+		return fmt.Sprintf("update available: %s (menu only)", info.Latest)
+	default:
+		return "already up to date"
+	}
+}
+
+func describeStagedComponents(cliStaged, menuStaged bool) string {
+	switch {
+	case cliStaged && menuStaged:
+		return "cli and menu"
+	case cliStaged:
+		return "cli"
+	case menuStaged:
+		return "menu"
+	default:
+		return "nothing"
+	}
+}
+
+func printJSON(v interface{}) error {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(data))
+	return nil
 }
 
 func waitForDaemonHTTPReady() error {

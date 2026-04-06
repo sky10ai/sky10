@@ -89,6 +89,27 @@ fn json_int(json: &str, field: &str) -> Option<i64> {
     rest[..end].parse().ok()
 }
 
+fn json_bool(json: &str, field: &str) -> Option<bool> {
+    let needle = format!("\"{}\":", field);
+    let idx = json.find(&needle)? + needle.len();
+    let rest = json[idx..].trim_start();
+    if rest.starts_with("true") {
+        Some(true)
+    } else if rest.starts_with("false") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+fn run_sky10(args: &[&str]) -> Option<String> {
+    let output = Command::new("sky10").args(args).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
 // --- Daemon state ---
 
 #[derive(Clone, PartialEq)]
@@ -103,6 +124,7 @@ enum TrayState {
 #[derive(Clone, PartialEq)]
 struct DaemonInfo {
     version: String,
+    daemon_running: bool,
     state: TrayState,
     latest_version: String,
 }
@@ -110,6 +132,7 @@ struct DaemonInfo {
 fn query_daemon() -> DaemonInfo {
     let mut info = DaemonInfo {
         version: "not running".to_string(),
+        daemon_running: false,
         state: TrayState::Disconnected,
         latest_version: String::new(),
     };
@@ -123,6 +146,7 @@ fn query_daemon() -> DaemonInfo {
     if let Some(v) = json_str(&health, "version") {
         info.version = v.split_whitespace().next().unwrap_or(v).to_string();
     }
+    info.daemon_running = true;
 
     // Check if syncing (outbox_pending > 0).
     if let Some(pending) = json_int(&health, "outbox_pending") {
@@ -136,17 +160,41 @@ fn query_daemon() -> DaemonInfo {
     info
 }
 
-/// Check GitHub for updates. Called infrequently to avoid rate limits.
-fn check_for_update(info: &mut DaemonInfo) {
-    if info.state == TrayState::Disconnected {
+fn apply_staged_update(info: &mut DaemonInfo) {
+    let status = match run_sky10(&["update", "status", "--json"]) {
+        Some(status) => status,
+        None => return,
+    };
+    if json_bool(&status, "ready") != Some(true) {
         return;
     }
-    if let Some(update_resp) = rpc("system.checkUpdate") {
-        if update_resp.contains("\"available\":true") {
-            info.state = TrayState::UpdateAvailable;
-            if let Some(latest) = json_str(&update_resp, "latest") {
-                info.latest_version = latest.to_string();
-            }
+
+    info.state = TrayState::UpdateAvailable;
+    if let Some(latest) = json_str(&status, "latest") {
+        info.latest_version = latest.to_string();
+    }
+}
+
+/// Check GitHub for updates. Called infrequently to avoid rate limits.
+fn check_for_update(info: &mut DaemonInfo) {
+    apply_staged_update(info);
+    if info.state == TrayState::UpdateAvailable {
+        return;
+    }
+
+    let check = match run_sky10(&["update", "check", "--json"]) {
+        Some(check) => check,
+        None => return,
+    };
+    if json_bool(&check, "available") != Some(true) {
+        return;
+    }
+
+    let _ = run_sky10(&["update", "download"]);
+    apply_staged_update(info);
+    if info.latest_version.is_empty() {
+        if let Some(latest) = json_str(&check, "latest") {
+            info.latest_version = latest.to_string();
         }
     }
 }
@@ -175,21 +223,7 @@ fn open_ui() {
 }
 
 fn update_and_restart() {
-    // Ask the daemon to download the new binary, then restart.
-    rpc("system.update");
-    // Give the download a moment, then poll until done.
-    std::thread::sleep(Duration::from_secs(2));
-    for _ in 0..60 {
-        if let Some(resp) = rpc("system.checkUpdate") {
-            if resp.contains("\"available\":false") {
-                break;
-            }
-        }
-        std::thread::sleep(Duration::from_secs(1));
-    }
-    let _ = Command::new("sky10")
-        .args(["daemon", "restart"])
-        .spawn();
+    let _ = Command::new("sky10").args(["update", "install"]).spawn();
 }
 
 fn restart_daemon() {
@@ -214,7 +248,7 @@ fn build_menu<M: Manager<tauri::Wry>>(
         .build(app)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
 
-    let open_enabled = info.state != TrayState::Disconnected;
+    let open_enabled = info.daemon_running;
     let open = MenuItemBuilder::with_id("open", "Open")
         .enabled(open_enabled)
         .build(app)?;
@@ -330,6 +364,7 @@ fn main() {
                 let mut last_update_check = std::time::Instant::now();
                 loop {
                     let mut new_info = query_daemon();
+                    apply_staged_update(&mut new_info);
 
                     // Check for updates infrequently.
                     if last_update_check.elapsed() >= update_interval {

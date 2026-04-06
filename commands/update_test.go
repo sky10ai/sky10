@@ -36,8 +36,9 @@ func captureStdout(t *testing.T, fn func() error) (string, error) {
 func withUpdateStubs(t *testing.T) {
 	t.Helper()
 	oldCheck := updateCheck
-	oldApply := updateApply
-	oldApplyMenu := updateApplyMenu
+	oldDownload := updateDownload
+	oldStatus := updateStatus
+	oldInstall := updateInstall
 	oldStopMenu := updateStopMenu
 	oldStartMenu := updateStartMenu
 	oldRestartDaemon := updateRestartDaemon
@@ -45,8 +46,9 @@ func withUpdateStubs(t *testing.T) {
 	oldVersion := Version
 	t.Cleanup(func() {
 		updateCheck = oldCheck
-		updateApply = oldApply
-		updateApplyMenu = oldApplyMenu
+		updateDownload = oldDownload
+		updateStatus = oldStatus
+		updateInstall = oldInstall
 		updateStopMenu = oldStopMenu
 		updateStartMenu = oldStartMenu
 		updateRestartDaemon = oldRestartDaemon
@@ -55,30 +57,55 @@ func withUpdateStubs(t *testing.T) {
 	})
 }
 
-func TestUpdateCmdRestartsMenuAfterDaemonRestart(t *testing.T) {
+func TestUpdateCmdDownloadsAndInstallsBeforeRestartingDaemon(t *testing.T) {
 	withUpdateStubs(t)
 	Version = "v0.37.1"
 
 	var order []string
+	ready := false
+
+	updateStatus = func(current string) (*skyupdate.StagedStatus, error) {
+		order = append(order, "status")
+		return &skyupdate.StagedStatus{
+			Current:    current,
+			Ready:      ready,
+			Latest:     "v0.38.0",
+			CLIStaged:  ready,
+			MenuStaged: ready,
+		}, nil
+	}
 	updateCheck = func(current string) (*skyupdate.Info, error) {
 		order = append(order, "check")
 		return &skyupdate.Info{
-			Current:   current,
-			Latest:    "v0.38.0",
-			Available: true,
+			Current:       current,
+			Latest:        "v0.38.0",
+			Available:     true,
+			CLIAvailable:  true,
+			MenuAvailable: true,
 		}, nil
 	}
-	updateApply = func(info *skyupdate.Info) error {
-		order = append(order, "apply-cli")
-		return nil
-	}
-	updateApplyMenu = func(info *skyupdate.Info) (bool, error) {
-		order = append(order, "apply-menu")
-		return true, nil
+	updateDownload = func(info *skyupdate.Info) (*skyupdate.StagedRelease, error) {
+		order = append(order, "download")
+		ready = true
+		return &skyupdate.StagedRelease{
+			Current:    info.Current,
+			Latest:     info.Latest,
+			CLIStaged:  true,
+			MenuStaged: true,
+		}, nil
 	}
 	updateStopMenu = func() error {
 		order = append(order, "stop-menu")
 		return nil
+	}
+	updateInstall = func() (*skyupdate.StagedRelease, error) {
+		order = append(order, "install")
+		return &skyupdate.StagedRelease{
+			Current:    "v0.37.1",
+			Latest:     "v0.38.0",
+			CLIStaged:  true,
+			MenuStaged: true,
+		}, nil
 	}
 	updateRestartDaemon = func() error {
 		order = append(order, "restart-daemon")
@@ -94,164 +121,91 @@ func TestUpdateCmdRestartsMenuAfterDaemonRestart(t *testing.T) {
 	}
 
 	out, err := captureStdout(t, func() error {
-		return UpdateCmd().RunE(UpdateCmd(), nil)
+		cmd := UpdateCmd()
+		return cmd.RunE(cmd, nil)
 	})
 	if err != nil {
 		t.Fatalf("RunE: %v", err)
 	}
 
-	want := []string{"stop-menu", "check", "apply-cli", "apply-menu", "restart-daemon", "wait-http", "start-menu"}
+	want := []string{"status", "check", "download", "status", "stop-menu", "install", "restart-daemon", "wait-http", "start-menu"}
 	if !reflect.DeepEqual(order, want) {
 		t.Fatalf("order = %v, want %v", order, want)
 	}
-	for _, needle := range []string{"sky10-menu updated", "daemon restarted", "updated to v0.38.0"} {
+	for _, needle := range []string{"downloading...", "staged v0.38.0 (cli and menu)", "sky10-menu updated", "daemon restarted", "updated to v0.38.0"} {
 		if !strings.Contains(out, needle) {
 			t.Fatalf("output missing %q:\n%s", needle, out)
 		}
 	}
 }
 
-func TestUpdateCmdDoesNotStartMenuWhenDaemonRestartFails(t *testing.T) {
-	withUpdateStubs(t)
-	Version = "v0.37.1"
-
-	var order []string
-	updateCheck = func(current string) (*skyupdate.Info, error) {
-		order = append(order, "check")
-		return &skyupdate.Info{Current: current, Latest: "v0.38.0", Available: true}, nil
-	}
-	updateApply = func(info *skyupdate.Info) error {
-		order = append(order, "apply-cli")
-		return nil
-	}
-	updateApplyMenu = func(info *skyupdate.Info) (bool, error) {
-		order = append(order, "apply-menu")
-		return false, nil
-	}
-	updateStopMenu = func() error {
-		order = append(order, "stop-menu")
-		return nil
-	}
-	updateRestartDaemon = func() error {
-		order = append(order, "restart-daemon")
-		return fmt.Errorf("boom")
-	}
-	updateWaitHTTPReady = func() error {
-		order = append(order, "wait-http")
-		return nil
-	}
-	updateStartMenu = func() error {
-		order = append(order, "start-menu")
-		return nil
-	}
-
-	out, err := captureStdout(t, func() error {
-		return UpdateCmd().RunE(UpdateCmd(), nil)
-	})
-	if err != nil {
-		t.Fatalf("RunE: %v", err)
-	}
-
-	want := []string{"stop-menu", "check", "apply-cli", "apply-menu", "restart-daemon"}
-	if !reflect.DeepEqual(order, want) {
-		t.Fatalf("order = %v, want %v", order, want)
-	}
-	if strings.Contains(out, "could not start sky10-menu") {
-		t.Fatalf("unexpected start-menu warning in output:\n%s", out)
-	}
-	if !strings.Contains(out, "restart the daemon manually to use the new version") {
-		t.Fatalf("expected daemon restart warning in output:\n%s", out)
-	}
-}
-
-func TestUpdateCmdRestartsMenuWhenOnlyMenuChanges(t *testing.T) {
+func TestUpdateInstallMenuOnlyDoesNotRestartDaemon(t *testing.T) {
 	withUpdateStubs(t)
 	Version = "v0.38.0"
 
 	var order []string
-	updateCheck = func(current string) (*skyupdate.Info, error) {
-		order = append(order, "check")
-		return &skyupdate.Info{Current: current, Latest: current, Available: false}, nil
-	}
-	updateApplyMenu = func(info *skyupdate.Info) (bool, error) {
-		order = append(order, "apply-menu")
-		return true, nil
+	updateStatus = func(current string) (*skyupdate.StagedStatus, error) {
+		order = append(order, "status")
+		return &skyupdate.StagedStatus{
+			Current:    current,
+			Ready:      true,
+			Latest:     "v0.38.0",
+			MenuStaged: true,
+		}, nil
 	}
 	updateStopMenu = func() error {
 		order = append(order, "stop-menu")
+		return nil
+	}
+	updateInstall = func() (*skyupdate.StagedRelease, error) {
+		order = append(order, "install")
+		return &skyupdate.StagedRelease{
+			Current:    "v0.38.0",
+			Latest:     "v0.38.0",
+			MenuStaged: true,
+		}, nil
+	}
+	updateRestartDaemon = func() error {
+		order = append(order, "restart-daemon")
 		return nil
 	}
 	updateStartMenu = func() error {
 		order = append(order, "start-menu")
 		return nil
 	}
-	updateRestartDaemon = func() error {
-		order = append(order, "restart-daemon")
-		return nil
-	}
 
 	out, err := captureStdout(t, func() error {
-		return UpdateCmd().RunE(UpdateCmd(), nil)
+		return updateInstallCmd().RunE(updateInstallCmd(), nil)
 	})
 	if err != nil {
 		t.Fatalf("RunE: %v", err)
 	}
 
-	want := []string{"stop-menu", "check", "apply-menu", "start-menu"}
+	want := []string{"status", "stop-menu", "install", "start-menu"}
 	if !reflect.DeepEqual(order, want) {
 		t.Fatalf("order = %v, want %v", order, want)
+	}
+	if strings.Contains(out, "daemon restarted") {
+		t.Fatalf("unexpected daemon restart output:\n%s", out)
 	}
 	if !strings.Contains(out, "sky10-menu updated") {
 		t.Fatalf("expected menu update output:\n%s", out)
 	}
 }
 
-func TestUpdateCmdRestartsMenuWhenAlreadyUpToDate(t *testing.T) {
-	withUpdateStubs(t)
-	Version = "v0.38.1"
-
-	var order []string
-	updateCheck = func(current string) (*skyupdate.Info, error) {
-		order = append(order, "check")
-		return &skyupdate.Info{Current: current, Latest: current, Available: false}, nil
-	}
-	updateApplyMenu = func(info *skyupdate.Info) (bool, error) {
-		order = append(order, "apply-menu")
-		return false, nil
-	}
-	updateStopMenu = func() error {
-		order = append(order, "stop-menu")
-		return nil
-	}
-	updateStartMenu = func() error {
-		order = append(order, "start-menu")
-		return nil
-	}
-
-	out, err := captureStdout(t, func() error {
-		return UpdateCmd().RunE(UpdateCmd(), nil)
-	})
-	if err != nil {
-		t.Fatalf("RunE: %v", err)
-	}
-
-	want := []string{"stop-menu", "check", "apply-menu", "start-menu"}
-	if !reflect.DeepEqual(order, want) {
-		t.Fatalf("order = %v, want %v", order, want)
-	}
-	if !strings.Contains(out, "already up to date") {
-		t.Fatalf("expected already up to date output:\n%s", out)
-	}
-}
-
-func TestUpdateCmdCheckOnlyDoesNotTouchMenu(t *testing.T) {
+func TestUpdateCheckSubcommandDoesNotTouchMenu(t *testing.T) {
 	withUpdateStubs(t)
 	Version = "v0.38.0"
 
 	var order []string
 	updateCheck = func(current string) (*skyupdate.Info, error) {
 		order = append(order, "check")
-		return &skyupdate.Info{Current: current, Latest: "v0.38.1", Available: true}, nil
+		return &skyupdate.Info{
+			Current:      current,
+			Latest:       "v0.38.1",
+			Available:    true,
+			CLIAvailable: true,
+		}, nil
 	}
 	updateStopMenu = func() error {
 		order = append(order, "stop-menu")
@@ -261,13 +215,9 @@ func TestUpdateCmdCheckOnlyDoesNotTouchMenu(t *testing.T) {
 		order = append(order, "start-menu")
 		return nil
 	}
-	cmd := UpdateCmd()
-	if err := cmd.Flags().Set("check", "true"); err != nil {
-		t.Fatalf("Flags().Set: %v", err)
-	}
 
 	out, err := captureStdout(t, func() error {
-		return cmd.RunE(cmd, nil)
+		return updateCheckCmd().RunE(updateCheckCmd(), nil)
 	})
 	if err != nil {
 		t.Fatalf("RunE: %v", err)
@@ -278,73 +228,84 @@ func TestUpdateCmdCheckOnlyDoesNotTouchMenu(t *testing.T) {
 		t.Fatalf("order = %v, want %v", order, want)
 	}
 	if !strings.Contains(out, "update available: v0.38.0 -> v0.38.1") {
-		t.Fatalf("expected update available output:\n%s", out)
+		t.Fatalf("expected update output:\n%s", out)
 	}
 }
 
-func TestUpdateCmdRestartsMenuIfUpdateCheckFails(t *testing.T) {
+func TestUpdateDownloadSubcommandDoesNotTouchMenu(t *testing.T) {
 	withUpdateStubs(t)
 	Version = "v0.38.0"
-
-	var order []string
-	updateStopMenu = func() error {
-		order = append(order, "stop-menu")
-		return nil
-	}
-	updateCheck = func(current string) (*skyupdate.Info, error) {
-		order = append(order, "check")
-		return nil, fmt.Errorf("boom")
-	}
-	updateStartMenu = func() error {
-		order = append(order, "start-menu")
-		return nil
-	}
-
-	_, err := captureStdout(t, func() error {
-		return UpdateCmd().RunE(UpdateCmd(), nil)
-	})
-	if err == nil {
-		t.Fatal("expected RunE error")
-	}
-
-	want := []string{"stop-menu", "check", "start-menu"}
-	if !reflect.DeepEqual(order, want) {
-		t.Fatalf("order = %v, want %v", order, want)
-	}
-}
-
-func TestUpdateCmdDoesNotStartMenuUntilHTTPReady(t *testing.T) {
-	withUpdateStubs(t)
-	Version = "v0.38.1"
 
 	var order []string
 	updateCheck = func(current string) (*skyupdate.Info, error) {
 		order = append(order, "check")
 		return &skyupdate.Info{
-			Current:   current,
-			Latest:    "v0.38.2",
-			Available: true,
+			Current:       current,
+			Latest:        "v0.38.1",
+			Available:     true,
+			MenuAvailable: true,
 		}, nil
 	}
-	updateApply = func(info *skyupdate.Info) error {
-		order = append(order, "apply-cli")
-		return nil
-	}
-	updateApplyMenu = func(info *skyupdate.Info) (bool, error) {
-		order = append(order, "apply-menu")
-		return false, nil
+	updateDownload = func(info *skyupdate.Info) (*skyupdate.StagedRelease, error) {
+		order = append(order, "download")
+		return &skyupdate.StagedRelease{
+			Current:    info.Current,
+			Latest:     info.Latest,
+			MenuStaged: true,
+		}, nil
 	}
 	updateStopMenu = func() error {
 		order = append(order, "stop-menu")
 		return nil
 	}
-	updateRestartDaemon = func() error {
-		order = append(order, "restart-daemon")
+
+	out, err := captureStdout(t, func() error {
+		return updateDownloadCmd().RunE(updateDownloadCmd(), nil)
+	})
+	if err != nil {
+		t.Fatalf("RunE: %v", err)
+	}
+
+	want := []string{"check", "download"}
+	if !reflect.DeepEqual(order, want) {
+		t.Fatalf("order = %v, want %v", order, want)
+	}
+	if !strings.Contains(out, "staged v0.38.1 (menu)") {
+		t.Fatalf("expected staged output:\n%s", out)
+	}
+}
+
+func TestUpdateInstallDoesNotStartMenuWhenDaemonRestartFails(t *testing.T) {
+	withUpdateStubs(t)
+	Version = "v0.37.1"
+
+	var order []string
+	updateStatus = func(current string) (*skyupdate.StagedStatus, error) {
+		order = append(order, "status")
+		return &skyupdate.StagedStatus{
+			Current:    current,
+			Ready:      true,
+			Latest:     "v0.38.0",
+			CLIStaged:  true,
+			MenuStaged: true,
+		}, nil
+	}
+	updateStopMenu = func() error {
+		order = append(order, "stop-menu")
 		return nil
 	}
-	updateWaitHTTPReady = func() error {
-		order = append(order, "wait-http")
-		return fmt.Errorf("timeout")
+	updateInstall = func() (*skyupdate.StagedRelease, error) {
+		order = append(order, "install")
+		return &skyupdate.StagedRelease{
+			Current:    "v0.37.1",
+			Latest:     "v0.38.0",
+			CLIStaged:  true,
+			MenuStaged: true,
+		}, nil
+	}
+	updateRestartDaemon = func() error {
+		order = append(order, "restart-daemon")
+		return fmt.Errorf("boom")
 	}
 	updateStartMenu = func() error {
 		order = append(order, "start-menu")
@@ -352,20 +313,49 @@ func TestUpdateCmdDoesNotStartMenuUntilHTTPReady(t *testing.T) {
 	}
 
 	out, err := captureStdout(t, func() error {
-		return UpdateCmd().RunE(UpdateCmd(), nil)
+		return updateInstallCmd().RunE(updateInstallCmd(), nil)
 	})
 	if err != nil {
 		t.Fatalf("RunE: %v", err)
 	}
 
-	want := []string{"stop-menu", "check", "apply-cli", "apply-menu", "restart-daemon", "wait-http"}
+	want := []string{"status", "stop-menu", "install", "restart-daemon"}
 	if !reflect.DeepEqual(order, want) {
 		t.Fatalf("order = %v, want %v", order, want)
 	}
 	if strings.Contains(out, "could not start sky10-menu") {
 		t.Fatalf("unexpected start-menu warning in output:\n%s", out)
 	}
-	if !strings.Contains(out, "daemon HTTP server is not ready yet") {
-		t.Fatalf("expected HTTP readiness warning in output:\n%s", out)
+	if !strings.Contains(out, "restart the daemon manually to use the new version") {
+		t.Fatalf("expected daemon restart warning:\n%s", out)
+	}
+}
+
+func TestUpdateStatusJSON(t *testing.T) {
+	withUpdateStubs(t)
+	Version = "v0.38.0"
+
+	updateStatus = func(current string) (*skyupdate.StagedStatus, error) {
+		return &skyupdate.StagedStatus{
+			Current:    current,
+			Ready:      true,
+			Latest:     "v0.38.1",
+			MenuStaged: true,
+		}, nil
+	}
+
+	cmd := updateStatusCmd()
+	if err := cmd.Flags().Set("json", "true"); err != nil {
+		t.Fatalf("Flags().Set: %v", err)
+	}
+
+	out, err := captureStdout(t, func() error {
+		return cmd.RunE(cmd, nil)
+	})
+	if err != nil {
+		t.Fatalf("RunE: %v", err)
+	}
+	if !strings.Contains(out, `"ready": true`) || !strings.Contains(out, `"latest": "v0.38.1"`) {
+		t.Fatalf("expected JSON status output:\n%s", out)
 	}
 }

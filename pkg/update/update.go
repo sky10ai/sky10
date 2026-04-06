@@ -23,6 +23,11 @@ const repo = "sky10ai/sky10"
 // checkURL is the GitHub API endpoint; overridden in tests.
 var checkURL = fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
 
+var (
+	updateUserHomeDir        = os.UserHomeDir
+	updateExecutablePathFunc = executablePath
+)
+
 // Emitter sends named events to subscribers.
 type Emitter func(event string, data interface{})
 
@@ -34,6 +39,8 @@ type Info struct {
 	Current          string `json:"current"`
 	Latest           string `json:"latest"`
 	Available        bool   `json:"available"`
+	CLIAvailable     bool   `json:"cli_available"`
+	MenuAvailable    bool   `json:"menu_available"`
 	AssetURL         string `json:"asset_url,omitempty"`
 	MenuAssetURL     string `json:"menu_asset_url,omitempty"`
 	MenuChecksumsURL string `json:"menu_checksums_url,omitempty"`
@@ -70,9 +77,9 @@ func Check(currentVersion string) (*Info, error) {
 	}
 
 	info := &Info{
-		Current:   currentVersion,
-		Latest:    release.TagName,
-		Available: release.TagName != currentVersion,
+		Current:      currentVersion,
+		Latest:       release.TagName,
+		CLIAvailable: release.TagName != currentVersion,
 	}
 
 	asset := fmt.Sprintf("sky10-%s-%s", runtime.GOOS, runtime.GOARCH)
@@ -88,64 +95,27 @@ func Check(currentVersion string) (*Info, error) {
 		}
 	}
 
+	info.MenuAvailable = menuNeedsUpdate(info)
+	info.Available = info.CLIAvailable || info.MenuAvailable
+
 	return info, nil
 }
 
 // Apply downloads the latest binary and replaces the current executable.
 // If onProgress is non-nil, it is called periodically with download progress.
 func Apply(info *Info, onProgress ProgressFunc) error {
+	if !info.CLIAvailable {
+		return nil
+	}
 	if info.AssetURL == "" {
 		return fmt.Errorf("no binary available for %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 
-	execPath, err := executablePath()
+	execPath, err := updateExecutablePathFunc()
 	if err != nil {
 		return err
 	}
-
-	resp, err := http.Get(info.AssetURL)
-	if err != nil {
-		return fmt.Errorf("downloading binary: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download returned %d", resp.StatusCode)
-	}
-
-	var src io.Reader = resp.Body
-	if onProgress != nil {
-		src = &progressReader{
-			r:     resp.Body,
-			total: resp.ContentLength,
-			fn:    onProgress,
-		}
-	}
-
-	// Write to temp file in same directory for atomic rename.
-	dir := filepath.Dir(execPath)
-	tmp, err := os.CreateTemp(dir, "sky10-update-*")
-	if err != nil {
-		return fmt.Errorf("creating temp file (try running with sudo): %w", err)
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-
-	if _, err := io.Copy(tmp, src); err != nil {
-		tmp.Close()
-		return fmt.Errorf("writing binary: %w", err)
-	}
-	tmp.Close()
-
-	if err := os.Chmod(tmpPath, 0755); err != nil {
-		return fmt.Errorf("setting permissions: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, execPath); err != nil {
-		return fmt.Errorf("replacing binary (try running with sudo): %w", err)
-	}
-
-	return nil
+	return downloadToPath(info.AssetURL, execPath, "sky10-update-*", "downloading binary", onProgress)
 }
 
 // ApplyMenu downloads the latest sky10-menu binary to ~/.bin/sky10-menu.
@@ -156,57 +126,49 @@ func ApplyMenu(info *Info) (changed bool, err error) {
 		return false, nil
 	}
 
-	home, err := os.UserHomeDir()
+	home, err := updateUserHomeDir()
 	if err != nil {
 		return false, fmt.Errorf("finding home dir: %w", err)
 	}
 
 	dest := filepath.Join(home, ".bin", "sky10-menu")
-	menuAsset := fmt.Sprintf("sky10-menu-%s-%s", runtime.GOOS, runtime.GOARCH)
-
-	// Check if local binary already matches the release checksum.
-	if info.MenuChecksumsURL != "" {
-		localHash := hashFile(dest)
-		if localHash != "" {
-			if remoteHash, err := fetchChecksum(info.MenuChecksumsURL, menuAsset); err == nil && localHash == remoteHash {
-				return false, nil
-			}
-		}
+	if !info.MenuAvailable && fileExists(dest) {
+		return false, nil
 	}
 
-	resp, err := http.Get(info.MenuAssetURL)
-	if err != nil {
-		return false, fmt.Errorf("downloading sky10-menu: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("sky10-menu download returned %d", resp.StatusCode)
-	}
-
-	dir := filepath.Dir(dest)
-	tmp, err := os.CreateTemp(dir, "sky10-menu-update-*")
-	if err != nil {
-		return false, fmt.Errorf("creating temp file: %w", err)
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-
-	if _, err := io.Copy(tmp, resp.Body); err != nil {
-		tmp.Close()
-		return false, fmt.Errorf("writing sky10-menu: %w", err)
-	}
-	tmp.Close()
-
-	if err := os.Chmod(tmpPath, 0755); err != nil {
-		return false, fmt.Errorf("setting permissions: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, dest); err != nil {
-		return false, fmt.Errorf("replacing sky10-menu: %w", err)
+	if err := downloadToPath(info.MenuAssetURL, dest, "sky10-menu-update-*", "downloading sky10-menu", nil); err != nil {
+		return false, err
 	}
 
 	return true, nil
+}
+
+func menuNeedsUpdate(info *Info) bool {
+	if info.MenuAssetURL == "" {
+		return false
+	}
+
+	home, err := updateUserHomeDir()
+	if err != nil {
+		return info.CLIAvailable
+	}
+
+	dest := filepath.Join(home, ".bin", "sky10-menu")
+	localHash := hashFile(dest)
+	if localHash == "" {
+		return true
+	}
+
+	if info.MenuChecksumsURL == "" {
+		return info.CLIAvailable
+	}
+
+	menuAsset := fmt.Sprintf("sky10-menu-%s-%s", runtime.GOOS, runtime.GOARCH)
+	remoteHash, err := fetchChecksum(info.MenuChecksumsURL, menuAsset)
+	if err != nil {
+		return info.CLIAvailable
+	}
+	return localHash != remoteHash
 }
 
 // fetchChecksum fetches checksums.txt and returns the SHA-256 for the named asset.
@@ -305,4 +267,57 @@ func executablePath() (string, error) {
 		return "", fmt.Errorf("resolving executable path: %w", err)
 	}
 	return p, nil
+}
+
+func downloadToPath(url, dest, pattern, action string, onProgress ProgressFunc) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return fmt.Errorf("%s: %w", action, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s: returned %d", action, resp.StatusCode)
+	}
+
+	var src io.Reader = resp.Body
+	if onProgress != nil {
+		src = &progressReader{
+			r:     resp.Body,
+			total: resp.ContentLength,
+			fn:    onProgress,
+		}
+	}
+
+	dir := filepath.Dir(dest)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("creating parent directory: %w", err)
+	}
+
+	tmp, err := os.CreateTemp(dir, pattern)
+	if err != nil {
+		return fmt.Errorf("creating temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := io.Copy(tmp, src); err != nil {
+		tmp.Close()
+		return fmt.Errorf("writing file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("closing temp file: %w", err)
+	}
+	if err := os.Chmod(tmpPath, 0755); err != nil {
+		return fmt.Errorf("setting permissions: %w", err)
+	}
+	if err := os.Rename(tmpPath, dest); err != nil {
+		return fmt.Errorf("replacing file: %w", err)
+	}
+	return nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
