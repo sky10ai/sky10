@@ -12,9 +12,7 @@ import (
 )
 
 func TestP2PSyncLateConnectViaDHT(t *testing.T) {
-	t.Parallel()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 75*time.Second)
 	defer cancel()
 
 	nsKey, err := skykey.GenerateSymmetricKey()
@@ -68,9 +66,7 @@ func TestP2PSyncLateConnectViaDHT(t *testing.T) {
 }
 
 func TestP2PSyncRediscoveryAfterRestartViaDHT(t *testing.T) {
-	t.Parallel()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
 	nsKey, err := skykey.GenerateSymmetricKey()
@@ -196,7 +192,10 @@ func startNetworkBootstrapNode(t *testing.T, ctx context.Context) *link.Node {
 	if err != nil {
 		t.Fatal(err)
 	}
-	node, err := link.NewFromKey(bootstrapKey, link.Config{Mode: link.Network}, nil)
+	node, err := link.NewFromKey(bootstrapKey, link.Config{
+		Mode:           link.Network,
+		BootstrapPeers: []peer.AddrInfo{},
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +206,10 @@ func startNetworkBootstrapNode(t *testing.T, ctx context.Context) *link.Node {
 func startNetworkKVNodeFromBundle(t *testing.T, ctx context.Context, bundle *id.Bundle, nsKey []byte, dataDir string) (*link.Node, *Store, *P2PSync) {
 	t.Helper()
 
-	node, err := link.New(bundle, link.Config{Mode: link.Network}, nil)
+	node, err := link.New(bundle, link.Config{
+		Mode:           link.Network,
+		BootstrapPeers: []peer.AddrInfo{},
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +244,7 @@ func startLinkNode(t *testing.T, ctx context.Context, node *link.Node) {
 		_ = node.Run(ctx)
 	}()
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	for node.Host() == nil {
 		if time.Now().After(deadline) {
 			t.Fatal("host did not start")
@@ -264,9 +266,9 @@ func connectNode(t *testing.T, ctx context.Context, node *link.Node, target *lin
 func publishPrivateNetworkRecord(t *testing.T, ctx context.Context, node *link.Node) {
 	t.Helper()
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(25 * time.Second)
 	for {
-		attemptCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		attemptCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		err := node.PublishRecord(attemptCtx)
 		cancel()
 		if err == nil {

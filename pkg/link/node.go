@@ -31,8 +31,9 @@ const (
 
 // Config holds Node configuration.
 type Config struct {
-	Mode        Mode     // Private (default) or Network
-	ListenAddrs []string // default: ["/ip4/0.0.0.0/tcp/0", "/ip4/0.0.0.0/udp/0/quic-v1"]
+	Mode           Mode            // Private (default) or Network
+	ListenAddrs    []string        // default: ["/ip4/0.0.0.0/tcp/0", "/ip4/0.0.0.0/udp/0/quic-v1"]
+	BootstrapPeers []peer.AddrInfo // nil => libp2p defaults, empty => no default bootstrap peers
 }
 
 func (c Config) listenAddrs() []string {

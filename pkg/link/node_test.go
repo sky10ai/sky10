@@ -87,7 +87,7 @@ func TestNodeNetworkModeInitializesDHT(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := NewFromKey(k, Config{Mode: Network}, nil)
+	n, err := NewFromKey(k, Config{Mode: Network, BootstrapPeers: []p2ppeer.AddrInfo{}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

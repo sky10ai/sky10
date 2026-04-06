@@ -533,11 +533,22 @@ func selectBestPresence(records ...*PresenceRecord) *PresenceRecord {
 // initDHT initializes the Kademlia DHT on the node. Only called in
 // network mode.
 func (n *Node) initDHT(ctx context.Context) error {
+	bootstrapPeers := n.config.BootstrapPeers
+	if bootstrapPeers == nil {
+		bootstrapPeers = dht.GetDefaultBootstrapPeerAddrInfos()
+	}
+
+	opts := []dht.Option{
+		dht.Mode(dht.ModeAutoServer),
+	}
+	if len(bootstrapPeers) > 0 {
+		opts = append(opts, dht.BootstrapPeers(bootstrapPeers...))
+	}
+
 	d, err := dht.New(
 		ctx,
 		n.host,
-		dht.Mode(dht.ModeAutoServer),
-		dht.BootstrapPeers(dht.GetDefaultBootstrapPeerAddrInfos()...),
+		opts...,
 	)
 	if err != nil {
 		return fmt.Errorf("creating DHT: %w", err)

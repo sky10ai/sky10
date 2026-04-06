@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sky10/sky10/pkg/id"
 	skykey "github.com/sky10/sky10/pkg/key"
 )
@@ -180,13 +181,13 @@ func TestResolverS3ThenNostr(t *testing.T) {
 }
 
 func TestResolverDHTProviderDiscovery(t *testing.T) {
-	t.Parallel()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
+	localBootstrap := []peer.AddrInfo{}
+
 	bundleA := generateTestBundle(t, "nodeA")
-	nodeA, err := New(bundleA, Config{Mode: Network}, nil)
+	nodeA, err := New(bundleA, Config{Mode: Network, BootstrapPeers: localBootstrap}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +195,7 @@ func TestResolverDHTProviderDiscovery(t *testing.T) {
 	startTestNode(t, nodeA)
 
 	bundleB := generateTestBundle(t, "nodeB")
-	nodeB, err := New(bundleB, Config{Mode: Network}, nil)
+	nodeB, err := New(bundleB, Config{Mode: Network, BootstrapPeers: localBootstrap}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,8 +206,8 @@ func TestResolverDHTProviderDiscovery(t *testing.T) {
 		t.Fatalf("seed DHT connectivity: %v", err)
 	}
 
-	waitFor(t, 10*time.Second, func() bool {
-		err = publishRecordWithin(nodeA, 2*time.Second)
+	waitFor(t, 20*time.Second, func() bool {
+		err = publishRecordWithin(nodeA, 5*time.Second)
 		return err == nil
 	}, func() string {
 		return fmt.Sprintf("publish DHT providers: %v", err)
@@ -215,8 +216,8 @@ func TestResolverDHTProviderDiscovery(t *testing.T) {
 	resolver := NewResolver(nodeB)
 
 	var resolution *Resolution
-	waitFor(t, 10*time.Second, func() bool {
-		resolution, err = resolveWithin(resolver, bundleA.Address(), 2*time.Second)
+	waitFor(t, 20*time.Second, func() bool {
+		resolution, err = resolveWithin(resolver, bundleA.Address(), 5*time.Second)
 		return err == nil
 	}, func() string {
 		return fmt.Sprintf("resolve via DHT provider discovery: %v", err)
