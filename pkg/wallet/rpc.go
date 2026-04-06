@@ -53,6 +53,8 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		result, err = h.rpcDeposit(ctx, params)
 	case "wallet.transfer":
 		result, err = h.rpcTransfer(ctx, params)
+	case "wallet.maxTransfer":
+		result, err = h.rpcMaxTransfer(ctx, params)
 	default:
 		return nil, fmt.Errorf("unknown method: %s", method), true
 	}
@@ -231,4 +233,15 @@ func (h *RPCHandler) rpcTransfer(ctx context.Context, params json.RawMessage) (i
 		return nil, fmt.Errorf("amount is required")
 	}
 	return h.client.Transfer(ctx, p.Wallet, p.To, p.Amount, p.Token)
+}
+
+func (h *RPCHandler) rpcMaxTransfer(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p walletParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.Wallet == "" {
+		return nil, fmt.Errorf("wallet is required")
+	}
+	return h.client.MaxTransfer(ctx, p.Wallet)
 }

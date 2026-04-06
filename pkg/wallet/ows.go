@@ -6,6 +6,7 @@ package wallet
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -194,30 +195,42 @@ func parseSolanaAddress(output, walletName string) (string, error) {
 	return "", fmt.Errorf("no Solana address found for wallet %q", walletName)
 }
 
+// MaxTransferResult holds the maximum sendable amount and fee.
+type MaxTransferResult struct {
+	Max string `json:"max"`
+	Fee string `json:"fee"`
+}
+
+// MaxTransfer returns the maximum SOL that can be sent, accounting for fees.
+func (c *Client) MaxTransfer(ctx context.Context, walletName string) (*MaxTransferResult, error) {
+	if c == nil {
+		return nil, ErrNotInstalled
+	}
+	addr, err := c.Address(ctx, walletName)
+	if err != nil {
+		return nil, err
+	}
+	max, fee, err := maxSOLTransfer(ctx, addr)
+	if err != nil {
+		return nil, err
+	}
+	return &MaxTransferResult{
+		Max: formatLamports(max),
+		Fee: formatLamports(fee),
+	}, nil
+}
+
 // Balance returns token balances for the wallet on Solana.
+// Queries the Solana RPC directly for native SOL and SPL token balances.
 func (c *Client) Balance(ctx context.Context, walletName string) (*BalanceResult, error) {
 	if c == nil {
 		return nil, ErrNotInstalled
 	}
-	out, err := c.run(ctx, "fund", "balance", "--wallet", walletName, "--chain", ChainSolana)
+	addr, err := c.Address(ctx, walletName)
 	if err != nil {
-		return nil, fmt.Errorf("checking balance: %w", err)
+		return nil, fmt.Errorf("getting address for balance: %w", err)
 	}
-	result := &BalanceResult{Chain: ChainSolana}
-	text := string(out)
-	// "No tokens found for <addr> on solana"
-	if strings.Contains(text, "No tokens found for") {
-		parts := strings.Fields(text)
-		for i, p := range parts {
-			if p == "for" && i+1 < len(parts) {
-				result.Address = parts[i+1]
-				break
-			}
-		}
-		return result, nil
-	}
-	// TODO: parse token balance table when tokens exist.
-	return result, nil
+	return solanaBalances(ctx, addr)
 }
 
 // Pay makes an x402 payment to a URL using the given wallet.
@@ -261,25 +274,58 @@ func (c *Client) Deposit(ctx context.Context, walletName string) (*DepositResult
 	return result, nil
 }
 
-// Transfer sends tokens from the wallet to a Solana address.
+// Transfer sends SOL or SPL tokens from the wallet to a Solana address.
+// It builds the appropriate transaction, then uses `ows sign send-tx`
+// to sign and broadcast it.
 func (c *Client) Transfer(ctx context.Context, walletName, to, amount, token string) (*PayResult, error) {
 	if c == nil {
 		return nil, ErrNotInstalled
 	}
-	args := []string{"fund", "send",
+
+	from, err := c.Address(ctx, walletName)
+	if err != nil {
+		return nil, fmt.Errorf("getting sender address: %w", err)
+	}
+
+	var txBytes []byte
+	switch token {
+	case "", "SOL":
+		lamports, err := parseSOLAmount(amount)
+		if err != nil {
+			return nil, err
+		}
+		txBytes, err = buildSOLTransferTx(ctx, from, to, lamports)
+		if err != nil {
+			return nil, fmt.Errorf("building SOL transfer: %w", err)
+		}
+	case "USDC":
+		units, err := parseTokenAmount(amount, usdcDecimals)
+		if err != nil {
+			return nil, err
+		}
+		txBytes, err = buildSPLTransferTx(ctx, from, to, usdcMint, units)
+		if err != nil {
+			return nil, fmt.Errorf("building USDC transfer: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported token: %s", token)
+	}
+
+	txHex := hex.EncodeToString(txBytes)
+	out, err := c.run(ctx, "sign", "send-tx",
+		"--chain", "solana",
 		"--wallet", walletName,
-		"--chain", ChainSolana,
-		"--to", to,
-		"--amount", amount,
-	}
-	if token != "" {
-		args = append(args, "--token", token)
-	}
-	out, err := c.run(ctx, args...)
+		"--tx", txHex,
+		"--json",
+	)
 	if err != nil {
 		return nil, fmt.Errorf("transfer to %s: %w", to, err)
 	}
-	return &PayResult{Status: string(out)}, nil
+
+	return &PayResult{
+		Status: string(out),
+		Amount: amount,
+	}, nil
 }
 
 // run executes the ows CLI with the given arguments.

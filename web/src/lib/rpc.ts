@@ -123,6 +123,10 @@ export const wallet = {
   address: (p: { wallet: string }) => rpc<WalletAddress>("wallet.address", p),
   balance: (p: { wallet: string }) => rpc<WalletBalance>("wallet.balance", p),
   deposit: (p: { wallet: string }) => rpc<WalletDeposit>("wallet.deposit", p),
+  transfer: (p: { wallet: string; to: string; amount: string; token?: string }) =>
+    rpc<WalletTransfer>("wallet.transfer", p),
+  maxTransfer: (p: { wallet: string }) =>
+    rpc<{ max: string; fee: string }>("wallet.maxTransfer", p),
 };
 
 // ---- Types matching actual daemon responses ----
@@ -374,4 +378,10 @@ export interface WalletDeposit {
   chain: string;
   url?: string;
   status: string;
+}
+
+export interface WalletTransfer {
+  transaction_hash?: string;
+  status: string;
+  amount?: string;
 }

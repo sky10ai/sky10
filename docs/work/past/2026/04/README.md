@@ -2,6 +2,7 @@
 
 | Date | Entry |
 |------|-------|
+| 05 | [Agent Wallet & Payments](05-Agent-Wallet-Payments.md) — OWS wallet integration, Solana tx building, SOL + USDC transfers, Settings UI |
 | 04 | [Agent Support + OpenClaw](04-Agent-Support-OpenClaw.md) — Agent registry, cross-device routing, OpenClaw channel plugin, web chat UI |
 | 04 | [Remove Cirrus](04-Remove-Cirrus.md) — Replace SwiftUI app with web UI, CLI daemon management, Tauri menu bar app |
 | 04 | [S3 Optional — Complete](04-S3-Optional-Complete.md) — Full P2P-first architecture: KV sync, join, 3-layer discovery, debugging saga, CI fixes |

@@ -1,4 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
+
+/** Subtract two decimal strings using BigInt to avoid float precision issues. */
+function subDecimal(balance: string, amount: string, decimals: number): string {
+  const toUnits = (s: string): bigint => {
+    const [whole = "0", frac = ""] = s.split(".");
+    const padded = frac.padEnd(decimals, "0").slice(0, decimals);
+    return BigInt(whole) * BigInt(10 ** decimals) + BigInt(padded);
+  };
+  const result = toUnits(balance) - toUnits(amount);
+  if (result <= 0n) return "0";
+  const w = result / BigInt(10 ** decimals);
+  const f = result % BigInt(10 ** decimals);
+  if (f === 0n) return w.toString();
+  const fs = f.toString().padStart(decimals, "0").replace(/0+$/, "");
+  return `${w}.${fs}`;
+}
 import { Icon } from "../components/Icon";
 import { STORAGE_EVENT_TYPES, WALLET_EVENT_TYPES, subscribe } from "../lib/events";
 import { skyfs, skylink, identity, wallet } from "../lib/rpc";
@@ -43,6 +59,14 @@ export default function Settings() {
   });
 
   const [copied, setCopied] = useState(false);
+  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [withdrawTo, setWithdrawTo] = useState("");
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [withdrawToken, setWithdrawToken] = useState("SOL");
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
+  const [withdrawSuccess, setWithdrawSuccess] = useState(false);
+  const [feeHint, setFeeHint] = useState<string | null>(null);
 
   const [installProgress, setInstallProgress] = useState<{
     downloaded: number;
@@ -93,10 +117,10 @@ export default function Settings() {
     () => (firstWallet ? wallet.address({ wallet: firstWallet }) : Promise.resolve(null)),
     [firstWallet],
   );
-  const { data: walletBal } = useRPC(
+  const { data: walletBal, mutate: mutateBalance, pause: pauseBalance, resume: resumeBalance } = useRPC(
     () => (firstWallet ? wallet.balance({ wallet: firstWallet }) : Promise.resolve(null)),
     [firstWallet],
-    { refreshIntervalMs: 60_000 },
+    { refreshIntervalMs: 30_000 },
   );
 
   return (
@@ -278,7 +302,7 @@ export default function Settings() {
               Wallet
             </h3>
             <p className="text-sm text-secondary">
-              Agent payments powered by OWS.
+              Agent payments powered by <a href="https://openwallet.sh" target="_blank" rel="noopener noreferrer" className="underline hover:text-on-surface transition-colors">OWS</a>.
             </p>
           </div>
 
@@ -412,26 +436,167 @@ export default function Settings() {
                 })()}
               </div>
 
-              {/* Version + Deposit */}
+              {withdrawSuccess && (
+                <p className="text-xs text-primary font-medium animate-pulse">
+                  Transfer sent successfully
+                </p>
+              )}
+
+              {/* Withdraw form */}
+              {showWithdraw && (
+                <div className="space-y-3 bg-surface-container p-4 rounded-lg">
+                  <input
+                    type="text"
+                    placeholder="Recipient address"
+                    value={withdrawTo}
+                    onChange={(e) => setWithdrawTo(e.target.value)}
+                    className="w-full bg-surface-container-high text-sm rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-primary font-mono"
+                  />
+                  <div className="flex gap-2 min-w-0">
+                    <div className="min-w-0 flex-1 relative">
+                      <input
+                        type="text"
+                        placeholder="Amount"
+                        value={withdrawAmount}
+                        onChange={(e) => setWithdrawAmount(e.target.value)}
+                        className="w-full bg-surface-container-high text-sm rounded-lg px-3 py-2 pr-12 outline-none focus:ring-1 focus:ring-primary font-mono"
+                      />
+                      <button
+                        type="button"
+                        onMouseDown={async (e) => {
+                          e.preventDefault();
+                          if (!firstWallet) return;
+                          if (withdrawToken === "SOL") {
+                            try {
+                              const result = await wallet.maxTransfer({ wallet: firstWallet });
+                              setWithdrawAmount(result.max);
+                              setFeeHint(`Balance minus ${result.fee} SOL gas`);
+                              setTimeout(() => setFeeHint(null), 3000);
+                            } catch {
+                              // Fallback to client-side estimate.
+                              const tok = walletBal?.tokens?.find((t) => t.symbol === "SOL");
+                              const bal = parseFloat(tok?.balance ?? "0");
+                              if (bal > 0) setWithdrawAmount(String(Math.max(0, bal - 0.00001)));
+                            }
+                          } else {
+                            const tok = walletBal?.tokens?.find((t) => t.symbol === withdrawToken);
+                            setWithdrawAmount(tok?.balance ?? "0");
+                          }
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-primary hover:text-primary/70 transition-colors z-10 px-1"
+                      >
+                        ALL
+                      </button>
+                    </div>
+                    <select
+                      value={withdrawToken}
+                      onChange={(e) => setWithdrawToken(e.target.value)}
+                      className="w-20 shrink-0 bg-surface-container-high text-sm rounded-lg px-2 py-2 outline-none focus:ring-1 focus:ring-primary"
+                    >
+                      <option value="SOL">SOL</option>
+                      <option value="USDC">USDC</option>
+                    </select>
+                  </div>
+                  {feeHint && (
+                    <p className="text-[10px] text-secondary animate-pulse">
+                      {feeHint}
+                    </p>
+                  )}
+                  {withdrawError && (
+                    <p className="text-xs text-error">{withdrawError}</p>
+                  )}
+                  <div className="flex gap-2 justify-end">
+                    <button
+                      onClick={() => { setShowWithdraw(false); setWithdrawError(null); }}
+                      className="text-xs font-semibold text-secondary hover:text-on-surface px-3 py-1.5 rounded-full transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      disabled={withdrawing || !withdrawTo || !withdrawAmount}
+                      onClick={async () => {
+                        if (!firstWallet) return;
+                        setWithdrawing(true);
+                        setWithdrawError(null);
+                        pauseBalance();
+                        try {
+                          const sentToken = withdrawToken;
+                          // Fetch actual gas fee before sending.
+                          const { fee: feeStr } = await wallet.maxTransfer({ wallet: firstWallet });
+                          await wallet.transfer({
+                            wallet: firstWallet,
+                            to: withdrawTo,
+                            amount: withdrawAmount,
+                            token: withdrawToken,
+                          });
+                          setShowWithdraw(false);
+                          setWithdrawTo("");
+                          setWithdrawAmount("");
+                          setWithdrawSuccess(true);
+                          setTimeout(() => setWithdrawSuccess(false), 4000);
+                          // Optimistic balance update with BigInt to avoid float artifacts.
+                          const isSol = !sentToken || sentToken === "SOL";
+                          mutateBalance((prev) => {
+                            if (!prev?.tokens) return prev;
+                            const updated = prev.tokens.map((t) => {
+                              const decimals = t.symbol === "SOL" ? 9 : 6;
+                              if (t.symbol === "SOL") {
+                                const deduct = isSol ? withdrawAmount : feeStr;
+                                return { ...t, balance: subDecimal(t.balance, deduct, decimals) };
+                              }
+                              if (!isSol && t.symbol === sentToken) {
+                                return { ...t, balance: subDecimal(t.balance, withdrawAmount, decimals) };
+                              }
+                              return t;
+                            });
+                            return { ...prev, tokens: updated };
+                          });
+                          // Resume polling after chain confirmation window.
+                          setTimeout(resumeBalance, 15_000);
+                        } catch (e: unknown) {
+                          setWithdrawError(e instanceof Error ? e.message : "Transfer failed");
+                          resumeBalance();
+                        } finally {
+                          setWithdrawing(false);
+                        }
+                      }}
+                      className="text-xs font-semibold bg-primary text-on-primary px-4 py-1.5 rounded-full disabled:opacity-40 transition-all active:scale-95"
+                    >
+                      {withdrawing ? "Sending..." : "Send"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Version + actions */}
               <div className="flex items-center justify-between pt-2">
                 {walletStatus.version && (
                   <p className="text-[10px] text-secondary">{walletStatus.version}</p>
                 )}
-                <button
-                  onClick={async () => {
-                    if (!firstWallet) return;
-                    try {
-                      const result = await wallet.deposit({ wallet: firstWallet });
-                      if (result.url) window.open(result.url, "_blank");
-                    } catch {
-                      // deposit may not return a URL on all platforms
-                    }
-                  }}
-                  className="text-xs font-semibold text-tertiary hover:text-tertiary/80 transition-colors flex items-center gap-1"
-                >
-                  <Icon name="add" className="text-sm" />
-                  Fund Wallet
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setShowWithdraw(!showWithdraw)}
+                    className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors flex items-center gap-1"
+                  >
+                    <Icon name="send" className="text-sm" />
+                    Send
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!firstWallet) return;
+                      try {
+                        const result = await wallet.deposit({ wallet: firstWallet });
+                        if (result.url) window.open(result.url, "_blank");
+                      } catch {
+                        // deposit may not return a URL on all platforms
+                      }
+                    }}
+                    className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors flex items-center gap-1"
+                  >
+                    <Icon name="add" className="text-sm" />
+                    Fund
+                  </button>
+                </div>
               </div>
             </div>
           )}

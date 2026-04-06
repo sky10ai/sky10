@@ -44,6 +44,7 @@ export function useRPC<T>(
   const dataRef = useRef<T | null>(null);
   const requestIDRef = useRef(0);
   const debounceTimerRef = useRef<number | null>(null);
+  const pausedRef = useRef(false);
 
   useEffect(() => {
     dataRef.current = data;
@@ -151,13 +152,17 @@ export function useRPC<T>(
     if (!refreshIntervalMs) return;
 
     const interval = window.setInterval(() => {
+      if (pausedRef.current) return;
       refetch({ background: dataRef.current !== null });
     }, refreshIntervalMs);
 
     return () => window.clearInterval(interval);
   }, [refetch, refreshIntervalMs]);
 
-  return { data, error, loading, mutate, refreshing, refetch };
+  const pause = useCallback(() => { pausedRef.current = true; }, []);
+  const resume = useCallback(() => { pausedRef.current = false; }, []);
+
+  return { data, error, loading, mutate, pause, refreshing, refetch, resume };
 }
 
 /** Format bytes to human-readable string. */
