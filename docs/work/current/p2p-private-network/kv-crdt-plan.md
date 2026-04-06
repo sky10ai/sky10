@@ -6,6 +6,15 @@ model: gpt-5.4
 
 # KV CRDT Plan
 
+The completed private-network discovery and reliability work has been
+archived in:
+
+- [Private Network Discovery Hardening](/Users/bf/.baton/worktrees/sky10/debug-agent-key-instability/docs/work/past/2026/04/06-Private-Network-Discovery-Hardening.md)
+
+This document remains in `docs/work/current/` because KV still needs a
+future-facing CRDT redesign beyond the discovery work that already
+shipped.
+
 ## Goal
 
 Make `pkg/kv` a private-network primitive that converges reliably across

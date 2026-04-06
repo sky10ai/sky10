@@ -2,6 +2,7 @@
 
 | Date | Entry |
 |------|-------|
+| 06 | [Private Network Discovery Hardening](06-Private-Network-Discovery-Hardening.md) — DHT-provider membership/presence, daemon-owned join, correct device surfaces, KV sync scoped to the private network, faster device/agent RPCs |
 | 06 | [Staged Update Lifecycle](06-Staged-Update-Lifecycle.md) — Split updater into check/download/status/install, persist staged artifacts, move tray to CLI-driven updates, replace broken v0.39.0 with v0.39.1 |
 | 05 | [Agent Wallet & Payments](05-Agent-Wallet-Payments.md) — OWS wallet integration, Solana tx building, SOL + USDC transfers, Settings UI |
 | 04 | [Agent Support + OpenClaw](04-Agent-Support-OpenClaw.md) — Agent registry, cross-device routing, OpenClaw channel plugin, web chat UI |
