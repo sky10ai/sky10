@@ -10,6 +10,15 @@ import (
 // Version is the raw version string (e.g. "v0.3.2"), set by main.
 var Version string
 
+var (
+	updateCheck         = update.Check
+	updateApply         = func(info *update.Info) error { return update.Apply(info, nil) }
+	updateApplyMenu     = update.ApplyMenu
+	updateStopMenu      = StopMenu
+	updateStartMenu     = StartMenu
+	updateRestartDaemon = RestartDaemon
+)
+
 // UpdateCmd returns the `sky10 update` command (aliased as `upgrade`).
 func UpdateCmd() *cobra.Command {
 	var checkOnly bool
@@ -20,7 +29,7 @@ func UpdateCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Printf("current: %s\n", Version)
 
-			info, err := update.Check(Version)
+			info, err := updateCheck(Version)
 			if err != nil {
 				return err
 			}
@@ -29,14 +38,17 @@ func UpdateCmd() *cobra.Command {
 				// CLI is current, but the menu binary may still
 				// need updating (e.g. menu assets arrived after
 				// the CLI was already updated).
-				menuUpdated, err := update.ApplyMenu(info)
+				menuUpdated, err := updateApplyMenu(info)
 				if err != nil {
 					fmt.Printf("warning: could not update sky10-menu: %v\n", err)
 				}
 				if menuUpdated {
 					fmt.Println("sky10-menu updated")
-					if err := RestartMenu(); err != nil {
-						fmt.Printf("warning: could not restart sky10-menu: %v\n", err)
+					if err := updateStopMenu(); err != nil {
+						fmt.Printf("warning: could not stop sky10-menu: %v\n", err)
+					}
+					if err := updateStartMenu(); err != nil {
+						fmt.Printf("warning: could not start sky10-menu: %v\n", err)
 					}
 				} else {
 					fmt.Println("already up to date")
@@ -51,29 +63,29 @@ func UpdateCmd() *cobra.Command {
 			}
 
 			fmt.Println("downloading...")
-			if err := update.Apply(info, nil); err != nil {
+			if err := updateApply(info); err != nil {
 				return err
 			}
 
-			menuUpdated, err := update.ApplyMenu(info)
+			menuUpdated, err := updateApplyMenu(info)
 			if err != nil {
 				fmt.Printf("warning: could not update sky10-menu: %v\n", err)
 			} else if menuUpdated {
 				fmt.Println("sky10-menu updated")
 			}
 
-			// Always restart the menu so it picks up daemon changes
-			// (new version, new RPC state) even if the menu binary
-			// itself didn't change.
-			if err := RestartMenu(); err != nil {
-				fmt.Printf("warning: could not restart sky10-menu: %v\n", err)
+			if err := updateStopMenu(); err != nil {
+				fmt.Printf("warning: could not stop sky10-menu: %v\n", err)
 			}
 
-			if err := RestartDaemon(); err != nil {
+			if err := updateRestartDaemon(); err != nil {
 				fmt.Printf("warning: could not restart daemon: %v\n", err)
 				fmt.Println("restart the daemon manually to use the new version")
 			} else {
 				fmt.Println("daemon restarted")
+				if err := updateStartMenu(); err != nil {
+					fmt.Printf("warning: could not start sky10-menu: %v\n", err)
+				}
 			}
 
 			fmt.Printf("updated to %s\n", info.Latest)

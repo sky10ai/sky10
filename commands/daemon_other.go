@@ -39,6 +39,12 @@ func daemonRestartCmd() *cobra.Command {
 // RestartDaemon is a no-op on unsupported platforms.
 func RestartDaemon() error { return nil }
 
+// StopMenu is a no-op on unsupported platforms.
+func StopMenu() error { return nil }
+
+// StartMenu is a no-op on unsupported platforms.
+func StartMenu() error { return nil }
+
 // RestartMenu is a no-op on unsupported platforms.
 func RestartMenu() error { return nil }
 

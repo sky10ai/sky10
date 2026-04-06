@@ -248,15 +248,36 @@ func RestartDaemon() error {
 	return err
 }
 
+// StopMenu kills every running sky10-menu process for this user.
+func StopMenu() error {
+	exec.Command("launchctl", "kill", "SIGTERM", launchdMenuTarget()).Run()
+	return killAllMenuProcesses()
+}
+
+// StartMenu launches the menu agent if installed, otherwise starts the
+// binary directly from ~/.bin.
+func StartMenu() error {
+	menuBin := findMenuBinary()
+	if _, err := os.Stat(menuBin); os.IsNotExist(err) {
+		return nil
+	}
+
+	path := launchdPlistPath(launchdMenuLabel)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return exec.Command(menuBin).Start()
+	}
+
+	_, err := exec.Command("launchctl", "kickstart", "-k", launchdMenuTarget()).CombinedOutput()
+	return err
+}
+
 // RestartMenu restarts the launchd menu agent if installed.
 // Returns nil if the menu agent is not installed.
 func RestartMenu() error {
-	path := launchdPlistPath(launchdMenuLabel)
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil
+	if err := StopMenu(); err != nil {
+		return err
 	}
-	_, err := exec.Command("launchctl", "kickstart", "-k", launchdMenuTarget()).CombinedOutput()
-	return err
+	return StartMenu()
 }
 
 func daemonStopCmd() *cobra.Command {
