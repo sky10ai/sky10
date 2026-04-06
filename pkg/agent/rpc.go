@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	skykey "github.com/sky10/sky10/pkg/key"
 )
 
 // Emitter sends SSE events to connected subscribers.
@@ -19,14 +20,15 @@ type PeerNotifier func(ctx context.Context, topic string)
 // RPCHandler dispatches agent.* RPC methods.
 type RPCHandler struct {
 	registry *Registry
+	owner    *skykey.Key
 	router   *Router // nil until cross-device wiring
 	emit     Emitter
 	notify   PeerNotifier
 }
 
 // NewRPCHandler creates an agent RPC handler.
-func NewRPCHandler(registry *Registry, emit Emitter) *RPCHandler {
-	return &RPCHandler{registry: registry, emit: emit}
+func NewRPCHandler(registry *Registry, owner *skykey.Key, emit Emitter) *RPCHandler {
+	return &RPCHandler{registry: registry, owner: owner, emit: emit}
 }
 
 // SetRouter attaches a cross-device router.
@@ -80,7 +82,7 @@ func (h *RPCHandler) rpcRegister(_ context.Context, params json.RawMessage) (int
 		return nil, fmt.Errorf("name is required")
 	}
 
-	agentID, _, err := GenerateAgentID()
+	agentID, _, err := GenerateAgentID(h.owner, p.EffectiveKeyName())
 	if err != nil {
 		return nil, fmt.Errorf("generating agent ID: %w", err)
 	}

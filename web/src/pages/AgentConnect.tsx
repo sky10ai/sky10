@@ -80,7 +80,8 @@ cd ~/.openclaw/plugins/sky10 && npm i eventsource`,
       `curl -X POST localhost:9101/rpc \\
   -H "Content-Type: application/json" \\
   -d '{"jsonrpc":"2.0","method":"agent.register",
-       "params":{"name":"my-agent",
+       "params":{"name":"My Agent",
+                 "key_name":"my-agent",
                  "skills":["code","test"]},"id":1}'`,
       `curl -N localhost:9101/rpc/events
 # Listen for "agent.message" events`,

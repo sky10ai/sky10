@@ -5,8 +5,11 @@
 package agent
 
 import (
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	skykey "github.com/sky10/sky10/pkg/key"
@@ -23,6 +26,7 @@ var (
 type AgentInfo struct {
 	ID          string    `json:"id"`          // A-<16 chars>
 	Name        string    `json:"name"`        // human-chosen name
+	KeyName     string    `json:"-"`           // stable identity slug
 	DeviceID    string    `json:"device_id"`   // D-<8 chars> of hosting device
 	DeviceName  string    `json:"device_name"` // hostname of hosting device
 	Skills      []string  `json:"skills"`
@@ -42,8 +46,9 @@ func (a *AgentInfo) HasSkill(skill string) bool {
 
 // RegisterParams is the input to agent.register.
 type RegisterParams struct {
-	Name   string   `json:"name"`
-	Skills []string `json:"skills"`
+	Name    string   `json:"name"`
+	KeyName string   `json:"key_name,omitempty"`
+	Skills  []string `json:"skills"`
 }
 
 // RegisterResult is the response from agent.register.
@@ -79,10 +84,26 @@ type SendParams struct {
 	Content   json.RawMessage `json:"content"`
 }
 
-// GenerateAgentID creates a new keypair and returns the A- prefixed ID
-// and the key. Uses 16 chars (80 bits) for global uniqueness.
-func GenerateAgentID() (string, *skykey.Key, error) {
-	k, err := skykey.Generate()
+// EffectiveKeyName returns the stable agent identity slug for registration.
+// key_name is preferred so display-name changes do not rotate identity.
+// For backward compatibility, name remains the fallback.
+func (p RegisterParams) EffectiveKeyName() string {
+	if s := normalizeAgentKeyName(p.KeyName); s != "" {
+		return s
+	}
+	return normalizeAgentKeyName(p.Name)
+}
+
+func normalizeAgentKeyName(v string) string {
+	fields := strings.Fields(strings.ToLower(strings.TrimSpace(v)))
+	return strings.Join(fields, "-")
+}
+
+// GenerateAgentID deterministically derives an agent keypair and returns the
+// A- prefixed ID and the key. The key is stable for a given owner identity and
+// effective key name.
+func GenerateAgentID(owner *skykey.Key, keyName string) (string, *skykey.Key, error) {
+	k, err := DeriveAgentKey(owner, keyName)
 	if err != nil {
 		return "", nil, err
 	}
@@ -91,4 +112,31 @@ func GenerateAgentID() (string, *skykey.Key, error) {
 		return "A-" + addr[5:21], k, nil
 	}
 	return "A-" + k.ShortID(), k, nil
+}
+
+// DeriveAgentKey deterministically derives an Ed25519 keypair for an agent
+// from the owner identity seed and a stable agent key name.
+func DeriveAgentKey(owner *skykey.Key, keyName string) (*skykey.Key, error) {
+	if owner == nil {
+		return nil, fmt.Errorf("owner key is required")
+	}
+	if !owner.IsPrivate() {
+		return nil, fmt.Errorf("owner key must have private component")
+	}
+	keyName = normalizeAgentKeyName(keyName)
+	if keyName == "" {
+		return nil, fmt.Errorf("agent key name is required")
+	}
+
+	seed, err := skykey.DeriveKey(owner.PrivateKey.Seed(), []byte(keyName), "sky10-agent-key-v1")
+	if err != nil {
+		return nil, fmt.Errorf("deriving agent seed: %w", err)
+	}
+	priv := ed25519.NewKeyFromSeed(seed)
+	pub := make(ed25519.PublicKey, ed25519.PublicKeySize)
+	copy(pub, priv.Public().(ed25519.PublicKey))
+	return &skykey.Key{
+		PublicKey:  pub,
+		PrivateKey: priv,
+	}, nil
 }

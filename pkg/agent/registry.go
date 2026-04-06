@@ -12,10 +12,11 @@ type Registry struct {
 	deviceName string
 	logger     *slog.Logger
 
-	// mu protects agents, byName, and lastHeartbeat.
+	// mu protects agents, byName, byKeyName, and lastHeartbeat.
 	mu            sync.RWMutex
 	agents        map[string]*AgentInfo // keyed by agent ID
 	byName        map[string]string     // name -> agent ID
+	byKeyName     map[string]string     // stable key_name -> agent ID
 	lastHeartbeat map[string]time.Time  // agent ID -> last heartbeat
 }
 
@@ -30,6 +31,7 @@ func NewRegistry(deviceID, deviceName string, logger *slog.Logger) *Registry {
 		logger:        logger,
 		agents:        make(map[string]*AgentInfo),
 		byName:        make(map[string]string),
+		byKeyName:     make(map[string]string),
 		lastHeartbeat: make(map[string]time.Time),
 	}
 }
@@ -41,16 +43,34 @@ func (r *Registry) Register(p RegisterParams, agentID string) (*AgentInfo, error
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Idempotent: if an agent with this name already exists, update it
-	// and return the existing ID. The name is the stable identifier.
-	if existingID, ok := r.byName[p.Name]; ok {
+	keyName := p.EffectiveKeyName()
+
+	// Idempotent: if an agent with this key name already exists, update it
+	// and return the existing ID. The key name is the stable identifier.
+	if existingID, ok := r.byKeyName[keyName]; ok {
 		if existing, alive := r.agents[existingID]; alive {
+			if existing.Name != p.Name {
+				delete(r.byName, existing.Name)
+				if otherID, taken := r.byName[p.Name]; taken && otherID != existingID {
+					return nil, ErrDuplicateName
+				}
+				r.byName[p.Name] = existingID
+				existing.Name = p.Name
+			}
+			existing.KeyName = keyName
 			existing.Skills = p.Skills
 			existing.Status = "connected"
 			r.lastHeartbeat[existingID] = time.Now().UTC()
-			r.logger.Info("agent re-registered", "id", existingID, "name", p.Name)
+			r.logger.Info("agent re-registered", "id", existingID, "name", p.Name, "key_name", keyName)
 			cp := *existing
 			return &cp, nil
+		}
+		delete(r.byKeyName, keyName)
+	}
+
+	if existingID, ok := r.byName[p.Name]; ok {
+		if _, alive := r.agents[existingID]; alive {
+			return nil, ErrDuplicateName
 		}
 		delete(r.byName, p.Name)
 	}
@@ -59,6 +79,7 @@ func (r *Registry) Register(p RegisterParams, agentID string) (*AgentInfo, error
 	info := &AgentInfo{
 		ID:          agentID,
 		Name:        p.Name,
+		KeyName:     keyName,
 		DeviceID:    r.deviceID,
 		DeviceName:  r.deviceName,
 		Skills:      p.Skills,
@@ -68,8 +89,9 @@ func (r *Registry) Register(p RegisterParams, agentID string) (*AgentInfo, error
 
 	r.agents[agentID] = info
 	r.byName[p.Name] = agentID
+	r.byKeyName[keyName] = agentID
 	r.lastHeartbeat[agentID] = now
-	r.logger.Info("agent registered", "id", agentID, "name", p.Name)
+	r.logger.Info("agent registered", "id", agentID, "name", p.Name, "key_name", keyName)
 	return info, nil
 }
 
@@ -84,6 +106,7 @@ func (r *Registry) Deregister(agentID string) {
 	}
 	delete(r.agents, agentID)
 	delete(r.byName, info.Name)
+	delete(r.byKeyName, info.KeyName)
 	delete(r.lastHeartbeat, agentID)
 	r.logger.Info("agent deregistered", "id", agentID, "name", info.Name)
 }

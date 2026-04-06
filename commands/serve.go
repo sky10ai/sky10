@@ -127,7 +127,7 @@ func ServeCmd() *cobra.Command {
 			// Agent registry — local agent registration and message routing.
 			agentRegistry := skyagent.NewRegistry(bundle.DeviceID(), skyfs.GetDeviceName(), nil)
 			agentRouter := skyagent.NewRouter(agentRegistry, linkNode, server.Emit, bundle.DeviceID(), nil)
-			agentRPC := skyagent.NewRPCHandler(agentRegistry, server.Emit)
+			agentRPC := skyagent.NewRPCHandler(agentRegistry, bundle.Identity, server.Emit)
 			agentRPC.SetRouter(agentRouter)
 			server.RegisterHandler(agentRPC)
 			skyagent.RegisterLinkHandlers(linkNode, agentRegistry, server.Emit, agentRouter)

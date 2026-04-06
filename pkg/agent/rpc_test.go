@@ -4,12 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+
+	skykey "github.com/sky10/sky10/pkg/key"
 )
+
+func newTestRPCHandler(t *testing.T, r *Registry, emit Emitter) *RPCHandler {
+	t.Helper()
+	owner, err := skykey.Generate()
+	if err != nil {
+		t.Fatalf("Generate owner key: %v", err)
+	}
+	return NewRPCHandler(r, owner, emit)
+}
 
 func TestRPCDispatchPrefix(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()
-	h := NewRPCHandler(r, nil)
+	h := newTestRPCHandler(t, r, nil)
 
 	_, _, handled := h.Dispatch(context.Background(), "skyfs.list", nil)
 	if handled {
@@ -25,7 +36,7 @@ func TestRPCDispatchPrefix(t *testing.T) {
 func TestRPCRegisterAndList(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()
-	h := NewRPCHandler(r, nil)
+	h := newTestRPCHandler(t, r, nil)
 	ctx := context.Background()
 
 	params, _ := json.Marshal(RegisterParams{
@@ -61,7 +72,7 @@ func TestRPCRegisterAndList(t *testing.T) {
 func TestRPCRegisterMissingName(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()
-	h := NewRPCHandler(r, nil)
+	h := newTestRPCHandler(t, r, nil)
 
 	params, _ := json.Marshal(RegisterParams{})
 	_, err, handled := h.Dispatch(context.Background(), "agent.register", params)
@@ -82,7 +93,7 @@ func TestRPCSend(t *testing.T) {
 		emitted = append(emitted, data)
 	}
 
-	h := NewRPCHandler(r, emit)
+	h := newTestRPCHandler(t, r, emit)
 	ctx := context.Background()
 
 	// Register an agent so there's a local target.
@@ -125,7 +136,7 @@ func TestRPCSend(t *testing.T) {
 func TestRPCHeartbeat(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()
-	h := NewRPCHandler(r, nil)
+	h := newTestRPCHandler(t, r, nil)
 	ctx := context.Background()
 
 	// Register.
@@ -151,7 +162,7 @@ func TestRPCHeartbeat(t *testing.T) {
 func TestRPCDeregister(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()
-	h := NewRPCHandler(r, nil)
+	h := newTestRPCHandler(t, r, nil)
 	ctx := context.Background()
 
 	regParams, _ := json.Marshal(RegisterParams{Name: "tmp"})
@@ -171,7 +182,7 @@ func TestRPCDeregister(t *testing.T) {
 func TestRPCDiscover(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()
-	h := NewRPCHandler(r, nil)
+	h := newTestRPCHandler(t, r, nil)
 	ctx := context.Background()
 
 	r.Register(RegisterParams{Name: "coder", Skills: []string{"code"}}, "A-coder00000000000")
@@ -191,7 +202,7 @@ func TestRPCDiscover(t *testing.T) {
 func TestRPCStatus(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()
-	h := NewRPCHandler(r, nil)
+	h := newTestRPCHandler(t, r, nil)
 	ctx := context.Background()
 
 	r.Register(RegisterParams{
@@ -206,5 +217,74 @@ func TestRPCStatus(t *testing.T) {
 	status := result.(map[string]interface{})
 	if status["agents"].(int) != 1 {
 		t.Errorf("agents = %v, want 1", status["agents"])
+	}
+}
+
+func TestRPCRegisterDeterministicAfterDeregister(t *testing.T) {
+	t.Parallel()
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	ctx := context.Background()
+
+	params, _ := json.Marshal(RegisterParams{
+		Name:    "Claude Code",
+		KeyName: "claude-code",
+		Skills:  []string{"code"},
+	})
+	firstRaw, err, handled := h.Dispatch(ctx, "agent.register", params)
+	if !handled || err != nil {
+		t.Fatalf("first register: handled=%v, err=%v", handled, err)
+	}
+	first := firstRaw.(RegisterResult)
+
+	deregParams, _ := json.Marshal(DeregisterParams{AgentID: first.AgentID})
+	if _, err, _ := h.Dispatch(ctx, "agent.deregister", deregParams); err != nil {
+		t.Fatalf("deregister: %v", err)
+	}
+
+	secondRaw, err, handled := h.Dispatch(ctx, "agent.register", params)
+	if !handled || err != nil {
+		t.Fatalf("second register: handled=%v, err=%v", handled, err)
+	}
+	second := secondRaw.(RegisterResult)
+
+	if first.AgentID != second.AgentID {
+		t.Fatalf("agent ID changed after deregister/re-register: %s != %s", first.AgentID, second.AgentID)
+	}
+}
+
+func TestRPCRegisterUsesKeyNameForStableIdentityAcrossRename(t *testing.T) {
+	t.Parallel()
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	ctx := context.Background()
+
+	firstParams, _ := json.Marshal(RegisterParams{
+		Name:    "Claude Code",
+		KeyName: "claude-code",
+	})
+	firstRaw, err, handled := h.Dispatch(ctx, "agent.register", firstParams)
+	if !handled || err != nil {
+		t.Fatalf("first register: handled=%v, err=%v", handled, err)
+	}
+	first := firstRaw.(RegisterResult)
+
+	deregParams, _ := json.Marshal(DeregisterParams{AgentID: first.AgentID})
+	if _, err, _ := h.Dispatch(ctx, "agent.deregister", deregParams); err != nil {
+		t.Fatalf("deregister: %v", err)
+	}
+
+	secondParams, _ := json.Marshal(RegisterParams{
+		Name:    "Claude",
+		KeyName: "claude-code",
+	})
+	secondRaw, err, handled := h.Dispatch(ctx, "agent.register", secondParams)
+	if !handled || err != nil {
+		t.Fatalf("second register: handled=%v, err=%v", handled, err)
+	}
+	second := secondRaw.(RegisterResult)
+
+	if first.AgentID != second.AgentID {
+		t.Fatalf("agent ID changed across display-name rename: %s != %s", first.AgentID, second.AgentID)
 	}
 }

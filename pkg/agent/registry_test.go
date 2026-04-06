@@ -4,6 +4,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	skykey "github.com/sky10/sky10/pkg/key"
 )
 
 func newTestRegistry() *Registry {
@@ -64,6 +66,62 @@ func TestRegistryIdempotentReregister(t *testing.T) {
 	// Only one agent in registry.
 	if r.Len() != 1 {
 		t.Errorf("Len() = %d, want 1", r.Len())
+	}
+}
+
+func TestRegistryReregisterByKeyNameUpdatesDisplayName(t *testing.T) {
+	t.Parallel()
+	r := newTestRegistry()
+
+	first, err := r.Register(RegisterParams{
+		Name:    "Claude Code",
+		KeyName: "claude-code",
+		Skills:  []string{"code"},
+	}, "A-first00000000000")
+	if err != nil {
+		t.Fatalf("first Register: %v", err)
+	}
+
+	second, err := r.Register(RegisterParams{
+		Name:    "Claude",
+		KeyName: "claude-code",
+		Skills:  []string{"code", "test"},
+	}, "A-second0000000000")
+	if err != nil {
+		t.Fatalf("second Register: %v", err)
+	}
+	if second.ID != first.ID {
+		t.Fatalf("re-register ID = %s, want %s", second.ID, first.ID)
+	}
+	if second.Name != "Claude" {
+		t.Fatalf("updated name = %s, want Claude", second.Name)
+	}
+	if r.GetByName("Claude Code") != nil {
+		t.Fatal("old display name should no longer resolve")
+	}
+	if info := r.GetByName("Claude"); info == nil || info.ID != first.ID {
+		t.Fatal("new display name should resolve to existing agent")
+	}
+}
+
+func TestRegistryRejectsDuplicateDisplayNameForDifferentKeyName(t *testing.T) {
+	t.Parallel()
+	r := newTestRegistry()
+
+	_, err := r.Register(RegisterParams{
+		Name:    "coder",
+		KeyName: "coder-a",
+	}, "A-first00000000000")
+	if err != nil {
+		t.Fatalf("first Register: %v", err)
+	}
+
+	_, err = r.Register(RegisterParams{
+		Name:    "coder",
+		KeyName: "coder-b",
+	}, "A-second0000000000")
+	if err != ErrDuplicateName {
+		t.Fatalf("Register duplicate display name err = %v, want %v", err, ErrDuplicateName)
 	}
 }
 
@@ -168,8 +226,18 @@ func TestRegistryConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			id, _, _ := GenerateAgentID()
-			name := "agent-" + id
+			owner, err := skykey.Generate()
+			if err != nil {
+				t.Errorf("Generate owner key: %v", err)
+				return
+			}
+			name := "agent-concurrent"
+			id, _, err := GenerateAgentID(owner, name)
+			if err != nil {
+				t.Errorf("GenerateAgentID() error: %v", err)
+				return
+			}
+			name = name + "-" + id
 			r.Register(RegisterParams{Name: name}, id)
 			r.List()
 			r.Resolve(name)
