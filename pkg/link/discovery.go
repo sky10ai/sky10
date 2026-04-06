@@ -30,11 +30,16 @@ type Resolution struct {
 	Peers            []*ResolvedPeer   `json:"peers,omitempty"`
 }
 
+type privateNetworkDiscovery interface {
+	QueryMembership(ctx context.Context, identity string) (*MembershipRecord, error)
+	QueryPresenceAll(ctx context.Context, identity string) ([]*PresenceRecord, error)
+}
+
 // Resolver finds peer addresses through the private-network discovery layers.
 type Resolver struct {
 	node    *Node
 	backend adapter.Backend // deprecated; kept for construction compatibility
-	nostr   *NostrDiscovery
+	nostr   privateNetworkDiscovery
 	logger  *slog.Logger
 }
 
