@@ -1,6 +1,6 @@
 ---
 created: 2026-04-06
-model: gpt-5
+model: gpt-5.4
 ---
 
 # Staged Update Lifecycle and Tray Recovery
