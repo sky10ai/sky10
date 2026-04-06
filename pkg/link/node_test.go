@@ -80,6 +80,22 @@ func TestNodePrivateModeDisablesRelay(t *testing.T) {
 	}
 }
 
+func TestNodeNetworkModeInitializesDHT(t *testing.T) {
+	t.Parallel()
+	k, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := NewFromKey(k, Config{Mode: Network}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startTestNode(t, n)
+	if n.dht == nil {
+		t.Fatal("expected DHT to initialize in network mode")
+	}
+}
+
 func TestTwoNodesConnect(t *testing.T) {
 	t.Parallel()
 	n1 := generateTestNode(t)

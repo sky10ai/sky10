@@ -87,10 +87,12 @@ networks.
 
 **Scope**
 
-- add a proper custom DHT namespace/validator for sky10 private-network
-  records
-- implement one deterministic DHT key for private-network membership
-- implement one deterministic DHT key per device for private-network presence
+- implement one deterministic discovery key for private-network membership
+- implement one deterministic discovery key per device for private-network
+  presence
+- advertise those keys through DHT provider records
+- fetch signed membership from discovered peers over skylink
+- use DHT peer routing and provider lookups for presence
 - verify signatures at read and write boundaries
 
 **Membership Requirements**
@@ -111,7 +113,7 @@ networks.
 
 - 3+ devices in the same private network can publish without clobbering each
   other
-- DHT writes and reads succeed for both membership and presence
+- DHT provider discovery succeeds for membership and presence
 - stale or malformed records are rejected
 
 ### 4. Startup Rebuild Logic
@@ -122,10 +124,12 @@ Make daemon startup reconstruct the private network from global state.
 
 **Scope**
 
-- fetch membership from DHT first
-- fall back to Nostr only when DHT data is unavailable or stale
+- discover membership providers from DHT first
+- fetch signed membership from discovered peers
+- fall back to Nostr only when DHT discovery or fetch is unavailable or stale
 - derive the expected device presence keys from verified membership
-- fetch and verify presence records
+- resolve per-device reachability from DHT provider ads and `FindPeer`
+- verify Nostr fallback presence records when DHT reachability is missing
 - dial all fresh peers
 - rewrite local cache from verified global state
 
@@ -152,11 +156,11 @@ network reality.
 
 **Scope**
 
-- publish presence on startup
-- republish presence periodically
+- advertise membership and presence on startup
+- republish DHT provider ads periodically
 - republish on network/address changes
 - expire stale presence quickly enough to avoid poisoning reconnect logic
-- define tie-breaking rules for competing presence writes from the same device
+- define tie-breaking rules for Nostr fallback presence from the same device
 
 **Acceptance**
 
@@ -176,7 +180,7 @@ problems without inventing a second trust model.
 - publish membership and presence with the same identity/device semantics
 - use the same signature and freshness rules
 - query Nostr only as fallback:
-  - missing DHT membership
+  - missing DHT membership discovery/fetch
   - missing or stale DHT presence
 
 **Expected Code Areas**

@@ -135,7 +135,7 @@ func (h *RPCHandler) rpcResolve(ctx context.Context, params json.RawMessage) (in
 		if err == nil {
 			peers := make([]map[string]interface{}, 0, len(resolution.Peers))
 			for _, resolved := range resolution.Peers {
-				if resolved == nil || resolved.Info == nil || resolved.Presence == nil {
+				if resolved == nil || resolved.Info == nil {
 					continue
 				}
 				addrs := make([]string, 0, len(resolved.Info.Addrs))
@@ -144,9 +144,9 @@ func (h *RPCHandler) rpcResolve(ctx context.Context, params json.RawMessage) (in
 				}
 				peers = append(peers, map[string]interface{}{
 					"peer_id":       resolved.Info.ID.String(),
-					"device_pubkey": resolved.Presence.DevicePubKey,
-					"published_at":  resolved.Presence.PublishedAt,
-					"expires_at":    resolved.Presence.ExpiresAt,
+					"device_pubkey": resolved.DevicePubKey,
+					"published_at":  resolved.PublishedAt,
+					"expires_at":    resolved.ExpiresAt,
 					"source":        resolved.Source,
 					"multiaddrs":    addrs,
 				})

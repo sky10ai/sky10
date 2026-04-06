@@ -139,6 +139,72 @@ func TestResolverS3ThenNostr(t *testing.T) {
 	}
 }
 
+func TestResolverDHTProviderDiscovery(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	bundleA := generateTestBundle(t, "nodeA")
+	nodeA, err := New(bundleA, Config{Mode: Network}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	RegisterPrivateNetworkHandlers(nodeA)
+	startTestNode(t, nodeA)
+
+	bundleB := generateTestBundle(t, "nodeB")
+	nodeB, err := New(bundleB, Config{Mode: Network}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	RegisterPrivateNetworkHandlers(nodeB)
+	startTestNode(t, nodeB)
+
+	if err := nodeB.Host().Connect(ctx, addrInfo(t, nodeA)); err != nil {
+		t.Fatalf("seed DHT connectivity: %v", err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		err = nodeA.PublishRecord(ctx)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("publish DHT providers: %v", err)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	resolver := NewResolver(nodeB)
+
+	var resolution *Resolution
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resolution, err = resolver.ResolveAll(ctx, bundleA.Address())
+		if err == nil {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("resolve via DHT provider discovery: %v", err)
+	}
+	if resolution.MembershipSource != "dht" {
+		t.Fatalf("membership source = %q, want dht", resolution.MembershipSource)
+	}
+	if len(resolution.Peers) != 1 {
+		t.Fatalf("peer count = %d, want 1", len(resolution.Peers))
+	}
+	if resolution.Peers[0].Info == nil || resolution.Peers[0].Info.ID != nodeA.PeerID() {
+		t.Fatalf("resolved peer ID = %v, want %s", resolution.Peers[0].Info, nodeA.PeerID())
+	}
+	if resolution.Peers[0].Source != "dht" {
+		t.Fatalf("peer source = %q, want dht", resolution.Peers[0].Source)
+	}
+}
+
 func generateTestBundle(t *testing.T, name string) *id.Bundle {
 	t.Helper()
 	identity, _ := skykey.Generate()

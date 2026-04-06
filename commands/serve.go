@@ -121,6 +121,7 @@ func ServeCmd() *cobra.Command {
 			}
 			resolverOpts = append(resolverOpts, link.WithNostr(cfg.Relays()))
 			linkResolver := link.NewResolver(linkNode, resolverOpts...)
+			link.RegisterPrivateNetworkHandlers(linkNode)
 			server.RegisterHandler(link.NewRPCHandler(linkNode, linkResolver))
 			server.RegisterHandler(skyid.NewRPCHandler(bundle))
 			server.RegisterHandler(skyupdate.NewRPCHandler(Version, server.Emit))
@@ -226,16 +227,29 @@ func ServeCmd() *cobra.Command {
 			kvSync := kv.NewP2PSync(kvStore, linkNode, bundle.Identity, nil)
 			kvStore.SetP2PSync(kvSync)
 
+			linkRunErr := make(chan error, 1)
 			go func() {
-				if err := linkNode.Run(ctx); err != nil {
+				linkRunErr <- linkNode.Run(ctx)
+			}()
+			go func() {
+				if err := <-linkRunErr; err != nil && ctx.Err() == nil {
 					slog.Warn("link node failed", "error", err)
 				}
 			}()
 
 			// After the link node starts, publish multiaddrs and auto-connect.
 			go func() {
-				// Wait for host to be ready.
+				// Wait for host to be ready, but don't spin forever if the link
+				// node failed during startup.
+				deadline := time.Now().Add(10 * time.Second)
 				for linkNode.Host() == nil {
+					if ctx.Err() != nil {
+						return
+					}
+					if time.Now().After(deadline) {
+						slog.Warn("link node did not become ready before startup timeout")
+						return
+					}
 					time.Sleep(50 * time.Millisecond)
 				}
 

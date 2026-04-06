@@ -11,10 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ipfs/go-cid"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
-	record "github.com/libp2p/go-libp2p-record"
 	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
+	mh "github.com/multiformats/go-multihash"
 	"github.com/sky10/sky10/pkg/id"
 	skykey "github.com/sky10/sky10/pkg/key"
 )
@@ -77,6 +78,22 @@ func membershipDHTKey(identity string) string {
 
 func presenceDHTKey(identity, devicePubKey string) string {
 	return "/" + privateNetworkNamespace + "/" + privateNetworkVersion + "/presence/" + identity + "/" + strings.ToLower(devicePubKey)
+}
+
+func providerCIDForKey(key string) cid.Cid {
+	sum, err := mh.Sum([]byte(key), mh.SHA2_256, -1)
+	if err != nil {
+		panic(fmt.Sprintf("computing provider CID: %v", err))
+	}
+	return cid.NewCidV1(cid.Raw, sum)
+}
+
+func membershipProviderCID(identity string) cid.Cid {
+	return providerCIDForKey(membershipDHTKey(identity))
+}
+
+func presenceProviderCID(identity, devicePubKey string) cid.Cid {
+	return providerCIDForKey(presenceDHTKey(identity, devicePubKey))
 }
 
 func membershipNostrDTag(identity string) string {
@@ -513,78 +530,14 @@ func selectBestPresence(records ...*PresenceRecord) *PresenceRecord {
 	return best
 }
 
-type privateNetworkValidator struct{}
-
-func (privateNetworkValidator) Validate(key string, value []byte) error {
-	parts, err := parsePrivateNetworkKey(key)
-	if err != nil {
-		return err
-	}
-	switch parts.Kind {
-	case "membership":
-		var rec MembershipRecord
-		if err := json.Unmarshal(value, &rec); err != nil {
-			return fmt.Errorf("unmarshaling membership record: %w", err)
-		}
-		return rec.Validate(key)
-	case "presence":
-		var rec PresenceRecord
-		if err := json.Unmarshal(value, &rec); err != nil {
-			return fmt.Errorf("unmarshaling presence record: %w", err)
-		}
-		return rec.Validate(key)
-	default:
-		return fmt.Errorf("unknown private-network record kind: %s", parts.Kind)
-	}
-}
-
-func (privateNetworkValidator) Select(key string, values [][]byte) (int, error) {
-	parts, err := parsePrivateNetworkKey(key)
-	if err != nil {
-		return 0, err
-	}
-	switch parts.Kind {
-	case "membership":
-		bestIdx := 0
-		var best *MembershipRecord
-		for i, value := range values {
-			var rec MembershipRecord
-			if err := json.Unmarshal(value, &rec); err != nil {
-				return 0, fmt.Errorf("unmarshaling membership record: %w", err)
-			}
-			candidate := rec
-			if compareMembershipRecords(&candidate, best) > 0 {
-				best = &candidate
-				bestIdx = i
-			}
-		}
-		return bestIdx, nil
-	case "presence":
-		bestIdx := 0
-		var best *PresenceRecord
-		for i, value := range values {
-			var rec PresenceRecord
-			if err := json.Unmarshal(value, &rec); err != nil {
-				return 0, fmt.Errorf("unmarshaling presence record: %w", err)
-			}
-			candidate := rec
-			if comparePresenceRecords(&candidate, best) > 0 {
-				best = &candidate
-				bestIdx = i
-			}
-		}
-		return bestIdx, nil
-	default:
-		return 0, record.ErrInvalidRecordType
-	}
-}
-
 // initDHT initializes the Kademlia DHT on the node. Only called in
 // network mode.
 func (n *Node) initDHT(ctx context.Context) error {
-	d, err := dht.New(ctx, n.host,
+	d, err := dht.New(
+		ctx,
+		n.host,
 		dht.Mode(dht.ModeAutoServer),
-		dht.NamespacedValidator(privateNetworkNamespace, privateNetworkValidator{}),
+		dht.BootstrapPeers(dht.GetDefaultBootstrapPeerAddrInfos()...),
 	)
 	if err != nil {
 		return fmt.Errorf("creating DHT: %w", err)
@@ -596,26 +549,18 @@ func (n *Node) initDHT(ctx context.Context) error {
 	return nil
 }
 
-func (n *Node) PublishMembershipRecord(ctx context.Context, rec *MembershipRecord) error {
+func (n *Node) PublishMembershipProvider(ctx context.Context, identity string) error {
 	if n.dht == nil {
 		return fmt.Errorf("DHT not initialized (network mode required)")
 	}
-	data, err := json.Marshal(rec)
-	if err != nil {
-		return fmt.Errorf("marshaling membership record: %w", err)
-	}
-	return n.dht.PutValue(ctx, membershipDHTKey(rec.Identity), data)
+	return n.dht.Provide(ctx, membershipProviderCID(identity), true)
 }
 
-func (n *Node) PublishPresenceRecord(ctx context.Context, rec *PresenceRecord) error {
+func (n *Node) PublishPresenceProvider(ctx context.Context, identity, devicePubKey string) error {
 	if n.dht == nil {
 		return fmt.Errorf("DHT not initialized (network mode required)")
 	}
-	data, err := json.Marshal(rec)
-	if err != nil {
-		return fmt.Errorf("marshaling presence record: %w", err)
-	}
-	return n.dht.PutValue(ctx, presenceDHTKey(rec.Identity, rec.DevicePubKey), data)
+	return n.dht.Provide(ctx, presenceProviderCID(identity, devicePubKey), true)
 }
 
 func (n *Node) PublishRecord(ctx context.Context) error {
@@ -623,7 +568,7 @@ func (n *Node) PublishRecord(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := n.PublishMembershipRecord(ctx, membership); err != nil {
+	if err := n.PublishMembershipProvider(ctx, membership.Identity); err != nil {
 		return err
 	}
 
@@ -631,44 +576,7 @@ func (n *Node) PublishRecord(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return n.PublishPresenceRecord(ctx, presence)
-}
-
-func (n *Node) ResolveMembershipRecord(ctx context.Context, identity string) (*MembershipRecord, error) {
-	if n.dht == nil {
-		return nil, fmt.Errorf("DHT not initialized (network mode required)")
-	}
-	data, err := n.dht.GetValue(ctx, membershipDHTKey(identity))
-	if err != nil {
-		return nil, fmt.Errorf("resolving membership record: %w", err)
-	}
-	var rec MembershipRecord
-	if err := json.Unmarshal(data, &rec); err != nil {
-		return nil, fmt.Errorf("unmarshaling membership record: %w", err)
-	}
-	if err := rec.Validate(membershipDHTKey(identity)); err != nil {
-		return nil, err
-	}
-	return &rec, nil
-}
-
-func (n *Node) ResolvePresenceRecord(ctx context.Context, identity, devicePubKey string) (*PresenceRecord, error) {
-	if n.dht == nil {
-		return nil, fmt.Errorf("DHT not initialized (network mode required)")
-	}
-	devicePubKey = strings.ToLower(devicePubKey)
-	data, err := n.dht.GetValue(ctx, presenceDHTKey(identity, devicePubKey))
-	if err != nil {
-		return nil, fmt.Errorf("resolving presence record: %w", err)
-	}
-	var rec PresenceRecord
-	if err := json.Unmarshal(data, &rec); err != nil {
-		return nil, fmt.Errorf("unmarshaling presence record: %w", err)
-	}
-	if err := rec.Validate(presenceDHTKey(identity, devicePubKey)); err != nil {
-		return nil, err
-	}
-	return &rec, nil
+	return n.PublishPresenceProvider(ctx, presence.Identity, presence.DevicePubKey)
 }
 
 func addrInfoFromMultiaddrStrings(addrs []string) (*peer.AddrInfo, error) {

@@ -13,7 +13,7 @@ shapes for DHT-primary discovery and Nostr fallback.
 
 This spec defines:
 
-- deterministic DHT keys
+- deterministic discovery keys
 - membership and presence payloads
 - signature and validation rules
 - record-selection rules when multiple values exist
@@ -47,7 +47,7 @@ This spec does not define:
 
 For v1 private-network discovery:
 
-- DHT keys use `identity` and `device_pubkey`
+- discovery keys use `identity` and `device_pubkey`
 - signatures verify against `identity` or `device_pubkey`
 - logs and debug surfaces may show `device_id` alongside the long identifier
 - `device_id` must never be the sole wire identifier
@@ -60,15 +60,15 @@ Why:
 - short IDs are compact and operator-friendly, but they are not the right
   canonical identity for global discovery records
 
-## DHT Key Layout
+## Discovery Key Layout
 
-The DHT namespace is:
+The discovery namespace is:
 
 `/sky10-private-network/...`
 
 ### Membership Key
 
-One key per private network:
+One identity-scoped discovery key per private network:
 
 ```text
 /sky10-private-network/v1/membership/<identity>
@@ -82,7 +82,7 @@ Example:
 
 ### Presence Key
 
-One key per device inside a private network:
+One device-scoped discovery key per device inside a private network:
 
 ```text
 /sky10-private-network/v1/presence/<identity>/<device_pubkey>
@@ -93,6 +93,20 @@ Example:
 ```text
 /sky10-private-network/v1/presence/sky10qexample.../9f2a...
 ```
+
+These keys are used in two ways:
+
+- DHT primary:
+  - membership key is hashed into a provider CID
+  - devices advertise themselves as providers for that identity
+  - queriers connect to providers and fetch the signed membership record over
+    skylink
+- Nostr fallback:
+  - the same logical key is encoded in event tags
+  - the signed membership/presence payloads are carried directly in the event
+
+The public `/ipfs` DHT is not used as arbitrary `PutValue/GetValue` storage
+for these records.
 
 ## Membership Record
 
@@ -126,7 +140,7 @@ Membership is the durable guest list for the private network.
 ### Field Rules
 
 - `schema` must equal `sky10.private-network.membership.v1`.
-- `identity` must equal the identity suffix in the DHT key.
+- `identity` must equal the identity suffix in the membership key.
 - `revision` is a monotonically increasing integer for this private network.
 - `updated_at` is RFC3339 UTC.
 - `devices` contains the currently authorized device keys.
@@ -150,7 +164,7 @@ For canonicalization:
 
 Membership is valid only if:
 
-- the DHT key path is valid
+- the membership key path is valid
 - `schema` matches
 - `identity` parses as a valid sky10 address
 - the identity in the payload matches the identity in the key
@@ -190,8 +204,8 @@ Presence is a device's current address card for the private network.
 ### Field Rules
 
 - `schema` must equal `sky10.private-network.presence.v1`.
-- `identity` must equal the identity suffix in the DHT key.
-- `device_pubkey` must equal the device suffix in the DHT key.
+- `identity` must equal the identity suffix in the presence key.
+- `device_pubkey` must equal the device suffix in the presence key.
 - `peer_id` must deterministically match `device_pubkey`.
 - every `multiaddr` must parse successfully and embed the same `peer_id`.
 - `published_at` and `expires_at` are RFC3339 UTC.
@@ -212,7 +226,7 @@ For canonicalization:
 
 Presence is valid only if:
 
-- the DHT key path is valid
+- the presence key path is valid
 - `schema` matches
 - `identity` parses as a valid sky10 address
 - `device_pubkey` is valid lowercase hex and decodes to a valid Ed25519 key
@@ -238,14 +252,18 @@ If multiple valid presence records are encountered for the same device:
 
 On startup:
 
-1. fetch membership from the membership key
-2. validate and select the winning membership record
-3. for each active device in `devices`, derive its presence key
-4. fetch presence for each device
-5. validate and select the winning presence record for each device
-6. ignore any presence for devices not in active membership
-7. dial all fresh peers except self
-8. rewrite local cache from the winning global records
+1. derive the identity-scoped membership discovery key
+2. query DHT providers for that key
+3. connect to discovered providers and fetch signed membership over skylink
+4. fall back to Nostr membership if DHT discovery/fetch fails
+5. validate and select the winning membership record
+6. for each active device in `devices`, derive its presence discovery key
+7. query DHT providers for that device key and verify the returned peer ID
+8. use DHT `FindPeer` as an additional reachability path for the expected peer ID
+9. fall back to Nostr presence records when DHT reachability is missing or stale
+10. ignore any presence for devices not in active membership
+11. dial all fresh peers except self
+12. rewrite local cache from the winning global records
 
 ## Write Rules
 
@@ -260,9 +278,10 @@ The expected write sequence is:
 3. increment `revision`
 4. set `updated_at` to now
 5. re-sign with the shared identity key
-6. publish to DHT
-7. mirror to Nostr fallback
-8. update local cache only after global publish succeeds
+6. advertise the identity-scoped membership discovery key on DHT
+7. serve the signed membership record over skylink to discovered peers
+8. mirror the signed record to Nostr fallback
+9. update local cache only after the new signed record exists locally
 
 V1 does not attempt to support concurrent independent membership edits from
 multiple devices. If that becomes necessary, the next step is an op-based or
@@ -279,8 +298,9 @@ The expected write sequence is:
 3. set `published_at` to now
 4. set `expires_at` to now plus the chosen TTL
 5. sign with the device key
-6. publish to DHT
-7. mirror to Nostr fallback
+6. advertise the device-scoped presence discovery key on DHT
+7. remain reachable by peer ID through the running network-mode node
+8. mirror the signed presence record to Nostr fallback
 
 Presence is republished:
 
@@ -315,11 +335,11 @@ represent many devices without clobbering.
 
 This v1 spec fixes that by splitting discovery into:
 
-- one durable membership record per private network
-- one presence record per device
+- one durable signed membership record per private network
+- one device-scoped presence path per device
 
 That means:
 
-- devices no longer overwrite each other in the DHT
-- startup can derive all expected presence keys from membership
+- devices no longer overwrite each other in DHT discovery
+- startup can derive all expected device lookups from membership
 - stale local files stop being authoritative by themselves

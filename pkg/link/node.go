@@ -186,6 +186,8 @@ func (n *Node) Run(ctx context.Context) error {
 	if n.config.Mode == Network {
 		if err := n.initDHT(ctx); err != nil {
 			h.Close()
+			n.host = nil
+			n.dht = nil
 			return err
 		}
 	}
@@ -193,7 +195,12 @@ func (n *Node) Run(ctx context.Context) error {
 	// Initialize GossipSub for encrypted channels.
 	ps, err := newPubSub(ctx, n)
 	if err != nil {
+		if n.dht != nil {
+			n.dht.Close()
+			n.dht = nil
+		}
 		h.Close()
+		n.host = nil
 		return fmt.Errorf("initializing pubsub: %w", err)
 	}
 	n.pubsub = ps

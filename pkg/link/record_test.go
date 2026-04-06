@@ -2,6 +2,7 @@ package link
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -159,5 +160,35 @@ func TestMembershipRecordCanBeAppliedToBundle(t *testing.T) {
 	bundle.Manifest = manifest
 	if _, err := id.New(bundle.Identity, bundle.Device, bundle.Manifest); err != nil {
 		t.Fatalf("expected bundle rebuilt from membership cache to validate: %v", err)
+	}
+}
+
+func TestFetchMembershipRecordFromPeer(t *testing.T) {
+	t.Parallel()
+
+	nodeA, err := New(generateTestBundle(t, "nodeA"), Config{Mode: Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	RegisterPrivateNetworkHandlers(nodeA)
+	startTestNode(t, nodeA)
+
+	nodeB, err := New(generateTestBundle(t, "nodeB"), Config{Mode: Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startTestNode(t, nodeB)
+
+	rec, err := nodeB.FetchMembershipRecord(context.Background(), addrInfo(t, nodeA), nodeA.Address())
+	if err != nil {
+		t.Fatalf("fetch membership record: %v", err)
+	}
+	if err := rec.Validate(membershipDHTKey(nodeA.Address())); err != nil {
+		t.Fatalf("validate fetched membership record: %v", err)
+	}
+	if !slices.ContainsFunc(rec.Devices, func(device MembershipDevice) bool {
+		return device.PublicKey == nodeA.Bundle().DevicePubKeyHex()
+	}) {
+		t.Fatal("fetched membership record missing nodeA device")
 	}
 }

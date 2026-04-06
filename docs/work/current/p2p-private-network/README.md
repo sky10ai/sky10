@@ -59,7 +59,7 @@ Use `private network` consistently in code, docs, and product language.
 
 ### Private network membership
 
-One durable identity-scoped record that answers:
+One durable signed record that answers:
 
 > Which device public keys are authorized members of this private network?
 
@@ -71,20 +71,23 @@ Properties:
 - includes removals explicitly (`revoked` set or tombstones)
 - v1 is a serialized full-record update model, not a concurrent multi-writer
   merge model
+- DHT primary discovers this record through identity-scoped provider ads
+- the record itself is fetched from discovered peers over skylink
+- Nostr mirrors the same signed payload as fallback
 
 ### Private network presence
 
-One device-scoped record per device that answers:
+One device-scoped discovery path per device that answers:
 
 > Where is this device reachable right now?
 
 Properties:
 
 - keyed by identity + device public key
-- signed by the device key
-- contains peer ID, current multiaddrs, freshness window
-- short TTL and periodic republish
-- no cross-device clobbering because each device writes its own key
+- DHT primary uses per-device provider ads plus peer routing (`FindPeer`)
+- the expected peer ID is derived from the device public key
+- Nostr fallback uses a signed device presence record with multiaddrs and TTL
+- no cross-device clobbering because each device advertises only its own key
 
 ### Private network observations
 
@@ -97,18 +100,20 @@ are not required for correctness in the first version.
 ### Startup
 
 1. Load local shared identity key and local device key.
-2. Fetch private-network membership from DHT.
-3. Fall back to Nostr if DHT is unavailable or stale.
-4. Verify membership with the shared identity key.
-5. Fetch private-network presence for all authorized devices.
-6. Verify presence with the relevant device keys and freshness window.
-7. Dial all fresh peers.
-8. Rewrite local cache from verified global state.
+2. Discover private-network membership providers from DHT.
+3. Fetch signed membership from discovered peers over skylink.
+4. Fall back to Nostr if DHT membership discovery or fetch fails.
+5. Verify membership with the shared identity key.
+6. Resolve per-device presence from DHT provider ads and `FindPeer`.
+7. Fall back to Nostr presence when DHT reachability is missing or stale.
+8. Dial all fresh peers.
+9. Rewrite local cache from verified global state.
 
 ### Runtime
 
-- Publish own presence on startup.
-- Republish own presence periodically.
+- Advertise membership and own presence to DHT on startup.
+- Republish DHT provider ads periodically.
+- Mirror membership and presence to Nostr.
 - Republish on address/reachability changes.
 - Refresh membership and peer presence periodically.
 - Expire stale presence automatically.
@@ -129,7 +134,7 @@ new one, and it must not rely on LAN assumptions.
 - New discovery model centered on `private network membership` and
   `private network presence`.
 - Concrete record contract in [record-spec.md](./record-spec.md).
-- DHT-first implementation with Nostr fallback.
+- DHT-first implementation with provider ads, peer routing, and Nostr fallback.
 - Startup and runtime self-healing behavior.
 - Explicit repair flow for catastrophic local divergence.
 
