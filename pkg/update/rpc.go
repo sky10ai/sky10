@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync/atomic"
+	"time"
 )
 
 // RPCHandler dispatches system.* RPC methods.
@@ -14,11 +15,26 @@ type RPCHandler struct {
 	version  string
 	emit     Emitter
 	updating atomic.Bool
+
+	restartHandler RestartHandler
+	restartDelay   time.Duration
 }
+
+// RestartHandler restarts the daemon after the RPC response has been sent.
+type RestartHandler func() error
 
 // NewRPCHandler creates an RPC handler for system operations.
 func NewRPCHandler(version string, emit Emitter) *RPCHandler {
-	return &RPCHandler{version: version, emit: emit}
+	return &RPCHandler{
+		version:      version,
+		emit:         emit,
+		restartDelay: 500 * time.Millisecond,
+	}
+}
+
+// SetRestartHandler configures system.restart.
+func (h *RPCHandler) SetRestartHandler(fn RestartHandler) {
+	h.restartHandler = fn
 }
 
 // Dispatch handles system.* methods.
@@ -32,6 +48,8 @@ func (h *RPCHandler) Dispatch(_ context.Context, method string, _ json.RawMessag
 		return h.rpcCheckUpdate()
 	case "system.update":
 		return h.rpcUpdate()
+	case "system.restart":
+		return h.rpcRestart()
 	default:
 		return nil, fmt.Errorf("unknown method: %s", method), true
 	}
@@ -84,4 +102,21 @@ func (h *RPCHandler) rpcUpdate() (interface{}, error, bool) {
 	}()
 
 	return map[string]string{"status": "checking"}, nil, true
+}
+
+func (h *RPCHandler) rpcRestart() (interface{}, error, bool) {
+	if h.restartHandler == nil {
+		return nil, fmt.Errorf("system.restart not available"), true
+	}
+
+	go func() {
+		if h.restartDelay > 0 {
+			time.Sleep(h.restartDelay)
+		}
+		if err := h.restartHandler(); err != nil {
+			slog.Warn("system.restart failed", "error", err)
+		}
+	}()
+
+	return map[string]string{"status": "restarting"}, nil, true
 }

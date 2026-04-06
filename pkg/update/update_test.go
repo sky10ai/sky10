@@ -225,6 +225,34 @@ func TestRPCUpdateConcurrentGuard(t *testing.T) {
 	}
 }
 
+func TestRPCRestartDispatch(t *testing.T) {
+	noop := func(string, interface{}) {}
+	h := NewRPCHandler("v1.0.0", noop)
+	h.restartDelay = 0
+
+	called := make(chan struct{}, 1)
+	h.SetRestartHandler(func() error {
+		called <- struct{}{}
+		return nil
+	})
+
+	result, err, ok := h.Dispatch(context.Background(), "system.restart", nil)
+	if !ok || err != nil {
+		t.Fatalf("restart dispatch: ok=%v err=%v", ok, err)
+	}
+
+	status, _ := result.(map[string]string)
+	if status["status"] != "restarting" {
+		t.Fatalf("status = %v, want restarting", result)
+	}
+
+	select {
+	case <-called:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("restart handler was not called")
+	}
+}
+
 func TestPeriodicCheckEmitsEvent(t *testing.T) {
 	asset := fmt.Sprintf("sky10-%s-%s", runtime.GOOS, runtime.GOARCH)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

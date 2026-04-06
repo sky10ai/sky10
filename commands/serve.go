@@ -126,7 +126,12 @@ func ServeCmd() *cobra.Command {
 			var refreshPrivateNetwork func()
 			identityRPC := skyid.NewRPCHandler(bundle)
 			server.RegisterHandler(identityRPC)
-			server.RegisterHandler(skyupdate.NewRPCHandler(Version, server.Emit))
+			updateRPC := skyupdate.NewRPCHandler(Version, server.Emit)
+			updateRPC.SetRestartHandler(func() error {
+				os.Exit(75)
+				return nil
+			})
+			server.RegisterHandler(updateRPC)
 
 			var privateNetworkMu sync.Mutex
 			refreshPrivateNetwork = func() {
