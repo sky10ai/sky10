@@ -102,6 +102,7 @@ export const identity = {
   devices: () => rpc<IdentityDevices>("identity.devices"),
   deviceList: () => rpc<DeviceListResult>("identity.deviceList"),
   invite: () => rpc<InviteResult>("identity.invite"),
+  join: (p: { code: string }) => rpc<IdentityJoinResult>("identity.join", p),
   approve: () => rpc<{ approved: number }>("identity.approve"),
   deviceRemove: (p: { pubkey: string }) => rpc("identity.deviceRemove", p),
 };
@@ -207,6 +208,14 @@ export interface DeviceListResult {
 export interface InviteResult {
   code: string;
   expires: string;
+}
+
+export interface IdentityJoinResult {
+  status: string;
+  identity: string;
+  device_id: string;
+  device_pubkey: string;
+  restarting: boolean;
 }
 
 export interface StatusResult {

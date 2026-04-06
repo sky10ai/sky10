@@ -115,6 +115,52 @@ func TestRPCDeviceRemoveParsesPubkey(t *testing.T) {
 	}
 }
 
+func TestRPCJoinParsesCode(t *testing.T) {
+	identity, _ := skykey.Generate()
+	current, _ := skykey.Generate()
+	manifest := NewManifest(identity)
+	manifest.AddDevice(current.PublicKey, "mac")
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatalf("sign manifest: %v", err)
+	}
+
+	bundle, err := New(identity, current, manifest)
+	if err != nil {
+		t.Fatalf("new bundle: %v", err)
+	}
+
+	handler := NewRPCHandler(bundle)
+
+	called := false
+	handler.SetJoinHandler(func(_ context.Context, code string) (interface{}, error) {
+		called = true
+		if code != "sky10p2p_test" {
+			t.Fatalf("code = %q, want sky10p2p_test", code)
+		}
+		return map[string]string{"status": "joined"}, nil
+	})
+
+	params, _ := json.Marshal(map[string]string{"code": "  sky10p2p_test  "})
+	raw, err, handled := handler.Dispatch(context.Background(), "identity.join", params)
+	if err != nil {
+		t.Fatalf("dispatch error: %v", err)
+	}
+	if !handled {
+		t.Fatal("identity.join was not handled")
+	}
+	if !called {
+		t.Fatal("join handler was not called")
+	}
+
+	result, ok := raw.(map[string]string)
+	if !ok {
+		t.Fatalf("result type = %T, want map[string]string", raw)
+	}
+	if result["status"] != "joined" {
+		t.Fatalf("status = %q, want joined", result["status"])
+	}
+}
+
 func TestRPCDevicesFormatsTimestampsUTC(t *testing.T) {
 	identity, _ := skykey.Generate()
 	current, _ := skykey.Generate()

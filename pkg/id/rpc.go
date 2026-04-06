@@ -16,6 +16,7 @@ type RPCHandler struct {
 	bundle                 *Bundle
 	deviceMetadataProvider DeviceMetadataProvider
 	inviteHandler          InviteHandler
+	joinHandler            JoinHandler
 	approveHandler         ApproveHandler
 	deviceRemoveHandler    DeviceRemoveHandler
 }
@@ -44,6 +45,9 @@ type DeviceMetadataProvider func(context.Context) (map[string]DeviceMetadata, er
 // InviteHandler generates an invite code for this identity.
 type InviteHandler func(context.Context) (string, error)
 
+// JoinHandler joins another identity/private network using an invite code.
+type JoinHandler func(context.Context, string) (interface{}, error)
+
 // ApproveHandler approves pending join requests and returns the count.
 type ApproveHandler func(context.Context) (int, error)
 
@@ -59,6 +63,11 @@ func (h *RPCHandler) SetDeviceMetadataProvider(fn DeviceMetadataProvider) {
 // SetInviteHandler configures identity.invite.
 func (h *RPCHandler) SetInviteHandler(fn InviteHandler) {
 	h.inviteHandler = fn
+}
+
+// SetJoinHandler configures identity.join.
+func (h *RPCHandler) SetJoinHandler(fn JoinHandler) {
+	h.joinHandler = fn
 }
 
 // SetApproveHandler configures identity.approve.
@@ -86,6 +95,8 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		return h.rpcDeviceList(ctx)
 	case "identity.invite":
 		return h.rpcInvite(ctx)
+	case "identity.join":
+		return h.rpcJoin(ctx, params)
 	case "identity.approve":
 		return h.rpcApprove(ctx)
 	case "identity.deviceRemove":
@@ -214,6 +225,26 @@ func (h *RPCHandler) rpcInvite(ctx context.Context) (interface{}, error, bool) {
 		return nil, err, true
 	}
 	return map[string]string{"code": code}, nil, true
+}
+
+func (h *RPCHandler) rpcJoin(ctx context.Context, params json.RawMessage) (interface{}, error, bool) {
+	if h.joinHandler == nil {
+		return nil, fmt.Errorf("identity.join not available"), true
+	}
+	var p struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err), true
+	}
+	if strings.TrimSpace(p.Code) == "" {
+		return nil, fmt.Errorf("code required"), true
+	}
+	result, err := h.joinHandler(ctx, strings.TrimSpace(p.Code))
+	if err != nil {
+		return nil, err, true
+	}
+	return result, nil, true
 }
 
 func (h *RPCHandler) rpcApprove(ctx context.Context) (interface{}, error, bool) {

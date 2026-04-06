@@ -8,6 +8,7 @@ export default function GettingStarted() {
   const navigate = useNavigate();
   const [inviteCode, setInviteCode] = useState("");
   const [joinError, setJoinError] = useState("");
+  const [joinStatus, setJoinStatus] = useState("");
   const [joining, setJoining] = useState(false);
   const { data } = useRPC(() => identity.deviceList(), [], {
     refreshIntervalMs: 5_000,
@@ -19,10 +20,21 @@ export default function GettingStarted() {
     const code = inviteCode.trim();
     if (!code) return;
     setJoinError("");
+    setJoinStatus("");
     setJoining(true);
     try {
-      // TODO: wire to sky10 join RPC when available in daemon
-      setJoinError("Join via web UI coming soon — use 'sky10 join " + code + "' from the CLI");
+      const result = await identity.join({ code });
+      setInviteCode("");
+      if (result.restarting) {
+        setJoinStatus("Joined private network. Daemon restarting...");
+        window.setTimeout(() => {
+          window.location.href = "/";
+        }, 3000);
+      } else {
+        setJoinStatus("Joined private network.");
+      }
+    } catch (err) {
+      setJoinError(err instanceof Error ? err.message : "Join failed");
     } finally {
       setJoining(false);
     }
@@ -85,6 +97,9 @@ export default function GettingStarted() {
             </div>
             {joinError && (
               <p className="text-xs text-error">{joinError}</p>
+            )}
+            {joinStatus && !joinError && (
+              <p className="text-xs text-primary">{joinStatus}</p>
             )}
           </div>
 
