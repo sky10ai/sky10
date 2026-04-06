@@ -134,6 +134,7 @@ new one, and it must not rely on LAN assumptions.
 - New discovery model centered on `private network membership` and
   `private network presence`.
 - Concrete record contract in [record-spec.md](./record-spec.md).
+- KV CRDT direction and hardening plan in [kv-crdt-plan.md](./kv-crdt-plan.md).
 - DHT-first implementation with provider ads, peer routing, and Nostr fallback.
 - Startup and runtime self-healing behavior.
 - Explicit repair flow for catastrophic local divergence.
