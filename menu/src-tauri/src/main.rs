@@ -391,7 +391,7 @@ fn main() {
                         if new_info.state != prev_state {
                             set_tray_icon(&tray_clone, &new_info.state, 0);
                             set_tray_tooltip(&tray_clone, &new_info.state);
-                            prev_state = new_info.state;
+                            prev_state = new_info.state.clone();
                         }
                         frame = 0;
                         std::thread::sleep(Duration::from_secs(10));
