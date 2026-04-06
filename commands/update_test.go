@@ -94,7 +94,7 @@ func TestUpdateCmdRestartsMenuAfterDaemonRestart(t *testing.T) {
 		t.Fatalf("RunE: %v", err)
 	}
 
-	want := []string{"check", "apply-cli", "apply-menu", "stop-menu", "restart-daemon", "start-menu"}
+	want := []string{"stop-menu", "check", "apply-cli", "apply-menu", "restart-daemon", "start-menu"}
 	if !reflect.DeepEqual(order, want) {
 		t.Fatalf("order = %v, want %v", order, want)
 	}
@@ -111,6 +111,7 @@ func TestUpdateCmdDoesNotStartMenuWhenDaemonRestartFails(t *testing.T) {
 
 	var order []string
 	updateCheck = func(current string) (*skyupdate.Info, error) {
+		order = append(order, "check")
 		return &skyupdate.Info{Current: current, Latest: "v0.38.0", Available: true}, nil
 	}
 	updateApply = func(info *skyupdate.Info) error {
@@ -141,7 +142,7 @@ func TestUpdateCmdDoesNotStartMenuWhenDaemonRestartFails(t *testing.T) {
 		t.Fatalf("RunE: %v", err)
 	}
 
-	want := []string{"apply-cli", "apply-menu", "stop-menu", "restart-daemon"}
+	want := []string{"stop-menu", "check", "apply-cli", "apply-menu", "restart-daemon"}
 	if !reflect.DeepEqual(order, want) {
 		t.Fatalf("order = %v, want %v", order, want)
 	}
@@ -159,6 +160,7 @@ func TestUpdateCmdRestartsMenuWhenOnlyMenuChanges(t *testing.T) {
 
 	var order []string
 	updateCheck = func(current string) (*skyupdate.Info, error) {
+		order = append(order, "check")
 		return &skyupdate.Info{Current: current, Latest: current, Available: false}, nil
 	}
 	updateApplyMenu = func(info *skyupdate.Info) (bool, error) {
@@ -185,11 +187,118 @@ func TestUpdateCmdRestartsMenuWhenOnlyMenuChanges(t *testing.T) {
 		t.Fatalf("RunE: %v", err)
 	}
 
-	want := []string{"apply-menu", "stop-menu", "start-menu"}
+	want := []string{"stop-menu", "check", "apply-menu", "start-menu"}
 	if !reflect.DeepEqual(order, want) {
 		t.Fatalf("order = %v, want %v", order, want)
 	}
 	if !strings.Contains(out, "sky10-menu updated") {
 		t.Fatalf("expected menu update output:\n%s", out)
+	}
+}
+
+func TestUpdateCmdRestartsMenuWhenAlreadyUpToDate(t *testing.T) {
+	withUpdateStubs(t)
+	Version = "v0.38.1"
+
+	var order []string
+	updateCheck = func(current string) (*skyupdate.Info, error) {
+		order = append(order, "check")
+		return &skyupdate.Info{Current: current, Latest: current, Available: false}, nil
+	}
+	updateApplyMenu = func(info *skyupdate.Info) (bool, error) {
+		order = append(order, "apply-menu")
+		return false, nil
+	}
+	updateStopMenu = func() error {
+		order = append(order, "stop-menu")
+		return nil
+	}
+	updateStartMenu = func() error {
+		order = append(order, "start-menu")
+		return nil
+	}
+
+	out, err := captureStdout(t, func() error {
+		return UpdateCmd().RunE(UpdateCmd(), nil)
+	})
+	if err != nil {
+		t.Fatalf("RunE: %v", err)
+	}
+
+	want := []string{"stop-menu", "check", "apply-menu", "start-menu"}
+	if !reflect.DeepEqual(order, want) {
+		t.Fatalf("order = %v, want %v", order, want)
+	}
+	if !strings.Contains(out, "already up to date") {
+		t.Fatalf("expected already up to date output:\n%s", out)
+	}
+}
+
+func TestUpdateCmdCheckOnlyDoesNotTouchMenu(t *testing.T) {
+	withUpdateStubs(t)
+	Version = "v0.38.0"
+
+	var order []string
+	updateCheck = func(current string) (*skyupdate.Info, error) {
+		order = append(order, "check")
+		return &skyupdate.Info{Current: current, Latest: "v0.38.1", Available: true}, nil
+	}
+	updateStopMenu = func() error {
+		order = append(order, "stop-menu")
+		return nil
+	}
+	updateStartMenu = func() error {
+		order = append(order, "start-menu")
+		return nil
+	}
+	cmd := UpdateCmd()
+	if err := cmd.Flags().Set("check", "true"); err != nil {
+		t.Fatalf("Flags().Set: %v", err)
+	}
+
+	out, err := captureStdout(t, func() error {
+		return cmd.RunE(cmd, nil)
+	})
+	if err != nil {
+		t.Fatalf("RunE: %v", err)
+	}
+
+	want := []string{"check"}
+	if !reflect.DeepEqual(order, want) {
+		t.Fatalf("order = %v, want %v", order, want)
+	}
+	if !strings.Contains(out, "update available: v0.38.0 -> v0.38.1") {
+		t.Fatalf("expected update available output:\n%s", out)
+	}
+}
+
+func TestUpdateCmdRestartsMenuIfUpdateCheckFails(t *testing.T) {
+	withUpdateStubs(t)
+	Version = "v0.38.0"
+
+	var order []string
+	updateStopMenu = func() error {
+		order = append(order, "stop-menu")
+		return nil
+	}
+	updateCheck = func(current string) (*skyupdate.Info, error) {
+		order = append(order, "check")
+		return nil, fmt.Errorf("boom")
+	}
+	updateStartMenu = func() error {
+		order = append(order, "start-menu")
+		return nil
+	}
+
+	_, err := captureStdout(t, func() error {
+		return UpdateCmd().RunE(UpdateCmd(), nil)
+	})
+	if err == nil {
+		t.Fatal("expected RunE error")
+	}
+
+	want := []string{"stop-menu", "check", "start-menu"}
+	if !reflect.DeepEqual(order, want) {
+		t.Fatalf("order = %v, want %v", order, want)
 	}
 }

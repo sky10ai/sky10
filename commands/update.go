@@ -26,8 +26,25 @@ func UpdateCmd() *cobra.Command {
 		Use:     "update",
 		Aliases: []string{"upgrade"},
 		Short:   "Update sky10 to the latest version",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
 			fmt.Printf("current: %s\n", Version)
+
+			startMenuOnReturn := false
+			if !checkOnly {
+				if err := updateStopMenu(); err != nil {
+					fmt.Printf("warning: could not stop sky10-menu: %v\n", err)
+				} else {
+					startMenuOnReturn = true
+				}
+				defer func() {
+					if !startMenuOnReturn {
+						return
+					}
+					if err := updateStartMenu(); err != nil {
+						fmt.Printf("warning: could not start sky10-menu: %v\n", err)
+					}
+				}()
+			}
 
 			info, err := updateCheck(Version)
 			if err != nil {
@@ -44,12 +61,6 @@ func UpdateCmd() *cobra.Command {
 				}
 				if menuUpdated {
 					fmt.Println("sky10-menu updated")
-					if err := updateStopMenu(); err != nil {
-						fmt.Printf("warning: could not stop sky10-menu: %v\n", err)
-					}
-					if err := updateStartMenu(); err != nil {
-						fmt.Printf("warning: could not start sky10-menu: %v\n", err)
-					}
 				} else {
 					fmt.Println("already up to date")
 				}
@@ -74,18 +85,12 @@ func UpdateCmd() *cobra.Command {
 				fmt.Println("sky10-menu updated")
 			}
 
-			if err := updateStopMenu(); err != nil {
-				fmt.Printf("warning: could not stop sky10-menu: %v\n", err)
-			}
-
 			if err := updateRestartDaemon(); err != nil {
 				fmt.Printf("warning: could not restart daemon: %v\n", err)
 				fmt.Println("restart the daemon manually to use the new version")
+				startMenuOnReturn = false
 			} else {
 				fmt.Println("daemon restarted")
-				if err := updateStartMenu(); err != nil {
-					fmt.Printf("warning: could not start sky10-menu: %v\n", err)
-				}
 			}
 
 			fmt.Printf("updated to %s\n", info.Latest)
