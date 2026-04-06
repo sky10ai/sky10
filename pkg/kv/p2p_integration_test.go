@@ -21,8 +21,7 @@ func TestP2PSyncTwoNodes(t *testing.T) {
 	// have the same key).
 	nsKey, _ := skykey.GenerateSymmetricKey()
 
-	nodeA, storeA, syncA := startTestNode(t, ctx, "nodeA", nsKey)
-	nodeB, storeB, syncB := startTestNode(t, ctx, "nodeB", nsKey)
+	nodeA, storeA, syncA, nodeB, storeB, syncB := startSharedTestPair(t, ctx, nsKey)
 
 	// Connect A → B directly.
 	infoB := nodeB.Host().Peerstore().PeerInfo(nodeB.PeerID())
@@ -77,8 +76,7 @@ func TestP2PSyncMultipleKeys(t *testing.T) {
 	defer cancel()
 
 	nsKey, _ := skykey.GenerateSymmetricKey()
-	nodeA, storeA, _ := startTestNode(t, ctx, "nodeA", nsKey)
-	nodeB, storeB, _ := startTestNode(t, ctx, "nodeB", nsKey)
+	nodeA, storeA, _, nodeB, storeB, _ := startSharedTestPair(t, ctx, nsKey)
 
 	infoB := nodeB.Host().Peerstore().PeerInfo(nodeB.PeerID())
 	if err := nodeA.Host().Connect(ctx, infoB); err != nil {
@@ -117,8 +115,7 @@ func TestP2PSyncCancelledContext(t *testing.T) {
 	defer cancel()
 
 	nsKey, _ := skykey.GenerateSymmetricKey()
-	nodeA, storeA, _ := startTestNode(t, ctx, "nodeA", nsKey)
-	nodeB, storeB, _ := startTestNode(t, ctx, "nodeB", nsKey)
+	nodeA, storeA, _, nodeB, storeB, _ := startSharedTestPair(t, ctx, nsKey)
 
 	infoB := nodeB.Host().Peerstore().PeerInfo(nodeB.PeerID())
 	if err := nodeA.Host().Connect(ctx, infoB); err != nil {
@@ -154,8 +151,7 @@ func TestP2PSyncRapidSets(t *testing.T) {
 	defer cancel()
 
 	nsKey, _ := skykey.GenerateSymmetricKey()
-	nodeA, storeA, _ := startTestNode(t, ctx, "nodeA", nsKey)
-	nodeB, storeB, _ := startTestNode(t, ctx, "nodeB", nsKey)
+	nodeA, storeA, _, nodeB, storeB, _ := startSharedTestPair(t, ctx, nsKey)
 
 	infoB := nodeB.Host().Peerstore().PeerInfo(nodeB.PeerID())
 	if err := nodeA.Host().Connect(ctx, infoB); err != nil {
@@ -232,6 +228,82 @@ func startTestNode(t *testing.T, ctx context.Context, name string, nsKey []byte)
 
 	// Shut down the host before t.TempDir cleanup removes the data dir.
 	// t.Cleanup is LIFO, so this runs before TempDir's RemoveAll.
+	t.Cleanup(func() {
+		node.Close()
+	})
+
+	return node, store, sync
+}
+
+func startSharedTestPair(t *testing.T, ctx context.Context, nsKey []byte) (*link.Node, *Store, *P2PSync, *link.Node, *Store, *P2PSync) {
+	t.Helper()
+
+	identity, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceA, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceB, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := id.NewManifest(identity)
+	manifest.AddDevice(deviceA.PublicKey, "nodeA")
+	manifest.AddDevice(deviceB.PublicKey, "nodeB")
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatal(err)
+	}
+
+	bundleA, err := id.New(identity, deviceA, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleB, err := id.New(identity, deviceB, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	nodeA, storeA, syncA := startTestNodeFromBundle(t, ctx, bundleA, nsKey)
+	nodeB, storeB, syncB := startTestNodeFromBundle(t, ctx, bundleB, nsKey)
+	return nodeA, storeA, syncA, nodeB, storeB, syncB
+}
+
+func startTestNodeFromBundle(t *testing.T, ctx context.Context, bundle *id.Bundle, nsKey []byte) (*link.Node, *Store, *P2PSync) {
+	t.Helper()
+
+	node, err := link.New(bundle, link.Config{Mode: link.Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go node.Run(ctx)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for node.Host() == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("host did not start")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	store := New(nil, bundle.Identity, Config{
+		Namespace: "test-sync",
+		DataDir:   t.TempDir(),
+	}, nil)
+
+	nsID := deriveNSID(nsKey, "test-sync")
+	store.mu.Lock()
+	store.nsKey = nsKey
+	store.nsID = nsID
+	store.mu.Unlock()
+
+	sync := NewP2PSync(store, node, bundle.Identity, nil)
+	store.SetP2PSync(sync)
+	node.Host().SetStreamHandler(KVSyncProtocol, sync.handleStream)
+
 	t.Cleanup(func() {
 		node.Close()
 	})

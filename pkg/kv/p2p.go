@@ -25,7 +25,7 @@ const KVSyncProtocol = protocol.ID("/sky10/kv-sync/1.0.0")
 type p2pNode interface {
 	Host() host.Host
 	PeerID() peer.ID
-	ConnectedPeers() []peer.ID
+	ConnectedPrivateNetworkPeers() []peer.ID
 }
 
 // p2pSyncMsg is the wire format for KV sync messages.
@@ -77,7 +77,7 @@ func (s *P2PSync) RegisterProtocol() {
 
 // PushToAll sends the current snapshot to all connected peers.
 func (s *P2PSync) PushToAll(ctx context.Context) {
-	peers := s.node.ConnectedPeers()
+	peers := s.node.ConnectedPrivateNetworkPeers()
 	s.logger.Info("kv p2p push: broadcasting", "peers", len(peers))
 	for _, pid := range peers {
 		if pid == s.node.PeerID() {

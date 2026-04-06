@@ -124,6 +124,7 @@ func ServeCmd() *cobra.Command {
 			link.RegisterPrivateNetworkHandlers(linkNode)
 			server.RegisterHandler(link.NewRPCHandler(linkNode, linkResolver))
 			var refreshPrivateNetwork func()
+			var kvSync *kv.P2PSync
 			identityRPC := skyid.NewRPCHandler(bundle)
 			server.RegisterHandler(identityRPC)
 			updateRPC := skyupdate.NewRPCHandler(Version, server.Emit)
@@ -181,6 +182,9 @@ func ServeCmd() *cobra.Command {
 				}
 
 				link.AutoConnect(ctx, linkResolver)
+				if kvSync != nil {
+					go kvSync.PushToAll(context.Background())
+				}
 			}
 			configureIdentityRPCHandler(identityRPC, bundle, idStore, backend, linkNode, linkResolver, cfg.Relays(), refreshPrivateNetwork)
 
@@ -219,7 +223,7 @@ func ServeCmd() *cobra.Command {
 			})
 
 			// In P2P-only mode, wire direct KV snapshot sync over libp2p.
-			kvSync := kv.NewP2PSync(kvStore, linkNode, bundle.Identity, nil)
+			kvSync = kv.NewP2PSync(kvStore, linkNode, bundle.Identity, nil)
 			kvStore.SetP2PSync(kvSync)
 
 			linkRunErr := make(chan error, 1)

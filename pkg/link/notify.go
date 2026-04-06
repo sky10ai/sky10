@@ -20,7 +20,7 @@ func (n *Node) NotifyOwn(ctx context.Context, topic string) error {
 		return fmt.Errorf("node not running")
 	}
 
-	peers := n.host.Network().Peers()
+	peers := n.ConnectedPrivateNetworkPeers()
 	if len(peers) == 0 {
 		return nil
 	}

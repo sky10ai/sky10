@@ -7,6 +7,7 @@ import (
 	"time"
 
 	p2ppeer "github.com/libp2p/go-libp2p/core/peer"
+	"github.com/sky10/sky10/pkg/id"
 	skykey "github.com/sky10/sky10/pkg/key"
 )
 
@@ -130,8 +131,45 @@ func TestTwoNodesConnect(t *testing.T) {
 
 func TestNotifyOwnRoundTrip(t *testing.T) {
 	t.Parallel()
-	n1 := generateTestNode(t)
-	n2 := generateTestNode(t)
+
+	identity, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceA, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceB, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := id.NewManifest(identity)
+	manifest.AddDevice(deviceA.PublicKey, "node-a")
+	manifest.AddDevice(deviceB.PublicKey, "node-b")
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatal(err)
+	}
+
+	bundleA, err := id.New(identity, deviceA, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n1, err := New(bundleA, Config{Mode: Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bundleB, err := id.New(identity, deviceB, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n2, err := New(bundleB, Config{Mode: Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	startTestNode(t, n1)
 	startTestNode(t, n2)
 
@@ -184,6 +222,178 @@ func TestNotifyOwnNoPeers(t *testing.T) {
 	// No connected peers — should succeed silently.
 	if err := n.NotifyOwn(context.Background(), "test"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestConnectedPrivateNetworkPeersFiltersPublicPeers(t *testing.T) {
+	t.Parallel()
+
+	identity, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceA, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceB, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := id.NewManifest(identity)
+	manifest.AddDevice(deviceA.PublicKey, "node-a")
+	manifest.AddDevice(deviceB.PublicKey, "node-b")
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatal(err)
+	}
+
+	bundleA, err := id.New(identity, deviceA, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n1, err := New(bundleA, Config{Mode: Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bundleB, err := id.New(identity, deviceB, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n2, err := New(bundleB, Config{Mode: Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	n3 := generateTestNode(t)
+
+	startTestNode(t, n1)
+	startTestNode(t, n2)
+	startTestNode(t, n3)
+
+	if err := n1.Host().Connect(context.Background(), addrInfo(t, n2)); err != nil {
+		t.Fatalf("connect n1->n2: %v", err)
+	}
+	if err := n1.Host().Connect(context.Background(), addrInfo(t, n3)); err != nil {
+		t.Fatalf("connect n1->n3: %v", err)
+	}
+
+	waitForPeers := func(want int) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if len(n1.ConnectedPeers()) >= want {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatalf("expected at least %d connected peers, got %d", want, len(n1.ConnectedPeers()))
+	}
+	waitForPeers(2)
+
+	privatePeers := n1.ConnectedPrivateNetworkPeers()
+	if len(privatePeers) != 1 {
+		t.Fatalf("private peer count = %d, want 1", len(privatePeers))
+	}
+	if privatePeers[0] != n2.PeerID() {
+		t.Fatalf("private peer = %s, want %s", privatePeers[0], n2.PeerID())
+	}
+}
+
+func TestNotifyOwnSkipsPublicPeers(t *testing.T) {
+	t.Parallel()
+
+	identity, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceA, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceB, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := id.NewManifest(identity)
+	manifest.AddDevice(deviceA.PublicKey, "node-a")
+	manifest.AddDevice(deviceB.PublicKey, "node-b")
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatal(err)
+	}
+
+	bundleA, err := id.New(identity, deviceA, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n1, err := New(bundleA, Config{Mode: Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bundleB, err := id.New(identity, deviceB, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n2, err := New(bundleB, Config{Mode: Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	n3 := generateTestNode(t)
+
+	startTestNode(t, n1)
+	startTestNode(t, n2)
+	startTestNode(t, n3)
+
+	if err := n1.Host().Connect(context.Background(), addrInfo(t, n2)); err != nil {
+		t.Fatalf("connect n1->n2: %v", err)
+	}
+	if err := n1.Host().Connect(context.Background(), addrInfo(t, n3)); err != nil {
+		t.Fatalf("connect n1->n3: %v", err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(n1.ConnectedPeers()) >= 2 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	doneAllowed := make(chan struct{})
+	n2.OnSyncNotify(func(from p2ppeer.ID, topic string) {
+		if from == n1.PeerID() && topic == "kv:default" {
+			select {
+			case <-doneAllowed:
+			default:
+				close(doneAllowed)
+			}
+		}
+	})
+
+	var outsiderReceived atomic.Bool
+	n3.OnSyncNotify(func(from p2ppeer.ID, topic string) {
+		if from == n1.PeerID() && topic == "kv:default" {
+			outsiderReceived.Store(true)
+		}
+	})
+
+	if err := n1.NotifyOwn(context.Background(), "kv:default"); err != nil {
+		t.Fatalf("notify: %v", err)
+	}
+
+	select {
+	case <-doneAllowed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for private-network sync notification")
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	if outsiderReceived.Load() {
+		t.Fatal("public peer received private-network sync notification")
 	}
 }
 

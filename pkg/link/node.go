@@ -148,6 +148,32 @@ func (n *Node) ConnectedPeers() []peer.ID {
 	return n.host.Network().Peers()
 }
 
+// ConnectedPrivateNetworkPeers returns only the connected peers that belong to
+// the current private-network membership manifest.
+func (n *Node) ConnectedPrivateNetworkPeers() []peer.ID {
+	if n.host == nil || n.bundle == nil || n.bundle.Manifest == nil {
+		return nil
+	}
+
+	allowed := make(map[peer.ID]struct{}, len(n.bundle.Manifest.Devices))
+	for _, device := range n.bundle.Manifest.Devices {
+		pid, err := PeerIDFromPubKey(device.PublicKey)
+		if err != nil || pid == n.peerID {
+			continue
+		}
+		allowed[pid] = struct{}{}
+	}
+
+	connected := n.host.Network().Peers()
+	out := make([]peer.ID, 0, len(connected))
+	for _, pid := range connected {
+		if _, ok := allowed[pid]; ok {
+			out = append(out, pid)
+		}
+	}
+	return out
+}
+
 // Run starts the libp2p host and blocks until ctx is cancelled.
 func (n *Node) Run(ctx context.Context) error {
 	privKey, err := Libp2pPrivKey(n.bundle.Device)
