@@ -26,7 +26,21 @@ func UpdateCmd() *cobra.Command {
 			}
 
 			if !info.Available {
-				fmt.Println("already up to date")
+				// CLI is current, but the menu binary may still
+				// need updating (e.g. menu assets arrived after
+				// the CLI was already updated).
+				menuUpdated, err := update.ApplyMenu(info)
+				if err != nil {
+					fmt.Printf("warning: could not update sky10-menu: %v\n", err)
+				}
+				if menuUpdated {
+					fmt.Println("sky10-menu updated")
+					if err := RestartMenu(); err != nil {
+						fmt.Printf("warning: could not restart sky10-menu: %v\n", err)
+					}
+				} else {
+					fmt.Println("already up to date")
+				}
 				return nil
 			}
 
