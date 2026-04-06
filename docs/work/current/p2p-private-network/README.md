@@ -128,6 +128,7 @@ new one, and it must not rely on LAN assumptions.
 
 - New discovery model centered on `private network membership` and
   `private network presence`.
+- Concrete record contract in [record-spec.md](./record-spec.md).
 - DHT-first implementation with Nostr fallback.
 - Startup and runtime self-healing behavior.
 - Explicit repair flow for catastrophic local divergence.

@@ -41,6 +41,7 @@ Lock the private-network discovery model before touching code.
 **Deliverables**
 
 - this plan directory
+- concrete wire-level record contract in [record-spec.md](./record-spec.md)
 - explicit approval on invariants and record model
 
 **Acceptance**
