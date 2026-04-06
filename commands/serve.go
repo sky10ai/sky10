@@ -196,19 +196,6 @@ func ServeCmd() *cobra.Command {
 			}
 			server.RegisterHandler(skywallet.NewRPCHandler(walletClient, server.Emit))
 
-			// Show connected P2P peers in device list.
-			fsHandler.SetPeerDevices(func() []skyfs.DeviceInfo {
-				var peers []skyfs.DeviceInfo
-				for _, pid := range linkNode.ConnectedPeers() {
-					peers = append(peers, skyfs.DeviceInfo{
-						ID:       "D-" + pid.String()[:8],
-						Name:     pid.String()[:16],
-						LastSeen: time.Now().UTC().Format(time.RFC3339),
-					})
-				}
-				return peers
-			})
-
 			// Wire sync notifications: KV changes notify own devices.
 			kvStore.SetNotifier(func(ns string) {
 				linkNode.NotifyOwn(ctx, "kv:"+ns)
