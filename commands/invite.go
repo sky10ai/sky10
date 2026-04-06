@@ -13,7 +13,7 @@ func InviteCmd() *cobra.Command {
 		Use:   "invite",
 		Short: "Generate an invite code for another device to join",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := rpcCall("skyfs.invite", nil)
+			result, err := rpcCall("identity.invite", nil)
 			if err != nil {
 				return err
 			}

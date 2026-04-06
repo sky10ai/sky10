@@ -123,11 +123,13 @@ func ServeCmd() *cobra.Command {
 			linkResolver := link.NewResolver(linkNode, resolverOpts...)
 			link.RegisterPrivateNetworkHandlers(linkNode)
 			server.RegisterHandler(link.NewRPCHandler(linkNode, linkResolver))
-			server.RegisterHandler(skyid.NewRPCHandler(bundle))
+			var refreshPrivateNetwork func()
+			identityRPC := skyid.NewRPCHandler(bundle)
+			server.RegisterHandler(identityRPC)
 			server.RegisterHandler(skyupdate.NewRPCHandler(Version, server.Emit))
 
 			var privateNetworkMu sync.Mutex
-			refreshPrivateNetwork := func() {
+			refreshPrivateNetwork = func() {
 				privateNetworkMu.Lock()
 				defer privateNetworkMu.Unlock()
 
@@ -175,6 +177,7 @@ func ServeCmd() *cobra.Command {
 
 				link.AutoConnect(ctx, linkResolver)
 			}
+			configureIdentityRPCHandler(identityRPC, bundle, idStore, backend, linkNode, linkResolver, cfg.Relays(), refreshPrivateNetwork)
 
 			// Agent registry — local agent registration and message routing.
 			agentRegistry := skyagent.NewRegistry(bundle.DeviceID(), skyfs.GetDeviceName(), nil)

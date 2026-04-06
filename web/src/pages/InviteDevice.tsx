@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { Icon } from "../components/Icon";
-import { skyfs, type InviteResult } from "../lib/rpc";
+import { identity, type InviteResult } from "../lib/rpc";
 
 export default function InviteDevice() {
   const navigate = useNavigate();
@@ -16,10 +16,10 @@ export default function InviteDevice() {
     setLoading(true);
     setError(null);
     try {
-      const result = await skyfs.invite();
+      const result = await identity.invite();
       setInvite(result);
       // Capture current device count to detect new joins.
-      const devices = await skyfs.deviceList();
+      const devices = await identity.deviceList();
       initialDeviceCount.current = devices.devices?.length ?? 0;
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to generate invite");
@@ -34,7 +34,7 @@ export default function InviteDevice() {
 
     const interval = setInterval(async () => {
       try {
-        const devices = await skyfs.deviceList();
+        const devices = await identity.deviceList();
         const count = devices.devices?.length ?? 0;
         if (
           initialDeviceCount.current !== null &&

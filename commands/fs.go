@@ -354,7 +354,7 @@ func fsApproveCmd() *cobra.Command {
 		Use:   "approve",
 		Short: "Approve a pending join request",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := rpcCall("skyfs.approve", nil)
+			result, err := rpcCall("identity.approve", nil)
 			if err != nil {
 				return err
 			}

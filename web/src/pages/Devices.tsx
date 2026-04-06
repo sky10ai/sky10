@@ -3,13 +3,13 @@ import { useNavigate } from "react-router";
 import { Icon } from "../components/Icon";
 import { RelativeTime } from "../components/RelativeTime";
 import { STORAGE_EVENT_TYPES } from "../lib/events";
-import { skyfs } from "../lib/rpc";
+import { identity } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
 export default function Devices() {
   const navigate = useNavigate();
   const [actionError, setActionError] = useState<string | null>(null);
-  const { data, loading, error, refetch } = useRPC(() => skyfs.deviceList(), [], {
+  const { data, loading, error, refetch } = useRPC(() => identity.deviceList(), [], {
     live: STORAGE_EVENT_TYPES,
     refreshIntervalMs: 10_000,
   });
@@ -151,7 +151,7 @@ export default function Devices() {
                   onClick={async () => {
                     if (!confirm(`Remove device "${displayName}"?`)) return;
                     try {
-                      await skyfs.deviceRemove({ pubkey: device.pubkey });
+                      await identity.deviceRemove({ pubkey: device.pubkey });
                       refetch();
                     } catch (e: unknown) {
                       setActionError(e instanceof Error ? e.message : "Failed to remove device");

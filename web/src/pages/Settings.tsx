@@ -34,13 +34,13 @@ export default function Settings() {
   const { data: idDevices } = useRPC(() => identity.devices(), [], {
     refreshIntervalMs: 10_000,
   });
-  const { data: deviceData } = useRPC(() => skyfs.deviceList(), [], {
+  const { data: deviceData } = useRPC(() => identity.deviceList(), [], {
     live: STORAGE_EVENT_TYPES,
     refreshIntervalMs: 10_000,
   });
 
   const thisDevice = (deviceData?.devices ?? []).find(
-    (d) => d.pubkey === deviceData?.this_device
+    (d) => d.id === deviceData?.this_device
   );
 
   const version = health?.version ?? "";

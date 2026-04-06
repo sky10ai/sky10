@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { skyfs } from "../lib/rpc";
+import { identity } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 import { Icon } from "../components/Icon";
 
@@ -9,7 +9,7 @@ export default function GettingStarted() {
   const [inviteCode, setInviteCode] = useState("");
   const [joinError, setJoinError] = useState("");
   const [joining, setJoining] = useState(false);
-  const { data } = useRPC(() => skyfs.deviceList(), [], {
+  const { data } = useRPC(() => identity.deviceList(), [], {
     refreshIntervalMs: 5_000,
   });
 

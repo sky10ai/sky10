@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router";
 import { Layout } from "./components/Layout";
-import { skyfs } from "./lib/rpc";
+import { identity } from "./lib/rpc";
 import { useRPC } from "./lib/useRPC";
 import GettingStarted from "./pages/GettingStarted";
 import Devices from "./pages/Devices";
@@ -17,7 +17,7 @@ import Activity from "./pages/Activity";
 import Settings from "./pages/Settings";
 
 function HomeRedirect() {
-  const { data } = useRPC(() => skyfs.deviceList(), []);
+  const { data } = useRPC(() => identity.deviceList(), []);
   const deviceCount = data?.devices?.length ?? 0;
   if (!data) return null;
   return <Navigate to={deviceCount >= 2 ? "/drives" : "/getting-started"} replace />;

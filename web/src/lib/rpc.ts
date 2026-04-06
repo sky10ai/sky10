@@ -63,18 +63,14 @@ export const skyfs = {
     rpc<FileListResult>("skyfs.list", p),
   syncStatus: (p: { drive: string }) =>
     rpc<SyncStatus>("skyfs.syncStatus", p),
-  deviceList: () => rpc<DeviceListResult>("skyfs.deviceList"),
   remove: (p: { drive: string; path: string }) =>
     rpc<{ status: string }>("skyfs.remove", p),
   mkdir: (p: { drive: string; path: string }) =>
     rpc<{ status: string }>("skyfs.mkdir", p),
-  invite: () => rpc<InviteResult>("skyfs.invite"),
-  approve: (p: { device_id: string }) => rpc("skyfs.approve", p),
   status: () => rpc<StatusResult>("skyfs.status"),
   s3List: (p: { prefix: string }) => rpc<S3ListResult>("skyfs.s3List", p),
   s3Delete: (p: { key: string }) => rpc("skyfs.s3Delete", p),
   syncActivity: () => rpc<SyncActivityResult>("skyfs.syncActivity"),
-  deviceRemove: (p: { pubkey: string }) => rpc("skyfs.deviceRemove", p),
   driveRemove: (p: { name: string }) => rpc("skyfs.driveRemove", p),
 };
 
@@ -104,6 +100,10 @@ export const skylink = {
 export const identity = {
   show: () => rpc<IdentityShow>("identity.show"),
   devices: () => rpc<IdentityDevices>("identity.devices"),
+  deviceList: () => rpc<DeviceListResult>("identity.deviceList"),
+  invite: () => rpc<InviteResult>("identity.invite"),
+  approve: () => rpc<{ approved: number }>("identity.approve"),
+  deviceRemove: (p: { pubkey: string }) => rpc("identity.deviceRemove", p),
 };
 
 // -- agent --
@@ -186,7 +186,6 @@ export interface SyncStatus {
 export interface Device {
   id: string;
   pubkey: string;
-  device_pubkey?: string;
   name: string;
   alias?: string;
   joined: string;
@@ -196,9 +195,11 @@ export interface Device {
   version: string;
   last_seen: string;
   multiaddrs?: string[];
+  current?: boolean;
 }
 
 export interface DeviceListResult {
+  identity?: string;
   devices: Device[];
   this_device: string;
 }
@@ -266,7 +267,8 @@ export interface PeersResult {
 
 export interface IdentityShow {
   address: string;
-  device_address: string;
+  device_id: string;
+  device_pubkey: string;
   device_count: number;
 }
 

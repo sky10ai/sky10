@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Icon } from "../components/Icon";
 import { RelativeTime } from "../components/RelativeTime";
 import { STORAGE_EVENT_TYPES } from "../lib/events";
-import { skylink, skyfs, type Device } from "../lib/rpc";
+import { identity, skyfs, skylink, type Device } from "../lib/rpc";
 import { useRPC, truncAddr } from "../lib/useRPC";
 
 export default function Network() {
@@ -15,7 +15,7 @@ export default function Network() {
   const { data: peersData } = useRPC(() => skylink.peers(), [], {
     refreshIntervalMs: 5_000,
   });
-  const { data: deviceData } = useRPC(() => skyfs.deviceList(), [], {
+  const { data: deviceData } = useRPC(() => identity.deviceList(), [], {
     live: STORAGE_EVENT_TYPES,
     refreshIntervalMs: 10_000,
   });
