@@ -41,6 +41,7 @@ func withUpdateStubs(t *testing.T) {
 	oldStopMenu := updateStopMenu
 	oldStartMenu := updateStartMenu
 	oldRestartDaemon := updateRestartDaemon
+	oldWaitHTTPReady := updateWaitHTTPReady
 	oldVersion := Version
 	t.Cleanup(func() {
 		updateCheck = oldCheck
@@ -49,6 +50,7 @@ func withUpdateStubs(t *testing.T) {
 		updateStopMenu = oldStopMenu
 		updateStartMenu = oldStartMenu
 		updateRestartDaemon = oldRestartDaemon
+		updateWaitHTTPReady = oldWaitHTTPReady
 		Version = oldVersion
 	})
 }
@@ -82,6 +84,10 @@ func TestUpdateCmdRestartsMenuAfterDaemonRestart(t *testing.T) {
 		order = append(order, "restart-daemon")
 		return nil
 	}
+	updateWaitHTTPReady = func() error {
+		order = append(order, "wait-http")
+		return nil
+	}
 	updateStartMenu = func() error {
 		order = append(order, "start-menu")
 		return nil
@@ -94,7 +100,7 @@ func TestUpdateCmdRestartsMenuAfterDaemonRestart(t *testing.T) {
 		t.Fatalf("RunE: %v", err)
 	}
 
-	want := []string{"stop-menu", "check", "apply-cli", "apply-menu", "restart-daemon", "start-menu"}
+	want := []string{"stop-menu", "check", "apply-cli", "apply-menu", "restart-daemon", "wait-http", "start-menu"}
 	if !reflect.DeepEqual(order, want) {
 		t.Fatalf("order = %v, want %v", order, want)
 	}
@@ -130,6 +136,10 @@ func TestUpdateCmdDoesNotStartMenuWhenDaemonRestartFails(t *testing.T) {
 		order = append(order, "restart-daemon")
 		return fmt.Errorf("boom")
 	}
+	updateWaitHTTPReady = func() error {
+		order = append(order, "wait-http")
+		return nil
+	}
 	updateStartMenu = func() error {
 		order = append(order, "start-menu")
 		return nil
@@ -146,7 +156,7 @@ func TestUpdateCmdDoesNotStartMenuWhenDaemonRestartFails(t *testing.T) {
 	if !reflect.DeepEqual(order, want) {
 		t.Fatalf("order = %v, want %v", order, want)
 	}
-	if strings.Contains(out, "start sky10-menu") {
+	if strings.Contains(out, "could not start sky10-menu") {
 		t.Fatalf("unexpected start-menu warning in output:\n%s", out)
 	}
 	if !strings.Contains(out, "restart the daemon manually to use the new version") {
@@ -300,5 +310,62 @@ func TestUpdateCmdRestartsMenuIfUpdateCheckFails(t *testing.T) {
 	want := []string{"stop-menu", "check", "start-menu"}
 	if !reflect.DeepEqual(order, want) {
 		t.Fatalf("order = %v, want %v", order, want)
+	}
+}
+
+func TestUpdateCmdDoesNotStartMenuUntilHTTPReady(t *testing.T) {
+	withUpdateStubs(t)
+	Version = "v0.38.1"
+
+	var order []string
+	updateCheck = func(current string) (*skyupdate.Info, error) {
+		order = append(order, "check")
+		return &skyupdate.Info{
+			Current:   current,
+			Latest:    "v0.38.2",
+			Available: true,
+		}, nil
+	}
+	updateApply = func(info *skyupdate.Info) error {
+		order = append(order, "apply-cli")
+		return nil
+	}
+	updateApplyMenu = func(info *skyupdate.Info) (bool, error) {
+		order = append(order, "apply-menu")
+		return false, nil
+	}
+	updateStopMenu = func() error {
+		order = append(order, "stop-menu")
+		return nil
+	}
+	updateRestartDaemon = func() error {
+		order = append(order, "restart-daemon")
+		return nil
+	}
+	updateWaitHTTPReady = func() error {
+		order = append(order, "wait-http")
+		return fmt.Errorf("timeout")
+	}
+	updateStartMenu = func() error {
+		order = append(order, "start-menu")
+		return nil
+	}
+
+	out, err := captureStdout(t, func() error {
+		return UpdateCmd().RunE(UpdateCmd(), nil)
+	})
+	if err != nil {
+		t.Fatalf("RunE: %v", err)
+	}
+
+	want := []string{"stop-menu", "check", "apply-cli", "apply-menu", "restart-daemon", "wait-http"}
+	if !reflect.DeepEqual(order, want) {
+		t.Fatalf("order = %v, want %v", order, want)
+	}
+	if strings.Contains(out, "could not start sky10-menu") {
+		t.Fatalf("unexpected start-menu warning in output:\n%s", out)
+	}
+	if !strings.Contains(out, "daemon HTTP server is not ready yet") {
+		t.Fatalf("expected HTTP readiness warning in output:\n%s", out)
 	}
 }

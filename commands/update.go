@@ -1,7 +1,12 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
 
 	"github.com/sky10/sky10/pkg/update"
 	"github.com/spf13/cobra"
@@ -17,6 +22,7 @@ var (
 	updateStopMenu      = StopMenu
 	updateStartMenu     = StartMenu
 	updateRestartDaemon = RestartDaemon
+	updateWaitHTTPReady = waitForDaemonHTTPReady
 )
 
 // UpdateCmd returns the `sky10 update` command (aliased as `upgrade`).
@@ -91,6 +97,11 @@ func UpdateCmd() *cobra.Command {
 				startMenuOnReturn = false
 			} else {
 				fmt.Println("daemon restarted")
+				if err := updateWaitHTTPReady(); err != nil {
+					fmt.Printf("warning: daemon HTTP server is not ready yet: %v\n", err)
+					fmt.Println("start sky10-menu manually once the daemon is healthy")
+					startMenuOnReturn = false
+				}
 			}
 
 			fmt.Printf("updated to %s\n", info.Latest)
@@ -99,4 +110,59 @@ func UpdateCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&checkOnly, "check", false, "Check for updates without installing")
 	return cmd
+}
+
+func waitForDaemonHTTPReady() error {
+	deadline := time.Now().Add(10 * time.Second)
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	var lastErr error
+
+	for time.Now().Before(deadline) {
+		raw, err := rpcCall("skyfs.health", nil)
+		if err != nil {
+			lastErr = err
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+
+		var health struct {
+			HTTPAddr string `json:"http_addr"`
+		}
+		if err := json.Unmarshal(raw, &health); err != nil {
+			lastErr = fmt.Errorf("parse health response: %w", err)
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		if health.HTTPAddr == "" {
+			lastErr = fmt.Errorf("daemon reported no HTTP address")
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+
+		port := health.HTTPAddr
+		if i := strings.LastIndex(port, ":"); i >= 0 {
+			port = port[i:]
+		}
+
+		resp, err := client.Get("http://127.0.0.1" + port + "/health")
+		if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			return nil
+		}
+		if resp != nil {
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			lastErr = fmt.Errorf("GET /health returned %d", resp.StatusCode)
+		} else {
+			lastErr = err
+		}
+
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	if lastErr == nil {
+		lastErr = fmt.Errorf("timed out waiting for daemon HTTP server")
+	}
+	return lastErr
 }
