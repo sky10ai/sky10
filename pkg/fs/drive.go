@@ -24,6 +24,7 @@ type DriveManager struct {
 	store          *Store
 	drives         map[string]*Drive
 	daemons        map[string]context.CancelFunc
+	pollSeconds    int
 	mu             sync.RWMutex
 	muHolder       string // debug: last write-lock caller
 	cfgPath        string
@@ -52,10 +53,11 @@ func (dm *DriveManager) MuHolder() string {
 // NewDriveManager creates a drive manager that persists config to cfgPath.
 func NewDriveManager(store *Store, cfgPath string) *DriveManager {
 	dm := &DriveManager{
-		store:   store,
-		drives:  make(map[string]*Drive),
-		daemons: make(map[string]context.CancelFunc),
-		cfgPath: cfgPath,
+		store:       store,
+		drives:      make(map[string]*Drive),
+		daemons:     make(map[string]context.CancelFunc),
+		pollSeconds: 30,
+		cfgPath:     cfgPath,
 	}
 	dm.load()
 	return dm
@@ -151,7 +153,7 @@ func (dm *DriveManager) StartDrive(id string, logger interface{ Info(string, ...
 		SyncConfig:  cfg,
 		DriveID:     id,
 		DriveName:   drive.Name,
-		PollSeconds: 30,
+		PollSeconds: dm.pollSeconds,
 	}
 
 	// Each drive gets its own store with the drive's namespace set,

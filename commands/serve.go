@@ -34,6 +34,7 @@ func ServeCmd() *cobra.Command {
 	var noDefaultBootstrap bool
 	var relayOverrides []string
 	var noDefaultRelays bool
+	var fsPollSeconds int
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -138,6 +139,7 @@ func ServeCmd() *cobra.Command {
 
 			server := skyrpc.NewServer(sockPath, cmd.Root().Version, logRuntime.Logger)
 			fsHandler := skyfs.NewFSHandler(store, server, filepath.Join(cfgDir, "drives.json"), logRuntime.Logger, logRuntime.Buffer)
+			fsHandler.SetDrivePollSeconds(fsPollSeconds)
 			server.RegisterHandler(fsHandler)
 			server.HandleHTTP("POST /upload", fsHandler.HandleUpload)
 			server.HandleHTTP("GET /download", fsHandler.HandleDownload)
@@ -388,6 +390,7 @@ func ServeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noDefaultBootstrap, "no-default-bootstrap", false, "Disable default public libp2p bootstrap peers")
 	cmd.Flags().StringSliceVar(&relayOverrides, "nostr-relay", nil, "Nostr relay URLs for private-network discovery")
 	cmd.Flags().BoolVar(&noDefaultRelays, "no-default-relays", false, "Disable default public Nostr relays")
+	cmd.Flags().IntVar(&fsPollSeconds, "fs-poll-seconds", 30, "Remote poll interval in seconds for sync drives")
 	return cmd
 }
 

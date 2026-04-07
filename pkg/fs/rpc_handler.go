@@ -78,6 +78,14 @@ func (s *FSHandler) StartDrives() {
 	s.driveManager.StartAll(s.logger)
 }
 
+// SetDrivePollSeconds updates the default remote poll interval for drives.
+func (s *FSHandler) SetDrivePollSeconds(seconds int) {
+	if seconds <= 0 {
+		return
+	}
+	s.driveManager.pollSeconds = seconds
+}
+
 // StartAutoApprove kicks off the auto-approve loop goroutine.
 func (s *FSHandler) StartAutoApprove(ctx context.Context) {
 	go s.autoApproveLoop(ctx)
