@@ -142,11 +142,10 @@ the reliability claims are weak.
 ## What This Did Not Solve
 
 This work materially improved KV reliability, but it did not make fresh
-private-network join feel immediate. The main remaining issue is
-post-join time-to-first-usable-connection after the restart boundary.
-That follow-on work stays active separately in:
+private-network join feel immediate. The join/bootstrap follow-on is
+archived separately in:
 
-- [Fast Join Bootstrap Plan](/Users/bf/.baton/worktrees/sky10/debug-agent-key-instability/docs/work/current/p2p-private-network/fast-join-bootstrap-plan.md)
+- [Invite & Join Bootstrap Hardening](/Users/bf/.baton/worktrees/sky10/debug-agent-key-instability/docs/work/past/2026/04/07-Invite-Join-Bootstrap-Hardening.md)
 
 ## Remaining Gaps
 

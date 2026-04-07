@@ -148,7 +148,6 @@ The KV reliability follow-on has now been completed and archived in:
 
 - [KV CRDT Reliability Hardening](/Users/bf/.baton/worktrees/sky10/debug-agent-key-instability/docs/work/past/2026/04/07-KV-CRDT-Reliability-Hardening.md)
 
-The active remaining follow-on from this area is now the faster
-post-join bootstrap path:
+The invite/bootstrap follow-on has also now been archived in:
 
-- [Fast Join Bootstrap Plan](/Users/bf/.baton/worktrees/sky10/debug-agent-key-instability/docs/work/current/p2p-private-network/fast-join-bootstrap-plan.md)
+- [Invite & Join Bootstrap Hardening](/Users/bf/.baton/worktrees/sky10/debug-agent-key-instability/docs/work/past/2026/04/07-Invite-Join-Bootstrap-Hardening.md)

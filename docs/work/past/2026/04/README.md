@@ -2,6 +2,7 @@
 
 | Date | Entry |
 |------|-------|
+| 07 | [Invite & Join Bootstrap Hardening](07-Invite-Join-Bootstrap-Hardening.md) — richer invite payloads, direct-dial-first join, stronger bootstrap correctness, but post-join usability still lags |
 | 07 | [KV CRDT Reliability Hardening](07-KV-CRDT-Reliability-Hardening.md) — causal metadata, tombstones, summary-first anti-entropy, loud sync health, fresh-join KV startup fix |
 | 06 | [Private Network Discovery Hardening](06-Private-Network-Discovery-Hardening.md) — DHT-provider membership/presence, daemon-owned join, correct device surfaces, KV sync scoped to the private network, faster device/agent RPCs |
 | 06 | [Staged Update Lifecycle](06-Staged-Update-Lifecycle.md) — Split updater into check/download/status/install, persist staged artifacts, move tray to CLI-driven updates, replace broken v0.39.0 with v0.39.1 |
