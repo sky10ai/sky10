@@ -34,6 +34,26 @@ should use this file directly.
   user explicitly asks.
 - Call out any commands or validation steps you could not run.
 
+## Windows Readiness
+
+- Windows compatibility is a standing product goal. Prefer designs that
+  keep the CLI, daemon, updater, and agent flows viable on Windows, not
+  just macOS and Linux.
+- Treat "a Windows user can download sky10 and install agents with a
+  simple, mostly one-click flow" as a guiding product constraint when
+  touching install, update, release, UI, or agent-bootstrap work.
+- Do not introduce new Unix-only assumptions unless they are explicitly
+  isolated behind platform-specific files, build tags, or well-documented
+  fallbacks. Common traps include Unix sockets, signals, shell scripts,
+  `/tmp`, symlink behavior, permissions, and service management.
+- Prefer cross-platform APIs and paths by default. Use `filepath`,
+  `os.UserConfigDir`, `os.UserCacheDir`, `os.TempDir`, and other
+  portable standard-library behavior instead of hardcoded POSIX paths or
+  shell-only workflows.
+- When you find a Windows-specific gap or blocker, either fix it in the
+  current change or record it in `docs/work/todo/windows-support.md` so
+  the repo keeps converging on Windows readiness instead of regressing.
+
 ## Git And GitHub
 
 - Commit and push after every completed task by default. Do not let work
