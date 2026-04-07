@@ -146,8 +146,8 @@ reliably, the private-network work is not defensible.
 
 The KV reliability follow-on has now been completed and archived in:
 
-- [KV CRDT Reliability Hardening](/Users/bf/.baton/worktrees/sky10/debug-agent-key-instability/docs/work/past/2026/04/07-KV-CRDT-Reliability-Hardening.md)
+- [KV CRDT Reliability Hardening](07-KV-CRDT-Reliability-Hardening.md)
 
 The invite/bootstrap follow-on has also now been archived in:
 
-- [Invite & Join Bootstrap Hardening](/Users/bf/.baton/worktrees/sky10/debug-agent-key-instability/docs/work/past/2026/04/07-Invite-Join-Bootstrap-Hardening.md)
+- [Invite & Join Bootstrap Hardening](07-Invite-Join-Bootstrap-Hardening.md)

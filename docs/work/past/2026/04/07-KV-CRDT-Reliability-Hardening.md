@@ -145,7 +145,7 @@ This work materially improved KV reliability, but it did not make fresh
 private-network join feel immediate. The join/bootstrap follow-on is
 archived separately in:
 
-- [Invite & Join Bootstrap Hardening](/Users/bf/.baton/worktrees/sky10/debug-agent-key-instability/docs/work/past/2026/04/07-Invite-Join-Bootstrap-Hardening.md)
+- [Invite & Join Bootstrap Hardening](07-Invite-Join-Bootstrap-Hardening.md)
 
 ## Remaining Gaps
 

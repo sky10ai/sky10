@@ -1,5 +1,5 @@
 ---
-updated: 2026-04-05
+updated: 2026-04-07
 ---
 
 # AGENTS.md
@@ -122,6 +122,11 @@ should use this file directly.
   indexes.
 - `docs/learned/` is agent memory: gotchas, tradeoffs, and decisions
   that help future agents avoid repeating mistakes.
+- In repo docs, never link to worktree-local absolute filesystem paths
+  such as `/Users/...` or other machine-specific locations. Use
+  repo-relative paths and markdown links that stay valid across clones
+  and worktrees. Runtime paths like `/tmp/sky10/...` are fine only when
+  they describe actual product behavior.
 - When moving tracked work from current to past, update the relevant
   README indexes.
 
