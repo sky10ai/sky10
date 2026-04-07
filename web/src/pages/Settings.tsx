@@ -63,13 +63,13 @@ export default function Settings() {
     data: updateInfo,
     error: updateCheckError,
     refetch: refetchUpdateInfo,
-  } = useRPC(() => system.checkUpdate(), [], {
+  } = useRPC(() => system.update.check(), [], {
     live: UPDATE_REFRESH_EVENTS,
   });
   const {
     data: stagedUpdate,
     refetch: refetchStagedUpdate,
-  } = useRPC(() => system.updateStatus(), [], {
+  } = useRPC(() => system.update.status(), [], {
     live: UPDATE_REFRESH_EVENTS,
     refreshIntervalMs: 30_000,
   });
@@ -146,7 +146,7 @@ export default function Settings() {
     setUpdateError(null);
     setUpdateProgress(null);
     try {
-      await system.downloadUpdate();
+      await system.update.download();
     } catch (e: unknown) {
       setUpdateAction("idle");
       setUpdateError(
@@ -159,7 +159,7 @@ export default function Settings() {
     setUpdateAction("installing");
     setUpdateError(null);
     try {
-      const result = await system.installUpdate();
+      const result = await system.update.install();
       refreshUpdateState();
       if (result.restarting) {
         setUpdateAction("restarting");

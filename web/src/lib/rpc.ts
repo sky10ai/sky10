@@ -116,11 +116,14 @@ export const agent = {
 
 // -- system --
 export const system = {
-  checkUpdate: () => rpc<SystemUpdateInfo>("system.checkUpdate"),
-  updateStatus: () => rpc<SystemUpdateStatus>("system.updateStatus"),
-  downloadUpdate: () => rpc<{ status: string }>("system.downloadUpdate"),
-  installUpdate: () => rpc<SystemInstallUpdateResult>("system.installUpdate"),
   restart: () => rpc<{ status: string }>("system.restart"),
+  update: {
+    run: () => rpc<{ status: string }>("system.update"),
+    check: () => rpc<SystemUpdateInfo>("system.update.check"),
+    status: () => rpc<SystemUpdateStatus>("system.update.status"),
+    download: () => rpc<{ status: string }>("system.update.download"),
+    install: () => rpc<SystemInstallUpdateResult>("system.update.install"),
+  },
 };
 
 // -- wallet --

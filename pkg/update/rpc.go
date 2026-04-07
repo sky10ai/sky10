@@ -52,13 +52,13 @@ func (h *RPCHandler) Dispatch(_ context.Context, method string, _ json.RawMessag
 	}
 
 	switch method {
-	case "system.checkUpdate":
-		return h.rpcCheckUpdate()
-	case "system.updateStatus":
+	case "system.checkUpdate", "system.update.check":
+		return h.rpcUpdateCheck()
+	case "system.updateStatus", "system.update.status":
 		return h.rpcUpdateStatus()
-	case "system.downloadUpdate":
+	case "system.downloadUpdate", "system.update.download":
 		return h.rpcDownloadUpdate()
-	case "system.installUpdate":
+	case "system.installUpdate", "system.update.install":
 		return h.rpcInstallUpdate()
 	case "system.update":
 		return h.rpcUpdate()
@@ -69,7 +69,7 @@ func (h *RPCHandler) Dispatch(_ context.Context, method string, _ json.RawMessag
 	}
 }
 
-func (h *RPCHandler) rpcCheckUpdate() (interface{}, error, bool) {
+func (h *RPCHandler) rpcUpdateCheck() (interface{}, error, bool) {
 	info, err := rpcCheck(h.version)
 	if err != nil {
 		return nil, err, true
@@ -161,7 +161,7 @@ func (h *RPCHandler) rpcInstallUpdate() (interface{}, error, bool) {
 				}
 				if err := h.restartHandler(); err != nil {
 					h.emit("update:install:error", map[string]string{"message": err.Error()})
-					logger().Warn("system.installUpdate restart failed", "error", err)
+					logger().Warn("system.update.install restart failed", "error", err)
 				}
 			}()
 		} else {

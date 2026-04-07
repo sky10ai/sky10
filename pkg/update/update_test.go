@@ -285,7 +285,7 @@ func TestRPCUpdateStatusDispatch(t *testing.T) {
 	}
 
 	h := NewRPCHandler("v1.0.0", func(string, interface{}) {})
-	result, err, ok := h.Dispatch(context.Background(), "system.updateStatus", nil)
+	result, err, ok := h.Dispatch(context.Background(), "system.update.status", nil)
 	if !ok || err != nil {
 		t.Fatalf("updateStatus dispatch: ok=%v err=%v", ok, err)
 	}
@@ -339,7 +339,7 @@ func TestRPCDownloadUpdateStagesRelease(t *testing.T) {
 	}
 
 	h := NewRPCHandler("v1.0.0", emit)
-	result, err, ok := h.Dispatch(context.Background(), "system.downloadUpdate", nil)
+	result, err, ok := h.Dispatch(context.Background(), "system.update.download", nil)
 	if !ok || err != nil {
 		t.Fatalf("downloadUpdate dispatch: ok=%v err=%v", ok, err)
 	}
@@ -398,7 +398,7 @@ func TestRPCInstallUpdateSchedulesRestart(t *testing.T) {
 		return nil
 	})
 
-	result, err, ok := h.Dispatch(context.Background(), "system.installUpdate", nil)
+	result, err, ok := h.Dispatch(context.Background(), "system.update.install", nil)
 	if !ok || err != nil {
 		t.Fatalf("installUpdate dispatch: ok=%v err=%v", ok, err)
 	}
