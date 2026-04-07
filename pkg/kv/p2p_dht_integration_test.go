@@ -151,6 +151,151 @@ func TestP2PSyncRediscoveryAfterRestartViaDHT(t *testing.T) {
 	})
 }
 
+func TestP2PSyncThreeNodesViaDHT(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	nsKey, err := skykey.GenerateSymmetricKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleA, bundleB, bundleC := sharedNetworkTripleBundles(t)
+
+	bootstrap := startNetworkBootstrapNode(t, ctx)
+	nodeA, storeA, syncA := startNetworkKVNodeFromBundle(t, ctx, bundleA, nsKey, t.TempDir())
+	nodeB, storeB, syncB := startNetworkKVNodeFromBundle(t, ctx, bundleB, nsKey, t.TempDir())
+	nodeC, storeC, syncC := startNetworkKVNodeFromBundle(t, ctx, bundleC, nsKey, t.TempDir())
+
+	connectNode(t, ctx, nodeA, bootstrap)
+	connectNode(t, ctx, nodeB, bootstrap)
+	connectNode(t, ctx, nodeC, bootstrap)
+
+	publishPrivateNetworkRecord(t, ctx, nodeA)
+	publishPrivateNetworkRecord(t, ctx, nodeB)
+	publishPrivateNetworkRecord(t, ctx, nodeC)
+
+	resolverA := link.NewResolver(nodeA)
+	resolverB := link.NewResolver(nodeB)
+	resolverC := link.NewResolver(nodeC)
+
+	waitFor(t, 15*time.Second, func() bool {
+		autoConnectWithin(ctx, resolverA, 2*time.Second)
+		autoConnectWithin(ctx, resolverB, 2*time.Second)
+		autoConnectWithin(ctx, resolverC, 2*time.Second)
+		return connectedToPeer(nodeA, nodeB.PeerID()) &&
+			connectedToPeer(nodeA, nodeC.PeerID()) &&
+			connectedToPeer(nodeB, nodeA.PeerID()) &&
+			connectedToPeer(nodeB, nodeC.PeerID()) &&
+			connectedToPeer(nodeC, nodeA.PeerID()) &&
+			connectedToPeer(nodeC, nodeB.PeerID())
+	})
+
+	if err := storeA.Set(ctx, "from-a", []byte("hello-from-a")); err != nil {
+		t.Fatalf("Set on A: %v", err)
+	}
+	if err := storeB.Set(ctx, "from-b", []byte("hello-from-b")); err != nil {
+		t.Fatalf("Set on B: %v", err)
+	}
+	if err := storeC.Set(ctx, "from-c", []byte("hello-from-c")); err != nil {
+		t.Fatalf("Set on C: %v", err)
+	}
+
+	syncA.PushToAll(context.Background())
+	syncB.PushToAll(context.Background())
+	syncC.PushToAll(context.Background())
+
+	waitFor(t, 10*time.Second, func() bool {
+		return storeHasValue(storeA, "from-b", "hello-from-b") &&
+			storeHasValue(storeA, "from-c", "hello-from-c") &&
+			storeHasValue(storeB, "from-a", "hello-from-a") &&
+			storeHasValue(storeB, "from-c", "hello-from-c") &&
+			storeHasValue(storeC, "from-a", "hello-from-a") &&
+			storeHasValue(storeC, "from-b", "hello-from-b")
+	})
+}
+
+func TestP2PSyncThirdNodeLateDiscoveryViaDHT(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	nsKey, err := skykey.GenerateSymmetricKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleA, bundleB, bundleC := sharedNetworkTripleBundles(t)
+
+	bootstrap := startNetworkBootstrapNode(t, ctx)
+	nodeA, storeA, syncA := startNetworkKVNodeFromBundle(t, ctx, bundleA, nsKey, t.TempDir())
+	nodeB, storeB, syncB := startNetworkKVNodeFromBundle(t, ctx, bundleB, nsKey, t.TempDir())
+
+	connectNode(t, ctx, nodeA, bootstrap)
+	connectNode(t, ctx, nodeB, bootstrap)
+
+	publishPrivateNetworkRecord(t, ctx, nodeA)
+	publishPrivateNetworkRecord(t, ctx, nodeB)
+
+	resolverA := link.NewResolver(nodeA)
+	resolverB := link.NewResolver(nodeB)
+
+	waitFor(t, 15*time.Second, func() bool {
+		autoConnectWithin(ctx, resolverA, 2*time.Second)
+		autoConnectWithin(ctx, resolverB, 2*time.Second)
+		return connectedToPeer(nodeA, nodeB.PeerID()) && connectedToPeer(nodeB, nodeA.PeerID())
+	})
+
+	if err := storeA.Set(ctx, "before-c", []byte("from-a-before-c")); err != nil {
+		t.Fatalf("Set on A before C: %v", err)
+	}
+	if err := storeB.Set(ctx, "before-c-b", []byte("from-b-before-c")); err != nil {
+		t.Fatalf("Set on B before C: %v", err)
+	}
+
+	syncA.PushToAll(context.Background())
+	syncB.PushToAll(context.Background())
+
+	waitFor(t, 10*time.Second, func() bool {
+		return storeHasValue(storeA, "before-c-b", "from-b-before-c") &&
+			storeHasValue(storeB, "before-c", "from-a-before-c")
+	})
+
+	nodeC, storeC, syncC := startNetworkKVNodeFromBundle(t, ctx, bundleC, nsKey, t.TempDir())
+	connectNode(t, ctx, nodeC, bootstrap)
+
+	publishPrivateNetworkRecord(t, ctx, nodeC)
+	publishPrivateNetworkRecord(t, ctx, nodeA)
+	publishPrivateNetworkRecord(t, ctx, nodeB)
+
+	resolverC := link.NewResolver(nodeC)
+	waitFor(t, 15*time.Second, func() bool {
+		autoConnectWithin(ctx, resolverA, 2*time.Second)
+		autoConnectWithin(ctx, resolverB, 2*time.Second)
+		autoConnectWithin(ctx, resolverC, 2*time.Second)
+		return connectedToPeer(nodeA, nodeC.PeerID()) &&
+			connectedToPeer(nodeB, nodeC.PeerID()) &&
+			connectedToPeer(nodeC, nodeA.PeerID()) &&
+			connectedToPeer(nodeC, nodeB.PeerID())
+	})
+
+	syncA.PushToAll(context.Background())
+	syncB.PushToAll(context.Background())
+
+	waitFor(t, 10*time.Second, func() bool {
+		return storeHasValue(storeC, "before-c", "from-a-before-c") &&
+			storeHasValue(storeC, "before-c-b", "from-b-before-c")
+	})
+
+	if err := storeC.Set(ctx, "from-c", []byte("hello-from-c")); err != nil {
+		t.Fatalf("Set on C: %v", err)
+	}
+
+	syncC.PushToAll(context.Background())
+
+	waitFor(t, 10*time.Second, func() bool {
+		return storeHasValue(storeA, "from-c", "hello-from-c") &&
+			storeHasValue(storeB, "from-c", "hello-from-c")
+	})
+}
+
 func sharedNetworkBundles(t *testing.T) (*id.Bundle, *id.Bundle) {
 	t.Helper()
 
@@ -183,6 +328,49 @@ func sharedNetworkBundles(t *testing.T) (*id.Bundle, *id.Bundle) {
 		t.Fatal(err)
 	}
 	return bundleA, bundleB
+}
+
+func sharedNetworkTripleBundles(t *testing.T) (*id.Bundle, *id.Bundle, *id.Bundle) {
+	t.Helper()
+
+	identity, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceA, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceB, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceC, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := id.NewManifest(identity)
+	manifest.AddDevice(deviceA.PublicKey, "node-a")
+	manifest.AddDevice(deviceB.PublicKey, "node-b")
+	manifest.AddDevice(deviceC.PublicKey, "node-c")
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatal(err)
+	}
+
+	bundleA, err := id.New(identity, deviceA, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleB, err := id.New(identity, deviceB, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleC, err := id.New(identity, deviceC, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bundleA, bundleB, bundleC
 }
 
 func startNetworkBootstrapNode(t *testing.T, ctx context.Context) *link.Node {
@@ -295,4 +483,9 @@ func connectedToPeer(node *link.Node, want peer.ID) bool {
 		}
 	}
 	return false
+}
+
+func storeHasValue(store *Store, key, want string) bool {
+	value, ok := store.Get(key)
+	return ok && string(value) == want
 }
