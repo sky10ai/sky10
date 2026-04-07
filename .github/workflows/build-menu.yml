@@ -103,3 +103,96 @@ jobs:
         run: gh release upload "${GITHUB_REF_NAME}" checksums-menu.txt --clobber --repo "${{ github.repository }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  verify:
+    name: Verify ${{ matrix.asset }}
+    needs: checksums
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-15
+            asset: sky10-menu-darwin-arm64
+          - target: x86_64-apple-darwin
+            runner: macos-15
+            asset: sky10-menu-darwin-amd64
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+            asset: sky10-menu-linux-amd64
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+            asset: sky10-menu-linux-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.0
+          targets: ${{ matrix.target }}
+
+      - name: Set deterministic build env
+        shell: bash
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+          echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
+
+          rustflags="--remap-path-prefix=${GITHUB_WORKSPACE}=/workspace"
+          if [[ "${RUNNER_OS}" == "Linux" ]]; then
+            rustflags="${rustflags} -C link-arg=-Wl,--build-id=none"
+          elif [[ "${RUNNER_OS}" == "macOS" ]]; then
+            rustflags="${rustflags} -C link-arg=-Wl,-oso_prefix,${GITHUB_WORKSPACE}"
+          fi
+
+          echo "RUSTFLAGS=${rustflags}" >> "$GITHUB_ENV"
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Build from source
+        run: |
+          cargo build --release --locked --manifest-path menu/src-tauri/Cargo.toml --target ${{ matrix.target }}
+          cp menu/src-tauri/target/${{ matrix.target }}/release/sky10-menu sky10-menu-rebuilt
+          shasum -a 256 sky10-menu-rebuilt
+
+      - name: Download published release assets
+        run: |
+          for i in $(seq 1 12); do
+            rm -rf release
+            mkdir -p release
+            if gh release download "${GITHUB_REF_NAME}" \
+              --pattern "${{ matrix.asset }}" \
+              --pattern "checksums-menu.txt" \
+              --dir release; then
+              exit 0
+            fi
+            echo "Published release assets not downloadable yet, retrying... (attempt $i/12)"
+            sleep 5
+          done
+          echo "::error::Published menu release assets were not downloadable after checksums upload"
+          exit 1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify release checksum
+        run: cd release && grep "${{ matrix.asset }}" checksums-menu.txt | shasum -a 256 -c -
+
+      - name: Compare binaries
+        run: |
+          HASH_REBUILT="$(shasum -a 256 sky10-menu-rebuilt | awk '{print $1}')"
+          HASH_RELEASE="$(shasum -a 256 release/${{ matrix.asset }} | awk '{print $1}')"
+          echo "Rebuilt:  ${HASH_REBUILT}"
+          echo "Release:  ${HASH_RELEASE}"
+          if [ "${HASH_REBUILT}" != "${HASH_RELEASE}" ]; then
+            echo "::error::Binary mismatch — menu release asset does not match source"
+            ls -la sky10-menu-rebuilt release/${{ matrix.asset }}
+            exit 1
+          fi
+          echo "Reproducible menu build verified — binaries are byte-identical"
