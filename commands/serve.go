@@ -20,6 +20,7 @@ import (
 	skyjoin "github.com/sky10/sky10/pkg/join"
 	"github.com/sky10/sky10/pkg/kv"
 	"github.com/sky10/sky10/pkg/link"
+	"github.com/sky10/sky10/pkg/logging"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
 	skyupdate "github.com/sky10/sky10/pkg/update"
 	skywallet "github.com/sky10/sky10/pkg/wallet"
@@ -41,8 +42,31 @@ func ServeCmd() *cobra.Command {
 				cancel()
 			}()
 
+			format, err := logging.ParseFormat(os.Getenv("SKY10_LOG_FORMAT"))
+			if err != nil {
+				return err
+			}
+			level, err := logging.ParseLevel(os.Getenv("SKY10_LOG_LEVEL"))
+			if err != nil {
+				return err
+			}
+			logRuntime, err := logging.InstallDefault(logging.Config{
+				Level:       level,
+				Format:      format,
+				FilePath:    skyfs.DaemonLogPath(),
+				Service:     "sky10",
+				Version:     Version,
+				BufferLines: 1000,
+			})
+			if err != nil {
+				return fmt.Errorf("installing logger: %w", err)
+			}
+			defer logRuntime.Close()
+
+			logger := logging.WithComponent(logRuntime.Logger, "commands.serve")
+
 			if err := skyfs.KillExistingDaemon(); err != nil {
-				slog.Info("daemon: " + err.Error())
+				logger.Info("daemon: " + err.Error())
 			}
 
 			sockPath, _ := cmd.Flags().GetString("socket")
@@ -59,10 +83,14 @@ func ServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			type logSetter interface{ SetLogger(*slog.Logger) }
+			if ls, ok := backend.(logSetter); ok {
+				ls.SetLogger(logRuntime.Logger)
+			}
 
 			if backend != nil {
 				if _, err := backend.List(ctx, "ops/"); err != nil {
-					slog.Warn("S3 credential check failed (will retry)", "error", err)
+					logger.Warn("S3 credential check failed (will retry)", "error", err)
 				}
 			}
 
@@ -82,23 +110,23 @@ func ServeCmd() *cobra.Command {
 			if backend != nil {
 				skyfs.RegisterDevice(ctx, backend, bundle.DeviceID(), bundle.DevicePubKeyHex(), skyfs.GetDeviceName(), cmd.Root().Version)
 			}
-			skyfs.HandleDumpSignal(slog.Default())
+			skyfs.HandleDumpSignal(logRuntime.Logger)
 
 			hasStorage := backend != nil
 			if !hasStorage {
-				slog.Info("starting in P2P-only mode (no S3 storage configured)")
+				logger.Info("starting in P2P-only mode (no S3 storage configured)")
 			}
 
 			if err := skyfs.KillExistingDaemon(); err != nil {
-				slog.Warn("killed stale daemon", "error", err)
+				logger.Warn("killed stale daemon", "error", err)
 			}
 			if err := skyfs.WritePIDFile(); err != nil {
 				return fmt.Errorf("writing PID file: %w", err)
 			}
 			defer skyfs.RemovePIDFile()
 
-			server := skyrpc.NewServer(sockPath, cmd.Root().Version, nil)
-			fsHandler := skyfs.NewFSHandler(store, server, filepath.Join(cfgDir, "drives.json"))
+			server := skyrpc.NewServer(sockPath, cmd.Root().Version, logRuntime.Logger)
+			fsHandler := skyfs.NewFSHandler(store, server, filepath.Join(cfgDir, "drives.json"), logRuntime.Logger, logRuntime.Buffer)
 			server.RegisterHandler(fsHandler)
 			server.HandleHTTP("POST /upload", fsHandler.HandleUpload)
 			server.HandleHTTP("GET /download", fsHandler.HandleDownload)
@@ -109,7 +137,7 @@ func ServeCmd() *cobra.Command {
 				ActorID:            bundle.DevicePubKeyHex(),
 				RequireExistingKey: backend == nil && bundle.Manifest != nil && len(bundle.Manifest.Devices) > 1,
 				ExpectedPeers:      expectedPrivateNetworkPeers(bundle),
-			}, nil)
+			}, logRuntime.Logger)
 			server.RegisterHandler(kv.NewRPCHandler(kvStore))
 			kvRunErr := make(chan error, 1)
 			go func() {
@@ -117,7 +145,7 @@ func ServeCmd() *cobra.Command {
 			}()
 
 			// Skylink P2P node — network mode enables DHT, relay, and external peers.
-			linkNode, err := link.New(bundle, link.Config{Mode: link.Network}, nil)
+			linkNode, err := link.New(bundle, link.Config{Mode: link.Network}, logRuntime.Logger)
 			if err != nil {
 				return fmt.Errorf("creating link node: %w", err)
 			}
@@ -147,43 +175,43 @@ func ServeCmd() *cobra.Command {
 
 				membership, source, err := linkResolver.ResolveMembership(ctx, bundle.Address())
 				if err != nil {
-					slog.Warn("private-network membership resolve failed", "error", err)
+					logger.Warn("private-network membership resolve failed", "error", err)
 				} else if source != "local" {
 					manifest, err := membership.ToManifest(bundle.Identity)
 					if err != nil {
-						slog.Warn("private-network membership cache rebuild failed", "error", err)
+						logger.Warn("private-network membership cache rebuild failed", "error", err)
 					} else if !manifest.HasDevice(bundle.Device.PublicKey) {
-						slog.Warn("resolved membership missing current device; keeping local cache",
+						logger.Warn("resolved membership missing current device; keeping local cache",
 							"identity", bundle.Address(),
 						)
 					} else {
 						bundle.Manifest = manifest
 						if err := idStore.Save(bundle); err != nil {
-							slog.Warn("saving refreshed private-network cache failed", "error", err)
+							logger.Warn("saving refreshed private-network cache failed", "error", err)
 						}
 					}
 				}
 
 				if err := linkNode.PublishRecord(ctx); err != nil {
-					slog.Warn("failed to publish private-network records to DHT", "error", err)
+					logger.Warn("failed to publish private-network records to DHT", "error", err)
 				} else {
-					slog.Info("published private-network records to DHT")
+					logger.Info("published private-network records to DHT")
 				}
 
 				if len(cfg.Relays()) > 0 {
 					nostr := link.NewNostrDiscovery(cfg.Relays(), nil)
 					membershipRecord, err := linkNode.CurrentMembershipRecord()
 					if err != nil {
-						slog.Warn("building private-network membership record failed", "error", err)
+						logger.Warn("building private-network membership record failed", "error", err)
 					} else if err := nostr.PublishMembership(ctx, bundle.Identity, membershipRecord); err != nil {
-						slog.Warn("failed to publish private-network membership to Nostr", "error", err)
+						logger.Warn("failed to publish private-network membership to Nostr", "error", err)
 					}
 
 					presenceRecord, err := linkNode.CurrentPresenceRecord(0)
 					if err != nil {
-						slog.Warn("building private-network presence record failed", "error", err)
+						logger.Warn("building private-network presence record failed", "error", err)
 					} else if err := nostr.PublishPresence(ctx, bundle.Device, presenceRecord); err != nil {
-						slog.Warn("failed to publish private-network presence to Nostr", "error", err)
+						logger.Warn("failed to publish private-network presence to Nostr", "error", err)
 					}
 				}
 
@@ -195,8 +223,8 @@ func ServeCmd() *cobra.Command {
 			configureIdentityRPCHandler(identityRPC, bundle, idStore, backend, linkNode, cfg.Relays(), refreshPrivateNetwork)
 
 			// Agent registry — local agent registration and message routing.
-			agentRegistry := skyagent.NewRegistry(bundle.DeviceID(), skyfs.GetDeviceName(), nil)
-			agentRouter := skyagent.NewRouter(agentRegistry, linkNode, server.Emit, bundle.DeviceID(), nil)
+			agentRegistry := skyagent.NewRegistry(bundle.DeviceID(), skyfs.GetDeviceName(), logRuntime.Logger)
+			agentRouter := skyagent.NewRouter(agentRegistry, linkNode, server.Emit, bundle.DeviceID(), logRuntime.Logger)
 			agentRPC := skyagent.NewRPCHandler(agentRegistry, bundle.Identity, server.Emit)
 			agentRPC.SetRouter(agentRouter)
 			server.RegisterHandler(agentRPC)
@@ -210,7 +238,7 @@ func ServeCmd() *cobra.Command {
 			// Wallet handler — opt-in, only active when ows is installed.
 			walletClient := skywallet.NewClient()
 			if walletClient != nil {
-				slog.Info("wallet: OWS detected, enabling wallet RPC")
+				logger.Info("wallet: OWS detected, enabling wallet RPC")
 			}
 			server.RegisterHandler(skywallet.NewRPCHandler(walletClient, server.Emit))
 
@@ -238,7 +266,7 @@ func ServeCmd() *cobra.Command {
 			}()
 			go func() {
 				if err := <-linkRunErr; err != nil && ctx.Err() == nil {
-					slog.Warn("link node failed", "error", err)
+					logger.Warn("link node failed", "error", err)
 				}
 			}()
 
@@ -252,14 +280,14 @@ func ServeCmd() *cobra.Command {
 						return
 					}
 					if time.Now().After(deadline) {
-						slog.Warn("link node did not become ready before startup timeout")
+						logger.Warn("link node did not become ready before startup timeout")
 						return
 					}
 					time.Sleep(50 * time.Millisecond)
 				}
 
 				// Register P2P join handler as soon as the host exists.
-				joinHandler := skyjoin.NewHandler(bundle, nil, nil)
+				joinHandler := skyjoin.NewHandler(bundle, nil, logRuntime.Logger)
 				joinHandler.SetNSKeyProvider(func() []skyjoin.NSKey {
 					ns, key := kvStore.NamespaceKey()
 					if key == nil {
@@ -275,7 +303,7 @@ func ServeCmd() *cobra.Command {
 					return nil
 				})
 				linkNode.Host().SetStreamHandler(skyjoin.Protocol, joinHandler.HandleStream)
-				slog.Info("P2P join handler registered")
+				logger.Info("P2P join handler registered")
 
 				// Register KV sync protocol before any bootstrap work that can block
 				// on slow discovery/publish paths. Otherwise a freshly joined peer can
@@ -287,9 +315,9 @@ func ServeCmd() *cobra.Command {
 				// Publish multiaddrs to S3 device registry (if configured).
 				if backend != nil {
 					if err := skyfs.UpdateDeviceMultiaddrs(ctx, backend, bundle.DeviceID(), addrs); err != nil {
-						slog.Warn("failed to publish multiaddrs to S3", "error", err)
+						logger.Warn("failed to publish multiaddrs to S3", "error", err)
 					} else {
-						slog.Info("published multiaddrs to S3 device registry", "count", len(addrs))
+						logger.Info("published multiaddrs to S3 device registry", "count", len(addrs))
 					}
 				}
 
@@ -312,7 +340,7 @@ func ServeCmd() *cobra.Command {
 			// Log KV startup errors but don't block the daemon.
 			go func() {
 				if err := <-kvRunErr; err != nil {
-					slog.Warn("kv store failed", "error", err)
+					logger.Warn("kv store failed", "error", err)
 				}
 			}()
 
@@ -331,7 +359,7 @@ func ServeCmd() *cobra.Command {
 			httpPort, _ := cmd.Flags().GetInt("http-port")
 			go func() {
 				if err := server.ServeHTTP(ctx, httpPort); err != nil {
-					slog.Error("HTTP server failed", "error", err)
+					logger.Error("HTTP server failed", "error", err)
 				}
 			}()
 			time.Sleep(100 * time.Millisecond)

@@ -56,9 +56,7 @@ func (s *Server) HandleHTTP(pattern string, handler http.HandlerFunc) {
 
 // NewServer creates an RPC server.
 func NewServer(sockPath, version string, logger *slog.Logger) *Server {
-	if logger == nil {
-		logger = slog.Default()
-	}
+	logger = componentLogger(logger)
 	return &Server{
 		sockPath: sockPath,
 		version:  version,

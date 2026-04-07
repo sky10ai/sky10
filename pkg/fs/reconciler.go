@@ -40,9 +40,7 @@ type Reconciler struct {
 
 // NewReconciler creates a reconciler that applies remote changes locally.
 func NewReconciler(store *Store, localLog *opslog.LocalOpsLog, outbox *SyncLog[OutboxEntry], localDir string, ignore func(string) bool, logger *slog.Logger) *Reconciler {
-	if logger == nil {
-		logger = slog.Default()
-	}
+	logger = defaultLogger(logger)
 	return &Reconciler{
 		store:    store,
 		localLog: localLog,

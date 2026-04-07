@@ -22,9 +22,7 @@ type Registry struct {
 
 // NewRegistry creates an agent registry for the given device.
 func NewRegistry(deviceID, deviceName string, logger *slog.Logger) *Registry {
-	if logger == nil {
-		logger = slog.Default()
-	}
+	logger = componentLogger(logger)
 	return &Registry{
 		deviceID:      deviceID,
 		deviceName:    deviceName,

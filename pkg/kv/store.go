@@ -67,9 +67,7 @@ func New(
 	config Config,
 	logger *slog.Logger,
 ) *Store {
-	if logger == nil {
-		logger = slog.Default()
-	}
+	logger = componentLogger(logger)
 	if config.PollInterval == 0 {
 		config.PollInterval = 30 * time.Second
 	}

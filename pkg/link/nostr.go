@@ -22,10 +22,7 @@ const Sky10NostrKind = 30078
 
 // NewNostrDiscovery creates a Nostr discovery client.
 func NewNostrDiscovery(relays []string, logger *slog.Logger) *NostrDiscovery {
-	if logger == nil {
-		logger = slog.Default()
-	}
-	return &NostrDiscovery{relays: relays, logger: logger}
+	return &NostrDiscovery{relays: relays, logger: defaultLogger(logger)}
 }
 
 func (d *NostrDiscovery) publish(ctx context.Context, signer *skykey.Key, tags nostr.Tags, content []byte) error {

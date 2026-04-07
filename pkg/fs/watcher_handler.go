@@ -25,9 +25,7 @@ type WatcherHandler struct {
 
 // NewWatcherHandler creates a handler that bridges watcher events to the outbox.
 func NewWatcherHandler(outbox *SyncLog[OutboxEntry], localLog *opslog.LocalOpsLog, localDir, namespace string, logger *slog.Logger) *WatcherHandler {
-	if logger == nil {
-		logger = slog.Default()
-	}
+	logger = defaultLogger(logger)
 	return &WatcherHandler{
 		outbox:     outbox,
 		localLog:   localLog,

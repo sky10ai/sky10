@@ -39,7 +39,7 @@ type Backend struct {
 
 // SetLogger sets the logger for S3 request/response logging.
 func (b *Backend) SetLogger(logger *slog.Logger) {
-	b.logger = logger
+	b.logger = componentLogger(logger)
 }
 
 // Config holds S3 connection parameters.
@@ -129,7 +129,7 @@ func New(ctx context.Context, cfg Config) (*Backend, error) {
 		client: client,
 		bucket: cfg.Bucket,
 		sem:    make(chan struct{}, 8), // max 8 concurrent S3 calls
-		logger: slog.Default(),
+		logger: componentLogger(nil),
 	}, nil
 }
 

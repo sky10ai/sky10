@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sky10/sky10/pkg/fs/opslog"
+	"github.com/sky10/sky10/pkg/logging"
 	"github.com/sky10/sky10/pkg/rpc"
 )
 
@@ -19,7 +20,7 @@ type FSHandler struct {
 	store        *Store
 	server       *rpc.Server
 	driveManager *DriveManager
-	logBuf       *LogBuffer
+	logBuf       *logging.Buffer
 	logger       *slog.Logger
 	version      string
 
@@ -38,9 +39,11 @@ type FSHandler struct {
 }
 
 // NewFSHandler creates an FSHandler wired to the given store and rpc.Server.
-func NewFSHandler(store *Store, server *rpc.Server, driveCfgPath string) *FSHandler {
-	logBuf := NewLogBuffer(1000)
-	logger := NewDaemonLogger(logBuf)
+func NewFSHandler(store *Store, server *rpc.Server, driveCfgPath string, logger *slog.Logger, logBuf *logging.Buffer) *FSHandler {
+	logger = componentLogger(logger)
+	if logBuf == nil {
+		logBuf = logging.NewBuffer(1000)
+	}
 
 	dm := NewDriveManager(store, driveCfgPath)
 	dm.Logger = logger
@@ -59,12 +62,6 @@ func NewFSHandler(store *Store, server *rpc.Server, driveCfgPath string) *FSHand
 	dm.OnActivity = h.MarkActivity
 	dm.OnStateChanged = func(event string, data map[string]any) {
 		server.Emit(event, data)
-	}
-
-	// Wire logger to S3 backend for request/response logging
-	type logSetter interface{ SetLogger(*slog.Logger) }
-	if ls, ok := store.backend.(logSetter); ok {
-		ls.SetLogger(logger)
 	}
 
 	return h

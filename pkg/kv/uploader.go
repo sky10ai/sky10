@@ -35,9 +35,7 @@ func NewUploader(
 	encKey []byte,
 	logger *slog.Logger,
 ) *Uploader {
-	if logger == nil {
-		logger = slog.Default()
-	}
+	logger = defaultLogger(logger)
 	return &Uploader{
 		backend:  backend,
 		localLog: localLog,

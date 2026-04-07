@@ -21,9 +21,7 @@ type HealthChecker struct {
 
 // NewHealthChecker creates a health checker.
 func NewHealthChecker(registry *Registry, emit Emitter, logger *slog.Logger) *HealthChecker {
-	if logger == nil {
-		logger = slog.Default()
-	}
+	logger = componentLogger(logger)
 	return &HealthChecker{
 		registry: registry,
 		emit:     emit,

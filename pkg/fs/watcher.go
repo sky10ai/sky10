@@ -1,7 +1,6 @@
 package fs
 
 import (
-	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -202,7 +201,7 @@ func (w *Watcher) addRecursive(root string) error {
 			if path == root {
 				return err
 			}
-			slog.Warn("watcher: skipping path", "path", path, "error", err)
+			defaultLogger(nil).Warn("watcher: skipping path", "path", path, "error", err)
 			return nil
 		}
 		if !d.IsDir() {
@@ -224,7 +223,7 @@ func (w *Watcher) addRecursive(root string) error {
 			if path == root {
 				return err
 			}
-			slog.Warn("watcher: cannot watch directory", "path", path, "error", err)
+			defaultLogger(nil).Warn("watcher: cannot watch directory", "path", path, "error", err)
 			return nil
 		}
 		return nil

@@ -32,9 +32,7 @@ func NewSnapshotUploader(
 	encKey []byte,
 	logger *slog.Logger,
 ) *SnapshotUploader {
-	if logger == nil {
-		logger = slog.Default()
-	}
+	logger = defaultLogger(logger)
 	return &SnapshotUploader{
 		backend:  backend,
 		localLog: localLog,

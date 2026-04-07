@@ -37,9 +37,7 @@ type cachedAgents struct {
 
 // NewRouter creates a message router.
 func NewRouter(registry *Registry, node *link.Node, emit Emitter, deviceID string, logger *slog.Logger) *Router {
-	if logger == nil {
-		logger = slog.Default()
-	}
+	logger = componentLogger(logger)
 	return &Router{
 		registry:       registry,
 		node:           node,

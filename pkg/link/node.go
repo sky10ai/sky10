@@ -74,9 +74,7 @@ type Node struct {
 // The bundle's Device key is used for libp2p transport (peer ID), while the
 // Identity key provides the external sky10q... address.
 func New(bundle *id.Bundle, config Config, logger *slog.Logger) (*Node, error) {
-	if logger == nil {
-		logger = slog.Default()
-	}
+	logger = componentLogger(logger)
 	pid, err := PeerIDFromKey(bundle.Device)
 	if err != nil {
 		return nil, fmt.Errorf("deriving peer ID: %w", err)

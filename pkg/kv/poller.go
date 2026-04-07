@@ -38,9 +38,7 @@ func NewPoller(
 	baselines *BaselineStore,
 	logger *slog.Logger,
 ) *Poller {
-	if logger == nil {
-		logger = slog.Default()
-	}
+	logger = defaultLogger(logger)
 	return &Poller{
 		backend:   backend,
 		localLog:  localLog,

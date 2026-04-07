@@ -17,7 +17,7 @@ import (
 // newTestServer creates an rpc.Server with FSHandler registered for tests.
 func newTestServer(store *Store, sockPath, driveCfgPath string) *skyrpc.Server {
 	server := skyrpc.NewServer(sockPath, "test", nil)
-	handler := NewFSHandler(store, server, driveCfgPath)
+	handler := NewFSHandler(store, server, driveCfgPath, nil, nil)
 	server.RegisterHandler(handler)
 	server.OnServe(func() {
 		handler.StartDrives()

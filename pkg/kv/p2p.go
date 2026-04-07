@@ -50,9 +50,7 @@ type P2PSync struct {
 
 // NewP2PSync creates a P2P sync handler for the given KV store.
 func NewP2PSync(store *Store, node p2pNode, identity *skykey.Key, logger *slog.Logger) *P2PSync {
-	if logger == nil {
-		logger = slog.Default()
-	}
+	logger = defaultLogger(logger)
 	return &P2PSync{
 		store:    store,
 		node:     node,

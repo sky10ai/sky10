@@ -57,9 +57,7 @@ type Handler struct {
 // NewHandler creates a join handler. If approve is nil, all requests
 // are auto-approved (the invite code itself is the authorization).
 func NewHandler(bundle *id.Bundle, approve func(Request) bool, logger *slog.Logger) *Handler {
-	if logger == nil {
-		logger = slog.Default()
-	}
+	logger = componentLogger(logger)
 	return &Handler{bundle: bundle, approve: approve, logger: logger}
 }
 

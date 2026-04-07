@@ -169,6 +169,38 @@ should use this file directly.
 - Split files before they become hard to review; roughly 500 lines is a
   warning sign, not a target.
 
+## Logging Conventions
+
+- Use `pkg/logging` for logger construction and default installation. Do
+  not create ad hoc `slog.New*Handler`, `slog.New`, or `slog.SetDefault`
+  calls outside that package unless the user explicitly asks for a
+  logging-system change.
+- The daemon default is structured `logfmt`. JSON logs are opt-in via
+  the central logging config. Do not let individual packages choose
+  their own format.
+- Every package-level logger should carry a `component` field such as
+  `fs`, `kv`, `link`, `agent`, `rpc`, or `update`. Use `component`, not
+  `namespace`, for logger identity.
+- Attach stable structured fields for the thing being acted on:
+  `path`, `drive`, `device`, `peer_device`, `storage_scope`, `key`,
+  `method`, `socket`, and similar. Prefer explicit domain names over
+  vague fields.
+- If a constructor accepts `*slog.Logger`, thread it through and tag the
+  package/component once near the package entry point. Avoid inventing
+  custom logger wrapper types just to rename methods.
+- `Debug` is for high-volume diagnostics and retry/detail noise that is
+  usually off in normal operation.
+- `Info` is for expected lifecycle and state transitions that help trace
+  normal behavior without flooding the logs.
+- `Warn` is for recoverable failures, retries, fallbacks, partial
+  degradation, or data that looks wrong but does not stop the current
+  operation.
+- `Error` is for failures that abort the current operation, leave the
+  daemon in a degraded state, or require operator attention.
+- Do not both log and return the same error unless the log is at a true
+  process boundary where the error would otherwise disappear. Prefer
+  returning wrapped errors and logging once at the boundary.
+
 ## Remote Debugging
 
 - Use the daemon's Unix socket at `/tmp/sky10/sky10.sock` when

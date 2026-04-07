@@ -24,7 +24,7 @@ func (s *FSHandler) rpcLogs(_ context.Context, params json.RawMessage) (interfac
 		p.Lines = 500
 	}
 
-	logPath := "/tmp/sky10/daemon.log"
+	logPath := DaemonLogPath()
 	f, err := os.Open(logPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening log: %w", err)

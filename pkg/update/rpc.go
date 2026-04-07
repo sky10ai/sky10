@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -92,7 +91,7 @@ func (h *RPCHandler) rpcUpdate() (interface{}, error, bool) {
 		}
 
 		if _, err := ApplyMenu(info); err != nil {
-			slog.Warn("could not update sky10-menu", "error", err)
+			logger().Warn("could not update sky10-menu", "error", err)
 		}
 
 		h.emit("update:complete", map[string]string{
@@ -114,7 +113,7 @@ func (h *RPCHandler) rpcRestart() (interface{}, error, bool) {
 			time.Sleep(h.restartDelay)
 		}
 		if err := h.restartHandler(); err != nil {
-			slog.Warn("system.restart failed", "error", err)
+			logger().Warn("system.restart failed", "error", err)
 		}
 	}()
 

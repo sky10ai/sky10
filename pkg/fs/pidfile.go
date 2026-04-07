@@ -30,6 +30,11 @@ func DaemonSocketPath() string {
 	return filepath.Join(RuntimeDir(), "sky10.sock")
 }
 
+// DaemonLogPath returns the default path for the daemon log.
+func DaemonLogPath() string {
+	return filepath.Join(RuntimeDir(), "daemon.log")
+}
+
 // WritePIDFile writes the current process ID to the PID file.
 func WritePIDFile() error {
 	os.MkdirAll(RuntimeDir(), 0755)

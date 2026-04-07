@@ -38,9 +38,7 @@ type Registry struct {
 
 // NewRegistry creates a capability registry with built-in handlers.
 func NewRegistry(logger *slog.Logger) *Registry {
-	if logger == nil {
-		logger = slog.Default()
-	}
+	logger = defaultLogger(logger)
 	r := &Registry{
 		logger:   logger,
 		handlers: make(map[string]HandlerFunc),

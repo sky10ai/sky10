@@ -25,9 +25,7 @@ type OutboxWorker struct {
 
 // NewOutboxWorker creates an outbox worker.
 func NewOutboxWorker(store *Store, outbox *SyncLog[OutboxEntry], localLog *opslog.LocalOpsLog, logger *slog.Logger) *OutboxWorker {
-	if logger == nil {
-		logger = slog.Default()
-	}
+	logger = defaultLogger(logger)
 	return &OutboxWorker{
 		store:     store,
 		outbox:    outbox,

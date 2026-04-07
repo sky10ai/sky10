@@ -20,7 +20,7 @@ func startTestRPC(t *testing.T) (*skyrpc.Server, net.Conn, context.CancelFunc) {
 
 	sockPath := filepath.Join(t.TempDir(), "test.sock")
 	server := skyrpc.NewServer(sockPath, "test", nil)
-	handler := NewFSHandler(store, server, filepath.Join(t.TempDir(), "drives.json"))
+	handler := NewFSHandler(store, server, filepath.Join(t.TempDir(), "drives.json"), nil, nil)
 	server.RegisterHandler(handler)
 
 	ctx, cancel := context.WithCancel(context.Background())

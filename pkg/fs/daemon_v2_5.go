@@ -54,9 +54,7 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 	if config.PollSeconds <= 0 {
 		config.PollSeconds = 30
 	}
-	if logger == nil {
-		logger = slog.Default()
-	}
+	logger = componentLogger(logger)
 
 	// Determine paths
 	driveDir := driveDataDir(config.DriveID)
@@ -393,9 +391,7 @@ func driveDataDir(driveID string) string {
 // migrateStateToOpsLog converts a V2.5 state.json to an ops.jsonl file.
 // Only runs once: if ops.jsonl already exists, it's a no-op.
 func migrateStateToOpsLog(driveDir, deviceID string, logger *slog.Logger) {
-	if logger == nil {
-		logger = slog.Default()
-	}
+	logger = defaultLogger(logger)
 	opsLogPath := filepath.Join(driveDir, "ops.jsonl")
 	statePath := filepath.Join(driveDir, "state.json")
 

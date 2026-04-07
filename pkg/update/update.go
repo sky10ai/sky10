@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -215,11 +214,11 @@ func PeriodicCheck(ctx context.Context, version string, emit Emitter) {
 	check := func() {
 		info, err := Check(version)
 		if err != nil {
-			slog.Debug("update check failed", "error", err)
+			logger().Debug("update check failed", "error", err)
 			return
 		}
 		if info.Available {
-			slog.Info("update available", "current", info.Current, "latest", info.Latest)
+			logger().Info("update available", "current", info.Current, "latest", info.Latest)
 			emit("update:available", info)
 		}
 	}

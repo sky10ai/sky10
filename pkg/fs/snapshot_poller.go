@@ -42,9 +42,7 @@ func NewSnapshotPoller(
 	baselines *BaselineStore,
 	logger *slog.Logger,
 ) *SnapshotPoller {
-	if logger == nil {
-		logger = slog.Default()
-	}
+	logger = defaultLogger(logger)
 	return &SnapshotPoller{
 		backend:        backend,
 		localLog:       localLog,
