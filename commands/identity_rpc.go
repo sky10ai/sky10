@@ -228,6 +228,9 @@ func joinIdentityP2P(
 		}
 		return nil, fmt.Errorf("join request was %s", errMsg)
 	}
+	if !hasNamespaceKey(resp.NSKeys, "default") {
+		return nil, fmt.Errorf("join response missing default KV namespace key")
+	}
 
 	var wrappedIdentity []byte
 	if err := json.Unmarshal(resp.IdentityKey, &wrappedIdentity); err != nil {
@@ -253,9 +256,6 @@ func joinIdentityP2P(
 	if err != nil {
 		return nil, err
 	}
-	if err := idStore.Save(joinedBundle); err != nil {
-		return nil, fmt.Errorf("saving joined private-network bundle: %w", err)
-	}
 
 	deviceID := joinedBundle.DeviceID()
 	for _, nsk := range resp.NSKeys {
@@ -264,6 +264,9 @@ func joinIdentityP2P(
 			continue
 		}
 		kv.CacheKeyLocally(nsk.Namespace, deviceID, nsKey)
+	}
+	if err := idStore.Save(joinedBundle); err != nil {
+		return nil, fmt.Errorf("saving joined private-network bundle: %w", err)
 	}
 
 	cfg, err := config.Load()
@@ -283,6 +286,15 @@ func joinIdentityP2P(
 		DevicePubKey: joinedBundle.DevicePubKeyHex(),
 		Restarting:   true,
 	}, nil
+}
+
+func hasNamespaceKey(keys []skyjoin.WrappedNSKey, namespace string) bool {
+	for _, nsk := range keys {
+		if nsk.Namespace == namespace && len(nsk.Wrapped) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func joinIdentityS3(

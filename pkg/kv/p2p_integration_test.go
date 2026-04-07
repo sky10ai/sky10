@@ -2,6 +2,7 @@ package kv
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -216,6 +217,40 @@ func TestP2PSyncSingleInitiatorConvergesBothPeers(t *testing.T) {
 	})
 }
 
+func TestP2PSyncNamespaceMismatchSurfacesErrorStatus(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	nsKeyA, _ := skykey.GenerateSymmetricKey()
+	nsKeyB, _ := skykey.GenerateSymmetricKey()
+	nodeA, _, syncA, nodeB, storeB, _ := startSharedPairWithDistinctKeys(t, ctx, nsKeyA, nsKeyB)
+
+	infoB := nodeB.Host().Peerstore().PeerInfo(nodeB.PeerID())
+	if err := nodeA.Host().Connect(ctx, infoB); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	syncA.PushToAll(ctx)
+
+	waitFor(t, 5*time.Second, func() bool {
+		status, err := storeB.Status()
+		return err == nil && status.SyncState == "error" && strings.Contains(status.SyncMessage, "namespace mismatch")
+	})
+
+	status, err := storeB.Status()
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if status.SyncState != "error" {
+		t.Fatalf("sync_state = %q, want error", status.SyncState)
+	}
+	if !strings.Contains(status.SyncMessage, "namespace mismatch") {
+		t.Fatalf("sync_message = %q, want namespace mismatch", status.SyncMessage)
+	}
+}
+
 func TestP2PSyncPeriodicAntiEntropyWithoutWrites(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -412,6 +447,43 @@ func startSharedTestPair(t *testing.T, ctx context.Context, nsKey []byte) (*link
 
 	nodeA, storeA, syncA := startTestNodeFromBundle(t, ctx, bundleA, nsKey)
 	nodeB, storeB, syncB := startTestNodeFromBundle(t, ctx, bundleB, nsKey)
+	return nodeA, storeA, syncA, nodeB, storeB, syncB
+}
+
+func startSharedPairWithDistinctKeys(t *testing.T, ctx context.Context, nsKeyA, nsKeyB []byte) (*link.Node, *Store, *P2PSync, *link.Node, *Store, *P2PSync) {
+	t.Helper()
+
+	identity, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceA, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceB, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := id.NewManifest(identity)
+	manifest.AddDevice(deviceA.PublicKey, "nodeA")
+	manifest.AddDevice(deviceB.PublicKey, "nodeB")
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatal(err)
+	}
+
+	bundleA, err := id.New(identity, deviceA, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleB, err := id.New(identity, deviceB, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	nodeA, storeA, syncA := startTestNodeFromBundle(t, ctx, bundleA, nsKeyA)
+	nodeB, storeB, syncB := startTestNodeFromBundle(t, ctx, bundleB, nsKeyB)
 	return nodeA, storeA, syncA, nodeB, storeB, syncB
 }
 

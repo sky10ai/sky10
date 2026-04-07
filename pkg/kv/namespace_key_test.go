@@ -39,7 +39,7 @@ func TestGetOrCreateNamespaceKey_KvPrefix(t *testing.T) {
 	// Register device
 	regDev2(t, backend, deviceID, id.Address())
 
-	key, err := getOrCreateNamespaceKey(ctx, backend, "default", id, deviceID)
+	key, err := getOrCreateNamespaceKey(ctx, backend, "default", id, deviceID, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,13 +74,13 @@ func TestGetOrCreateNamespaceKey_SharedAcrossDevices(t *testing.T) {
 	regDev2(t, backend, devB, idB.Address())
 
 	// Device A creates the key (wraps for B too)
-	keyA, err := getOrCreateNamespaceKey(ctx, backend, "shared", idA, devA)
+	keyA, err := getOrCreateNamespaceKey(ctx, backend, "shared", idA, devA, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Device B should find A's wrapped key
-	keyB, err := getOrCreateNamespaceKey(ctx, backend, "shared", idB, devB)
+	keyB, err := getOrCreateNamespaceKey(ctx, backend, "shared", idB, devB, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestGetOrCreateNamespaceKey_RacePrevention(t *testing.T) {
 	regDev2(t, backend, devA, idA.Address())
 
 	// A creates the key but only wraps for registered devices (just A)
-	keyA, err := getOrCreateNamespaceKey(ctx, backend, "race-test", idA, devA)
+	keyA, err := getOrCreateNamespaceKey(ctx, backend, "race-test", idA, devA, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,13 +117,26 @@ func TestGetOrCreateNamespaceKey_RacePrevention(t *testing.T) {
 
 	// Now register B and resolve — should find the key via scan
 	regDev2(t, backend, devB, idB.Address())
-	keyB, err := getOrCreateNamespaceKey(ctx, backend, "race-test", idB, devB)
+	keyB, err := getOrCreateNamespaceKey(ctx, backend, "race-test", idB, devB, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if !bytes.Equal(keyA, keyB) {
 		t.Error("B got a different key — race prevention scan failed")
+	}
+}
+
+func TestGetOrCreateNamespaceKeyLocal_RequireExisting(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	_, err := getOrCreateNamespaceKeyLocal("default", "D-testdevice", true)
+	if err == nil {
+		t.Fatal("expected error when cached key is required but missing")
+	}
+	if !strings.Contains(err.Error(), "missing cached namespace key") {
+		t.Fatalf("error = %v, want missing cached namespace key", err)
 	}
 }
 

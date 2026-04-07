@@ -254,6 +254,16 @@ export interface KVStatus {
   namespace: string;
   device_id: string;
   keys: number;
+  nsid?: string;
+  ready: boolean;
+  peer_count: number;
+  expected_peers: number;
+  sync_state: "ok" | "waiting" | "error";
+  sync_message?: string;
+  last_sync_ok?: string;
+  last_sync_peer?: string;
+  last_sync_error?: string;
+  last_sync_error_at?: string;
 }
 
 export interface LinkStatus {

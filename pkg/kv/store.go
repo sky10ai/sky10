@@ -32,6 +32,8 @@ type Config struct {
 	DeviceID            string        // local device ID for key-cache scoping
 	ActorID             string        // stable per-device actor ID for causal metadata
 	AntiEntropyInterval time.Duration // background P2P anti-entropy cadence
+	RequireExistingKey  bool          // refuse to mint a new local key in P2P-only mode
+	ExpectedPeers       int           // expected private-network peer count for status
 }
 
 // Store is the main KV store. It provides Get/Set/Delete/List and manages
@@ -55,6 +57,7 @@ type Store struct {
 	p2pSync        *P2PSync // optional: P2P snapshot sync
 	runCtx         context.Context
 	p2pLoopStarted bool
+	health         syncHealth
 }
 
 // New creates a new KV store.
@@ -106,6 +109,9 @@ func New(
 
 // Set stores a key-value pair. Appends to local log and triggers sync.
 func (s *Store) Set(ctx context.Context, key string, value []byte) error {
+	if err := s.ensureReady(); err != nil {
+		return err
+	}
 	if len(value) > MaxValueSize {
 		return ErrValueTooLarge
 	}
@@ -132,6 +138,9 @@ func (s *Store) Get(key string) ([]byte, bool) {
 
 // Delete removes a key. Appends delete to local log and triggers sync.
 func (s *Store) Delete(ctx context.Context, key string) error {
+	if err := s.ensureReady(); err != nil {
+		return err
+	}
 	if err := s.localLog.AppendLocal(Entry{
 		Type:      Delete,
 		Key:       key,
@@ -191,6 +200,7 @@ func (s *Store) GetAll(prefix string) map[string][]byte {
 // Blocks until ctx is cancelled.
 func (s *Store) Run(ctx context.Context) error {
 	if err := s.resolveKeys(ctx); err != nil {
+		s.markResolveError(err)
 		return fmt.Errorf("resolving kv namespace key: %w", err)
 	}
 
@@ -241,8 +251,12 @@ func (s *Store) Run(ctx context.Context) error {
 
 // SyncOnce performs a single poll + upload cycle.
 func (s *Store) SyncOnce(ctx context.Context) error {
+	if err := s.ensureReady(); err != nil {
+		return err
+	}
 	if s.nsKey == nil {
 		if err := s.resolveKeys(ctx); err != nil {
+			s.markResolveError(err)
 			return err
 		}
 	}
@@ -329,7 +343,7 @@ func (s *Store) NamespaceKey() (string, []byte) {
 // resolveKeys resolves the namespace encryption key and opaque namespace ID.
 // With nil backend, resolves from local cache or generates new keys.
 func (s *Store) resolveKeys(ctx context.Context) error {
-	nsKey, err := getOrCreateNamespaceKey(ctx, s.backend, s.config.Namespace, s.identity, s.deviceID)
+	nsKey, err := getOrCreateNamespaceKey(ctx, s.backend, s.config.Namespace, s.identity, s.deviceID, s.config.RequireExistingKey)
 	if err != nil {
 		return err
 	}
@@ -347,6 +361,7 @@ func (s *Store) resolveKeys(ctx context.Context) error {
 	s.mu.Lock()
 	s.nsKey = nsKey
 	s.nsID = nsID
+	s.markReadyLocked()
 	s.mu.Unlock()
 
 	return nil

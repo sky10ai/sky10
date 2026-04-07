@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -89,9 +90,10 @@ func getOrCreateNamespaceKey(
 	nsName string,
 	identity *skykey.Key,
 	deviceID string,
+	requireExisting bool,
 ) ([]byte, error) {
 	if backend == nil {
-		return getOrCreateNamespaceKeyLocal(nsName, deviceID)
+		return getOrCreateNamespaceKeyLocal(nsName, deviceID, requireExisting)
 	}
 
 	keyName := nsKeyName(nsName)
@@ -172,9 +174,12 @@ func getOrCreateNamespaceKey(
 
 // getOrCreateNamespaceKeyLocal resolves namespace key from local cache only.
 // Generates a new key if none is cached. Used in S3-free mode.
-func getOrCreateNamespaceKeyLocal(nsName, deviceID string) ([]byte, error) {
+func getOrCreateNamespaceKeyLocal(nsName, deviceID string, requireExisting bool) ([]byte, error) {
 	if key, err := loadCachedKey(nsName, deviceID); err == nil {
 		return key, nil
+	}
+	if requireExisting {
+		return nil, fmt.Errorf("missing cached namespace key for %q on device %s", nsName, deviceID)
 	}
 	key, err := skykey.GenerateSymmetricKey()
 	if err != nil {

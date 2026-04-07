@@ -104,9 +104,11 @@ func ServeCmd() *cobra.Command {
 			server.HandleHTTP("GET /download", fsHandler.HandleDownload)
 
 			kvStore := kv.New(backend, bundle.Identity, kv.Config{
-				Namespace: "default",
-				DeviceID:  bundle.DeviceID(),
-				ActorID:   bundle.DevicePubKeyHex(),
+				Namespace:          "default",
+				DeviceID:           bundle.DeviceID(),
+				ActorID:            bundle.DevicePubKeyHex(),
+				RequireExistingKey: backend == nil && bundle.Manifest != nil && len(bundle.Manifest.Devices) > 1,
+				ExpectedPeers:      expectedPrivateNetworkPeers(bundle),
 			}, nil)
 			server.RegisterHandler(kv.NewRPCHandler(kvStore))
 			kvRunErr := make(chan error, 1)
@@ -341,4 +343,14 @@ func ServeCmd() *cobra.Command {
 	cmd.Flags().String("socket", "", "Socket path")
 	cmd.Flags().Int("http-port", skyrpc.DefaultHTTPPort, "HTTP RPC port")
 	return cmd
+}
+
+func expectedPrivateNetworkPeers(bundle *skyid.Bundle) int {
+	if bundle == nil || bundle.Manifest == nil {
+		return 0
+	}
+	if len(bundle.Manifest.Devices) <= 1 {
+		return 0
+	}
+	return len(bundle.Manifest.Devices) - 1
 }

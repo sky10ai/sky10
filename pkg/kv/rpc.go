@@ -144,13 +144,9 @@ func (h *RPCHandler) rpcSync(ctx context.Context) (interface{}, error) {
 }
 
 func (h *RPCHandler) rpcStatus(_ context.Context) (interface{}, error) {
-	snap, err := h.store.Snapshot()
+	status, err := h.store.Status()
 	if err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{
-		"namespace": h.store.config.Namespace,
-		"keys":      snap.Len(),
-		"device_id": h.store.deviceID,
-	}, nil
+	return status, nil
 }

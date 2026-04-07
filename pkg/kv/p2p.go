@@ -31,10 +31,13 @@ type p2pNode interface {
 
 // p2pSyncMsg is the wire format for KV sync messages.
 type p2pSyncMsg struct {
-	Type    string           `json:"type"`              // "summary", "delta", or legacy "snapshot"
-	NSID    string           `json:"nsid"`              // namespace ID
-	Summary *SnapshotSummary `json:"summary,omitempty"` // causal summary
-	Data    json.RawMessage  `json:"data,omitempty"`    // encrypted snapshot/delta
+	Type         string           `json:"type"`                    // "summary", "delta", legacy "snapshot", or "error"
+	NSID         string           `json:"nsid"`                    // namespace ID
+	Summary      *SnapshotSummary `json:"summary,omitempty"`       // causal summary
+	Data         json.RawMessage  `json:"data,omitempty"`          // encrypted snapshot/delta
+	Error        string           `json:"error,omitempty"`         // explicit sync failure
+	ExpectedNSID string           `json:"expected_nsid,omitempty"` // local expected namespace ID
+	ObservedNSID string           `json:"observed_nsid,omitempty"` // remote/received namespace ID
 }
 
 // P2PSync handles KV snapshot exchange over libp2p streams.
@@ -106,12 +109,18 @@ func (s *P2PSync) syncWithPeer(ctx context.Context, pid peer.ID) {
 
 	response, err := s.requestSummary(ctx, pid, snap.Summary())
 	if err != nil {
+		if response != nil && response.ExpectedNSID != "" {
+			s.store.recordNamespaceMismatch(pid.String(), response.ObservedNSID, response.ExpectedNSID)
+		} else {
+			s.store.recordSyncError(pid.String(), err)
+		}
 		s.logger.Warn("kv p2p push: summary exchange failed", "peer", pid, "error", err)
 		return
 	}
 
 	if response != nil {
 		if merged, err := s.mergeSnapshotMessage(*response, pid, false); err != nil {
+			s.store.recordSyncError(pid.String(), err)
 			s.logger.Warn("kv p2p push: merge response failed", "peer", pid, "error", err)
 		} else if merged > 0 {
 			s.logger.Info("kv p2p push: merged peer delta", "peer", pid, "entries", merged)
@@ -119,6 +128,7 @@ func (s *P2PSync) syncWithPeer(ctx context.Context, pid peer.ID) {
 	}
 
 	if response == nil || response.Summary == nil {
+		s.store.recordSyncError(pid.String(), fmt.Errorf("peer did not return a causal summary"))
 		return
 	}
 
@@ -129,12 +139,15 @@ func (s *P2PSync) syncWithPeer(ctx context.Context, pid peer.ID) {
 	}
 	delta := latest.DeltaSince(response.Summary.Vector)
 	if !delta.HasState() {
+		s.store.recordSyncSuccess(pid.String())
 		return
 	}
 	if err := s.sendSnapshotMessage(ctx, pid, "delta", delta); err != nil {
+		s.store.recordSyncError(pid.String(), err)
 		s.logger.Warn("kv p2p push: send delta failed", "peer", pid, "error", err)
 		return
 	}
+	s.store.recordSyncSuccess(pid.String())
 	s.logger.Info("kv p2p push: sent delta", "peer", pid, "keys", delta.Len(), "tombstones", len(delta.Tombstones()))
 }
 
@@ -178,6 +191,9 @@ func (s *P2PSync) requestSummary(ctx context.Context, pid peer.ID, summary Snaps
 	var response p2pSyncMsg
 	if err := json.Unmarshal(responsePayload, &response); err != nil {
 		return nil, fmt.Errorf("unmarshal summary response: %w", err)
+	}
+	if response.Type == "error" {
+		return &response, fmt.Errorf("%s", response.Error)
 	}
 	return &response, nil
 }
@@ -253,6 +269,8 @@ func (s *P2PSync) handleStream(stream network.Stream) {
 		if _, err := s.mergeSnapshotMessage(msg, stream.Conn().RemotePeer(), true); err != nil {
 			s.logger.Warn("kv p2p: merge legacy snapshot failed", "error", err)
 		}
+	case "error":
+		s.logger.Warn("kv p2p: peer reported sync error", "peer", stream.Conn().RemotePeer(), "error", msg.Error)
 	default:
 		s.logger.Warn("kv p2p: unknown message type", "type", msg.Type)
 	}
@@ -261,16 +279,20 @@ func (s *P2PSync) handleStream(stream network.Stream) {
 func (s *P2PSync) handleSummary(stream network.Stream, msg p2pSyncMsg, from peer.ID) {
 	nsID := s.store.nsID
 	if nsID == "" {
+		s.writeErrorResponse(stream, "kv namespace not resolved", "", msg.NSID)
 		s.logger.Warn("kv p2p: namespace not resolved, ignoring summary")
 		return
 	}
 	if msg.NSID != nsID {
+		s.store.recordNamespaceMismatch(from.String(), msg.NSID, nsID)
+		s.writeErrorResponse(stream, fmt.Sprintf("namespace mismatch: got %s want %s", msg.NSID, nsID), nsID, msg.NSID)
 		s.logger.Warn("kv p2p: namespace mismatch", "got", msg.NSID, "want", nsID)
 		return
 	}
 
 	snap, err := s.store.localLog.Snapshot()
 	if err != nil {
+		s.writeErrorResponse(stream, "local snapshot failed", nsID, msg.NSID)
 		s.logger.Warn("kv p2p: local snapshot failed", "error", err)
 		return
 	}
@@ -294,12 +316,16 @@ func (s *P2PSync) handleSummary(stream network.Stream, msg p2pSyncMsg, from peer
 
 	payload, err := json.Marshal(response)
 	if err != nil {
+		s.writeErrorResponse(stream, "marshal summary response failed", nsID, msg.NSID)
 		s.logger.Warn("kv p2p: marshal summary response failed", "error", err)
 		return
 	}
 	if err := writeMsg(stream, payload); err != nil {
+		s.store.recordSyncError(from.String(), err)
 		s.logger.Warn("kv p2p: write summary response failed", "error", err)
+		return
 	}
+	s.store.recordSyncSuccess(from.String())
 }
 
 func (s *P2PSync) mergeSnapshotMessage(msg p2pSyncMsg, from peer.ID, useBaseline bool) (int, error) {
@@ -309,6 +335,7 @@ func (s *P2PSync) mergeSnapshotMessage(msg p2pSyncMsg, from peer.ID, useBaseline
 		return 0, fmt.Errorf("namespace not resolved")
 	}
 	if msg.NSID != nsID {
+		s.store.recordNamespaceMismatch(from.String(), msg.NSID, nsID)
 		return 0, fmt.Errorf("namespace mismatch: got %s want %s", msg.NSID, nsID)
 	}
 	if len(msg.Data) == 0 {
@@ -342,6 +369,7 @@ func (s *P2PSync) mergeSnapshotMessage(msg p2pSyncMsg, from peer.ID, useBaseline
 			s.store.uploader.Poke()
 		}
 	}
+	s.store.recordSyncSuccess(from.String())
 	return merged, nil
 }
 
@@ -387,6 +415,24 @@ func (s *P2PSync) decodeSnapshotData(data json.RawMessage) (*Snapshot, error) {
 
 func summaryPtr(summary SnapshotSummary) *SnapshotSummary {
 	return &summary
+}
+
+func (s *P2PSync) writeErrorResponse(stream network.Stream, message, expectedNSID, observedNSID string) {
+	resp := p2pSyncMsg{
+		Type:         "error",
+		Error:        message,
+		NSID:         expectedNSID,
+		ExpectedNSID: expectedNSID,
+		ObservedNSID: observedNSID,
+	}
+	payload, err := json.Marshal(resp)
+	if err != nil {
+		s.logger.Warn("kv p2p: marshal error response failed", "error", err)
+		return
+	}
+	if err := writeMsg(stream, payload); err != nil {
+		s.logger.Warn("kv p2p: write error response failed", "error", err)
+	}
 }
 
 func boundedSyncContext(parent context.Context) (context.Context, context.CancelFunc) {

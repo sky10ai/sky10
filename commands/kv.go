@@ -138,12 +138,24 @@ func kvStatusCmd() *cobra.Command {
 				return err
 			}
 			var r struct {
-				Namespace string `json:"namespace"`
-				Keys      int    `json:"keys"`
-				DeviceID  string `json:"device_id"`
+				Namespace     string `json:"namespace"`
+				Keys          int    `json:"keys"`
+				DeviceID      string `json:"device_id"`
+				NSID          string `json:"nsid"`
+				Ready         bool   `json:"ready"`
+				PeerCount     int    `json:"peer_count"`
+				ExpectedPeers int    `json:"expected_peers"`
+				SyncState     string `json:"sync_state"`
+				SyncMessage   string `json:"sync_message"`
 			}
 			json.Unmarshal(result, &r)
-			fmt.Printf("namespace: %s\nkeys:      %d\ndevice:    %s\n", r.Namespace, r.Keys, r.DeviceID)
+			fmt.Printf("namespace: %s\nkeys:      %d\ndevice:    %s\nready:     %v\nsync:      %s\npeers:     %d/%d\n", r.Namespace, r.Keys, r.DeviceID, r.Ready, r.SyncState, r.PeerCount, r.ExpectedPeers)
+			if r.NSID != "" {
+				fmt.Printf("nsid:      %s\n", r.NSID)
+			}
+			if r.SyncMessage != "" {
+				fmt.Printf("message:   %s\n", r.SyncMessage)
+			}
 
 			if r.Keys > 0 {
 				all, err := rpcCall("skykv.getAll", map[string]string{"prefix": ""})

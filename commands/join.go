@@ -94,6 +94,9 @@ func runJoinP2P(cmd *cobra.Command, code string) error {
 		}
 		return fmt.Errorf("join request was %s", errMsg)
 	}
+	if !hasNamespaceKey(resp.NSKeys, "default") {
+		return fmt.Errorf("join response missing default KV namespace key")
+	}
 
 	// Unwrap identity key.
 	var wrappedIdentity []byte
@@ -120,9 +123,6 @@ func runJoinP2P(cmd *cobra.Command, code string) error {
 	if err != nil {
 		return err
 	}
-	if err := idStore.Save(bundle); err != nil {
-		return err
-	}
 
 	// Cache namespace keys locally.
 	deviceID := bundle.DeviceID()
@@ -134,6 +134,9 @@ func runJoinP2P(cmd *cobra.Command, code string) error {
 		}
 		kv.CacheKeyLocally(nsk.Namespace, deviceID, nsKey)
 		fmt.Printf("  Namespace key: %s\n", nsk.Namespace)
+	}
+	if err := idStore.Save(bundle); err != nil {
+		return err
 	}
 
 	cfg := &config.Config{NostrRelays: invite.NostrRelays}

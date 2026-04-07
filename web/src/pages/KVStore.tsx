@@ -38,6 +38,7 @@ export default function KVStore() {
 
   const entries = allData?.entries ?? {};
   const combinedRefreshing = refreshing || statusRefreshing;
+  const showSyncWarning = kvStatus && kvStatus.sync_state !== "ok";
 
   useEffect(() => {
     if (!selectedKey || showNew) return;
@@ -217,6 +218,19 @@ export default function KVStore() {
       {error && (
         <div className="mx-8 mt-4 rounded-xl bg-error-container/20 p-4 text-sm text-error">
           {error}
+        </div>
+      )}
+
+      {showSyncWarning && (
+        <div className="mx-8 mt-4 rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning">
+          <div className="font-medium">
+            KV sync is {kvStatus.sync_state === "waiting" ? "waiting" : "degraded"}
+          </div>
+          {kvStatus.sync_message && <div className="mt-1">{kvStatus.sync_message}</div>}
+          <div className="mt-1 text-xs opacity-80">
+            peers: {kvStatus.peer_count}/{kvStatus.expected_peers}
+            {kvStatus.nsid ? ` · nsid: ${kvStatus.nsid}` : ""}
+          </div>
         </div>
       )}
 
