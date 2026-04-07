@@ -29,6 +29,12 @@ import (
 
 // ServeCmd returns the top-level `sky10 serve` command.
 func ServeCmd() *cobra.Command {
+	var linkListenAddrs []string
+	var linkBootstrapPeers []string
+	var noDefaultBootstrap bool
+	var relayOverrides []string
+	var noDefaultRelays bool
+
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the sky10 daemon (RPC server for fs, kv, and more)",
@@ -76,6 +82,11 @@ func ServeCmd() *cobra.Command {
 			cfgDir, _ := config.Dir()
 
 			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			relays := resolvedRelays(cfg, relayOverrides, noDefaultRelays)
+			linkCfg, err := resolvedLinkConfig(linkListenAddrs, linkBootstrapPeers, noDefaultBootstrap)
 			if err != nil {
 				return err
 			}
@@ -145,7 +156,7 @@ func ServeCmd() *cobra.Command {
 			}()
 
 			// Skylink P2P node — network mode enables DHT, relay, and external peers.
-			linkNode, err := link.New(bundle, link.Config{Mode: link.Network}, logRuntime.Logger)
+			linkNode, err := link.New(bundle, linkCfg, logRuntime.Logger)
 			if err != nil {
 				return fmt.Errorf("creating link node: %w", err)
 			}
@@ -153,7 +164,7 @@ func ServeCmd() *cobra.Command {
 			if backend != nil {
 				resolverOpts = append(resolverOpts, link.WithBackend(backend))
 			}
-			resolverOpts = append(resolverOpts, link.WithNostr(cfg.Relays()))
+			resolverOpts = append(resolverOpts, link.WithNostr(relays))
 			linkResolver := link.NewResolver(linkNode, resolverOpts...)
 			link.RegisterPrivateNetworkHandlers(linkNode)
 			server.RegisterHandler(link.NewRPCHandler(linkNode, linkResolver))
@@ -198,8 +209,8 @@ func ServeCmd() *cobra.Command {
 					logger.Info("published private-network records to DHT")
 				}
 
-				if len(cfg.Relays()) > 0 {
-					nostr := link.NewNostrDiscovery(cfg.Relays(), nil)
+				if len(relays) > 0 {
+					nostr := link.NewNostrDiscovery(relays, nil)
 					membershipRecord, err := linkNode.CurrentMembershipRecord()
 					if err != nil {
 						logger.Warn("building private-network membership record failed", "error", err)
@@ -220,7 +231,7 @@ func ServeCmd() *cobra.Command {
 					go kvSync.PushToAll(context.Background())
 				}
 			}
-			configureIdentityRPCHandler(identityRPC, bundle, idStore, backend, linkNode, cfg.Relays(), refreshPrivateNetwork)
+			configureIdentityRPCHandler(identityRPC, bundle, idStore, backend, linkNode, relays, refreshPrivateNetwork)
 
 			// Agent registry — local agent registration and message routing.
 			agentRegistry := skyagent.NewRegistry(bundle.DeviceID(), skyfs.GetDeviceName(), logRuntime.Logger)
@@ -372,6 +383,11 @@ func ServeCmd() *cobra.Command {
 	}
 	cmd.Flags().String("socket", "", "Socket path")
 	cmd.Flags().Int("http-port", skyrpc.DefaultHTTPPort, "HTTP RPC port")
+	cmd.Flags().StringSliceVar(&linkListenAddrs, "link-listen", nil, "Additional libp2p listen addresses")
+	cmd.Flags().StringSliceVar(&linkBootstrapPeers, "link-bootstrap", nil, "Bootstrap peer multiaddrs for libp2p discovery")
+	cmd.Flags().BoolVar(&noDefaultBootstrap, "no-default-bootstrap", false, "Disable default public libp2p bootstrap peers")
+	cmd.Flags().StringSliceVar(&relayOverrides, "nostr-relay", nil, "Nostr relay URLs for private-network discovery")
+	cmd.Flags().BoolVar(&noDefaultRelays, "no-default-relays", false, "Disable default public Nostr relays")
 	return cmd
 }
 

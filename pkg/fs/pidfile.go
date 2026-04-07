@@ -1,9 +1,12 @@
 package fs
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -26,12 +29,30 @@ func DaemonPIDPath() string {
 
 // DaemonSocketPath returns the default path for the RPC Unix socket.
 func DaemonSocketPath() string {
-	return filepath.Join(RuntimeDir(), "sky10.sock")
+	path := filepath.Join(RuntimeDir(), "sky10.sock")
+	if runtime.GOOS == "windows" || len(path) < maxUnixSocketPath {
+		return path
+	}
+	return filepath.Join(shortSocketBaseDir(), "sky10-"+shortSocketSuffix(RuntimeDir())+".sock")
 }
 
 // DaemonLogPath returns the default path for the daemon log.
 func DaemonLogPath() string {
 	return filepath.Join(RuntimeDir(), "daemon.log")
+}
+
+const maxUnixSocketPath = 100
+
+func shortSocketBaseDir() string {
+	if runtime.GOOS == "windows" {
+		return os.TempDir()
+	}
+	return "/tmp"
+}
+
+func shortSocketSuffix(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:6])
 }
 
 // WritePIDFile writes the current process ID to the PID file.
