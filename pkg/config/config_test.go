@@ -161,3 +161,56 @@ func TestSavePermissions(t *testing.T) {
 		t.Errorf("config dir permissions = %o, want 0700", perm)
 	}
 }
+
+func TestDirsUseSky10Home(t *testing.T) {
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, "instance-a")
+	t.Setenv(EnvHome, root)
+
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("Dir: %v", err)
+	}
+	if dir != filepath.Join(root, "fs") {
+		t.Fatalf("Dir = %q, want %q", dir, filepath.Join(root, "fs"))
+	}
+
+	keysDir, err := KeysDir()
+	if err != nil {
+		t.Fatalf("KeysDir: %v", err)
+	}
+	if keysDir != filepath.Join(root, "keys") {
+		t.Fatalf("KeysDir = %q, want %q", keysDir, filepath.Join(root, "keys"))
+	}
+
+	kvDir, err := KVDir()
+	if err != nil {
+		t.Fatalf("KVDir: %v", err)
+	}
+	if kvDir != filepath.Join(root, "kv") {
+		t.Fatalf("KVDir = %q, want %q", kvDir, filepath.Join(root, "kv"))
+	}
+}
+
+func TestRuntimeDirUsesSky10Home(t *testing.T) {
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, "instance-b")
+	t.Setenv(EnvHome, root)
+
+	got := RuntimeDir()
+	want := filepath.Join(root, "run")
+	if got != want {
+		t.Fatalf("RuntimeDir = %q, want %q", got, want)
+	}
+}
+
+func TestRuntimeDirUsesExplicitOverride(t *testing.T) {
+	tmp := t.TempDir()
+	override := filepath.Join(tmp, "runtime")
+	t.Setenv(EnvRuntimeDir, override)
+
+	got := RuntimeDir()
+	if got != override {
+		t.Fatalf("RuntimeDir = %q, want %q", got, override)
+	}
+}

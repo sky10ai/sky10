@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	configDir    = ".sky10/fs"
-	oldConfigDir = ".sky10" // auto-migrate from flat layout
+	configDir    = baseDirName + "/" + fsDirName
+	oldConfigDir = baseDirName // auto-migrate from flat layout
 	configFile   = "config.json"
 	keyFile      = "key.json"
 )
@@ -48,18 +48,18 @@ func (c *Config) Relays() []string {
 // Dir returns the skyfs configuration directory path (~/.sky10/fs/).
 // Auto-migrates from ~/.sky10/ flat layout if config.json exists there.
 func Dir() (string, error) {
-	home, err := os.UserHomeDir()
+	root, err := RootDir()
 	if err != nil {
-		return "", fmt.Errorf("finding home directory: %w", err)
+		return "", err
 	}
 
-	newDir := filepath.Join(home, configDir)
+	newDir := filepath.Join(root, fsDirName)
 
 	// Auto-migrate: if ~/.sky10/fs/config.json doesn't exist but ~/.sky10/config.json does,
 	// move fs-related files into the fs/ subdirectory and keys to ~/.sky10/keys/.
 	newConfig := filepath.Join(newDir, configFile)
 	if _, err := os.Stat(newConfig); os.IsNotExist(err) {
-		oldDir := filepath.Join(home, oldConfigDir)
+		oldDir := root
 		oldConfig := filepath.Join(oldDir, configFile)
 		if _, err := os.Stat(oldConfig); err == nil {
 			os.MkdirAll(newDir, 0700)
@@ -76,7 +76,7 @@ func Dir() (string, error) {
 				os.Rename(oldNsKeys, filepath.Join(newDir, "keys"))
 			}
 			// Move key.json to ~/.sky10/keys/
-			keysDir := filepath.Join(home, ".sky10", "keys")
+			keysDir := filepath.Join(root, keysDirName)
 			os.MkdirAll(keysDir, 0700)
 			oldKey := filepath.Join(oldDir, keyFile)
 			if _, err := os.Stat(oldKey); err == nil {
@@ -85,10 +85,15 @@ func Dir() (string, error) {
 		}
 
 		// Also check for ancient ~/.skyfs/ layout
-		ancientDir := filepath.Join(home, ".skyfs")
-		if _, err := os.Stat(newConfig); os.IsNotExist(err) {
-			if _, err := os.Stat(ancientDir); err == nil {
-				os.Rename(ancientDir, newDir)
+		if !hasCustomRoot() {
+			home, err := os.UserHomeDir()
+			if err == nil {
+				ancientDir := filepath.Join(home, ancientDirName)
+				if _, err := os.Stat(newConfig); os.IsNotExist(err) {
+					if _, err := os.Stat(ancientDir); err == nil {
+						os.Rename(ancientDir, newDir)
+					}
+				}
 			}
 		}
 	}
@@ -98,11 +103,11 @@ func Dir() (string, error) {
 
 // KeysDir returns the directory for keys (~/.sky10/keys/).
 func KeysDir() (string, error) {
-	home, err := os.UserHomeDir()
+	root, err := RootDir()
 	if err != nil {
-		return "", fmt.Errorf("finding home directory: %w", err)
+		return "", err
 	}
-	return filepath.Join(home, ".sky10", "keys"), nil
+	return filepath.Join(root, keysDirName), nil
 }
 
 // DefaultIdentityPath returns the default path for the skyfs device key.

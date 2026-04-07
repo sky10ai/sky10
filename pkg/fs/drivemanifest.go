@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/sky10/sky10/pkg/config"
 )
 
 // SyncedFile tracks a file's state at last successful sync.
@@ -70,11 +72,11 @@ func newDriveManifest(path string) *DriveManifest {
 }
 
 func manifestPath(driveID string) string {
-	home, err := os.UserHomeDir()
+	drivesDir, err := config.DrivesDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".sky10", "fs", "drives", driveID, "manifest.json")
+	return filepath.Join(drivesDir, driveID, "manifest.json")
 }
 
 // Save persists the manifest to disk.

@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/sky10/sky10/pkg/adapter"
+	"github.com/sky10/sky10/pkg/config"
 	skykey "github.com/sky10/sky10/pkg/key"
 )
 
@@ -66,8 +67,10 @@ func resolveNSID(ctx context.Context, backend adapter.Backend, nsName string, ns
 }
 
 func cacheNSID(nsName, nsID string) {
-	home, _ := os.UserHomeDir()
-	dir := filepath.Join(home, ".sky10", "kv", "nsids")
+	dir, err := config.KVNSIDsDir()
+	if err != nil {
+		return
+	}
 	os.MkdirAll(dir, 0700)
 	os.WriteFile(filepath.Join(dir, nsName), []byte(nsID), 0600)
 }
@@ -192,15 +195,20 @@ func getOrCreateNamespaceKeyLocal(nsName, deviceID string, requireExisting bool)
 // CacheKeyLocally stores a namespace key on disk for the given device.
 // Used by the join flow to pre-populate keys received from the inviter.
 func CacheKeyLocally(nsName, deviceID string, key []byte) {
-	home, _ := os.UserHomeDir()
-	dir := filepath.Join(home, ".sky10", "kv", "keys", deviceID)
+	dir, err := config.KVKeysDir(deviceID)
+	if err != nil {
+		return
+	}
 	os.MkdirAll(dir, 0700)
 	os.WriteFile(filepath.Join(dir, nsName+".key"), key, 0600)
 }
 
 func loadCachedKey(nsName, deviceID string) ([]byte, error) {
-	home, _ := os.UserHomeDir()
-	return os.ReadFile(filepath.Join(home, ".sky10", "kv", "keys", deviceID, nsName+".key"))
+	dir, err := config.KVKeysDir(deviceID)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(filepath.Join(dir, nsName+".key"))
 }
 
 // wrapForAllDevices wraps the namespace key for all registered devices.

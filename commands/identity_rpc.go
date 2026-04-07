@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -157,8 +156,8 @@ func createIdentityInvite(ctx context.Context, backend adapter.Backend, bundle *
 		)
 	}
 
-	home, _ := os.UserHomeDir()
-	cfgData, err := os.ReadFile(filepath.Join(home, ".sky10", "fs", "config.json"))
+	cfgPath, _ := config.ConfigPath()
+	cfgData, err := os.ReadFile(cfgPath)
 	var cfg struct {
 		Endpoint       string `json:"endpoint"`
 		Bucket         string `json:"bucket"`

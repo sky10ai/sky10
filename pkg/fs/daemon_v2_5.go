@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/sky10/sky10/pkg/config"
 	"github.com/sky10/sky10/pkg/fs/opslog"
 )
 
@@ -384,8 +385,11 @@ func (d *DaemonV2_5) watcherLoop(ctx context.Context) {
 }
 
 func driveDataDir(driveID string) string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".sky10", "fs", "drives", driveID)
+	dir, err := config.DrivesDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, driveID)
 }
 
 // migrateStateToOpsLog converts a V2.5 state.json to an ops.jsonl file.

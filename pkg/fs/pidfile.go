@@ -4,20 +4,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/sky10/sky10/pkg/config"
 )
 
-// RuntimeDir returns the ephemeral directory for daemon state (socket, log,
-// PID file). On unix this is /tmp/sky10, on Windows %TEMP%\sky10.
+// RuntimeDir returns the directory for daemon state (socket, log, PID file).
+// It preserves the legacy /tmp/sky10 default unless SKY10_HOME or
+// SKY10_RUNTIME_DIR overrides are set.
 func RuntimeDir() string {
-	if runtime.GOOS == "windows" {
-		return filepath.Join(os.TempDir(), "sky10")
-	}
-	return "/tmp/sky10"
+	return config.RuntimeDir()
 }
 
 // DaemonPIDPath returns the path to the daemon PID file.

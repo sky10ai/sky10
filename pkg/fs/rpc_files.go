@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/sky10/sky10/pkg/config"
 )
 
 type putParams struct {
@@ -218,8 +220,7 @@ func (s *FSHandler) rpcReset(ctx context.Context) (interface{}, error) {
 	}
 
 	// Delete local drive state files
-	home, _ := os.UserHomeDir()
-	drivesDir := filepath.Join(home, ".sky10", "fs", "drives")
+	drivesDir, _ := config.DrivesDir()
 	stateFiles := []string{"ops.jsonl", "outbox.jsonl", "state.json", "inbox.jsonl", "manifest.json"}
 	localDeleted := 0
 	if entries, err := os.ReadDir(drivesDir); err == nil {

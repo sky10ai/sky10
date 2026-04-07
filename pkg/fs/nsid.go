@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 
 	"github.com/sky10/sky10/pkg/adapter"
+	"github.com/sky10/sky10/pkg/config"
 )
 
 // deriveNSID deterministically derives an opaque namespace ID from the
@@ -57,16 +58,21 @@ func resolveNSID(ctx context.Context, backend adapter.Backend, nsName string, ns
 
 // cacheNSID saves the nsID to a local file for fast startup.
 func cacheNSID(nsName, nsID string) {
-	home, _ := os.UserHomeDir()
-	dir := filepath.Join(home, ".sky10", "fs", "nsids")
+	dir, err := config.FSNSIDsDir()
+	if err != nil {
+		return
+	}
 	os.MkdirAll(dir, 0700)
 	os.WriteFile(filepath.Join(dir, nsKeyName(nsName)), []byte(nsID), 0600)
 }
 
 // loadCachedNSID reads a locally cached nsID.
 func loadCachedNSID(nsName string) (string, error) {
-	home, _ := os.UserHomeDir()
-	data, err := os.ReadFile(filepath.Join(home, ".sky10", "fs", "nsids", nsKeyName(nsName)))
+	dir, err := config.FSNSIDsDir()
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(filepath.Join(dir, nsKeyName(nsName)))
 	if err != nil {
 		return "", err
 	}

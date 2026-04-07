@@ -18,6 +18,7 @@ import (
 	"golang.org/x/crypto/sha3"
 
 	"github.com/sky10/sky10/pkg/adapter"
+	"github.com/sky10/sky10/pkg/config"
 	"github.com/sky10/sky10/pkg/fs/opslog"
 	"github.com/sky10/sky10/pkg/transfer"
 )
@@ -676,12 +677,10 @@ func (s *Store) wrapKeyForAllDevices(ctx context.Context, namespace string, nsKe
 
 // cacheNamespaceKey writes the raw namespace key to local disk.
 func (s *Store) cacheNamespaceKey(namespace string, key []byte) {
-	home, err := os.UserHomeDir()
+	dir, err := config.FSKeysDir(shortPubkeyID(s.identity.Address()))
 	if err != nil {
 		return
 	}
-	id := shortPubkeyID(s.identity.Address())
-	dir := filepath.Join(home, ".sky10", "fs", "keys", id)
 	os.MkdirAll(dir, 0700)
 	path := filepath.Join(dir, nsKeyName(namespace)+".key")
 	os.WriteFile(path, key, 0600)
@@ -689,12 +688,11 @@ func (s *Store) cacheNamespaceKey(namespace string, key []byte) {
 
 // loadCachedNamespaceKey reads a locally cached namespace key.
 func (s *Store) loadCachedNamespaceKey(namespace string) ([]byte, error) {
-	home, err := os.UserHomeDir()
+	dir, err := config.FSKeysDir(shortPubkeyID(s.identity.Address()))
 	if err != nil {
 		return nil, err
 	}
-	id := shortPubkeyID(s.identity.Address())
-	path := filepath.Join(home, ".sky10", "fs", "keys", id, nsKeyName(namespace)+".key")
+	path := filepath.Join(dir, nsKeyName(namespace)+".key")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

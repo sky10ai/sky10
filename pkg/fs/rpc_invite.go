@@ -106,8 +106,8 @@ func (s *FSHandler) rpcInvite(ctx context.Context) (interface{}, error) {
 	secretKey := os.Getenv("S3_SECRET_ACCESS_KEY")
 
 	// Read endpoint/bucket from config file
-	home, _ := os.UserHomeDir()
-	cfgData, err := os.ReadFile(home + "/.sky10/fs/config.json")
+	cfgPath, _ := config.ConfigPath()
+	cfgData, err := os.ReadFile(cfgPath)
 	var endpoint, bucket, region string
 	var pathStyle bool
 	if err == nil {

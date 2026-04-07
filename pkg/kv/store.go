@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sky10/sky10/pkg/adapter"
+	skyconfig "github.com/sky10/sky10/pkg/config"
 	skykey "github.com/sky10/sky10/pkg/key"
 )
 
@@ -86,8 +87,8 @@ func New(
 
 	dataDir := config.DataDir
 	if dataDir == "" {
-		home, _ := os.UserHomeDir()
-		dataDir = filepath.Join(home, ".sky10", "kv", "stores", config.Namespace)
+		storesDir, _ := skyconfig.KVStoresDir()
+		dataDir = filepath.Join(storesDir, config.Namespace)
 	}
 	os.MkdirAll(dataDir, 0700)
 
