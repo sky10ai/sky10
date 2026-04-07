@@ -277,6 +277,11 @@ func ServeCmd() *cobra.Command {
 				linkNode.Host().SetStreamHandler(skyjoin.Protocol, joinHandler.HandleStream)
 				slog.Info("P2P join handler registered")
 
+				// Register KV sync protocol before any bootstrap work that can block
+				// on slow discovery/publish paths. Otherwise a freshly joined peer can
+				// connect and immediately fail with "protocols not supported".
+				kvSync.RegisterProtocol()
+
 				addrs := link.HostMultiaddrs(linkNode)
 
 				// Publish multiaddrs to S3 device registry (if configured).
@@ -289,9 +294,6 @@ func ServeCmd() *cobra.Command {
 				}
 
 				refreshPrivateNetwork()
-
-				// Register KV sync protocol handler after link is ready.
-				kvSync.RegisterProtocol()
 
 				go func() {
 					ticker := time.NewTicker(2 * time.Minute)
