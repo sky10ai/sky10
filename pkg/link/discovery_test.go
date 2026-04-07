@@ -180,6 +180,51 @@ func TestResolverS3ThenNostr(t *testing.T) {
 	}
 }
 
+func TestResolverNostrOnlyBootstrap(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	bundleA := generateTestBundle(t, "nodeA")
+	nodeA, err := New(bundleA, Config{Mode: Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go nodeA.Run(ctx)
+	waitForHost(t, nodeA)
+
+	membershipA, err := nodeA.CurrentMembershipRecord()
+	if err != nil {
+		t.Fatalf("membership record A: %v", err)
+	}
+	presenceA, err := nodeA.CurrentPresenceRecord(0)
+	if err != nil {
+		t.Fatalf("presence record A: %v", err)
+	}
+
+	bundleB := generateTestBundle(t, "nodeB")
+	nodeB, err := New(bundleB, Config{Mode: Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go nodeB.Run(ctx)
+	waitForHost(t, nodeB)
+
+	resolver := NewResolver(nodeB, WithNostrOnly())
+	resolver.nostr = &staticDiscovery{
+		membership: membershipA,
+		presences:  []*PresenceRecord{presenceA},
+	}
+
+	info, err := resolver.Resolve(ctx, bundleA.Address())
+	if err != nil {
+		t.Fatalf("resolve A via Nostr-only bootstrap: %v", err)
+	}
+	if info.ID != nodeA.PeerID() {
+		t.Fatalf("resolved peer ID = %s, want %s", info.ID, nodeA.PeerID())
+	}
+}
+
 func TestResolverDHTProviderDiscovery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()

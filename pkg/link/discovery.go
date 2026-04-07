@@ -37,10 +37,11 @@ type privateNetworkDiscovery interface {
 
 // Resolver finds peer addresses through the private-network discovery layers.
 type Resolver struct {
-	node    *Node
-	backend adapter.Backend // deprecated; kept for construction compatibility
-	nostr   privateNetworkDiscovery
-	logger  *slog.Logger
+	node      *Node
+	backend   adapter.Backend // deprecated; kept for construction compatibility
+	nostr     privateNetworkDiscovery
+	nostrOnly bool
+	logger    *slog.Logger
 }
 
 // ResolverOption configures the resolver.
@@ -71,6 +72,15 @@ func WithNostr(relays []string) ResolverOption {
 		if len(relays) > 0 {
 			r.nostr = NewNostrDiscovery(relays, r.logger)
 		}
+	}
+}
+
+// WithNostrOnly restricts discovery to the configured Nostr fallback source.
+// This is useful for invite bootstrap where we want to avoid waiting on slow
+// DHT propagation before trying the invite's relays.
+func WithNostrOnly() ResolverOption {
+	return func(r *Resolver) {
+		r.nostrOnly = true
 	}
 }
 
@@ -105,7 +115,7 @@ func (r *Resolver) ResolveMembership(ctx context.Context, address string) (*Memb
 	if local := r.localMembershipCandidate(address); local != nil {
 		candidates = append(candidates, candidate{record: local, source: "local"})
 	}
-	if r.node != nil && r.node.dht != nil {
+	if !r.nostrOnly && r.node != nil && r.node.dht != nil {
 		rec, err := r.resolveMembershipFromDHT(ctx, address)
 		if err == nil {
 			candidates = append(candidates, candidate{record: rec, source: "dht"})
@@ -272,7 +282,7 @@ func (r *Resolver) ResolveAll(ctx context.Context, address string) (*Resolution,
 
 	now := time.Now().UTC()
 	byDevice := make(map[string]*ResolvedPeer, len(membership.Devices))
-	if r.node != nil && r.node.dht != nil {
+	if !r.nostrOnly && r.node != nil && r.node.dht != nil {
 		for _, device := range membership.Devices {
 			resolved, err := r.resolvePresenceFromDHT(ctx, address, device.PublicKey)
 			if err != nil {

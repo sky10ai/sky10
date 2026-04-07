@@ -7,8 +7,55 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
 	"github.com/sky10/sky10/pkg/link"
 )
+
+// InviteAddrInfo returns a direct libp2p address hint from the invite if one
+// was included.
+func InviteAddrInfo(invite *P2PInvite) (*peer.AddrInfo, error) {
+	if invite == nil {
+		return nil, fmt.Errorf("invite is nil")
+	}
+	if invite.PeerID == "" || len(invite.Multiaddrs) == 0 {
+		return nil, fmt.Errorf("invite does not include direct dial hints")
+	}
+
+	pid, err := peer.Decode(invite.PeerID)
+	if err != nil {
+		return nil, fmt.Errorf("decoding invite peer ID: %w", err)
+	}
+
+	info := &peer.AddrInfo{ID: pid}
+	for _, raw := range invite.Multiaddrs {
+		addr, err := ma.NewMultiaddr(raw)
+		if err != nil {
+			return nil, fmt.Errorf("parsing invite multiaddr: %w", err)
+		}
+		next, err := peer.AddrInfoFromP2pAddr(addr)
+		if err != nil {
+			return nil, fmt.Errorf("parsing invite peer multiaddr: %w", err)
+		}
+		if next.ID != pid {
+			return nil, fmt.Errorf("invite multiaddr peer ID mismatch")
+		}
+		info.Addrs = append(info.Addrs, next.Addrs...)
+	}
+	return info, nil
+}
+
+// ConnectViaInvite seeds the host peerstore from the invite's direct dial
+// hints and attempts to establish a direct libp2p connection.
+func ConnectViaInvite(ctx context.Context, h host.Host, invite *P2PInvite) (*peer.AddrInfo, error) {
+	info, err := InviteAddrInfo(invite)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.Connect(ctx, *info); err != nil {
+		return nil, fmt.Errorf("connecting via invite dial hints: %w", err)
+	}
+	return info, nil
+}
 
 // RequestP2PJoin opens a join stream to the target peer and requests to
 // join. Blocks until the inviter responds (approved or denied).

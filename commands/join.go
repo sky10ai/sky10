@@ -70,16 +70,10 @@ func runJoinP2P(cmd *cobra.Command, code string) error {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	resolver := link.NewResolver(node, link.WithNostr(invite.NostrRelays))
-
-	// Resolve and connect to inviter.
 	fmt.Println("Connecting to inviter...")
-	info, err := resolver.Resolve(ctx, invite.Address)
+	info, err := connectInviter(ctx, node, invite)
 	if err != nil {
-		return fmt.Errorf("resolving inviter: %w", err)
-	}
-	if err := node.Host().Connect(ctx, *info); err != nil {
-		return fmt.Errorf("connecting to inviter: %w", err)
+		return err
 	}
 
 	resp, err := join.RequestP2PJoin(ctx, node.Host(), info.ID, invite, deviceKey.Address(), skyfs.GetDeviceName())

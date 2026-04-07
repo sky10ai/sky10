@@ -54,13 +54,13 @@ func TestP2PJoinHandshake(t *testing.T) {
 	waitForHost(t, joinerNode)
 
 	invite := &P2PInvite{
-		Address:  inviterBundle.Address(),
-		InviteID: "test-invite-123",
+		Address:    inviterBundle.Address(),
+		InviteID:   "test-invite-123",
+		PeerID:     inviterNode.PeerID().String(),
+		Multiaddrs: link.HostMultiaddrs(inviterNode),
 	}
 
-	// Connect joiner directly to inviter (simulate Nostr discovery).
-	inviterInfo := inviterNode.Host().Peerstore().PeerInfo(inviterNode.PeerID())
-	if err := joinerNode.Host().Connect(ctx, inviterInfo); err != nil {
+	if _, err := ConnectViaInvite(ctx, joinerNode.Host(), invite); err != nil {
 		t.Logf("direct connect attempt: %v", err)
 	}
 
@@ -113,6 +113,43 @@ func TestP2PJoinHandshake(t *testing.T) {
 	}
 	if string(nsKey) != string(testNSKey) {
 		t.Error("namespace key mismatch")
+	}
+}
+
+func TestConnectViaInviteUsesDirectHints(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	inviterBundle := generateBundle(t, "inviter")
+	inviterNode, err := link.New(inviterBundle, link.Config{Mode: link.Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go inviterNode.Run(ctx)
+	waitForHost(t, inviterNode)
+
+	joinerBundle := generateBundle(t, "joiner")
+	joinerNode, err := link.New(joinerBundle, link.Config{Mode: link.Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go joinerNode.Run(ctx)
+	waitForHost(t, joinerNode)
+
+	invite := &P2PInvite{
+		Address:    inviterBundle.Address(),
+		InviteID:   "test-invite-direct",
+		PeerID:     inviterNode.PeerID().String(),
+		Multiaddrs: link.HostMultiaddrs(inviterNode),
+	}
+
+	info, err := ConnectViaInvite(ctx, joinerNode.Host(), invite)
+	if err != nil {
+		t.Fatalf("ConnectViaInvite: %v", err)
+	}
+	if info.ID != inviterNode.PeerID() {
+		t.Fatalf("peer ID = %s, want %s", info.ID, inviterNode.PeerID())
 	}
 }
 

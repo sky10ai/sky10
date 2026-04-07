@@ -27,9 +27,12 @@ const (
 
 // P2PInvite contains what a new device needs to find and join the inviter.
 type P2PInvite struct {
-	Address     string   `json:"address"`      // inviter's sky10q... identity address
-	NostrRelays []string `json:"nostr_relays"` // relays where inviter publishes multiaddrs
-	InviteID    string   `json:"invite_id"`    // random ID for this invite
+	Address     string    `json:"address"`              // inviter's sky10q... identity address
+	NostrRelays []string  `json:"nostr_relays"`         // relays where inviter publishes multiaddrs
+	InviteID    string    `json:"invite_id"`            // random ID for this invite
+	PeerID      string    `json:"peer_id,omitempty"`    // inviter's current peer ID
+	Multiaddrs  []string  `json:"multiaddrs,omitempty"` // inviter's best current multiaddrs
+	IssuedAt    time.Time `json:"issued_at,omitempty"`  // invite creation time
 }
 
 // S3Invite contains S3 credentials for the legacy join flow.
@@ -64,6 +67,12 @@ func IsP2PInvite(code string) bool {
 
 // CreateP2PInvite generates a P2P invite code (no S3 credentials).
 func CreateP2PInvite(address string, relays []string) (string, error) {
+	return CreateP2PInviteWithBootstrap(address, relays, "", nil)
+}
+
+// CreateP2PInviteWithBootstrap generates a P2P invite code that includes
+// direct dial hints for the inviter's current libp2p peer.
+func CreateP2PInviteWithBootstrap(address string, relays []string, peerID string, multiaddrs []string) (string, error) {
 	idBytes := make([]byte, 16)
 	if _, err := rand.Read(idBytes); err != nil {
 		return "", fmt.Errorf("generating invite ID: %w", err)
@@ -72,6 +81,9 @@ func CreateP2PInvite(address string, relays []string) (string, error) {
 		Address:     address,
 		NostrRelays: relays,
 		InviteID:    hex.EncodeToString(idBytes),
+		PeerID:      peerID,
+		Multiaddrs:  append([]string(nil), multiaddrs...),
+		IssuedAt:    time.Now().UTC(),
 	}
 	data, err := json.Marshal(invite)
 	if err != nil {

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sky10/sky10/pkg/adapter"
 	"github.com/sky10/sky10/pkg/config"
 	skyfs "github.com/sky10/sky10/pkg/fs"
@@ -39,7 +40,7 @@ func configureIdentityRPCHandler(
 		return privateNetworkDeviceMetadata(ctx, bundle, backend, linkNode)
 	})
 	handler.SetInviteHandler(func(ctx context.Context) (string, error) {
-		return createIdentityInvite(ctx, backend, bundle, relays)
+		return createIdentityInvite(ctx, backend, bundle, linkNode, relays)
 	})
 	handler.SetJoinHandler(func(ctx context.Context, code string) (interface{}, error) {
 		return joinIdentity(ctx, code, bundle, idStore, linkNode)
@@ -134,9 +135,26 @@ func privateNetworkDeviceMetadata(
 	return metadata, nil
 }
 
-func createIdentityInvite(ctx context.Context, backend adapter.Backend, bundle *skyid.Bundle, relays []string) (string, error) {
+func createIdentityInvite(ctx context.Context, backend adapter.Backend, bundle *skyid.Bundle, linkNode *link.Node, relays []string) (string, error) {
 	if backend == nil {
-		return skyjoin.CreateP2PInvite(bundle.Identity.Address(), relays)
+		if linkNode == nil {
+			return skyjoin.CreateP2PInvite(bundle.Identity.Address(), inviteRelays(relays))
+		}
+		if err := waitForLinkHost(ctx, linkNode); err != nil {
+			return "", err
+		}
+		publishInviteBootstrap(ctx, linkNode, inviteRelays(relays))
+
+		presence, err := linkNode.CurrentPresenceRecord(0)
+		if err != nil {
+			return skyjoin.CreateP2PInvite(bundle.Identity.Address(), inviteRelays(relays))
+		}
+		return skyjoin.CreateP2PInviteWithBootstrap(
+			bundle.Identity.Address(),
+			inviteRelays(relays),
+			presence.PeerID,
+			presence.Multiaddrs,
+		)
 	}
 
 	home, _ := os.UserHomeDir()
@@ -201,13 +219,9 @@ func joinIdentityP2P(
 		return nil, err
 	}
 
-	resolver := link.NewResolver(linkNode, link.WithNostr(invite.NostrRelays))
-	info, err := resolver.Resolve(ctx, invite.Address)
+	info, err := connectInviter(ctx, linkNode, invite)
 	if err != nil {
-		return nil, fmt.Errorf("resolving inviter: %w", err)
-	}
-	if err := linkNode.Host().Connect(ctx, *info); err != nil {
-		return nil, fmt.Errorf("connecting to inviter: %w", err)
+		return nil, err
 	}
 
 	resp, err := skyjoin.RequestP2PJoin(
@@ -286,6 +300,88 @@ func joinIdentityP2P(
 		DevicePubKey: joinedBundle.DevicePubKeyHex(),
 		Restarting:   true,
 	}, nil
+}
+
+func connectInviter(ctx context.Context, linkNode *link.Node, invite *skyjoin.P2PInvite) (*peer.AddrInfo, error) {
+	if invite == nil {
+		return nil, fmt.Errorf("invite is nil")
+	}
+
+	directCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if info, err := skyjoin.ConnectViaInvite(directCtx, linkNode.Host(), invite); err == nil {
+		return info, nil
+	}
+
+	if len(invite.NostrRelays) > 0 {
+		nostrResolver := link.NewResolver(linkNode, link.WithNostr(invite.NostrRelays), link.WithNostrOnly())
+		nostrCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		defer cancel()
+		info, err := nostrResolver.Resolve(nostrCtx, invite.Address)
+		if err == nil {
+			if err := linkNode.Host().Connect(nostrCtx, *info); err == nil {
+				return info, nil
+			}
+		}
+	}
+
+	resolver := link.NewResolver(linkNode, link.WithNostr(invite.NostrRelays))
+	info, err := resolver.Resolve(ctx, invite.Address)
+	if err != nil {
+		return nil, fmt.Errorf("resolving inviter: %w", err)
+	}
+	if err := linkNode.Host().Connect(ctx, *info); err != nil {
+		return nil, fmt.Errorf("connecting to inviter: %w", err)
+	}
+	return info, nil
+}
+
+func publishInviteBootstrap(ctx context.Context, linkNode *link.Node, relays []string) {
+	if linkNode == nil {
+		return
+	}
+	publishCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+
+	// Best-effort only. The invite still carries direct dial hints, and Nostr
+	// bootstrap should still run even if DHT publication is slow or unavailable.
+	_ = linkNode.PublishRecord(publishCtx)
+	if len(relays) == 0 {
+		return
+	}
+
+	discovery := link.NewNostrDiscovery(relays, nil)
+	membership, err := linkNode.CurrentMembershipRecord()
+	if err == nil {
+		_ = discovery.PublishMembership(publishCtx, linkNode.Bundle().Identity, membership)
+	}
+	presence, err := linkNode.CurrentPresenceRecord(0)
+	if err == nil {
+		_ = discovery.PublishPresence(publishCtx, linkNode.Bundle().Device, presence)
+	}
+}
+
+func inviteRelays(relays []string) []string {
+	if len(relays) == 0 {
+		return nil
+	}
+	out := make([]string, 0, 2)
+	seen := make(map[string]struct{}, 2)
+	for _, relay := range relays {
+		relay = strings.TrimSpace(relay)
+		if relay == "" {
+			continue
+		}
+		if _, ok := seen[relay]; ok {
+			continue
+		}
+		seen[relay] = struct{}{}
+		out = append(out, relay)
+		if len(out) == 2 {
+			break
+		}
+	}
+	return out
 }
 
 func hasNamespaceKey(keys []skyjoin.WrappedNSKey, namespace string) bool {

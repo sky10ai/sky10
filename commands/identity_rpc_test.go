@@ -7,6 +7,7 @@ import (
 	"time"
 
 	skyid "github.com/sky10/sky10/pkg/id"
+	skyjoin "github.com/sky10/sky10/pkg/join"
 	skykey "github.com/sky10/sky10/pkg/key"
 	"github.com/sky10/sky10/pkg/link"
 )
@@ -61,6 +62,40 @@ func TestPrivateNetworkDeviceMetadataUsesConnectedPrivatePeers(t *testing.T) {
 	}
 	if remoteMeta.LastSeen == "" {
 		t.Fatal("expected remote device last_seen from connected private peer")
+	}
+}
+
+func TestCreateIdentityInviteIncludesBootstrapHints(t *testing.T) {
+	t.Parallel()
+
+	bundleA, _ := testSharedBundles(t)
+	nodeA, err := link.New(bundleA, link.Config{Mode: link.Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startTestLinkNode(t, nodeA)
+
+	code, err := createIdentityInvite(context.Background(), nil, bundleA, nodeA, []string{
+		"wss://relay.damus.io",
+		"wss://nos.lol",
+		"wss://relay.nostr.band",
+	})
+	if err != nil {
+		t.Fatalf("createIdentityInvite: %v", err)
+	}
+
+	invite, err := skyjoin.DecodeP2PInvite(code)
+	if err != nil {
+		t.Fatalf("DecodeP2PInvite: %v", err)
+	}
+	if invite.PeerID != nodeA.PeerID().String() {
+		t.Fatalf("peer_id = %q, want %q", invite.PeerID, nodeA.PeerID())
+	}
+	if len(invite.Multiaddrs) == 0 {
+		t.Fatal("expected invite multiaddrs")
+	}
+	if len(invite.NostrRelays) != 2 {
+		t.Fatalf("invite relays = %v, want 2", invite.NostrRelays)
 	}
 }
 

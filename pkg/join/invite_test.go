@@ -2,14 +2,17 @@ package join
 
 import (
 	"testing"
+	"time"
 )
 
 func TestP2PInviteRoundtrip(t *testing.T) {
 	t.Parallel()
 
-	code, err := CreateP2PInvite(
+	code, err := CreateP2PInviteWithBootstrap(
 		"sky10qvx2mz9abc123",
 		[]string{"wss://relay.damus.io", "wss://nos.lol"},
+		"12D3KooWExamplePeerID",
+		[]string{"/ip4/203.0.113.10/udp/4242/quic-v1/p2p/12D3KooWExamplePeerID"},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -31,6 +34,18 @@ func TestP2PInviteRoundtrip(t *testing.T) {
 	}
 	if invite.InviteID == "" {
 		t.Error("invite ID should not be empty")
+	}
+	if invite.PeerID != "12D3KooWExamplePeerID" {
+		t.Errorf("peer_id = %q", invite.PeerID)
+	}
+	if len(invite.Multiaddrs) != 1 {
+		t.Fatalf("multiaddrs = %v, want 1", invite.Multiaddrs)
+	}
+	if invite.IssuedAt.IsZero() {
+		t.Fatal("issued_at should not be zero")
+	}
+	if time.Since(invite.IssuedAt) > time.Minute {
+		t.Fatalf("issued_at too old: %s", invite.IssuedAt)
 	}
 }
 
