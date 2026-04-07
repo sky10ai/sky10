@@ -27,6 +27,10 @@ export class RPCError extends Error {
   }
 }
 
+function isUnknownMethodError(error: unknown): error is RPCError {
+  return error instanceof RPCError && error.message.startsWith("unknown method:");
+}
+
 export async function rpc<T = unknown>(
   method: string,
   params?: unknown
@@ -119,8 +123,31 @@ export const system = {
   restart: () => rpc<{ status: string }>("system.restart"),
   update: {
     run: () => rpc<{ status: string }>("system.update"),
-    check: () => rpc<SystemUpdateInfo>("system.update.check"),
-    status: () => rpc<SystemUpdateStatus>("system.update.status"),
+    check: async () => {
+      try {
+        return await rpc<SystemUpdateInfo>("system.update.check");
+      } catch (error) {
+        if (!isUnknownMethodError(error)) throw error;
+        return rpc<SystemUpdateInfo>("system.checkUpdate");
+      }
+    },
+    status: async () => {
+      try {
+        const status = await rpc<SystemUpdateStatus>("system.update.status");
+        return { ...status, mode: "staged" as const };
+      } catch (error) {
+        if (!isUnknownMethodError(error)) throw error;
+        const info = await rpc<SystemUpdateInfo>("system.checkUpdate");
+        return {
+          current: info.current,
+          ready: false,
+          latest: info.latest || undefined,
+          cli_staged: false,
+          menu_staged: false,
+          mode: "legacy" as const,
+        };
+      }
+    },
     download: () => rpc<{ status: string }>("system.update.download"),
     install: () => rpc<SystemInstallUpdateResult>("system.update.install"),
   },
@@ -380,6 +407,7 @@ export interface SystemUpdateStatus {
   latest?: string;
   cli_staged: boolean;
   menu_staged: boolean;
+  mode?: "staged" | "legacy";
 }
 
 export interface SystemInstallUpdateResult {

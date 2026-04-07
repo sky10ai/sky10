@@ -80,6 +80,7 @@ export default function Settings() {
     total: number;
   } | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [legacyRestartTarget, setLegacyRestartTarget] = useState<string | null>(null);
 
   const refreshUpdateState = useCallback(() => {
     refetchUpdateInfo({ background: true });
@@ -88,16 +89,34 @@ export default function Settings() {
 
   useEffect(() => {
     return subscribe((event, data) => {
-      if (event === "update:download:progress") {
+      if (event === "update:download:progress" || event === "update:progress") {
         const progress = data as { downloaded: number; total: number };
         setUpdateAction("downloading");
         setUpdateProgress(progress);
+        return;
+      }
+      if (event === "update:complete") {
+        const payload = data as { updated?: string };
+        setUpdateAction("idle");
+        setUpdateProgress(null);
+        setUpdateError(null);
+        setLegacyRestartTarget(payload.updated ?? updateInfo?.latest ?? null);
+        refreshUpdateState();
+        return;
+      }
+      if (event === "update:error") {
+        const payload = data as { message: string };
+        setUpdateAction("idle");
+        setUpdateProgress(null);
+        setUpdateError(payload.message);
+        refreshUpdateState();
         return;
       }
       if (event === "update:download:complete") {
         setUpdateAction("idle");
         setUpdateProgress(null);
         setUpdateError(null);
+        setLegacyRestartTarget(null);
         refreshUpdateState();
         return;
       }
@@ -106,6 +125,7 @@ export default function Settings() {
         setUpdateAction("idle");
         setUpdateProgress(null);
         setUpdateError(payload.message);
+        setLegacyRestartTarget(null);
         refreshUpdateState();
         return;
       }
@@ -116,7 +136,7 @@ export default function Settings() {
         refreshUpdateState();
       }
     });
-  }, [refreshUpdateState]);
+  }, [refreshUpdateState, updateInfo?.latest]);
 
   const waitForUpdatedUI = useCallback(async (targetVersion: string) => {
     const deadline = Date.now() + 30_000;
@@ -145,7 +165,12 @@ export default function Settings() {
     setUpdateAction("downloading");
     setUpdateError(null);
     setUpdateProgress(null);
+    setLegacyRestartTarget(null);
     try {
+      if (stagedUpdate?.mode === "legacy") {
+        await system.update.run();
+        return;
+      }
       await system.update.download();
     } catch (e: unknown) {
       setUpdateAction("idle");
@@ -153,9 +178,28 @@ export default function Settings() {
         e instanceof Error ? e.message : "Download failed",
       );
     }
-  }, []);
+  }, [stagedUpdate?.mode]);
 
   const handleInstallUpdate = useCallback(async () => {
+    if (legacyRestartTarget) {
+      setUpdateAction("restarting");
+      setUpdateError(null);
+      try {
+        await system.restart();
+        const restarted = await waitForUpdatedUI(legacyRestartTarget);
+        if (!restarted) {
+          setUpdateAction("idle");
+          setUpdateError(
+            "Update installed. The daemon restart is taking longer than expected.",
+          );
+        }
+      } catch (e: unknown) {
+        setUpdateAction("idle");
+        setUpdateError(e instanceof Error ? e.message : "Restart failed");
+      }
+      return;
+    }
+
     setUpdateAction("installing");
     setUpdateError(null);
     try {
@@ -177,7 +221,7 @@ export default function Settings() {
       setUpdateAction("idle");
       setUpdateError(e instanceof Error ? e.message : "Install failed");
     }
-  }, [refreshUpdateState, waitForUpdatedUI]);
+  }, [legacyRestartTarget, refreshUpdateState, waitForUpdatedUI]);
 
   // -- Wallet --
   const {
@@ -254,12 +298,13 @@ export default function Settings() {
     { refreshIntervalMs: 30_000 },
   );
 
-  const updateReady = stagedUpdate?.ready ?? false;
+  const legacyMode = stagedUpdate?.mode === "legacy";
+  const updateReady = Boolean(legacyRestartTarget) || (stagedUpdate?.ready ?? false);
   const updateAvailable = !updateReady && Boolean(updateInfo?.available);
-  const updateTargetVersion = stagedUpdate?.latest ?? updateInfo?.latest ?? "";
-  const updateNeedsRestart = updateReady
+  const updateTargetVersion = legacyRestartTarget ?? stagedUpdate?.latest ?? updateInfo?.latest ?? "";
+  const updateNeedsRestart = Boolean(legacyRestartTarget) || (updateReady
     ? stagedUpdate?.cli_staged ?? false
-    : updateInfo?.cli_available ?? false;
+    : updateInfo?.cli_available ?? false);
   const updateBusy = updateAction !== "idle";
 
   let updateMessage = "No update available right now.";
@@ -273,12 +318,16 @@ export default function Settings() {
       : "Installing the staged update...";
   } else if (updateAction === "restarting") {
     updateMessage = "Restarting sky10. This page will refresh automatically.";
+  } else if (legacyRestartTarget) {
+    updateMessage = `${legacyRestartTarget} is installed. Restart to switch this UI to the new version.`;
   } else if (updateReady && updateTargetVersion) {
     updateMessage = updateNeedsRestart
       ? `${updateTargetVersion} is ready. Install it in place and restart this UI.`
       : `${updateTargetVersion} is ready to install.`;
   } else if (updateAvailable && updateTargetVersion) {
-    updateMessage = `${updateTargetVersion} is available. Download it now and install when you're ready.`;
+    updateMessage = legacyMode
+      ? `${updateTargetVersion} is available. Update now, then restart when it finishes.`
+      : `${updateTargetVersion} is available. Download it now and install when you're ready.`;
   } else if (updateCheckError) {
     updateMessage = "Update check is unavailable right now.";
   }
@@ -461,8 +510,9 @@ export default function Settings() {
                   {updateAction === "downloading" && "Downloading..."}
                   {updateAction === "installing" && "Installing..."}
                   {updateAction === "restarting" && "Restarting..."}
-                  {!updateBusy && updateReady && (updateNeedsRestart ? "Install and restart" : "Install update")}
-                  {!updateBusy && updateAvailable && "Download update"}
+                  {!updateBusy && legacyRestartTarget && "Restart now"}
+                  {!updateBusy && !legacyRestartTarget && updateReady && (updateNeedsRestart ? "Install and restart" : "Install update")}
+                  {!updateBusy && updateAvailable && (legacyMode ? "Update now" : "Download update")}
                 </button>
               )}
             </div>
