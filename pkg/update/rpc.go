@@ -19,6 +19,15 @@ type RPCHandler struct {
 	restartDelay   time.Duration
 }
 
+var (
+	rpcCheck         = Check
+	rpcApply         = Apply
+	rpcApplyMenu     = ApplyMenu
+	rpcStage         = Stage
+	rpcStatus        = Status
+	rpcInstallStaged = InstallStaged
+)
+
 // RestartHandler restarts the daemon after the RPC response has been sent.
 type RestartHandler func() error
 
@@ -45,6 +54,12 @@ func (h *RPCHandler) Dispatch(_ context.Context, method string, _ json.RawMessag
 	switch method {
 	case "system.checkUpdate":
 		return h.rpcCheckUpdate()
+	case "system.updateStatus":
+		return h.rpcUpdateStatus()
+	case "system.downloadUpdate":
+		return h.rpcDownloadUpdate()
+	case "system.installUpdate":
+		return h.rpcInstallUpdate()
 	case "system.update":
 		return h.rpcUpdate()
 	case "system.restart":
@@ -55,11 +70,107 @@ func (h *RPCHandler) Dispatch(_ context.Context, method string, _ json.RawMessag
 }
 
 func (h *RPCHandler) rpcCheckUpdate() (interface{}, error, bool) {
-	info, err := Check(h.version)
+	info, err := rpcCheck(h.version)
 	if err != nil {
 		return nil, err, true
 	}
 	return info, nil, true
+}
+
+func (h *RPCHandler) rpcUpdateStatus() (interface{}, error, bool) {
+	status, err := rpcStatus(h.version)
+	if err != nil {
+		return nil, err, true
+	}
+	return status, nil, true
+}
+
+func (h *RPCHandler) rpcDownloadUpdate() (interface{}, error, bool) {
+	if !h.updating.CompareAndSwap(false, true) {
+		return nil, fmt.Errorf("update already in progress"), true
+	}
+
+	go func() {
+		defer h.updating.Store(false)
+
+		info, err := rpcCheck(h.version)
+		if err != nil {
+			h.emit("update:download:error", map[string]string{"message": err.Error()})
+			return
+		}
+		if !info.Available {
+			h.emit("update:download:complete", map[string]any{
+				"status": "already up to date",
+				"latest": info.Latest,
+			})
+			return
+		}
+
+		staged, err := rpcStage(info, func(downloaded, total int64) {
+			h.emit("update:download:progress", map[string]int64{
+				"downloaded": downloaded,
+				"total":      total,
+			})
+		})
+		if err != nil {
+			h.emit("update:download:error", map[string]string{"message": err.Error()})
+			return
+		}
+		if staged == nil {
+			h.emit("update:download:complete", map[string]any{
+				"status": "already up to date",
+				"latest": info.Latest,
+			})
+			return
+		}
+
+		h.emit("update:download:complete", staged)
+	}()
+
+	return map[string]string{"status": "downloading"}, nil, true
+}
+
+func (h *RPCHandler) rpcInstallUpdate() (interface{}, error, bool) {
+	if !h.updating.CompareAndSwap(false, true) {
+		return nil, fmt.Errorf("update already in progress"), true
+	}
+	defer h.updating.Store(false)
+
+	staged, err := rpcInstallStaged()
+	if err != nil {
+		h.emit("update:install:error", map[string]string{"message": err.Error()})
+		return nil, err, true
+	}
+
+	result := map[string]any{
+		"status":      "updated",
+		"current":     staged.Current,
+		"latest":      staged.Latest,
+		"cli_staged":  staged.CLIStaged,
+		"menu_staged": staged.MenuStaged,
+		"restarting":  false,
+	}
+
+	if staged.CLIStaged {
+		if h.restartHandler != nil {
+			result["status"] = "restarting"
+			result["restarting"] = true
+			go func() {
+				if h.restartDelay > 0 {
+					time.Sleep(h.restartDelay)
+				}
+				if err := h.restartHandler(); err != nil {
+					h.emit("update:install:error", map[string]string{"message": err.Error()})
+					logger().Warn("system.installUpdate restart failed", "error", err)
+				}
+			}()
+		} else {
+			result["status"] = "restart_required"
+		}
+	}
+
+	h.emit("update:install:complete", result)
+	return result, nil, true
 }
 
 func (h *RPCHandler) rpcUpdate() (interface{}, error, bool) {
@@ -70,7 +181,7 @@ func (h *RPCHandler) rpcUpdate() (interface{}, error, bool) {
 	go func() {
 		defer h.updating.Store(false)
 
-		info, err := Check(h.version)
+		info, err := rpcCheck(h.version)
 		if err != nil {
 			h.emit("update:error", map[string]string{"message": err.Error()})
 			return
@@ -79,7 +190,7 @@ func (h *RPCHandler) rpcUpdate() (interface{}, error, bool) {
 			return
 		}
 
-		err = Apply(info, func(downloaded, total int64) {
+		err = rpcApply(info, func(downloaded, total int64) {
 			h.emit("update:progress", map[string]int64{
 				"downloaded": downloaded,
 				"total":      total,
@@ -90,7 +201,7 @@ func (h *RPCHandler) rpcUpdate() (interface{}, error, bool) {
 			return
 		}
 
-		if _, err := ApplyMenu(info); err != nil {
+		if _, err := rpcApplyMenu(info); err != nil {
 			logger().Warn("could not update sky10-menu", "error", err)
 		}
 

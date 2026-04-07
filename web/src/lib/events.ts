@@ -43,6 +43,18 @@ export const WALLET_EVENT_TYPES = [
   "wallet:install:error",
 ] as const;
 
+export const UPDATE_EVENT_TYPES = [
+  "update:available",
+  "update:progress",
+  "update:complete",
+  "update:error",
+  "update:download:progress",
+  "update:download:complete",
+  "update:download:error",
+  "update:install:complete",
+  "update:install:error",
+] as const;
+
 export const LEGACY_EVENT_TYPES = [
   "sync.progress",
   "sync.complete",
@@ -59,6 +71,7 @@ export const KNOWN_EVENT_TYPES = [
     ...LINK_EVENT_TYPES,
     ...AGENT_EVENT_TYPES,
     ...WALLET_EVENT_TYPES,
+    ...UPDATE_EVENT_TYPES,
     ...LEGACY_EVENT_TYPES,
   ]),
 ] as const;

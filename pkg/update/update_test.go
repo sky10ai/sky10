@@ -14,6 +14,24 @@ import (
 	"time"
 )
 
+func withRPCStubs(t *testing.T) {
+	t.Helper()
+	oldCheck := rpcCheck
+	oldApply := rpcApply
+	oldApplyMenu := rpcApplyMenu
+	oldStage := rpcStage
+	oldStatus := rpcStatus
+	oldInstall := rpcInstallStaged
+	t.Cleanup(func() {
+		rpcCheck = oldCheck
+		rpcApply = oldApply
+		rpcApplyMenu = oldApplyMenu
+		rpcStage = oldStage
+		rpcStatus = oldStatus
+		rpcInstallStaged = oldInstall
+	})
+}
+
 func TestCheck(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping network test in short mode")
@@ -248,6 +266,162 @@ func TestRPCRestartDispatch(t *testing.T) {
 
 	select {
 	case <-called:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("restart handler was not called")
+	}
+}
+
+func TestRPCUpdateStatusDispatch(t *testing.T) {
+	withRPCStubs(t)
+
+	rpcStatus = func(current string) (*StagedStatus, error) {
+		return &StagedStatus{
+			Current:    current,
+			Ready:      true,
+			Latest:     "v2.0.0",
+			CLIStaged:  true,
+			MenuStaged: true,
+		}, nil
+	}
+
+	h := NewRPCHandler("v1.0.0", func(string, interface{}) {})
+	result, err, ok := h.Dispatch(context.Background(), "system.updateStatus", nil)
+	if !ok || err != nil {
+		t.Fatalf("updateStatus dispatch: ok=%v err=%v", ok, err)
+	}
+
+	status, _ := result.(*StagedStatus)
+	if status == nil {
+		t.Fatalf("expected *StagedStatus, got %T", result)
+	}
+	if !status.Ready || status.Latest != "v2.0.0" {
+		t.Fatalf("status = %#v", status)
+	}
+}
+
+func TestRPCDownloadUpdateStagesRelease(t *testing.T) {
+	withRPCStubs(t)
+
+	rpcCheck = func(current string) (*Info, error) {
+		return &Info{
+			Current:       current,
+			Latest:        "v2.0.0",
+			Available:     true,
+			CLIAvailable:  true,
+			MenuAvailable: true,
+		}, nil
+	}
+	rpcStage = func(info *Info, onProgress ProgressFunc) (*StagedRelease, error) {
+		onProgress(5, 10)
+		return &StagedRelease{
+			Current:    info.Current,
+			Latest:     info.Latest,
+			CLIStaged:  true,
+			MenuStaged: true,
+		}, nil
+	}
+
+	progressSeen := make(chan struct{}, 1)
+	completeSeen := make(chan interface{}, 1)
+	emit := func(event string, data interface{}) {
+		switch event {
+		case "update:download:progress":
+			select {
+			case progressSeen <- struct{}{}:
+			default:
+			}
+		case "update:download:complete":
+			select {
+			case completeSeen <- data:
+			default:
+			}
+		}
+	}
+
+	h := NewRPCHandler("v1.0.0", emit)
+	result, err, ok := h.Dispatch(context.Background(), "system.downloadUpdate", nil)
+	if !ok || err != nil {
+		t.Fatalf("downloadUpdate dispatch: ok=%v err=%v", ok, err)
+	}
+
+	status, _ := result.(map[string]string)
+	if status["status"] != "downloading" {
+		t.Fatalf("status = %v, want downloading", result)
+	}
+
+	select {
+	case <-progressSeen:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("expected update:download:progress event")
+	}
+
+	select {
+	case data := <-completeSeen:
+		staged, _ := data.(*StagedRelease)
+		if staged == nil || staged.Latest != "v2.0.0" {
+			t.Fatalf("complete data = %#v", data)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("expected update:download:complete event")
+	}
+}
+
+func TestRPCInstallUpdateSchedulesRestart(t *testing.T) {
+	withRPCStubs(t)
+
+	rpcInstallStaged = func() (*StagedRelease, error) {
+		return &StagedRelease{
+			Current:    "v1.0.0",
+			Latest:     "v2.0.0",
+			CLIStaged:  true,
+			MenuStaged: true,
+		}, nil
+	}
+
+	restarted := make(chan struct{}, 1)
+	installSeen := make(chan map[string]any, 1)
+	emit := func(event string, data interface{}) {
+		if event != "update:install:complete" {
+			return
+		}
+		payload, _ := data.(map[string]any)
+		select {
+		case installSeen <- payload:
+		default:
+		}
+	}
+
+	h := NewRPCHandler("v1.0.0", emit)
+	h.restartDelay = 0
+	h.SetRestartHandler(func() error {
+		restarted <- struct{}{}
+		return nil
+	})
+
+	result, err, ok := h.Dispatch(context.Background(), "system.installUpdate", nil)
+	if !ok || err != nil {
+		t.Fatalf("installUpdate dispatch: ok=%v err=%v", ok, err)
+	}
+
+	payload, _ := result.(map[string]any)
+	if payload["status"] != "restarting" {
+		t.Fatalf("status = %v, want restarting", result)
+	}
+	if payload["restarting"] != true {
+		t.Fatalf("restarting = %v, want true", payload["restarting"])
+	}
+
+	select {
+	case event := <-installSeen:
+		if event["latest"] != "v2.0.0" {
+			t.Fatalf("install event = %#v", event)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("expected update:install:complete event")
+	}
+
+	select {
+	case <-restarted:
 	case <-time.After(250 * time.Millisecond):
 		t.Fatal("restart handler was not called")
 	}

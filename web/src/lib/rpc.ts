@@ -114,6 +114,15 @@ export const agent = {
   send: (p: AgentSendParams) => rpc<AgentSendResult>("agent.send", p),
 };
 
+// -- system --
+export const system = {
+  checkUpdate: () => rpc<SystemUpdateInfo>("system.checkUpdate"),
+  updateStatus: () => rpc<SystemUpdateStatus>("system.updateStatus"),
+  downloadUpdate: () => rpc<{ status: string }>("system.downloadUpdate"),
+  installUpdate: () => rpc<SystemInstallUpdateResult>("system.installUpdate"),
+  restart: () => rpc<{ status: string }>("system.restart"),
+};
+
 // -- wallet --
 export const wallet = {
   status: () => rpc<WalletStatus>("wallet.status"),
@@ -347,6 +356,36 @@ export interface AgentSendParams {
 export interface AgentSendResult {
   id: string;
   status: string;
+}
+
+// -- System update types --
+
+export interface SystemUpdateInfo {
+  current: string;
+  latest: string;
+  available: boolean;
+  cli_available: boolean;
+  menu_available: boolean;
+  asset_url?: string;
+  menu_asset_url?: string;
+  menu_checksums_url?: string;
+}
+
+export interface SystemUpdateStatus {
+  current: string;
+  ready: boolean;
+  latest?: string;
+  cli_staged: boolean;
+  menu_staged: boolean;
+}
+
+export interface SystemInstallUpdateResult {
+  status: "updated" | "restarting" | "restart_required";
+  current: string;
+  latest: string;
+  cli_staged: boolean;
+  menu_staged: boolean;
+  restarting: boolean;
 }
 
 // -- Wallet types --

@@ -15,10 +15,21 @@ function subDecimal(balance: string, amount: string, decimals: number): string {
   const fs = f.toString().padStart(decimals, "0").replace(/0+$/, "");
   return `${w}.${fs}`;
 }
+
+const UPDATE_REFRESH_EVENTS = [
+  "update:available",
+  "update:download:complete",
+  "update:download:error",
+  "update:install:complete",
+  "update:install:error",
+] as const;
+
+type UpdateAction = "idle" | "downloading" | "installing" | "restarting";
+
 import { Icon } from "../components/Icon";
 import { STORAGE_EVENT_TYPES, WALLET_EVENT_TYPES, subscribe } from "../lib/events";
-import { skyfs, skylink, identity, wallet } from "../lib/rpc";
-import { useRPC, truncAddr } from "../lib/useRPC";
+import { identity, skyfs, skylink, system, wallet } from "../lib/rpc";
+import { formatBytes, useRPC, truncAddr } from "../lib/useRPC";
 
 export default function Settings() {
   const { data: health } = useRPC(() => skyfs.health(), [], {
@@ -47,6 +58,126 @@ export default function Settings() {
   const versionParts = version.match(
     /^(v[\d.]+(?:-\w+)?)\s+\((\w+)\)\s+built\s+(.+)$/
   );
+
+  const {
+    data: updateInfo,
+    error: updateCheckError,
+    refetch: refetchUpdateInfo,
+  } = useRPC(() => system.checkUpdate(), [], {
+    live: UPDATE_REFRESH_EVENTS,
+  });
+  const {
+    data: stagedUpdate,
+    refetch: refetchStagedUpdate,
+  } = useRPC(() => system.updateStatus(), [], {
+    live: UPDATE_REFRESH_EVENTS,
+    refreshIntervalMs: 30_000,
+  });
+
+  const [updateAction, setUpdateAction] = useState<UpdateAction>("idle");
+  const [updateProgress, setUpdateProgress] = useState<{
+    downloaded: number;
+    total: number;
+  } | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+
+  const refreshUpdateState = useCallback(() => {
+    refetchUpdateInfo({ background: true });
+    refetchStagedUpdate({ background: true });
+  }, [refetchStagedUpdate, refetchUpdateInfo]);
+
+  useEffect(() => {
+    return subscribe((event, data) => {
+      if (event === "update:download:progress") {
+        const progress = data as { downloaded: number; total: number };
+        setUpdateAction("downloading");
+        setUpdateProgress(progress);
+        return;
+      }
+      if (event === "update:download:complete") {
+        setUpdateAction("idle");
+        setUpdateProgress(null);
+        setUpdateError(null);
+        refreshUpdateState();
+        return;
+      }
+      if (event === "update:download:error") {
+        const payload = data as { message: string };
+        setUpdateAction("idle");
+        setUpdateProgress(null);
+        setUpdateError(payload.message);
+        refreshUpdateState();
+        return;
+      }
+      if (event === "update:install:error") {
+        const payload = data as { message: string };
+        setUpdateAction("idle");
+        setUpdateError(payload.message);
+        refreshUpdateState();
+      }
+    });
+  }, [refreshUpdateState]);
+
+  const waitForUpdatedUI = useCallback(async (targetVersion: string) => {
+    const deadline = Date.now() + 30_000;
+
+    while (Date.now() < deadline) {
+      try {
+        const response = await fetch("/health", { cache: "no-store" });
+        if (response.ok) {
+          const body = (await response.json()) as { version?: string };
+          if (body.version?.includes(targetVersion)) {
+            window.location.reload();
+            return true;
+          }
+        }
+      } catch {
+        // Restart window in progress.
+      }
+
+      await new Promise((resolve) => window.setTimeout(resolve, 1000));
+    }
+
+    return false;
+  }, []);
+
+  const handleDownloadUpdate = useCallback(async () => {
+    setUpdateAction("downloading");
+    setUpdateError(null);
+    setUpdateProgress(null);
+    try {
+      await system.downloadUpdate();
+    } catch (e: unknown) {
+      setUpdateAction("idle");
+      setUpdateError(
+        e instanceof Error ? e.message : "Download failed",
+      );
+    }
+  }, []);
+
+  const handleInstallUpdate = useCallback(async () => {
+    setUpdateAction("installing");
+    setUpdateError(null);
+    try {
+      const result = await system.installUpdate();
+      refreshUpdateState();
+      if (result.restarting) {
+        setUpdateAction("restarting");
+        const restarted = await waitForUpdatedUI(result.latest);
+        if (!restarted) {
+          setUpdateAction("idle");
+          setUpdateError(
+            "Update installed. The daemon restart is taking longer than expected.",
+          );
+        }
+        return;
+      }
+      setUpdateAction("idle");
+    } catch (e: unknown) {
+      setUpdateAction("idle");
+      setUpdateError(e instanceof Error ? e.message : "Install failed");
+    }
+  }, [refreshUpdateState, waitForUpdatedUI]);
 
   // -- Wallet --
   const {
@@ -122,6 +253,35 @@ export default function Settings() {
     [firstWallet],
     { refreshIntervalMs: 30_000 },
   );
+
+  const updateReady = stagedUpdate?.ready ?? false;
+  const updateAvailable = !updateReady && Boolean(updateInfo?.available);
+  const updateTargetVersion = stagedUpdate?.latest ?? updateInfo?.latest ?? "";
+  const updateNeedsRestart = updateReady
+    ? stagedUpdate?.cli_staged ?? false
+    : updateInfo?.cli_available ?? false;
+  const updateBusy = updateAction !== "idle";
+
+  let updateMessage = "No update available right now.";
+  if (updateAction === "downloading") {
+    updateMessage = updateTargetVersion
+      ? `Downloading ${updateTargetVersion}...`
+      : "Downloading the latest update...";
+  } else if (updateAction === "installing") {
+    updateMessage = updateTargetVersion
+      ? `Installing ${updateTargetVersion}...`
+      : "Installing the staged update...";
+  } else if (updateAction === "restarting") {
+    updateMessage = "Restarting sky10. This page will refresh automatically.";
+  } else if (updateReady && updateTargetVersion) {
+    updateMessage = updateNeedsRestart
+      ? `${updateTargetVersion} is ready. Install it in place and restart this UI.`
+      : `${updateTargetVersion} is ready to install.`;
+  } else if (updateAvailable && updateTargetVersion) {
+    updateMessage = `${updateTargetVersion} is available. Download it now and install when you're ready.`;
+  } else if (updateCheckError) {
+    updateMessage = "Update check is unavailable right now.";
+  }
 
   return (
     <div className="p-12 max-w-6xl mx-auto space-y-12">
@@ -245,6 +405,66 @@ export default function Settings() {
                   {health?.rpc_clients ?? 0}
                 </span>
               </div>
+            </div>
+            <div className="rounded-xl bg-surface-container-lowest border border-outline-variant/10 p-4 space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1">
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
+                    Software Update
+                  </p>
+                  <p className="text-sm text-on-surface">{updateMessage}</p>
+                </div>
+                {updateTargetVersion && (
+                  <span className="shrink-0 bg-primary/10 text-primary px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest">
+                    {updateTargetVersion}
+                  </span>
+                )}
+              </div>
+
+              {updateAction === "downloading" && (
+                <div className="space-y-2">
+                  <div className="w-full bg-surface-container rounded-full h-2 overflow-hidden">
+                    <div
+                      className="h-full bg-primary rounded-full transition-all duration-300"
+                      style={{
+                        width: updateProgress && updateProgress.total > 0
+                          ? `${Math.round((updateProgress.downloaded / updateProgress.total) * 100)}%`
+                          : "18%",
+                      }}
+                    />
+                  </div>
+                  {updateProgress && updateProgress.total > 0 && (
+                    <p className="text-[10px] text-secondary">
+                      {formatBytes(updateProgress.downloaded)}
+                      {" / "}
+                      {formatBytes(updateProgress.total)}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {(updateError || (!updateReady && !updateAvailable && updateCheckError)) && (
+                <p className="text-xs text-error">
+                  {updateError ?? updateCheckError}
+                </p>
+              )}
+
+              {(updateReady || updateAvailable || updateBusy) && (
+                <button
+                  onClick={updateReady ? handleInstallUpdate : handleDownloadUpdate}
+                  disabled={updateBusy}
+                  className="inline-flex items-center gap-2 bg-primary text-on-primary px-4 py-2.5 rounded-full text-sm font-semibold shadow-lg hover:shadow-xl transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {updateBusy && (
+                    <Icon name="progress_activity" className="text-base animate-spin" />
+                  )}
+                  {updateAction === "downloading" && "Downloading..."}
+                  {updateAction === "installing" && "Installing..."}
+                  {updateAction === "restarting" && "Restarting..."}
+                  {!updateBusy && updateReady && (updateNeedsRestart ? "Install and restart" : "Install update")}
+                  {!updateBusy && updateAvailable && "Download update"}
+                </button>
+              )}
             </div>
           </div>
         </section>
