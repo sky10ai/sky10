@@ -89,6 +89,26 @@ func TestJSONRuntimeWritesStructuredLine(t *testing.T) {
 	}
 }
 
+func TestBufferKeepsMostRecentLinesInOrder(t *testing.T) {
+	t.Parallel()
+
+	buf := NewBuffer(3)
+	for _, line := range []string{"one", "two", "three", "four", "five"} {
+		buf.append(line)
+	}
+
+	lines := buf.Lines()
+	want := []string{"three", "four", "five"}
+	if len(lines) != len(want) {
+		t.Fatalf("line count = %d, want %d", len(lines), len(want))
+	}
+	for i := range want {
+		if lines[i] != want[i] {
+			t.Fatalf("lines[%d] = %q, want %q", i, lines[i], want[i])
+		}
+	}
+}
+
 func TestParseFormatAliases(t *testing.T) {
 	t.Parallel()
 

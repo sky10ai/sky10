@@ -1,11 +1,8 @@
 package fs
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
-	"fmt"
-	"os"
 	"strings"
 )
 
@@ -24,22 +21,15 @@ func (s *FSHandler) rpcLogs(_ context.Context, params json.RawMessage) (interfac
 		p.Lines = 500
 	}
 
-	logPath := DaemonLogPath()
-	f, err := os.Open(logPath)
-	if err != nil {
-		return nil, fmt.Errorf("opening log: %w", err)
-	}
-	defer f.Close()
-
-	var all []string
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 256*1024), 256*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if p.Filter != "" && !strings.Contains(line, p.Filter) {
-			continue
+	all := s.logBuf.Lines()
+	if p.Filter != "" {
+		filtered := make([]string, 0, len(all))
+		for _, line := range all {
+			if strings.Contains(line, p.Filter) {
+				filtered = append(filtered, line)
+			}
 		}
-		all = append(all, line)
+		all = filtered
 	}
 
 	// Return last N lines.
@@ -47,8 +37,9 @@ func (s *FSHandler) rpcLogs(_ context.Context, params json.RawMessage) (interfac
 	if start < 0 {
 		start = 0
 	}
+	lines := all[start:]
 	return map[string]interface{}{
-		"lines": all[start:],
+		"lines": lines,
 		"total": len(all),
 	}, nil
 }

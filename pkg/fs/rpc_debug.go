@@ -110,13 +110,10 @@ func (s *FSHandler) rpcDebugDump(ctx context.Context) (interface{}, error) {
 		dump["namespace_keys_error"] = err.Error()
 	}
 
-	// Logs — full daemon.log file
-	logPath := DaemonLogPath()
-	if logData, err := os.ReadFile(logPath); err == nil {
-		dump["logs_raw"] = string(logData)
-	}
-	// Also include ring buffer in case file read fails
-	dump["logs"] = s.logBuf.Lines()
+	// Logs — recent in-memory ring buffer used by skyfs.logs.
+	logLines := s.logBuf.Lines()
+	dump["logs"] = logLines
+	dump["logs_raw"] = strings.Join(logLines, "\n")
 
 	// Upload to S3 — no wall-clock timeout. The HTTP client has its own
 	// idle/read timeouts for dead connections. A fixed deadline kills

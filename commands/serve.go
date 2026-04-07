@@ -60,10 +60,10 @@ func ServeCmd() *cobra.Command {
 			logRuntime, err := logging.InstallDefault(logging.Config{
 				Level:       level,
 				Format:      format,
-				FilePath:    skyfs.DaemonLogPath(),
+				Stderr:      true,
 				Service:     "sky10",
 				Version:     Version,
-				BufferLines: 1000,
+				BufferLines: logging.DefaultBufferLines,
 			})
 			if err != nil {
 				return fmt.Errorf("installing logger: %w", err)

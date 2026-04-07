@@ -36,11 +36,6 @@ func DaemonSocketPath() string {
 	return filepath.Join(shortSocketBaseDir(), "sky10-"+shortSocketSuffix(RuntimeDir())+".sock")
 }
 
-// DaemonLogPath returns the default path for the daemon log.
-func DaemonLogPath() string {
-	return filepath.Join(RuntimeDir(), "daemon.log")
-}
-
 const maxUnixSocketPath = 100
 
 func shortSocketBaseDir() string {

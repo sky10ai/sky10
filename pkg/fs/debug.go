@@ -12,25 +12,17 @@ import (
 	"time"
 )
 
-// DumpGoroutines writes all goroutine stacks to the logger and to the
-// daemon log file. This is the primary debugging tool for frozen daemons.
+// DumpGoroutines writes all goroutine stacks to the logger and raw stderr.
+// This keeps live RPC logs in memory while letting the service manager capture
+// full multiline stack dumps for post-mortem analysis.
 func DumpGoroutines(logger *slog.Logger) {
 	buf := make([]byte, 64*1024*1024) // 64MB — enough for any stack
 	n := runtime.Stack(buf, true)     // true = all goroutines
 	stack := string(buf[:n])
 
 	logger.Warn("=== GOROUTINE DUMP ===", "goroutines", runtime.NumGoroutine())
-
-	// Write to daemon log file directly (logger may truncate)
-	logPath := DaemonLogPath()
-	if f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600); err == nil {
-		fmt.Fprintf(f, "\n=== GOROUTINE DUMP %s (%d goroutines) ===\n%s\n=== END DUMP ===\n\n",
-			time.Now().Format(time.RFC3339), runtime.NumGoroutine(), stack)
-		f.Close()
-	}
-
-	// Don't write to stderr — when a parent process owns the pipe, a full
-	// buffer blocks write() and freezes the process.
+	fmt.Fprintf(os.Stderr, "\n=== GOROUTINE DUMP %s (%d goroutines) ===\n%s\n=== END DUMP ===\n\n",
+		time.Now().Format(time.RFC3339), runtime.NumGoroutine(), stack)
 }
 
 // HandleDumpSignal listens for SIGUSR1 and dumps all goroutine stacks.

@@ -42,7 +42,7 @@ type FSHandler struct {
 func NewFSHandler(store *Store, server *rpc.Server, driveCfgPath string, logger *slog.Logger, logBuf *logging.Buffer) *FSHandler {
 	logger = componentLogger(logger)
 	if logBuf == nil {
-		logBuf = logging.NewBuffer(1000)
+		logBuf = logging.NewBuffer(logging.DefaultBufferLines)
 	}
 
 	dm := NewDriveManager(store, driveCfgPath)

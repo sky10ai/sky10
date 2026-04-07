@@ -41,9 +41,8 @@ Tracking all work needed to run sky10 on Windows.
 
 ## 4. Path handling
 
-**Mostly done — one hardcoded path remains.**
+**Mostly done — service-manager paths still need a Windows pass.**
 
-- [ ] Fix `pkg/fs/rpc_logs.go:27` — hardcodes `/tmp/sky10/daemon.log`, should use `DaemonLogPath()`
 - [ ] Audit daemon log paths in `commands/daemon_darwin.go` and `commands/daemon_linux.go` templates (these are platform-gated, so fine as-is — just verify)
 - [ ] Verify `RuntimeDir()` works correctly on Windows (`%TEMP%\sky10`)
 

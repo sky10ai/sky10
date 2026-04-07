@@ -32,6 +32,9 @@ type Config struct {
 	BufferLines int
 }
 
+// DefaultBufferLines is the default number of recent log lines kept in memory.
+const DefaultBufferLines = 10000
+
 // Runtime is the installed logger plus the resources it owns.
 type Runtime struct {
 	Logger *slog.Logger
@@ -174,7 +177,7 @@ func withDefaults(cfg Config) Config {
 		cfg.Stderr = true
 	}
 	if cfg.BufferLines <= 0 {
-		cfg.BufferLines = 1000
+		cfg.BufferLines = DefaultBufferLines
 	}
 	return cfg
 }
@@ -183,13 +186,18 @@ func withDefaults(cfg Config) Config {
 type Buffer struct {
 	mu      sync.Mutex
 	entries []string
+	start   int
+	count   int
 	max     int
 }
 
 // NewBuffer creates a buffer that keeps the last max lines.
 func NewBuffer(max int) *Buffer {
+	if max < 0 {
+		max = 0
+	}
 	return &Buffer{
-		entries: make([]string, 0, max),
+		entries: make([]string, max),
 		max:     max,
 	}
 }
@@ -198,8 +206,10 @@ func NewBuffer(max int) *Buffer {
 func (b *Buffer) Lines() []string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	out := make([]string, len(b.entries))
-	copy(out, b.entries)
+	out := make([]string, b.count)
+	for i := 0; i < b.count; i++ {
+		out[i] = b.entries[(b.start+i)%b.max]
+	}
 	return out
 }
 
@@ -209,12 +219,13 @@ func (b *Buffer) append(line string) {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if len(b.entries) >= b.max {
-		copy(b.entries, b.entries[1:])
-		b.entries[len(b.entries)-1] = line
+	if b.count < b.max {
+		b.entries[(b.start+b.count)%b.max] = line
+		b.count++
 		return
 	}
-	b.entries = append(b.entries, line)
+	b.entries[b.start] = line
+	b.start = (b.start + 1) % b.max
 }
 
 type lineBufferWriter struct {

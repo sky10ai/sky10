@@ -4,23 +4,38 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	s3adapter "github.com/sky10/sky10/pkg/adapter/s3"
+	"github.com/sky10/sky10/pkg/logging"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
 )
 
 func startTestRPC(t *testing.T) (*skyrpc.Server, net.Conn, context.CancelFunc) {
 	t.Helper()
+	server, _, conn, cancel := startTestRPCWithHandler(t, nil)
+	return server, conn, cancel
+}
+
+func startTestRPCWithHandler(t *testing.T, loggerRuntime *logging.Runtime) (*skyrpc.Server, *FSHandler, net.Conn, context.CancelFunc) {
+	t.Helper()
+
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
 
 	sockPath := filepath.Join(t.TempDir(), "test.sock")
 	server := skyrpc.NewServer(sockPath, "test", nil)
-	handler := NewFSHandler(store, server, filepath.Join(t.TempDir(), "drives.json"), nil, nil)
+	driveCfgPath := filepath.Join(t.TempDir(), "drives.json")
+	handler := NewFSHandler(store, server, driveCfgPath, nil, nil)
+	if loggerRuntime != nil {
+		handler = NewFSHandler(store, server, driveCfgPath, loggerRuntime.Logger, loggerRuntime.Buffer)
+	}
 	server.RegisterHandler(handler)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -37,9 +52,12 @@ func startTestRPC(t *testing.T) (*skyrpc.Server, net.Conn, context.CancelFunc) {
 	t.Cleanup(func() {
 		conn.Close()
 		cancel()
+		if loggerRuntime != nil {
+			_ = loggerRuntime.Close()
+		}
 	})
 
-	return server, conn, cancel
+	return server, handler, conn, cancel
 }
 
 // rpcRaw is a response where Result stays as raw JSON for proper unmarshaling.
@@ -129,5 +147,56 @@ func TestRPCMethodNotFound(t *testing.T) {
 	}
 	if resp.Error.Code != -32601 {
 		t.Errorf("error code = %d, want -32601", resp.Error.Code)
+	}
+}
+
+func TestRPCLogsUsesBufferedRuntime(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("open-file unlink semantics differ on Windows")
+	}
+
+	logPath := filepath.Join(t.TempDir(), "daemon.log")
+	logRuntime, err := logging.New(logging.Config{
+		FilePath:    logPath,
+		BufferLines: 4,
+	})
+	if err != nil {
+		t.Fatalf("logging.New() error = %v", err)
+	}
+
+	_, handler, conn, _ := startTestRPCWithHandler(t, logRuntime)
+	handler.logger.Info("peer connected", "peer", "alpha")
+	handler.logger.Warn("sync stalled", "peer", "beta")
+	handler.logger.Error("sync failed", "peer", "gamma")
+
+	if err := os.Remove(logPath); err != nil {
+		t.Fatalf("Remove(%q) error = %v", logPath, err)
+	}
+
+	result := rpcCall(t, conn, "skyfs.logs", map[string]any{
+		"lines":  2,
+		"filter": "sync",
+	})
+
+	var got struct {
+		Lines []string `json:"lines"`
+		Total int      `json:"total"`
+	}
+	if err := json.Unmarshal(result, &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if got.Total != 2 {
+		t.Fatalf("total = %d, want 2", got.Total)
+	}
+	if len(got.Lines) != 2 {
+		t.Fatalf("line count = %d, want 2", len(got.Lines))
+	}
+	if !strings.Contains(got.Lines[0], "sync stalled") {
+		t.Fatalf("first line = %q, want sync stalled", got.Lines[0])
+	}
+	if !strings.Contains(got.Lines[1], "sync failed") {
+		t.Fatalf("second line = %q, want sync failed", got.Lines[1])
 	}
 }
