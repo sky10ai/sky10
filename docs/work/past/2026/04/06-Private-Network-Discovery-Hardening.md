@@ -142,13 +142,13 @@ reliably, the private-network work is not defensible.
   pushes
 - `v0.40.4`: remove blocking device/agent RPC behavior
 
-## Remaining Work
+## Follow-On Work
 
-The private-network discovery refactor is complete enough to archive, but
-KV still needs a stronger replicated-state model. The active follow-on
-plan remains:
+The KV reliability follow-on has now been completed and archived in:
 
-- [KV CRDT Plan](/Users/bf/.baton/worktrees/sky10/debug-agent-key-instability/docs/work/current/p2p-private-network/kv-crdt-plan.md)
+- [KV CRDT Reliability Hardening](/Users/bf/.baton/worktrees/sky10/debug-agent-key-instability/docs/work/past/2026/04/07-KV-CRDT-Reliability-Hardening.md)
 
-That work stays in `docs/work/current/` because it is future-facing
-design, not finished implementation.
+The active remaining follow-on from this area is now the faster
+post-join bootstrap path:
+
+- [Fast Join Bootstrap Plan](/Users/bf/.baton/worktrees/sky10/debug-agent-key-instability/docs/work/current/p2p-private-network/fast-join-bootstrap-plan.md)
