@@ -127,7 +127,6 @@ func (s *Server) handleHTTPEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	flusher.Flush()
 
 	sub := &httpSubscriber{
 		ch:   make(chan Event, 100),
@@ -151,6 +150,7 @@ func (s *Server) handleHTTPEvents(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	s.logger.Info("SSE client connected", "remote", r.RemoteAddr)
+	flusher.Flush()
 
 	for {
 		select {
