@@ -521,6 +521,7 @@ func ServeCmd() *cobra.Command {
 			}
 			agentRPC := skyagent.NewRPCHandler(agentRegistry, bundle.Identity, agentEventEmitter)
 			agentRPC.SetCatalog(agentCatalog)
+			agentRPC.SetDemoMarketplace(skyagent.NewDemoMarketplace(agentCatalog))
 			agentRPC.SetRouter(agentRouter)
 			agentRPC.SetMailbox(mailboxStore)
 			server.RegisterHandler(agentRPC)

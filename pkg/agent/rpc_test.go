@@ -1052,6 +1052,56 @@ func TestRPCPublish(t *testing.T) {
 	}
 }
 
+func TestRPCDemoBuy(t *testing.T) {
+	t.Parallel()
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	catalog := NewMemoryCatalog(nil)
+	h.SetCatalog(catalog)
+	h.SetDemoMarketplace(NewDemoMarketplace(catalog))
+	ctx := context.Background()
+
+	card, err := BuildAgentCard(h.owner, PublishParams{
+		Name:    "Demo Seller",
+		KeyName: "demo-seller",
+		Offers: []Offer{
+			{
+				SKU:   "cookie-recipe-v1",
+				Title: "Cookie Recipe Pack",
+				Price: Price{
+					Amount: "4",
+					Asset:  "USDC",
+				},
+			},
+		},
+	}, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("BuildAgentCard: %v", err)
+	}
+	if err := catalog.Publish(ctx, card); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	params, _ := json.Marshal(DemoBuyParams{
+		AgentAddress: card.AgentAddress,
+		OfferSKU:     "cookie-recipe-v1",
+	})
+	result, err, handled := h.Dispatch(ctx, "agent.demoBuy", params)
+	if !handled || err != nil {
+		t.Fatalf("demoBuy: handled=%v err=%v", handled, err)
+	}
+	buy := result.(*DemoBuyResult)
+	if buy.OfferSKU != "cookie-recipe-v1" {
+		t.Fatalf("OfferSKU = %s, want cookie-recipe-v1", buy.OfferSKU)
+	}
+	if buy.PaymentStatus != "simulated_paid" {
+		t.Fatalf("PaymentStatus = %s, want simulated_paid", buy.PaymentStatus)
+	}
+	if buy.ResultMarkdown == "" {
+		t.Fatal("ResultMarkdown is empty")
+	}
+}
+
 func TestRPCStatus(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()

@@ -142,6 +142,8 @@ export const agent = {
   status: () => rpc<AgentStatus>("agent.status"),
   publish: (p: AgentPublishParams) =>
     rpc<PublishedAgentCard>("agent.publish", p),
+  demoBuy: (p: AgentDemoBuyParams) =>
+    rpc<AgentDemoBuyResult>("agent.demoBuy", p),
   discover: (p?: AgentDiscoverParams) =>
     rpc<AgentDiscoverResult>("agent.discover", p ?? {}),
   send: (p: AgentSendParams) => rpc<AgentSendResult>("agent.send", p),
@@ -1000,6 +1002,28 @@ export interface AgentPublishParams {
   };
   seq?: number;
   ttl_seconds?: number;
+}
+
+export interface AgentDemoBuyParams {
+  agent_address?: string;
+  offer_sku: string;
+  request?: string;
+}
+
+export interface AgentDemoBuyResult {
+  quote_id: string;
+  receipt_id: string;
+  agent_id: string;
+  agent_address: string;
+  agent_name: string;
+  offer_sku: string;
+  offer_title: string;
+  amount: string;
+  asset: string;
+  payment_status: string;
+  fulfillment: string;
+  result_markdown: string;
+  fulfilled_at: number;
 }
 
 export interface AgentPrice {

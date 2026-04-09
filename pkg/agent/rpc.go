@@ -25,6 +25,7 @@ type RPCHandler struct {
 	router   *Router // nil until cross-device wiring
 	mailbox  *agentmailbox.Store
 	catalog  Catalog
+	demo     *DemoMarketplace
 	emit     Emitter
 	notify   PeerNotifier
 }
@@ -49,6 +50,11 @@ func (h *RPCHandler) SetCatalog(c Catalog) {
 	h.catalog = c
 }
 
+// SetDemoMarketplace attaches the local demo marketplace flow.
+func (h *RPCHandler) SetDemoMarketplace(d *DemoMarketplace) {
+	h.demo = d
+}
+
 // SetPeerNotifier attaches a function that broadcasts agent events to
 // connected devices (e.g. linkNode.NotifyOwn).
 func (h *RPCHandler) SetPeerNotifier(fn PeerNotifier) {
@@ -71,6 +77,8 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		result, err = h.rpcDeregister(ctx, params)
 	case "agent.publish":
 		result, err = h.rpcPublish(ctx, params)
+	case "agent.demoBuy":
+		result, err = h.rpcDemoBuy(ctx, params)
 	case "agent.list":
 		result, err = h.rpcList(ctx, params)
 	case "agent.send":
@@ -220,6 +228,21 @@ func (h *RPCHandler) rpcPublish(ctx context.Context, params json.RawMessage) (in
 	}
 
 	return card, nil
+}
+
+func (h *RPCHandler) rpcDemoBuy(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	if h.demo == nil {
+		return nil, fmt.Errorf("agent.demoBuy is unavailable")
+	}
+	if len(params) == 0 {
+		return nil, fmt.Errorf("params are required")
+	}
+
+	var p DemoBuyParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	return h.demo.Buy(ctx, p)
 }
 
 func (h *RPCHandler) rpcList(ctx context.Context, _ json.RawMessage) (interface{}, error) {

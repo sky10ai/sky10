@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
+import Markdown from "react-markdown";
 import { Icon } from "../components/Icon";
 import { RelativeTime } from "../components/RelativeTime";
 import { StatusBadge } from "../components/StatusBadge";
 import { AGENT_EVENT_TYPES } from "../lib/events";
-import { agent, type PublishedAgentCard } from "../lib/rpc";
+import { agent, type AgentDemoBuyResult, type AgentOffer, type PublishedAgentCard } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
 function categoryLabel(category: string) {
@@ -48,10 +49,28 @@ function matchesSearch(card: PublishedAgentCard, search: string) {
   return haystack.includes(search.toLowerCase());
 }
 
+function requestPlaceholder(offer: AgentOffer) {
+  switch (offer.sku) {
+    case "research-brief-v1":
+      return "What should the seller research?";
+    case "summarize-doc-v1":
+      return "Paste a document or describe what should be summarized.";
+    case "product-compare-v1":
+      return "What options or buying criteria should be compared?";
+    default:
+      return "Optional request details";
+  }
+}
+
 export default function Agents() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [selectedOfferKey, setSelectedOfferKey] = useState<string | null>(null);
+  const [requestDraft, setRequestDraft] = useState("");
+  const [buyingOfferKey, setBuyingOfferKey] = useState<string | null>(null);
+  const [buyError, setBuyError] = useState<string | null>(null);
+  const [buyResult, setBuyResult] = useState<AgentDemoBuyResult | null>(null);
 
   const {
     data,
@@ -92,6 +111,25 @@ export default function Agents() {
 
   // Count unique devices hosting agents.
   const deviceSet = new Set(agents.map((a) => a.device_id));
+
+  const handleRunDemo = async (card: PublishedAgentCard, offer: AgentOffer) => {
+    const offerKey = `${card.agent_address}:${offer.sku}`;
+    setBuyingOfferKey(offerKey);
+    setBuyError(null);
+    try {
+      const result = await agent.demoBuy({
+        agent_address: card.agent_address,
+        offer_sku: offer.sku,
+        request: requestDraft.trim() || undefined,
+      });
+      setBuyResult(result);
+      setSelectedOfferKey(offerKey);
+    } catch (error) {
+      setBuyError(error instanceof Error ? error.message : "Demo purchase failed");
+    } finally {
+      setBuyingOfferKey(null);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-7xl p-12">
@@ -448,6 +486,58 @@ export default function Agents() {
                               <span key={tag}>#{tag}</span>
                             ))}
                           </div>
+                          <div className="mt-4 rounded-2xl border border-primary/10 bg-surface-container-lowest/70 p-4">
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-semibold text-on-surface">
+                                  Demo checkout
+                                </p>
+                                <p className="text-xs text-secondary">
+                                  Runs discovery, simulated payment, and fulfillment locally.
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const offerKey = `${card.agent_address}:${offer.sku}`;
+                                  setSelectedOfferKey(offerKey);
+                                  setBuyResult(null);
+                                  setBuyError(null);
+                                  setRequestDraft("");
+                                }}
+                                className="rounded-full border border-outline-variant/20 px-3 py-1.5 text-xs font-semibold text-on-surface transition-colors hover:bg-surface-container"
+                              >
+                                Configure
+                              </button>
+                            </div>
+
+                            {selectedOfferKey === `${card.agent_address}:${offer.sku}` && (
+                              <div className="space-y-3">
+                                <textarea
+                                  value={requestDraft}
+                                  onChange={(e) => setRequestDraft(e.target.value)}
+                                  placeholder={requestPlaceholder(offer)}
+                                  className="h-28 w-full resize-none rounded-2xl border border-outline-variant/20 bg-surface-container px-4 py-3 text-sm text-on-surface outline-none transition-colors focus:border-primary"
+                                />
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <p className="text-xs text-secondary">
+                                    Price: <span className="font-semibold text-on-surface">{offer.price.amount} {offer.price.asset}</span> · payment is simulated in this local demo
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRunDemo(card, offer)}
+                                    disabled={buyingOfferKey === `${card.agent_address}:${offer.sku}`}
+                                    className="rounded-full bg-primary px-4 py-2 text-xs font-semibold text-on-primary transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    {buyingOfferKey === `${card.agent_address}:${offer.sku}` ? "Running..." : "Buy / Run Demo"}
+                                  </button>
+                                </div>
+                                {buyError && (
+                                  <p className="text-xs text-error">{buyError}</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -466,6 +556,66 @@ export default function Agents() {
               </article>
             ))}
           </div>
+        )}
+
+        {buyResult && (
+          <section className="mt-8 overflow-hidden rounded-3xl border border-primary/10 bg-surface-container-lowest shadow-sm">
+            <div className="border-b border-outline-variant/10 px-6 py-5">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="mb-2 flex items-center gap-2">
+                    <StatusBadge tone="live">Demo Complete</StatusBadge>
+                    <StatusBadge tone="processing">Payment Simulated</StatusBadge>
+                  </div>
+                  <h3 className="text-2xl font-bold text-on-surface">{buyResult.offer_title}</h3>
+                  <p className="mt-1 text-sm text-secondary">
+                    Purchased from {buyResult.agent_name} for {buyResult.amount} {buyResult.asset}.
+                  </p>
+                </div>
+                <div className="grid gap-2 text-xs text-secondary sm:grid-cols-2">
+                  <div>
+                    <p className="font-bold uppercase tracking-widest text-outline">Quote</p>
+                    <p className="font-mono text-on-surface">{buyResult.quote_id}</p>
+                  </div>
+                  <div>
+                    <p className="font-bold uppercase tracking-widest text-outline">Receipt</p>
+                    <p className="font-mono text-on-surface">{buyResult.receipt_id}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="grid gap-6 px-6 py-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
+              <div className="prose prose-sm max-w-none prose-headings:text-on-surface prose-p:text-on-surface prose-li:text-on-surface prose-strong:text-on-surface prose-code:text-on-surface">
+                <Markdown>{buyResult.result_markdown}</Markdown>
+              </div>
+              <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-low p-4 text-sm">
+                <h4 className="mb-3 font-semibold text-on-surface">Transaction Trace</h4>
+                <div className="space-y-3 text-secondary">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-outline">Status</p>
+                    <p className="text-on-surface">{buyResult.payment_status}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-outline">Fulfillment</p>
+                    <p className="text-on-surface">{buyResult.fulfillment}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-outline">Completed</p>
+                    <RelativeTime
+                      className="font-semibold text-on-surface"
+                      value={new Date(buyResult.fulfilled_at * 1000).toISOString()}
+                    />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-outline">Next</p>
+                    <p>
+                      The next milestone is replacing this simulated payment with the real quote and treasury path.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
         )}
       </section>
     </div>
