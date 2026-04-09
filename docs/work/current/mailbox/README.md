@@ -80,7 +80,12 @@ Examples:
 - **Queue**: mailbox items that can be claimed by one eligible worker.
 - **Item**: the durable envelope for a unit of work or a protocol step.
 - **Event**: an immutable transition record for an item.
+- **AppendLog**: an append-only durable sequence used as the base primitive
+  for mailbox state.
+- **AppendLogEntry**: one immutable record in an `AppendLog`.
 - **Lease**: a time-bounded claim on a queue item.
+- **PayloadRef**: a pointer to payload data stored outside the inline mailbox
+  envelope, such as a chunked value or `skyfs` object.
 
 ## Delivery Model
 
@@ -204,18 +209,18 @@ Mailbox should be built on top of KV, not inside the base KV API.
 
 Needed library primitives:
 
-- `stream`
-  - append-only event sequence
+- `appendlog`
+  - append-only durable event sequence
 - `lease`
   - claim and expiry semantics for queue work
-- `blob_ref`
+- `payloadref`
   - pointer to chunked value or `skyfs` object for oversized payloads
 
 Potential package layout:
 
-- `pkg/kv/collections/stream.go`
+- `pkg/kv/collections/appendlog.go`
 - `pkg/kv/collections/lease.go`
-- `pkg/kv/collections/blobref.go`
+- `pkg/kv/collections/payloadref.go`
 
 ### Private-Network KV Backend
 
@@ -270,7 +275,8 @@ Flow:
 4. that worker processes and emits progress/completion
 5. if the worker disappears, the lease expires and another worker may claim
 
-Mailbox does not use destructive pop.
+Mailbox does not use destructive pop. Queue behavior should be modeled as
+`AppendLog + Lease`.
 
 ## Routing Model
 
@@ -372,9 +378,9 @@ Suggested web surfaces:
 
 ### KV Collections
 
-- `pkg/kv/collections/stream.go`
+- `pkg/kv/collections/appendlog.go`
 - `pkg/kv/collections/lease.go`
-- `pkg/kv/collections/blobref.go`
+- `pkg/kv/collections/payloadref.go`
 
 ### Mailbox Core
 
@@ -417,9 +423,9 @@ Implement the reusable replicated primitives on top of KV.
 
 Exit criteria:
 
-- append-only stream abstraction
+- append-only `AppendLog` abstraction
 - lease abstraction with expiry
-- blob ref helper for oversized payloads
+- `PayloadRef` helper for oversized payloads
 - tests for replay, rebuild, and concurrency edges
 
 ### M2: Private-Network Mailbox Backend
@@ -489,9 +495,9 @@ Exit criteria:
 ### KV Collections
 
 - [ ] Create `pkg/kv/collections`.
-- [ ] Implement stream abstraction.
+- [ ] Implement `AppendLog` abstraction.
 - [ ] Implement lease abstraction.
-- [ ] Implement blob-ref helper.
+- [ ] Implement `PayloadRef` helper.
 - [ ] Add collection unit tests.
 
 ### Mailbox Core
