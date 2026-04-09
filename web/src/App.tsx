@@ -15,6 +15,7 @@ import FileBrowser from "./pages/FileBrowser";
 import Bucket from "./pages/Bucket";
 import Activity from "./pages/Activity";
 import Settings from "./pages/Settings";
+import SettingsApps from "./pages/SettingsApps";
 
 function HomeRedirect() {
   const { data } = useRPC(() => identity.deviceList(), []);
@@ -41,6 +42,7 @@ export default function App() {
           <Route path="drives/:name/*" element={<FileBrowser />} />
           <Route path="bucket/*" element={<Bucket />} />
           <Route path="activity" element={<Activity />} />
+          <Route path="settings/apps" element={<SettingsApps />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

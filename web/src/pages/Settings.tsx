@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import { Icon } from "../components/Icon";
+import { STORAGE_EVENT_TYPES, WALLET_EVENT_TYPES, subscribe } from "../lib/events";
+import { identity, skyfs, skylink, system, wallet } from "../lib/rpc";
+import { formatBytes, useRPC, truncAddr } from "../lib/useRPC";
 
 /** Subtract two decimal strings using BigInt to avoid float precision issues. */
 function subDecimal(balance: string, amount: string, decimals: number): string {
@@ -26,11 +30,6 @@ const UPDATE_REFRESH_EVENTS = [
 
 type UpdateAction = "idle" | "downloading" | "installing" | "restarting";
 
-import { Icon } from "../components/Icon";
-import { STORAGE_EVENT_TYPES, WALLET_EVENT_TYPES, subscribe } from "../lib/events";
-import { identity, skyfs, skylink, system, wallet } from "../lib/rpc";
-import { formatBytes, useRPC, truncAddr } from "../lib/useRPC";
-
 export default function Settings() {
   const { data: health } = useRPC(() => skyfs.health(), [], {
     live: STORAGE_EVENT_TYPES,
@@ -51,12 +50,12 @@ export default function Settings() {
   });
 
   const thisDevice = (deviceData?.devices ?? []).find(
-    (d) => d.id === deviceData?.this_device
+    (d) => d.id === deviceData?.this_device,
   );
 
   const version = health?.version ?? "";
   const versionParts = version.match(
-    /^(v[\d.]+(?:-\w+)?)\s+\((\w+)\)\s+built\s+(.+)$/
+    /^(v[\d.]+(?:-\w+)?)\s+\((\w+)\)\s+built\s+(.+)$/,
   );
 
   const {
@@ -223,7 +222,6 @@ export default function Settings() {
     }
   }, [legacyRestartTarget, refreshUpdateState, waitForUpdatedUI]);
 
-  // -- Wallet --
   const {
     data: walletStatus,
     error: walletError,
@@ -250,7 +248,6 @@ export default function Settings() {
   const [installError, setInstallError] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
 
-  // Subscribe to wallet install progress events.
   useEffect(() => {
     return subscribe((event, data) => {
       if (event === "wallet:install:progress") {
@@ -281,7 +278,6 @@ export default function Settings() {
     }
   }, []);
 
-  // Fetch wallet details once installed and wallets exist.
   const hasWallets = walletStatus?.installed && (walletStatus.wallets ?? 0) > 0;
   const { data: walletList } = useRPC(
     () => (hasWallets ? wallet.list() : Promise.resolve(null)),
@@ -292,7 +288,12 @@ export default function Settings() {
     () => (firstWallet ? wallet.address({ wallet: firstWallet }) : Promise.resolve(null)),
     [firstWallet],
   );
-  const { data: walletBal, mutate: mutateBalance, pause: pauseBalance, resume: resumeBalance } = useRPC(
+  const {
+    data: walletBal,
+    mutate: mutateBalance,
+    pause: pauseBalance,
+    resume: resumeBalance,
+  } = useRPC(
     () => (firstWallet ? wallet.balance({ wallet: firstWallet }) : Promise.resolve(null)),
     [firstWallet],
     { refreshIntervalMs: 30_000 },
@@ -334,7 +335,6 @@ export default function Settings() {
 
   return (
     <div className="p-12 max-w-6xl mx-auto space-y-12">
-      {/* Hero title */}
       <div className="flex flex-col gap-2">
         <h2 className="text-5xl font-bold tracking-tight text-on-surface">
           Settings
@@ -345,9 +345,7 @@ export default function Settings() {
         </p>
       </div>
 
-      {/* Bento grid */}
       <div className="grid grid-cols-12 gap-6">
-        {/* Identity */}
         <section className="col-span-12 lg:col-span-7 bg-surface-container-lowest rounded-xl p-8 flex flex-col justify-between group hover:shadow-xl transition-all duration-500 border border-transparent">
           <div className="space-y-6">
             <div className="flex justify-between items-start">
@@ -411,7 +409,6 @@ export default function Settings() {
           </div>
         </section>
 
-        {/* About */}
         <section className="col-span-12 lg:col-span-5 bg-surface-container-high rounded-xl p-8 flex flex-col justify-between border border-transparent">
           <div className="space-y-6">
             <div className="space-y-1">
@@ -519,7 +516,6 @@ export default function Settings() {
           </div>
         </section>
 
-        {/* Skylink mode */}
         {linkStatus && (
           <section className="col-span-12 lg:col-span-4 bg-primary text-white rounded-xl p-8 flex flex-col gap-8 relative overflow-hidden">
             <div className="relative z-10 space-y-2">
@@ -564,7 +560,6 @@ export default function Settings() {
           </section>
         )}
 
-        {/* Wallet */}
         <section className="col-span-12 lg:col-span-4 bg-surface-container-lowest rounded-xl p-8 border border-transparent space-y-6 flex flex-col">
           <div className="space-y-1">
             <h3 className="text-xl font-semibold flex items-center gap-2">
@@ -576,7 +571,6 @@ export default function Settings() {
             </p>
           </div>
 
-          {/* Not installed (or RPC unavailable) */}
           {((walletStatus && !walletStatus.installed) || walletError) && !installing && (
             <div className="flex-1 flex flex-col items-center justify-center gap-4 py-4">
               <div className="w-12 h-12 rounded-full bg-tertiary/10 flex items-center justify-center">
@@ -597,7 +591,6 @@ export default function Settings() {
             </div>
           )}
 
-          {/* Installing — progress bar */}
           {installing && (
             <div className="flex-1 flex flex-col items-center justify-center gap-4 py-4">
               <div className="w-12 h-12 rounded-full bg-tertiary/10 flex items-center justify-center">
@@ -624,7 +617,6 @@ export default function Settings() {
             </div>
           )}
 
-          {/* Installed but no wallets */}
           {walletStatus?.installed && !installing && !hasWallets && (
             <div className="flex-1 flex flex-col items-center justify-center gap-4 py-4">
               <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
@@ -657,21 +649,21 @@ export default function Settings() {
             </div>
           )}
 
-          {/* Installed with wallets — show info */}
           {walletStatus?.installed && !installing && hasWallets && (
             <div className="space-y-4 flex-1">
-              {/* Address */}
               {walletAddr?.address && (
                 <div className="space-y-2">
                   <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
                     Solana Address
                   </label>
-                  <div className="flex items-center gap-2 bg-surface-container p-3 rounded-lg group/addr cursor-pointer"
+                  <div
+                    className="flex items-center gap-2 bg-surface-container p-3 rounded-lg group/addr cursor-pointer"
                     onClick={() => {
                       navigator.clipboard.writeText(walletAddr.address);
                       setCopied(true);
                       setTimeout(() => setCopied(false), 2000);
-                    }}>
+                    }}
+                  >
                     <code className="text-xs font-mono text-primary flex-1 truncate">
                       {walletAddr.address}
                     </code>
@@ -684,7 +676,6 @@ export default function Settings() {
                 </div>
               )}
 
-              {/* Balances */}
               <div className="space-y-2">
                 <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
                   Balances
@@ -712,7 +703,6 @@ export default function Settings() {
                 </p>
               )}
 
-              {/* Withdraw form */}
               {showWithdraw && (
                 <div className="space-y-3 bg-surface-container p-4 rounded-lg">
                   <input
@@ -743,7 +733,6 @@ export default function Settings() {
                               setFeeHint(`Balance minus ${result.fee} SOL gas`);
                               setTimeout(() => setFeeHint(null), 3000);
                             } catch {
-                              // Fallback to client-side estimate.
                               const tok = walletBal?.tokens?.find((t) => t.symbol === "SOL");
                               const bal = parseFloat(tok?.balance ?? "0");
                               if (bal > 0) setWithdrawAmount(String(Math.max(0, bal - 0.00001)));
@@ -791,7 +780,6 @@ export default function Settings() {
                         pauseBalance();
                         try {
                           const sentToken = withdrawToken;
-                          // Fetch actual gas fee before sending.
                           const { fee: feeStr } = await wallet.maxTransfer({ wallet: firstWallet });
                           await wallet.transfer({
                             wallet: firstWallet,
@@ -804,7 +792,6 @@ export default function Settings() {
                           setWithdrawAmount("");
                           setWithdrawSuccess(true);
                           setTimeout(() => setWithdrawSuccess(false), 4000);
-                          // Optimistic balance update with BigInt to avoid float artifacts.
                           const isSol = !sentToken || sentToken === "SOL";
                           mutateBalance((prev) => {
                             if (!prev?.tokens) return prev;
@@ -821,7 +808,6 @@ export default function Settings() {
                             });
                             return { ...prev, tokens: updated };
                           });
-                          // Resume polling after chain confirmation window.
                           setTimeout(resumeBalance, 15_000);
                         } catch (e: unknown) {
                           setWithdrawError(e instanceof Error ? e.message : "Transfer failed");
@@ -838,7 +824,6 @@ export default function Settings() {
                 </div>
               )}
 
-              {/* Version + actions */}
               <div className="flex items-center justify-between pt-2">
                 {walletStatus.version && (
                   <p className="text-[10px] text-secondary">{walletStatus.version}</p>
@@ -871,7 +856,6 @@ export default function Settings() {
             </div>
           )}
 
-          {/* Loading state */}
           {!walletStatus && !walletError && !installing && (
             <div className="flex-1 flex items-center justify-center py-4">
               <p className="text-sm text-secondary">Loading...</p>
@@ -879,7 +863,6 @@ export default function Settings() {
           )}
         </section>
 
-        {/* Authorized devices (manifest) */}
         <section className="col-span-12 lg:col-span-8 bg-surface-container-lowest rounded-xl p-8 border border-transparent space-y-6">
           <div className="space-y-1">
             <h3 className="text-xl font-semibold flex items-center gap-2">
@@ -887,7 +870,7 @@ export default function Settings() {
               Authorized Devices
             </h3>
             <p className="text-sm text-secondary">
-              Devices signed into this identity's manifest.
+              Devices signed into this identity&apos;s manifest.
             </p>
           </div>
           <div className="space-y-3">
