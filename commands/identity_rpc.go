@@ -144,7 +144,7 @@ func createIdentityInvite(ctx context.Context, backend adapter.Backend, bundle *
 		}
 		publishInviteBootstrap(ctx, linkNode, inviteRelays(relays))
 
-		presence, err := linkNode.CurrentPresenceRecord(0)
+		presence, err := linkNode.CurrentPresenceRecordForPublish(ctx, 0)
 		if err != nil {
 			return skyjoin.CreateP2PInvite(bundle.Identity.Address(), inviteRelays(relays))
 		}
@@ -354,7 +354,7 @@ func publishInviteBootstrap(ctx context.Context, linkNode *link.Node, relays []s
 	if err == nil {
 		_ = discovery.PublishMembership(publishCtx, linkNode.Bundle().Identity, membership)
 	}
-	presence, err := linkNode.CurrentPresenceRecord(0)
+	presence, err := linkNode.CurrentPresenceRecordForPublish(publishCtx, 0)
 	if err == nil {
 		_ = discovery.PublishPresence(publishCtx, linkNode.Bundle().Device, presence)
 	}

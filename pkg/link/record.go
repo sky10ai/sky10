@@ -425,6 +425,10 @@ func (r *PresenceRecord) Usable(membership *MembershipRecord, now time.Time) boo
 }
 
 func currentPresenceRecord(n *Node, ttl time.Duration) *PresenceRecord {
+	return currentPresenceRecordWithMultiaddrs(n, ttl, HostMultiaddrs(n))
+}
+
+func currentPresenceRecordWithMultiaddrs(n *Node, ttl time.Duration, addrs []string) *PresenceRecord {
 	if ttl <= 0 {
 		ttl = defaultPresenceTTL
 	}
@@ -434,7 +438,7 @@ func currentPresenceRecord(n *Node, ttl time.Duration) *PresenceRecord {
 		Identity:     n.Address(),
 		DevicePubKey: strings.ToLower(hex.EncodeToString(n.bundle.Device.PublicKey)),
 		PeerID:       n.peerID.String(),
-		Multiaddrs:   HostMultiaddrs(n),
+		Multiaddrs:   append([]string(nil), addrs...),
 		PublishedAt:  now,
 		ExpiresAt:    now.Add(ttl),
 		Version:      n.version,
@@ -454,6 +458,17 @@ func (n *Node) CurrentMembershipRecord() (*MembershipRecord, error) {
 
 func (n *Node) CurrentPresenceRecord(ttl time.Duration) (*PresenceRecord, error) {
 	rec := currentPresenceRecord(n, ttl)
+	if err := rec.Sign(n.bundle.Device.PrivateKey); err != nil {
+		return nil, err
+	}
+	return rec, nil
+}
+
+// CurrentPresenceRecordForPublish builds a signed presence record using the
+// host's current dialable addresses, reordered by a short public STUN probe so
+// direct dial hints prefer the most likely transport.
+func (n *Node) CurrentPresenceRecordForPublish(ctx context.Context, ttl time.Duration) (*PresenceRecord, error) {
+	rec := currentPresenceRecordWithMultiaddrs(n, ttl, PublishedHostMultiaddrs(ctx, n))
 	if err := rec.Sign(n.bundle.Device.PrivateKey); err != nil {
 		return nil, err
 	}

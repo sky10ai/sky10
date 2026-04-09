@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/event"
 	"github.com/libp2p/go-libp2p/core/peer"
 	skyagent "github.com/sky10/sky10/pkg/agent"
 	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
@@ -231,7 +232,7 @@ func ServeCmd() *cobra.Command {
 						logger.Warn("failed to publish private-network membership to Nostr", "error", err)
 					}
 
-					presenceRecord, err := linkNode.CurrentPresenceRecord(0)
+					presenceRecord, err := linkNode.CurrentPresenceRecordForPublish(ctx, 0)
 					if err != nil {
 						logger.Warn("building private-network presence record failed", "error", err)
 					} else if err := nostr.PublishPresence(ctx, bundle.Device, presenceRecord); err != nil {
@@ -379,6 +380,7 @@ func ServeCmd() *cobra.Command {
 				}
 
 				refreshPrivateNetwork()
+				watchPrivateNetworkAddressChanges(ctx, logger, linkNode, refreshPrivateNetwork)
 
 				go func() {
 					ticker := time.NewTicker(2 * time.Minute)
@@ -436,6 +438,48 @@ func ServeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noDefaultRelays, "no-default-relays", false, "Disable default public Nostr relays")
 	cmd.Flags().IntVar(&fsPollSeconds, "fs-poll-seconds", 30, "Remote poll interval in seconds for sync drives")
 	return cmd
+}
+
+func watchPrivateNetworkAddressChanges(ctx context.Context, logger *slog.Logger, linkNode *link.Node, refresh func()) {
+	if linkNode == nil || linkNode.Host() == nil || refresh == nil {
+		return
+	}
+
+	sub, err := linkNode.Host().EventBus().Subscribe([]any{
+		new(event.EvtLocalAddressesUpdated),
+		new(event.EvtLocalReachabilityChanged),
+	})
+	if err != nil {
+		logger.Warn("failed to subscribe to local address updates", "error", err)
+		return
+	}
+
+	go func() {
+		defer sub.Close()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case raw, ok := <-sub.Out():
+				if !ok {
+					return
+				}
+				switch evt := raw.(type) {
+				case event.EvtLocalAddressesUpdated:
+					logger.Info("republishing private-network presence after local address update",
+						"current_addrs", len(evt.Current),
+					)
+				case event.EvtLocalReachabilityChanged:
+					logger.Info("republishing private-network presence after reachability change",
+						"reachability", evt.Reachability.String(),
+					)
+				default:
+					continue
+				}
+				go refresh()
+			}
+		}
+	}()
 }
 
 func expectedPrivateNetworkPeers(bundle *skyid.Bundle) int {
