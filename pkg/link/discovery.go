@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
@@ -41,7 +42,13 @@ type Resolver struct {
 	backend   adapter.Backend // deprecated; kept for construction compatibility
 	nostr     privateNetworkDiscovery
 	nostrOnly bool
+	stun      []string
+	netcheck  func(context.Context, []string) NetcheckResult
 	logger    *slog.Logger
+
+	netcheckMu     sync.Mutex
+	lastNetcheckAt time.Time
+	lastNetcheck   NetcheckResult
 }
 
 // ResolverOption configures the resolver.
@@ -50,8 +57,10 @@ type ResolverOption func(*Resolver)
 // NewResolver creates a layered resolver.
 func NewResolver(node *Node, opts ...ResolverOption) *Resolver {
 	r := &Resolver{
-		node:   node,
-		logger: node.logger,
+		node:     node,
+		stun:     append([]string(nil), DefaultSTUNServers...),
+		netcheck: Netcheck,
+		logger:   node.logger,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -81,6 +90,13 @@ func WithNostr(relays []string) ResolverOption {
 func WithNostrOnly() ResolverOption {
 	return func(r *Resolver) {
 		r.nostrOnly = true
+	}
+}
+
+// WithNetcheckSTUNServers overrides the STUN servers used to shape dial order.
+func WithNetcheckSTUNServers(servers []string) ResolverOption {
+	return func(r *Resolver) {
+		r.stun = append([]string(nil), servers...)
 	}
 }
 
@@ -328,6 +344,7 @@ func (r *Resolver) ResolveAll(ctx context.Context, address string) (*Resolution,
 		if !ok || candidate == nil || candidate.Info == nil {
 			continue
 		}
+		candidate.Info = r.prioritizeAddrInfo(ctx, candidate.Info)
 		peers = append(peers, candidate)
 	}
 	sort.Slice(peers, func(i, j int) bool {
@@ -364,6 +381,37 @@ func (r *Resolver) Connect(ctx context.Context, address string) error {
 		return err
 	}
 	return r.node.host.Connect(ctx, *info)
+}
+
+func (r *Resolver) prioritizeAddrInfo(ctx context.Context, info *peer.AddrInfo) *peer.AddrInfo {
+	if r == nil || r.netcheck == nil {
+		return PrioritizeAddrInfo(info, NetcheckResult{})
+	}
+	return PrioritizeAddrInfo(info, r.cachedNetcheck(ctx))
+}
+
+func (r *Resolver) cachedNetcheck(ctx context.Context) NetcheckResult {
+	const resolverNetcheckCacheTTL = 2 * time.Minute
+
+	r.netcheckMu.Lock()
+	if !r.lastNetcheckAt.IsZero() && time.Since(r.lastNetcheckAt) < resolverNetcheckCacheTTL {
+		result := r.lastNetcheck
+		r.netcheckMu.Unlock()
+		return result
+	}
+	netcheckFn := r.netcheck
+	servers := append([]string(nil), r.stun...)
+	r.netcheckMu.Unlock()
+
+	probeCtx, cancel := context.WithTimeout(ctx, defaultSTUNProbeTimeout)
+	defer cancel()
+	result := netcheckFn(probeCtx, servers)
+
+	r.netcheckMu.Lock()
+	r.lastNetcheck = result
+	r.lastNetcheckAt = time.Now()
+	r.netcheckMu.Unlock()
+	return result
 }
 
 // AutoConnect discovers all reachable peers in the current node's private
