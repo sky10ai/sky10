@@ -32,8 +32,10 @@ export const LINK_EVENT_TYPES = [
 export const AGENT_EVENT_TYPES = [
   "agent.connected",
   "agent.disconnected",
+  "agent.published",
   "agent:connected",
   "agent:disconnected",
+  "agent:published",
   "agent.message",
   "agent.mailbox.updated",
   "agent.mailbox.claimed",

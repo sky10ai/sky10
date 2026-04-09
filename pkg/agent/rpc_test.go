@@ -18,7 +18,9 @@ func newTestRPCHandler(t *testing.T, r *Registry, emit Emitter) *RPCHandler {
 	if err != nil {
 		t.Fatalf("Generate owner key: %v", err)
 	}
-	return NewRPCHandler(r, owner, emit)
+	h := NewRPCHandler(r, owner, emit)
+	h.SetCatalog(NewMemoryCatalog(nil))
+	return h
 }
 
 func TestRPCDispatchPrefix(t *testing.T) {
@@ -915,10 +917,67 @@ func TestRPCDiscover(t *testing.T) {
 	h := newTestRPCHandler(t, r, nil)
 	ctx := context.Background()
 
-	r.Register(RegisterParams{Name: "coder", Skills: []string{"code"}}, "A-coder00000000000")
-	r.Register(RegisterParams{Name: "tester", Skills: []string{"test"}}, "A-tester0000000000")
+	publish := func(params PublishParams) {
+		t.Helper()
+		raw, _ := json.Marshal(params)
+		if _, err, _ := h.Dispatch(ctx, "agent.publish", raw); err != nil {
+			t.Fatalf("publish %q: %v", params.Name, err)
+		}
+	}
+	publish(PublishParams{
+		Name:    "Research Seller",
+		KeyName: "research-seller",
+		Skills: []SkillSpec{
+			{
+				ID:   "research",
+				Name: "Research",
+				Price: &Price{
+					Amount: "10",
+					Asset:  "USDC",
+				},
+			},
+		},
+		Offers: []Offer{
+			{
+				SKU:      "research-brief-v1",
+				Title:    "Research Brief",
+				Category: "research",
+				Price: Price{
+					Amount: "10",
+					Asset:  "USDC",
+				},
+			},
+		},
+		Payment: PaymentTerms{Chain: "solana", Asset: "USDC", Address: "wallet-a"},
+	})
+	publish(PublishParams{
+		Name:    "Recipe Seller",
+		KeyName: "recipe-seller",
+		Skills: []SkillSpec{
+			{
+				ID:   "recipe",
+				Name: "Recipe",
+				Price: &Price{
+					Amount: "4",
+					Asset:  "USDC",
+				},
+			},
+		},
+		Offers: []Offer{
+			{
+				SKU:      "cookie-recipe-v1",
+				Title:    "Cookie Recipe",
+				Category: "recipe",
+				Price: Price{
+					Amount: "4",
+					Asset:  "USDC",
+				},
+			},
+		},
+		Payment: PaymentTerms{Chain: "solana", Asset: "USDC", Address: "wallet-b"},
+	})
 
-	params, _ := json.Marshal(map[string]string{"skill": "code"})
+	params, _ := json.Marshal(map[string]string{"skill": "research"})
 	result, err, _ := h.Dispatch(ctx, "agent.discover", params)
 	if err != nil {
 		t.Fatalf("discover: %v", err)
@@ -926,6 +985,70 @@ func TestRPCDiscover(t *testing.T) {
 	disc := result.(map[string]interface{})
 	if disc["count"].(int) != 1 {
 		t.Errorf("discover count = %v, want 1", disc["count"])
+	}
+	cards := disc["cards"].([]AgentCard)
+	if len(cards) != 1 || cards[0].Name != "Research Seller" {
+		t.Fatalf("discover cards = %v, want [Research Seller]", cards)
+	}
+}
+
+func TestRPCPublish(t *testing.T) {
+	t.Parallel()
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	ctx := context.Background()
+
+	params, _ := json.Marshal(PublishParams{
+		Name:    "Market Seller",
+		KeyName: "market-seller",
+		Summary: "Demo seller",
+		Skills: []SkillSpec{
+			{
+				ID:   "compare-products",
+				Name: "Product Comparison",
+				Price: &Price{
+					Amount: "9",
+					Asset:  "USDC",
+				},
+			},
+		},
+		Offers: []Offer{
+			{
+				SKU:      "product-compare-v1",
+				Title:    "Product Comparison",
+				Category: "comparison",
+				Price: Price{
+					Amount: "9",
+					Asset:  "USDC",
+				},
+			},
+		},
+		Payment: PaymentTerms{
+			Chain:   "solana",
+			Asset:   "USDC",
+			Address: "demo-wallet",
+		},
+	})
+
+	result, err, handled := h.Dispatch(ctx, "agent.publish", params)
+	if !handled || err != nil {
+		t.Fatalf("publish: handled=%v err=%v", handled, err)
+	}
+	card := result.(*AgentCard)
+	if card.AgentID == "" {
+		t.Fatal("agent_id is empty")
+	}
+	if card.Signature == "" {
+		t.Fatal("signature is empty")
+	}
+
+	discoverRaw, err, _ := h.Dispatch(ctx, "agent.discover", json.RawMessage(`{"query":"comparison"}`))
+	if err != nil {
+		t.Fatalf("discover after publish: %v", err)
+	}
+	discover := discoverRaw.(map[string]interface{})
+	if discover["count"].(int) != 1 {
+		t.Fatalf("discover count = %v, want 1", discover["count"])
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,7 @@ const peerQueryTimeout = 3 * time.Second
 // skylink. It also aggregates agent lists across the swarm.
 type Router struct {
 	registry               *Registry
+	catalog                Catalog
 	node                   *link.Node
 	resolver               *link.Resolver
 	emit                   Emitter
@@ -60,6 +62,11 @@ func NewRouter(registry *Registry, node *link.Node, emit Emitter, deviceID strin
 		peerAddresses:  make(map[string]peer.ID),
 		peerAgentCache: make(map[peer.ID]cachedAgents),
 	}
+}
+
+// SetCatalog attaches the local public discovery catalog.
+func (r *Router) SetCatalog(c Catalog) {
+	r.catalog = c
 }
 
 // SetMailbox attaches durable mailbox storage used for fallback and drain.
@@ -628,6 +635,75 @@ func (r *Router) ClaimPublicQueue(ctx context.Context, offer agentmailbox.QueueO
 		return agentmailbox.QueueClaim{}, err
 	}
 	return claim, nil
+}
+
+// DiscoverCards queries the local catalog and connected peers for public cards.
+func (r *Router) DiscoverCards(ctx context.Context, query DiscoverParams) ([]AgentCard, error) {
+	merged := make(map[string]AgentCard)
+	if r.catalog != nil {
+		local, err := r.catalog.Discover(ctx, query)
+		if err != nil {
+			return nil, err
+		}
+		for _, card := range local {
+			merged[card.AgentAddress] = card
+		}
+	}
+	if r.node == nil {
+		return sortedCards(merged), nil
+	}
+
+	peers := r.node.ConnectedPrivateNetworkPeers()
+	if len(peers) == 0 {
+		return sortedCards(merged), nil
+	}
+
+	type peerResult struct {
+		cards []AgentCard
+	}
+
+	results := make(chan peerResult, len(peers))
+	var wg sync.WaitGroup
+
+	for _, pid := range peers {
+		wg.Add(1)
+		go func(pid peer.ID) {
+			defer wg.Done()
+			queryCtx, cancel := context.WithTimeout(ctx, peerQueryTimeout)
+			defer cancel()
+
+			raw, err := r.node.Call(queryCtx, pid, "agent.discover", query)
+			if err != nil {
+				r.logger.Debug("agent.discover from peer failed", "peer", pid, "error", err)
+				return
+			}
+
+			var resp struct {
+				Cards []AgentCard `json:"cards"`
+			}
+			if err := json.Unmarshal(raw, &resp); err != nil {
+				r.logger.Debug("parsing agent.discover response", "peer", pid, "error", err)
+				return
+			}
+			results <- peerResult{cards: resp.Cards}
+		}(pid)
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	for pr := range results {
+		for _, card := range pr.cards {
+			current, exists := merged[card.AgentAddress]
+			if !exists || card.Seq > current.Seq || (card.Seq == current.Seq && card.PublishedAt > current.PublishedAt) {
+				merged[card.AgentAddress] = card
+			}
+		}
+	}
+
+	return sortedCards(merged), nil
 }
 
 func (r *Router) cachePeer(deviceID string, pid peer.ID) {
@@ -1399,4 +1475,18 @@ func mailboxMessage(record agentmailbox.Record) (Message, error) {
 		return Message{}, fmt.Errorf("parse mailbox message %s: %w", record.Item.ID, err)
 	}
 	return msg, nil
+}
+
+func sortedCards(cards map[string]AgentCard) []AgentCard {
+	out := make([]AgentCard, 0, len(cards))
+	for _, card := range cards {
+		out = append(out, card)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].PublishedAt != out[j].PublishedAt {
+			return out[i].PublishedAt > out[j].PublishedAt
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
 }

@@ -140,6 +140,10 @@ export const secrets = {
 export const agent = {
   list: () => rpc<AgentListResult>("agent.list"),
   status: () => rpc<AgentStatus>("agent.status"),
+  publish: (p: AgentPublishParams) =>
+    rpc<PublishedAgentCard>("agent.publish", p),
+  discover: (p?: AgentDiscoverParams) =>
+    rpc<AgentDiscoverResult>("agent.discover", p ?? {}),
   send: (p: AgentSendParams) => rpc<AgentSendResult>("agent.send", p),
   mailbox: {
     views: () => rpc<MailboxViewListResult>("agent.mailbox.views"),
@@ -967,6 +971,90 @@ export interface SandboxLogsResult {
   name: string;
   slug: string;
   entries: SandboxLogEntry[];
+}
+
+export interface AgentDiscoverParams {
+  skill?: string;
+  category?: string;
+  sku?: string;
+  asset?: string;
+  location?: string;
+  query?: string;
+  limit?: number;
+}
+
+export interface AgentPublishParams {
+  name: string;
+  key_name?: string;
+  summary?: string;
+  skills?: AgentSkill[];
+  offers?: AgentOffer[];
+  payment?: {
+    chain?: string;
+    asset?: string;
+    address?: string;
+  };
+  transport?: {
+    preferred?: string;
+    fallback?: string[];
+  };
+  seq?: number;
+  ttl_seconds?: number;
+}
+
+export interface AgentPrice {
+  amount: string;
+  asset: string;
+  per?: string;
+}
+
+export interface AgentSkill {
+  id: string;
+  name: string;
+  description?: string;
+  input_schema?: unknown;
+  price?: AgentPrice;
+  tags?: string[];
+}
+
+export interface AgentOffer {
+  sku: string;
+  title: string;
+  summary?: string;
+  category?: string;
+  fulfillment?: string;
+  location?: string;
+  price: AgentPrice;
+  tags?: string[];
+}
+
+export interface PublishedAgentCard {
+  agent_id: string;
+  agent_address: string;
+  owner: string;
+  owner_cert?: string;
+  name: string;
+  summary?: string;
+  skills: AgentSkill[];
+  offers: AgentOffer[];
+  payment?: {
+    chain?: string;
+    asset?: string;
+    address?: string;
+  };
+  transport?: {
+    preferred?: string;
+    fallback?: string[];
+  };
+  seq: number;
+  published_at: number;
+  expires_at?: number;
+  signature: string;
+}
+
+export interface AgentDiscoverResult {
+  cards: PublishedAgentCard[];
+  count: number;
 }
 
 // -- System update types --

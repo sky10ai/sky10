@@ -466,6 +466,7 @@ func ServeCmd() *cobra.Command {
 
 			// Agent registry — local agent registration and message routing.
 			agentRegistry := skyagent.NewRegistry(bundle.DeviceID(), skydevice.DeviceName(), logRuntime.Logger)
+			agentCatalog := skyagent.NewMemoryCatalog(logRuntime.Logger)
 			agentMessageHub := skyagent.NewMessageHub()
 			agentEventEmitter := func(event string, data interface{}) {
 				server.Emit(event, data)
@@ -479,6 +480,7 @@ func ServeCmd() *cobra.Command {
 				agentMessageHub.Publish(msg)
 			}
 			agentRouter = skyagent.NewRouter(agentRegistry, linkNode, agentEventEmitter, bundle.DeviceID(), logRuntime.Logger)
+			agentRouter.SetCatalog(agentCatalog)
 			agentRouter.SetMailbox(mailboxStore)
 			agentRouter.SetResolver(linkResolver)
 			mailboxRetryManager := link.NewManager(
@@ -518,6 +520,7 @@ func ServeCmd() *cobra.Command {
 				}()
 			}
 			agentRPC := skyagent.NewRPCHandler(agentRegistry, bundle.Identity, agentEventEmitter)
+			agentRPC.SetCatalog(agentCatalog)
 			agentRPC.SetRouter(agentRouter)
 			agentRPC.SetMailbox(mailboxStore)
 			server.RegisterHandler(agentRPC)
@@ -542,6 +545,11 @@ func ServeCmd() *cobra.Command {
 						agentmailbox.DefaultRelayPollInterval(),
 					)
 				})
+			}
+			if card, err := skyagent.SeedDemoMarketplace(ctx, bundle.Identity, agentCatalog); err != nil {
+				logger.Warn("failed to seed demo marketplace", "error", err)
+			} else {
+				logger.Info("seeded demo marketplace", "agent_id", card.AgentID, "name", card.Name)
 			}
 			// TODO: re-enable health checker once agents reliably heartbeat.
 			// go skyagent.NewHealthChecker(agentRegistry, server.Emit, nil).Run(ctx)

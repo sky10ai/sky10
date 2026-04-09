@@ -24,6 +24,7 @@ type RPCHandler struct {
 	owner    *skykey.Key
 	router   *Router // nil until cross-device wiring
 	mailbox  *agentmailbox.Store
+	catalog  Catalog
 	emit     Emitter
 	notify   PeerNotifier
 }
@@ -41,6 +42,11 @@ func (h *RPCHandler) SetRouter(r *Router) {
 // SetMailbox attaches durable mailbox storage.
 func (h *RPCHandler) SetMailbox(store *agentmailbox.Store) {
 	h.mailbox = store
+}
+
+// SetCatalog attaches the public discovery catalog.
+func (h *RPCHandler) SetCatalog(c Catalog) {
+	h.catalog = c
 }
 
 // SetPeerNotifier attaches a function that broadcasts agent events to
@@ -63,6 +69,8 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		result, err = h.rpcRegister(ctx, params)
 	case "agent.deregister":
 		result, err = h.rpcDeregister(ctx, params)
+	case "agent.publish":
+		result, err = h.rpcPublish(ctx, params)
 	case "agent.list":
 		result, err = h.rpcList(ctx, params)
 	case "agent.send":
@@ -181,6 +189,39 @@ func (h *RPCHandler) rpcDeregister(_ context.Context, params json.RawMessage) (i
 	return map[string]string{"status": "ok"}, nil
 }
 
+func (h *RPCHandler) rpcPublish(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	if h.catalog == nil {
+		return nil, fmt.Errorf("agent.publish is unavailable")
+	}
+
+	var p PublishParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+
+	card, err := BuildAgentCard(h.owner, p, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	if err := h.catalog.Publish(ctx, card); err != nil {
+		return nil, err
+	}
+
+	if h.emit != nil {
+		h.emit("agent.published", map[string]interface{}{
+			"agent_id": card.AgentID,
+			"name":     card.Name,
+			"offers":   len(card.Offers),
+			"skills":   len(card.Skills),
+		})
+	}
+	if h.notify != nil {
+		go h.notify(context.Background(), "agent:published")
+	}
+
+	return card, nil
+}
+
 func (h *RPCHandler) rpcList(ctx context.Context, _ json.RawMessage) (interface{}, error) {
 	var agents []AgentInfo
 	if h.router != nil {
@@ -274,30 +315,37 @@ func (h *RPCHandler) rpcHeartbeat(_ context.Context, params json.RawMessage) (in
 }
 
 func (h *RPCHandler) rpcDiscover(ctx context.Context, params json.RawMessage) (interface{}, error) {
-	var p struct {
-		Skill string `json:"skill"`
+	var p DiscoverParams
+	if len(params) == 0 {
+		params = json.RawMessage(`{}`)
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
-	if p.Skill == "" {
-		return nil, fmt.Errorf("skill is required")
-	}
 
-	var agents []AgentInfo
+	var (
+		cards []AgentCard
+		err   error
+	)
 	if h.router != nil {
-		agents = h.router.Discover(ctx, p.Skill)
+		cards, err = h.router.DiscoverCards(ctx, p)
 	} else {
-		for _, a := range h.registry.List() {
-			if a.HasSkill(p.Skill) {
-				agents = append(agents, a)
-			}
-		}
+		cards, err = h.discoverLocal(ctx, p)
+	}
+	if err != nil {
+		return nil, err
 	}
 	return map[string]interface{}{
-		"agents": agents,
-		"count":  len(agents),
+		"cards": cards,
+		"count": len(cards),
 	}, nil
+}
+
+func (h *RPCHandler) discoverLocal(ctx context.Context, p DiscoverParams) ([]AgentCard, error) {
+	if h.catalog == nil {
+		return nil, nil
+	}
+	return h.catalog.Discover(ctx, p)
 }
 
 func (h *RPCHandler) rpcStatus(_ context.Context) (interface{}, error) {
