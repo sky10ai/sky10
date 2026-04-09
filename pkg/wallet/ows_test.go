@@ -363,6 +363,15 @@ func TestRPCHandler_InstallDispatch(t *testing.T) {
 	}
 }
 
+func TestRPCHandler_UninstallDispatch(t *testing.T) {
+	t.Parallel()
+	h := NewRPCHandler(nil, noopEmit)
+	_, _, handled := h.Dispatch(context.Background(), "wallet.uninstall", nil)
+	if !handled {
+		t.Error("wallet.uninstall should be handled")
+	}
+}
+
 func TestRPCHandler_CheckUpdateDispatch(t *testing.T) {
 	t.Parallel()
 	h := NewRPCHandler(nil, noopEmit)
@@ -395,6 +404,44 @@ func TestProgressReader(t *testing.T) {
 	}
 	if totalRead != len(data) {
 		t.Errorf("read %d bytes, want %d", totalRead, len(data))
+	}
+}
+
+func TestUninstallPath_RemovesManagedBinary(t *testing.T) {
+	tmp := t.TempDir()
+	dest := filepath.Join(tmp, "ows")
+	if err := os.WriteFile(dest, []byte("test"), 0755); err != nil {
+		t.Fatalf("writing binary: %v", err)
+	}
+
+	result, err := uninstallPath(dest)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Removed {
+		t.Fatal("expected removed=true")
+	}
+	if result.Path != dest {
+		t.Fatalf("path = %q, want %q", result.Path, dest)
+	}
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Fatalf("expected %q to be removed, stat err=%v", dest, err)
+	}
+}
+
+func TestUninstallPath_MissingBinary(t *testing.T) {
+	tmp := t.TempDir()
+	dest := filepath.Join(tmp, "missing-ows")
+
+	result, err := uninstallPath(dest)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Removed {
+		t.Fatal("expected removed=false")
+	}
+	if result.Path != dest {
+		t.Fatalf("path = %q, want %q", result.Path, dest)
 	}
 }
 

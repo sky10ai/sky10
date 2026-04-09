@@ -157,6 +157,7 @@ export const system = {
 export const wallet = {
   status: () => rpc<WalletStatus>("wallet.status"),
   install: () => rpc<{ status: string }>("wallet.install"),
+  uninstall: () => rpc<WalletUninstallResult>("wallet.uninstall"),
   checkUpdate: () => rpc<WalletReleaseInfo>("wallet.checkUpdate"),
   create: (p: { name: string }) => rpc<WalletInfo>("wallet.create", p),
   list: () => rpc<WalletListResult>("wallet.list"),
@@ -423,9 +424,16 @@ export interface SystemInstallUpdateResult {
 
 export interface WalletStatus {
   installed: boolean;
+  managed: boolean;
+  managed_path?: string;
   wallets: number;
   version?: string;
   bin_path?: string;
+}
+
+export interface WalletUninstallResult {
+  path: string;
+  removed: boolean;
 }
 
 export interface WalletReleaseInfo {

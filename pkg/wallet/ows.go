@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -78,27 +79,54 @@ type PayResult struct {
 
 // Status returns a summary of OWS availability and wallet state.
 func (c *Client) Status(ctx context.Context) (*StatusResult, error) {
+	managedPath, _ := BinPath()
 	if c == nil {
-		return &StatusResult{Installed: false}, nil
+		return &StatusResult{
+			Installed:   false,
+			Managed:     false,
+			ManagedPath: managedPath,
+		}, nil
 	}
+	managed := managedPath != "" && filepath.Clean(c.bin) == filepath.Clean(managedPath)
+	version := InstalledVersion()
 	wallets, err := c.ListWallets(ctx)
 	if err != nil {
-		return &StatusResult{Installed: true, Version: InstalledVersion(), BinPath: c.bin}, err
+		// If the binary was discovered but cannot actually execute, degrade to
+		// installed=false instead of surfacing a hard status error.
+		if version == "" {
+			return &StatusResult{
+				Installed:   false,
+				Managed:     managed,
+				ManagedPath: managedPath,
+				BinPath:     c.bin,
+			}, nil
+		}
+		return &StatusResult{
+			Installed:   true,
+			Managed:     managed,
+			ManagedPath: managedPath,
+			Version:     version,
+			BinPath:     c.bin,
+		}, err
 	}
 	return &StatusResult{
-		Installed: true,
-		Wallets:   len(wallets),
-		Version:   InstalledVersion(),
-		BinPath:   c.bin,
+		Installed:   true,
+		Managed:     managed,
+		ManagedPath: managedPath,
+		Wallets:     len(wallets),
+		Version:     version,
+		BinPath:     c.bin,
 	}, nil
 }
 
 // StatusResult summarizes OWS state.
 type StatusResult struct {
-	Installed bool   `json:"installed"`
-	Wallets   int    `json:"wallets"`
-	Version   string `json:"version,omitempty"`
-	BinPath   string `json:"bin_path,omitempty"`
+	Installed   bool   `json:"installed"`
+	Managed     bool   `json:"managed"`
+	ManagedPath string `json:"managed_path,omitempty"`
+	Wallets     int    `json:"wallets"`
+	Version     string `json:"version,omitempty"`
+	BinPath     string `json:"bin_path,omitempty"`
 }
 
 // CreateWallet creates a new wallet with the given name.

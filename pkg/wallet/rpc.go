@@ -37,6 +37,8 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		result, err = h.rpcStatus(ctx)
 	case "wallet.install":
 		result, err = h.rpcInstall()
+	case "wallet.uninstall":
+		result, err = h.rpcUninstall()
 	case "wallet.checkUpdate":
 		result, err = h.rpcCheckUpdate()
 	case "wallet.create":
@@ -114,6 +116,24 @@ func (h *RPCHandler) rpcInstall() (interface{}, error) {
 	}()
 
 	return map[string]string{"status": "installing"}, nil
+}
+
+func (h *RPCHandler) rpcUninstall() (interface{}, error) {
+	if !h.installing.CompareAndSwap(false, true) {
+		return nil, fmt.Errorf("install already in progress")
+	}
+	defer h.installing.Store(false)
+
+	result, err := Uninstall()
+	if err != nil {
+		return nil, err
+	}
+
+	// Refresh client after removing the managed binary. This may still
+	// resolve to a PATH-installed OWS binary, which is fine.
+	h.client = NewClient()
+
+	return result, nil
 }
 
 func (h *RPCHandler) rpcCheckUpdate() (interface{}, error) {

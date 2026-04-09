@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"time"
+
+	"github.com/sky10/sky10/pkg/config"
 )
 
 const owsRepo = "open-wallet-standard/core"
@@ -34,11 +36,11 @@ type ReleaseInfo struct {
 
 // BinDir returns the directory where managed binaries live (~/.sky10/bin/).
 func BinDir() (string, error) {
-	home, err := os.UserHomeDir()
+	root, err := config.RootDir()
 	if err != nil {
-		return "", fmt.Errorf("finding home directory: %w", err)
+		return "", fmt.Errorf("finding root directory: %w", err)
 	}
-	return filepath.Join(home, ".sky10", "bin"), nil
+	return filepath.Join(root, "bin"), nil
 }
 
 // BinPath returns the full path to the managed ows binary.
@@ -151,6 +153,38 @@ func Install(info *ReleaseInfo, onProgress ProgressFunc) error {
 	}
 
 	return nil
+}
+
+// Uninstall removes the managed OWS binary from sky10's bin directory.
+// It does not touch OWS wallet data or any unrelated PATH installation.
+func Uninstall() (*UninstallResult, error) {
+	dest, err := BinPath()
+	if err != nil {
+		return nil, err
+	}
+	return uninstallPath(dest)
+}
+
+// UninstallResult describes the outcome of removing the managed OWS binary.
+type UninstallResult struct {
+	Path    string `json:"path"`
+	Removed bool   `json:"removed"`
+}
+
+func uninstallPath(dest string) (*UninstallResult, error) {
+	if err := os.Remove(dest); err != nil {
+		if os.IsNotExist(err) {
+			return &UninstallResult{
+				Path:    dest,
+				Removed: false,
+			}, nil
+		}
+		return nil, fmt.Errorf("removing OWS binary: %w", err)
+	}
+	return &UninstallResult{
+		Path:    dest,
+		Removed: true,
+	}, nil
 }
 
 // InstalledVersion returns the version of the managed OWS binary,

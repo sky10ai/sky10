@@ -29,8 +29,10 @@ export default function SettingsApps() {
     downloaded: number;
     total: number;
   } | null>(null);
-  const [installError, setInstallError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [uninstalling, setUninstalling] = useState(false);
 
   useEffect(() => {
     return subscribe((event, data) => {
@@ -42,7 +44,8 @@ export default function SettingsApps() {
       if (event === "wallet:install:complete") {
         setInstalling(false);
         setInstallProgress(null);
-        setInstallError(null);
+        setActionError(null);
+        setActionMessage("OWS installed.");
         refetchWallet();
         refetchWalletRelease();
         return;
@@ -51,26 +54,50 @@ export default function SettingsApps() {
         const d = data as { message: string };
         setInstalling(false);
         setInstallProgress(null);
-        setInstallError(d.message);
+        setActionError(d.message);
       }
     });
   }, [refetchWallet, refetchWalletRelease]);
 
   const handleInstall = useCallback(async () => {
     setInstalling(true);
-    setInstallError(null);
+    setActionError(null);
+    setActionMessage(null);
     setInstallProgress(null);
     try {
       await wallet.install();
     } catch (e: unknown) {
       setInstalling(false);
-      setInstallError(e instanceof Error ? e.message : "Install failed");
+      setActionError(e instanceof Error ? e.message : "Install failed");
     }
   }, []);
 
+  const handleDelete = useCallback(async () => {
+    setUninstalling(true);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      const result = await wallet.uninstall();
+      refetchWallet();
+      refetchWalletRelease();
+      setActionMessage(
+        result.removed
+          ? `Removed managed OWS binary from ${result.path}.`
+          : `No managed OWS binary found at ${result.path}.`,
+      );
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setUninstalling(false);
+    }
+  }, [refetchWallet, refetchWalletRelease]);
+
   const installed = Boolean(walletStatus?.installed);
+  const managed = Boolean(walletStatus?.managed);
   const updateAvailable = Boolean(installed && walletRelease?.available);
   const binaryPath = walletStatus?.bin_path || "Not installed";
+  const managedPath = walletStatus?.managed_path;
+  const busy = installing || uninstalling;
 
   return (
     <div className="p-12 max-w-5xl mx-auto space-y-10">
@@ -125,20 +152,27 @@ export default function SettingsApps() {
             <div className="flex flex-wrap items-center gap-3">
               <button
                 className="inline-flex items-center gap-2 rounded-full bg-tertiary px-5 py-2.5 text-sm font-semibold text-on-tertiary shadow-lg transition-all active:scale-95 disabled:opacity-60"
-                disabled={installing}
+                disabled={busy}
                 onClick={handleInstall}
                 type="button"
               >
                 <Icon name={updateAvailable ? "system_update_alt" : "download"} />
-                {updateAvailable ? "Update" : installed ? "Reinstall" : "Install"}
+                {installing
+                  ? "Installing..."
+                  : updateAvailable
+                    ? "Update"
+                    : installed
+                      ? "Reinstall"
+                      : "Install"}
               </button>
               <button
-                className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-5 py-2.5 text-sm font-semibold text-secondary opacity-50"
-                disabled
+                className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-5 py-2.5 text-sm font-semibold text-secondary transition-colors disabled:opacity-50"
+                disabled={!managed || busy}
+                onClick={handleDelete}
                 type="button"
               >
                 <Icon name="delete" />
-                Delete
+                {uninstalling ? "Deleting..." : "Delete"}
               </button>
             </div>
           </div>
@@ -162,12 +196,30 @@ export default function SettingsApps() {
             </div>
             <div className="rounded-xl bg-surface-container p-4 md:col-span-2">
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
+                Management Mode
+              </p>
+              <p className="mt-2 text-sm font-semibold text-on-surface">
+                {managed ? "Managed by sky10" : installed ? "External PATH install" : "Not installed"}
+              </p>
+            </div>
+            <div className="rounded-xl bg-surface-container p-4 md:col-span-2">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
                 Install Location
               </p>
               <p className="mt-2 break-all font-mono text-xs text-secondary">
                 {binaryPath}
               </p>
             </div>
+            {managedPath && (
+              <div className="rounded-xl bg-surface-container p-4 md:col-span-2">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
+                  Managed Install Path
+                </p>
+                <p className="mt-2 break-all font-mono text-xs text-secondary">
+                  {managedPath}
+                </p>
+              </div>
+            )}
           </div>
 
           {installing && (
@@ -197,9 +249,15 @@ export default function SettingsApps() {
             </div>
           )}
 
-          {(installError || walletError || walletReleaseError) && (
+          {(actionError || walletError || walletReleaseError) && (
             <div className="rounded-xl bg-error-container/20 p-4 text-sm text-error">
-              {installError ?? walletError ?? walletReleaseError}
+              {actionError ?? walletError ?? walletReleaseError}
+            </div>
+          )}
+
+          {actionMessage && (
+            <div className="rounded-xl bg-primary/10 p-4 text-sm text-primary">
+              {actionMessage}
             </div>
           )}
 
@@ -212,8 +270,13 @@ export default function SettingsApps() {
                 This page is intentionally about the binary only: install state, path, version checks, and updates.
               </p>
               <p className="text-sm text-secondary">
-                Delete is shown here because it belongs in app management, but uninstall is not wired in the backend yet.
+                Delete removes only the managed binary under sky10 control. It does not touch OWS wallet data or any unrelated system install on PATH.
               </p>
+              {!managed && installed && (
+                <p className="text-sm text-secondary">
+                  The current OWS binary was discovered on PATH, so delete is disabled until sky10 is the manager of that binary.
+                </p>
+              )}
             </div>
           </div>
         </div>
