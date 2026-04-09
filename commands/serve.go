@@ -25,6 +25,7 @@ import (
 	"github.com/sky10/sky10/pkg/link"
 	"github.com/sky10/sky10/pkg/logging"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
+	skysandbox "github.com/sky10/sky10/pkg/sandbox"
 	skyupdate "github.com/sky10/sky10/pkg/update"
 	skywallet "github.com/sky10/sky10/pkg/wallet"
 	"github.com/spf13/cobra"
@@ -257,6 +258,11 @@ func ServeCmd() *cobra.Command {
 				return nil
 			})
 			server.RegisterHandler(updateRPC)
+			sandboxManager, err := skysandbox.NewManager(server.Emit, logRuntime.Logger)
+			if err != nil {
+				return fmt.Errorf("creating sandbox manager: %w", err)
+			}
+			server.RegisterHandler(skysandbox.NewRPCHandler(sandboxManager))
 
 			var privateNetworkMu sync.Mutex
 			privateNetworkManager := link.NewManager(

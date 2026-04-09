@@ -10,6 +10,7 @@ import AgentChat from "./pages/AgentChat";
 import AgentConnect from "./pages/AgentConnect";
 import Mailbox from "./pages/Mailbox";
 import Network from "./pages/Network";
+import Sandboxes from "./pages/Sandboxes";
 import KVStore from "./pages/KVStore";
 import Drives from "./pages/Drives";
 import FileBrowser from "./pages/FileBrowser";
@@ -38,6 +39,7 @@ export default function App() {
           <Route path="agents/connect" element={<AgentConnect />} />
           <Route path="agents/:agentId" element={<AgentChat />} />
           <Route path="mailbox" element={<Mailbox />} />
+          <Route path="sandboxes" element={<Sandboxes />} />
           <Route path="network" element={<Network />} />
           <Route path="kv" element={<KVStore />} />
           <Route path="drives" element={<Drives />} />

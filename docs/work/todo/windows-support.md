@@ -1,6 +1,6 @@
 ---
 created: 2026-04-04
-updated: 2026-04-05
+updated: 2026-04-09
 ---
 
 # Windows Support
@@ -82,6 +82,15 @@ Tracking all work needed to run sky10 on Windows.
 - [ ] Run `go test ./... -count=1` on Windows
 - [ ] Guard Unix-only tests with `//go:build !windows` or `t.Skip`
 - [ ] Verify filesystem watcher (`fsnotify`) behavior on NTFS
+
+## 10. Agent Bootstrap Runtimes
+
+**Current gap: `sky10 sandbox create ... --provider lima --template openclaw` is macOS-only because the template uses Lima `vz`.**
+
+- [ ] Define the Windows equivalent of agent sandbox/bootstrap
+- [ ] Decide whether that is WSL, a local host sandbox, or a packaged VM runtime
+- [ ] Keep the higher-level agent bootstrap UX consistent even when the runtime differs by platform
+- [ ] Extend managed-app archive installs for Windows runtime bundles (`pkg/apps`) — current Lima bundle support only targets Darwin/Linux asset naming and entrypoint layout
 
 ## Priority order
 

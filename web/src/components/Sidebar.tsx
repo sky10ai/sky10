@@ -9,6 +9,7 @@ const navItems = [
   { to: "/devices", icon: "devices", label: "Devices", matchPrefixes: ["/devices"] },
   { to: "/agents", icon: "smart_toy", label: "Agents", matchPrefixes: ["/agents"] },
   { to: "/mailbox", icon: "inbox", label: "Mailbox", matchPrefixes: ["/mailbox"] },
+  { to: "/sandboxes", icon: "deployed_code", label: "Sandboxes", matchPrefixes: ["/sandboxes"] },
   { to: "/network", icon: "hub", label: "Network", matchPrefixes: ["/network"] },
   { to: "/kv", icon: "database", label: "Key-Value", matchPrefixes: ["/kv"] },
   {

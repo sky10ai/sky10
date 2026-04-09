@@ -1,7 +1,9 @@
 package apps
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -153,10 +155,11 @@ func TestStatusFor_MigratesLegacyManagedBinary(t *testing.T) {
 
 func TestCheckRelease_ParsesResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assets := registry[AppOWS].ReleaseAssets("v0.5.0", runtime.GOOS, runtime.GOARCH)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"tag_name": "v0.5.0",
 			"assets": []map[string]string{
-				{"name": registry[AppOWS].AssetName(runtime.GOOS, runtime.GOARCH), "browser_download_url": "https://example.com/ows"},
+				{"name": assets[0].Name, "browser_download_url": "https://example.com/ows"},
 			},
 		})
 	}))
@@ -276,6 +279,115 @@ func TestInstall_DownloadsBinary(t *testing.T) {
 	}
 }
 
+func TestCheckRelease_LimaUsesDirectAssetURLs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"tag_name": "v1.2.3",
+			"assets":   []map[string]string{},
+		})
+	}))
+	defer srv.Close()
+
+	old := ghReleaseURL
+	ghReleaseURL = func(spec) string { return srv.URL }
+	defer func() { ghReleaseURL = old }()
+
+	info, err := CheckRelease(AppLima, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.AssetURL == "" {
+		t.Fatal("expected primary Lima asset URL")
+	}
+	if len(info.ExtraAssetURLs) != 1 {
+		t.Fatalf("extra asset urls = %d, want 1", len(info.ExtraAssetURLs))
+	}
+	if got, want := info.Latest, "v1.2.3"; got != want {
+		t.Fatalf("latest = %q, want %q", got, want)
+	}
+}
+
+func TestCheckRelease_MkcertUsesDirectAssetURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"tag_name": "v1.4.4",
+			"assets":   []map[string]string{},
+		})
+	}))
+	defer srv.Close()
+
+	old := ghReleaseURL
+	ghReleaseURL = func(spec) string { return srv.URL }
+	defer func() { ghReleaseURL = old }()
+
+	info, err := CheckRelease(AppMkcert, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.AssetURL == "" {
+		t.Fatal("expected mkcert asset URL")
+	}
+}
+
+func TestInstall_LimaExtractsArchive(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script fixture is unix-only")
+	}
+
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+
+	mainArchive := tarGzFixture(t, map[string]string{
+		"bin/limactl": "#!/bin/sh\necho 'limactl version 1.2.3'\n",
+	})
+	extraArchive := tarGzFixture(t, map[string]string{
+		"share/lima/guestagents/a.txt": "guestagent\n",
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/lima.tar.gz":
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(mainArchive)))
+			_, _ = w.Write(mainArchive)
+		case "/guestagents.tar.gz":
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(extraArchive)))
+			_, _ = w.Write(extraArchive)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	info := &ReleaseInfo{
+		ID:             AppLima,
+		Latest:         "v1.2.3",
+		AssetURL:       srv.URL + "/lima.tar.gz",
+		ExtraAssetURLs: []string{srv.URL + "/guestagents.tar.gz"},
+	}
+	if err := Install(AppLima, info, nil); err != nil {
+		t.Fatalf("install error: %v", err)
+	}
+
+	installedPath, err := InstalledPath(AppLima)
+	if err != nil {
+		t.Fatalf("InstalledPath() error: %v", err)
+	}
+	wantInstalled, err := versionBinaryPath(registry[AppLima], "v1.2.3")
+	if err != nil {
+		t.Fatalf("versionBinaryPath() error: %v", err)
+	}
+	if installedPath != wantInstalled {
+		t.Fatalf("InstalledPath() = %q, want %q", installedPath, wantInstalled)
+	}
+	if _, err := os.Stat(installedPath); err != nil {
+		t.Fatalf("expected extracted limactl at %q: %v", installedPath, err)
+	}
+	guestagent := filepath.Join(filepath.Dir(filepath.Dir(installedPath)), "share", "lima", "guestagents", "a.txt")
+	if _, err := os.Stat(guestagent); err != nil {
+		t.Fatalf("expected extracted guestagent asset at %q: %v", guestagent, err)
+	}
+}
+
 func TestProgressReader(t *testing.T) {
 	data := []byte("hello world, this is test data")
 	r := &progressReader{
@@ -348,4 +460,32 @@ func TestUninstall_RemovesManagedBinary(t *testing.T) {
 	} else if got != "" {
 		t.Fatalf("current metadata = %q, want empty", got)
 	}
+}
+
+func tarGzFixture(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	gzw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gzw)
+	for name, body := range files {
+		hdr := &tar.Header{
+			Name: name,
+			Mode: 0o755,
+			Size: int64(len(body)),
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatalf("WriteHeader(%q): %v", name, err)
+		}
+		if _, err := tw.Write([]byte(body)); err != nil {
+			t.Fatalf("Write(%q): %v", name, err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("tar close: %v", err)
+	}
+	if err := gzw.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	return buf.Bytes()
 }

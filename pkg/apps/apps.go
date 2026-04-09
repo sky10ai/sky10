@@ -25,6 +25,10 @@ type ID string
 const (
 	// AppOWS is the Open Wallet Standard CLI.
 	AppOWS ID = "ows"
+	// AppLima is the Lima VM runtime bundle.
+	AppLima ID = "lima"
+	// AppMkcert is the mkcert certificate helper.
+	AppMkcert ID = "mkcert"
 )
 
 // ProgressFunc reports download progress in bytes.
@@ -49,12 +53,13 @@ type Status struct {
 
 // ReleaseInfo describes the latest known release for an app.
 type ReleaseInfo struct {
-	ID        ID     `json:"id"`
-	Installed bool   `json:"installed"`
-	Current   string `json:"current,omitempty"`
-	Latest    string `json:"latest,omitempty"`
-	Available bool   `json:"available"`
-	AssetURL  string `json:"asset_url,omitempty"`
+	ID             ID       `json:"id"`
+	Installed      bool     `json:"installed"`
+	Current        string   `json:"current,omitempty"`
+	Latest         string   `json:"latest,omitempty"`
+	Available      bool     `json:"available"`
+	AssetURL       string   `json:"asset_url,omitempty"`
+	ExtraAssetURLs []string `json:"extra_asset_urls,omitempty"`
 }
 
 // UninstallResult describes the outcome of removing a managed binary.
@@ -65,12 +70,26 @@ type UninstallResult struct {
 }
 
 type spec struct {
-	ID          ID
-	Name        string
-	Repo        string
-	Executable  string
-	VersionArgs []string
-	AssetName   func(goos, goarch string) string
+	ID            ID
+	Name          string
+	Repo          string
+	Executable    string
+	EntrySubpath  string
+	VersionArgs   []string
+	InstallKind   installKind
+	ReleaseAssets func(version, goos, goarch string) []releaseAsset
+}
+
+type installKind string
+
+const (
+	installKindBinary  installKind = "binary"
+	installKindArchive installKind = "archive"
+)
+
+type releaseAsset struct {
+	Name string
+	URL  string
 }
 
 type currentMetadata struct {
@@ -91,7 +110,8 @@ var registry = map[ID]spec{
 		Repo:        "open-wallet-standard/core",
 		Executable:  "ows",
 		VersionArgs: []string{"--version"},
-		AssetName: func(goos, goarch string) string {
+		InstallKind: installKindBinary,
+		ReleaseAssets: func(_ string, goos, goarch string) []releaseAsset {
 			arch := goarch
 			switch arch {
 			case "arm64":
@@ -99,7 +119,57 @@ var registry = map[ID]spec{
 			case "amd64":
 				arch = "x86_64"
 			}
-			return fmt.Sprintf("ows-%s-%s", goos, arch)
+			return []releaseAsset{{
+				Name: fmt.Sprintf("ows-%s-%s", goos, arch),
+			}}
+		},
+	},
+	AppLima: {
+		ID:           AppLima,
+		Name:         "Lima",
+		Repo:         "lima-vm/lima",
+		Executable:   "limactl",
+		EntrySubpath: filepath.Join("bin", "limactl"),
+		VersionArgs:  []string{"--version"},
+		InstallKind:  installKindArchive,
+		ReleaseAssets: func(version, goos, goarch string) []releaseAsset {
+			osName, archName, archiveExt := limaReleasePlatform(goos, goarch)
+			if osName == "" || archName == "" || archiveExt == "" {
+				return nil
+			}
+			baseVersion := strings.TrimPrefix(normalizeVersion(version), "v")
+			if baseVersion == "" {
+				return nil
+			}
+			tag := "v" + baseVersion
+			return []releaseAsset{
+				{
+					URL: fmt.Sprintf("https://github.com/lima-vm/lima/releases/download/%s/lima-%s-%s-%s.%s",
+						tag, baseVersion, osName, archName, archiveExt),
+				},
+				{
+					URL: fmt.Sprintf("https://github.com/lima-vm/lima/releases/download/%s/lima-additional-guestagents-%s-%s-%s.%s",
+						tag, baseVersion, osName, archName, archiveExt),
+				},
+			}
+		},
+	},
+	AppMkcert: {
+		ID:          AppMkcert,
+		Name:        "mkcert",
+		Repo:        "FiloSottile/mkcert",
+		Executable:  "mkcert",
+		VersionArgs: []string{"-version"},
+		InstallKind: installKindBinary,
+		ReleaseAssets: func(_ string, goos, goarch string) []releaseAsset {
+			goos = strings.ToLower(strings.TrimSpace(goos))
+			goarch = strings.ToLower(strings.TrimSpace(goarch))
+			if goos == "" || goarch == "" {
+				return nil
+			}
+			return []releaseAsset{{
+				URL: fmt.Sprintf("https://github.com/FiloSottile/mkcert/releases/latest/download/mkcert-%s-%s", goos, goarch),
+			}}
 		},
 	},
 }
@@ -233,12 +303,29 @@ func CheckRelease(id ID, current string) (*ReleaseInfo, error) {
 	}
 	info.Available = info.Current == "" || info.Latest != info.Current
 
-	asset := s.AssetName(runtime.GOOS, runtime.GOARCH)
-	for _, a := range release.Assets {
-		if a.Name == asset {
-			info.AssetURL = a.BrowserDownloadURL
-			break
+	releaseAssets := s.ReleaseAssets(info.Latest, runtime.GOOS, runtime.GOARCH)
+	if len(releaseAssets) == 0 {
+		return info, nil
+	}
+
+	releaseAssetURLs := make([]string, 0, len(releaseAssets))
+	for _, want := range releaseAssets {
+		if strings.TrimSpace(want.URL) != "" {
+			releaseAssetURLs = append(releaseAssetURLs, strings.TrimSpace(want.URL))
+			continue
 		}
+		for _, a := range release.Assets {
+			if a.Name == want.Name {
+				releaseAssetURLs = append(releaseAssetURLs, a.BrowserDownloadURL)
+				break
+			}
+		}
+	}
+	if len(releaseAssetURLs) > 0 {
+		info.AssetURL = releaseAssetURLs[0]
+	}
+	if len(releaseAssetURLs) > 1 {
+		info.ExtraAssetURLs = append(info.ExtraAssetURLs, releaseAssetURLs[1:]...)
 	}
 
 	return info, nil
@@ -267,18 +354,29 @@ func Install(id ID, info *ReleaseInfo, onProgress ProgressFunc) error {
 	if version == "" {
 		return fmt.Errorf("missing %s version", id)
 	}
-	dest, err := versionBinaryPath(s, version)
-	if err != nil {
-		return err
-	}
-	if err := downloadToPath(info.AssetURL, dest, string(id)+"-install-*", "downloading "+string(id), onProgress); err != nil {
-		return err
-	}
 	stablePath, err := ManagedPath(id)
 	if err != nil {
 		return err
 	}
+	switch s.InstallKind {
+	case installKindArchive:
+		if err := installArchiveRelease(s, version, info, onProgress); err != nil {
+			return err
+		}
+	default:
+		dest, err := versionBinaryPath(s, version)
+		if err != nil {
+			return err
+		}
+		if err := downloadToPath(info.AssetURL, dest, string(id)+"-install-*", "downloading "+string(id), onProgress); err != nil {
+			return err
+		}
+	}
 	if err := writeCurrentMetadata(id, version); err != nil {
+		return err
+	}
+	dest, err := versionBinaryPath(s, version)
+	if err != nil {
 		return err
 	}
 	return ensureActiveBinary(dest, stablePath, true)
@@ -377,7 +475,11 @@ func versionBinaryPath(s spec, version string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, normalizeVersion(version), s.Executable), nil
+	entry := s.EntrySubpath
+	if entry == "" {
+		entry = s.Executable
+	}
+	return filepath.Join(dir, normalizeVersion(version), filepath.FromSlash(entry)), nil
 }
 
 func ensureManagedState(id ID) (*managedState, error) {
@@ -470,7 +572,14 @@ func inferVersionFromManagedTarget(id ID, s spec, target string) (string, bool) 
 		return "", false
 	}
 	parts := strings.Split(filepath.Clean(rel), string(filepath.Separator))
-	if len(parts) != 2 || parts[1] != s.Executable {
+	if len(parts) < 2 {
+		return "", false
+	}
+	entry := s.EntrySubpath
+	if entry == "" {
+		entry = s.Executable
+	}
+	if filepath.Clean(filepath.Join(parts[1:]...)) != filepath.Clean(filepath.FromSlash(entry)) {
 		return "", false
 	}
 	return normalizeVersion(parts[0]), true

@@ -149,6 +149,19 @@ export const agent = {
   },
 };
 
+// -- sandbox --
+export const sandbox = {
+  list: () => rpc<SandboxListResult>("sandbox.list"),
+  get: (p: { name: string }) => rpc<SandboxRecord>("sandbox.get", p),
+  logs: (p: { name: string; limit?: number }) =>
+    rpc<SandboxLogsResult>("sandbox.logs", p),
+  create: (p: { name: string; provider: string; template: string }) =>
+    rpc<SandboxRecord>("sandbox.create", p),
+  start: (p: { name: string }) => rpc<SandboxRecord>("sandbox.start", p),
+  stop: (p: { name: string }) => rpc<SandboxRecord>("sandbox.stop", p),
+  delete: (p: { name: string }) => rpc<SandboxRecord>("sandbox.delete", p),
+};
+
 // -- system --
 export const system = {
   restart: () => rpc<{ status: string }>("system.restart"),
@@ -697,6 +710,36 @@ export interface MailboxRetryParams {
   item_id: string;
   actor_id?: string;
   actor_kind?: string;
+}
+
+export interface SandboxRecord {
+  name: string;
+  provider: string;
+  template: string;
+  status: string;
+  vm_status?: string;
+  shared_dir?: string;
+  ip_address?: string;
+  shell?: string;
+  last_error?: string;
+  created_at: string;
+  updated_at: string;
+  last_log_at?: string;
+}
+
+export interface SandboxListResult {
+  sandboxes: SandboxRecord[];
+}
+
+export interface SandboxLogEntry {
+  time: string;
+  stream: string;
+  line: string;
+}
+
+export interface SandboxLogsResult {
+  name: string;
+  entries: SandboxLogEntry[];
 }
 
 // -- System update types --

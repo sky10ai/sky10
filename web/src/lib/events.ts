@@ -58,6 +58,11 @@ export const UPDATE_EVENT_TYPES = [
   "update:install:error",
 ] as const;
 
+export const SANDBOX_EVENT_TYPES = [
+  "sandbox:state",
+  "sandbox:log",
+] as const;
+
 export const LEGACY_EVENT_TYPES = [
   "sync.progress",
   "sync.complete",
@@ -75,6 +80,7 @@ export const KNOWN_EVENT_TYPES = [
     ...AGENT_EVENT_TYPES,
     ...WALLET_EVENT_TYPES,
     ...UPDATE_EVENT_TYPES,
+    ...SANDBOX_EVENT_TYPES,
     ...LEGACY_EVENT_TYPES,
   ]),
 ] as const;

@@ -1,0 +1,27 @@
+minimumLimaVersion: 2.0.0
+
+base:
+- template:_images/ubuntu-24.04
+
+vmType: vz
+
+cpus: 4
+memory: 8GiB
+disk: 30GiB
+
+networks:
+- vzNAT: true
+
+mounts:
+- location: "{{.Home}}/sky10/sandboxes/{{.Name}}"
+  mountPoint: "/shared"
+  writable: true
+
+message: |
+  Ubuntu is provisioning inside "{{.Name}}".
+
+  Shared host directory:
+    {{.Home}}/sky10/sandboxes/{{.Name}}
+
+  Open a shell with:
+    limactl shell {{.Name}}

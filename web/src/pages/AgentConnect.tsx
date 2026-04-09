@@ -3,9 +3,36 @@ import { Icon } from "../components/Icon";
 
 const GUIDES = [
   {
+    id: "lima",
+    icon: "deployed_code",
+    label: "OpenClaw + Lima",
+    description: "Isolated Ubuntu VM with browser tools and sky10 auto-registration",
+    steps: [
+      "Create the named sandbox with an explicit provider and template:",
+      null,
+      "Optional: fill provider keys in ~/sky10/sandboxes/my-agent/.env:",
+      null,
+      "Optional: add HTTPS hostname mappings for the UI:",
+      null,
+      "The command stages the Lima template, auto-installs Lima and mkcert when needed, generates the wildcard sb.sky10.local certificate, starts OpenClaw, and registers the VM name on your host daemon.",
+    ],
+    codeBlocks: [
+      `sky10 sandbox create my-agent --provider lima --template openclaw`,
+      `cat > ~/sky10/sandboxes/my-agent/.env <<'EOF'
+ANTHROPIC_API_KEY=your-anthropic-key
+OPENAI_API_KEY=your-openai-key
+EOF`,
+      `chmod +x ~/sky10/sandboxes/my-agent/update-lima-hosts.sh
+~/sky10/sandboxes/my-agent/update-lima-hosts.sh
+
+# Then open:
+# https://my-agent.sb.sky10.local:18790/chat?session=main`,
+    ],
+  },
+  {
     id: "openclaw",
     icon: "psychology",
-    label: "OpenClaw",
+    label: "OpenClaw (Local)",
     description: "Full tool access — code, shell, browser, file ops",
     steps: [
       "Install the sky10 channel plugin:",
@@ -44,24 +71,13 @@ cd ~/.openclaw/plugins/sky10 && npm i eventsource`,
   {
     id: "claude-code",
     icon: "terminal",
-    label: "Claude Code",
-    description: "Connect Claude Code as a sky10 agent via MCP",
+    label: "Claude Code (Planned)",
+    description: "The sky10 MCP bridge is not implemented in this repo yet",
     steps: [
-      "Add the sky10 MCP server to your Claude Code config:",
-      null,
-      "Claude Code will register as an agent and listen for messages over sky10.",
+      "The documented `sky10 mcp` command does not exist yet in this build.",
+      "Use OpenClaw + Lima, local OpenClaw, or a custom HTTP agent for now.",
     ],
-    codeBlocks: [
-      `// .claude/settings.json
-{
-  "mcpServers": {
-    "sky10": {
-      "command": "sky10",
-      "args": ["mcp", "--agent-name", "claude-code"]
-    }
-  }
-}`,
-    ],
+    codeBlocks: [],
   },
   {
     id: "custom",

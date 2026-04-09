@@ -1,0 +1,64 @@
+minimumLimaVersion: 2.0.0
+
+base:
+- template:_images/ubuntu-24.04
+
+vmType: vz
+
+cpus: 4
+memory: 8GiB
+disk: 30GiB
+
+networks:
+- vzNAT: true
+
+mounts:
+- location: "{{.Home}}/sky10/sandboxes/{{.Name}}"
+  mountPoint: "/shared"
+  writable: true
+
+provision:
+- mode: system
+  file:
+    url: openclaw-sky10.system.sh
+- mode: user
+  file:
+    url: openclaw-sky10.user.sh
+
+probes:
+- script: |
+    #!/bin/bash
+    set -eux -o pipefail
+    command -v openclaw >/dev/null 2>&1
+    timeout 120s bash -lc "until curl -fsS http://127.0.0.1:18789/health >/dev/null 2>&1 || ss -lnt | grep -q ':18789 '; do sleep 3; done"
+  hint: See "/var/log/cloud-init-output.log" in the guest
+
+message: |
+  OpenClaw + sky10 is provisioning inside "{{.Name}}".
+
+  Shared host directory:
+    {{.Home}}/sky10/sandboxes/{{.Name}}
+
+  Guest -> host sky10 RPC:
+    {{.Param.sky10RPCURL}}
+
+  The VM auto-installs:
+  - OpenClaw
+  - Chromium + Xvfb browser support
+  - the sky10 OpenClaw channel plugin
+
+  The plugin registers this VM as the "{{.Name}}" agent on your host sky10 daemon.
+
+  Optional HTTPS hostname:
+    1. sky10 creates a wildcard cert for *.sb.sky10.local in:
+       {{.Home}}/sky10/sandboxes/{{.Name}}/certs/sb.sky10.local.pem
+       {{.Home}}/sky10/sandboxes/{{.Name}}/certs/sb.sky10.local-key.pem
+    2. Run:
+       chmod +x {{.Home}}/sky10/sandboxes/{{.Name}}/update-lima-hosts.sh
+       {{.Home}}/sky10/sandboxes/{{.Name}}/update-lima-hosts.sh
+    3. Open:
+       https://{{.Name}}.sb.sky10.local:18790/chat?session=main
+
+param:
+  sky10RPCURL: http://host.lima.internal:9101
+  model: anthropic/claude-sonnet-4-6
