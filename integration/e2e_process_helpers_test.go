@@ -1,6 +1,6 @@
 //go:build integration
 
-package main_test
+package integration
 
 import (
 	"bufio"
@@ -55,9 +55,10 @@ func buildSky10Binary(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
 	}
+	repoRoot := filepath.Dir(wd)
 	bin := filepath.Join(t.TempDir(), "sky10")
 	cmd := exec.Command("go", "build", "-o", bin, ".")
-	cmd.Dir = wd
+	cmd.Dir = repoRoot
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
