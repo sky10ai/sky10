@@ -1,237 +1,47 @@
 package wallet
 
-import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
-	"os"
-	"path/filepath"
-	"runtime"
-	"time"
-
-	"github.com/sky10/sky10/pkg/config"
-)
-
-const owsRepo = "open-wallet-standard/core"
-
-// ghReleaseURL is the GitHub API endpoint; overridden in tests.
-var ghReleaseURL = fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", owsRepo)
+import skyapps "github.com/sky10/sky10/pkg/apps"
 
 // ProgressFunc reports download progress (bytes downloaded, total bytes).
-type ProgressFunc func(downloaded, total int64)
+type ProgressFunc = skyapps.ProgressFunc
 
 // Emitter sends named events to subscribers.
 type Emitter func(event string, data interface{})
 
 // ReleaseInfo holds version information for OWS.
-type ReleaseInfo struct {
-	Installed bool   `json:"installed"`
-	Current   string `json:"current,omitempty"`
-	Latest    string `json:"latest,omitempty"`
-	Available bool   `json:"available"`
-	AssetURL  string `json:"asset_url,omitempty"`
-}
+type ReleaseInfo = skyapps.ReleaseInfo
+
+// UninstallResult describes the outcome of removing the managed OWS binary.
+type UninstallResult = skyapps.UninstallResult
 
 // BinDir returns the directory where managed binaries live (~/.sky10/bin/).
 func BinDir() (string, error) {
-	root, err := config.RootDir()
-	if err != nil {
-		return "", fmt.Errorf("finding root directory: %w", err)
-	}
-	return filepath.Join(root, "bin"), nil
+	return skyapps.BinDir()
 }
 
 // BinPath returns the full path to the managed ows binary.
 func BinPath() (string, error) {
-	dir, err := BinDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "ows"), nil
+	return skyapps.ManagedPath(skyapps.AppOWS)
 }
 
 // CheckRelease queries GitHub for the latest OWS release and compares
-// to the currently installed version (if any).
+// it to the currently installed version (if any).
 func CheckRelease(current string) (*ReleaseInfo, error) {
-	resp, err := http.Get(ghReleaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("fetching latest OWS release: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
-	}
-
-	var release struct {
-		TagName string `json:"tag_name"`
-		Assets  []struct {
-			Name               string `json:"name"`
-			BrowserDownloadURL string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return nil, fmt.Errorf("decoding release: %w", err)
-	}
-
-	info := &ReleaseInfo{
-		Installed: current != "",
-		Current:   current,
-		Latest:    release.TagName,
-		Available: current == "" || release.TagName != current,
-	}
-
-	asset := owsAssetName()
-	for _, a := range release.Assets {
-		if a.Name == asset {
-			info.AssetURL = a.BrowserDownloadURL
-			break
-		}
-	}
-
-	return info, nil
+	return skyapps.CheckRelease(skyapps.AppOWS, current)
 }
 
 // Install downloads the OWS binary to ~/.sky10/bin/ows.
-// If onProgress is non-nil, it is called periodically with download progress.
 func Install(info *ReleaseInfo, onProgress ProgressFunc) error {
-	if info.AssetURL == "" {
-		return fmt.Errorf("no OWS binary available for %s/%s", runtime.GOOS, runtime.GOARCH)
-	}
-
-	binDir, err := BinDir()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(binDir, 0755); err != nil {
-		return fmt.Errorf("creating bin directory: %w", err)
-	}
-
-	dest := filepath.Join(binDir, "ows")
-
-	resp, err := http.Get(info.AssetURL)
-	if err != nil {
-		return fmt.Errorf("downloading OWS binary: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download returned %d", resp.StatusCode)
-	}
-
-	var src io.Reader = resp.Body
-	if onProgress != nil {
-		src = &progressReader{
-			r:     resp.Body,
-			total: resp.ContentLength,
-			fn:    onProgress,
-		}
-	}
-
-	// Write to temp file for atomic rename.
-	tmp, err := os.CreateTemp(binDir, "ows-install-*")
-	if err != nil {
-		return fmt.Errorf("creating temp file: %w", err)
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-
-	if _, err := io.Copy(tmp, src); err != nil {
-		tmp.Close()
-		return fmt.Errorf("writing binary: %w", err)
-	}
-	tmp.Close()
-
-	if err := os.Chmod(tmpPath, 0755); err != nil {
-		return fmt.Errorf("setting permissions: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, dest); err != nil {
-		return fmt.Errorf("installing binary: %w", err)
-	}
-
-	return nil
+	return skyapps.Install(skyapps.AppOWS, info, onProgress)
 }
 
 // Uninstall removes the managed OWS binary from sky10's bin directory.
-// It does not touch OWS wallet data or any unrelated PATH installation.
 func Uninstall() (*UninstallResult, error) {
-	dest, err := BinPath()
-	if err != nil {
-		return nil, err
-	}
-	return uninstallPath(dest)
+	return skyapps.Uninstall(skyapps.AppOWS)
 }
 
-// UninstallResult describes the outcome of removing the managed OWS binary.
-type UninstallResult struct {
-	Path    string `json:"path"`
-	Removed bool   `json:"removed"`
-}
-
-func uninstallPath(dest string) (*UninstallResult, error) {
-	if err := os.Remove(dest); err != nil {
-		if os.IsNotExist(err) {
-			return &UninstallResult{
-				Path:    dest,
-				Removed: false,
-			}, nil
-		}
-		return nil, fmt.Errorf("removing OWS binary: %w", err)
-	}
-	return &UninstallResult{
-		Path:    dest,
-		Removed: true,
-	}, nil
-}
-
-// InstalledVersion returns the version of the managed OWS binary,
-// or "" if not installed. Runs `ows --version`.
+// InstalledVersion returns the version of the active OWS binary,
+// or "" if not installed.
 func InstalledVersion() string {
-	c := findClient()
-	if c == nil {
-		return ""
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	out, err := c.run(ctx, "--version")
-	if err != nil {
-		return ""
-	}
-	return string(out)
-}
-
-// owsAssetName returns the expected GitHub release asset name for this platform.
-// OWS uses aarch64/x86_64 naming, not Go's arm64/amd64.
-func owsAssetName() string {
-	arch := runtime.GOARCH
-	switch arch {
-	case "arm64":
-		arch = "aarch64"
-	case "amd64":
-		arch = "x86_64"
-	}
-	return fmt.Sprintf("ows-%s-%s", runtime.GOOS, arch)
-}
-
-// progressReader wraps an io.Reader and reports download progress.
-// Callbacks are throttled to at most once per 100ms.
-type progressReader struct {
-	r        io.Reader
-	total    int64
-	read     int64
-	fn       ProgressFunc
-	lastEmit time.Time
-}
-
-func (pr *progressReader) Read(p []byte) (int, error) {
-	n, err := pr.r.Read(p)
-	pr.read += int64(n)
-	if time.Since(pr.lastEmit) > 100*time.Millisecond || err == io.EOF {
-		pr.fn(pr.read, pr.total)
-		pr.lastEmit = time.Now()
-	}
-	return n, err
+	return skyapps.InstalledVersion(skyapps.AppOWS)
 }

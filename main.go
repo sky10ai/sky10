@@ -46,6 +46,7 @@ func main() {
 	root.AddCommand(commands.LinkCmd())
 	root.AddCommand(commands.IdCmd())
 	root.AddCommand(commands.UiCmd())
+	root.AddCommand(commands.AppsCmd())
 	root.AddCommand(commands.UpdateCmd())
 	root.AddCommand(commands.DaemonCmd())
 

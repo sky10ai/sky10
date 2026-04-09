@@ -1,14 +1,8 @@
 package wallet
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -238,122 +232,6 @@ func TestRPCHandler_PayRequiresFields(t *testing.T) {
 	}
 }
 
-func TestBinPath(t *testing.T) {
-	t.Parallel()
-	p, err := BinPath()
-	if err != nil {
-		t.Fatalf("BinPath() error: %v", err)
-	}
-	home, _ := os.UserHomeDir()
-	want := filepath.Join(home, ".sky10", "bin", "ows")
-	if p != want {
-		t.Errorf("BinPath() = %q, want %q", p, want)
-	}
-}
-
-func TestCheckRelease_ParsesResponse(t *testing.T) {
-	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"tag_name": "v0.5.0",
-			"assets": []map[string]string{
-				{"name": owsAssetName(), "browser_download_url": "https://example.com/ows"},
-			},
-		})
-	}))
-	defer srv.Close()
-
-	old := ghReleaseURL
-	ghReleaseURL = srv.URL
-	defer func() { ghReleaseURL = old }()
-
-	info, err := CheckRelease("v0.4.0")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !info.Available {
-		t.Error("expected update available")
-	}
-	if info.Latest != "v0.5.0" {
-		t.Errorf("latest = %q, want %q", info.Latest, "v0.5.0")
-	}
-	if info.AssetURL != "https://example.com/ows" {
-		t.Errorf("asset URL = %q, want %q", info.AssetURL, "https://example.com/ows")
-	}
-}
-
-func TestCheckRelease_AlreadyUpToDate(t *testing.T) {
-	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"tag_name": "v0.5.0",
-			"assets":   []map[string]string{},
-		})
-	}))
-	defer srv.Close()
-
-	old := ghReleaseURL
-	ghReleaseURL = srv.URL
-	defer func() { ghReleaseURL = old }()
-
-	info, err := CheckRelease("v0.5.0")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if info.Available {
-		t.Error("expected no update available")
-	}
-}
-
-func TestInstall_DownloadsBinary(t *testing.T) {
-	t.Parallel()
-
-	content := "#!/bin/sh\necho ows-fake"
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
-		w.Write([]byte(content))
-	}))
-	defer srv.Close()
-
-	tmp := t.TempDir()
-	binDir := filepath.Join(tmp, "bin")
-	os.MkdirAll(binDir, 0755)
-	dest := filepath.Join(binDir, "ows")
-
-	resp, err := http.Get(srv.URL + "/ows")
-	if err != nil {
-		t.Fatalf("download failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	tmpFile, _ := os.CreateTemp(binDir, "ows-test-*")
-	buf := make([]byte, 1024)
-	for {
-		n, readErr := resp.Body.Read(buf)
-		if n > 0 {
-			tmpFile.Write(buf[:n])
-		}
-		if readErr != nil {
-			break
-		}
-	}
-	tmpFile.Close()
-	os.Chmod(tmpFile.Name(), 0755)
-	os.Rename(tmpFile.Name(), dest)
-
-	data, err := os.ReadFile(dest)
-	if err != nil {
-		t.Fatalf("reading installed binary: %v", err)
-	}
-	if string(data) != content {
-		t.Errorf("content = %q, want %q", string(data), content)
-	}
-	fi, _ := os.Stat(dest)
-	if fi.Mode()&0111 == 0 {
-		t.Error("binary should be executable")
-	}
-}
-
 func TestRPCHandler_InstallDispatch(t *testing.T) {
 	t.Parallel()
 	h := NewRPCHandler(nil, noopEmit)
@@ -378,70 +256,6 @@ func TestRPCHandler_CheckUpdateDispatch(t *testing.T) {
 	_, _, handled := h.Dispatch(context.Background(), "wallet.checkUpdate", nil)
 	if !handled {
 		t.Error("wallet.checkUpdate should be handled")
-	}
-}
-
-func TestProgressReader(t *testing.T) {
-	t.Parallel()
-	data := []byte("hello world, this is test data")
-	r := &progressReader{
-		r:     bytes.NewReader(data),
-		total: int64(len(data)),
-		fn: func(downloaded, total int64) {
-			if total != int64(len(data)) {
-				t.Errorf("total = %d, want %d", total, len(data))
-			}
-		},
-	}
-	buf := make([]byte, 10)
-	var totalRead int
-	for {
-		n, err := r.Read(buf)
-		totalRead += n
-		if err != nil {
-			break
-		}
-	}
-	if totalRead != len(data) {
-		t.Errorf("read %d bytes, want %d", totalRead, len(data))
-	}
-}
-
-func TestUninstallPath_RemovesManagedBinary(t *testing.T) {
-	tmp := t.TempDir()
-	dest := filepath.Join(tmp, "ows")
-	if err := os.WriteFile(dest, []byte("test"), 0755); err != nil {
-		t.Fatalf("writing binary: %v", err)
-	}
-
-	result, err := uninstallPath(dest)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Removed {
-		t.Fatal("expected removed=true")
-	}
-	if result.Path != dest {
-		t.Fatalf("path = %q, want %q", result.Path, dest)
-	}
-	if _, err := os.Stat(dest); !os.IsNotExist(err) {
-		t.Fatalf("expected %q to be removed, stat err=%v", dest, err)
-	}
-}
-
-func TestUninstallPath_MissingBinary(t *testing.T) {
-	tmp := t.TempDir()
-	dest := filepath.Join(tmp, "missing-ows")
-
-	result, err := uninstallPath(dest)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Removed {
-		t.Fatal("expected removed=false")
-	}
-	if result.Path != dest {
-		t.Fatalf("path = %q, want %q", result.Path, dest)
 	}
 }
 
