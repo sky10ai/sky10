@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -96,6 +97,8 @@ var registry = map[ID]spec{
 var ghReleaseURL = func(s spec) string {
 	return fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", s.Repo)
 }
+
+var versionPattern = regexp.MustCompile(`v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?`)
 
 // List returns the known managed apps.
 func List() []AppInfo {
@@ -213,10 +216,10 @@ func CheckRelease(id ID, current string) (*ReleaseInfo, error) {
 	info := &ReleaseInfo{
 		ID:        id,
 		Installed: current != "",
-		Current:   current,
-		Latest:    release.TagName,
-		Available: current == "" || release.TagName != current,
+		Current:   normalizeVersion(current),
+		Latest:    normalizeVersion(release.TagName),
 	}
+	info.Available = info.Current == "" || info.Latest != info.Current
 
 	asset := s.AssetName(runtime.GOOS, runtime.GOARCH)
 	for _, a := range release.Assets {
@@ -307,7 +310,7 @@ func installedVersionAtPath(s spec, path string) string {
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	return normalizeVersion(string(out))
 }
 
 type progressReader struct {
@@ -375,4 +378,19 @@ func downloadToPath(url, dest, pattern, action string, onProgress ProgressFunc) 
 	}
 
 	return nil
+}
+
+func normalizeVersion(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	match := versionPattern.FindString(raw)
+	if match == "" {
+		return raw
+	}
+	if strings.HasPrefix(match, "v") {
+		return match
+	}
+	return "v" + match
 }

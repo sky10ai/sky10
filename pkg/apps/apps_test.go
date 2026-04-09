@@ -62,7 +62,7 @@ func TestStatusFor_ManagedBinary(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	content := "#!/bin/sh\necho v0.5.0\n"
+	content := "#!/bin/sh\necho 'ows 1.2.4 (2fbd309)'\n"
 	if err := os.WriteFile(path, []byte(content), 0755); err != nil {
 		t.Fatalf("write binary: %v", err)
 	}
@@ -80,8 +80,8 @@ func TestStatusFor_ManagedBinary(t *testing.T) {
 	if status.ActivePath != path {
 		t.Fatalf("active path = %q, want %q", status.ActivePath, path)
 	}
-	if status.Version != "v0.5.0" {
-		t.Fatalf("version = %q, want %q", status.Version, "v0.5.0")
+	if status.Version != "v1.2.4" {
+		t.Fatalf("version = %q, want %q", status.Version, "v1.2.4")
 	}
 }
 
@@ -131,6 +131,31 @@ func TestCheckRelease_AlreadyUpToDate(t *testing.T) {
 	info, err := CheckRelease(AppOWS, "v0.5.0")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.Available {
+		t.Fatal("expected no update available")
+	}
+}
+
+func TestCheckRelease_NormalizesInstalledVersion(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"tag_name": "v1.2.4",
+			"assets":   []map[string]string{},
+		})
+	}))
+	defer srv.Close()
+
+	old := ghReleaseURL
+	ghReleaseURL = func(spec) string { return srv.URL }
+	defer func() { ghReleaseURL = old }()
+
+	info, err := CheckRelease(AppOWS, "ows 1.2.4 (2fbd309)")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.Current != "v1.2.4" {
+		t.Fatalf("current = %q, want %q", info.Current, "v1.2.4")
 	}
 	if info.Available {
 		t.Fatal("expected no update available")
