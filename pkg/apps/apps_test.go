@@ -44,6 +44,9 @@ func TestStatusFor_NotInstalled(t *testing.T) {
 	if status.ActivePath != "" {
 		t.Fatalf("active path = %q, want empty", status.ActivePath)
 	}
+	if status.ManagedPath != "" {
+		t.Fatalf("managed path = %q, want empty", status.ManagedPath)
+	}
 }
 
 func TestStatusFor_ManagedBinary(t *testing.T) {
@@ -55,16 +58,28 @@ func TestStatusFor_ManagedBinary(t *testing.T) {
 	t.Setenv(config.EnvHome, home)
 	t.Setenv("PATH", "")
 
-	path, err := ManagedPath(AppOWS)
+	s := registry[AppOWS]
+	installedPath, err := versionBinaryPath(s, "v1.2.4")
 	if err != nil {
-		t.Fatalf("ManagedPath() error: %v", err)
+		t.Fatalf("versionBinaryPath() error: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(installedPath), 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 	content := "#!/bin/sh\necho 'ows 1.2.4 (2fbd309)'\n"
-	if err := os.WriteFile(path, []byte(content), 0755); err != nil {
+	if err := os.WriteFile(installedPath, []byte(content), 0755); err != nil {
 		t.Fatalf("write binary: %v", err)
+	}
+	if err := writeCurrentMetadata(AppOWS, "v1.2.4"); err != nil {
+		t.Fatalf("writeCurrentMetadata() error: %v", err)
+	}
+
+	stablePath, err := ManagedPath(AppOWS)
+	if err != nil {
+		t.Fatalf("ManagedPath() error: %v", err)
+	}
+	if err := ensureActiveBinary(installedPath, stablePath, true); err != nil {
+		t.Fatalf("ensureActiveBinary() error: %v", err)
 	}
 
 	status, err := StatusFor(AppOWS)
@@ -77,11 +92,62 @@ func TestStatusFor_ManagedBinary(t *testing.T) {
 	if !status.Managed {
 		t.Fatal("expected managed=true")
 	}
-	if status.ActivePath != path {
-		t.Fatalf("active path = %q, want %q", status.ActivePath, path)
+	if status.ManagedPath != installedPath {
+		t.Fatalf("managed path = %q, want %q", status.ManagedPath, installedPath)
+	}
+	if status.ActivePath != stablePath {
+		t.Fatalf("active path = %q, want %q", status.ActivePath, stablePath)
 	}
 	if status.Version != "v1.2.4" {
 		t.Fatalf("version = %q, want %q", status.Version, "v1.2.4")
+	}
+}
+
+func TestStatusFor_MigratesLegacyManagedBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script fixture is unix-only")
+	}
+
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+	t.Setenv("PATH", "")
+
+	stablePath, err := ManagedPath(AppOWS)
+	if err != nil {
+		t.Fatalf("ManagedPath() error: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(stablePath), 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	content := "#!/bin/sh\necho 'ows 1.2.4 (2fbd309)'\n"
+	if err := os.WriteFile(stablePath, []byte(content), 0755); err != nil {
+		t.Fatalf("write legacy binary: %v", err)
+	}
+
+	status, err := StatusFor(AppOWS)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !status.Managed {
+		t.Fatal("expected managed=true")
+	}
+	if status.Version != "v1.2.4" {
+		t.Fatalf("version = %q, want %q", status.Version, "v1.2.4")
+	}
+	wantInstalled, err := versionBinaryPath(registry[AppOWS], "v1.2.4")
+	if err != nil {
+		t.Fatalf("versionBinaryPath() error: %v", err)
+	}
+	if status.ManagedPath != wantInstalled {
+		t.Fatalf("managed path = %q, want %q", status.ManagedPath, wantInstalled)
+	}
+	if _, err := os.Stat(wantInstalled); err != nil {
+		t.Fatalf("expected migrated binary at %q: %v", wantInstalled, err)
+	}
+	if got, err := readCurrentMetadata(AppOWS); err != nil {
+		t.Fatalf("readCurrentMetadata() error: %v", err)
+	} else if got != "v1.2.4" {
+		t.Fatalf("current metadata = %q, want %q", got, "v1.2.4")
 	}
 }
 
@@ -169,7 +235,7 @@ func TestInstall_DownloadsBinary(t *testing.T) {
 	content := "#!/bin/sh\necho ows-fake\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
-		w.Write([]byte(content))
+		_, _ = w.Write([]byte(content))
 	}))
 	defer srv.Close()
 
@@ -182,16 +248,31 @@ func TestInstall_DownloadsBinary(t *testing.T) {
 		t.Fatalf("install error: %v", err)
 	}
 
-	dest, err := ManagedPath(AppOWS)
+	installedPath, err := InstalledPath(AppOWS)
 	if err != nil {
-		t.Fatalf("ManagedPath() error: %v", err)
+		t.Fatalf("InstalledPath() error: %v", err)
 	}
-	data, err := os.ReadFile(dest)
+	wantInstalled, err := versionBinaryPath(registry[AppOWS], "v0.5.0")
+	if err != nil {
+		t.Fatalf("versionBinaryPath() error: %v", err)
+	}
+	if installedPath != wantInstalled {
+		t.Fatalf("InstalledPath() = %q, want %q", installedPath, wantInstalled)
+	}
+	data, err := os.ReadFile(installedPath)
 	if err != nil {
 		t.Fatalf("reading installed binary: %v", err)
 	}
 	if string(data) != content {
 		t.Fatalf("content = %q, want %q", string(data), content)
+	}
+
+	stablePath, err := ManagedPath(AppOWS)
+	if err != nil {
+		t.Fatalf("ManagedPath() error: %v", err)
+	}
+	if _, err := os.Stat(stablePath); err != nil {
+		t.Fatalf("expected active binary at %q: %v", stablePath, err)
 	}
 }
 
@@ -224,15 +305,26 @@ func TestUninstall_RemovesManagedBinary(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv(config.EnvHome, home)
 
-	dest, err := ManagedPath(AppOWS)
+	s := registry[AppOWS]
+	installedPath, err := versionBinaryPath(s, "v1.2.4")
+	if err != nil {
+		t.Fatalf("versionBinaryPath() error: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(installedPath), 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(installedPath, []byte("test"), 0755); err != nil {
+		t.Fatalf("write binary: %v", err)
+	}
+	if err := writeCurrentMetadata(AppOWS, "v1.2.4"); err != nil {
+		t.Fatalf("writeCurrentMetadata() error: %v", err)
+	}
+	stablePath, err := ManagedPath(AppOWS)
 	if err != nil {
 		t.Fatalf("ManagedPath() error: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(dest, []byte("test"), 0755); err != nil {
-		t.Fatalf("write binary: %v", err)
+	if err := ensureActiveBinary(installedPath, stablePath, true); err != nil {
+		t.Fatalf("ensureActiveBinary() error: %v", err)
 	}
 
 	result, err := Uninstall(AppOWS)
@@ -242,7 +334,18 @@ func TestUninstall_RemovesManagedBinary(t *testing.T) {
 	if !result.Removed {
 		t.Fatal("expected removed=true")
 	}
-	if _, err := os.Stat(dest); !os.IsNotExist(err) {
-		t.Fatalf("expected %q to be removed, stat err=%v", dest, err)
+	if result.Path != installedPath {
+		t.Fatalf("path = %q, want %q", result.Path, installedPath)
+	}
+	if _, err := os.Stat(installedPath); !os.IsNotExist(err) {
+		t.Fatalf("expected %q to be removed, stat err=%v", installedPath, err)
+	}
+	if _, err := os.Lstat(stablePath); !os.IsNotExist(err) {
+		t.Fatalf("expected %q to be removed, stat err=%v", stablePath, err)
+	}
+	if got, err := readCurrentMetadata(AppOWS); err != nil {
+		t.Fatalf("readCurrentMetadata() error: %v", err)
+	} else if got != "" {
+		t.Fatalf("current metadata = %q, want empty", got)
 	}
 }

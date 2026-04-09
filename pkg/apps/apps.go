@@ -73,6 +73,17 @@ type spec struct {
 	AssetName   func(goos, goarch string) string
 }
 
+type currentMetadata struct {
+	Current   string `json:"current"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+}
+
+type managedState struct {
+	Current       string
+	StablePath    string
+	InstalledPath string
+}
+
 var registry = map[ID]spec{
 	AppOWS: {
 		ID:          AppOWS,
@@ -119,7 +130,7 @@ func Lookup(id string) (*AppInfo, error) {
 	return &AppInfo{ID: s.ID, Name: s.Name}, nil
 }
 
-// BinDir returns the directory containing managed helper binaries.
+// BinDir returns the directory containing stable managed app entrypoints.
 func BinDir() (string, error) {
 	root, err := config.RootDir()
 	if err != nil {
@@ -128,7 +139,7 @@ func BinDir() (string, error) {
 	return filepath.Join(root, "bin"), nil
 }
 
-// ManagedPath returns the sky10-managed executable path for an app.
+// ManagedPath returns the stable sky10-managed executable path for an app.
 func ManagedPath(id ID) (string, error) {
 	s, err := lookupSpec(id)
 	if err != nil {
@@ -141,27 +152,36 @@ func ManagedPath(id ID) (string, error) {
 	return filepath.Join(dir, s.Executable), nil
 }
 
+// InstalledPath returns the versioned on-disk binary path for the current app version.
+func InstalledPath(id ID) (string, error) {
+	state, err := ensureManagedState(id)
+	if err != nil {
+		return "", err
+	}
+	return state.InstalledPath, nil
+}
+
 // StatusFor returns the active binary status for an app.
 func StatusFor(id ID) (*Status, error) {
 	s, err := lookupSpec(id)
 	if err != nil {
 		return nil, err
 	}
-	managedPath, err := ManagedPath(id)
+	state, err := ensureManagedState(id)
 	if err != nil {
 		return nil, err
 	}
 	st := &Status{
 		ID:          s.ID,
 		Name:        s.Name,
-		ManagedPath: managedPath,
+		ManagedPath: state.InstalledPath,
 	}
-	activePath, managed := resolveBinary(s, managedPath)
+	activePath, _ := resolveBinary(s, state.StablePath)
 	if activePath == "" {
 		return st, nil
 	}
 	st.Installed = true
-	st.Managed = managed
+	st.Managed = isManagedActivePath(activePath, state.StablePath, state.InstalledPath)
 	st.ActivePath = activePath
 	st.Version = installedVersionAtPath(s, activePath)
 	return st, nil
@@ -170,19 +190,11 @@ func StatusFor(id ID) (*Status, error) {
 // InstalledVersion returns the version of the active binary for an app,
 // or "" if the app is not installed or the binary cannot execute.
 func InstalledVersion(id ID) string {
-	s, err := lookupSpec(id)
+	st, err := StatusFor(id)
 	if err != nil {
 		return ""
 	}
-	managedPath, err := ManagedPath(id)
-	if err != nil {
-		return ""
-	}
-	activePath, _ := resolveBinary(s, managedPath)
-	if activePath == "" {
-		return ""
-	}
-	return installedVersionAtPath(s, activePath)
+	return st.Version
 }
 
 // CheckRelease queries GitHub for the latest release for an app.
@@ -237,7 +249,8 @@ func CheckLatest(id ID) (*ReleaseInfo, error) {
 	return CheckRelease(id, InstalledVersion(id))
 }
 
-// Install writes the provided release asset into the managed binary path.
+// Install writes the provided release asset into the managed version store
+// and activates the stable bin entrypoint for the app.
 func Install(id ID, info *ReleaseInfo, onProgress ProgressFunc) error {
 	if info == nil {
 		return fmt.Errorf("missing release info")
@@ -245,11 +258,30 @@ func Install(id ID, info *ReleaseInfo, onProgress ProgressFunc) error {
 	if info.AssetURL == "" {
 		return fmt.Errorf("no %s binary available for %s/%s", id, runtime.GOOS, runtime.GOARCH)
 	}
-	dest, err := ManagedPath(id)
+
+	s, err := lookupSpec(id)
 	if err != nil {
 		return err
 	}
-	return downloadToPath(info.AssetURL, dest, string(id)+"-install-*", "downloading "+string(id), onProgress)
+	version := normalizeVersion(info.Latest)
+	if version == "" {
+		return fmt.Errorf("missing %s version", id)
+	}
+	dest, err := versionBinaryPath(s, version)
+	if err != nil {
+		return err
+	}
+	if err := downloadToPath(info.AssetURL, dest, string(id)+"-install-*", "downloading "+string(id), onProgress); err != nil {
+		return err
+	}
+	stablePath, err := ManagedPath(id)
+	if err != nil {
+		return err
+	}
+	if err := writeCurrentMetadata(id, version); err != nil {
+		return err
+	}
+	return ensureActiveBinary(dest, stablePath, true)
 }
 
 // Upgrade checks the latest release and installs it if needed.
@@ -267,19 +299,37 @@ func Upgrade(id ID, onProgress ProgressFunc) (*ReleaseInfo, error) {
 	return info, nil
 }
 
-// Uninstall removes the managed binary for an app.
+// Uninstall removes the active managed binary for an app.
 func Uninstall(id ID) (*UninstallResult, error) {
-	dest, err := ManagedPath(id)
+	state, err := ensureManagedState(id)
 	if err != nil {
 		return nil, err
 	}
-	if err := os.Remove(dest); err != nil {
-		if os.IsNotExist(err) {
-			return &UninstallResult{ID: id, Path: dest, Removed: false}, nil
-		}
-		return nil, fmt.Errorf("removing %s binary: %w", id, err)
+	removed := false
+	resultPath := state.InstalledPath
+	if resultPath == "" {
+		resultPath = state.StablePath
 	}
-	return &UninstallResult{ID: id, Path: dest, Removed: true}, nil
+
+	if state.StablePath != "" {
+		if err := os.Remove(state.StablePath); err == nil {
+			removed = true
+		} else if err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("removing managed entrypoint: %w", err)
+		}
+	}
+	if state.InstalledPath != "" {
+		if err := os.Remove(state.InstalledPath); err == nil {
+			removed = true
+		} else if err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("removing managed binary: %w", err)
+		}
+		_ = os.Remove(filepath.Dir(state.InstalledPath))
+	}
+	if err := removeCurrentMetadata(id); err != nil {
+		return nil, err
+	}
+	return &UninstallResult{ID: id, Path: resultPath, Removed: removed}, nil
 }
 
 func lookupSpec(id ID) (spec, error) {
@@ -288,6 +338,142 @@ func lookupSpec(id ID) (spec, error) {
 		return spec{}, fmt.Errorf("unknown app: %s", id)
 	}
 	return s, nil
+}
+
+func appsRootDir() (string, error) {
+	root, err := config.RootDir()
+	if err != nil {
+		return "", fmt.Errorf("finding root directory: %w", err)
+	}
+	return filepath.Join(root, "apps"), nil
+}
+
+func appDir(id ID) (string, error) {
+	root, err := appsRootDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, string(id)), nil
+}
+
+func versionsDir(id ID) (string, error) {
+	dir, err := appDir(id)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "versions"), nil
+}
+
+func currentMetadataPath(id ID) (string, error) {
+	dir, err := appDir(id)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "current.json"), nil
+}
+
+func versionBinaryPath(s spec, version string) (string, error) {
+	dir, err := versionsDir(s.ID)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, normalizeVersion(version), s.Executable), nil
+}
+
+func ensureManagedState(id ID) (*managedState, error) {
+	s, err := lookupSpec(id)
+	if err != nil {
+		return nil, err
+	}
+	stablePath, err := ManagedPath(id)
+	if err != nil {
+		return nil, err
+	}
+	state := &managedState{StablePath: stablePath}
+
+	current, err := readCurrentMetadata(id)
+	if err != nil {
+		return nil, err
+	}
+	if current != "" {
+		installedPath, err := versionBinaryPath(s, current)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := os.Stat(installedPath); err == nil {
+			state.Current = current
+			state.InstalledPath = installedPath
+			if err := ensureActiveBinary(installedPath, stablePath, false); err != nil {
+				return nil, err
+			}
+			return state, nil
+		}
+		if err := removeCurrentMetadata(id); err != nil {
+			return nil, err
+		}
+	}
+
+	info, err := os.Lstat(stablePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return state, nil
+		}
+		return nil, fmt.Errorf("stat managed binary: %w", err)
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := filepath.EvalSymlinks(stablePath)
+		if err == nil {
+			if version, ok := inferVersionFromManagedTarget(id, s, target); ok {
+				state.Current = version
+				state.InstalledPath = target
+				if err := writeCurrentMetadata(id, version); err != nil {
+					return nil, err
+				}
+				return state, nil
+			}
+		}
+	}
+
+	version := installedVersionAtPath(s, stablePath)
+	if version == "" {
+		return state, nil
+	}
+	installedPath, err := versionBinaryPath(s, version)
+	if err != nil {
+		return nil, err
+	}
+	if err := migrateLegacyBinary(stablePath, installedPath); err != nil {
+		return nil, err
+	}
+	if err := writeCurrentMetadata(id, version); err != nil {
+		return nil, err
+	}
+	if err := ensureActiveBinary(installedPath, stablePath, true); err != nil {
+		return nil, err
+	}
+	state.Current = version
+	state.InstalledPath = installedPath
+	return state, nil
+}
+
+func inferVersionFromManagedTarget(id ID, s spec, target string) (string, bool) {
+	dir, err := versionsDir(id)
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(dir, target)
+	if err != nil {
+		return "", false
+	}
+	if rel == "." || strings.HasPrefix(rel, "..") {
+		return "", false
+	}
+	parts := strings.Split(filepath.Clean(rel), string(filepath.Separator))
+	if len(parts) != 2 || parts[1] != s.Executable {
+		return "", false
+	}
+	return normalizeVersion(parts[0]), true
 }
 
 func resolveBinary(s spec, managedPath string) (path string, managed bool) {
@@ -300,6 +486,23 @@ func resolveBinary(s spec, managedPath string) (path string, managed bool) {
 		return bin, false
 	}
 	return "", false
+}
+
+func isManagedActivePath(activePath, stablePath, installedPath string) bool {
+	if activePath == "" {
+		return false
+	}
+	activePath = filepath.Clean(activePath)
+	if stablePath != "" && activePath == filepath.Clean(stablePath) {
+		return true
+	}
+	if installedPath != "" && activePath == filepath.Clean(installedPath) {
+		return true
+	}
+	if resolved, err := filepath.EvalSymlinks(activePath); err == nil {
+		return installedPath != "" && filepath.Clean(resolved) == filepath.Clean(installedPath)
+	}
+	return false
 }
 
 func installedVersionAtPath(s spec, path string) string {
@@ -377,6 +580,160 @@ func downloadToPath(url, dest, pattern, action string, onProgress ProgressFunc) 
 		return fmt.Errorf("installing binary: %w", err)
 	}
 
+	return nil
+}
+
+func ensureActiveBinary(target, stablePath string, force bool) error {
+	if target == "" || stablePath == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(stablePath), 0755); err != nil {
+		return fmt.Errorf("creating bin directory: %w", err)
+	}
+
+	if runtime.GOOS == "windows" {
+		if !force {
+			if _, err := os.Stat(stablePath); err == nil {
+				return nil
+			}
+		}
+		return copyExecutable(target, stablePath)
+	}
+
+	if !force {
+		if resolved, err := filepath.EvalSymlinks(stablePath); err == nil && filepath.Clean(resolved) == filepath.Clean(target) {
+			return nil
+		}
+	}
+
+	tmpPath := fmt.Sprintf("%s.tmp-%d", stablePath, time.Now().UnixNano())
+	_ = os.Remove(tmpPath)
+	if err := os.Symlink(target, tmpPath); err != nil {
+		return fmt.Errorf("creating managed symlink: %w", err)
+	}
+	if err := os.Remove(stablePath); err != nil && !os.IsNotExist(err) {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("removing existing managed binary: %w", err)
+	}
+	if err := os.Rename(tmpPath, stablePath); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("activating managed binary: %w", err)
+	}
+	return nil
+}
+
+func migrateLegacyBinary(legacyPath, installedPath string) error {
+	if legacyPath == "" || installedPath == "" || filepath.Clean(legacyPath) == filepath.Clean(installedPath) {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(installedPath), 0755); err != nil {
+		return fmt.Errorf("creating version directory: %w", err)
+	}
+	if _, err := os.Stat(installedPath); err == nil {
+		if err := os.Remove(legacyPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("removing legacy managed binary: %w", err)
+		}
+		return nil
+	}
+	if err := os.Rename(legacyPath, installedPath); err == nil {
+		return nil
+	}
+	if err := copyExecutable(legacyPath, installedPath); err != nil {
+		return fmt.Errorf("copying legacy managed binary: %w", err)
+	}
+	if err := os.Remove(legacyPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("removing legacy managed binary: %w", err)
+	}
+	return nil
+}
+
+func copyExecutable(srcPath, destPath string) error {
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return fmt.Errorf("opening source binary: %w", err)
+	}
+	defer src.Close()
+
+	dir := filepath.Dir(destPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("creating destination directory: %w", err)
+	}
+
+	tmp, err := os.CreateTemp(dir, filepath.Base(destPath)+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("creating destination temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := io.Copy(tmp, src); err != nil {
+		tmp.Close()
+		return fmt.Errorf("copying binary: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("closing destination temp file: %w", err)
+	}
+	if err := os.Chmod(tmpPath, 0755); err != nil {
+		return fmt.Errorf("setting executable permissions: %w", err)
+	}
+	if err := os.Remove(destPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("removing previous destination binary: %w", err)
+	}
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		return fmt.Errorf("activating copied binary: %w", err)
+	}
+	return nil
+}
+
+func readCurrentMetadata(id ID) (string, error) {
+	path, err := currentMetadataPath(id)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("reading current metadata: %w", err)
+	}
+	var meta currentMetadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return "", fmt.Errorf("parsing current metadata: %w", err)
+	}
+	return normalizeVersion(meta.Current), nil
+}
+
+func writeCurrentMetadata(id ID, version string) error {
+	path, err := currentMetadataPath(id)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("creating app directory: %w", err)
+	}
+	meta := currentMetadata{
+		Current:   normalizeVersion(version),
+		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	data, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding current metadata: %w", err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0644); err != nil {
+		return fmt.Errorf("writing current metadata: %w", err)
+	}
+	return nil
+}
+
+func removeCurrentMetadata(id ID) error {
+	path, err := currentMetadataPath(id)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("removing current metadata: %w", err)
+	}
 	return nil
 }
 

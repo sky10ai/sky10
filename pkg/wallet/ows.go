@@ -9,10 +9,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
+
+	skyapps "github.com/sky10/sky10/pkg/apps"
 )
 
 // Solana CAIP-2 chain identifier used by OWS.
@@ -34,11 +34,8 @@ func NewClient() *Client {
 
 // findClient locates the ows binary, preferring the managed install.
 func findClient() *Client {
-	// Check managed install location first.
-	if p, err := BinPath(); err == nil {
-		if _, err := os.Stat(p); err == nil {
-			return &Client{bin: p}
-		}
+	if status, err := skyapps.StatusFor(skyapps.AppOWS); err == nil && status.Managed && status.ActivePath != "" {
+		return &Client{bin: status.ActivePath}
 	}
 	// Fall back to PATH.
 	if bin, err := exec.LookPath("ows"); err == nil {
@@ -79,43 +76,58 @@ type PayResult struct {
 
 // Status returns a summary of OWS availability and wallet state.
 func (c *Client) Status(ctx context.Context) (*StatusResult, error) {
-	managedPath, _ := BinPath()
-	if c == nil {
+	appStatus, err := skyapps.StatusFor(skyapps.AppOWS)
+	if err != nil {
+		return nil, err
+	}
+	if !appStatus.Installed {
 		return &StatusResult{
 			Installed:   false,
 			Managed:     false,
-			ManagedPath: managedPath,
+			ManagedPath: appStatus.ManagedPath,
 		}, nil
 	}
-	managed := managedPath != "" && filepath.Clean(c.bin) == filepath.Clean(managedPath)
-	version := InstalledVersion()
+	if c == nil && appStatus.ActivePath != "" {
+		c = &Client{bin: appStatus.ActivePath}
+	}
+	if c == nil {
+		c = findClient()
+	}
+	if c == nil {
+		return &StatusResult{
+			Installed:   false,
+			Managed:     appStatus.Managed,
+			ManagedPath: appStatus.ManagedPath,
+			Version:     appStatus.Version,
+			BinPath:     appStatus.ActivePath,
+		}, nil
+	}
+
 	wallets, err := c.ListWallets(ctx)
 	if err != nil {
-		// If the binary was discovered but cannot actually execute, degrade to
-		// installed=false instead of surfacing a hard status error.
-		if version == "" {
+		if appStatus.Version == "" {
 			return &StatusResult{
 				Installed:   false,
-				Managed:     managed,
-				ManagedPath: managedPath,
-				BinPath:     c.bin,
+				Managed:     appStatus.Managed,
+				ManagedPath: appStatus.ManagedPath,
+				BinPath:     appStatus.ActivePath,
 			}, nil
 		}
 		return &StatusResult{
 			Installed:   true,
-			Managed:     managed,
-			ManagedPath: managedPath,
-			Version:     version,
-			BinPath:     c.bin,
+			Managed:     appStatus.Managed,
+			ManagedPath: appStatus.ManagedPath,
+			Version:     appStatus.Version,
+			BinPath:     appStatus.ActivePath,
 		}, err
 	}
 	return &StatusResult{
 		Installed:   true,
-		Managed:     managed,
-		ManagedPath: managedPath,
+		Managed:     appStatus.Managed,
+		ManagedPath: appStatus.ManagedPath,
 		Wallets:     len(wallets),
-		Version:     version,
-		BinPath:     c.bin,
+		Version:     appStatus.Version,
+		BinPath:     appStatus.ActivePath,
 	}, nil
 }
 
