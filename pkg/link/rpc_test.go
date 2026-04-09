@@ -79,6 +79,35 @@ func TestRPCPeers(t *testing.T) {
 	}
 }
 
+func TestRPCNetcheck(t *testing.T) {
+	t.Parallel()
+	n := generateTestNode(t)
+	startTestNode(t, n)
+
+	server := startTestSTUNServer(t, 0, nil)
+	h := NewRPCHandler(n, nil, WithSTUNServers([]string{server}))
+
+	result, err, handled := h.Dispatch(context.Background(), "skylink.netcheck", nil)
+	if !handled {
+		t.Fatal("should handle skylink.netcheck")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, _ := json.Marshal(result)
+	var status NetcheckResult
+	if err := json.Unmarshal(data, &status); err != nil {
+		t.Fatal(err)
+	}
+	if !status.UDP {
+		t.Fatal("expected UDP reachability")
+	}
+	if status.PublicAddr == "" {
+		t.Fatal("expected public_addr")
+	}
+}
+
 func TestRPCUnknownMethod(t *testing.T) {
 	t.Parallel()
 	n := generateTestNode(t)

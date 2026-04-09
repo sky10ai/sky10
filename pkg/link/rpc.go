@@ -11,11 +11,30 @@ import (
 type RPCHandler struct {
 	node     *Node
 	resolver *Resolver
+	stun     []string
+}
+
+// RPCHandlerOption configures the skylink RPC handler.
+type RPCHandlerOption func(*RPCHandler)
+
+// WithSTUNServers overrides the STUN server list used by skylink.netcheck.
+func WithSTUNServers(servers []string) RPCHandlerOption {
+	return func(h *RPCHandler) {
+		h.stun = append([]string(nil), servers...)
+	}
 }
 
 // NewRPCHandler creates an RPC handler for the skylink node.
-func NewRPCHandler(node *Node, resolver *Resolver) *RPCHandler {
-	return &RPCHandler{node: node, resolver: resolver}
+func NewRPCHandler(node *Node, resolver *Resolver, opts ...RPCHandlerOption) *RPCHandler {
+	h := &RPCHandler{
+		node:     node,
+		resolver: resolver,
+		stun:     append([]string(nil), DefaultSTUNServers...),
+	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 // Dispatch handles skylink.* methods.
@@ -37,6 +56,8 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		return h.rpcResolve(ctx, params)
 	case "skylink.publish":
 		return h.rpcPublish(ctx)
+	case "skylink.netcheck":
+		return h.rpcNetcheck(ctx)
 	default:
 		return nil, fmt.Errorf("unknown method: %s", method), true
 	}
@@ -168,6 +189,10 @@ func (h *RPCHandler) rpcPublish(ctx context.Context) (interface{}, error, bool) 
 		return nil, err, true
 	}
 	return map[string]bool{"published": true}, nil, true
+}
+
+func (h *RPCHandler) rpcNetcheck(ctx context.Context) (interface{}, error, bool) {
+	return Netcheck(ctx, h.stun), nil, true
 }
 
 func (h *RPCHandler) rpcPeers() (interface{}, error, bool) {

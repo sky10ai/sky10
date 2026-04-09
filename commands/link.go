@@ -19,6 +19,7 @@ func LinkCmd() *cobra.Command {
 	cmd.AddCommand(linkCallCmd())
 	cmd.AddCommand(linkResolveCmd())
 	cmd.AddCommand(linkPublishCmd())
+	cmd.AddCommand(linkNetcheckCmd())
 	return cmd
 }
 
@@ -125,6 +126,52 @@ func linkPublishCmd() *cobra.Command {
 				return err
 			}
 			fmt.Println("published")
+			return nil
+		},
+	}
+}
+
+func linkNetcheckCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "netcheck",
+		Short: "Probe public STUN servers for current UDP reachability",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := rpcCall("skylink.netcheck", nil)
+			if err != nil {
+				return err
+			}
+			var netcheck struct {
+				CheckedAt             string `json:"checked_at"`
+				UDP                   bool   `json:"udp"`
+				PublicAddr            string `json:"public_addr"`
+				PreferredServer       string `json:"preferred_server"`
+				MappingVariesByServer bool   `json:"mapping_varies_by_server"`
+				Probes                []struct {
+					Server     string `json:"server"`
+					PublicAddr string `json:"public_addr"`
+					LatencyMS  int64  `json:"latency_ms"`
+					Error      string `json:"error"`
+				} `json:"probes"`
+			}
+			if err := json.Unmarshal(result, &netcheck); err != nil {
+				return err
+			}
+
+			fmt.Printf("udp:       %t\n", netcheck.UDP)
+			if netcheck.PublicAddr != "" {
+				fmt.Printf("public:    %s\n", netcheck.PublicAddr)
+			}
+			if netcheck.PreferredServer != "" {
+				fmt.Printf("preferred: %s\n", netcheck.PreferredServer)
+			}
+			fmt.Printf("varying:   %t\n", netcheck.MappingVariesByServer)
+			for _, probe := range netcheck.Probes {
+				if probe.Error != "" {
+					fmt.Printf("probe:     %s  error=%s\n", probe.Server, probe.Error)
+					continue
+				}
+				fmt.Printf("probe:     %s  %s  %dms\n", probe.Server, probe.PublicAddr, probe.LatencyMS)
+			}
 			return nil
 		},
 	}
