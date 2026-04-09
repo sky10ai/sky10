@@ -2,7 +2,7 @@
 
 ## Current
 
-No active plans.
+- [Mailbox](current/mailbox/) — durable mailbox design for inbox/outbox, queues, and async agent messaging across the private network and later the sky10 network.
 
 ## Past
 
