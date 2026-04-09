@@ -118,6 +118,21 @@ jobs:
           name: ${{ matrix.asset }}
           path: ${{ matrix.asset }}
 
+      - name: Wait for target release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          for i in $(seq 1 60); do
+            if gh release view "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+              exit 0
+            fi
+            echo "Target release ${GITHUB_REF_NAME} not visible yet, retrying... (attempt $i/60)"
+            sleep 5
+          done
+          echo "::error::Target release ${GITHUB_REF_NAME} was not visible in time"
+          exit 1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -139,6 +154,20 @@ jobs:
 
       - name: Generate checksums
         run: shasum -a 256 sky10-menu-* > checksums-menu.txt && cat checksums-menu.txt
+
+      - name: Wait for target release
+        run: |
+          for i in $(seq 1 60); do
+            if gh release view "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+              exit 0
+            fi
+            echo "Target release ${GITHUB_REF_NAME} not visible yet, retrying... (attempt $i/60)"
+            sleep 5
+          done
+          echo "::error::Target release ${GITHUB_REF_NAME} was not visible in time"
+          exit 1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Attach to release
         run: gh release upload "${GITHUB_REF_NAME}" checksums-menu.txt --clobber --repo "${{ github.repository }}"
@@ -264,6 +293,20 @@ jobs:
 
       - name: Verify prior release menu checksums
         run: cd release && grep "sky10-menu-" checksums-menu.txt | shasum -a 256 -c -
+
+      - name: Wait for target release
+        run: |
+          for i in $(seq 1 60); do
+            if gh release view "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+              exit 0
+            fi
+            echo "Target release ${GITHUB_REF_NAME} not visible yet, retrying... (attempt $i/60)"
+            sleep 5
+          done
+          echo "::error::Target release ${GITHUB_REF_NAME} was not visible in time"
+          exit 1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Attach prior release menu assets
         run: cd release && gh release upload "${GITHUB_REF_NAME}" sky10-menu-* checksums-menu.txt --clobber --repo "${{ github.repository }}"
