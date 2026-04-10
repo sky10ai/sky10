@@ -151,6 +151,15 @@ func (b *PrivateKVBackend) Release(ctx context.Context, queue, itemID, holder, t
 	return collections.NewLease(b.store, b.queueLeasePrefix(queue)).Release(ctx, encodeKeyPart(itemID), holder, token)
 }
 
+// ContainsItem reports whether the item exists in this backend.
+func (b *PrivateKVBackend) ContainsItem(itemID string) bool {
+	if b == nil || b.store == nil {
+		return false
+	}
+	_, ok := b.store.Get(b.itemKey(itemID))
+	return ok
+}
+
 func (b *PrivateKVBackend) listItems() ([]Item, error) {
 	keys := b.store.List(b.itemsPrefix() + "/")
 	items := make([]Item, 0, len(keys))

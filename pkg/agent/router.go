@@ -20,14 +20,16 @@ const peerQueryTimeout = 3 * time.Second
 type Router struct {
 	registry *Registry
 	node     *link.Node
+	resolver *link.Resolver
 	emit     Emitter
 	deviceID string
 	logger   *slog.Logger
 	mailbox  *agentmailbox.Store
 
-	// mu protects peerDevices and peerAgentCache.
+	// mu protects peerDevices, peerAddresses, and peerAgentCache.
 	mu             sync.RWMutex
 	peerDevices    map[string]peer.ID // device_id -> peer.ID
+	peerAddresses  map[string]peer.ID // sky10 address -> peer.ID
 	peerAgentCache map[peer.ID]cachedAgents
 }
 
@@ -47,6 +49,7 @@ func NewRouter(registry *Registry, node *link.Node, emit Emitter, deviceID strin
 		deviceID:       deviceID,
 		logger:         logger,
 		peerDevices:    make(map[string]peer.ID),
+		peerAddresses:  make(map[string]peer.ID),
 		peerAgentCache: make(map[peer.ID]cachedAgents),
 	}
 }
@@ -54,6 +57,11 @@ func NewRouter(registry *Registry, node *link.Node, emit Emitter, deviceID strin
 // SetMailbox attaches durable mailbox storage used for fallback and drain.
 func (r *Router) SetMailbox(store *agentmailbox.Store) {
 	r.mailbox = store
+}
+
+// SetResolver attaches a sky10 network resolver for addressed delivery.
+func (r *Router) SetResolver(resolver *link.Resolver) {
+	r.resolver = resolver
 }
 
 // Send routes a message to the target agent or identity. Local targets
@@ -76,6 +84,49 @@ func (r *Router) Send(ctx context.Context, msg Message) (interface{}, error) {
 		return r.queuedResult(msg.ID, record.Item.ID), nil
 	}
 	return r.sentResult(msg.ID), nil
+}
+
+// DeliverMailboxRecord retries a durable mailbox item through the direct
+// delivery path appropriate for its scope.
+func (r *Router) DeliverMailboxRecord(ctx context.Context, record agentmailbox.Record) (agentmailbox.Record, error) {
+	switch record.Item.Scope() {
+	case agentmailbox.ScopeSky10Network:
+		return r.deliverNetworkMailbox(ctx, record)
+	default:
+		return record, fmt.Errorf("mailbox item %s is not a sky10-network item", record.Item.ID)
+	}
+}
+
+// DrainNetworkOutbox retries durable sky10-network outbound items.
+func (r *Router) DrainNetworkOutbox(ctx context.Context, address string) error {
+	if r.mailbox == nil {
+		return nil
+	}
+	if err := r.mailbox.Reload(ctx); err != nil {
+		return err
+	}
+
+	records := r.mailbox.ListOutbox("")
+	var firstErr error
+	for _, record := range records {
+		if record.Item.Scope() != agentmailbox.ScopeSky10Network {
+			continue
+		}
+		target := ""
+		if record.Item.To != nil {
+			target = record.Item.To.RouteAddress()
+		}
+		if address != "" && target != address {
+			continue
+		}
+		if record.State != agentmailbox.StateQueued && record.State != agentmailbox.StateFailed {
+			continue
+		}
+		if _, err := r.deliverNetworkMailbox(ctx, record); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 // DrainOutbox retries durable outbound messages for this device. When
@@ -300,6 +351,19 @@ func (r *Router) lookupPeer(deviceID string) (peer.ID, bool) {
 	return pid, ok
 }
 
+func (r *Router) cacheAddress(address string, pid peer.ID) {
+	r.mu.Lock()
+	r.peerAddresses[address] = pid
+	r.mu.Unlock()
+}
+
+func (r *Router) lookupAddress(address string) (peer.ID, bool) {
+	r.mu.RLock()
+	pid, ok := r.peerAddresses[address]
+	r.mu.RUnlock()
+	return pid, ok
+}
+
 func (r *Router) routeIncoming(ctx context.Context, msg Message) (interface{}, error) {
 	if r.emit != nil {
 		r.emit("agent.message", msg)
@@ -325,6 +389,99 @@ func (r *Router) sendRemoteLive(ctx context.Context, msg Message) error {
 
 	if _, err := r.node.Call(sendCtx, pid, "agent.send", msg); err != nil {
 		return fmt.Errorf("remote send to %s: %w", msg.DeviceID, err)
+	}
+	return nil
+}
+
+func (r *Router) deliverNetworkMailbox(ctx context.Context, record agentmailbox.Record) (agentmailbox.Record, error) {
+	if r.mailbox == nil {
+		return agentmailbox.Record{}, fmt.Errorf("mailbox not configured")
+	}
+	if record.Item.To == nil {
+		return record, fmt.Errorf("mailbox item %s has no recipient", record.Item.ID)
+	}
+	if record.State == agentmailbox.StateDelivered || record.State == agentmailbox.StateCompleted {
+		return record, nil
+	}
+
+	targetAddress := record.Item.To.RouteAddress()
+	if targetAddress == "" {
+		err := fmt.Errorf("mailbox item %s has no sky10 route address", record.Item.ID)
+		updated, appendErr := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+			ItemID: record.Item.ID,
+			Type:   agentmailbox.EventTypeDeliveryFailed,
+			Actor:  routerActor(agentmailbox.ScopeSky10Network, r.routerAddress(), r.deviceID),
+			Error:  err.Error(),
+		})
+		if appendErr == nil {
+			r.emitMailboxUpdate("queued", updated)
+			return updated, err
+		}
+		return record, err
+	}
+
+	item := cloneMailboxItem(record.Item)
+	item.To = cloneMailboxRecipient(item.To)
+	if item.To != nil {
+		item.To.DeviceHint = ""
+	}
+	if err := r.sendNetworkMailboxLive(ctx, targetAddress, item); err != nil {
+		updated, appendErr := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+			ItemID: record.Item.ID,
+			Type:   agentmailbox.EventTypeDeliveryFailed,
+			Actor:  routerActor(agentmailbox.ScopeSky10Network, r.routerAddress(), r.deviceID),
+			Error:  err.Error(),
+		})
+		if appendErr == nil {
+			r.emitMailboxUpdate("queued", updated)
+			return updated, err
+		}
+		return record, err
+	}
+
+	updated, err := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+		ItemID: record.Item.ID,
+		Type:   agentmailbox.EventTypeDelivered,
+		Actor:  routerActor(agentmailbox.ScopeSky10Network, r.routerAddress(), r.deviceID),
+		Meta: map[string]string{
+			"route_address": targetAddress,
+		},
+	})
+	if err != nil {
+		return record, err
+	}
+	r.emitMailboxUpdate("delivered", updated)
+	return updated, nil
+}
+
+func (r *Router) sendNetworkMailboxLive(ctx context.Context, address string, item agentmailbox.Item) error {
+	if r.node == nil {
+		return fmt.Errorf("node not configured")
+	}
+	pid, ok := r.lookupAddress(address)
+	if !ok {
+		if r.resolver == nil {
+			return fmt.Errorf("sky10 address %s not connected", address)
+		}
+		resolveCtx, cancel := context.WithTimeout(ctx, peerQueryTimeout)
+		defer cancel()
+		info, err := r.resolver.Resolve(resolveCtx, address)
+		if err != nil {
+			return fmt.Errorf("resolving %s: %w", address, err)
+		}
+		if host := r.node.Host(); host != nil {
+			if err := host.Connect(resolveCtx, *info); err != nil {
+				return fmt.Errorf("connecting %s: %w", address, err)
+			}
+		}
+		pid = info.ID
+		r.cacheAddress(address, pid)
+	}
+
+	sendCtx, cancel := context.WithTimeout(ctx, peerQueryTimeout)
+	defer cancel()
+	if _, err := r.node.Call(sendCtx, pid, "agent.mailbox.deliver", mailboxDeliverParams{Item: item}); err != nil {
+		return fmt.Errorf("network mailbox deliver to %s: %w", address, err)
 	}
 	return nil
 }
@@ -413,12 +570,17 @@ func messageFromID(msg Message, fallback string) string {
 	return fallback
 }
 
-func routerPrincipal(id, deviceHint string) agentmailbox.Principal {
+func routerActor(scope, id, deviceHint string) agentmailbox.Principal {
 	return agentmailbox.Principal{
 		ID:         id,
-		Scope:      agentmailbox.ScopePrivateNetwork,
+		Kind:       agentmailbox.PrincipalKindLocalAgent,
+		Scope:      scope,
 		DeviceHint: deviceHint,
 	}
+}
+
+func routerPrincipal(id, deviceHint string) agentmailbox.Principal {
+	return routerActor(agentmailbox.ScopePrivateNetwork, id, deviceHint)
 }
 
 func routerRecipient(msg Message) *agentmailbox.Principal {
@@ -427,6 +589,37 @@ func routerRecipient(msg Message) *agentmailbox.Principal {
 		Scope:      agentmailbox.ScopePrivateNetwork,
 		DeviceHint: msg.DeviceID,
 	}
+}
+
+func (r *Router) routerAddress() string {
+	if r.node != nil {
+		return r.node.Address()
+	}
+	return r.deviceID
+}
+
+func cloneMailboxItem(item agentmailbox.Item) agentmailbox.Item {
+	cp := item
+	if item.To != nil {
+		to := *item.To
+		cp.To = &to
+	}
+	if item.PayloadInline != nil {
+		cp.PayloadInline = append(json.RawMessage(nil), item.PayloadInline...)
+	}
+	if item.PayloadRef != nil {
+		ref := *item.PayloadRef
+		cp.PayloadRef = &ref
+	}
+	return cp
+}
+
+func cloneMailboxRecipient(p *agentmailbox.Principal) *agentmailbox.Principal {
+	if p == nil {
+		return nil
+	}
+	cp := *p
+	return &cp
 }
 
 func mailboxMessage(record agentmailbox.Record) (Message, error) {

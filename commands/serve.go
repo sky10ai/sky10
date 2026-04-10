@@ -157,7 +157,7 @@ func ServeCmd() *cobra.Command {
 			go func() {
 				kvRunErr <- kvStore.Run(ctx)
 			}()
-			mailboxStore, err := agentmailbox.NewStore(ctx, agentmailbox.NewPrivateKVBackend(kvStore, ""))
+			mailboxStore, err := agentmailbox.NewStore(ctx, agentmailbox.NewScopedKVBackend(kvStore, "mailbox"))
 			if err != nil {
 				return fmt.Errorf("creating mailbox store: %w", err)
 			}
@@ -240,6 +240,7 @@ func ServeCmd() *cobra.Command {
 				}
 				if agentRouter != nil {
 					go agentRouter.DrainOutbox(context.Background(), "")
+					go agentRouter.DrainNetworkOutbox(context.Background(), "")
 				}
 			}
 			configureIdentityRPCHandler(identityRPC, bundle, idStore, backend, linkNode, relays, refreshPrivateNetwork)
@@ -248,6 +249,7 @@ func ServeCmd() *cobra.Command {
 			agentRegistry := skyagent.NewRegistry(bundle.DeviceID(), skyfs.GetDeviceName(), logRuntime.Logger)
 			agentRouter = skyagent.NewRouter(agentRegistry, linkNode, server.Emit, bundle.DeviceID(), logRuntime.Logger)
 			agentRouter.SetMailbox(mailboxStore)
+			agentRouter.SetResolver(linkResolver)
 			agentRPC := skyagent.NewRPCHandler(agentRegistry, bundle.Identity, server.Emit)
 			agentRPC.SetRouter(agentRouter)
 			agentRPC.SetMailbox(mailboxStore)

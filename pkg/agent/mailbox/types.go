@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	skykey "github.com/sky10/sky10/pkg/key"
 	"github.com/sky10/sky10/pkg/kv/collections"
 )
 
@@ -58,6 +59,7 @@ type Principal struct {
 	Kind       string `json:"kind"`
 	Scope      string `json:"scope"`
 	DeviceHint string `json:"device_hint,omitempty"`
+	RouteHint  string `json:"route_hint,omitempty"`
 }
 
 // Validate checks whether a principal is structurally valid.
@@ -66,6 +68,37 @@ func (p Principal) Validate() error {
 		return fmt.Errorf("principal id is required")
 	}
 	return nil
+}
+
+// ScopeOrDefault returns the principal scope with a private-network default.
+func (p Principal) ScopeOrDefault() string {
+	scope := strings.TrimSpace(p.Scope)
+	if scope == "" {
+		return ScopePrivateNetwork
+	}
+	return scope
+}
+
+// RouteAddress returns the sky10 address used to reach this principal over the
+// public network, when available.
+func (p Principal) RouteAddress() string {
+	if p.ScopeOrDefault() != ScopeSky10Network {
+		return ""
+	}
+	hint := strings.TrimSpace(p.RouteHint)
+	if hint != "" {
+		if _, err := skykey.ParseAddress(hint); err == nil {
+			return hint
+		}
+	}
+	id := strings.TrimSpace(p.ID)
+	if id == "" {
+		return ""
+	}
+	if _, err := skykey.ParseAddress(id); err == nil {
+		return id
+	}
+	return ""
 }
 
 // Item is the durable mailbox envelope for a unit of work or protocol step.
@@ -108,6 +141,14 @@ func (i Item) ValidateForCreate() error {
 		}
 	}
 	return nil
+}
+
+// Scope returns the mailbox transport scope for this item.
+func (i Item) Scope() string {
+	if i.To != nil {
+		return i.To.ScopeOrDefault()
+	}
+	return i.From.ScopeOrDefault()
 }
 
 // QueueName returns the claimable queue identifier for an item, if any.

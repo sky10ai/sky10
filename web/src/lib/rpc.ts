@@ -432,6 +432,7 @@ export interface MailboxPrincipal {
   kind: string;
   scope: string;
   device_hint?: string;
+  route_hint?: string;
 }
 
 export interface MailboxItem {
@@ -503,6 +504,7 @@ export interface MailboxPrincipalParams {
   kind?: string;
   scope?: string;
   device_hint?: string;
+  route_hint?: string;
 }
 
 export interface MailboxSendParams {

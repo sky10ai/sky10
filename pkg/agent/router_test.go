@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -342,6 +343,151 @@ func TestRouterListIgnoresPublicPeers(t *testing.T) {
 	if _, ok := names["outsider"]; ok {
 		t.Fatalf("public peer agent leaked into list: %v", names)
 	}
+}
+
+func TestRouterDeliverMailboxRecordSky10Network(t *testing.T) {
+	t.Parallel()
+
+	nodeA := makeTestNode(t)
+	nodeB := makeTestNode(t)
+	startNode(t, nodeA)
+	startNode(t, nodeB)
+	connectNodes(t, nodeA, nodeB)
+
+	regA := NewRegistry("D-deviceAA", "hostA", nil)
+	regB := NewRegistry("D-deviceBB", "hostB", nil)
+	regB.Register(RegisterParams{Name: "worker"}, "A-worker010000000")
+
+	mailboxA := newRouterMailboxStore(t)
+	mailboxB := newRouterMailboxStore(t)
+
+	routerA := NewRouter(regA, nodeA, nil, "D-deviceAA", nil)
+	routerA.SetMailbox(mailboxA)
+	routerA.cacheAddress(nodeB.Address(), nodeB.PeerID())
+
+	routerB := NewRouter(regB, nodeB, nil, "D-deviceBB", nil)
+	routerB.SetMailbox(mailboxB)
+	RegisterLinkHandlers(nodeB, regB, nil, routerB)
+
+	record, err := mailboxA.Create(context.Background(), agentmailbox.Item{
+		ID:             "network-item-1",
+		Kind:           agentmailbox.ItemKindMessage,
+		From:           agentmailbox.Principal{ID: nodeA.Address(), Kind: agentmailbox.PrincipalKindHuman, Scope: agentmailbox.ScopeSky10Network, RouteHint: nodeA.Address()},
+		To:             &agentmailbox.Principal{ID: "worker", Kind: agentmailbox.PrincipalKindNetworkAgent, Scope: agentmailbox.ScopeSky10Network, RouteHint: nodeB.Address()},
+		SessionID:      "session-1",
+		RequestID:      "request-1",
+		IdempotencyKey: "request-1",
+		PayloadInline:  json.RawMessage(`{"text":"hello from sky10"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	delivered, err := routerA.DeliverMailboxRecord(context.Background(), record)
+	if err != nil {
+		t.Fatalf("deliver mailbox record: %v", err)
+	}
+	if delivered.State != agentmailbox.StateDelivered {
+		t.Fatalf("state = %s, want %s", delivered.State, agentmailbox.StateDelivered)
+	}
+
+	got, ok := mailboxB.Get(record.Item.ID)
+	if !ok {
+		t.Fatal("remote mailbox item not found")
+	}
+	if got.Item.To == nil || got.Item.To.ID != "worker" {
+		t.Fatalf("remote recipient = %+v, want worker", got.Item.To)
+	}
+	if got.Item.Scope() != agentmailbox.ScopeSky10Network {
+		t.Fatalf("remote item scope = %s, want %s", got.Item.Scope(), agentmailbox.ScopeSky10Network)
+	}
+}
+
+func TestRouterDeliverMailboxRecordSky10NetworkQueuesOnUnresolvedAddress(t *testing.T) {
+	t.Parallel()
+
+	node := makeTestNode(t)
+	reg := NewRegistry("D-deviceAA", "hostA", nil)
+	mailbox := newRouterMailboxStore(t)
+	router := NewRouter(reg, node, nil, "D-deviceAA", nil)
+	router.SetMailbox(mailbox)
+
+	record, err := mailbox.Create(context.Background(), agentmailbox.Item{
+		ID:             "network-item-2",
+		Kind:           agentmailbox.ItemKindMessage,
+		From:           agentmailbox.Principal{ID: "sky10qsender", Kind: agentmailbox.PrincipalKindHuman, Scope: agentmailbox.ScopeSky10Network, RouteHint: "sky10qsender"},
+		To:             &agentmailbox.Principal{ID: "worker", Kind: agentmailbox.PrincipalKindNetworkAgent, Scope: agentmailbox.ScopeSky10Network, RouteHint: "sky10qunreachable"},
+		SessionID:      "session-2",
+		RequestID:      "request-2",
+		IdempotencyKey: "request-2",
+		PayloadInline:  json.RawMessage(`{"text":"retry later"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := router.DeliverMailboxRecord(context.Background(), record)
+	if err == nil {
+		t.Fatal("expected unresolved sky10 address to fail live delivery")
+	}
+	if !updated.Failed() {
+		t.Fatalf("updated state = %s, want failure state", updated.State)
+	}
+	if _, ok := updated.LatestEvent(); !ok {
+		t.Fatal("expected delivery failure event")
+	}
+}
+
+func newRouterMailboxStore(t *testing.T) *agentmailbox.Store {
+	t.Helper()
+	store, err := agentmailbox.NewStore(context.Background(), agentmailbox.NewScopedKVBackend(newRouterMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+type routerMemoryKVStore struct {
+	mu   sync.RWMutex
+	data map[string][]byte
+}
+
+func newRouterMemoryKVStore() *routerMemoryKVStore {
+	return &routerMemoryKVStore{data: make(map[string][]byte)}
+}
+
+func (s *routerMemoryKVStore) Set(_ context.Context, key string, value []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data[key] = append([]byte(nil), value...)
+	return nil
+}
+
+func (s *routerMemoryKVStore) Get(key string) ([]byte, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.data[key]
+	return append([]byte(nil), value...), ok
+}
+
+func (s *routerMemoryKVStore) Delete(_ context.Context, key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.data, key)
+	return nil
+}
+
+func (s *routerMemoryKVStore) List(prefix string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := make([]string, 0)
+	for key := range s.data {
+		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+			out = append(out, key)
+		}
+	}
+	return out
 }
 
 func TestRouterSendQueuesWhenRemoteDeviceUnavailable(t *testing.T) {

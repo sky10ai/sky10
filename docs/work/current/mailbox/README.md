@@ -131,6 +131,7 @@ type Principal struct {
     Kind        string // human, local_agent, network_agent, capability_queue
     Scope       string // private_network or sky10_network
     DeviceHint  string // optional direct-delivery hint
+    RouteHint   string // optional sky10 address for public-network routing
 }
 ```
 
@@ -297,6 +298,31 @@ The long-term model needs a separate backend:
 - capability queue support for unaddressed task routing
 
 The mailbox item format stays the same; only the backend changes.
+
+The current implementation uses:
+
+- a separate `mailbox/sky10` scope in KV-backed durable state
+- direct skylink delivery for addressed items when `Principal.RouteHint`
+  resolves to a live sky10 address
+- durable sender-side retry when direct delivery is unavailable
+- lease-backed queue semantics for sky10-network queue items once they land on
+  a mailbox host
+
+Routing rule:
+
+- `Scope == sky10_network` means the item belongs in the sky10-network mailbox
+  backend
+- `To.RouteHint` is the public sky10 address used to reach the remote mailbox
+  host
+- if `RouteHint` is absent and `To.ID` is itself a sky10 address, `To.ID` is
+  used as the route target
+
+Indirect payload rule:
+
+- if a sky10-network payload must spill out of the inline envelope, store it as
+  a sealed opaque object for the recipient
+- the ref that remains in mailbox state may be public, but the payload bytes
+  must stay sealed to the intended recipient
 
 ## Payment and Approval Flows
 
@@ -596,12 +622,12 @@ Exit criteria:
 
 Checklist:
 
-- [ ] Define network mailbox backend interface.
-- [ ] Define addressed sky10-network delivery fallback.
-- [ ] Define claimable public-network queue behavior.
-- [ ] Define encryption requirements for indirect storage.
-- [ ] Add public-network backend implementation.
-- [ ] Add integration tests for online direct delivery plus durable fallback.
+- [x] Define network mailbox backend interface.
+- [x] Define addressed sky10-network delivery fallback.
+- [x] Define claimable public-network queue behavior.
+- [x] Define encryption requirements for indirect storage.
+- [x] Add public-network backend implementation.
+- [x] Add integration tests for online direct delivery plus durable fallback.
 
 ## Open Questions
 

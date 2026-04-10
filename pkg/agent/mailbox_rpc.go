@@ -38,6 +38,7 @@ type mailboxPrincipalParams struct {
 	Kind       string `json:"kind,omitempty"`
 	Scope      string `json:"scope,omitempty"`
 	DeviceHint string `json:"device_hint,omitempty"`
+	RouteHint  string `json:"route_hint,omitempty"`
 }
 
 type mailboxSendParams struct {
@@ -88,6 +89,11 @@ func (h *RPCHandler) rpcMailboxSend(ctx context.Context, params json.RawMessage)
 	record, err := h.createMailboxRecord(ctx, store, item, p.Payload)
 	if err != nil {
 		return nil, err
+	}
+	if h.router != nil && record.Item.Scope() == agentmailbox.ScopeSky10Network {
+		if delivered, deliveryErr := h.router.DeliverMailboxRecord(ctx, record); deliveryErr == nil || delivered.Item.ID != "" {
+			record = delivered
+		}
 	}
 	h.emitMailboxEvent("agent.mailbox.updated", "send", record)
 	return mailboxRecordResult(record), nil
@@ -334,6 +340,14 @@ func (h *RPCHandler) rpcMailboxRetry(ctx context.Context, params json.RawMessage
 		return nil, fmt.Errorf("mailbox item %s not found", strings.TrimSpace(p.ItemID))
 	}
 
+	if record.Item.Scope() == agentmailbox.ScopeSky10Network {
+		updated, err := h.router.DeliverMailboxRecord(ctx, record)
+		if err != nil {
+			return nil, err
+		}
+		return mailboxRecordResult(updated), nil
+	}
+
 	if record.Item.From.ID == h.registry.DeviceID() && record.Item.To != nil && record.Item.To.DeviceHint != "" {
 		if err := h.router.DrainOutbox(ctx, record.Item.To.DeviceHint); err != nil {
 			return nil, err
@@ -388,6 +402,7 @@ func (h *RPCHandler) mailboxPrincipal(p *mailboxPrincipalParams) agentmailbox.Pr
 			Kind:       agentmailbox.PrincipalKindHuman,
 			Scope:      agentmailbox.ScopePrivateNetwork,
 			DeviceHint: h.registry.DeviceID(),
+			RouteHint:  h.defaultRouteHint(),
 		}
 	}
 	kind := strings.TrimSpace(p.Kind)
@@ -403,6 +418,7 @@ func (h *RPCHandler) mailboxPrincipal(p *mailboxPrincipalParams) agentmailbox.Pr
 		Kind:       kind,
 		Scope:      scope,
 		DeviceHint: strings.TrimSpace(p.DeviceHint),
+		RouteHint:  strings.TrimSpace(p.RouteHint),
 	}
 }
 
@@ -428,6 +444,7 @@ func (h *RPCHandler) actionActor(id, kind string) agentmailbox.Principal {
 		Kind:       actorKind,
 		Scope:      agentmailbox.ScopePrivateNetwork,
 		DeviceHint: h.registry.DeviceID(),
+		RouteHint:  h.defaultRouteHint(),
 	}
 }
 
@@ -436,6 +453,13 @@ func (h *RPCHandler) defaultActorID() string {
 		return h.owner.Address()
 	}
 	return h.registry.DeviceID()
+}
+
+func (h *RPCHandler) defaultRouteHint() string {
+	if h.owner != nil {
+		return h.owner.Address()
+	}
+	return ""
 }
 
 func (h *RPCHandler) emitMailboxEvent(event, action string, record agentmailbox.Record) {

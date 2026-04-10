@@ -11,6 +11,9 @@ const (
 	PayloadKindChunkedKV = "chunked_kv"
 	// PayloadKindSkyFS references a payload stored in skyfs.
 	PayloadKindSkyFS = "skyfs"
+	// PayloadKindSealedObject references a sealed opaque object in indirect
+	// storage for a specific recipient.
+	PayloadKindSealedObject = "sealed_object"
 )
 
 // PayloadRef points to payload bytes stored outside the inline mailbox
