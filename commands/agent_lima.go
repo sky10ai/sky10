@@ -31,6 +31,8 @@ const (
 	sandboxCertKeyFile       = "sb.sky10.local-key.pem"
 	sandboxProviderLima      = "lima"
 	sandboxTemplateOpenClaw  = "openclaw"
+	templateNameToken        = "__SKY10_SANDBOX_NAME__"
+	templateSharedToken      = "__SKY10_SHARED_DIR__"
 )
 
 var agentLimaAssetFiles = []string{
@@ -86,7 +88,7 @@ func sandboxCreateCmd() *cobra.Command {
 				return err
 			}
 
-			templateDir, hostsScript, err := materializeLimaAssets(cmd.Context())
+			templatePath, hostsScript, err := materializeLimaAssets(cmd.Context(), name, sharedDir)
 			if err != nil {
 				return err
 			}
@@ -97,7 +99,6 @@ func sandboxCreateCmd() *cobra.Command {
 				return err
 			}
 
-			templatePath := filepath.Join(templateDir, agentLimaTemplateYAML)
 			limactl, err := ensureManagedAppPath(cmd, skyapps.AppLima)
 			if err != nil {
 				return err
@@ -259,7 +260,7 @@ func sandboxHTTPSURL(name string) string {
 	return "https://" + sandboxHostname(name) + ":18790/chat?session=main"
 }
 
-func materializeLimaAssets(ctx context.Context) (string, []byte, error) {
+func materializeLimaAssets(ctx context.Context, sandboxName, sharedDir string) (string, []byte, error) {
 	root, err := config.RootDir()
 	if err != nil {
 		return "", nil, err
@@ -268,14 +269,21 @@ func materializeLimaAssets(ctx context.Context) (string, []byte, error) {
 	if err := os.MkdirAll(destDir, 0o700); err != nil {
 		return "", nil, fmt.Errorf("creating Lima template cache %q: %w", destDir, err)
 	}
+	templatePath := filepath.Join(destDir, sandboxName+"-"+agentLimaTemplateYAML)
 
 	if localDir, err := findLocalLimaTemplateDir(); err == nil {
-		for _, name := range append(append([]string(nil), agentLimaAssetFiles...), agentLimaHostsScript) {
-			src := filepath.Join(localDir, name)
-			dst := filepath.Join(destDir, name)
+		for _, assetName := range append(append([]string(nil), agentLimaAssetFiles...), agentLimaHostsScript) {
+			src := filepath.Join(localDir, assetName)
+			dst := filepath.Join(destDir, assetName)
 			mode := os.FileMode(0o644)
-			if strings.HasSuffix(name, ".sh") {
+			if strings.HasSuffix(assetName, ".sh") {
 				mode = 0o755
+			}
+			if assetName == agentLimaTemplateYAML {
+				if err := copyAndRenderTemplate(src, templatePath, mode, sandboxName, sharedDir); err != nil {
+					return "", nil, err
+				}
+				continue
 			}
 			if err := copyFile(src, dst, mode); err != nil {
 				return "", nil, err
@@ -285,20 +293,25 @@ func materializeLimaAssets(ctx context.Context) (string, []byte, error) {
 		if err != nil {
 			return "", nil, fmt.Errorf("reading copied Lima hosts helper: %w", err)
 		}
-		return destDir, helper, nil
+		return templatePath, helper, nil
 	}
 
-	for _, name := range append(append([]string(nil), agentLimaAssetFiles...), agentLimaHostsScript) {
-		body, err := downloadLimaAsset(ctx, name)
+	for _, assetName := range append(append([]string(nil), agentLimaAssetFiles...), agentLimaHostsScript) {
+		body, err := downloadLimaAsset(ctx, assetName)
 		if err != nil {
 			return "", nil, err
 		}
 		mode := os.FileMode(0o644)
-		if strings.HasSuffix(name, ".sh") {
+		if strings.HasSuffix(assetName, ".sh") {
 			mode = 0o755
 		}
-		if err := os.WriteFile(filepath.Join(destDir, name), body, mode); err != nil {
-			return "", nil, fmt.Errorf("writing Lima asset %q: %w", name, err)
+		dst := filepath.Join(destDir, assetName)
+		if assetName == agentLimaTemplateYAML {
+			dst = templatePath
+			body = renderLimaTemplate(body, sandboxName, sharedDir)
+		}
+		if err := os.WriteFile(dst, body, mode); err != nil {
+			return "", nil, fmt.Errorf("writing Lima asset %q: %w", assetName, err)
 		}
 	}
 
@@ -306,7 +319,24 @@ func materializeLimaAssets(ctx context.Context) (string, []byte, error) {
 	if err != nil {
 		return "", nil, fmt.Errorf("reading downloaded Lima hosts helper: %w", err)
 	}
-	return destDir, helper, nil
+	return templatePath, helper, nil
+}
+
+func copyAndRenderTemplate(src, dst string, mode os.FileMode, name, sharedDir string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("reading Lima asset %q: %w", src, err)
+	}
+	if err := os.WriteFile(dst, renderLimaTemplate(data, name, sharedDir), mode); err != nil {
+		return fmt.Errorf("writing Lima asset %q: %w", dst, err)
+	}
+	return nil
+}
+
+func renderLimaTemplate(body []byte, name, sharedDir string) []byte {
+	rendered := strings.ReplaceAll(string(body), templateNameToken, name)
+	rendered = strings.ReplaceAll(rendered, templateSharedToken, sharedDir)
+	return []byte(rendered)
 }
 
 func findLocalLimaTemplateDir() (string, error) {

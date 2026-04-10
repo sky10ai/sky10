@@ -13,15 +13,15 @@ networks:
 - vzNAT: true
 
 mounts:
-- location: "{{.Home}}/sky10/sandboxes/{{.Name}}"
+- location: "__SKY10_SHARED_DIR__"
   mountPoint: "/shared"
   writable: true
 
 message: |
-  Ubuntu is provisioning inside "{{.Name}}".
+  Ubuntu is provisioning inside "__SKY10_SANDBOX_NAME__".
 
   Shared host directory:
-    {{.Home}}/sky10/sandboxes/{{.Name}}
+    __SKY10_SHARED_DIR__
 
   Open a shell with:
-    limactl shell {{.Name}}
+    limactl shell __SKY10_SANDBOX_NAME__

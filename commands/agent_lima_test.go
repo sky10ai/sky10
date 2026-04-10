@@ -3,6 +3,7 @@ package commands
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -115,5 +116,22 @@ func TestValidateSandboxCreate(t *testing.T) {
 	}
 	if err := validateSandboxCreate(sandboxProviderLima, "claude"); err == nil {
 		t.Fatal("validateSandboxCreate(unknown template): want error")
+	}
+}
+
+func TestRenderLimaTemplate(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`name=__SKY10_SANDBOX_NAME__ path=__SKY10_SHARED_DIR__`)
+	got := string(renderLimaTemplate(body, "bobs-burgers", "/Users/bf/sky10/sandboxes/bobs-burgers"))
+
+	if strings.Contains(got, templateNameToken) || strings.Contains(got, templateSharedToken) {
+		t.Fatalf("renderLimaTemplate() left placeholder tokens behind: %q", got)
+	}
+	if !strings.Contains(got, "bobs-burgers") {
+		t.Fatalf("renderLimaTemplate() missing sandbox name: %q", got)
+	}
+	if !strings.Contains(got, "/Users/bf/sky10/sandboxes/bobs-burgers") {
+		t.Fatalf("renderLimaTemplate() missing shared dir: %q", got)
 	}
 }

@@ -61,6 +61,13 @@ const commands: Command[] = [
     shortcut: "⌘ 5",
     section: "System",
   },
+  {
+    id: "local-agents",
+    label: "Local Agents",
+    icon: "deployed_code",
+    action: "/settings/sandboxes",
+    section: "System",
+  },
 ];
 
 export function CommandPalette() {

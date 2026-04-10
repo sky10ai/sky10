@@ -64,6 +64,20 @@ function getRouteMeta(pathname: string) {
     };
   }
 
+  if (pathname.startsWith("/settings/sandboxes")) {
+    return {
+      description: "Provision isolated local runtimes that will later host full local agents.",
+      title: "Local Agents",
+    };
+  }
+
+  if (pathname.startsWith("/settings/apps")) {
+    return {
+      description: "Manage the helper binaries sky10 installs and updates on your machine.",
+      title: "Managed Apps",
+    };
+  }
+
   if (pathname.startsWith("/settings")) {
     return {
       description: "Review identity, runtime, and local node configuration details.",

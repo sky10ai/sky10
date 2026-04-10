@@ -39,7 +39,8 @@ export default function App() {
           <Route path="agents/connect" element={<AgentConnect />} />
           <Route path="agents/:agentId" element={<AgentChat />} />
           <Route path="mailbox" element={<Mailbox />} />
-          <Route path="sandboxes" element={<Sandboxes />} />
+          <Route path="sandboxes" element={<Navigate replace to="/settings/sandboxes" />} />
+          <Route path="mailbox" element={<Mailbox />} />
           <Route path="network" element={<Network />} />
           <Route path="kv" element={<KVStore />} />
           <Route path="drives" element={<Drives />} />
@@ -47,6 +48,7 @@ export default function App() {
           <Route path="bucket/*" element={<Bucket />} />
           <Route path="activity" element={<Activity />} />
           <Route path="settings/apps" element={<SettingsApps />} />
+          <Route path="settings/sandboxes" element={<Sandboxes />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

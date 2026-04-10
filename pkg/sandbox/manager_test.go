@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -124,5 +125,22 @@ func TestDefaultSharedDir(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Dir(got)); !os.IsNotExist(err) {
 		t.Fatalf("shared dir parent should not be created eagerly")
+	}
+}
+
+func TestRenderSandboxTemplate(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`name=__SKY10_SANDBOX_NAME__ path=__SKY10_SHARED_DIR__`)
+	got := string(renderSandboxTemplate(body, "devbox", "/Users/bf/sky10/sandboxes/devbox"))
+
+	if strings.Contains(got, templateNameToken) || strings.Contains(got, templateSharedToken) {
+		t.Fatalf("renderSandboxTemplate() left placeholder tokens behind: %q", got)
+	}
+	if !strings.Contains(got, "devbox") {
+		t.Fatalf("renderSandboxTemplate() missing sandbox name: %q", got)
+	}
+	if !strings.Contains(got, "/Users/bf/sky10/sandboxes/devbox") {
+		t.Fatalf("renderSandboxTemplate() missing shared dir: %q", got)
 	}
 }

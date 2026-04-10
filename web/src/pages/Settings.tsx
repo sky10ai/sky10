@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router";
 import { Icon } from "../components/Icon";
 import { STORAGE_EVENT_TYPES, WALLET_EVENT_TYPES, subscribe } from "../lib/events";
 import { identity, skyfs, skylink, system, wallet } from "../lib/rpc";
@@ -343,6 +344,60 @@ export default function Settings() {
           Configure your vault identity, storage parameters, and network
           visibility.
         </p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Link
+          className="group rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
+          to="/settings/sandboxes"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
+                Local Agents
+              </p>
+              <h3 className="text-xl font-semibold text-on-surface">
+                Provision isolated Linux runtimes
+              </h3>
+              <p className="max-w-md text-sm text-secondary">
+                Start a Lima-backed Ubuntu VM, watch provisioning logs, and prepare the machine for a future local agent install.
+              </p>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <Icon className="text-2xl" name="deployed_code" />
+            </div>
+          </div>
+          <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary transition-colors group-hover:text-on-surface">
+            Open Local Agents
+            <Icon className="text-base" name="arrow_forward" />
+          </div>
+        </Link>
+
+        <Link
+          className="group rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
+          to="/settings/apps"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
+                Managed Apps
+              </p>
+              <h3 className="text-xl font-semibold text-on-surface">
+                Install helper binaries
+              </h3>
+              <p className="max-w-md text-sm text-secondary">
+                Review and manage tools sky10 installs locally, like wallet binaries and future sandbox dependencies.
+              </p>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-tertiary/10 text-tertiary">
+              <Icon className="text-2xl" name="download" />
+            </div>
+          </div>
+          <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-tertiary transition-colors group-hover:text-on-surface">
+            Open Managed Apps
+            <Icon className="text-base" name="arrow_forward" />
+          </div>
+        </Link>
       </div>
 
       <div className="grid grid-cols-12 gap-6">

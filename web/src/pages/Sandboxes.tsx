@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router";
 import { Icon } from "../components/Icon";
 import { PageHeader } from "../components/PageHeader";
 import { StatusBadge } from "../components/StatusBadge";
@@ -65,14 +66,15 @@ export default function Sandboxes() {
     live: SANDBOX_EVENT_TYPES,
     refreshIntervalMs: 5_000,
   });
+  const sandboxes = listData?.sandboxes ?? [];
 
   const selectedExists = useMemo(
-    () => Boolean(listData?.sandboxes.some((item) => item.name === selectedName)),
-    [listData?.sandboxes, selectedName],
+    () => sandboxes.some((item) => item.name === selectedName),
+    [sandboxes, selectedName],
   );
 
   useEffect(() => {
-    const firstSandbox = listData?.sandboxes?.[0];
+    const firstSandbox = sandboxes[0];
     if (!selectedName && firstSandbox) {
       setSelectedName(firstSandbox.name);
       return;
@@ -80,7 +82,7 @@ export default function Sandboxes() {
     if (selectedName && !selectedExists) {
       setSelectedName(firstSandbox?.name ?? "");
     }
-  }, [listData?.sandboxes, selectedExists, selectedName]);
+  }, [sandboxes, selectedExists, selectedName]);
 
   const {
     data: selected,
@@ -224,27 +226,17 @@ export default function Sandboxes() {
   return (
     <section className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 p-12">
       <PageHeader
-        eyebrow="Sandbox"
-        title="Linux Sandboxes"
-        description="One click creates an Ubuntu Lima VM on this Mac. Watch the live boot log here while Lima provisions the guest."
+        eyebrow="Settings"
+        title="Local Agents"
+        description="Manage isolated Linux runtimes for local agents on this Mac. Today this flow provisions Ubuntu with Lima and streams boot output while the guest comes up."
         actions={(
-          <div className="flex flex-wrap items-center gap-3">
-            <input
-              className="rounded-full border border-outline-variant/20 bg-surface-container-lowest px-4 py-2 text-sm text-on-surface outline-none"
-              onChange={(e) => setDraftName(e.target.value)}
-              placeholder="linux name"
-              value={draftName}
-            />
-            <button
-              className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary shadow-lg transition-all active:scale-95 disabled:opacity-60"
-              disabled={busyAction !== null}
-              onClick={handleCreate}
-              type="button"
-            >
-              <Icon name="add" />
-              {busyAction === "create" ? "Creating..." : "Create Linux Sandbox"}
-            </button>
-          </div>
+          <Link
+            className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary transition-colors hover:text-on-surface"
+            to="/settings"
+          >
+            <Icon className="text-base" name="arrow_back" />
+            Back to Settings
+          </Link>
         )}
       />
 
@@ -254,19 +246,83 @@ export default function Sandboxes() {
         </div>
       )}
 
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <section className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-8 shadow-sm">
+          <div className="space-y-6">
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge tone="processing">Lima</StatusBadge>
+                <StatusBadge tone="neutral">Ubuntu 24.04</StatusBadge>
+                <StatusBadge tone="neutral">macOS</StatusBadge>
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-2xl font-semibold text-on-surface">
+                  Provision a local agent runtime
+                </h2>
+                <p className="max-w-2xl text-sm text-secondary">
+                  This creates an isolated Ubuntu VM under your local sky10 workspace. It does not install sky10 or OpenClaw inside the guest yet; this pass is just about getting Linux up reliably and making the boot process visible.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 md:flex-row">
+              <input
+                className="min-w-0 flex-1 rounded-full border border-outline-variant/20 bg-surface-container px-5 py-3 text-sm text-on-surface outline-none transition-colors focus:border-primary/40"
+                onChange={(e) => setDraftName(e.target.value)}
+                placeholder="local agent name"
+                value={draftName}
+              />
+              <button
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-on-primary shadow-lg transition-all active:scale-95 disabled:opacity-60"
+                disabled={busyAction !== null}
+                onClick={handleCreate}
+                type="button"
+              >
+                <Icon name="add" />
+                {busyAction === "create" ? "Provisioning..." : "Provision Ubuntu Runtime"}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <aside className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm">
+          <div className="space-y-4">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
+                Current Scope
+              </p>
+              <h2 className="mt-2 text-xl font-semibold text-on-surface">
+                Linux first
+              </h2>
+            </div>
+            <div className="space-y-3 text-sm text-secondary">
+              <p>
+                Creates a Lima-managed Ubuntu VM and a shared host directory at the sandbox path.
+              </p>
+              <p>
+                Streams provisioning logs so boot failures are visible instead of disappearing into the daemon.
+              </p>
+              <p>
+                Leaves room for the next step: install sky10 in-guest, attach it over Skylink, and turn the runtime into a real local agent.
+              </p>
+            </div>
+          </div>
+        </aside>
+      </div>
+
       <div className="grid flex-1 grid-cols-1 gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
         <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-4 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-outline">
-              Sandboxes
+              Local Runtimes
             </h2>
             <span className="text-xs text-secondary">
-              {listData?.sandboxes.length ?? 0}
+              {sandboxes.length}
             </span>
           </div>
           <div className="space-y-2">
-            {listData?.sandboxes.length ? (
-              listData.sandboxes.map((item) => (
+            {sandboxes.length ? (
+              sandboxes.map((item) => (
                 <button
                   key={item.name}
                   className={`w-full rounded-xl border px-4 py-3 text-left transition-colors ${
@@ -292,7 +348,7 @@ export default function Sandboxes() {
               ))
             ) : (
               <div className="rounded-xl bg-surface-container p-4 text-sm text-secondary">
-                No sandboxes yet.
+                No local runtimes yet.
               </div>
             )}
           </div>
@@ -371,7 +427,7 @@ export default function Sandboxes() {
                   </div>
                   <div className="rounded-xl bg-surface-container p-4 md:col-span-2">
                     <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
-                      Shell
+                      Terminal Command
                     </p>
                     <p className="mt-2 font-mono text-xs text-secondary">
                       {selected.shell || `limactl shell ${selected.name}`}
@@ -386,7 +442,7 @@ export default function Sandboxes() {
               </div>
             ) : (
               <div className="text-sm text-secondary">
-                Select a sandbox to view its status and logs.
+                Select a local runtime to view its status and logs.
               </div>
             )}
           </div>
@@ -394,7 +450,7 @@ export default function Sandboxes() {
           <div className="min-h-0 flex-1 rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-outline">
-                Boot Log
+                Provisioning Log
               </h2>
               {selected?.last_log_at && (
                 <span className="text-xs text-secondary">
@@ -419,7 +475,7 @@ export default function Sandboxes() {
                 </div>
               ) : (
                 <div className="text-[#7f8c98]">
-                  {selectedName ? "Waiting for Lima boot output..." : "No sandbox selected."}
+                  {selectedName ? "Waiting for Lima boot output..." : "No local runtime selected."}
                 </div>
               )}
             </div>

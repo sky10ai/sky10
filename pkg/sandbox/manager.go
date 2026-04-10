@@ -26,6 +26,8 @@ const (
 	templateUbuntuAsset = "ubuntu-sky10.yaml"
 	templateRemoteBase  = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
 	logFileName         = "boot.log"
+	templateNameToken   = "__SKY10_SANDBOX_NAME__"
+	templateSharedToken = "__SKY10_SHARED_DIR__"
 )
 
 type Emitter func(event string, data interface{})
@@ -341,7 +343,7 @@ func (m *Manager) runCreate(ctx context.Context, rec Record) {
 		return
 	}
 
-	templatePath, err := m.materializeTemplate(ctx)
+	templatePath, err := m.materializeTemplate(ctx, rec)
 	if err != nil {
 		_ = m.updateStatus(rec.Name, "error", err.Error())
 		return
@@ -422,18 +424,19 @@ func (m *Manager) ensureManagedApp(_ context.Context, id skyapps.ID, install boo
 	return status.ActivePath, nil
 }
 
-func (m *Manager) materializeTemplate(ctx context.Context) (string, error) {
+func (m *Manager) materializeTemplate(ctx context.Context, rec Record) (string, error) {
 	cacheDir := filepath.Join(m.rootDir, "templates")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return "", fmt.Errorf("creating sandbox template dir: %w", err)
 	}
-	dest := filepath.Join(cacheDir, templateUbuntuAsset)
+	dest := filepath.Join(cacheDir, rec.Name+"-"+templateUbuntuAsset)
 	if local, err := findLocalTemplateFile(templateUbuntuAsset); err == nil {
 		data, err := os.ReadFile(local)
 		if err != nil {
 			return "", fmt.Errorf("reading local sandbox template: %w", err)
 		}
-		if err := os.WriteFile(dest, data, 0o644); err != nil {
+		rendered := renderSandboxTemplate(data, rec.Name, rec.SharedDir)
+		if err := os.WriteFile(dest, rendered, 0o644); err != nil {
 			return "", fmt.Errorf("writing sandbox template cache: %w", err)
 		}
 		return dest, nil
@@ -443,10 +446,17 @@ func (m *Manager) materializeTemplate(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(dest, req, 0o644); err != nil {
+	rendered := renderSandboxTemplate(req, rec.Name, rec.SharedDir)
+	if err := os.WriteFile(dest, rendered, 0o644); err != nil {
 		return "", fmt.Errorf("writing downloaded sandbox template: %w", err)
 	}
 	return dest, nil
+}
+
+func renderSandboxTemplate(body []byte, name, sharedDir string) []byte {
+	rendered := strings.ReplaceAll(string(body), templateNameToken, name)
+	rendered = strings.ReplaceAll(rendered, templateSharedToken, sharedDir)
+	return []byte(rendered)
 }
 
 func (m *Manager) refreshRuntime(ctx context.Context) error {

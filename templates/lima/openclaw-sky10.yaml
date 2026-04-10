@@ -13,7 +13,7 @@ networks:
 - vzNAT: true
 
 mounts:
-- location: "{{.Home}}/sky10/sandboxes/{{.Name}}"
+- location: "__SKY10_SHARED_DIR__"
   mountPoint: "/shared"
   writable: true
 
@@ -34,10 +34,10 @@ probes:
   hint: See "/var/log/cloud-init-output.log" in the guest
 
 message: |
-  OpenClaw + sky10 is provisioning inside "{{.Name}}".
+  OpenClaw + sky10 is provisioning inside "__SKY10_SANDBOX_NAME__".
 
   Shared host directory:
-    {{.Home}}/sky10/sandboxes/{{.Name}}
+    __SKY10_SHARED_DIR__
 
   Guest -> host sky10 RPC:
     {{.Param.sky10RPCURL}}
@@ -47,17 +47,17 @@ message: |
   - Chromium + Xvfb browser support
   - the sky10 OpenClaw channel plugin
 
-  The plugin registers this VM as the "{{.Name}}" agent on your host sky10 daemon.
+  The plugin registers this VM as the "__SKY10_SANDBOX_NAME__" agent on your host sky10 daemon.
 
   Optional HTTPS hostname:
     1. sky10 creates a wildcard cert for *.sb.sky10.local in:
-       {{.Home}}/sky10/sandboxes/{{.Name}}/certs/sb.sky10.local.pem
-       {{.Home}}/sky10/sandboxes/{{.Name}}/certs/sb.sky10.local-key.pem
+       __SKY10_SHARED_DIR__/certs/sb.sky10.local.pem
+       __SKY10_SHARED_DIR__/certs/sb.sky10.local-key.pem
     2. Run:
-       chmod +x {{.Home}}/sky10/sandboxes/{{.Name}}/update-lima-hosts.sh
-       {{.Home}}/sky10/sandboxes/{{.Name}}/update-lima-hosts.sh
+       chmod +x __SKY10_SHARED_DIR__/update-lima-hosts.sh
+       __SKY10_SHARED_DIR__/update-lima-hosts.sh
     3. Open:
-       https://{{.Name}}.sb.sky10.local:18790/chat?session=main
+       https://__SKY10_SANDBOX_NAME__.sb.sky10.local:18790/chat?session=main
 
 param:
   sky10RPCURL: http://host.lima.internal:9101
