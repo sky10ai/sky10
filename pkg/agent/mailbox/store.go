@@ -166,6 +166,21 @@ func (s *Store) ListFailed(principalID string) []Record {
 	return s.index.listFailed(principalID)
 }
 
+// ListByRequestID returns all mailbox items participating in the same
+// protocol request.
+func (s *Store) ListByRequestID(requestID string) []Record {
+	return s.listMatching(func(record Record) bool {
+		return record.Item.RequestID == requestID
+	})
+}
+
+// ListReplies returns all mailbox items that directly reply to the given item.
+func (s *Store) ListReplies(replyTo string) []Record {
+	return s.listMatching(func(record Record) bool {
+		return record.Item.ReplyTo == replyTo
+	})
+}
+
 // Claim acquires a lease-backed claim for a queue item and records the claim
 // event when successful.
 func (s *Store) Claim(ctx context.Context, itemID string, actor Principal, ttl time.Duration) (Record, bool, error) {
@@ -268,4 +283,21 @@ func (s *Store) appendEvent(ctx context.Context, event Event) (Event, error) {
 		return Event{}, err
 	}
 	return stored, nil
+}
+
+func (s *Store) listMatching(fn func(Record) bool) []Record {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.index == nil {
+		return nil
+	}
+	return s.index.list(fn)
+}
+
+func (s *Store) findFirstMatching(fn func(Record) bool) (Record, bool) {
+	matches := s.listMatching(fn)
+	if len(matches) == 0 {
+		return Record{}, false
+	}
+	return matches[0], true
 }

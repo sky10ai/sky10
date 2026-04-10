@@ -543,12 +543,12 @@ Exit criteria:
 
 Checklist:
 
-- [ ] Define approval item flow.
-- [ ] Define payment item flow.
-- [ ] Define result and receipt flow.
-- [ ] Add idempotency checks and nonce rules.
-- [ ] Add replay/retry tests for interrupted flows.
-- [ ] Add duplicate-delivery tests for idempotent processing.
+- [x] Define approval item flow.
+- [x] Define payment item flow.
+- [x] Define result and receipt flow.
+- [x] Add idempotency checks and nonce rules.
+- [x] Add replay/retry tests for interrupted flows.
+- [x] Add duplicate-delivery tests for idempotent processing.
 
 ### M5: RPC and Web UX
 
