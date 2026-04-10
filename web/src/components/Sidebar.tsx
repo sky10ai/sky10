@@ -8,6 +8,7 @@ import { StatusBadge } from "./StatusBadge";
 const navItems = [
   { to: "/devices", icon: "devices", label: "Devices", matchPrefixes: ["/devices"] },
   { to: "/agents", icon: "smart_toy", label: "Agents", matchPrefixes: ["/agents"] },
+  { to: "/mailbox", icon: "inbox", label: "Mailbox", matchPrefixes: ["/mailbox"] },
   { to: "/network", icon: "hub", label: "Network", matchPrefixes: ["/network"] },
   { to: "/kv", icon: "database", label: "Key-Value", matchPrefixes: ["/kv"] },
   {

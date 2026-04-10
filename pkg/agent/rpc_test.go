@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
 	skykey "github.com/sky10/sky10/pkg/key"
 )
 
@@ -197,6 +198,195 @@ func TestRPCRegisterDrainsQueuedMailboxMessages(t *testing.T) {
 	if emitted[0].ID != queued.ID || emitted[0].To != "coder" {
 		t.Fatalf("drained message = %+v, want id=%s to=coder", emitted[0], queued.ID)
 	}
+}
+
+func TestRPCMailboxSendListAndGet(t *testing.T) {
+	t.Parallel()
+
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	h.SetMailbox(newTestMailboxStore(t))
+
+	params, _ := json.Marshal(map[string]any{
+		"kind":            agentmailbox.ItemKindApprovalRequest,
+		"request_id":      "req-approval-rpc-1",
+		"idempotency_key": "approval-rpc-1",
+		"to": map[string]any{
+			"id":    "human:alice",
+			"kind":  agentmailbox.PrincipalKindHuman,
+			"scope": agentmailbox.ScopePrivateNetwork,
+		},
+		"payload": map[string]any{
+			"action":  "approve_payment",
+			"summary": "Approve payment",
+		},
+	})
+	raw, err, handled := h.Dispatch(context.Background(), "agent.mailbox.send", params)
+	if !handled || err != nil {
+		t.Fatalf("mailbox.send: handled=%v err=%v", handled, err)
+	}
+	record := raw.(map[string]interface{})["item"].(agentmailbox.Record)
+	if record.Item.Kind != agentmailbox.ItemKindApprovalRequest {
+		t.Fatalf("kind = %s, want %s", record.Item.Kind, agentmailbox.ItemKindApprovalRequest)
+	}
+
+	listRaw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.listInbox", mustJSON(t, map[string]string{"principal_id": "human:alice"}))
+	if err != nil {
+		t.Fatalf("mailbox.listInbox: %v", err)
+	}
+	list := listRaw.(map[string]interface{})
+	if list["count"].(int) != 1 {
+		t.Fatalf("count = %v, want 1", list["count"])
+	}
+
+	getRaw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.get", mustJSON(t, map[string]string{"item_id": record.Item.ID}))
+	if err != nil {
+		t.Fatalf("mailbox.get: %v", err)
+	}
+	got := getRaw.(map[string]interface{})
+	if !got["found"].(bool) {
+		t.Fatal("expected mailbox item to be found")
+	}
+}
+
+func TestRPCMailboxApproveAndClaim(t *testing.T) {
+	t.Parallel()
+
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	h.SetMailbox(newTestMailboxStore(t))
+
+	approvalSend, _ := json.Marshal(map[string]any{
+		"kind":            agentmailbox.ItemKindApprovalRequest,
+		"request_id":      "req-approval-rpc-2",
+		"idempotency_key": "approval-rpc-2",
+		"to": map[string]any{
+			"id":    "human:alice",
+			"kind":  agentmailbox.PrincipalKindHuman,
+			"scope": agentmailbox.ScopePrivateNetwork,
+		},
+		"payload": map[string]any{
+			"action":  "approve_payment",
+			"summary": "Approve payment",
+		},
+	})
+	raw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.send", approvalSend)
+	if err != nil {
+		t.Fatalf("mailbox.send approval: %v", err)
+	}
+	approval := raw.(map[string]interface{})["item"].(agentmailbox.Record)
+
+	approveRaw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.approve", mustJSON(t, map[string]string{"item_id": approval.Item.ID, "actor_id": "human:alice"}))
+	if err != nil {
+		t.Fatalf("mailbox.approve: %v", err)
+	}
+	approved := approveRaw.(map[string]interface{})["item"].(agentmailbox.Record)
+	if approved.State != agentmailbox.StateApproved {
+		t.Fatalf("state = %s, want %s", approved.State, agentmailbox.StateApproved)
+	}
+
+	taskSend, _ := json.Marshal(map[string]any{
+		"kind":            agentmailbox.ItemKindTaskRequest,
+		"request_id":      "req-task-rpc-1",
+		"idempotency_key": "task-rpc-1",
+		"to": map[string]any{
+			"id":    "queue:research",
+			"kind":  agentmailbox.PrincipalKindCapabilityQueue,
+			"scope": agentmailbox.ScopePrivateNetwork,
+		},
+		"target_skill": "research",
+		"payload": map[string]any{
+			"method":  "research",
+			"summary": "deep query",
+		},
+	})
+	raw, err, _ = h.Dispatch(context.Background(), "agent.mailbox.send", taskSend)
+	if err != nil {
+		t.Fatalf("mailbox.send task: %v", err)
+	}
+	task := raw.(map[string]interface{})["item"].(agentmailbox.Record)
+
+	claimRaw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.claim", mustJSON(t, map[string]any{"item_id": task.Item.ID, "actor_id": "agent:worker", "actor_kind": agentmailbox.PrincipalKindLocalAgent}))
+	if err != nil {
+		t.Fatalf("mailbox.claim: %v", err)
+	}
+	claimed := claimRaw.(map[string]interface{})["item"].(agentmailbox.Record)
+	if claimed.State != agentmailbox.StateClaimed {
+		t.Fatalf("claim state = %s, want %s", claimed.State, agentmailbox.StateClaimed)
+	}
+}
+
+func TestRPCMailboxRetryDrainsQueuedLocalMessage(t *testing.T) {
+	t.Parallel()
+
+	r := newTestRegistry()
+	var (
+		mu      sync.Mutex
+		emitted []Message
+	)
+	emit := func(event string, data interface{}) {
+		if msg, ok := data.(Message); ok {
+			mu.Lock()
+			emitted = append(emitted, msg)
+			mu.Unlock()
+		}
+	}
+
+	h := newTestRPCHandler(t, r, emit)
+	mailboxStore := newTestMailboxStore(t)
+	h.SetMailbox(mailboxStore)
+	router := NewRouter(r, makeTestNode(t), emit, r.DeviceID(), nil)
+	router.SetMailbox(mailboxStore)
+	h.SetRouter(router)
+
+	queued := Message{
+		ID:        "msg-retry-rpc",
+		SessionID: "session-1",
+		From:      "D-deviceBB",
+		To:        "coder",
+		DeviceID:  r.DeviceID(),
+		Type:      "text",
+		Content:   json.RawMessage(`{"text":"hello later"}`),
+		Timestamp: time.Now().UTC(),
+	}
+	result, err := router.routeIncoming(context.Background(), queued)
+	if err != nil {
+		t.Fatalf("queue incoming: %v", err)
+	}
+	itemID := result.(map[string]string)["mailbox_item_id"]
+	if itemID == "" {
+		t.Fatal("expected mailbox_item_id for queued message")
+	}
+
+	if _, err := r.Register(RegisterParams{Name: "coder"}, "A-coder00000000000"); err != nil {
+		t.Fatalf("register local agent: %v", err)
+	}
+	retryRaw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.retry", mustJSON(t, map[string]string{"item_id": itemID}))
+	if err != nil {
+		t.Fatalf("mailbox.retry: %v", err)
+	}
+	retried := retryRaw.(map[string]interface{})["item"].(agentmailbox.Record)
+	if retried.State != agentmailbox.StateDelivered {
+		t.Fatalf("retry state = %s, want %s", retried.State, agentmailbox.StateDelivered)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(emitted) != 2 {
+		t.Fatalf("emitted %d messages, want 2 (queue + retry delivery)", len(emitted))
+	}
+	if emitted[len(emitted)-1].ID != queued.ID {
+		t.Fatalf("delivered message id = %s, want %s", emitted[len(emitted)-1].ID, queued.ID)
+	}
+}
+
+func mustJSON(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
 
 func TestRPCHeartbeat(t *testing.T) {

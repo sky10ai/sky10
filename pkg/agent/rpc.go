@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
 	skykey "github.com/sky10/sky10/pkg/key"
 )
 
@@ -22,6 +23,7 @@ type RPCHandler struct {
 	registry *Registry
 	owner    *skykey.Key
 	router   *Router // nil until cross-device wiring
+	mailbox  *agentmailbox.Store
 	emit     Emitter
 	notify   PeerNotifier
 }
@@ -34,6 +36,11 @@ func NewRPCHandler(registry *Registry, owner *skykey.Key, emit Emitter) *RPCHand
 // SetRouter attaches a cross-device router.
 func (h *RPCHandler) SetRouter(r *Router) {
 	h.router = r
+}
+
+// SetMailbox attaches durable mailbox storage.
+func (h *RPCHandler) SetMailbox(store *agentmailbox.Store) {
+	h.mailbox = store
 }
 
 // SetPeerNotifier attaches a function that broadcasts agent events to
@@ -66,6 +73,34 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		result, err = h.rpcDiscover(ctx, params)
 	case "agent.status":
 		result, err = h.rpcStatus(ctx)
+	case "agent.mailbox.send":
+		result, err = h.rpcMailboxSend(ctx, params)
+	case "agent.mailbox.listInbox":
+		result, err = h.rpcMailboxListInbox(ctx, params)
+	case "agent.mailbox.listOutbox":
+		result, err = h.rpcMailboxListOutbox(ctx, params)
+	case "agent.mailbox.listQueue":
+		result, err = h.rpcMailboxListQueue(ctx, params)
+	case "agent.mailbox.listFailed":
+		result, err = h.rpcMailboxListFailed(ctx, params)
+	case "agent.mailbox.listSent":
+		result, err = h.rpcMailboxListSent(ctx, params)
+	case "agent.mailbox.get":
+		result, err = h.rpcMailboxGet(ctx, params)
+	case "agent.mailbox.claim":
+		result, err = h.rpcMailboxClaim(ctx, params)
+	case "agent.mailbox.release":
+		result, err = h.rpcMailboxRelease(ctx, params)
+	case "agent.mailbox.ack":
+		result, err = h.rpcMailboxAck(ctx, params)
+	case "agent.mailbox.approve":
+		result, err = h.rpcMailboxApprove(ctx, params)
+	case "agent.mailbox.reject":
+		result, err = h.rpcMailboxReject(ctx, params)
+	case "agent.mailbox.complete":
+		result, err = h.rpcMailboxComplete(ctx, params)
+	case "agent.mailbox.retry":
+		result, err = h.rpcMailboxRetry(ctx, params)
 	default:
 		return nil, fmt.Errorf("unknown method: %s", method), true
 	}

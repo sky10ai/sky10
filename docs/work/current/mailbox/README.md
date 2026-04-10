@@ -569,13 +569,13 @@ Exit criteria:
 
 Checklist:
 
-- [ ] Add `agent.mailbox.*` RPC methods.
-- [ ] Add mailbox SSE events.
-- [ ] Add inbox view.
-- [ ] Add outbox view.
-- [ ] Add approvals center.
-- [ ] Add task queue monitor.
-- [ ] Add item timeline UI.
+- [x] Add `agent.mailbox.*` RPC methods.
+- [x] Add mailbox SSE events.
+- [x] Add inbox view.
+- [x] Add outbox view.
+- [x] Add approvals center.
+- [x] Add task queue monitor.
+- [x] Add item timeline UI.
 
 ### M6: sky10-Network Backend
 

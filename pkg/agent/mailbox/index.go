@@ -82,30 +82,59 @@ func (idx *recordIndex) get(itemID string) (Record, bool) {
 
 func (idx *recordIndex) listInbox(principalID string) []Record {
 	return idx.list(func(record Record) bool {
-		return record.Item.RecipientID() == principalID && !record.Terminal() && !record.Failed()
+		recipientID := record.Item.RecipientID()
+		if recipientID == "" {
+			return false
+		}
+		if principalID != "" && recipientID != principalID {
+			return false
+		}
+		return !record.Terminal() && !record.Failed()
 	})
 }
 
 func (idx *recordIndex) listOutbox(principalID string) []Record {
 	return idx.list(func(record Record) bool {
-		return record.Item.From.ID == principalID && !record.Terminal()
+		if record.Item.From.ID == "" {
+			return false
+		}
+		if principalID != "" && record.Item.From.ID != principalID {
+			return false
+		}
+		return !record.Terminal()
 	})
 }
 
 func (idx *recordIndex) listQueue(queue string) []Record {
 	return idx.list(func(record Record) bool {
-		return record.Item.QueueName() == queue && !record.Terminal()
+		queueName := record.Item.QueueName()
+		if queueName == "" {
+			return false
+		}
+		if queue != "" && queueName != queue {
+			return false
+		}
+		return !record.Terminal()
 	})
 }
 
 func (idx *recordIndex) listSent(principalID string) []Record {
 	return idx.list(func(record Record) bool {
-		return record.Item.From.ID == principalID && record.Terminal() && !record.Failed()
+		if record.Item.From.ID == "" {
+			return false
+		}
+		if principalID != "" && record.Item.From.ID != principalID {
+			return false
+		}
+		return record.Terminal() && !record.Failed()
 	})
 }
 
 func (idx *recordIndex) listFailed(principalID string) []Record {
 	return idx.list(func(record Record) bool {
+		if principalID == "" {
+			return record.Failed()
+		}
 		if record.Item.From.ID == principalID {
 			return record.Failed()
 		}

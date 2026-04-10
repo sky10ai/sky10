@@ -116,6 +116,36 @@ export const agent = {
   list: () => rpc<AgentListResult>("agent.list"),
   status: () => rpc<AgentStatus>("agent.status"),
   send: (p: AgentSendParams) => rpc<AgentSendResult>("agent.send", p),
+  mailbox: {
+    send: (p: MailboxSendParams) =>
+      rpc<MailboxRecordResult>("agent.mailbox.send", p),
+    listInbox: (p?: { principal_id?: string }) =>
+      rpc<MailboxListResult>("agent.mailbox.listInbox", p),
+    listOutbox: (p?: { principal_id?: string }) =>
+      rpc<MailboxListResult>("agent.mailbox.listOutbox", p),
+    listQueue: (p?: { queue?: string }) =>
+      rpc<MailboxListResult>("agent.mailbox.listQueue", p),
+    listFailed: (p?: { principal_id?: string }) =>
+      rpc<MailboxListResult>("agent.mailbox.listFailed", p),
+    listSent: (p?: { principal_id?: string }) =>
+      rpc<MailboxListResult>("agent.mailbox.listSent", p),
+    get: (p: { item_id: string }) =>
+      rpc<MailboxGetResult>("agent.mailbox.get", p),
+    claim: (p: MailboxActionParams) =>
+      rpc<MailboxActionResult>("agent.mailbox.claim", p),
+    release: (p: MailboxActionParams) =>
+      rpc<MailboxActionResult>("agent.mailbox.release", p),
+    ack: (p: MailboxActionParams) =>
+      rpc<MailboxRecordResult>("agent.mailbox.ack", p),
+    approve: (p: MailboxActionParams) =>
+      rpc<MailboxRecordResult>("agent.mailbox.approve", p),
+    reject: (p: MailboxActionParams) =>
+      rpc<MailboxRecordResult>("agent.mailbox.reject", p),
+    complete: (p: MailboxActionParams) =>
+      rpc<MailboxRecordResult>("agent.mailbox.complete", p),
+    retry: (p: { item_id: string }) =>
+      rpc<MailboxRecordResult>("agent.mailbox.retry", p),
+  },
 };
 
 // -- system --
@@ -387,6 +417,115 @@ export interface AgentSendParams {
 export interface AgentSendResult {
   id: string;
   status: string;
+  mailbox_item_id?: string;
+}
+
+export interface MailboxPayloadRef {
+  kind: string;
+  key: string;
+  size: number;
+  digest?: string;
+}
+
+export interface MailboxPrincipal {
+  id: string;
+  kind: string;
+  scope: string;
+  device_hint?: string;
+}
+
+export interface MailboxItem {
+  id: string;
+  kind: string;
+  from: MailboxPrincipal;
+  to?: MailboxPrincipal;
+  target_skill?: string;
+  session_id?: string;
+  request_id?: string;
+  reply_to?: string;
+  idempotency_key?: string;
+  payload_ref?: MailboxPayloadRef;
+  payload_inline?: unknown;
+  priority?: string;
+  expires_at?: string;
+  created_at: string;
+}
+
+export interface MailboxEvent {
+  item_id: string;
+  event_id?: string;
+  type: string;
+  actor: MailboxPrincipal;
+  lease_id?: string;
+  error?: string;
+  timestamp?: string;
+  meta?: Record<string, string>;
+}
+
+export interface MailboxClaim {
+  queue: string;
+  item_id: string;
+  holder: string;
+  token: string;
+  acquired_at: string;
+  expires_at: string;
+}
+
+export interface MailboxRecord {
+  item: MailboxItem;
+  events: MailboxEvent[];
+  claim?: MailboxClaim;
+  state: string;
+}
+
+export interface MailboxListResult {
+  items: MailboxRecord[];
+  count: number;
+}
+
+export interface MailboxGetResult {
+  item: MailboxRecord;
+  found: boolean;
+}
+
+export interface MailboxRecordResult {
+  item: MailboxRecord;
+}
+
+export interface MailboxActionResult {
+  item: MailboxRecord;
+  claimed?: boolean;
+  released?: boolean;
+}
+
+export interface MailboxPrincipalParams {
+  id: string;
+  kind?: string;
+  scope?: string;
+  device_hint?: string;
+}
+
+export interface MailboxSendParams {
+  kind: string;
+  from?: MailboxPrincipalParams;
+  to?: MailboxPrincipalParams;
+  target_skill?: string;
+  session_id?: string;
+  request_id?: string;
+  reply_to?: string;
+  idempotency_key?: string;
+  priority?: string;
+  expires_at?: string;
+  payload?: unknown;
+}
+
+export interface MailboxActionParams {
+  item_id: string;
+  actor_id?: string;
+  actor_kind?: string;
+  token?: string;
+  decision_id?: string;
+  ttl_seconds?: number;
 }
 
 // -- System update types --

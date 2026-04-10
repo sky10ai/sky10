@@ -250,6 +250,7 @@ func ServeCmd() *cobra.Command {
 			agentRouter.SetMailbox(mailboxStore)
 			agentRPC := skyagent.NewRPCHandler(agentRegistry, bundle.Identity, server.Emit)
 			agentRPC.SetRouter(agentRouter)
+			agentRPC.SetMailbox(mailboxStore)
 			server.RegisterHandler(agentRPC)
 			skyagent.RegisterLinkHandlers(linkNode, agentRegistry, server.Emit, agentRouter)
 			agentRPC.SetPeerNotifier(func(ctx context.Context, topic string) {
