@@ -483,16 +483,16 @@ Exit criteria:
 
 Checklist:
 
-- [ ] Create `pkg/agent/mailbox`.
-- [ ] Define mailbox item types.
-- [ ] Define mailbox event types.
-- [ ] Implement store and materialized views.
-- [ ] Implement dedicated private-network KV backend.
-- [ ] Implement rebuild-on-start from persisted state.
-- [ ] Implement inbox projection.
-- [ ] Implement outbox projection.
-- [ ] Implement queue projection.
-- [ ] Add mailbox unit tests.
+- [x] Create `pkg/agent/mailbox`.
+- [x] Define mailbox item types.
+- [x] Define mailbox event types.
+- [x] Implement store and materialized views.
+- [x] Implement dedicated private-network KV backend.
+- [x] Implement rebuild-on-start from persisted state.
+- [x] Implement inbox projection.
+- [x] Implement outbox projection.
+- [x] Implement queue projection.
+- [x] Add mailbox unit tests.
 
 ### M3: Agent Routing Integration
 
