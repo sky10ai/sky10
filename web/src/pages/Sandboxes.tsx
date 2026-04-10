@@ -72,12 +72,13 @@ export default function Sandboxes() {
   );
 
   useEffect(() => {
-    if (!selectedName && listData?.sandboxes?.length) {
-      setSelectedName(listData.sandboxes[0].name);
+    const firstSandbox = listData?.sandboxes?.[0];
+    if (!selectedName && firstSandbox) {
+      setSelectedName(firstSandbox.name);
       return;
     }
     if (selectedName && !selectedExists) {
-      setSelectedName(listData?.sandboxes?.[0]?.name ?? "");
+      setSelectedName(firstSandbox?.name ?? "");
     }
   }, [listData?.sandboxes, selectedExists, selectedName]);
 
