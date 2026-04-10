@@ -354,13 +354,13 @@ export default function Settings() {
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-2">
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
-                Local Agents
+                Sandboxes
               </p>
               <h3 className="text-xl font-semibold text-on-surface">
                 Provision isolated Linux runtimes
               </h3>
               <p className="max-w-md text-sm text-secondary">
-                Start a Lima-backed Ubuntu VM, watch provisioning logs, and prepare the machine for a future local agent install.
+                Start a Lima-backed Ubuntu VM, watch provisioning logs, and manage each sandbox from its own detail page.
               </p>
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -368,7 +368,7 @@ export default function Settings() {
             </div>
           </div>
           <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary transition-colors group-hover:text-on-surface">
-            Open Local Agents
+            Open Sandboxes
             <Icon className="text-base" name="arrow_forward" />
           </div>
         </Link>

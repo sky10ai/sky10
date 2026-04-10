@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router";
+import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router";
 import { Layout } from "./components/Layout";
 import { identity } from "./lib/rpc";
 import { useRPC } from "./lib/useRPC";
@@ -11,6 +11,7 @@ import AgentConnect from "./pages/AgentConnect";
 import Mailbox from "./pages/Mailbox";
 import Network from "./pages/Network";
 import Sandboxes from "./pages/Sandboxes";
+import SandboxDetail from "./pages/SandboxDetail";
 import KVStore from "./pages/KVStore";
 import Drives from "./pages/Drives";
 import FileBrowser from "./pages/FileBrowser";
@@ -24,6 +25,12 @@ function HomeRedirect() {
   const deviceCount = data?.devices?.length ?? 0;
   if (!data) return null;
   return <Navigate to={deviceCount >= 2 ? "/drives" : "/getting-started"} replace />;
+}
+
+function SandboxLegacyRedirect() {
+  const params = useParams();
+  const name = params.name ? encodeURIComponent(params.name) : "";
+  return <Navigate replace to={name ? `/settings/sandboxes/${name}` : "/settings/sandboxes"} />;
 }
 
 export default function App() {
@@ -40,7 +47,7 @@ export default function App() {
           <Route path="agents/:agentId" element={<AgentChat />} />
           <Route path="mailbox" element={<Mailbox />} />
           <Route path="sandboxes" element={<Navigate replace to="/settings/sandboxes" />} />
-          <Route path="mailbox" element={<Mailbox />} />
+          <Route path="sandboxes/:name" element={<SandboxLegacyRedirect />} />
           <Route path="network" element={<Network />} />
           <Route path="kv" element={<KVStore />} />
           <Route path="drives" element={<Drives />} />
@@ -49,6 +56,7 @@ export default function App() {
           <Route path="activity" element={<Activity />} />
           <Route path="settings/apps" element={<SettingsApps />} />
           <Route path="settings/sandboxes" element={<Sandboxes />} />
+          <Route path="settings/sandboxes/:name" element={<SandboxDetail />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

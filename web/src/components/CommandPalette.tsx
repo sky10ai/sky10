@@ -62,8 +62,8 @@ const commands: Command[] = [
     section: "System",
   },
   {
-    id: "local-agents",
-    label: "Local Agents",
+    id: "sandboxes",
+    label: "Sandboxes",
     icon: "deployed_code",
     action: "/settings/sandboxes",
     section: "System",

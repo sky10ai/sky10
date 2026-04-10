@@ -58,9 +58,17 @@ export const UPDATE_EVENT_TYPES = [
   "update:install:error",
 ] as const;
 
-export const SANDBOX_EVENT_TYPES = [
+export const SANDBOX_STATE_EVENT_TYPES = [
   "sandbox:state",
+] as const;
+
+export const SANDBOX_LOG_EVENT_TYPES = [
   "sandbox:log",
+] as const;
+
+export const SANDBOX_EVENT_TYPES = [
+  ...SANDBOX_STATE_EVENT_TYPES,
+  ...SANDBOX_LOG_EVENT_TYPES,
 ] as const;
 
 export const LEGACY_EVENT_TYPES = [

@@ -66,8 +66,8 @@ function getRouteMeta(pathname: string) {
 
   if (pathname.startsWith("/settings/sandboxes")) {
     return {
-      description: "Provision isolated local runtimes that will later host full local agents.",
-      title: "Local Agents",
+      description: "Provision isolated runtimes, inspect sandbox status, and review live provisioning output.",
+      title: "Sandboxes",
     };
   }
 
