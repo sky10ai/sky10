@@ -14,6 +14,14 @@ export function nextSandboxName() {
   return `linux-${Math.random().toString(36).slice(2, 6)}`;
 }
 
+export function sandboxSlug(name: string) {
+  return name
+    .trim()
+    .toLowerCase()
+    .match(/[a-z0-9]+/g)
+    ?.join("-") ?? "";
+}
+
 export function sandboxTone(status: string): "processing" | "success" | "neutral" | "danger" {
   switch (status) {
     case "creating":

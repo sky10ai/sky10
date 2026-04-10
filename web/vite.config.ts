@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => {
         "/rpc": {
           target: rpcTarget,
           changeOrigin: true,
+          ws: true,
         },
         "/health": {
           target: rpcTarget,

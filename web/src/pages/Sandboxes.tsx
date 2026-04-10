@@ -9,6 +9,7 @@ import {
   nextSandboxName,
   SANDBOX_TEMPLATES,
   sandboxLabel,
+  sandboxSlug,
   sandboxTone,
 } from "../lib/sandboxes";
 import { timeAgo, useRPC } from "../lib/useRPC";
@@ -32,6 +33,7 @@ export default function Sandboxes() {
 
   const sandboxes = listData?.sandboxes ?? [];
   const templateConfig = SANDBOX_TEMPLATES.find((item) => item.id === selectedTemplate) ?? SANDBOX_TEMPLATES[0];
+  const draftSlug = sandboxSlug(draftName);
 
   const handleCreate = useCallback(async () => {
     const name = draftName.trim();
@@ -40,7 +42,7 @@ export default function Sandboxes() {
     setCreating(true);
     setActionError(null);
     try {
-      await sandbox.create({
+      const created = await sandbox.create({
         name,
         provider: templateConfig.provider,
         template: templateConfig.id,
@@ -48,7 +50,7 @@ export default function Sandboxes() {
       setDraftName(nextSandboxName());
       refetchList({ background: true });
       startTransition(() => {
-        navigate(`/settings/sandboxes/${encodeURIComponent(name)}`);
+        navigate(`/settings/sandboxes/${encodeURIComponent(created.slug)}`);
       });
     } catch (error: unknown) {
       setActionError(error instanceof Error ? error.message : "Create failed");
@@ -91,7 +93,7 @@ export default function Sandboxes() {
                 Provision from a template
               </h2>
               <p className="max-w-2xl text-sm text-secondary">
-                Pick a template, choose a name, and sky10 will create the runtime asynchronously so this screen stays responsive while Lima boots the guest.
+                Pick a template, choose a name, and sky10 will create the runtime asynchronously so this screen stays responsive while Lima boots the guest. Display names stay intact, while runtime IDs and filesystem paths are slugified automatically.
               </p>
             </div>
 
@@ -134,7 +136,7 @@ export default function Sandboxes() {
               />
               <button
                 className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-on-primary shadow-lg transition-all active:scale-95 disabled:opacity-60"
-                disabled={creating}
+                disabled={creating || !draftSlug}
                 onClick={handleCreate}
                 type="button"
               >
@@ -142,6 +144,11 @@ export default function Sandboxes() {
                 {creating ? "Provisioning..." : "Provision Sandbox"}
               </button>
             </div>
+            <p className="text-xs text-secondary">
+              {draftSlug
+                ? <>Runtime ID: <code>{draftSlug}</code> • Shared dir <code>~/sky10/sandboxes/{draftSlug}</code></>
+                : "Names must include at least one letter or number."}
+            </p>
           </div>
         </section>
 
@@ -158,7 +165,7 @@ export default function Sandboxes() {
             <div className="space-y-3 text-sm text-secondary">
               <p>
                 Sandboxes are isolated workspaces with a shared host directory under your local{" "}
-                <code>~/sky10/sandboxes/&lt;name&gt;</code> path.
+                <code>~/sky10/sandboxes/&lt;slug&gt;</code> path.
               </p>
               <p>
                 Provisioning logs stream live once the sandbox detail page opens, so boot failures stay visible.
@@ -197,9 +204,9 @@ export default function Sandboxes() {
           <div className="space-y-3">
             {sandboxes.map((item) => (
               <Link
-                key={item.name}
+                key={item.slug}
                 className="group flex flex-col gap-4 rounded-2xl border border-outline-variant/10 bg-surface-container px-5 py-4 transition-all hover:border-primary/20 hover:bg-surface-container-high md:flex-row md:items-center md:justify-between"
-                to={`/settings/sandboxes/${encodeURIComponent(item.name)}`}
+                to={`/settings/sandboxes/${encodeURIComponent(item.slug)}`}
               >
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-3">
@@ -215,6 +222,7 @@ export default function Sandboxes() {
                   </div>
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-secondary">
                     <span>{item.provider} / {item.template}</span>
+                    <span>ID {item.slug}</span>
                     <span>Updated {timeAgo(item.updated_at)}</span>
                     {item.ip_address && <span>{item.ip_address}</span>}
                   </div>

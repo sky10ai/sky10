@@ -52,6 +52,9 @@ func TestManagerCreateTransitionsToReady(t *testing.T) {
 	if rec.Status != "creating" {
 		t.Fatalf("initial status = %q, want creating", rec.Status)
 	}
+	if rec.Slug != "devbox" {
+		t.Fatalf("slug = %q, want devbox", rec.Slug)
+	}
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -77,6 +80,74 @@ func TestManagerCreateTransitionsToReady(t *testing.T) {
 	t.Fatalf("sandbox did not reach ready state, final status=%q", got.Status)
 }
 
+func TestManagerCreateSlugifiesDisplayName(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	m.appStatus = func(id skyapps.ID) (*skyapps.Status, error) {
+		return &skyapps.Status{ActivePath: "/tmp/fake/" + string(id)}, nil
+	}
+	m.appUpgr = func(id skyapps.ID, _ skyapps.ProgressFunc) (*skyapps.ReleaseInfo, error) {
+		return &skyapps.ReleaseInfo{ID: id, Latest: "v1.0.0"}, nil
+	}
+	m.runCmd = func(ctx context.Context, bin string, args []string, onLine func(stream, line string)) error {
+		onLine("stdout", "booting vm")
+		return nil
+	}
+	m.outputCmd = func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "shell" {
+			return []byte("192.168.64.11\n"), nil
+		}
+		if len(args) > 0 && args[0] == "list" {
+			return []byte(`{"name":"bob-the-fish","status":"Running"}` + "\n"), nil
+		}
+		return nil, nil
+	}
+
+	rec, err := m.Create(context.Background(), CreateParams{
+		Name:     "Bob The Fish",
+		Provider: providerLima,
+		Template: templateUbuntu,
+	})
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	if rec.Name != "Bob The Fish" {
+		t.Fatalf("name = %q, want %q", rec.Name, "Bob The Fish")
+	}
+	if rec.Slug != "bob-the-fish" {
+		t.Fatalf("slug = %q, want bob-the-fish", rec.Slug)
+	}
+	if !strings.HasSuffix(rec.SharedDir, filepath.Join("sky10", "sandboxes", "bob-the-fish")) {
+		t.Fatalf("shared dir = %q, want slugified suffix", rec.SharedDir)
+	}
+	if rec.Shell != "limactl shell bob-the-fish" {
+		t.Fatalf("shell = %q, want slugified shell command", rec.Shell)
+	}
+
+	got, err := m.Get(context.Background(), "Bob The Fish")
+	if err != nil {
+		t.Fatalf("Get(display name) error: %v", err)
+	}
+	if got.Slug != "bob-the-fish" {
+		t.Fatalf("Get(display name) slug = %q, want bob-the-fish", got.Slug)
+	}
+
+	got, err = m.Get(context.Background(), "bob-the-fish")
+	if err != nil {
+		t.Fatalf("Get(slug) error: %v", err)
+	}
+	if got.Name != "Bob The Fish" {
+		t.Fatalf("Get(slug) name = %q, want %q", got.Name, "Bob The Fish")
+	}
+
+	waitForCreateToFinish(t, m, "bob-the-fish")
+}
+
 func waitForCreateToFinish(t *testing.T, m *Manager, name string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -92,22 +163,15 @@ func waitForCreateToFinish(t *testing.T, m *Manager, name string) {
 	t.Fatalf("sandbox %q create job did not finish", name)
 }
 
-func TestLogsMissingSandboxReturnsEmpty(t *testing.T) {
+func TestLogsMissingSandboxReturnsNotFound(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
 
 	m, err := NewManager(nil, nil)
 	if err != nil {
 		t.Fatalf("NewManager() error: %v", err)
 	}
-	result, err := m.Logs("missing", 10)
-	if err != nil {
-		t.Fatalf("Logs() error: %v", err)
-	}
-	if result.Name != "missing" {
-		t.Fatalf("name = %q, want missing", result.Name)
-	}
-	if len(result.Entries) != 0 {
-		t.Fatalf("entries = %d, want 0", len(result.Entries))
+	if _, err := m.Logs("missing", 10); err == nil {
+		t.Fatalf("Logs() error = nil, want not found")
 	}
 }
 

@@ -91,6 +91,7 @@ Tracking all work needed to run sky10 on Windows.
 - [ ] Decide whether that is WSL, a local host sandbox, or a packaged VM runtime
 - [ ] Keep the higher-level agent bootstrap UX consistent even when the runtime differs by platform
 - [ ] Extend managed-app archive installs for Windows runtime bundles (`pkg/apps`) — current Lima bundle support only targets Darwin/Linux asset naming and entrypoint layout
+- [ ] Define Windows-compatible terminal access for sandbox detail pages — current PTY-backed `/rpc/sandboxes/{slug}/terminal` flow assumes Lima/host PTY semantics
 
 ## Priority order
 

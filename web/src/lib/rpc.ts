@@ -152,15 +152,20 @@ export const agent = {
 // -- sandbox --
 export const sandbox = {
   list: () => rpc<SandboxListResult>("sandbox.list"),
-  get: (p: { name: string }) => rpc<SandboxRecord>("sandbox.get", p),
-  logs: (p: { name: string; limit?: number }) =>
+  get: (p: { name?: string; slug?: string }) => rpc<SandboxRecord>("sandbox.get", p),
+  logs: (p: { name?: string; slug?: string; limit?: number }) =>
     rpc<SandboxLogsResult>("sandbox.logs", p),
   create: (p: { name: string; provider: string; template: string }) =>
     rpc<SandboxRecord>("sandbox.create", p),
-  start: (p: { name: string }) => rpc<SandboxRecord>("sandbox.start", p),
-  stop: (p: { name: string }) => rpc<SandboxRecord>("sandbox.stop", p),
-  delete: (p: { name: string }) => rpc<SandboxRecord>("sandbox.delete", p),
+  start: (p: { name?: string; slug?: string }) => rpc<SandboxRecord>("sandbox.start", p),
+  stop: (p: { name?: string; slug?: string }) => rpc<SandboxRecord>("sandbox.stop", p),
+  delete: (p: { name?: string; slug?: string }) => rpc<SandboxRecord>("sandbox.delete", p),
 };
+
+export function sandboxTerminalURL(slug: string) {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}/rpc/sandboxes/${encodeURIComponent(slug)}/terminal`;
+}
 
 // -- system --
 export const system = {
@@ -714,6 +719,7 @@ export interface MailboxRetryParams {
 
 export interface SandboxRecord {
   name: string;
+  slug: string;
   provider: string;
   template: string;
   status: string;
@@ -739,6 +745,7 @@ export interface SandboxLogEntry {
 
 export interface SandboxLogsResult {
   name: string;
+  slug: string;
   entries: SandboxLogEntry[];
 }
 

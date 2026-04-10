@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -30,6 +31,8 @@ const (
 	templateSharedToken = "__SKY10_SHARED_DIR__"
 )
 
+var slugWordPattern = regexp.MustCompile(`[a-z0-9]+`)
+
 type Emitter func(event string, data interface{})
 
 type CreateParams struct {
@@ -39,16 +42,19 @@ type CreateParams struct {
 }
 
 type NamedParams struct {
-	Name string `json:"name"`
+	Name string `json:"name,omitempty"`
+	Slug string `json:"slug,omitempty"`
 }
 
 type LogsParams struct {
-	Name  string `json:"name"`
+	Name  string `json:"name,omitempty"`
+	Slug  string `json:"slug,omitempty"`
 	Limit int    `json:"limit,omitempty"`
 }
 
 type Record struct {
 	Name      string `json:"name"`
+	Slug      string `json:"slug"`
 	Provider  string `json:"provider"`
 	Template  string `json:"template"`
 	Status    string `json:"status"`
@@ -74,6 +80,7 @@ type ListResult struct {
 
 type LogsResult struct {
 	Name    string     `json:"name"`
+	Slug    string     `json:"slug"`
 	Entries []LogEntry `json:"entries"`
 }
 
@@ -134,36 +141,44 @@ func (m *Manager) List(ctx context.Context) (*ListResult, error) {
 }
 
 func (m *Manager) Get(ctx context.Context, name string) (*Record, error) {
-	name = normalizeName(name)
-	if name == "" {
-		return nil, fmt.Errorf("sandbox name is required")
+	key, err := normalizeLookup(name)
+	if err != nil {
+		return nil, err
 	}
 	if err := m.refreshRuntime(ctx); err != nil {
 		m.logger.Debug("sandbox runtime refresh failed", "error", err)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	rec, ok := m.records[name]
+	slug, ok := m.findRecordKeyLocked(key)
 	if !ok {
-		return nil, fmt.Errorf("sandbox %q not found", name)
+		return nil, fmt.Errorf("sandbox %q not found", key)
+	}
+	rec, ok := m.records[slug]
+	if !ok {
+		return nil, fmt.Errorf("sandbox %q not found", key)
 	}
 	copy := rec
 	return &copy, nil
 }
 
 func (m *Manager) Logs(name string, limit int) (*LogsResult, error) {
-	name = normalizeName(name)
-	if name == "" {
-		return nil, fmt.Errorf("sandbox name is required")
+	key, err := normalizeLookup(name)
+	if err != nil {
+		return nil, err
 	}
 	if limit <= 0 {
 		limit = 200
 	}
-	path := m.logPath(name)
+	rec, err := m.requireRecord(key)
+	if err != nil {
+		return nil, err
+	}
+	path := m.logPath(rec.Slug)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &LogsResult{Name: name}, nil
+			return &LogsResult{Name: rec.Name, Slug: rec.Slug}, nil
 		}
 		return nil, fmt.Errorf("reading sandbox logs: %w", err)
 	}
@@ -184,15 +199,19 @@ func (m *Manager) Logs(name string, limit int) (*LogsResult, error) {
 		}
 		entries = append(entries, entry)
 	}
-	return &LogsResult{Name: name, Entries: entries}, nil
+	return &LogsResult{Name: rec.Name, Slug: rec.Slug, Entries: entries}, nil
 }
 
 func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, error) {
-	name := normalizeName(params.Name)
+	displayName := normalizeDisplayName(params.Name)
 	provider := strings.ToLower(strings.TrimSpace(params.Provider))
 	template := strings.ToLower(strings.TrimSpace(params.Template))
-	if name == "" {
+	if displayName == "" {
 		return nil, fmt.Errorf("sandbox name is required")
+	}
+	slug := slugifySandboxName(displayName)
+	if slug == "" {
+		return nil, fmt.Errorf("sandbox name must include letters or numbers")
 	}
 	if provider != providerLima {
 		return nil, fmt.Errorf("unsupported sandbox provider %q (supported: %s)", provider, providerLima)
@@ -201,37 +220,38 @@ func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, err
 		return nil, fmt.Errorf("unsupported sandbox template %q (supported: %s)", template, templateUbuntu)
 	}
 
-	sharedDir, err := defaultSharedDir(name)
+	sharedDir, err := defaultSharedDir(slug)
 	if err != nil {
 		return nil, err
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	rec := Record{
-		Name:      name,
+		Name:      displayName,
+		Slug:      slug,
 		Provider:  provider,
 		Template:  template,
 		Status:    "creating",
 		SharedDir: sharedDir,
-		Shell:     fmt.Sprintf("limactl shell %s", name),
+		Shell:     fmt.Sprintf("limactl shell %s", slug),
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
 
 	m.mu.Lock()
-	if _, exists := m.records[name]; exists {
+	if _, exists := m.records[slug]; exists {
 		m.mu.Unlock()
-		return nil, fmt.Errorf("sandbox %q already exists", name)
+		return nil, fmt.Errorf("sandbox %q already exists", displayName)
 	}
-	if m.running[name] {
+	if m.running[slug] {
 		m.mu.Unlock()
-		return nil, fmt.Errorf("sandbox %q is already being created", name)
+		return nil, fmt.Errorf("sandbox %q is already being created", displayName)
 	}
-	m.records[name] = rec
-	m.running[name] = true
+	m.records[slug] = rec
+	m.running[slug] = true
 	if err := m.saveLocked(); err != nil {
-		delete(m.running, name)
-		delete(m.records, name)
+		delete(m.running, slug)
+		delete(m.records, slug)
 		m.mu.Unlock()
 		return nil, err
 	}
@@ -252,20 +272,20 @@ func (m *Manager) Start(ctx context.Context, name string) (*Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := m.updateStatus(rec.Name, "starting", ""); err != nil {
+	if err := m.updateStatus(rec.Slug, "starting", ""); err != nil {
 		return nil, err
 	}
 	go func() {
-		err := m.runCmd(context.Background(), limactl, []string{"start", "--tty=false", rec.Name}, func(stream, line string) {
-			m.appendLog(rec.Name, stream, line)
+		err := m.runCmd(context.Background(), limactl, []string{"start", "--tty=false", rec.Slug}, func(stream, line string) {
+			m.appendLog(rec.Slug, stream, line)
 		})
 		if err != nil {
-			_ = m.updateStatus(rec.Name, "error", err.Error())
+			_ = m.updateStatus(rec.Slug, "error", err.Error())
 			return
 		}
-		_ = m.finishReady(context.Background(), rec.Name, limactl)
+		_ = m.finishReady(context.Background(), rec.Slug, limactl)
 	}()
-	return m.Get(context.Background(), rec.Name)
+	return m.Get(context.Background(), rec.Slug)
 }
 
 func (m *Manager) Stop(ctx context.Context, name string) (*Record, error) {
@@ -277,18 +297,18 @@ func (m *Manager) Stop(ctx context.Context, name string) (*Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := m.runCmd(ctx, limactl, []string{"stop", rec.Name}, func(stream, line string) {
-		m.appendLog(rec.Name, stream, line)
+	if err := m.runCmd(ctx, limactl, []string{"stop", rec.Slug}, func(stream, line string) {
+		m.appendLog(rec.Slug, stream, line)
 	}); err != nil {
 		return nil, fmt.Errorf("stopping sandbox %q: %w", rec.Name, err)
 	}
-	if err := m.updateVMStatus(rec.Name, "Stopped"); err != nil {
+	if err := m.updateVMStatus(rec.Slug, "Stopped"); err != nil {
 		return nil, err
 	}
-	if err := m.updateStatus(rec.Name, "stopped", ""); err != nil {
+	if err := m.updateStatus(rec.Slug, "stopped", ""); err != nil {
 		return nil, err
 	}
-	return m.Get(ctx, rec.Name)
+	return m.Get(ctx, rec.Slug)
 }
 
 func (m *Manager) Delete(ctx context.Context, name string) (*Record, error) {
@@ -300,18 +320,18 @@ func (m *Manager) Delete(ctx context.Context, name string) (*Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	_ = m.runCmd(ctx, limactl, []string{"stop", rec.Name}, func(stream, line string) {
-		m.appendLog(rec.Name, stream, line)
+	_ = m.runCmd(ctx, limactl, []string{"stop", rec.Slug}, func(stream, line string) {
+		m.appendLog(rec.Slug, stream, line)
 	})
-	if err := m.runCmd(ctx, limactl, []string{"delete", "--force", rec.Name}, func(stream, line string) {
-		m.appendLog(rec.Name, stream, line)
+	if err := m.runCmd(ctx, limactl, []string{"delete", "--force", rec.Slug}, func(stream, line string) {
+		m.appendLog(rec.Slug, stream, line)
 	}); err != nil {
 		return nil, fmt.Errorf("deleting sandbox %q: %w", rec.Name, err)
 	}
 
 	m.mu.Lock()
-	delete(m.records, rec.Name)
-	delete(m.running, rec.Name)
+	delete(m.records, rec.Slug)
+	delete(m.running, rec.Slug)
 	err = m.saveLocked()
 	m.mu.Unlock()
 	if err != nil {
@@ -320,6 +340,7 @@ func (m *Manager) Delete(ctx context.Context, name string) (*Record, error) {
 	if m.emit != nil {
 		m.emit("sandbox:state", map[string]any{
 			"name":   rec.Name,
+			"slug":   rec.Slug,
 			"status": "deleted",
 		})
 	}
@@ -329,23 +350,23 @@ func (m *Manager) Delete(ctx context.Context, name string) (*Record, error) {
 func (m *Manager) runCreate(ctx context.Context, rec Record) {
 	defer func() {
 		m.mu.Lock()
-		delete(m.running, rec.Name)
+		delete(m.running, rec.Slug)
 		m.mu.Unlock()
 	}()
 
 	limactl, err := m.ensureManagedApp(ctx, skyapps.AppLima, true)
 	if err != nil {
-		_ = m.updateStatus(rec.Name, "error", err.Error())
+		_ = m.updateStatus(rec.Slug, "error", err.Error())
 		return
 	}
 	if err := os.MkdirAll(rec.SharedDir, 0o755); err != nil {
-		_ = m.updateStatus(rec.Name, "error", fmt.Sprintf("creating shared directory: %v", err))
+		_ = m.updateStatus(rec.Slug, "error", fmt.Sprintf("creating shared directory: %v", err))
 		return
 	}
 
 	templatePath, err := m.materializeTemplate(ctx, rec)
 	if err != nil {
-		_ = m.updateStatus(rec.Name, "error", err.Error())
+		_ = m.updateStatus(rec.Slug, "error", err.Error())
 		return
 	}
 
@@ -353,18 +374,18 @@ func (m *Manager) runCreate(ctx context.Context, rec Record) {
 		"start",
 		"--tty=false",
 		"--progress",
-		"--name", rec.Name,
+		"--name", rec.Slug,
 		templatePath,
 	}
 	if err := m.runCmd(ctx, limactl, args, func(stream, line string) {
-		m.appendLog(rec.Name, stream, line)
+		m.appendLog(rec.Slug, stream, line)
 	}); err != nil {
-		_ = m.updateStatus(rec.Name, "error", err.Error())
+		_ = m.updateStatus(rec.Slug, "error", err.Error())
 		return
 	}
 
-	if err := m.finishReady(ctx, rec.Name, limactl); err != nil {
-		_ = m.updateStatus(rec.Name, "error", err.Error())
+	if err := m.finishReady(ctx, rec.Slug, limactl); err != nil {
+		_ = m.updateStatus(rec.Slug, "error", err.Error())
 		return
 	}
 }
@@ -386,15 +407,19 @@ func (m *Manager) finishReady(ctx context.Context, name, limactl string) error {
 }
 
 func (m *Manager) requireRecord(name string) (*Record, error) {
-	name = normalizeName(name)
-	if name == "" {
-		return nil, fmt.Errorf("sandbox name is required")
+	key, err := normalizeLookup(name)
+	if err != nil {
+		return nil, err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	rec, ok := m.records[name]
+	slug, ok := m.findRecordKeyLocked(key)
 	if !ok {
-		return nil, fmt.Errorf("sandbox %q not found", name)
+		return nil, fmt.Errorf("sandbox %q not found", key)
+	}
+	rec, ok := m.records[slug]
+	if !ok {
+		return nil, fmt.Errorf("sandbox %q not found", key)
 	}
 	copy := rec
 	return &copy, nil
@@ -429,13 +454,13 @@ func (m *Manager) materializeTemplate(ctx context.Context, rec Record) (string, 
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return "", fmt.Errorf("creating sandbox template dir: %w", err)
 	}
-	dest := filepath.Join(cacheDir, rec.Name+"-"+templateUbuntuAsset)
+	dest := filepath.Join(cacheDir, rec.Slug+"-"+templateUbuntuAsset)
 	if local, err := findLocalTemplateFile(templateUbuntuAsset); err == nil {
 		data, err := os.ReadFile(local)
 		if err != nil {
 			return "", fmt.Errorf("reading local sandbox template: %w", err)
 		}
-		rendered := renderSandboxTemplate(data, rec.Name, rec.SharedDir)
+		rendered := renderSandboxTemplate(data, rec.Slug, rec.SharedDir)
 		if err := os.WriteFile(dest, rendered, 0o644); err != nil {
 			return "", fmt.Errorf("writing sandbox template cache: %w", err)
 		}
@@ -446,7 +471,7 @@ func (m *Manager) materializeTemplate(ctx context.Context, rec Record) (string, 
 	if err != nil {
 		return "", err
 	}
-	rendered := renderSandboxTemplate(req, rec.Name, rec.SharedDir)
+	rendered := renderSandboxTemplate(req, rec.Slug, rec.SharedDir)
 	if err := os.WriteFile(dest, rendered, 0o644); err != nil {
 		return "", fmt.Errorf("writing downloaded sandbox template: %w", err)
 	}
@@ -515,7 +540,7 @@ func (m *Manager) refreshRuntime(ctx context.Context) error {
 	return err
 }
 
-func (m *Manager) appendLog(name, stream, line string) {
+func (m *Manager) appendLog(slug, stream, line string) {
 	line = strings.TrimRight(line, "\r\n")
 	if strings.TrimSpace(line) == "" {
 		return
@@ -526,7 +551,7 @@ func (m *Manager) appendLog(name, stream, line string) {
 		Line:   line,
 	}
 	data, _ := json.Marshal(entry)
-	logPath := m.logPath(name)
+	logPath := m.logPath(slug)
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err == nil {
 		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 		if err == nil {
@@ -535,17 +560,22 @@ func (m *Manager) appendLog(name, stream, line string) {
 		}
 	}
 	m.mu.Lock()
-	rec, ok := m.records[name]
+	rec, ok := m.records[slug]
 	if ok {
 		rec.LastLogAt = entry.Time
 		rec.UpdatedAt = entry.Time
-		m.records[name] = rec
+		m.records[slug] = rec
 		_ = m.saveLocked()
 	}
 	m.mu.Unlock()
 	if m.emit != nil {
+		displayName := slug
+		if ok && strings.TrimSpace(rec.Name) != "" {
+			displayName = rec.Name
+		}
 		m.emit("sandbox:log", map[string]any{
-			"name":   name,
+			"name":   displayName,
+			"slug":   slug,
 			"stream": stream,
 			"time":   entry.Time,
 			"line":   line,
@@ -637,10 +667,68 @@ func (m *Manager) load() error {
 	if err := json.Unmarshal(data, &state); err != nil {
 		return fmt.Errorf("parsing sandbox state: %w", err)
 	}
+	changed := false
 	for _, rec := range state.Sandboxes {
-		m.records[rec.Name] = rec
+		originalName := rec.Name
+		rec.Name = normalizeDisplayName(rec.Name)
+		if rec.Name == "" {
+			rec.Name = rec.Slug
+			changed = true
+		}
+		if rec.Slug == "" {
+			rec.Slug = slugifySandboxName(rec.Name)
+			changed = true
+		}
+		if rec.Slug == "" {
+			continue
+		}
+		if err := m.migrateSandboxLogDir(originalName, rec.Slug); err == nil && originalName != rec.Slug {
+			changed = true
+		}
+		if dir, err := defaultSharedDir(rec.Slug); err == nil && rec.SharedDir != dir {
+			rec.SharedDir = dir
+			changed = true
+		}
+		if shell := fmt.Sprintf("limactl shell %s", rec.Slug); rec.Shell != shell {
+			rec.Shell = shell
+			changed = true
+		}
+		if rec.SharedDir == "" {
+			if dir, err := defaultSharedDir(rec.Slug); err == nil {
+				rec.SharedDir = dir
+			}
+		}
+		m.records[rec.Slug] = rec
+	}
+	if changed {
+		return m.saveLocked()
 	}
 	return nil
+}
+
+func (m *Manager) migrateSandboxLogDir(name, slug string) error {
+	name = strings.TrimSpace(name)
+	slug = strings.TrimSpace(slug)
+	if name == "" || slug == "" || name == slug {
+		return nil
+	}
+	oldPath := m.sandboxDir(name)
+	newPath := m.sandboxDir(slug)
+	if oldPath == newPath {
+		return nil
+	}
+	if _, err := os.Stat(oldPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if _, err := os.Stat(newPath); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return os.Rename(oldPath, newPath)
 }
 
 func (m *Manager) saveLocked() error {
@@ -659,16 +747,52 @@ func (m *Manager) saveLocked() error {
 	return nil
 }
 
-func defaultSharedDir(name string) (string, error) {
+func defaultSharedDir(slug string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("finding home directory: %w", err)
 	}
-	return filepath.Join(home, "sky10", "sandboxes", name), nil
+	return filepath.Join(home, "sky10", "sandboxes", slug), nil
 }
 
-func normalizeName(name string) string {
+func normalizeDisplayName(name string) string {
 	return strings.TrimSpace(name)
+}
+
+func normalizeLookup(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("sandbox name is required")
+	}
+	return name, nil
+}
+
+func slugifySandboxName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	parts := slugWordPattern.FindAllString(name, -1)
+	return strings.Join(parts, "-")
+}
+
+func (m *Manager) findRecordKeyLocked(key string) (string, bool) {
+	if _, ok := m.records[key]; ok {
+		return key, true
+	}
+	for slug, rec := range m.records {
+		if rec.Name == key {
+			return slug, true
+		}
+	}
+	return "", false
+}
+
+func (m *Manager) resolveRecordKey(key string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	slug, ok := m.findRecordKeyLocked(key)
+	if !ok {
+		return "", fmt.Errorf("sandbox %q not found", key)
+	}
+	return slug, nil
 }
 
 func findLocalTemplateFile(name string) (string, error) {

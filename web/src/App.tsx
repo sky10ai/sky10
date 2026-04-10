@@ -29,8 +29,8 @@ function HomeRedirect() {
 
 function SandboxLegacyRedirect() {
   const params = useParams();
-  const name = params.name ? encodeURIComponent(params.name) : "";
-  return <Navigate replace to={name ? `/settings/sandboxes/${name}` : "/settings/sandboxes"} />;
+  const slug = params.name ? encodeURIComponent(params.name) : "";
+  return <Navigate replace to={slug ? `/settings/sandboxes/${slug}` : "/settings/sandboxes"} />;
 }
 
 export default function App() {
@@ -56,7 +56,7 @@ export default function App() {
           <Route path="activity" element={<Activity />} />
           <Route path="settings/apps" element={<SettingsApps />} />
           <Route path="settings/sandboxes" element={<Sandboxes />} />
-          <Route path="settings/sandboxes/:name" element={<SandboxDetail />} />
+          <Route path="settings/sandboxes/:slug" element={<SandboxDetail />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

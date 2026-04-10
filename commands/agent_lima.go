@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -41,6 +42,8 @@ var agentLimaAssetFiles = []string{
 	agentLimaUserScript,
 }
 
+var sandboxNameWordPattern = regexp.MustCompile(`[a-z0-9]+`)
+
 var (
 	sandboxManagedAppStatus  = skyapps.StatusFor
 	sandboxManagedAppUpgrade = skyapps.Upgrade
@@ -58,9 +61,13 @@ func sandboxCreateCmd() *cobra.Command {
 		Short: "Create or start a named sandbox",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name := strings.TrimSpace(args[0])
-			if name == "" {
+			displayName := strings.TrimSpace(args[0])
+			if displayName == "" {
 				return fmt.Errorf("sandbox name must not be empty")
+			}
+			slug := slugifySandboxName(displayName)
+			if slug == "" {
+				return fmt.Errorf("sandbox name must include letters or numbers")
 			}
 
 			provider = strings.TrimSpace(strings.ToLower(provider))
@@ -83,12 +90,12 @@ func sandboxCreateCmd() *cobra.Command {
 				return err
 			}
 
-			sharedDir, err := defaultLimaSharedDir(name)
+			sharedDir, err := defaultLimaSharedDir(slug)
 			if err != nil {
 				return err
 			}
 
-			templatePath, hostsScript, err := materializeLimaAssets(cmd.Context(), name, sharedDir)
+			templatePath, hostsScript, err := materializeLimaAssets(cmd.Context(), slug, sharedDir)
 			if err != nil {
 				return err
 			}
@@ -107,7 +114,7 @@ func sandboxCreateCmd() *cobra.Command {
 			startArgs := []string{
 				"start",
 				"--tty=false",
-				"--name", name,
+				"--name", slug,
 				"--set", fmt.Sprintf(".param.sky10RPCURL = %q", guestRPCURL),
 			}
 			if strings.TrimSpace(model) != "" {
@@ -120,23 +127,24 @@ func sandboxCreateCmd() *cobra.Command {
 			startCmd.Stdout = cmd.OutOrStdout()
 			startCmd.Stderr = cmd.ErrOrStderr()
 			if err := startCmd.Run(); err != nil {
-				return fmt.Errorf("starting Lima instance %q: %w", name, err)
+				return fmt.Errorf("starting Lima instance %q: %w", slug, err)
 			}
 
 			if waitTimeout > 0 {
-				if err := waitForAgentRegistration(cmd.Context(), name, waitTimeout); err != nil {
+				if err := waitForAgentRegistration(cmd.Context(), slug, waitTimeout); err != nil {
 					return err
 				}
 			}
 
-			ipAddr, ipErr := lookupLimaInstanceIPv4(cmd.Context(), limactl, name)
+			ipAddr, ipErr := lookupLimaInstanceIPv4(cmd.Context(), limactl, slug)
 			httpURL := ""
 			if ipErr == nil && ipAddr != "" && !limaTLSCertsPresent(sharedDir) {
 				httpURL = fmt.Sprintf("http://%s:18790/chat?session=main", ipAddr)
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "\nSandbox ready.\n")
-			fmt.Fprintf(cmd.OutOrStdout(), "Name:       %s\n", name)
+			fmt.Fprintf(cmd.OutOrStdout(), "Name:       %s\n", displayName)
+			fmt.Fprintf(cmd.OutOrStdout(), "Runtime ID: %s\n", slug)
 			fmt.Fprintf(cmd.OutOrStdout(), "Provider:   %s\n", provider)
 			fmt.Fprintf(cmd.OutOrStdout(), "Template:   %s\n", template)
 			fmt.Fprintf(cmd.OutOrStdout(), "Shared dir: %s\n", sharedDir)
@@ -147,11 +155,11 @@ func sandboxCreateCmd() *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:   %s\n", httpURL)
 			} else if limaTLSCertsPresent(sharedDir) {
 				fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:   run %s and open %s\n",
-					filepath.Join(sharedDir, agentLimaHostsScript), sandboxHTTPSURL(name))
+					filepath.Join(sharedDir, agentLimaHostsScript), sandboxHTTPSURL(slug))
 			} else if ipAddr != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:   guest IP %s on port 18790 (TLS certs are enabled, so hostname mapping is recommended)\n", ipAddr)
 			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:   run 'limactl shell %s -- bash -lc \"ip -4 route get 1.1.1.1\"' to find the guest IP\n", name)
+				fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:   run 'limactl shell %s -- bash -lc \"ip -4 route get 1.1.1.1\"' to find the guest IP\n", slug)
 			}
 
 			if openUI {
@@ -258,6 +266,12 @@ func sandboxHostname(name string) string {
 
 func sandboxHTTPSURL(name string) string {
 	return "https://" + sandboxHostname(name) + ":18790/chat?session=main"
+}
+
+func slugifySandboxName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	parts := sandboxNameWordPattern.FindAllString(name, -1)
+	return strings.Join(parts, "-")
 }
 
 func materializeLimaAssets(ctx context.Context, sandboxName, sharedDir string) (string, []byte, error) {

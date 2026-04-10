@@ -263,6 +263,7 @@ func ServeCmd() *cobra.Command {
 				return fmt.Errorf("creating sandbox manager: %w", err)
 			}
 			server.RegisterHandler(skysandbox.NewRPCHandler(sandboxManager))
+			server.HandleHTTP("GET /rpc/sandboxes/{slug}/terminal", sandboxManager.HandleTerminal)
 
 			var privateNetworkMu sync.Mutex
 			privateNetworkManager := link.NewManager(
