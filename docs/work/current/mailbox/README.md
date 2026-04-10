@@ -410,6 +410,14 @@ Suggested web surfaces:
 
 Define the canonical mailbox model.
 
+Scope:
+
+- glossary and terminology
+- item and event schema
+- delivery semantics
+- private-network vs sky10-network routing boundary
+- sizing and payload rules
+
 Exit criteria:
 
 - one mailbox glossary
@@ -417,9 +425,24 @@ Exit criteria:
 - one delivery semantic: at-least-once + idempotency
 - one routing split: direct transport vs durable backend
 
+Checklist:
+
+- [ ] Confirm mailbox naming and glossary.
+- [ ] Confirm item and event schema.
+- [ ] Confirm delivery semantics: at-least-once + idempotency.
+- [ ] Confirm queue semantics: claim + lease, not destructive pop.
+- [ ] Confirm payload sizing and `PayloadRef` rules.
+- [ ] Confirm private-network-first scope for initial implementation.
+
 ### M1: KV Collections
 
 Implement the reusable replicated primitives on top of KV.
+
+Primary files:
+
+- `pkg/kv/collections/appendlog.go`
+- `pkg/kv/collections/lease.go`
+- `pkg/kv/collections/payloadref.go`
 
 Exit criteria:
 
@@ -428,9 +451,28 @@ Exit criteria:
 - `PayloadRef` helper for oversized payloads
 - tests for replay, rebuild, and concurrency edges
 
+Checklist:
+
+- [ ] Create `pkg/kv/collections`.
+- [ ] Implement `AppendLog`.
+- [ ] Define `AppendLogEntry`.
+- [ ] Implement `Lease`.
+- [ ] Implement `PayloadRef`.
+- [ ] Add unit tests for replay and rebuild.
+- [ ] Add unit tests for lease expiry and re-claim.
+- [ ] Add unit tests for oversized payload indirection.
+
 ### M2: Private-Network Mailbox Backend
 
 Build `pkg/agent/mailbox` on top of a dedicated KV namespace.
+
+Primary files:
+
+- `pkg/agent/mailbox/types.go`
+- `pkg/agent/mailbox/store.go`
+- `pkg/agent/mailbox/backend.go`
+- `pkg/agent/mailbox/private_kv.go`
+- `pkg/agent/mailbox/index.go`
 
 Exit criteria:
 
@@ -439,9 +481,30 @@ Exit criteria:
 - queue claim/lease support
 - restart-safe state reload
 
+Checklist:
+
+- [ ] Create `pkg/agent/mailbox`.
+- [ ] Define mailbox item types.
+- [ ] Define mailbox event types.
+- [ ] Implement store and materialized views.
+- [ ] Implement dedicated private-network KV backend.
+- [ ] Implement rebuild-on-start from persisted state.
+- [ ] Implement inbox projection.
+- [ ] Implement outbox projection.
+- [ ] Implement queue projection.
+- [ ] Add mailbox unit tests.
+
 ### M3: Agent Routing Integration
 
 Integrate mailbox into agent messaging without replacing direct skylink.
+
+Primary files:
+
+- `pkg/agent/router.go`
+- `pkg/agent/rpc.go`
+- `pkg/agent/registry.go`
+- `pkg/agent/link.go`
+- `commands/serve.go`
 
 Exit criteria:
 
@@ -450,9 +513,27 @@ Exit criteria:
 - drain on agent registration
 - drain on reconnect
 
+Checklist:
+
+- [ ] Add mailbox wiring in `commands/serve.go`.
+- [ ] Keep direct skylink send as the first attempt.
+- [ ] Integrate mailbox fallback into `pkg/agent/router.go`.
+- [ ] Add drain-on-registration behavior.
+- [ ] Add reconnect-triggered drain behavior.
+- [ ] Emit mailbox-related SSE events.
+- [ ] Add integration tests for offline device delivery.
+- [ ] Add integration tests for late agent registration.
+
 ### M4: Task, Approval, and Payment Workflows
 
 Add protocol-specific state machines above mailbox.
+
+Primary areas:
+
+- mailbox item kinds
+- approval flow
+- payment flow
+- result and receipt delivery
 
 Exit criteria:
 
@@ -460,9 +541,24 @@ Exit criteria:
 - payment protocol messages survive crash/reconnect
 - retry and dedupe rules are explicit
 
+Checklist:
+
+- [ ] Define approval item flow.
+- [ ] Define payment item flow.
+- [ ] Define result and receipt flow.
+- [ ] Add idempotency checks and nonce rules.
+- [ ] Add replay/retry tests for interrupted flows.
+- [ ] Add duplicate-delivery tests for idempotent processing.
+
 ### M5: RPC and Web UX
 
 Make mailbox observable and operable.
+
+Primary files:
+
+- `web/src/lib/rpc.ts`
+- `web/src/lib/events.ts`
+- `web/src/pages/`
 
 Exit criteria:
 
@@ -471,9 +567,26 @@ Exit criteria:
 - approval actions work from UI
 - item timelines are visible
 
+Checklist:
+
+- [ ] Add `agent.mailbox.*` RPC methods.
+- [ ] Add mailbox SSE events.
+- [ ] Add inbox view.
+- [ ] Add outbox view.
+- [ ] Add approvals center.
+- [ ] Add task queue monitor.
+- [ ] Add item timeline UI.
+
 ### M6: sky10-Network Backend
 
 Add the public-network mailbox backend after private-network behavior is stable.
+
+Primary areas:
+
+- network mailbox backend
+- addressed delivery fallback
+- claimable public-network tasks
+- indirect-storage encryption rules
 
 Exit criteria:
 
@@ -481,66 +594,14 @@ Exit criteria:
 - claimable public-network tasks have lease semantics
 - encrypted mailbox payloads are preserved when indirect storage is used
 
-## Running Checklist
-
-### Design
-
-- [ ] Confirm mailbox naming and glossary.
-- [ ] Confirm item/event schema.
-- [ ] Confirm delivery semantics: at-least-once + idempotency.
-- [ ] Confirm queue semantics: claim + lease, not destructive pop.
-- [ ] Confirm payload sizing and blob-ref rules.
-- [ ] Confirm private-network-first scope for initial implementation.
-
-### KV Collections
-
-- [ ] Create `pkg/kv/collections`.
-- [ ] Implement `AppendLog` abstraction.
-- [ ] Implement lease abstraction.
-- [ ] Implement `PayloadRef` helper.
-- [ ] Add collection unit tests.
-
-### Mailbox Core
-
-- [ ] Create `pkg/agent/mailbox`.
-- [ ] Define mailbox item and event types.
-- [ ] Implement store and materialized views.
-- [ ] Implement private-network KV backend.
-- [ ] Implement rebuild-on-start from persisted state.
-- [ ] Add mailbox unit tests.
-
-### Agent Integration
-
-- [ ] Add mailbox wiring in `commands/serve.go`.
-- [ ] Integrate mailbox fallback into `pkg/agent/router.go`.
-- [ ] Add drain-on-registration behavior.
-- [ ] Add reconnect-triggered drain behavior.
-- [ ] Add integration tests for offline device delivery.
-- [ ] Add integration tests for late agent registration.
-
-### Workflow State Machines
-
-- [ ] Define approval item flow.
-- [ ] Define payment item flow.
-- [ ] Add idempotency checks and nonce rules.
-- [ ] Add replay/retry tests for interrupted flows.
-
-### RPC and Web
-
-- [ ] Add `agent.mailbox.*` RPC methods.
-- [ ] Add mailbox SSE events.
-- [ ] Add inbox view.
-- [ ] Add outbox view.
-- [ ] Add approval actions.
-- [ ] Add item timeline UI.
-
-### sky10 Network
+Checklist:
 
 - [ ] Define network mailbox backend interface.
-- [ ] Define addressed network delivery fallback.
-- [ ] Define claimable network queue behavior.
+- [ ] Define addressed sky10-network delivery fallback.
+- [ ] Define claimable public-network queue behavior.
 - [ ] Define encryption requirements for indirect storage.
 - [ ] Add public-network backend implementation.
+- [ ] Add integration tests for online direct delivery plus durable fallback.
 
 ## Open Questions
 
