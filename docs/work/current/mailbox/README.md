@@ -453,14 +453,14 @@ Exit criteria:
 
 Checklist:
 
-- [ ] Create `pkg/kv/collections`.
-- [ ] Implement `AppendLog`.
-- [ ] Define `AppendLogEntry`.
-- [ ] Implement `Lease`.
-- [ ] Implement `PayloadRef`.
-- [ ] Add unit tests for replay and rebuild.
-- [ ] Add unit tests for lease expiry and re-claim.
-- [ ] Add unit tests for oversized payload indirection.
+- [x] Create `pkg/kv/collections`.
+- [x] Implement `AppendLog`.
+- [x] Define `AppendLogEntry`.
+- [x] Implement `Lease`.
+- [x] Implement `PayloadRef`.
+- [x] Add unit tests for replay and rebuild.
+- [x] Add unit tests for lease expiry and re-claim.
+- [x] Add unit tests for oversized payload indirection.
 
 ### M2: Private-Network Mailbox Backend
 
