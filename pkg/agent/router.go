@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
+	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
 	"github.com/sky10/sky10/pkg/link"
 )
 
@@ -22,6 +23,7 @@ type Router struct {
 	emit     Emitter
 	deviceID string
 	logger   *slog.Logger
+	mailbox  *agentmailbox.Store
 
 	// mu protects peerDevices and peerAgentCache.
 	mu             sync.RWMutex
@@ -49,31 +51,141 @@ func NewRouter(registry *Registry, node *link.Node, emit Emitter, deviceID strin
 	}
 }
 
+// SetMailbox attaches durable mailbox storage used for fallback and drain.
+func (r *Router) SetMailbox(store *agentmailbox.Store) {
+	r.mailbox = store
+}
+
 // Send routes a message to the target agent or identity. Local targets
 // get an SSE event. Remote targets are forwarded via skylink.
 func (r *Router) Send(ctx context.Context, msg Message) (interface{}, error) {
 	// Local delivery — target is a local agent or the device itself.
 	if msg.DeviceID == "" || msg.DeviceID == r.deviceID {
-		if r.emit != nil {
-			r.emit("agent.message", msg)
-		}
-		return map[string]string{"id": msg.ID, "status": "sent"}, nil
+		return r.routeIncoming(ctx, msg)
 	}
 
 	// Remote — route via skylink.
-	pid, ok := r.lookupPeer(msg.DeviceID)
-	if !ok {
-		return nil, fmt.Errorf("device %s not connected", msg.DeviceID)
+	if err := r.sendRemoteLive(ctx, msg); err != nil {
+		if r.mailbox == nil {
+			return nil, err
+		}
+		record, queueErr := r.queueRemoteFailure(ctx, msg, err.Error())
+		if queueErr != nil {
+			return nil, queueErr
+		}
+		return r.queuedResult(msg.ID, record.Item.ID), nil
+	}
+	return r.sentResult(msg.ID), nil
+}
+
+// DrainOutbox retries durable outbound messages for this device. When
+// deviceID is non-empty, only messages targeting that device are retried.
+func (r *Router) DrainOutbox(ctx context.Context, deviceID string) error {
+	if r.mailbox == nil {
+		return nil
+	}
+	if err := r.mailbox.Reload(ctx); err != nil {
+		return err
 	}
 
-	sendCtx, cancel := context.WithTimeout(ctx, peerQueryTimeout)
-	defer cancel()
-
-	_, err := r.node.Call(sendCtx, pid, "agent.send", msg)
-	if err != nil {
-		return nil, fmt.Errorf("remote send to %s: %w", msg.DeviceID, err)
+	records := r.mailbox.ListOutbox(r.deviceID)
+	var firstErr error
+	for _, record := range records {
+		if deviceID != "" && record.Item.To != nil && record.Item.To.DeviceHint != deviceID {
+			continue
+		}
+		if record.State != agentmailbox.StateQueued && record.State != agentmailbox.StateFailed {
+			continue
+		}
+		msg, err := mailboxMessage(record)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if err := r.sendRemoteLive(ctx, msg); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			if _, appendErr := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+				ItemID: record.Item.ID,
+				Type:   agentmailbox.EventTypeDeliveryFailed,
+				Actor:  routerPrincipal(r.deviceID, r.deviceID),
+				Error:  err.Error(),
+			}); appendErr != nil && firstErr == nil {
+				firstErr = appendErr
+			}
+			continue
+		}
+		updated, err := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+			ItemID: record.Item.ID,
+			Type:   agentmailbox.EventTypeDelivered,
+			Actor:  routerPrincipal(r.deviceID, r.deviceID),
+		})
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		r.emitMailboxUpdate("delivered", updated)
 	}
-	return map[string]string{"id": msg.ID, "status": "sent"}, nil
+	return firstErr
+}
+
+// DrainLocalPending retries queued local deliveries for one or more recipient
+// identifiers such as an agent ID or name.
+func (r *Router) DrainLocalPending(ctx context.Context, recipients ...string) error {
+	if r.mailbox == nil {
+		return nil
+	}
+	if err := r.mailbox.Reload(ctx); err != nil {
+		return err
+	}
+
+	seen := make(map[string]struct{})
+	var firstErr error
+	for _, recipient := range recipients {
+		if recipient == "" {
+			continue
+		}
+		for _, record := range r.mailbox.ListInbox(recipient) {
+			if _, ok := seen[record.Item.ID]; ok {
+				continue
+			}
+			seen[record.Item.ID] = struct{}{}
+			if record.State != agentmailbox.StateQueued && record.State != agentmailbox.StateFailed {
+				continue
+			}
+			msg, err := mailboxMessage(record)
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+			if r.registry.Resolve(msg.To) == nil {
+				continue
+			}
+			if r.emit != nil {
+				r.emit("agent.message", msg)
+			}
+			updated, err := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+				ItemID: record.Item.ID,
+				Type:   agentmailbox.EventTypeDelivered,
+				Actor:  routerPrincipal(r.deviceID, r.deviceID),
+			})
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+			r.emitMailboxUpdate("delivered", updated)
+		}
+	}
+	return firstErr
 }
 
 // peerAgentCacheTTL is how long cached agent lists remain valid when a
@@ -186,4 +298,144 @@ func (r *Router) lookupPeer(deviceID string) (peer.ID, bool) {
 	pid, ok := r.peerDevices[deviceID]
 	r.mu.RUnlock()
 	return pid, ok
+}
+
+func (r *Router) routeIncoming(ctx context.Context, msg Message) (interface{}, error) {
+	if r.emit != nil {
+		r.emit("agent.message", msg)
+	}
+	if r.mailbox != nil && r.registry.Resolve(msg.To) == nil {
+		record, err := r.queueLocalPending(ctx, msg)
+		if err != nil {
+			return nil, err
+		}
+		return r.queuedResult(msg.ID, record.Item.ID), nil
+	}
+	return r.sentResult(msg.ID), nil
+}
+
+func (r *Router) sendRemoteLive(ctx context.Context, msg Message) error {
+	pid, ok := r.lookupPeer(msg.DeviceID)
+	if !ok {
+		return fmt.Errorf("device %s not connected", msg.DeviceID)
+	}
+
+	sendCtx, cancel := context.WithTimeout(ctx, peerQueryTimeout)
+	defer cancel()
+
+	if _, err := r.node.Call(sendCtx, pid, "agent.send", msg); err != nil {
+		return fmt.Errorf("remote send to %s: %w", msg.DeviceID, err)
+	}
+	return nil
+}
+
+func (r *Router) queueRemoteFailure(ctx context.Context, msg Message, reason string) (agentmailbox.Record, error) {
+	record, err := r.createMailboxMessage(ctx, msg)
+	if err != nil {
+		return agentmailbox.Record{}, err
+	}
+	updated, err := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+		ItemID: record.Item.ID,
+		Type:   agentmailbox.EventTypeDeliveryFailed,
+		Actor:  routerPrincipal(r.deviceID, r.deviceID),
+		Error:  reason,
+	})
+	if err != nil {
+		return agentmailbox.Record{}, err
+	}
+	r.emitMailboxUpdate("queued", updated)
+	return updated, nil
+}
+
+func (r *Router) queueLocalPending(ctx context.Context, msg Message) (agentmailbox.Record, error) {
+	record, err := r.createMailboxMessage(ctx, msg)
+	if err != nil {
+		return agentmailbox.Record{}, err
+	}
+	r.emitMailboxUpdate("queued", record)
+	return record, nil
+}
+
+func (r *Router) createMailboxMessage(ctx context.Context, msg Message) (agentmailbox.Record, error) {
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return agentmailbox.Record{}, fmt.Errorf("marshal mailbox message %s: %w", msg.ID, err)
+	}
+	record, err := r.mailbox.Create(ctx, agentmailbox.Item{
+		Kind:           agentmailbox.ItemKindMessage,
+		From:           routerPrincipal(messageFromID(msg, r.deviceID), r.deviceID),
+		To:             routerRecipient(msg),
+		SessionID:      msg.SessionID,
+		RequestID:      msg.ID,
+		IdempotencyKey: msg.ID,
+		PayloadInline:  payload,
+		CreatedAt:      msg.Timestamp,
+	})
+	if err != nil {
+		return agentmailbox.Record{}, err
+	}
+	return record, nil
+}
+
+func (r *Router) emitMailboxUpdate(action string, record agentmailbox.Record) {
+	if r.emit == nil {
+		return
+	}
+	payload := map[string]interface{}{
+		"action":  action,
+		"item_id": record.Item.ID,
+		"state":   record.State,
+		"from":    record.Item.From.ID,
+	}
+	if record.Item.To != nil {
+		payload["to"] = record.Item.To.ID
+		payload["device_id"] = record.Item.To.DeviceHint
+	}
+	r.emit("agent.mailbox.updated", payload)
+}
+
+func (r *Router) sentResult(id string) map[string]string {
+	return map[string]string{"id": id, "status": "sent"}
+}
+
+func (r *Router) queuedResult(id, mailboxItemID string) map[string]string {
+	return map[string]string{
+		"id":              id,
+		"status":          "queued",
+		"mailbox_item_id": mailboxItemID,
+	}
+}
+
+func messageFromID(msg Message, fallback string) string {
+	if msg.From != "" {
+		return msg.From
+	}
+	return fallback
+}
+
+func routerPrincipal(id, deviceHint string) agentmailbox.Principal {
+	return agentmailbox.Principal{
+		ID:         id,
+		Scope:      agentmailbox.ScopePrivateNetwork,
+		DeviceHint: deviceHint,
+	}
+}
+
+func routerRecipient(msg Message) *agentmailbox.Principal {
+	return &agentmailbox.Principal{
+		ID:         msg.To,
+		Scope:      agentmailbox.ScopePrivateNetwork,
+		DeviceHint: msg.DeviceID,
+	}
+}
+
+func mailboxMessage(record agentmailbox.Record) (Message, error) {
+	var msg Message
+	if len(record.Item.PayloadInline) == 0 {
+		return Message{}, fmt.Errorf("mailbox item %s has no inline message payload", record.Item.ID)
+	}
+	if err := json.Unmarshal(record.Item.PayloadInline, &msg); err != nil {
+		return Message{}, fmt.Errorf("parse mailbox message %s: %w", record.Item.ID, err)
+	}
+	return msg, nil
 }

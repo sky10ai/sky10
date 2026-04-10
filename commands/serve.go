@@ -14,6 +14,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	skyagent "github.com/sky10/sky10/pkg/agent"
+	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
 	"github.com/sky10/sky10/pkg/config"
 	skyfs "github.com/sky10/sky10/pkg/fs"
 	skyid "github.com/sky10/sky10/pkg/id"
@@ -156,6 +157,10 @@ func ServeCmd() *cobra.Command {
 			go func() {
 				kvRunErr <- kvStore.Run(ctx)
 			}()
+			mailboxStore, err := agentmailbox.NewStore(ctx, agentmailbox.NewPrivateKVBackend(kvStore, ""))
+			if err != nil {
+				return fmt.Errorf("creating mailbox store: %w", err)
+			}
 
 			// Skylink P2P node — network mode enables DHT, relay, and external peers.
 			linkNode, err := link.New(bundle, linkCfg, logRuntime.Logger)
@@ -172,6 +177,7 @@ func ServeCmd() *cobra.Command {
 			server.RegisterHandler(link.NewRPCHandler(linkNode, linkResolver))
 			var refreshPrivateNetwork func()
 			var kvSync *kv.P2PSync
+			var agentRouter *skyagent.Router
 			identityRPC := skyid.NewRPCHandler(bundle)
 			server.RegisterHandler(identityRPC)
 			updateRPC := skyupdate.NewRPCHandler(Version, server.Emit)
@@ -232,12 +238,16 @@ func ServeCmd() *cobra.Command {
 				if kvSync != nil {
 					go kvSync.PushToAll(context.Background())
 				}
+				if agentRouter != nil {
+					go agentRouter.DrainOutbox(context.Background(), "")
+				}
 			}
 			configureIdentityRPCHandler(identityRPC, bundle, idStore, backend, linkNode, relays, refreshPrivateNetwork)
 
 			// Agent registry — local agent registration and message routing.
 			agentRegistry := skyagent.NewRegistry(bundle.DeviceID(), skyfs.GetDeviceName(), logRuntime.Logger)
-			agentRouter := skyagent.NewRouter(agentRegistry, linkNode, server.Emit, bundle.DeviceID(), logRuntime.Logger)
+			agentRouter = skyagent.NewRouter(agentRegistry, linkNode, server.Emit, bundle.DeviceID(), logRuntime.Logger)
+			agentRouter.SetMailbox(mailboxStore)
 			agentRPC := skyagent.NewRPCHandler(agentRegistry, bundle.Identity, server.Emit)
 			agentRPC.SetRouter(agentRouter)
 			server.RegisterHandler(agentRPC)
@@ -263,9 +273,20 @@ func ServeCmd() *cobra.Command {
 				switch {
 				case topic == "kv:default":
 					kvStore.Poke()
+				case strings.HasPrefix(topic, "agent:connected:"):
+					deviceID := strings.TrimPrefix(topic, "agent:connected:")
+					server.Emit("agent:connected", map[string]string{"from": from.String(), "device_id": deviceID})
+					if agentRouter != nil {
+						go agentRouter.DrainOutbox(context.Background(), deviceID)
+					}
+				case strings.HasPrefix(topic, "agent:disconnected:"):
+					deviceID := strings.TrimPrefix(topic, "agent:disconnected:")
+					server.Emit("agent:disconnected", map[string]string{"from": from.String(), "device_id": deviceID})
 				case strings.HasPrefix(topic, "agent:"):
-					// Remote device agent change — emit SSE so web UI refreshes.
 					server.Emit(topic, map[string]string{"from": from.String()})
+					if agentRouter != nil {
+						go agentRouter.DrainOutbox(context.Background(), "")
+					}
 				}
 			})
 

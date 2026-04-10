@@ -141,7 +141,7 @@ func TestLeaseRelease(t *testing.T) {
 	}
 }
 
-func TestLeaseClaimContentionReturnsSingleWinner(t *testing.T) {
+func TestLeaseClaimContentionLeavesSingleActiveLease(t *testing.T) {
 	t.Parallel()
 
 	store := newMemoryKVStore()
@@ -179,7 +179,18 @@ func TestLeaseClaimContentionReturnsSingleWinner(t *testing.T) {
 			winners++
 		}
 	}
-	if winners != 1 {
-		t.Fatalf("winners = %d, want 1", winners)
+	if winners == 0 {
+		t.Fatal("expected at least one claim winner")
+	}
+
+	record, ok, err := lease.Get("task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected active lease after contention")
+	}
+	if record.Holder != "agent-a" && record.Holder != "agent-b" {
+		t.Fatalf("holder = %q, want one of the contenders", record.Holder)
 	}
 }

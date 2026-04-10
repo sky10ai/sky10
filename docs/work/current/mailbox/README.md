@@ -515,14 +515,14 @@ Exit criteria:
 
 Checklist:
 
-- [ ] Add mailbox wiring in `commands/serve.go`.
-- [ ] Keep direct skylink send as the first attempt.
-- [ ] Integrate mailbox fallback into `pkg/agent/router.go`.
-- [ ] Add drain-on-registration behavior.
-- [ ] Add reconnect-triggered drain behavior.
-- [ ] Emit mailbox-related SSE events.
-- [ ] Add integration tests for offline device delivery.
-- [ ] Add integration tests for late agent registration.
+- [x] Add mailbox wiring in `commands/serve.go`.
+- [x] Keep direct skylink send as the first attempt.
+- [x] Integrate mailbox fallback into `pkg/agent/router.go`.
+- [x] Add drain-on-registration behavior.
+- [x] Add reconnect-triggered drain behavior.
+- [x] Emit mailbox-related SSE events.
+- [x] Add integration tests for offline device delivery.
+- [x] Add integration tests for late agent registration.
 
 ### M4: Task, Approval, and Payment Workflows
 

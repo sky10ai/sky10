@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
+	"time"
 
 	skykey "github.com/sky10/sky10/pkg/key"
 )
@@ -130,6 +132,70 @@ func TestRPCSend(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected agent.message SSE event for coder")
+	}
+}
+
+func TestRPCRegisterDrainsQueuedMailboxMessages(t *testing.T) {
+	t.Parallel()
+
+	r := newTestRegistry()
+	var mu sync.Mutex
+	var emitted []Message
+	emit := func(event string, data interface{}) {
+		if msg, ok := data.(Message); ok {
+			mu.Lock()
+			emitted = append(emitted, msg)
+			mu.Unlock()
+		}
+	}
+	h := newTestRPCHandler(t, r, emit)
+	router := NewRouter(r, makeTestNode(t), emit, r.DeviceID(), nil)
+	router.SetMailbox(newTestMailboxStore(t))
+	h.SetRouter(router)
+
+	queued := Message{
+		ID:        "msg-late-agent",
+		SessionID: "session-1",
+		From:      "D-deviceBB",
+		To:        "coder",
+		DeviceID:  r.DeviceID(),
+		Type:      "text",
+		Content:   json.RawMessage(`{"text":"hello later"}`),
+		Timestamp: time.Now().UTC(),
+	}
+	result, err := router.routeIncoming(context.Background(), queued)
+	if err != nil {
+		t.Fatalf("queue incoming: %v", err)
+	}
+	if result.(map[string]string)["status"] != "queued" {
+		t.Fatalf("status = %s, want queued", result.(map[string]string)["status"])
+	}
+	mu.Lock()
+	emitted = nil
+	mu.Unlock()
+
+	regParams, _ := json.Marshal(RegisterParams{Name: "coder"})
+	if _, err, handled := h.Dispatch(context.Background(), "agent.register", regParams); !handled || err != nil {
+		t.Fatalf("register: handled=%v err=%v", handled, err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		mu.Lock()
+		count := len(emitted)
+		mu.Unlock()
+		if count > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(emitted) != 1 {
+		t.Fatalf("emitted %d messages after register, want 1", len(emitted))
+	}
+	if emitted[0].ID != queued.ID || emitted[0].To != "coder" {
+		t.Fatalf("drained message = %+v, want id=%s to=coder", emitted[0], queued.ID)
 	}
 }
 

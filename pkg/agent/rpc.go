@@ -101,7 +101,10 @@ func (h *RPCHandler) rpcRegister(_ context.Context, params json.RawMessage) (int
 		})
 	}
 	if h.notify != nil {
-		go h.notify(context.Background(), "agent:connected")
+		go h.notify(context.Background(), "agent:connected:"+info.DeviceID)
+	}
+	if h.router != nil {
+		go h.router.DrainLocalPending(context.Background(), info.ID, info.Name, info.KeyName)
 	}
 
 	return RegisterResult{AgentID: info.ID, Status: "registered"}, nil
@@ -127,7 +130,11 @@ func (h *RPCHandler) rpcDeregister(_ context.Context, params json.RawMessage) (i
 		})
 	}
 	if h.notify != nil {
-		go h.notify(context.Background(), "agent:disconnected")
+		deviceID := h.registry.DeviceID()
+		if info != nil && info.DeviceID != "" {
+			deviceID = info.DeviceID
+		}
+		go h.notify(context.Background(), "agent:disconnected:"+deviceID)
 	}
 
 	return map[string]string{"status": "ok"}, nil

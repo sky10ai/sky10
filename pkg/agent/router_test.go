@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
 	skyid "github.com/sky10/sky10/pkg/id"
 	skykey "github.com/sky10/sky10/pkg/key"
 	"github.com/sky10/sky10/pkg/link"
@@ -340,5 +341,101 @@ func TestRouterListIgnoresPublicPeers(t *testing.T) {
 	}
 	if _, ok := names["outsider"]; ok {
 		t.Fatalf("public peer agent leaked into list: %v", names)
+	}
+}
+
+func TestRouterSendQueuesWhenRemoteDeviceUnavailable(t *testing.T) {
+	t.Parallel()
+
+	node := makeTestNode(t)
+	reg := NewRegistry("D-deviceAA", "hostA", nil)
+	router := NewRouter(reg, node, nil, "D-deviceAA", nil)
+	mailboxStore := newTestMailboxStore(t)
+	router.SetMailbox(mailboxStore)
+
+	msg := Message{
+		ID:        "msg-queued",
+		SessionID: "session-1",
+		From:      "D-deviceAA",
+		To:        "researcher",
+		DeviceID:  "D-deviceBB",
+		Type:      "text",
+		Content:   json.RawMessage(`{"text":"search this"}`),
+		Timestamp: time.Now().UTC(),
+	}
+	result, err := router.Send(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	m := result.(map[string]string)
+	if m["status"] != "queued" {
+		t.Fatalf("status = %s, want queued", m["status"])
+	}
+
+	outbox := mailboxStore.ListOutbox("D-deviceAA")
+	if len(outbox) != 1 {
+		t.Fatalf("outbox len = %d, want 1", len(outbox))
+	}
+	if outbox[0].State != agentmailbox.StateFailed {
+		t.Fatalf("state = %s, want %s", outbox[0].State, agentmailbox.StateFailed)
+	}
+}
+
+func TestRouterDrainOutboxDeliversQueuedRemoteMessage(t *testing.T) {
+	t.Parallel()
+
+	nodeA, nodeB := makeSharedTestNodes(t)
+	regA := NewRegistry("D-deviceAA", "hostA", nil)
+	regB := NewRegistry("D-deviceBB", "hostB", nil)
+	regB.Register(RegisterParams{Name: "researcher"}, "A-remote0100000000")
+
+	var receivedOnB []Message
+	emitB := func(event string, data interface{}) {
+		if msg, ok := data.(Message); ok {
+			receivedOnB = append(receivedOnB, msg)
+		}
+	}
+	RegisterLinkHandlers(nodeB, regB, emitB, nil)
+
+	startNode(t, nodeA)
+	startNode(t, nodeB)
+	connectNodes(t, nodeA, nodeB)
+
+	routerA := NewRouter(regA, nodeA, nil, "D-deviceAA", nil)
+	mailboxStore := newTestMailboxStore(t)
+	routerA.SetMailbox(mailboxStore)
+
+	msg := Message{
+		ID:        "msg-drain",
+		SessionID: "session-1",
+		From:      "D-deviceAA",
+		To:        "researcher",
+		DeviceID:  "D-deviceBB",
+		Type:      "text",
+		Content:   json.RawMessage(`{"text":"search this"}`),
+		Timestamp: time.Now().UTC(),
+	}
+	result, err := routerA.Send(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("initial send: %v", err)
+	}
+	if result.(map[string]string)["status"] != "queued" {
+		t.Fatalf("initial status = %s, want queued", result.(map[string]string)["status"])
+	}
+
+	routerA.cachePeer("D-deviceBB", nodeB.PeerID())
+	if err := routerA.DrainOutbox(context.Background(), "D-deviceBB"); err != nil {
+		t.Fatalf("drain outbox: %v", err)
+	}
+	if len(receivedOnB) != 1 {
+		t.Fatalf("node B received %d messages, want 1", len(receivedOnB))
+	}
+
+	outbox := mailboxStore.ListOutbox("D-deviceAA")
+	if len(outbox) != 1 {
+		t.Fatalf("outbox len = %d, want 1", len(outbox))
+	}
+	if outbox[0].State != agentmailbox.StateDelivered {
+		t.Fatalf("state = %s, want %s", outbox[0].State, agentmailbox.StateDelivered)
 	}
 }

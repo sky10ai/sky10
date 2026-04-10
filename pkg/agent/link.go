@@ -21,7 +21,7 @@ func RegisterLinkHandlers(node *link.Node, registry *Registry, emit Emitter, rou
 }
 
 func agentSendHandler(registry *Registry, emit Emitter, router *Router) link.HandlerFunc {
-	return func(_ context.Context, req *link.PeerRequest) (interface{}, error) {
+	return func(ctx context.Context, req *link.PeerRequest) (interface{}, error) {
 		var msg Message
 		if err := json.Unmarshal(req.Params, &msg); err != nil {
 			return nil, err
@@ -33,6 +33,9 @@ func agentSendHandler(registry *Registry, emit Emitter, router *Router) link.Han
 			router.cachePeer(msg.From, req.PeerID)
 		}
 
+		if router != nil {
+			return router.routeIncoming(ctx, msg)
+		}
 		if emit != nil {
 			emit("agent.message", msg)
 		}
