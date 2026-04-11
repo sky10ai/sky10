@@ -1,6 +1,6 @@
 ---
 created: 2026-04-03
-updated: 2026-04-04
+updated: 2026-04-11
 model: claude-opus-4-6
 ---
 
@@ -16,6 +16,10 @@ goes through libp2p with Nostr as fallback for both discovery and relay.
 This plan covers **Part 1: Own Swarm** — directing your agents across your
 devices. Part 2 (open agent economy: strangers, payments, reputation) is
 separate future work defined in `agent-protocol.md`.
+
+> Status note: the async mailbox and Nostr relay handoff now exist in the
+> codebase. Follow-on transport and convergence hardening lives in
+> [`private-network-robustness-plan.md`](private-network-robustness-plan.md).
 
 ## Architecture
 
