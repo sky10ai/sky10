@@ -41,14 +41,34 @@ As of 2026-04-11, sky10 already has the right foundation:
 The remaining gap is not "basic fallback exists." The gap is that these pieces
 still behave like features, not one coherent network system.
 
+## Architectural Boundary
+
+The mailbox work narrows the right shape of this plan:
+
+- **transport** is the live path that answers "can these peers exchange bytes
+  right now?"
+- **mailbox** is the durable control-plane layer that answers "can this async
+  work survive failure and complete later?"
+
+That means:
+
+- direct libp2p, TCP/QUIC preference, and libp2p relay selection are transport
+  concerns
+- private-network KV mailbox drain and sky10-network Nostr relay/dropbox
+  handoff are delivery concerns above transport
+- mailbox should influence operator-facing health and convergence behavior, but
+  it should not be modeled as just another byte-transport path next to QUIC or
+  TCP
+
 ## What Robust Means
 
 The private network should satisfy all of these:
 
 - existing direct sessions survive temporary discovery/control-plane trouble
-- a failed direct connect degrades into a known fallback path quickly
+- a failed direct connect degrades into a known live transport or explicit
+  async-delivery state quickly
 - both-peer restarts converge without waiting on long periodic ticks
-- offline-target messaging becomes queued delivery, not a lost opportunity
+- mailbox-eligible async work becomes queued delivery, not a lost opportunity
 - operators can tell why a path is degraded from one RPC/UI surface
 - no single optional dependency such as S3 or one Nostr relay is required for
   basic private-network operation
@@ -57,8 +77,8 @@ The private network should satisfy all of these:
 
 | Scenario | Expected behavior | Current state | Gap |
 | --- | --- | --- | --- |
-| UDP blocked on one side | Prefer TCP or fallback delivery quickly | STUN influences QUIC vs TCP order | No unified path scorer or user-facing reason |
-| Symmetric NAT / no direct route | Queue or relay supported traffic; show degraded direct path | Mailbox + Nostr handoff exists for agent traffic | No generic network health story or explicit policy split |
+| UDP blocked on one side | Prefer TCP quickly; use async delivery only for mailbox-eligible traffic | STUN influences QUIC vs TCP order | No unified path scorer or user-facing reason |
+| Symmetric NAT / no direct route | Use libp2p relay for live traffic when available; otherwise degrade mailbox-eligible work into durable async delivery | Mailbox + Nostr handoff exists for agent traffic | No clear transport-vs-delivery reporting or policy split |
 | Both peers restart | Republish and reconnect within seconds once link is up | Startup refresh and address-change republish exist | Retry logic still leans on ad hoc calls and a 2 minute sweep |
 | One device offline for a while | Durable delivery on reconnect with receipts | Mailbox exists | Status/UI do not yet make this operationally clear |
 | DHT slow or stale | Use last-good records and alternate sources | Resolver chooses among local, DHT, Nostr | Source health and freshness are not surfaced |
@@ -75,7 +95,7 @@ Add:
 
 - a `NetworkHealth` snapshot in `pkg/link` that combines netcheck,
   reachability, observed addrs, last publish, last direct dial success,
-  last relay handoff success, and resolver source freshness
+  last relay handoff success, mailbox drain state, and resolver source freshness
 - richer `skylink.status` output in [`pkg/link/rpc.go`](../../../pkg/link/rpc.go)
 - CLI and web surfaces that show preferred transport, degraded reason, and
   last successful convergence event in
@@ -84,7 +104,8 @@ Add:
 
 Done when:
 
-- one RPC call can answer "why is this peer using TCP, relay, or mailbox?"
+- one RPC call can answer both "why is this peer using TCP, QUIC, or relay?"
+  and "did async delivery take over?"
 - the web Network page shows direct health, fallback health, and recent events
 - logs record state transitions instead of only low-level failures
 
@@ -125,9 +146,10 @@ Add:
 - per-peer memory of last successful transport, address family, and discovery
   source
 - negative feedback on repeated dial failures so dead addresses stop winning
-- explicit path classes: `direct_quic`, `direct_tcp`, `libp2p_relay`,
-  `nostr_mailbox`
+- explicit transport classes: `direct_quic`, `direct_tcp`, `libp2p_relay`
 - freshness and expiry handling for presence records so stale hints age out
+- separate reporting for delivery class so mailbox state is tracked without
+  pretending it is a transport score
 
 Done when:
 
@@ -137,26 +159,42 @@ Done when:
 
 ### M4. Make Delivery Policy Explicit
 
-Tailscale feels reliable partly because every traffic class has a clear fallback
-story. sky10 should define that explicitly instead of by special case.
+This is where mailbox belongs. It is the durable async-delivery layer above
+transport, not a generic replacement for live peer connectivity.
+
+sky10 should define explicit semantics per traffic type instead of letting
+fallback behavior emerge from special cases.
 
 Define supported policy per traffic type:
 
 - interactive RPC: direct libp2p only, fast fail, no hidden queueing
-- agent/user messages: direct libp2p first, mailbox plus Nostr relay fallback
+- async agent/user messages: persist first, direct libp2p first, then mailbox
+  backend
+- private-network mailbox backend: KV-backed inbox/outbox with reconnect or
+  agent-registration drain
+- sky10-network mailbox backend: durable sender retry plus sealed Nostr
+  relay/dropbox handoff, receipts, and queue claims
 - control-plane updates: DHT plus Nostr, cached locally, retried aggressively
 - bulk sync and snapshots: direct plus store-backed sync only, never Nostr
 
 Implementation targets:
 
-- document the policy in the relevant RPC and router code
-- return transport and queueing metadata to callers
+- document live-only vs mailbox-backed semantics in the relevant RPC and router
+  code
+- preserve mailbox semantics from the mailbox design:
+  persist first, deliver second; at-least-once delivery with idempotency keys;
+  leases for queues
+- return both transport metadata and delivery metadata to callers
 - expose mailbox and relay receipt state in status/UI
 
 Done when:
 
 - every networked operation has an explicit online/offline semantic
 - users can tell whether a request was sent live, queued, handed off, or failed
+- mailbox is never described or scored as just another transport path
+- the real-device offline-delivery and relay-handoff checks from
+  [`docs/work/past/2026/04/11-Mailbox.md`](../past/2026/04/11-Mailbox.md)
+  have been run and passed for the mailbox-backed flows we rely on
 - future features do not need to reinvent fallback behavior ad hoc
 
 ### M5. Upgrade Nostr From Fallback Queries To Active Coordination
@@ -167,7 +205,7 @@ needs more push and more health awareness.
 Add:
 
 - long-lived relay subscriptions for membership, presence, mailbox receipts,
-  and queue claims where it improves convergence
+  queue claims, and handoff state where it improves convergence
 - relay health tracking and ranking by success rate and latency
 - publish quorum rules so one bad relay does not look like success
 - cached last-good relay state so brief relay outages do not erase presence
@@ -224,7 +262,8 @@ That work is small enough to ship incrementally and high leverage enough to
 make every later milestone easier:
 
 - enrich `skylink.status`
-- surface netcheck and fallback state in the Network page
+- surface transport state and mailbox fallback state separately in the Network
+  page
 - add structured recent-event reporting for publish, connect, relay handoff,
   and mailbox drain
 
