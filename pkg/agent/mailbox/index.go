@@ -199,6 +199,8 @@ func stateForEvent(eventType string) State {
 		return StateQueued
 	case EventTypeClaimed:
 		return StateClaimed
+	case EventTypeAssigned:
+		return StateAssigned
 	case EventTypeApproved:
 		return StateApproved
 	case EventTypeCompleted:

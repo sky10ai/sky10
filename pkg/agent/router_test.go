@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -524,6 +525,271 @@ func TestRouterSky10NetworkRelayStoreAndForward(t *testing.T) {
 	}
 }
 
+func TestRouterSky10PublicQueueClaimAssignAndResultRouting(t *testing.T) {
+	t.Parallel()
+
+	senderKey, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerKey, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	relayTransport := newTestRelayTransport()
+	queueTransport := newTestQueueTransport()
+
+	senderStore, err := agentmailbox.NewStore(context.Background(), agentmailbox.NewScopedKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerStore, err := agentmailbox.NewStore(context.Background(), agentmailbox.NewScopedKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	senderRouter := NewRouter(NewRegistry("D-sender", "sender", nil), nil, nil, "D-sender", nil)
+	senderRouter.SetMailbox(senderStore)
+	senderRouter.SetNetworkRelay(agentmailbox.NewRelayDropbox(senderKey, relayTransport, nil))
+	senderRouter.SetNetworkQueue(agentmailbox.NewPublicQueue(senderKey, queueTransport, nil))
+
+	workerRouter := NewRouter(NewRegistry("D-worker", "worker", nil), nil, nil, "D-worker", nil)
+	workerRouter.SetMailbox(workerStore)
+	workerRouter.SetNetworkRelay(agentmailbox.NewRelayDropbox(workerKey, relayTransport, nil))
+	workerRouter.SetNetworkQueue(agentmailbox.NewPublicQueue(workerKey, queueTransport, nil))
+
+	task, err := senderStore.CreateTaskRequest(context.Background(), agentmailbox.Item{
+		ID:             "queue-task-1",
+		Kind:           agentmailbox.ItemKindTaskRequest,
+		From:           agentmailbox.Principal{ID: "human:sender", Kind: agentmailbox.PrincipalKindHuman, Scope: agentmailbox.ScopeSky10Network, RouteHint: senderKey.Address()},
+		TargetSkill:    "research",
+		RequestID:      "request-queue-1",
+		IdempotencyKey: "request-queue-1",
+		ExpiresAt:      time.Now().Add(time.Hour).UTC(),
+	}, agentmailbox.TaskRequestPayload{
+		Method:  "research.web",
+		Summary: "Investigate a target",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	queued, err := senderRouter.DeliverMailboxRecord(context.Background(), task)
+	if err != nil {
+		t.Fatalf("publish public queue offer: %v", err)
+	}
+	if queued.State != agentmailbox.StateQueued {
+		t.Fatalf("offer state = %s, want queued", queued.State)
+	}
+	if !hasEventType(queued, agentmailbox.EventTypeHandedOff) {
+		t.Fatal("expected handed_off event after queue offer publish")
+	}
+
+	offers, err := workerRouter.DiscoverPublicQueue(context.Background(), "research", "")
+	if err != nil {
+		t.Fatalf("discover public queue: %v", err)
+	}
+	if len(offers) != 1 || offers[0].ItemID != task.Item.ID {
+		t.Fatalf("offers = %+v, want one offer for %s", offers, task.Item.ID)
+	}
+
+	claimActor := agentmailbox.Principal{
+		ID:        "agent:worker",
+		Kind:      agentmailbox.PrincipalKindNetworkAgent,
+		Scope:     agentmailbox.ScopeSky10Network,
+		RouteHint: workerKey.Address(),
+	}
+	if _, err := workerRouter.ClaimPublicQueue(context.Background(), offers[0], claimActor, time.Minute); err != nil {
+		t.Fatalf("claim public queue: %v", err)
+	}
+
+	if err := senderRouter.PollNetworkRelay(context.Background()); err != nil {
+		t.Fatalf("sender poll queue claims: %v", err)
+	}
+
+	offerRecord, ok := senderStore.Get(task.Item.ID)
+	if !ok {
+		t.Fatal("sender queue item missing after claim")
+	}
+	if offerRecord.State != agentmailbox.StateAssigned {
+		t.Fatalf("offer state = %s, want %s", offerRecord.State, agentmailbox.StateAssigned)
+	}
+
+	replies := senderStore.ListReplies(task.Item.ID)
+	if len(replies) != 1 {
+		t.Fatalf("assignment replies = %d, want 1", len(replies))
+	}
+	assignment := replies[0]
+	if assignment.Item.To == nil || assignment.Item.To.ID != claimActor.ID {
+		t.Fatalf("assignment recipient = %+v, want %s", assignment.Item.To, claimActor.ID)
+	}
+
+	if err := workerRouter.PollNetworkRelay(context.Background()); err != nil {
+		t.Fatalf("worker poll relay: %v", err)
+	}
+	receivedAssignment, ok := workerStore.Get(assignment.Item.ID)
+	if !ok {
+		t.Fatal("worker assignment not received")
+	}
+	if receivedAssignment.Item.ReplyTo != task.Item.ID {
+		t.Fatalf("assignment reply_to = %s, want %s", receivedAssignment.Item.ReplyTo, task.Item.ID)
+	}
+
+	result, err := workerStore.Create(context.Background(), agentmailbox.Item{
+		ID:             "queue-result-1",
+		Kind:           agentmailbox.ItemKindResult,
+		From:           claimActor,
+		To:             &agentmailbox.Principal{ID: "human:sender", Kind: agentmailbox.PrincipalKindHuman, Scope: agentmailbox.ScopeSky10Network, RouteHint: senderKey.Address()},
+		RequestID:      task.Item.RequestID,
+		ReplyTo:        task.Item.ID,
+		IdempotencyKey: "queue-result-1",
+		PayloadInline:  json.RawMessage(`{"status":"ok","summary":"done"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workerRouter.DeliverMailboxRecord(context.Background(), result); err != nil {
+		t.Fatalf("deliver result to sender: %v", err)
+	}
+	if err := senderRouter.PollNetworkRelay(context.Background()); err != nil {
+		t.Fatalf("sender poll result relay: %v", err)
+	}
+
+	deliveredResult, ok := senderStore.Get(result.Item.ID)
+	if !ok {
+		t.Fatal("sender result item missing after relay poll")
+	}
+	if deliveredResult.Item.ReplyTo != task.Item.ID {
+		t.Fatalf("result reply_to = %s, want %s", deliveredResult.Item.ReplyTo, task.Item.ID)
+	}
+}
+
+func TestRouterSky10PublicQueueConcurrentClaimsOneWinner(t *testing.T) {
+	t.Parallel()
+
+	senderKey, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerAKey, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerBKey, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	relayTransport := newTestRelayTransport()
+	queueTransport := newTestQueueTransport()
+
+	senderStore, err := agentmailbox.NewStore(context.Background(), agentmailbox.NewScopedKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerAStore, err := agentmailbox.NewStore(context.Background(), agentmailbox.NewScopedKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerBStore, err := agentmailbox.NewStore(context.Background(), agentmailbox.NewScopedKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	senderRouter := NewRouter(NewRegistry("D-sender", "sender", nil), nil, nil, "D-sender", nil)
+	senderRouter.SetMailbox(senderStore)
+	senderRouter.SetNetworkRelay(agentmailbox.NewRelayDropbox(senderKey, relayTransport, nil))
+	senderRouter.SetNetworkQueue(agentmailbox.NewPublicQueue(senderKey, queueTransport, nil))
+
+	workerARouter := NewRouter(NewRegistry("D-worker-a", "worker-a", nil), nil, nil, "D-worker-a", nil)
+	workerARouter.SetMailbox(workerAStore)
+	workerARouter.SetNetworkRelay(agentmailbox.NewRelayDropbox(workerAKey, relayTransport, nil))
+	workerARouter.SetNetworkQueue(agentmailbox.NewPublicQueue(workerAKey, queueTransport, nil))
+
+	workerBRouter := NewRouter(NewRegistry("D-worker-b", "worker-b", nil), nil, nil, "D-worker-b", nil)
+	workerBRouter.SetMailbox(workerBStore)
+	workerBRouter.SetNetworkRelay(agentmailbox.NewRelayDropbox(workerBKey, relayTransport, nil))
+	workerBRouter.SetNetworkQueue(agentmailbox.NewPublicQueue(workerBKey, queueTransport, nil))
+
+	task, err := senderStore.CreateTaskRequest(context.Background(), agentmailbox.Item{
+		ID:             "queue-task-2",
+		Kind:           agentmailbox.ItemKindTaskRequest,
+		From:           agentmailbox.Principal{ID: "human:sender", Kind: agentmailbox.PrincipalKindHuman, Scope: agentmailbox.ScopeSky10Network, RouteHint: senderKey.Address()},
+		TargetSkill:    "research",
+		RequestID:      "request-queue-2",
+		IdempotencyKey: "request-queue-2",
+		ExpiresAt:      time.Now().Add(time.Hour).UTC(),
+	}, agentmailbox.TaskRequestPayload{
+		Method: "research.compare",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := senderRouter.DeliverMailboxRecord(context.Background(), task); err != nil {
+		t.Fatalf("publish public queue offer: %v", err)
+	}
+
+	offers, err := workerARouter.DiscoverPublicQueue(context.Background(), "research", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(offers) != 1 {
+		t.Fatalf("offers = %d, want 1", len(offers))
+	}
+
+	actorA := agentmailbox.Principal{
+		ID:        "agent:worker-a",
+		Kind:      agentmailbox.PrincipalKindNetworkAgent,
+		Scope:     agentmailbox.ScopeSky10Network,
+		RouteHint: workerAKey.Address(),
+	}
+	actorB := agentmailbox.Principal{
+		ID:        "agent:worker-b",
+		Kind:      agentmailbox.PrincipalKindNetworkAgent,
+		Scope:     agentmailbox.ScopeSky10Network,
+		RouteHint: workerBKey.Address(),
+	}
+	if _, err := workerARouter.ClaimPublicQueue(context.Background(), offers[0], actorA, time.Minute); err != nil {
+		t.Fatalf("worker A claim: %v", err)
+	}
+	if _, err := workerBRouter.ClaimPublicQueue(context.Background(), offers[0], actorB, time.Minute); err != nil {
+		t.Fatalf("worker B claim: %v", err)
+	}
+
+	if err := senderRouter.PollNetworkRelay(context.Background()); err != nil {
+		t.Fatalf("sender poll claims: %v", err)
+	}
+
+	offerRecord, ok := senderStore.Get(task.Item.ID)
+	if !ok {
+		t.Fatal("offer record missing after arbitration")
+	}
+	if offerRecord.State != agentmailbox.StateAssigned {
+		t.Fatalf("offer state = %s, want %s", offerRecord.State, agentmailbox.StateAssigned)
+	}
+	assignments := senderStore.ListReplies(task.Item.ID)
+	if len(assignments) != 1 {
+		t.Fatalf("assignment count = %d, want 1", len(assignments))
+	}
+	if assignments[0].Item.To == nil || assignments[0].Item.To.ID != actorA.ID {
+		t.Fatalf("winner = %+v, want %s", assignments[0].Item.To, actorA.ID)
+	}
+
+	if err := workerARouter.PollNetworkRelay(context.Background()); err != nil {
+		t.Fatalf("worker A poll relay: %v", err)
+	}
+	if err := workerBRouter.PollNetworkRelay(context.Background()); err != nil {
+		t.Fatalf("worker B poll relay: %v", err)
+	}
+	if _, ok := workerAStore.Get(assignments[0].Item.ID); !ok {
+		t.Fatal("worker A did not receive winning assignment")
+	}
+	if _, ok := workerBStore.Get(assignments[0].Item.ID); ok {
+		t.Fatal("worker B should not receive losing assignment")
+	}
+}
+
 func newRouterMailboxStore(t *testing.T) *agentmailbox.Store {
 	t.Helper()
 	store, err := agentmailbox.NewStore(context.Background(), agentmailbox.NewScopedKVBackend(newRouterMemoryKVStore(), ""))
@@ -580,6 +846,53 @@ func (t *testRelayTransport) Query(_ context.Context, recipient, recordType stri
 			CreatedAt:  event.createdAt,
 			Payload:    append([]byte(nil), event.payload...),
 		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].CreatedAt.Before(out[j].CreatedAt)
+	})
+	return out, nil
+}
+
+type testQueueTransport struct {
+	mu     sync.RWMutex
+	offers map[string]agentmailbox.QueueOffer
+}
+
+func newTestQueueTransport() *testQueueTransport {
+	return &testQueueTransport{offers: make(map[string]agentmailbox.QueueOffer)}
+}
+
+func (t *testQueueTransport) Publish(_ context.Context, _ *skykey.Key, offer agentmailbox.QueueOffer) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.offers[offer.ItemID] = offer
+	return nil
+}
+
+func (t *testQueueTransport) Query(_ context.Context, filter agentmailbox.QueueOfferFilter) ([]agentmailbox.QueueOffer, error) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	out := make([]agentmailbox.QueueOffer, 0, len(t.offers))
+	for _, offer := range t.offers {
+		if filter.Skill != "" && offer.Skill != filter.Skill {
+			continue
+		}
+		if filter.Queue != "" && offer.Queue != filter.Queue {
+			continue
+		}
+		out = append(out, offer)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].ItemID < out[j].ItemID
+		}
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
+	if filter.Limit > 0 && len(out) > filter.Limit {
+		out = out[:filter.Limit]
 	}
 	return out, nil
 }

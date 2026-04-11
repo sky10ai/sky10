@@ -16,11 +16,12 @@ import (
 )
 
 const (
-	relayMailboxRole         = "mailbox"
-	relayRecordTypeItem      = "item"
-	relayRecordTypeDelivery  = "delivery_receipt"
-	defaultRelayQueryLimit   = 256
-	defaultRelayPollInterval = 15 * time.Second
+	relayMailboxRole          = "mailbox"
+	relayRecordTypeItem       = "item"
+	relayRecordTypeDelivery   = "delivery_receipt"
+	relayRecordTypeQueueClaim = "queue_claim"
+	defaultRelayQueryLimit    = 256
+	defaultRelayPollInterval  = 15 * time.Second
 )
 
 // DefaultRelayPollInterval returns the default public-network relay poll
@@ -32,6 +33,7 @@ func DefaultRelayPollInterval() time.Duration { return defaultRelayPollInterval 
 type NetworkRelay interface {
 	HandoffItem(ctx context.Context, item Item) (RelayHandoff, error)
 	PublishDeliveryReceipt(ctx context.Context, recipient string, receipt RelayDeliveryReceipt) error
+	PublishQueueClaim(ctx context.Context, recipient string, claim QueueClaim) error
 	Poll(ctx context.Context) ([]RelayInbound, error)
 }
 
@@ -62,6 +64,7 @@ type RelayInbound struct {
 	CreatedAt  time.Time
 	Item       *Item
 	Receipt    *RelayDeliveryReceipt
+	Claim      *QueueClaim
 }
 
 type relayEnvelope struct {
@@ -73,6 +76,7 @@ type relayEnvelope struct {
 	CreatedAt time.Time             `json:"created_at"`
 	Item      *Item                 `json:"item,omitempty"`
 	Receipt   *RelayDeliveryReceipt `json:"receipt,omitempty"`
+	Claim     *QueueClaim           `json:"claim,omitempty"`
 }
 
 // RelayTransportEvent is one sealed record written to or read from a
@@ -224,6 +228,58 @@ func (r *RelayDropbox) PublishDeliveryReceipt(ctx context.Context, recipient str
 	})
 }
 
+// PublishQueueClaim stores one sealed claim request for the sender to inspect
+// and arbitrate.
+func (r *RelayDropbox) PublishQueueClaim(ctx context.Context, recipient string, claim QueueClaim) error {
+	if r == nil || r.owner == nil || !r.owner.IsPrivate() {
+		return fmt.Errorf("relay dropbox owner key is required")
+	}
+	if r.transport == nil {
+		return fmt.Errorf("relay dropbox transport is required")
+	}
+	if _, err := skykey.ParseAddress(strings.TrimSpace(recipient)); err != nil {
+		return fmt.Errorf("invalid claim recipient: %w", err)
+	}
+	if err := claim.Validate(); err != nil {
+		return err
+	}
+	if claim.Sender == "" {
+		claim.Sender = recipient
+	}
+	if claim.Claimant == "" {
+		claim.Claimant = r.owner.Address()
+	}
+	if claim.RequestedAt.IsZero() {
+		claim.RequestedAt = r.now()
+	}
+
+	envelope := relayEnvelope{
+		Version:   1,
+		Type:      relayRecordTypeQueueClaim,
+		HandoffID: claim.ItemID,
+		Sender:    r.owner.Address(),
+		Recipient: recipient,
+		CreatedAt: claim.RequestedAt,
+		Claim:     &claim,
+	}
+	payload, err := json.Marshal(envelope)
+	if err != nil {
+		return fmt.Errorf("marshal queue claim %s: %w", claim.ClaimID, err)
+	}
+	sealed, err := skykey.SealFor(payload, recipient)
+	if err != nil {
+		return fmt.Errorf("seal queue claim %s: %w", claim.ClaimID, err)
+	}
+	return r.transport.Publish(ctx, r.owner, RelayTransportEvent{
+		DTag:       relayClaimDTag(recipient, claim.ItemID, claim.ClaimID),
+		RecordType: relayRecordTypeQueueClaim,
+		Recipient:  recipient,
+		ItemID:     claim.ItemID,
+		CreatedAt:  claim.RequestedAt,
+		Payload:    sealed,
+	})
+}
+
 // Poll opens all relay envelopes currently addressed to the dropbox owner.
 func (r *RelayDropbox) Poll(ctx context.Context) ([]RelayInbound, error) {
 	if r == nil || r.owner == nil || !r.owner.IsPrivate() {
@@ -234,7 +290,7 @@ func (r *RelayDropbox) Poll(ctx context.Context) ([]RelayInbound, error) {
 	}
 
 	address := r.owner.Address()
-	recordTypes := []string{relayRecordTypeItem, relayRecordTypeDelivery}
+	recordTypes := []string{relayRecordTypeItem, relayRecordTypeDelivery, relayRecordTypeQueueClaim}
 	var events []RelayTransportEvent
 	for _, recordType := range recordTypes {
 		found, err := r.transport.Query(ctx, address, recordType, defaultRelayQueryLimit)
@@ -274,6 +330,7 @@ func (r *RelayDropbox) Poll(ctx context.Context) ([]RelayInbound, error) {
 			CreatedAt:  envelope.CreatedAt,
 			Item:       envelope.Item,
 			Receipt:    envelope.Receipt,
+			Claim:      envelope.Claim,
 		})
 	}
 	return inbound, nil
@@ -400,6 +457,10 @@ func relayItemDTag(recipient, itemID string) string {
 
 func relayReceiptDTag(recipient, itemID string) string {
 	return "mailbox:receipt:" + recipient + ":" + itemID
+}
+
+func relayClaimDTag(recipient, itemID, claimID string) string {
+	return "mailbox:claim:" + recipient + ":" + itemID + ":" + claimID
 }
 
 func nostrTagValue(tags nostr.Tags, key string) string {

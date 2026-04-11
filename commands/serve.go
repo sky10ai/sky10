@@ -256,6 +256,11 @@ func ServeCmd() *cobra.Command {
 					agentmailbox.NewNostrRelayTransport(relays, logRuntime.Logger),
 					logRuntime.Logger,
 				))
+				agentRouter.SetNetworkQueue(agentmailbox.NewPublicQueue(
+					bundle.Identity,
+					agentmailbox.NewNostrQueueTransport(relays, logRuntime.Logger),
+					logRuntime.Logger,
+				))
 			}
 			agentRPC := skyagent.NewRPCHandler(agentRegistry, bundle.Identity, server.Emit)
 			agentRPC.SetRouter(agentRouter)

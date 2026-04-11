@@ -20,14 +20,15 @@ const peerQueryTimeout = 3 * time.Second
 // Router dispatches messages locally via SSE or to remote devices via
 // skylink. It also aggregates agent lists across the swarm.
 type Router struct {
-	registry *Registry
-	node     *link.Node
-	resolver *link.Resolver
-	emit     Emitter
-	deviceID string
-	logger   *slog.Logger
-	mailbox  *agentmailbox.Store
-	relay    agentmailbox.NetworkRelay
+	registry     *Registry
+	node         *link.Node
+	resolver     *link.Resolver
+	emit         Emitter
+	deviceID     string
+	logger       *slog.Logger
+	mailbox      *agentmailbox.Store
+	relay        agentmailbox.NetworkRelay
+	networkQueue agentmailbox.NetworkQueue
 
 	// mu protects peerDevices, peerAddresses, and peerAgentCache.
 	mu             sync.RWMutex
@@ -72,6 +73,11 @@ func (r *Router) SetNetworkRelay(relay agentmailbox.NetworkRelay) {
 	r.relay = relay
 }
 
+// SetNetworkQueue attaches public queue advertisement/discovery transport.
+func (r *Router) SetNetworkQueue(queue agentmailbox.NetworkQueue) {
+	r.networkQueue = queue
+}
+
 // Send routes a message to the target agent or identity. Local targets
 // get an SSE event. Remote targets are forwarded via skylink.
 func (r *Router) Send(ctx context.Context, msg Message) (interface{}, error) {
@@ -99,6 +105,9 @@ func (r *Router) Send(ctx context.Context, msg Message) (interface{}, error) {
 func (r *Router) DeliverMailboxRecord(ctx context.Context, record agentmailbox.Record) (agentmailbox.Record, error) {
 	switch record.Item.Scope() {
 	case agentmailbox.ScopeSky10Network:
+		if record.Item.QueueName() != "" && (record.Item.To == nil || record.Item.To.RouteAddress() == "") {
+			return r.deliverNetworkQueueOffer(ctx, record)
+		}
 		return r.deliverNetworkMailbox(ctx, record)
 	default:
 		return record, fmt.Errorf("mailbox item %s is not a sky10-network item", record.Item.ID)
@@ -156,6 +165,10 @@ func (r *Router) PollNetworkRelay(ctx context.Context) error {
 			}
 		case "delivery_receipt":
 			if err := r.ingestNetworkRelayReceipt(ctx, entry); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		case "queue_claim":
+			if err := r.ingestNetworkQueueClaim(ctx, entry); err != nil && firstErr == nil {
 				firstErr = err
 			}
 		}
@@ -394,6 +407,32 @@ func (r *Router) Discover(ctx context.Context, skill string) []AgentInfo {
 	return matched
 }
 
+// DiscoverPublicQueue returns currently visible public-network queue offers.
+func (r *Router) DiscoverPublicQueue(ctx context.Context, skill, queue string) ([]agentmailbox.QueueOffer, error) {
+	if r.networkQueue == nil {
+		return nil, fmt.Errorf("public queue not configured")
+	}
+	return r.networkQueue.QueryOffers(ctx, agentmailbox.QueueOfferFilter{
+		Skill: strings.TrimSpace(skill),
+		Queue: strings.TrimSpace(queue),
+	})
+}
+
+// ClaimPublicQueue sends a sealed claim request back to the queue sender.
+func (r *Router) ClaimPublicQueue(ctx context.Context, offer agentmailbox.QueueOffer, actor agentmailbox.Principal, ttl time.Duration) (agentmailbox.QueueClaim, error) {
+	if r.relay == nil {
+		return agentmailbox.QueueClaim{}, fmt.Errorf("network relay not configured")
+	}
+	claim, err := agentmailbox.NewQueueClaim(offer, actor, ttl, time.Now().UTC())
+	if err != nil {
+		return agentmailbox.QueueClaim{}, err
+	}
+	if err := r.relay.PublishQueueClaim(ctx, offer.Sender, claim); err != nil {
+		return agentmailbox.QueueClaim{}, err
+	}
+	return claim, nil
+}
+
 func (r *Router) cachePeer(deviceID string, pid peer.ID) {
 	r.mu.Lock()
 	r.peerDevices[deviceID] = pid
@@ -447,6 +486,61 @@ func (r *Router) sendRemoteLive(ctx context.Context, msg Message) error {
 		return fmt.Errorf("remote send to %s: %w", msg.DeviceID, err)
 	}
 	return nil
+}
+
+func (r *Router) deliverNetworkQueueOffer(ctx context.Context, record agentmailbox.Record) (agentmailbox.Record, error) {
+	if r.mailbox == nil {
+		return agentmailbox.Record{}, fmt.Errorf("mailbox not configured")
+	}
+	if r.networkQueue == nil {
+		err := fmt.Errorf("public queue not configured")
+		updated, appendErr := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+			ItemID: record.Item.ID,
+			Type:   agentmailbox.EventTypeDeliveryFailed,
+			Actor:  routerActor(agentmailbox.ScopeSky10Network, r.routerAddress(), r.deviceID),
+			Error:  err.Error(),
+		})
+		if appendErr == nil {
+			r.emitMailboxUpdate("queued", updated)
+			return updated, err
+		}
+		return record, err
+	}
+	if record.Terminal() {
+		return record, nil
+	}
+	if hasMailboxEvent(record, agentmailbox.EventTypeHandedOff, "transport", "nostr_queue") {
+		return record, nil
+	}
+	if _, err := r.networkQueue.PublishOffer(ctx, record.Item); err != nil {
+		updated, appendErr := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+			ItemID: record.Item.ID,
+			Type:   agentmailbox.EventTypeDeliveryFailed,
+			Actor:  routerActor(agentmailbox.ScopeSky10Network, r.routerAddress(), r.deviceID),
+			Error:  err.Error(),
+		})
+		if appendErr == nil {
+			r.emitMailboxUpdate("queued", updated)
+			return updated, err
+		}
+		return record, err
+	}
+
+	updated, err := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+		ItemID: record.Item.ID,
+		Type:   agentmailbox.EventTypeHandedOff,
+		Actor:  routerActor(agentmailbox.ScopeSky10Network, r.routerAddress(), r.deviceID),
+		Meta: map[string]string{
+			"transport": "nostr_queue",
+			"queue":     record.Item.QueueName(),
+			"skill":     strings.TrimSpace(record.Item.TargetSkill),
+		},
+	})
+	if err != nil {
+		return record, err
+	}
+	r.emitMailboxUpdate("handed_off", updated)
+	return updated, nil
 }
 
 func (r *Router) deliverNetworkMailbox(ctx context.Context, record agentmailbox.Record) (agentmailbox.Record, error) {
@@ -604,6 +698,49 @@ func (r *Router) ingestNetworkRelayReceipt(ctx context.Context, entry agentmailb
 	return nil
 }
 
+func (r *Router) ingestNetworkQueueClaim(ctx context.Context, entry agentmailbox.RelayInbound) error {
+	if entry.Claim == nil || r.mailbox == nil {
+		return nil
+	}
+	record, ok := r.mailbox.Get(entry.Claim.ItemID)
+	if !ok {
+		return nil
+	}
+	if record.Item.Scope() != agentmailbox.ScopeSky10Network || record.Item.QueueName() == "" || record.Terminal() {
+		return nil
+	}
+
+	claimActor := entry.Claim.ActorPrincipal()
+	claimed := record
+	if record.Claim == nil || record.Claim.Holder != claimActor.ID {
+		updated, ok, err := r.mailbox.Claim(ctx, record.Item.ID, claimActor, entry.Claim.TTL())
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+		claimed = updated
+		r.emitMailboxUpdate("claim", claimed)
+	}
+
+	assignment, err := r.ensurePublicQueueAssignment(ctx, claimed, *entry.Claim)
+	if err != nil {
+		return err
+	}
+	deliveredAssignment, deliverErr := r.DeliverMailboxRecord(ctx, assignment)
+	if deliverErr == nil && deliveredAssignment.Item.ID != "" {
+		assignment = deliveredAssignment
+	}
+	if err := r.markPublicQueueAssigned(ctx, claimed, *entry.Claim, assignment); err != nil {
+		return err
+	}
+	if deliverErr != nil {
+		return deliverErr
+	}
+	return nil
+}
+
 func (r *Router) sendNetworkMailboxLive(ctx context.Context, address string, item agentmailbox.Item) error {
 	if r.node == nil {
 		return fmt.Errorf("node not configured")
@@ -632,6 +769,74 @@ func (r *Router) sendNetworkMailboxLive(ctx context.Context, address string, ite
 	defer cancel()
 	if _, err := r.node.Call(sendCtx, pid, "agent.mailbox.deliver", mailboxDeliverParams{Item: item}); err != nil {
 		return fmt.Errorf("network mailbox deliver to %s: %w", address, err)
+	}
+	return nil
+}
+
+func (r *Router) ensurePublicQueueAssignment(ctx context.Context, record agentmailbox.Record, claim agentmailbox.QueueClaim) (agentmailbox.Record, error) {
+	for _, reply := range r.mailbox.ListReplies(record.Item.ID) {
+		if reply.Item.To == nil {
+			continue
+		}
+		if reply.Item.To.ID == claim.AgentID && reply.Item.To.RouteAddress() == claim.Claimant {
+			return reply, nil
+		}
+	}
+
+	item := cloneMailboxItem(record.Item)
+	item.ID = ""
+	item.To = &agentmailbox.Principal{
+		ID:        claim.AgentID,
+		Kind:      agentmailbox.PrincipalKindNetworkAgent,
+		Scope:     agentmailbox.ScopeSky10Network,
+		RouteHint: claim.Claimant,
+	}
+	item.TargetSkill = ""
+	item.ReplyTo = record.Item.ID
+	item.IdempotencyKey = publicQueueAssignmentKey(record.Item.ID, claim.AgentID)
+
+	created, err := r.mailbox.Create(ctx, item)
+	if err != nil {
+		return agentmailbox.Record{}, err
+	}
+	r.emitMailboxUpdate("assigned", created)
+	return created, nil
+}
+
+func (r *Router) markPublicQueueAssigned(ctx context.Context, record agentmailbox.Record, claim agentmailbox.QueueClaim, assignment agentmailbox.Record) error {
+	if hasMailboxEvent(record, agentmailbox.EventTypeAssigned, "assignment_item_id", assignment.Item.ID) {
+		return nil
+	}
+	updated, err := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+		ItemID: record.Item.ID,
+		Type:   agentmailbox.EventTypeAssigned,
+		Actor:  claim.ActorPrincipal(),
+		Meta: map[string]string{
+			"queue":              record.Item.QueueName(),
+			"claim_id":           claim.ClaimID,
+			"claimant":           claim.Claimant,
+			"assignment_item_id": assignment.Item.ID,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	r.emitMailboxUpdate("assigned", updated)
+	if r.networkQueue != nil {
+		if _, err := r.networkQueue.PublishState(ctx, record.Item, "assigned"); err != nil {
+			r.logger.Debug("queue assignment state publish failed", "item_id", record.Item.ID, "error", err)
+		}
+	}
+	if updated.Claim != nil {
+		_, released, err := r.mailbox.Release(ctx, updated.Item.ID, updated.Claim.Holder, updated.Claim.Token)
+		if err != nil {
+			return err
+		}
+		if released {
+			if refreshed, ok := r.mailbox.Get(updated.Item.ID); ok {
+				r.emitMailboxUpdate("assigned", refreshed)
+			}
+		}
 	}
 	return nil
 }
@@ -784,6 +989,10 @@ func relayHandoffForRecord(record agentmailbox.Record) (string, bool) {
 		return record.Item.ID, true
 	}
 	return "", false
+}
+
+func publicQueueAssignmentKey(itemID, agentID string) string {
+	return itemID + ":assignment:" + agentID
 }
 
 func hasMailboxEvent(record agentmailbox.Record, eventType, metaKey, metaValue string) bool {

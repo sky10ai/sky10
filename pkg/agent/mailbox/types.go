@@ -41,6 +41,7 @@ const (
 	EventTypeDeliveryFailed    = "delivery_failed"
 	EventTypeSeen              = "seen"
 	EventTypeClaimed           = "claimed"
+	EventTypeAssigned          = "assigned"
 	EventTypeLeaseExpired      = "lease_expired"
 	EventTypeApproved          = "approved"
 	EventTypeRejected          = "rejected"
@@ -211,6 +212,7 @@ const (
 	StateQueued       State = "queued"
 	StateDelivered    State = "delivered"
 	StateClaimed      State = "claimed"
+	StateAssigned     State = "assigned"
 	StateApproved     State = "approved"
 	StateCompleted    State = "completed"
 	StateRejected     State = "rejected"
@@ -249,7 +251,7 @@ func (r Record) Failed() bool {
 
 func stateTerminal(state State) bool {
 	switch state {
-	case StateCompleted, StateRejected, StateCancelled, StateExpired, StateDeadLettered:
+	case StateAssigned, StateCompleted, StateRejected, StateCancelled, StateExpired, StateDeadLettered:
 		return true
 	default:
 		return false

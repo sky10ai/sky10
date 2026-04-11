@@ -195,6 +195,7 @@ Initial supported event types:
 - `delivery_failed`
 - `seen`
 - `claimed`
+- `assigned`
 - `lease_expired`
 - `approved`
 - `rejected`
@@ -671,7 +672,7 @@ Primary areas:
 
 - public capability advertisement
 - queue discovery and filtering
-- claim/lease propagation
+- sealed claim propagation
 - result and receipt return routing
 
 Exit criteria:
@@ -679,18 +680,18 @@ Exit criteria:
 - a sender can publish a claimable public-network task without naming a single
   recipient
 - eligible public agents can discover queue items by capability or queue name
-- one claimant wins at a time with explicit lease semantics
+- one claimant wins at a time with sender-authoritative lease arbitration
 - results and receipts route back to the original sender mailbox cleanly
 
 Checklist:
 
-- [ ] Define public capability queue record format.
-- [ ] Define discovery path for queue offers and claimable tasks.
-- [ ] Define lease and claim event propagation across the public network.
-- [ ] Implement claimant-side acquisition and renewal behavior.
-- [ ] Implement sender-side result routing for claimed public tasks.
-- [ ] Add conflict tests for concurrent public claims.
-- [ ] Add end-to-end tests for public task offer, claim, result, and receipt.
+- [x] Define public capability queue record format.
+- [x] Define discovery path for queue offers and claimable tasks.
+- [x] Define sealed queue-claim propagation back to the sender mailbox.
+- [x] Implement claimant-side acquisition through sealed queue claims.
+- [x] Implement sender-side assignment and result routing for claimed public tasks.
+- [x] Add conflict tests for concurrent public claims.
+- [x] Add end-to-end tests for public task offer, claim, result, and receipt.
 
 ### M9: Mailbox Lifecycle Policy and Cleanup
 
