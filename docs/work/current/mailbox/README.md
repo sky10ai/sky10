@@ -629,6 +629,152 @@ Checklist:
 - [x] Add public-network backend implementation.
 - [x] Add integration tests for online direct delivery plus durable fallback.
 
+### M7: Public-Network Store-and-Forward Backend
+
+Add a real offline delivery backend for addressed sky10-network recipients.
+
+Primary areas:
+
+- relay/dropbox mailbox backend
+- sealed envelope format
+- sender outbox handoff and retry
+- recipient poll or subscription ingestion
+
+Exit criteria:
+
+- addressed sky10-network items can be handed off while the recipient daemon is
+  fully offline
+- relays or dropboxes only see sealed payloads plus minimal routing metadata
+- recipient can ingest handed-off items and materialize them into mailbox state
+- sender can observe handoff, delivery, and terminal resolution separately
+
+Checklist:
+
+- [ ] Define relay/dropbox object model for addressed mailbox items.
+- [ ] Define sealed envelope metadata versus ciphertext boundary.
+- [ ] Add a network store-and-forward backend interface.
+- [ ] Implement sender-side handoff from outbox to relay/dropbox.
+- [ ] Implement recipient-side poll or subscribe ingestion path.
+- [ ] Add replay protection and duplicate-handoff idempotency rules.
+- [ ] Add tests for sender offline-to-online retry plus recipient late pickup.
+- [ ] Add tests proving relays cannot read sealed payload contents.
+
+### M8: Public Capability Queue Discovery and Claim Routing
+
+Extend mailbox queue semantics so work can go to any suitable public-network
+agent, not just an addressed recipient.
+
+Primary areas:
+
+- public capability advertisement
+- queue discovery and filtering
+- claim/lease propagation
+- result and receipt return routing
+
+Exit criteria:
+
+- a sender can publish a claimable public-network task without naming a single
+  recipient
+- eligible public agents can discover queue items by capability or queue name
+- one claimant wins at a time with explicit lease semantics
+- results and receipts route back to the original sender mailbox cleanly
+
+Checklist:
+
+- [ ] Define public capability queue record format.
+- [ ] Define discovery path for queue offers and claimable tasks.
+- [ ] Define lease and claim event propagation across the public network.
+- [ ] Implement claimant-side acquisition and renewal behavior.
+- [ ] Implement sender-side result routing for claimed public tasks.
+- [ ] Add conflict tests for concurrent public claims.
+- [ ] Add end-to-end tests for public task offer, claim, result, and receipt.
+
+### M9: Mailbox Lifecycle Policy and Cleanup
+
+Make mailbox behavior predictable over time instead of relying on open-ended
+queue retention.
+
+Primary areas:
+
+- TTL defaults by item kind
+- expiry and dead-letter transitions
+- ack semantics
+- retention and garbage collection
+
+Exit criteria:
+
+- each mailbox item kind has documented TTL and retry defaults
+- expired items transition deterministically into terminal states
+- ack behavior is explicit and consistent across human, agent, and queue flows
+- old terminal state can be compacted or garbage-collected safely
+
+Checklist:
+
+- [ ] Define default TTLs for message, approval, payment, result, and receipt items.
+- [ ] Define retry budgets and backoff rules by item kind.
+- [ ] Decide whether `ack` stays explicit or becomes implicit on later transitions.
+- [ ] Implement expiry scanning and terminal-state transitions.
+- [ ] Implement dead-letter handling for permanently undeliverable items.
+- [ ] Define retention and compaction policy for items, events, and claims.
+- [ ] Add tests for expiry, dead-letter, and cleanup behavior.
+
+### M10: Principal Views and Product Model
+
+Decide how humans, local agents, and public agents should see and act on the
+same underlying mailbox state.
+
+Primary areas:
+
+- principal-scoped mailbox projections
+- permissions and action boundaries
+- UI grouping and filtering
+- workflow ownership model
+
+Exit criteria:
+
+- the product model clearly defines whether humans and agents share a mailbox
+  view or use separate projections
+- RPC methods can query mailbox state by principal and role cleanly
+- the web UI presents human and agent work without ambiguous ownership
+- approval and payment actions are available to the right principals only
+
+Checklist:
+
+- [ ] Define the product rule for shared versus separate principal mailbox views.
+- [ ] Define mailbox permissions for human, local-agent, and public-agent actors.
+- [ ] Add principal- and role-scoped list/query APIs where needed.
+- [ ] Update the UI information architecture around principal views.
+- [ ] Add tests for authorization and projection boundaries.
+
+### M11: Debug and Operations Tooling
+
+Make mailbox failures and stuck workflows operable without dropping into raw KV
+inspection.
+
+Primary areas:
+
+- raw mailbox debug views
+- delivery-attempt visibility
+- request and reply correlation
+- repair and retry tooling
+
+Exit criteria:
+
+- an operator can inspect one mailbox item end-to-end from item creation
+  through delivery attempts and terminal state
+- delivery failures, retry reasons, and claim state are visible without
+  inspecting KV directly
+- request and reply chains can be traced by request id or reply target
+- repair actions exist for common stuck states
+
+Checklist:
+
+- [ ] Add request-id, reply-to, queue, and principal filters to mailbox views.
+- [ ] Add a debug panel or route for raw item, event, claim, and payload-ref inspection.
+- [ ] Surface delivery attempts, retry reasons, and last-error details in the UI.
+- [ ] Add repair actions for retry, dead-letter replay, and claim release.
+- [ ] Add operational tests or fixtures for common failure scenarios.
+
 ## Open Questions
 
 - Should human principals and agent principals use one shared mailbox view or
@@ -649,6 +795,11 @@ Ship mailbox in this order:
 4. approval/payment flows
 5. web and RPC surfaces
 6. sky10-network backend
+7. real public-network store-and-forward
+8. public capability queue routing
+9. lifecycle and cleanup policy
+10. principal views and permissions
+11. debug and operations tooling
 
 That order keeps the first version narrow, useful, and aligned with the
 reliability gaps we already have today.
