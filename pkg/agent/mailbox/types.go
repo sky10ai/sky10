@@ -36,6 +36,7 @@ const (
 const (
 	EventTypeCreated           = "created"
 	EventTypeDeliveryAttempted = "delivery_attempted"
+	EventTypeHandedOff         = "handed_off"
 	EventTypeDelivered         = "delivered"
 	EventTypeDeliveryFailed    = "delivery_failed"
 	EventTypeSeen              = "seen"

@@ -438,6 +438,92 @@ func TestRouterDeliverMailboxRecordSky10NetworkQueuesOnUnresolvedAddress(t *test
 	}
 }
 
+func TestRouterSky10NetworkRelayStoreAndForward(t *testing.T) {
+	t.Parallel()
+
+	senderKey, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipientKey, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	relayTransport := newTestRelayTransport()
+	senderRelay := agentmailbox.NewRelayDropbox(senderKey, relayTransport, nil)
+	recipientRelay := agentmailbox.NewRelayDropbox(recipientKey, relayTransport, nil)
+
+	senderStore, err := agentmailbox.NewStore(context.Background(), agentmailbox.NewScopedKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipientStore, err := agentmailbox.NewStore(context.Background(), agentmailbox.NewScopedKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	senderRouter := NewRouter(NewRegistry("D-sender", "sender", nil), nil, nil, "D-sender", nil)
+	senderRouter.SetMailbox(senderStore)
+	senderRouter.SetNetworkRelay(senderRelay)
+
+	recipientRegistry := NewRegistry("D-recipient", "recipient", nil)
+	recipientRegistry.Register(RegisterParams{Name: "worker"}, "A-worker010000000")
+	recipientRouter := NewRouter(recipientRegistry, nil, nil, "D-recipient", nil)
+	recipientRouter.SetMailbox(recipientStore)
+	recipientRouter.SetNetworkRelay(recipientRelay)
+
+	record, err := senderStore.Create(context.Background(), agentmailbox.Item{
+		ID:             "relay-item-1",
+		Kind:           agentmailbox.ItemKindMessage,
+		From:           agentmailbox.Principal{ID: senderKey.Address(), Kind: agentmailbox.PrincipalKindHuman, Scope: agentmailbox.ScopeSky10Network, RouteHint: senderKey.Address()},
+		To:             &agentmailbox.Principal{ID: "worker", Kind: agentmailbox.PrincipalKindNetworkAgent, Scope: agentmailbox.ScopeSky10Network, RouteHint: recipientKey.Address()},
+		SessionID:      "session-1",
+		RequestID:      "request-1",
+		IdempotencyKey: "request-1",
+		PayloadInline:  json.RawMessage(`{"text":"relay this"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	queued, err := senderRouter.DeliverMailboxRecord(context.Background(), record)
+	if err != nil {
+		t.Fatalf("deliver via relay fallback: %v", err)
+	}
+	if queued.State != agentmailbox.StateQueued {
+		t.Fatalf("sender state = %s, want queued after handoff", queued.State)
+	}
+	if !hasEventType(queued, agentmailbox.EventTypeHandedOff) {
+		t.Fatal("expected handed_off event after relay handoff")
+	}
+
+	if err := recipientRouter.PollNetworkRelay(context.Background()); err != nil {
+		t.Fatalf("recipient poll: %v", err)
+	}
+	received, ok := recipientStore.Get(record.Item.ID)
+	if !ok {
+		t.Fatal("recipient mailbox did not ingest relay item")
+	}
+	if received.Item.To == nil || received.Item.To.ID != "worker" {
+		t.Fatalf("recipient to = %+v, want worker", received.Item.To)
+	}
+
+	if err := senderRouter.PollNetworkRelay(context.Background()); err != nil {
+		t.Fatalf("sender poll receipts: %v", err)
+	}
+	delivered, ok := senderStore.Get(record.Item.ID)
+	if !ok {
+		t.Fatal("sender mailbox record missing after receipt poll")
+	}
+	if delivered.State != agentmailbox.StateDelivered {
+		t.Fatalf("sender state = %s, want delivered", delivered.State)
+	}
+	if !hasEventType(delivered, agentmailbox.EventTypeDelivered) {
+		t.Fatal("expected delivered receipt event on sender")
+	}
+}
+
 func newRouterMailboxStore(t *testing.T) *agentmailbox.Store {
 	t.Helper()
 	store, err := agentmailbox.NewStore(context.Background(), agentmailbox.NewScopedKVBackend(newRouterMemoryKVStore(), ""))
@@ -445,6 +531,57 @@ func newRouterMailboxStore(t *testing.T) *agentmailbox.Store {
 		t.Fatal(err)
 	}
 	return store
+}
+
+type testRelayTransport struct {
+	mu     sync.RWMutex
+	events map[string]testRelayEvent
+}
+
+type testRelayEvent struct {
+	recordType string
+	recipient  string
+	itemID     string
+	payload    []byte
+	createdAt  time.Time
+}
+
+func newTestRelayTransport() *testRelayTransport {
+	return &testRelayTransport{events: make(map[string]testRelayEvent)}
+}
+
+func (t *testRelayTransport) Publish(_ context.Context, _ *skykey.Key, event agentmailbox.RelayTransportEvent) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.events[event.DTag] = testRelayEvent{
+		recordType: event.RecordType,
+		recipient:  event.Recipient,
+		itemID:     event.ItemID,
+		payload:    append([]byte(nil), event.Payload...),
+		createdAt:  event.CreatedAt,
+	}
+	return nil
+}
+
+func (t *testRelayTransport) Query(_ context.Context, recipient, recordType string, _ int) ([]agentmailbox.RelayTransportEvent, error) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	out := make([]agentmailbox.RelayTransportEvent, 0)
+	for dtag, event := range t.events {
+		if event.recipient != recipient || event.recordType != recordType {
+			continue
+		}
+		out = append(out, agentmailbox.RelayTransportEvent{
+			ID:         dtag,
+			DTag:       dtag,
+			RecordType: event.recordType,
+			Recipient:  event.recipient,
+			ItemID:     event.itemID,
+			CreatedAt:  event.createdAt,
+			Payload:    append([]byte(nil), event.payload...),
+		})
+	}
+	return out, nil
 }
 
 type routerMemoryKVStore struct {
@@ -488,6 +625,15 @@ func (s *routerMemoryKVStore) List(prefix string) []string {
 		}
 	}
 	return out
+}
+
+func hasEventType(record agentmailbox.Record, eventType string) bool {
+	for _, event := range record.Events {
+		if event.Type == eventType {
+			return true
+		}
+	}
+	return false
 }
 
 func TestRouterSendQueuesWhenRemoteDeviceUnavailable(t *testing.T) {

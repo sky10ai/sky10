@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
+	skykey "github.com/sky10/sky10/pkg/key"
 	"github.com/sky10/sky10/pkg/link"
 )
 
@@ -25,6 +27,7 @@ type Router struct {
 	deviceID string
 	logger   *slog.Logger
 	mailbox  *agentmailbox.Store
+	relay    agentmailbox.NetworkRelay
 
 	// mu protects peerDevices, peerAddresses, and peerAgentCache.
 	mu             sync.RWMutex
@@ -62,6 +65,11 @@ func (r *Router) SetMailbox(store *agentmailbox.Store) {
 // SetResolver attaches a sky10 network resolver for addressed delivery.
 func (r *Router) SetResolver(resolver *link.Resolver) {
 	r.resolver = resolver
+}
+
+// SetNetworkRelay attaches public-network store-and-forward transport.
+func (r *Router) SetNetworkRelay(relay agentmailbox.NetworkRelay) {
+	r.relay = relay
 }
 
 // Send routes a message to the target agent or identity. Local targets
@@ -127,6 +135,54 @@ func (r *Router) DrainNetworkOutbox(ctx context.Context, address string) error {
 		}
 	}
 	return firstErr
+}
+
+// PollNetworkRelay ingests public-network relay handoffs and receipts.
+func (r *Router) PollNetworkRelay(ctx context.Context) error {
+	if r.relay == nil || r.mailbox == nil {
+		return nil
+	}
+	inbound, err := r.relay.Poll(ctx)
+	if err != nil {
+		return err
+	}
+
+	var firstErr error
+	for _, entry := range inbound {
+		switch entry.RecordType {
+		case "item":
+			if err := r.ingestNetworkRelayItem(ctx, entry); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		case "delivery_receipt":
+			if err := r.ingestNetworkRelayReceipt(ctx, entry); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	return firstErr
+}
+
+// RunNetworkRelayPoller continuously ingests public-network relay traffic.
+func (r *Router) RunNetworkRelayPoller(ctx context.Context, interval time.Duration) error {
+	if interval <= 0 {
+		interval = agentmailbox.DefaultRelayPollInterval()
+	}
+	if err := r.PollNetworkRelay(ctx); err != nil {
+		r.logger.Debug("initial network relay poll failed", "error", err)
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if err := r.PollNetworkRelay(ctx); err != nil {
+				r.logger.Debug("network relay poll failed", "error", err)
+			}
+		}
+	}
 }
 
 // DrainOutbox retries durable outbound messages for this device. When
@@ -426,6 +482,32 @@ func (r *Router) deliverNetworkMailbox(ctx context.Context, record agentmailbox.
 		item.To.DeviceHint = ""
 	}
 	if err := r.sendNetworkMailboxLive(ctx, targetAddress, item); err != nil {
+		if r.relay != nil {
+			if existing, ok := relayHandoffForRecord(record); ok {
+				r.logger.Debug("network mailbox already handed off", "item_id", record.Item.ID, "handoff_id", existing)
+				return record, nil
+			}
+			handoff, handoffErr := r.relay.HandoffItem(ctx, item)
+			if handoffErr == nil {
+				updated, appendErr := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+					ItemID: record.Item.ID,
+					Type:   agentmailbox.EventTypeHandedOff,
+					Actor:  routerActor(agentmailbox.ScopeSky10Network, r.routerAddress(), r.deviceID),
+					Meta: map[string]string{
+						"route_address": targetAddress,
+						"transport":     "nostr_dropbox",
+						"handoff_id":    handoff.ID,
+						"live_error":    err.Error(),
+					},
+				})
+				if appendErr == nil {
+					r.emitMailboxUpdate("handed_off", updated)
+					return updated, nil
+				}
+				return record, appendErr
+			}
+			err = fmt.Errorf("%v; relay handoff failed: %w", err, handoffErr)
+		}
 		updated, appendErr := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
 			ItemID: record.Item.ID,
 			Type:   agentmailbox.EventTypeDeliveryFailed,
@@ -452,6 +534,74 @@ func (r *Router) deliverNetworkMailbox(ctx context.Context, record agentmailbox.
 	}
 	r.emitMailboxUpdate("delivered", updated)
 	return updated, nil
+}
+
+func (r *Router) ingestNetworkRelayItem(ctx context.Context, entry agentmailbox.RelayInbound) error {
+	if entry.Item == nil || r.mailbox == nil {
+		return nil
+	}
+	if existing, ok := r.mailbox.Get(entry.Item.ID); ok {
+		return r.publishNetworkDeliveryReceipt(ctx, entry, existing)
+	}
+	record, err := r.mailbox.Create(ctx, *entry.Item)
+	if err != nil {
+		return err
+	}
+	r.emitMailboxUpdate("received", record)
+	return r.publishNetworkDeliveryReceipt(ctx, entry, record)
+}
+
+func (r *Router) publishNetworkDeliveryReceipt(ctx context.Context, entry agentmailbox.RelayInbound, record agentmailbox.Record) error {
+	if r.relay == nil || entry.Sender == "" {
+		return nil
+	}
+	if _, err := skyAddress(entry.Sender); err != nil {
+		return nil
+	}
+	if entry.Item != nil && entry.Item.Kind == agentmailbox.ItemKindMessage && entry.Item.To != nil {
+		if err := r.DrainLocalPending(ctx, entry.Item.To.ID); err != nil {
+			return err
+		}
+	}
+	return r.relay.PublishDeliveryReceipt(ctx, entry.Sender, agentmailbox.RelayDeliveryReceipt{
+		ItemID:      record.Item.ID,
+		HandoffID:   coalesce(entry.HandoffID, record.Item.ID),
+		DeliveredBy: r.routerAddress(),
+		DeliveredAt: time.Now().UTC(),
+	})
+}
+
+func (r *Router) ingestNetworkRelayReceipt(ctx context.Context, entry agentmailbox.RelayInbound) error {
+	if entry.Receipt == nil || r.mailbox == nil {
+		return nil
+	}
+	record, ok := r.mailbox.Get(entry.Receipt.ItemID)
+	if !ok {
+		return nil
+	}
+	if hasMailboxEvent(record, agentmailbox.EventTypeDelivered, "handoff_id", coalesce(entry.Receipt.HandoffID, record.Item.ID)) {
+		return nil
+	}
+	updated, err := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+		ItemID: record.Item.ID,
+		Type:   agentmailbox.EventTypeDelivered,
+		Actor: agentmailbox.Principal{
+			ID:        entry.Receipt.DeliveredBy,
+			Kind:      agentmailbox.PrincipalKindNetworkAgent,
+			Scope:     agentmailbox.ScopeSky10Network,
+			RouteHint: entry.Receipt.DeliveredBy,
+		},
+		Meta: map[string]string{
+			"transport":  "nostr_dropbox",
+			"handoff_id": coalesce(entry.Receipt.HandoffID, record.Item.ID),
+			"event_id":   entry.EventID,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	r.emitMailboxUpdate("delivered", updated)
+	return nil
 }
 
 func (r *Router) sendNetworkMailboxLive(ctx context.Context, address string, item agentmailbox.Item) error {
@@ -620,6 +770,55 @@ func cloneMailboxRecipient(p *agentmailbox.Principal) *agentmailbox.Principal {
 	}
 	cp := *p
 	return &cp
+}
+
+func relayHandoffForRecord(record agentmailbox.Record) (string, bool) {
+	for i := len(record.Events) - 1; i >= 0; i-- {
+		event := record.Events[i]
+		if event.Type != agentmailbox.EventTypeHandedOff {
+			continue
+		}
+		if handoffID := strings.TrimSpace(event.Meta["handoff_id"]); handoffID != "" {
+			return handoffID, true
+		}
+		return record.Item.ID, true
+	}
+	return "", false
+}
+
+func hasMailboxEvent(record agentmailbox.Record, eventType, metaKey, metaValue string) bool {
+	for _, event := range record.Events {
+		if event.Type != eventType {
+			continue
+		}
+		if metaKey == "" {
+			return true
+		}
+		if event.Meta[metaKey] == metaValue {
+			return true
+		}
+	}
+	return false
+}
+
+func coalesce(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func skyAddress(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", fmt.Errorf("empty sky10 address")
+	}
+	if _, err := skykey.ParseAddress(trimmed); err != nil {
+		return "", err
+	}
+	return trimmed, nil
 }
 
 func mailboxMessage(record agentmailbox.Record) (Message, error) {

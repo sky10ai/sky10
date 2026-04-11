@@ -1,6 +1,6 @@
 ---
 created: 2026-04-09
-updated: 2026-04-09
+updated: 2026-04-11
 model: gpt-5-codex
 ---
 
@@ -190,6 +190,7 @@ Initial supported event types:
 
 - `created`
 - `delivery_attempted`
+- `handed_off`
 - `delivered`
 - `delivery_failed`
 - `seen`
@@ -305,6 +306,8 @@ The current implementation uses:
 - direct skylink delivery for addressed items when `Principal.RouteHint`
   resolves to a live sky10 address
 - durable sender-side retry when direct delivery is unavailable
+- sealed Nostr relay/dropbox handoff when direct sky10 delivery is unavailable
+- recipient relay polling plus sender delivery receipts for store-and-forward
 - lease-backed queue semantics for sky10-network queue items once they land on
   a mailbox host
 
@@ -650,14 +653,14 @@ Exit criteria:
 
 Checklist:
 
-- [ ] Define relay/dropbox object model for addressed mailbox items.
-- [ ] Define sealed envelope metadata versus ciphertext boundary.
-- [ ] Add a network store-and-forward backend interface.
-- [ ] Implement sender-side handoff from outbox to relay/dropbox.
-- [ ] Implement recipient-side poll or subscribe ingestion path.
-- [ ] Add replay protection and duplicate-handoff idempotency rules.
-- [ ] Add tests for sender offline-to-online retry plus recipient late pickup.
-- [ ] Add tests proving relays cannot read sealed payload contents.
+- [x] Define relay/dropbox object model for addressed mailbox items.
+- [x] Define sealed envelope metadata versus ciphertext boundary.
+- [x] Add a network store-and-forward backend interface.
+- [x] Implement sender-side handoff from outbox to relay/dropbox.
+- [x] Implement recipient-side poll or subscribe ingestion path.
+- [x] Add replay protection and duplicate-handoff idempotency rules.
+- [x] Add tests for sender offline-to-online retry plus recipient late pickup.
+- [x] Add tests proving relays cannot read sealed payload contents.
 
 ### M8: Public Capability Queue Discovery and Claim Routing
 

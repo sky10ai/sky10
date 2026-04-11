@@ -195,6 +195,8 @@ func stateForEvent(eventType string) State {
 	switch eventType {
 	case EventTypeDelivered, EventTypeSeen:
 		return StateDelivered
+	case EventTypeHandedOff:
+		return StateQueued
 	case EventTypeClaimed:
 		return StateClaimed
 	case EventTypeApproved:

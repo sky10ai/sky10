@@ -250,6 +250,13 @@ func ServeCmd() *cobra.Command {
 			agentRouter = skyagent.NewRouter(agentRegistry, linkNode, server.Emit, bundle.DeviceID(), logRuntime.Logger)
 			agentRouter.SetMailbox(mailboxStore)
 			agentRouter.SetResolver(linkResolver)
+			if len(relays) > 0 {
+				agentRouter.SetNetworkRelay(agentmailbox.NewRelayDropbox(
+					bundle.Identity,
+					agentmailbox.NewNostrRelayTransport(relays, logRuntime.Logger),
+					logRuntime.Logger,
+				))
+			}
 			agentRPC := skyagent.NewRPCHandler(agentRegistry, bundle.Identity, server.Emit)
 			agentRPC.SetRouter(agentRouter)
 			agentRPC.SetMailbox(mailboxStore)
@@ -258,6 +265,9 @@ func ServeCmd() *cobra.Command {
 			agentRPC.SetPeerNotifier(func(ctx context.Context, topic string) {
 				linkNode.NotifyOwn(ctx, topic)
 			})
+			if len(relays) > 0 {
+				go agentRouter.RunNetworkRelayPoller(ctx, agentmailbox.DefaultRelayPollInterval())
+			}
 			// TODO: re-enable health checker once agents reliably heartbeat.
 			// go skyagent.NewHealthChecker(agentRegistry, server.Emit, nil).Run(ctx)
 
