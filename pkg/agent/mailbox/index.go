@@ -72,6 +72,10 @@ func (idx *recordIndex) clearClaim(itemID string) {
 	state.claim = nil
 }
 
+func (idx *recordIndex) delete(itemID string) {
+	delete(idx.records, itemID)
+}
+
 func (idx *recordIndex) get(itemID string) (Record, bool) {
 	state, ok := idx.records[itemID]
 	if !ok || state == nil || state.item.ID == "" {
@@ -201,6 +205,8 @@ func stateForEvent(eventType string) State {
 		return StateClaimed
 	case EventTypeAssigned:
 		return StateAssigned
+	case EventTypeLeaseExpired:
+		return StateQueued
 	case EventTypeApproved:
 		return StateApproved
 	case EventTypeCompleted:
@@ -209,7 +215,7 @@ func stateForEvent(eventType string) State {
 		return StateRejected
 	case EventTypeCancelled:
 		return StateCancelled
-	case EventTypeExpired, EventTypeLeaseExpired:
+	case EventTypeExpired:
 		return StateExpired
 	case EventTypeDeadLettered:
 		return StateDeadLettered

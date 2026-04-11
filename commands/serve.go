@@ -161,6 +161,11 @@ func ServeCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("creating mailbox store: %w", err)
 			}
+			go func() {
+				if err := mailboxStore.RunLifecycle(ctx, agentmailbox.DefaultLifecycleSweepInterval()); err != nil && ctx.Err() == nil {
+					logger.Warn("mailbox lifecycle failed", "error", err)
+				}
+			}()
 
 			// Skylink P2P node — network mode enables DHT, relay, and external peers.
 			linkNode, err := link.New(bundle, linkCfg, logRuntime.Logger)

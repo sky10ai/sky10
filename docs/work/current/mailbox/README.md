@@ -204,6 +204,55 @@ Initial supported event types:
 - `expired`
 - `dead_lettered`
 
+## Lifecycle Policy
+
+Mailbox lifecycle is now policy-driven instead of open-ended.
+
+### Ack Semantics
+
+`ack` remains explicit.
+
+- `seen` means the recipient explicitly acknowledged the item
+- `approved`, `rejected`, `completed`, and `delivered` do not imply `seen`
+- queue `claim` and `assigned` transitions do not count as inbox ack
+
+### Default Policy
+
+| Kind | Default TTL | Retry Budget | Backoff | Terminal Retention |
+| --- | --- | --- | --- | --- |
+| `message` | 24h | 8 attempts | 5s -> 5m exponential | 7d |
+| `task_request` | 24h | 12 attempts | 15s -> 15m exponential | 14d |
+| `approval_request` | 72h | 8 attempts | 1m -> 1h exponential | 14d |
+| `payment_required` | 30m | 10 attempts | 15s -> 10m exponential | 30d |
+| `payment_proof` | 30m | 10 attempts | 15s -> 10m exponential | 30d |
+| `result` | 24h | 16 attempts | 10s -> 30m exponential | 14d |
+| `receipt` | 7d | 16 attempts | 10s -> 30m exponential | 90d |
+
+Notes:
+
+- default TTL is applied at create time when the sender does not provide
+  `expires_at`
+- retry policy is authoritative for automatic lifecycle handling and
+  dead-lettering
+- operator-triggered retry remains a separate repair action
+
+### Sweep Behavior
+
+Lifecycle sweep now does the following:
+
+1. expires queue claims and returns work to `queued`
+2. marks overdue items `expired`
+3. marks retry-budget-exhausted failed items `dead_lettered`
+4. compacts old terminal items once their retention window passes
+
+### Compaction Policy
+
+- compaction removes the durable item, append-log events, indexes, and any
+  remaining lease key for that item
+- compaction only applies to terminal items after per-kind retention has
+  elapsed
+- live claims are never compacted before the item reaches terminal state
+
 ## Storage Model
 
 ### Base Primitives
@@ -714,13 +763,13 @@ Exit criteria:
 
 Checklist:
 
-- [ ] Define default TTLs for message, approval, payment, result, and receipt items.
-- [ ] Define retry budgets and backoff rules by item kind.
-- [ ] Decide whether `ack` stays explicit or becomes implicit on later transitions.
-- [ ] Implement expiry scanning and terminal-state transitions.
-- [ ] Implement dead-letter handling for permanently undeliverable items.
-- [ ] Define retention and compaction policy for items, events, and claims.
-- [ ] Add tests for expiry, dead-letter, and cleanup behavior.
+- [x] Define default TTLs for message, approval, payment, result, and receipt items.
+- [x] Define retry budgets and backoff rules by item kind.
+- [x] Decide whether `ack` stays explicit or becomes implicit on later transitions.
+- [x] Implement expiry scanning and terminal-state transitions.
+- [x] Implement dead-letter handling for permanently undeliverable items.
+- [x] Define retention and compaction policy for items, events, and claims.
+- [x] Add tests for expiry, dead-letter, and cleanup behavior.
 
 ### M10: Principal Views and Product Model
 

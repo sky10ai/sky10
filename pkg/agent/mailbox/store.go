@@ -56,6 +56,7 @@ func (s *Store) Create(ctx context.Context, item Item) (Record, error) {
 	if item.CreatedAt.IsZero() {
 		item.CreatedAt = s.now()
 	}
+	item = s.applyCreateDefaults(item)
 	if err := item.ValidateForCreate(); err != nil {
 		return Record{}, err
 	}

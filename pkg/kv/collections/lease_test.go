@@ -141,6 +141,33 @@ func TestLeaseRelease(t *testing.T) {
 	}
 }
 
+func TestLeaseReleaseExpiredRecord(t *testing.T) {
+	t.Parallel()
+
+	store := newMemoryKVStore()
+	lease := NewLease(store, "mailbox/leases")
+	now := time.Unix(1_700_000_000, 0).UTC()
+	lease.now = func() time.Time { return now }
+	lease.newUUID = func() string { return "token-1" }
+
+	record, ok, err := lease.Claim(context.Background(), "task-1", "agent-a", time.Second)
+	if err != nil || !ok {
+		t.Fatalf("claim err=%v ok=%v", err, ok)
+	}
+
+	now = now.Add(2 * time.Second)
+	released, err := lease.Release(context.Background(), "task-1", "agent-a", record.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !released {
+		t.Fatal("expired lease should still be deletable for cleanup")
+	}
+	if _, exists := store.Get("mailbox/leases/task-1"); exists {
+		t.Fatal("expired lease key should be deleted")
+	}
+}
+
 func TestLeaseClaimContentionLeavesSingleActiveLease(t *testing.T) {
 	t.Parallel()
 

@@ -88,6 +88,15 @@ func (b *ScopedKVBackend) Release(ctx context.Context, queue, itemID, holder, to
 	return backend.Release(ctx, queue, itemID, holder, token)
 }
 
+// DeleteItem removes an item from the backend that owns it.
+func (b *ScopedKVBackend) DeleteItem(ctx context.Context, itemID string) error {
+	backend, err := b.backendForItem(itemID)
+	if err != nil {
+		return err
+	}
+	return backend.DeleteItem(ctx, itemID)
+}
+
 // ContainsItem reports whether the item exists in either scope backend.
 func (b *ScopedKVBackend) ContainsItem(itemID string) bool {
 	return b.private.ContainsItem(itemID) || b.network.ContainsItem(itemID)

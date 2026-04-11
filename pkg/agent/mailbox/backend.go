@@ -20,5 +20,6 @@ type Backend interface {
 	Claim(ctx context.Context, queue, itemID, holder string, ttl time.Duration) (Claim, bool, error)
 	Renew(ctx context.Context, queue, itemID, holder, token string, ttl time.Duration) (Claim, bool, error)
 	Release(ctx context.Context, queue, itemID, holder, token string) (bool, error)
+	DeleteItem(ctx context.Context, itemID string) error
 	ContainsItem(itemID string) bool
 }

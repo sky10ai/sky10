@@ -121,7 +121,7 @@ func (l *Lease) Release(ctx context.Context, name, holder, token string) (bool, 
 		return false, fmt.Errorf("lease token is required")
 	}
 
-	current, ok, err := l.Get(name)
+	current, ok, err := l.getRaw(name)
 	if err != nil {
 		return false, err
 	}
@@ -171,6 +171,24 @@ func (l *Lease) put(ctx context.Context, record LeaseRecord) error {
 		return err
 	}
 	return l.store.Set(ctx, l.key(record.Name), data)
+}
+
+func (l *Lease) getRaw(name string) (LeaseRecord, bool, error) {
+	if l == nil || l.store == nil {
+		return LeaseRecord{}, false, fmt.Errorf("lease store is required")
+	}
+	if strings.TrimSpace(name) == "" {
+		return LeaseRecord{}, false, fmt.Errorf("lease name is required")
+	}
+	raw, ok := l.store.Get(l.key(name))
+	if !ok {
+		return LeaseRecord{}, false, nil
+	}
+	var record LeaseRecord
+	if err := json.Unmarshal(raw, &record); err != nil {
+		return LeaseRecord{}, false, fmt.Errorf("parsing lease %q: %w", name, err)
+	}
+	return record, true, nil
 }
 
 func (l *Lease) key(name string) string {

@@ -151,6 +151,48 @@ func (b *PrivateKVBackend) Release(ctx context.Context, queue, itemID, holder, t
 	return collections.NewLease(b.store, b.queueLeasePrefix(queue)).Release(ctx, encodeKeyPart(itemID), holder, token)
 }
 
+// DeleteItem removes an item, all timeline events, indexes, and any active or
+// stale lease key rooted under this backend.
+func (b *PrivateKVBackend) DeleteItem(ctx context.Context, itemID string) error {
+	if b == nil || b.store == nil {
+		return fmt.Errorf("mailbox backend store is required")
+	}
+	data, ok := b.store.Get(b.itemKey(itemID))
+	if !ok {
+		return nil
+	}
+	var item Item
+	if err := json.Unmarshal(data, &item); err != nil {
+		return fmt.Errorf("parse mailbox item %s for delete: %w", itemID, err)
+	}
+
+	if err := b.store.Delete(ctx, b.itemKey(itemID)); err != nil {
+		return fmt.Errorf("delete mailbox item %s: %w", itemID, err)
+	}
+	for _, key := range b.store.List(b.eventLogPrefix(itemID) + "/") {
+		if err := b.store.Delete(ctx, key); err != nil {
+			return fmt.Errorf("delete mailbox event %q: %w", key, err)
+		}
+	}
+	if err := b.store.Delete(ctx, b.outboxIndexKey(item.From.ID, itemID)); err != nil {
+		return fmt.Errorf("delete outbox index for %s: %w", itemID, err)
+	}
+	if recipient := item.RecipientID(); recipient != "" {
+		if err := b.store.Delete(ctx, b.inboxIndexKey(recipient, itemID)); err != nil {
+			return fmt.Errorf("delete inbox index for %s: %w", itemID, err)
+		}
+	}
+	if queue := item.QueueName(); queue != "" {
+		if err := b.store.Delete(ctx, b.queueIndexKey(queue, itemID)); err != nil {
+			return fmt.Errorf("delete queue index for %s: %w", itemID, err)
+		}
+		if err := b.store.Delete(ctx, b.queueLeasePrefix(queue)+"/"+encodeKeyPart(itemID)); err != nil {
+			return fmt.Errorf("delete queue lease for %s: %w", itemID, err)
+		}
+	}
+	return nil
+}
+
 // ContainsItem reports whether the item exists in this backend.
 func (b *PrivateKVBackend) ContainsItem(itemID string) bool {
 	if b == nil || b.store == nil {
