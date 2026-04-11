@@ -117,19 +117,20 @@ export const agent = {
   status: () => rpc<AgentStatus>("agent.status"),
   send: (p: AgentSendParams) => rpc<AgentSendResult>("agent.send", p),
   mailbox: {
+    views: () => rpc<MailboxViewListResult>("agent.mailbox.views"),
     send: (p: MailboxSendParams) =>
       rpc<MailboxRecordResult>("agent.mailbox.send", p),
-    listInbox: (p?: { principal_id?: string }) =>
+    listInbox: (p?: MailboxListParams) =>
       rpc<MailboxListResult>("agent.mailbox.listInbox", p),
-    listOutbox: (p?: { principal_id?: string }) =>
+    listOutbox: (p?: MailboxListParams) =>
       rpc<MailboxListResult>("agent.mailbox.listOutbox", p),
-    listQueue: (p?: { queue?: string }) =>
+    listQueue: (p?: MailboxListParams) =>
       rpc<MailboxListResult>("agent.mailbox.listQueue", p),
-    listFailed: (p?: { principal_id?: string }) =>
+    listFailed: (p?: MailboxListParams) =>
       rpc<MailboxListResult>("agent.mailbox.listFailed", p),
-    listSent: (p?: { principal_id?: string }) =>
+    listSent: (p?: MailboxListParams) =>
       rpc<MailboxListResult>("agent.mailbox.listSent", p),
-    get: (p: { item_id: string }) =>
+    get: (p: MailboxGetParams) =>
       rpc<MailboxGetResult>("agent.mailbox.get", p),
     claim: (p: MailboxActionParams) =>
       rpc<MailboxActionResult>("agent.mailbox.claim", p),
@@ -143,7 +144,7 @@ export const agent = {
       rpc<MailboxRecordResult>("agent.mailbox.reject", p),
     complete: (p: MailboxActionParams) =>
       rpc<MailboxRecordResult>("agent.mailbox.complete", p),
-    retry: (p: { item_id: string }) =>
+    retry: (p: MailboxRetryParams) =>
       rpc<MailboxRecordResult>("agent.mailbox.retry", p),
   },
 };
@@ -479,6 +480,20 @@ export interface MailboxRecord {
   state: string;
 }
 
+export interface MailboxView {
+  view_id: string;
+  label: string;
+  role: string;
+  principal: MailboxPrincipal;
+  skills?: string[];
+}
+
+export interface MailboxViewListResult {
+  views: MailboxView[];
+  count: number;
+  default_view_id: string;
+}
+
 export interface MailboxListResult {
   items: MailboxRecord[];
   count: number;
@@ -507,6 +522,18 @@ export interface MailboxPrincipalParams {
   route_hint?: string;
 }
 
+export interface MailboxListParams {
+  principal_id?: string;
+  principal_kind?: string;
+  queue?: string;
+}
+
+export interface MailboxGetParams {
+  item_id: string;
+  principal_id?: string;
+  principal_kind?: string;
+}
+
 export interface MailboxSendParams {
   kind: string;
   from?: MailboxPrincipalParams;
@@ -528,6 +555,12 @@ export interface MailboxActionParams {
   token?: string;
   decision_id?: string;
   ttl_seconds?: number;
+}
+
+export interface MailboxRetryParams {
+  item_id: string;
+  actor_id?: string;
+  actor_kind?: string;
 }
 
 // -- System update types --

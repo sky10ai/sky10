@@ -791,13 +791,25 @@ Exit criteria:
 - the web UI presents human and agent work without ambiguous ownership
 - approval and payment actions are available to the right principals only
 
+Decision:
+
+- mailbox data stays in one shared store
+- humans, local agents, and public agents use separate principal-scoped
+  projections over that shared store
+- RPC list/get methods take an explicit principal context and filter records
+  server-side
+- mailbox actions are authorized against mailbox semantics
+  recipient/sender/claim-holder rather than by a single ambient UI identity
+- the web UI presents one mailbox screen with explicit principal views instead
+  of a single ambiguous combined inbox
+
 Checklist:
 
-- [ ] Define the product rule for shared versus separate principal mailbox views.
-- [ ] Define mailbox permissions for human, local-agent, and public-agent actors.
-- [ ] Add principal- and role-scoped list/query APIs where needed.
-- [ ] Update the UI information architecture around principal views.
-- [ ] Add tests for authorization and projection boundaries.
+- [x] Define the product rule for shared versus separate principal mailbox views.
+- [x] Define mailbox permissions for human, local-agent, and public-agent actors.
+- [x] Add principal- and role-scoped list/query APIs where needed.
+- [x] Update the UI information architecture around principal views.
+- [x] Add tests for authorization and projection boundaries.
 
 ### M11: Debug and Operations Tooling
 
@@ -830,8 +842,6 @@ Checklist:
 
 ## Open Questions
 
-- Should human principals and agent principals use one shared mailbox view or
-  separate views over the same store?
 - Should mailbox acks be explicit events or implicit on claim/complete?
 - How much protocol state belongs in mailbox versus per-workflow reducers?
 - What is the right TTL default for payment/approval items?

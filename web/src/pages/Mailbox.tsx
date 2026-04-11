@@ -9,6 +9,7 @@ import {
   agent,
   type MailboxEvent,
   type MailboxRecord,
+  type MailboxView,
 } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
@@ -157,24 +158,113 @@ function latestTimestamp(record: MailboxRecord): string {
   return lastEvent?.timestamp || record.item.created_at;
 }
 
+function viewParams(view?: MailboxView) {
+  if (!view) return undefined;
+  return {
+    principal_id: view.principal.id,
+    principal_kind: view.principal.kind,
+  };
+}
+
+function isSenderForView(record: MailboxRecord, view?: MailboxView): boolean {
+  return Boolean(view && record.item.from.id === view.principal.id);
+}
+
+function isRecipientForView(record: MailboxRecord, view?: MailboxView): boolean {
+  return Boolean(view && record.item.to?.id === view.principal.id);
+}
+
+function queueEligibleForView(record: MailboxRecord, view?: MailboxView): boolean {
+  if (!view || view.role !== "agent") return false;
+  if (record.claim?.holder === view.principal.id) return true;
+  if (!record.item.target_skill) return false;
+  return (view.skills ?? []).includes(record.item.target_skill);
+}
+
+function canApproveRecord(record: MailboxRecord, view?: MailboxView): boolean {
+  return record.item.kind === "approval_request" &&
+    record.state !== "approved" &&
+    record.state !== "rejected" &&
+    isRecipientForView(record, view);
+}
+
+function canClaimRecord(record: MailboxRecord, view?: MailboxView): boolean {
+  return record.item.kind === "task_request" &&
+    !record.claim &&
+    queueEligibleForView(record, view);
+}
+
+function canReleaseRecord(record: MailboxRecord, view?: MailboxView): boolean {
+  return Boolean(record.claim && view && record.claim.holder === view.principal.id);
+}
+
+function canCompleteRecord(record: MailboxRecord, view?: MailboxView): boolean {
+  if (!view || record.item.kind !== "task_request" || record.state === "completed") {
+    return false;
+  }
+  if (record.claim) {
+    return record.claim.holder === view.principal.id;
+  }
+  return isRecipientForView(record, view) && view.role === "agent";
+}
+
+function canRetryRecord(record: MailboxRecord, view?: MailboxView): boolean {
+  if (!view || (record.state !== "queued" && record.state !== "failed")) {
+    return false;
+  }
+  return isSenderForView(record, view) || isRecipientForView(record, view) || record.claim?.holder === view.principal.id;
+}
+
+function canAckRecord(record: MailboxRecord, view?: MailboxView): boolean {
+  return record.state === "delivered" && isRecipientForView(record, view);
+}
+
 export default function Mailbox() {
-  const inbox = useRPC(() => agent.mailbox.listInbox(), [], {
+  const views = useRPC(() => agent.mailbox.views(), [], {
+    live: AGENT_EVENT_TYPES,
+    refreshIntervalMs: 5_000,
+  });
+  const [selectedViewId, setSelectedViewId] = useState<string | null>(null);
+
+  const availableViews = views.data?.views ?? [];
+  const currentView =
+    availableViews.find((view) => view.view_id === selectedViewId) ??
+    availableViews.find((view) => view.view_id === views.data?.default_view_id) ??
+    availableViews[0];
+  const params = viewParams(currentView);
+
+  const inbox = useRPC(
+    async () => currentView ? agent.mailbox.listInbox(params) : { items: [], count: 0 },
+    [currentView?.view_id],
+    {
     live: mailboxLiveEvents,
     refreshIntervalMs: 5_000,
   });
-  const outbox = useRPC(() => agent.mailbox.listOutbox(), [], {
+  const outbox = useRPC(
+    async () => currentView ? agent.mailbox.listOutbox(params) : { items: [], count: 0 },
+    [currentView?.view_id],
+    {
     live: mailboxLiveEvents,
     refreshIntervalMs: 5_000,
   });
-  const queue = useRPC(() => agent.mailbox.listQueue(), [], {
+  const queue = useRPC(
+    async () => currentView ? agent.mailbox.listQueue(params) : { items: [], count: 0 },
+    [currentView?.view_id],
+    {
     live: mailboxLiveEvents,
     refreshIntervalMs: 5_000,
   });
-  const failed = useRPC(() => agent.mailbox.listFailed(), [], {
+  const failed = useRPC(
+    async () => currentView ? agent.mailbox.listFailed(params) : { items: [], count: 0 },
+    [currentView?.view_id],
+    {
     live: mailboxLiveEvents,
     refreshIntervalMs: 5_000,
   });
-  const sent = useRPC(() => agent.mailbox.listSent(), [], {
+  const sent = useRPC(
+    async () => currentView ? agent.mailbox.listSent(params) : { items: [], count: 0 },
+    [currentView?.view_id],
+    {
     live: mailboxLiveEvents,
     refreshIntervalMs: 5_000,
   });
@@ -190,6 +280,10 @@ export default function Mailbox() {
   const failedItems = failed.data?.items ?? [];
   const sentItems = sent.data?.items ?? [];
   const approvalItems = inboxItems.filter((item) => item.item.kind === "approval_request");
+  const availableTabs: TabKey[] =
+    currentView?.role === "agent"
+      ? ["inbox", "approvals", "queue", "outbox", "failed", "sent"]
+      : ["inbox", "approvals", "outbox", "failed", "sent"];
 
   const allRecords = new Map<string, MailboxRecord>();
   for (const list of [inboxItems, outboxItems, queueItems, failedItems, sentItems]) {
@@ -211,6 +305,19 @@ export default function Mailbox() {
   const selected = (selectedId ? allRecords.get(selectedId) : undefined) ?? currentItems[0];
 
   useEffect(() => {
+    if (!currentView) return;
+    if (selectedViewId !== currentView.view_id) {
+      setSelectedViewId(currentView.view_id);
+    }
+  }, [currentView, selectedViewId]);
+
+  useEffect(() => {
+    if (!availableTabs.includes(tab)) {
+      setTab(availableTabs[0] ?? "inbox");
+    }
+  }, [availableTabs, tab]);
+
+  useEffect(() => {
     if (selected && selected.item.id !== selectedId) {
       setSelectedId(selected.item.id);
       return;
@@ -221,6 +328,7 @@ export default function Mailbox() {
   }, [currentItems, selected, selectedId]);
 
   function refetchAll() {
+    views.refetch({ background: true });
     inbox.refetch({ background: true });
     outbox.refetch({ background: true });
     queue.refetch({ background: true });
@@ -242,6 +350,7 @@ export default function Mailbox() {
   }
 
   const isLoading =
+    views.loading ||
     inbox.loading ||
     outbox.loading ||
     queue.loading ||
@@ -252,8 +361,12 @@ export default function Mailbox() {
     <section className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 p-12">
       <PageHeader
         eyebrow="Async Control Plane"
-        title="Mailbox"
-        description="Durable inbox, outbox, approvals, queue claims, and item timelines backed by mailbox state instead of transient live delivery."
+        title={currentView ? `Mailbox: ${currentView.label}` : "Mailbox"}
+        description={
+          currentView
+            ? `Durable mailbox state projected for ${currentView.label}, with actions and queue visibility scoped to that principal.`
+            : "Durable mailbox state projected per principal instead of one ambiguous global inbox."
+        }
         actions={
           <>
             <StatusBadge pulse tone="live">
@@ -270,17 +383,40 @@ export default function Mailbox() {
         }
       />
 
+      <div className="flex flex-wrap gap-2">
+        {availableViews.map((view) => (
+          <button
+            key={view.view_id}
+            onClick={() => {
+              setSelectedViewId(view.view_id);
+              setSelectedId(null);
+              setActionError(null);
+            }}
+            className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] transition-colors ${
+              currentView?.view_id === view.view_id
+                ? "bg-primary text-on-primary"
+                : "bg-surface-container-lowest text-secondary hover:bg-surface-container-low"
+            }`}
+          >
+            <span>{view.label}</span>
+            <span className="rounded-full bg-black/10 px-2 py-0.5 text-[10px]">
+              {view.role}
+            </span>
+          </button>
+        ))}
+      </div>
+
       <div className="grid gap-4 md:grid-cols-4">
         <SummaryCard label="Inbox" value={inboxItems.length} icon="inbox" />
         <SummaryCard label="Approvals" value={approvalItems.length} icon="approval" />
-        <SummaryCard label="Queue" value={queueItems.length} icon="assignment" />
+        <SummaryCard label={currentView?.role === "agent" ? "Queue" : "Failed"} value={currentView?.role === "agent" ? queueItems.length : failedItems.length} icon={currentView?.role === "agent" ? "assignment" : "error"} />
         <SummaryCard label="Outbox" value={outboxItems.length} icon="outbox" />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(22rem,0.9fr)]">
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
-            {(Object.keys(tabLabels) as TabKey[]).map((key) => (
+            {availableTabs.map((key) => (
               <button
                 key={key}
                 onClick={() => setTab(key)}
@@ -322,7 +458,7 @@ export default function Mailbox() {
                   <EmptyState
                     icon={tab === "queue" ? "assignment" : "inbox"}
                     title={`No ${tabLabels[tab].toLowerCase()} items`}
-                    description="Mailbox state will appear here once agents or humans create durable async work."
+                    description={currentView ? `Mailbox state for ${currentView.label} will appear here once that principal participates in durable async work.` : "Mailbox state will appear here once agents or humans create durable async work."}
                   />
                 </div>
               ) : (
@@ -391,7 +527,7 @@ export default function Mailbox() {
                 </div>
 
                 <div className="mt-5 flex flex-wrap gap-2">
-                  {selected.item.kind === "approval_request" && selected.state !== "approved" && selected.state !== "rejected" && (
+                  {canApproveRecord(selected, currentView) && (
                     <>
                       <ActionButton
                         busy={busyAction === "approve"}
@@ -399,7 +535,11 @@ export default function Mailbox() {
                         icon="check_circle"
                         onClick={() =>
                           runAction("approve", async () => {
-                            await agent.mailbox.approve({ item_id: selected.item.id });
+                            await agent.mailbox.approve({
+                              item_id: selected.item.id,
+                              actor_id: currentView?.principal.id,
+                              actor_kind: currentView?.principal.kind,
+                            });
                           })
                         }
                       />
@@ -410,14 +550,18 @@ export default function Mailbox() {
                         tone="danger"
                         onClick={() =>
                           runAction("reject", async () => {
-                            await agent.mailbox.reject({ item_id: selected.item.id });
+                            await agent.mailbox.reject({
+                              item_id: selected.item.id,
+                              actor_id: currentView?.principal.id,
+                              actor_kind: currentView?.principal.kind,
+                            });
                           })
                         }
                       />
                     </>
                   )}
 
-                  {selected.item.kind === "task_request" && !selected.claim && (
+                  {canClaimRecord(selected, currentView) && (
                     <ActionButton
                       busy={busyAction === "claim"}
                       label="Claim"
@@ -426,15 +570,15 @@ export default function Mailbox() {
                         runAction("claim", async () => {
                           await agent.mailbox.claim({
                             item_id: selected.item.id,
-                            actor_id: "agent:web-ui",
-                            actor_kind: "local_agent",
+                            actor_id: currentView?.principal.id,
+                            actor_kind: currentView?.principal.kind,
                           });
                         })
                       }
                     />
                   )}
 
-                  {selected.claim && (
+                  {canReleaseRecord(selected, currentView) && (
                     <ActionButton
                       busy={busyAction === "release"}
                       label="Release"
@@ -443,7 +587,8 @@ export default function Mailbox() {
                         runAction("release", async () => {
                           await agent.mailbox.release({
                             item_id: selected.item.id,
-                            actor_id: selected.claim?.holder,
+                            actor_id: currentView?.principal.id,
+                            actor_kind: currentView?.principal.kind,
                             token: selected.claim?.token,
                           });
                         })
@@ -451,7 +596,7 @@ export default function Mailbox() {
                     />
                   )}
 
-                  {selected.item.kind === "task_request" && selected.state !== "completed" && (
+                  {canCompleteRecord(selected, currentView) && (
                     <ActionButton
                       busy={busyAction === "complete"}
                       label="Complete"
@@ -460,35 +605,43 @@ export default function Mailbox() {
                         runAction("complete", async () => {
                           await agent.mailbox.complete({
                             item_id: selected.item.id,
-                            actor_id: "agent:web-ui",
-                            actor_kind: "local_agent",
+                            actor_id: currentView?.principal.id,
+                            actor_kind: currentView?.principal.kind,
                           });
                         })
                       }
                     />
                   )}
 
-                  {(selected.state === "queued" || selected.state === "failed") && (
+                  {canRetryRecord(selected, currentView) && (
                     <ActionButton
                       busy={busyAction === "retry"}
                       label="Retry"
                       icon="refresh"
                       onClick={() =>
                         runAction("retry", async () => {
-                          await agent.mailbox.retry({ item_id: selected.item.id });
+                          await agent.mailbox.retry({
+                            item_id: selected.item.id,
+                            actor_id: currentView?.principal.id,
+                            actor_kind: currentView?.principal.kind,
+                          });
                         })
                       }
                     />
                   )}
 
-                  {selected.state === "delivered" && (
+                  {canAckRecord(selected, currentView) && (
                     <ActionButton
                       busy={busyAction === "ack"}
                       label="Mark Seen"
                       icon="visibility"
                       onClick={() =>
                         runAction("ack", async () => {
-                          await agent.mailbox.ack({ item_id: selected.item.id });
+                          await agent.mailbox.ack({
+                            item_id: selected.item.id,
+                            actor_id: currentView?.principal.id,
+                            actor_kind: currentView?.principal.kind,
+                          });
                         })
                       }
                     />

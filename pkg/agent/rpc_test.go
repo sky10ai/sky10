@@ -239,13 +239,83 @@ func TestRPCMailboxSendListAndGet(t *testing.T) {
 		t.Fatalf("count = %v, want 1", list["count"])
 	}
 
-	getRaw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.get", mustJSON(t, map[string]string{"item_id": record.Item.ID}))
+	getRaw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.get", mustJSON(t, map[string]string{
+		"item_id":        record.Item.ID,
+		"principal_id":   "human:alice",
+		"principal_kind": agentmailbox.PrincipalKindHuman,
+	}))
 	if err != nil {
 		t.Fatalf("mailbox.get: %v", err)
 	}
 	got := getRaw.(map[string]interface{})
 	if !got["found"].(bool) {
 		t.Fatal("expected mailbox item to be found")
+	}
+}
+
+func TestRPCMailboxViewsIncludeOwnerAndRegisteredAgents(t *testing.T) {
+	t.Parallel()
+
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+
+	if _, err := r.Register(RegisterParams{Name: "researcher", Skills: []string{"research"}}, "A-research0000000"); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err, handled := h.Dispatch(context.Background(), "agent.mailbox.views", nil)
+	if !handled || err != nil {
+		t.Fatalf("mailbox.views: handled=%v err=%v", handled, err)
+	}
+	result := raw.(map[string]interface{})
+	if result["count"].(int) != 2 {
+		t.Fatalf("count = %v, want 2", result["count"])
+	}
+	views := result["views"].([]mailboxView)
+	if views[0].Role != mailboxViewRoleHuman {
+		t.Fatalf("default role = %s, want %s", views[0].Role, mailboxViewRoleHuman)
+	}
+	if views[1].Principal.ID != "A-research0000000" {
+		t.Fatalf("agent view principal = %s, want A-research0000000", views[1].Principal.ID)
+	}
+}
+
+func TestRPCMailboxGetHidesUnrelatedPrincipal(t *testing.T) {
+	t.Parallel()
+
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	h.SetMailbox(newTestMailboxStore(t))
+
+	params, _ := json.Marshal(map[string]any{
+		"kind":            agentmailbox.ItemKindMessage,
+		"idempotency_key": "msg-private-1",
+		"to": map[string]any{
+			"id":    "human:alice",
+			"kind":  agentmailbox.PrincipalKindHuman,
+			"scope": agentmailbox.ScopePrivateNetwork,
+		},
+		"payload": map[string]any{
+			"text": "private",
+		},
+	})
+	raw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.send", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := raw.(map[string]interface{})["item"].(agentmailbox.Record)
+
+	getRaw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.get", mustJSON(t, map[string]string{
+		"item_id":        record.Item.ID,
+		"principal_id":   "human:bob",
+		"principal_kind": agentmailbox.PrincipalKindHuman,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := getRaw.(map[string]interface{})
+	if got["found"].(bool) {
+		t.Fatal("unrelated principal should not see mailbox item")
 	}
 }
 
@@ -316,6 +386,134 @@ func TestRPCMailboxApproveAndClaim(t *testing.T) {
 	}
 }
 
+func TestRPCMailboxListQueueScopedToAgentSkills(t *testing.T) {
+	t.Parallel()
+
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	h.SetMailbox(newTestMailboxStore(t))
+
+	if _, err := r.Register(RegisterParams{Name: "researcher", Skills: []string{"research"}}, "A-research0100000"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Register(RegisterParams{Name: "coder", Skills: []string{"code"}}, "A-coder010000000"); err != nil {
+		t.Fatal(err)
+	}
+
+	taskSend, _ := json.Marshal(map[string]any{
+		"kind":            agentmailbox.ItemKindTaskRequest,
+		"request_id":      "req-task-rpc-queue-scope",
+		"idempotency_key": "task-rpc-queue-scope",
+		"to": map[string]any{
+			"id":    "queue:research",
+			"kind":  agentmailbox.PrincipalKindCapabilityQueue,
+			"scope": agentmailbox.ScopePrivateNetwork,
+		},
+		"target_skill": "research",
+		"payload": map[string]any{
+			"method": "research",
+		},
+	})
+	if _, err, _ := h.Dispatch(context.Background(), "agent.mailbox.send", taskSend); err != nil {
+		t.Fatal(err)
+	}
+
+	researchRaw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.listQueue", mustJSON(t, map[string]string{
+		"principal_id":   "A-research0100000",
+		"principal_kind": agentmailbox.PrincipalKindLocalAgent,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if researchRaw.(map[string]interface{})["count"].(int) != 1 {
+		t.Fatalf("research queue count = %v, want 1", researchRaw.(map[string]interface{})["count"])
+	}
+
+	coderRaw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.listQueue", mustJSON(t, map[string]string{
+		"principal_id":   "A-coder010000000",
+		"principal_kind": agentmailbox.PrincipalKindLocalAgent,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coderRaw.(map[string]interface{})["count"].(int) != 0 {
+		t.Fatalf("coder queue count = %v, want 0", coderRaw.(map[string]interface{})["count"])
+	}
+}
+
+func TestRPCMailboxApproveRejectsWrongRecipient(t *testing.T) {
+	t.Parallel()
+
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	h.SetMailbox(newTestMailboxStore(t))
+
+	approvalSend, _ := json.Marshal(map[string]any{
+		"kind":            agentmailbox.ItemKindApprovalRequest,
+		"request_id":      "req-approval-rpc-auth",
+		"idempotency_key": "approval-rpc-auth",
+		"to": map[string]any{
+			"id":    "human:alice",
+			"kind":  agentmailbox.PrincipalKindHuman,
+			"scope": agentmailbox.ScopePrivateNetwork,
+		},
+		"payload": map[string]any{
+			"action":  "approve_payment",
+			"summary": "Approve payment",
+		},
+	})
+	raw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.send", approvalSend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval := raw.(map[string]interface{})["item"].(agentmailbox.Record)
+
+	if _, err, _ := h.Dispatch(context.Background(), "agent.mailbox.approve", mustJSON(t, map[string]string{
+		"item_id":     approval.Item.ID,
+		"actor_id":    "human:bob",
+		"actor_kind":  agentmailbox.PrincipalKindHuman,
+		"decision_id": "reject-me",
+	})); err == nil {
+		t.Fatal("wrong recipient should not be able to approve")
+	}
+}
+
+func TestRPCMailboxClaimRejectsHumanActor(t *testing.T) {
+	t.Parallel()
+
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	h.SetMailbox(newTestMailboxStore(t))
+
+	taskSend, _ := json.Marshal(map[string]any{
+		"kind":            agentmailbox.ItemKindTaskRequest,
+		"request_id":      "req-task-rpc-human-claim",
+		"idempotency_key": "task-rpc-human-claim",
+		"to": map[string]any{
+			"id":    "queue:research",
+			"kind":  agentmailbox.PrincipalKindCapabilityQueue,
+			"scope": agentmailbox.ScopePrivateNetwork,
+		},
+		"target_skill": "research",
+		"payload": map[string]any{
+			"method": "research",
+		},
+	})
+	raw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.send", taskSend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := raw.(map[string]interface{})["item"].(agentmailbox.Record)
+
+	if _, err, _ := h.Dispatch(context.Background(), "agent.mailbox.claim", mustJSON(t, map[string]any{
+		"item_id":    task.Item.ID,
+		"actor_id":   "human:alice",
+		"actor_kind": agentmailbox.PrincipalKindHuman,
+	})); err == nil {
+		t.Fatal("human actor should not be able to claim queue work")
+	}
+}
+
 func TestRPCMailboxRetryDrainsQueuedLocalMessage(t *testing.T) {
 	t.Parallel()
 
@@ -361,7 +559,11 @@ func TestRPCMailboxRetryDrainsQueuedLocalMessage(t *testing.T) {
 	if _, err := r.Register(RegisterParams{Name: "coder"}, "A-coder00000000000"); err != nil {
 		t.Fatalf("register local agent: %v", err)
 	}
-	retryRaw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.retry", mustJSON(t, map[string]string{"item_id": itemID}))
+	retryRaw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.retry", mustJSON(t, map[string]any{
+		"item_id":    itemID,
+		"actor_id":   "A-coder00000000000",
+		"actor_kind": agentmailbox.PrincipalKindLocalAgent,
+	}))
 	if err != nil {
 		t.Fatalf("mailbox.retry: %v", err)
 	}

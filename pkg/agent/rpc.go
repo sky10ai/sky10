@@ -75,6 +75,8 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		result, err = h.rpcStatus(ctx)
 	case "agent.mailbox.send":
 		result, err = h.rpcMailboxSend(ctx, params)
+	case "agent.mailbox.views":
+		result, err = h.rpcMailboxViews(ctx, params)
 	case "agent.mailbox.listInbox":
 		result, err = h.rpcMailboxListInbox(ctx, params)
 	case "agent.mailbox.listOutbox":

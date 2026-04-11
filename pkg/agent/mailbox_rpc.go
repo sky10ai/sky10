@@ -12,12 +12,15 @@ import (
 )
 
 type mailboxListParams struct {
-	PrincipalID string `json:"principal_id,omitempty"`
-	Queue       string `json:"queue,omitempty"`
+	PrincipalID   string `json:"principal_id,omitempty"`
+	PrincipalKind string `json:"principal_kind,omitempty"`
+	Queue         string `json:"queue,omitempty"`
 }
 
 type mailboxGetParams struct {
-	ItemID string `json:"item_id"`
+	ItemID        string `json:"item_id"`
+	PrincipalID   string `json:"principal_id,omitempty"`
+	PrincipalKind string `json:"principal_kind,omitempty"`
 }
 
 type mailboxActionParams struct {
@@ -30,7 +33,9 @@ type mailboxActionParams struct {
 }
 
 type mailboxRetryParams struct {
-	ItemID string `json:"item_id"`
+	ItemID    string `json:"item_id"`
+	ActorID   string `json:"actor_id,omitempty"`
+	ActorKind string `json:"actor_kind,omitempty"`
 }
 
 type mailboxPrincipalParams struct {
@@ -99,6 +104,19 @@ func (h *RPCHandler) rpcMailboxSend(ctx context.Context, params json.RawMessage)
 	return mailboxRecordResult(record), nil
 }
 
+func (h *RPCHandler) rpcMailboxViews(_ context.Context, _ json.RawMessage) (interface{}, error) {
+	views := h.mailboxViews()
+	defaultViewID := ""
+	if len(views) > 0 {
+		defaultViewID = views[0].ViewID
+	}
+	return map[string]interface{}{
+		"views":           views,
+		"count":           len(views),
+		"default_view_id": defaultViewID,
+	}, nil
+}
+
 func (h *RPCHandler) rpcMailboxListInbox(_ context.Context, params json.RawMessage) (interface{}, error) {
 	store, err := h.requireMailbox()
 	if err != nil {
@@ -108,7 +126,13 @@ func (h *RPCHandler) rpcMailboxListInbox(_ context.Context, params json.RawMessa
 	if err != nil {
 		return nil, err
 	}
-	items := store.ListInbox(strings.TrimSpace(p.PrincipalID))
+	view, err := h.mailboxViewFromPrincipal(p.PrincipalID, p.PrincipalKind)
+	if err != nil {
+		return nil, err
+	}
+	items := filterMailboxRecords(store.ListInbox(""), func(record agentmailbox.Record) bool {
+		return mailboxPrincipalMatchesID(view.Principal(), record.Item.RecipientID(), h.registry)
+	})
 	return mailboxListResult(items), nil
 }
 
@@ -121,7 +145,13 @@ func (h *RPCHandler) rpcMailboxListOutbox(_ context.Context, params json.RawMess
 	if err != nil {
 		return nil, err
 	}
-	items := store.ListOutbox(strings.TrimSpace(p.PrincipalID))
+	view, err := h.mailboxViewFromPrincipal(p.PrincipalID, p.PrincipalKind)
+	if err != nil {
+		return nil, err
+	}
+	items := filterMailboxRecords(store.ListOutbox(""), func(record agentmailbox.Record) bool {
+		return record.Item.From.ID == view.Principal().ID
+	})
 	return mailboxListResult(items), nil
 }
 
@@ -134,7 +164,14 @@ func (h *RPCHandler) rpcMailboxListQueue(_ context.Context, params json.RawMessa
 	if err != nil {
 		return nil, err
 	}
-	items := store.ListQueue(strings.TrimSpace(p.Queue))
+	view, err := h.mailboxViewFromPrincipal(p.PrincipalID, p.PrincipalKind)
+	if err != nil {
+		return nil, err
+	}
+	queueName := strings.TrimSpace(p.Queue)
+	items := filterMailboxRecords(store.ListQueue(queueName), func(record agentmailbox.Record) bool {
+		return mailboxQueueVisibleToView(record, view, h.registry)
+	})
 	return mailboxListResult(items), nil
 }
 
@@ -147,7 +184,13 @@ func (h *RPCHandler) rpcMailboxListFailed(_ context.Context, params json.RawMess
 	if err != nil {
 		return nil, err
 	}
-	items := store.ListFailed(strings.TrimSpace(p.PrincipalID))
+	view, err := h.mailboxViewFromPrincipal(p.PrincipalID, p.PrincipalKind)
+	if err != nil {
+		return nil, err
+	}
+	items := filterMailboxRecords(store.ListFailed(""), func(record agentmailbox.Record) bool {
+		return mailboxRecordVisibleToView(record, view, h.registry)
+	})
 	return mailboxListResult(items), nil
 }
 
@@ -160,7 +203,13 @@ func (h *RPCHandler) rpcMailboxListSent(_ context.Context, params json.RawMessag
 	if err != nil {
 		return nil, err
 	}
-	items := store.ListSent(strings.TrimSpace(p.PrincipalID))
+	view, err := h.mailboxViewFromPrincipal(p.PrincipalID, p.PrincipalKind)
+	if err != nil {
+		return nil, err
+	}
+	items := filterMailboxRecords(store.ListSent(""), func(record agentmailbox.Record) bool {
+		return record.Item.From.ID == view.Principal().ID
+	})
 	return mailboxListResult(items), nil
 }
 
@@ -177,6 +226,18 @@ func (h *RPCHandler) rpcMailboxGet(_ context.Context, params json.RawMessage) (i
 		return nil, fmt.Errorf("item_id is required")
 	}
 	record, ok := store.Get(strings.TrimSpace(p.ItemID))
+	if ok {
+		view, err := h.mailboxViewFromPrincipal(p.PrincipalID, p.PrincipalKind)
+		if err != nil {
+			return nil, err
+		}
+		if !mailboxRecordVisibleToView(record, view, h.registry) {
+			return map[string]interface{}{
+				"item":  agentmailbox.Record{},
+				"found": false,
+			}, nil
+		}
+	}
 	return map[string]interface{}{
 		"item":  record,
 		"found": ok,
@@ -196,7 +257,15 @@ func (h *RPCHandler) rpcMailboxClaim(ctx context.Context, params json.RawMessage
 	if ttl <= 0 {
 		ttl = time.Minute
 	}
-	record, ok, err := store.Claim(ctx, strings.TrimSpace(p.ItemID), h.actionActor(p.ActorID, p.ActorKind), ttl)
+	actor := h.actionActor(p.ActorID, p.ActorKind)
+	record, exists := store.Get(strings.TrimSpace(p.ItemID))
+	if !exists {
+		return nil, fmt.Errorf("mailbox item %s not found", strings.TrimSpace(p.ItemID))
+	}
+	if err := h.authorizeMailboxAction(record, actor, "claim"); err != nil {
+		return nil, err
+	}
+	record, ok, err := store.Claim(ctx, strings.TrimSpace(p.ItemID), actor, ttl)
 	if err != nil {
 		return nil, err
 	}
@@ -224,6 +293,13 @@ func (h *RPCHandler) rpcMailboxRelease(ctx context.Context, params json.RawMessa
 	if holder == "" {
 		holder = h.defaultActorID()
 	}
+	record, exists := store.Get(strings.TrimSpace(p.ItemID))
+	if !exists {
+		return nil, fmt.Errorf("mailbox item %s not found", strings.TrimSpace(p.ItemID))
+	}
+	if err := h.authorizeMailboxAction(record, h.actionActor(holder, p.ActorKind), "release"); err != nil {
+		return nil, err
+	}
 	record, ok, err := store.Release(ctx, strings.TrimSpace(p.ItemID), holder, strings.TrimSpace(p.Token))
 	if err != nil {
 		return nil, err
@@ -247,10 +323,18 @@ func (h *RPCHandler) rpcMailboxAck(ctx context.Context, params json.RawMessage) 
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
-	record, err := store.AppendEvent(ctx, agentmailbox.Event{
+	record, ok := store.Get(strings.TrimSpace(p.ItemID))
+	if !ok {
+		return nil, fmt.Errorf("mailbox item %s not found", strings.TrimSpace(p.ItemID))
+	}
+	actor := h.actionActor(p.ActorID, p.ActorKind)
+	if err := h.authorizeMailboxAction(record, actor, "ack"); err != nil {
+		return nil, err
+	}
+	record, err = store.AppendEvent(ctx, agentmailbox.Event{
 		ItemID: strings.TrimSpace(p.ItemID),
 		Type:   agentmailbox.EventTypeSeen,
-		Actor:  h.actionActor(p.ActorID, p.ActorKind),
+		Actor:  actor,
 	})
 	if err != nil {
 		return nil, err
@@ -272,7 +356,15 @@ func (h *RPCHandler) rpcMailboxApprove(ctx context.Context, params json.RawMessa
 	if decisionID == "" {
 		decisionID = uuid.NewString()
 	}
-	record, err := store.Approve(ctx, strings.TrimSpace(p.ItemID), h.actionActor(p.ActorID, p.ActorKind), decisionID)
+	record, ok := store.Get(strings.TrimSpace(p.ItemID))
+	if !ok {
+		return nil, fmt.Errorf("mailbox item %s not found", strings.TrimSpace(p.ItemID))
+	}
+	actor := h.actionActor(p.ActorID, p.ActorKind)
+	if err := h.authorizeMailboxAction(record, actor, "approve"); err != nil {
+		return nil, err
+	}
+	record, err = store.Approve(ctx, strings.TrimSpace(p.ItemID), actor, decisionID)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +385,15 @@ func (h *RPCHandler) rpcMailboxReject(ctx context.Context, params json.RawMessag
 	if decisionID == "" {
 		decisionID = uuid.NewString()
 	}
-	record, err := store.Reject(ctx, strings.TrimSpace(p.ItemID), h.actionActor(p.ActorID, p.ActorKind), decisionID)
+	record, ok := store.Get(strings.TrimSpace(p.ItemID))
+	if !ok {
+		return nil, fmt.Errorf("mailbox item %s not found", strings.TrimSpace(p.ItemID))
+	}
+	actor := h.actionActor(p.ActorID, p.ActorKind)
+	if err := h.authorizeMailboxAction(record, actor, "reject"); err != nil {
+		return nil, err
+	}
+	record, err = store.Reject(ctx, strings.TrimSpace(p.ItemID), actor, decisionID)
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +414,15 @@ func (h *RPCHandler) rpcMailboxComplete(ctx context.Context, params json.RawMess
 	if completionID == "" {
 		completionID = uuid.NewString()
 	}
-	record, err := store.CompleteTaskRequest(ctx, strings.TrimSpace(p.ItemID), h.actionActor(p.ActorID, p.ActorKind), completionID)
+	record, ok := store.Get(strings.TrimSpace(p.ItemID))
+	if !ok {
+		return nil, fmt.Errorf("mailbox item %s not found", strings.TrimSpace(p.ItemID))
+	}
+	actor := h.actionActor(p.ActorID, p.ActorKind)
+	if err := h.authorizeMailboxAction(record, actor, "complete"); err != nil {
+		return nil, err
+	}
+	record, err = store.CompleteTaskRequest(ctx, strings.TrimSpace(p.ItemID), actor, completionID)
 	if err != nil {
 		return nil, err
 	}
@@ -338,6 +446,10 @@ func (h *RPCHandler) rpcMailboxRetry(ctx context.Context, params json.RawMessage
 	record, ok := store.Get(strings.TrimSpace(p.ItemID))
 	if !ok {
 		return nil, fmt.Errorf("mailbox item %s not found", strings.TrimSpace(p.ItemID))
+	}
+	actor := h.actionActor(p.ActorID, p.ActorKind)
+	if err := h.authorizeMailboxAction(record, actor, "retry"); err != nil {
+		return nil, err
 	}
 
 	if record.Item.Scope() == agentmailbox.ScopeSky10Network {
@@ -439,10 +551,14 @@ func (h *RPCHandler) actionActor(id, kind string) agentmailbox.Principal {
 	if actorKind == "" {
 		actorKind = agentmailbox.PrincipalKindHuman
 	}
+	scope := agentmailbox.ScopePrivateNetwork
+	if actorKind == agentmailbox.PrincipalKindNetworkAgent {
+		scope = agentmailbox.ScopeSky10Network
+	}
 	return agentmailbox.Principal{
 		ID:         actorID,
 		Kind:       actorKind,
-		Scope:      agentmailbox.ScopePrivateNetwork,
+		Scope:      scope,
 		DeviceHint: h.registry.DeviceID(),
 		RouteHint:  h.defaultRouteHint(),
 	}
