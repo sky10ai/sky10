@@ -5,13 +5,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 )
 
 // RPCHandler dispatches skylink.* RPC methods.
 type RPCHandler struct {
-	node     *Node
-	resolver *Resolver
-	stun     []string
+	node           *Node
+	resolver       *Resolver
+	stun           []string
+	healthTracker  *RuntimeHealthTracker
+	mailboxHealth  func() MailboxHealth
+	netcheckMu     sync.Mutex
+	lastNetcheckAt time.Time
+	lastNetcheck   NetcheckResult
 }
 
 // RPCHandlerOption configures the skylink RPC handler.
@@ -21,6 +28,20 @@ type RPCHandlerOption func(*RPCHandler)
 func WithSTUNServers(servers []string) RPCHandlerOption {
 	return func(h *RPCHandler) {
 		h.stun = append([]string(nil), servers...)
+	}
+}
+
+// WithRuntimeHealthTracker attaches a runtime health tracker to skylink.status.
+func WithRuntimeHealthTracker(tracker *RuntimeHealthTracker) RPCHandlerOption {
+	return func(h *RPCHandler) {
+		h.healthTracker = tracker
+	}
+}
+
+// WithMailboxHealthProvider attaches mailbox summary data to skylink.status.
+func WithMailboxHealthProvider(provider func() MailboxHealth) RPCHandlerOption {
+	return func(h *RPCHandler) {
+		h.mailboxHealth = provider
 	}
 }
 
@@ -45,7 +66,7 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 
 	switch method {
 	case "skylink.status":
-		return h.rpcStatus()
+		return h.rpcStatus(ctx)
 	case "skylink.peers":
 		return h.rpcPeers()
 	case "skylink.connect":
@@ -64,26 +85,53 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 }
 
 type statusResult struct {
-	PeerID  string   `json:"peer_id"`
-	Address string   `json:"address"`
-	Mode    string   `json:"mode"`
-	Addrs   []string `json:"addrs"`
-	Peers   int      `json:"peers"`
+	PeerID       string        `json:"peer_id"`
+	Address      string        `json:"address"`
+	Mode         string        `json:"mode"`
+	Addrs        []string      `json:"addrs"`
+	Peers        int           `json:"peers"`
+	PrivatePeers int           `json:"private_peers"`
+	Health       NetworkHealth `json:"health"`
 }
 
-func (h *RPCHandler) rpcStatus() (interface{}, error, bool) {
+func (h *RPCHandler) rpcStatus(ctx context.Context) (interface{}, error, bool) {
 	addrs := []string{}
 	if host := h.node.Host(); host != nil {
 		for _, a := range host.Addrs() {
 			addrs = append(addrs, a.String())
 		}
 	}
+	netcheck := h.cachedNetcheck(ctx)
+	privatePeers := len(h.node.ConnectedPrivateNetworkPeers())
+	runtime := RuntimeHealthSnapshot{}
+	if h.healthTracker != nil {
+		runtime = h.healthTracker.Snapshot()
+	}
+	mailbox := MailboxHealth{}
+	if h.mailboxHealth != nil {
+		mailbox = h.mailboxHealth()
+	}
 	return statusResult{
-		PeerID:  h.node.PeerID().String(),
-		Address: h.node.Address(),
-		Mode:    modeString(h.node.config.Mode),
-		Addrs:   addrs,
-		Peers:   len(h.node.ConnectedPeers()),
+		PeerID:       h.node.PeerID().String(),
+		Address:      h.node.Address(),
+		Mode:         modeString(h.node.config.Mode),
+		Addrs:        addrs,
+		Peers:        len(h.node.ConnectedPeers()),
+		PrivatePeers: privatePeers,
+		Health: NetworkHealth{
+			PreferredTransport:      preferredTransportFromNetcheck(netcheck),
+			TransportDegradedReason: transportDegradedReason(netcheck),
+			DeliveryDegradedReason:  deliveryDegradedReason(mailbox),
+			Reachability:            runtime.Reachability,
+			PublicAddr:              netcheck.PublicAddr,
+			MappingVariesByServer:   netcheck.MappingVariesByServer,
+			ConnectedPrivatePeers:   privatePeers,
+			LastPublishedAt:         runtime.LastPublishedAt,
+			LastAddressChangeAt:     runtime.LastAddressChangeAt,
+			Netcheck:                netcheck,
+			Mailbox:                 mailbox,
+			Events:                  runtime.Events,
+		},
 	}, nil, true
 }
 
@@ -110,7 +158,13 @@ func (h *RPCHandler) rpcConnect(ctx context.Context, params json.RawMessage) (in
 		return nil, fmt.Errorf("resolver not configured"), true
 	}
 	if err := h.resolver.Connect(ctx, p.Address); err != nil {
+		if h.healthTracker != nil {
+			h.healthTracker.RecordConnect(p.Address, err)
+		}
 		return nil, err, true
+	}
+	if h.healthTracker != nil {
+		h.healthTracker.RecordConnect(p.Address, nil)
 	}
 	return map[string]bool{"connected": true}, nil, true
 }
@@ -186,7 +240,13 @@ func (h *RPCHandler) rpcResolve(ctx context.Context, params json.RawMessage) (in
 
 func (h *RPCHandler) rpcPublish(ctx context.Context) (interface{}, error, bool) {
 	if err := h.node.PublishRecord(ctx); err != nil {
+		if h.healthTracker != nil {
+			h.healthTracker.RecordPublish("dht", err)
+		}
 		return nil, err, true
+	}
+	if h.healthTracker != nil {
+		h.healthTracker.RecordPublish("dht", nil)
 	}
 	return map[string]bool{"published": true}, nil, true
 }
@@ -205,4 +265,27 @@ func (h *RPCHandler) rpcPeers() (interface{}, error, bool) {
 		Peers: peers,
 		Count: len(peers),
 	}, nil, true
+}
+
+const statusNetcheckTTL = 2 * time.Minute
+const statusNetcheckTimeout = 4 * time.Second
+
+func (h *RPCHandler) cachedNetcheck(ctx context.Context) NetcheckResult {
+	h.netcheckMu.Lock()
+	defer h.netcheckMu.Unlock()
+
+	if !h.lastNetcheckAt.IsZero() && time.Since(h.lastNetcheckAt) < statusNetcheckTTL {
+		return h.lastNetcheck
+	}
+
+	probeCtx := ctx
+	cancel := func() {}
+	if _, ok := ctx.Deadline(); !ok {
+		probeCtx, cancel = context.WithTimeout(ctx, statusNetcheckTimeout)
+	}
+	defer cancel()
+
+	h.lastNetcheck = Netcheck(probeCtx, h.stun)
+	h.lastNetcheckAt = time.Now()
+	return h.lastNetcheck
 }

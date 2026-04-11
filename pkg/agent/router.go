@@ -20,15 +20,16 @@ const peerQueryTimeout = 3 * time.Second
 // Router dispatches messages locally via SSE or to remote devices via
 // skylink. It also aggregates agent lists across the swarm.
 type Router struct {
-	registry     *Registry
-	node         *link.Node
-	resolver     *link.Resolver
-	emit         Emitter
-	deviceID     string
-	logger       *slog.Logger
-	mailbox      *agentmailbox.Store
-	relay        agentmailbox.NetworkRelay
-	networkQueue agentmailbox.NetworkQueue
+	registry        *Registry
+	node            *link.Node
+	resolver        *link.Resolver
+	emit            Emitter
+	deviceID        string
+	logger          *slog.Logger
+	mailbox         *agentmailbox.Store
+	relay           agentmailbox.NetworkRelay
+	networkQueue    agentmailbox.NetworkQueue
+	mailboxObserver func(action string, record agentmailbox.Record)
 
 	// mu protects peerDevices, peerAddresses, and peerAgentCache.
 	mu             sync.RWMutex
@@ -76,6 +77,12 @@ func (r *Router) SetNetworkRelay(relay agentmailbox.NetworkRelay) {
 // SetNetworkQueue attaches public queue advertisement/discovery transport.
 func (r *Router) SetNetworkQueue(queue agentmailbox.NetworkQueue) {
 	r.networkQueue = queue
+}
+
+// SetMailboxObserver attaches an optional callback for mailbox state changes
+// that should feed other operator surfaces.
+func (r *Router) SetMailboxObserver(observer func(action string, record agentmailbox.Record)) {
+	r.mailboxObserver = observer
 }
 
 // Send routes a message to the target agent or identity. Local targets
@@ -1090,6 +1097,9 @@ func (r *Router) createMailboxMessage(ctx context.Context, msg Message) (agentma
 }
 
 func (r *Router) emitMailboxUpdate(action string, record agentmailbox.Record) {
+	if r.mailboxObserver != nil {
+		r.mailboxObserver(action, record)
+	}
 	if r.emit == nil {
 		return
 	}

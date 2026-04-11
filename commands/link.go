@@ -33,11 +33,29 @@ func linkStatusCmd() *cobra.Command {
 				return err
 			}
 			var status struct {
-				PeerID  string   `json:"peer_id"`
-				Address string   `json:"address"`
-				Mode    string   `json:"mode"`
-				Addrs   []string `json:"addrs"`
-				Peers   int      `json:"peers"`
+				PeerID       string   `json:"peer_id"`
+				Address      string   `json:"address"`
+				Mode         string   `json:"mode"`
+				Addrs        []string `json:"addrs"`
+				Peers        int      `json:"peers"`
+				PrivatePeers int      `json:"private_peers"`
+				Health       struct {
+					PreferredTransport      string `json:"preferred_transport"`
+					TransportDegradedReason string `json:"transport_degraded_reason"`
+					DeliveryDegradedReason  string `json:"delivery_degraded_reason"`
+					Reachability            string `json:"reachability"`
+					PublicAddr              string `json:"public_addr"`
+					Mailbox                 struct {
+						Queued              int    `json:"queued"`
+						Failed              int    `json:"failed"`
+						HandedOff           int    `json:"handed_off"`
+						PendingPrivate      int    `json:"pending_private"`
+						PendingSky10Network int    `json:"pending_sky10_network"`
+						LastHandoffAt       string `json:"last_handoff_at"`
+						LastDeliveredAt     string `json:"last_delivered_at"`
+						LastFailureAt       string `json:"last_failure_at"`
+					} `json:"mailbox"`
+				} `json:"health"`
 			}
 			if err := json.Unmarshal(result, &status); err != nil {
 				return err
@@ -46,6 +64,31 @@ func linkStatusCmd() *cobra.Command {
 			fmt.Printf("peer id:  %s\n", status.PeerID)
 			fmt.Printf("mode:     %s\n", status.Mode)
 			fmt.Printf("peers:    %d\n", status.Peers)
+			fmt.Printf("private:  %d\n", status.PrivatePeers)
+			if status.Health.PreferredTransport != "" {
+				fmt.Printf("path:     %s\n", status.Health.PreferredTransport)
+			}
+			if status.Health.Reachability != "" {
+				fmt.Printf("reach:    %s\n", status.Health.Reachability)
+			}
+			if status.Health.PublicAddr != "" {
+				fmt.Printf("public:   %s\n", status.Health.PublicAddr)
+			}
+			if status.Health.TransportDegradedReason != "" {
+				fmt.Printf("degrade:  %s\n", status.Health.TransportDegradedReason)
+			}
+			if status.Health.DeliveryDegradedReason != "" {
+				fmt.Printf("delivery: %s\n", status.Health.DeliveryDegradedReason)
+			}
+			if status.Health.Mailbox.PendingPrivate > 0 || status.Health.Mailbox.PendingSky10Network > 0 || status.Health.Mailbox.Failed > 0 {
+				fmt.Printf("mailbox:  queued=%d failed=%d private=%d sky10=%d handed_off=%d\n",
+					status.Health.Mailbox.Queued,
+					status.Health.Mailbox.Failed,
+					status.Health.Mailbox.PendingPrivate,
+					status.Health.Mailbox.PendingSky10Network,
+					status.Health.Mailbox.HandedOff,
+				)
+			}
 			for _, a := range status.Addrs {
 				fmt.Printf("listen:   %s\n", a)
 			}

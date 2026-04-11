@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestRPCDispatchPrefix(t *testing.T) {
@@ -26,7 +27,29 @@ func TestRPCStatus(t *testing.T) {
 	t.Parallel()
 	n := generateTestNode(t)
 	startTestNode(t, n)
-	h := NewRPCHandler(n, nil)
+	server := startTestSTUNServer(t, 0, nil)
+	tracker := NewRuntimeHealthTracker()
+	tracker.RecordReachability("public")
+	tracker.RecordAddressUpdate(1)
+	tracker.RecordPublish("dht", nil)
+	tracker.RecordMailbox("handed_off", "queued", "item-123")
+
+	h := NewRPCHandler(
+		n,
+		nil,
+		WithSTUNServers([]string{server}),
+		WithRuntimeHealthTracker(tracker),
+		WithMailboxHealthProvider(func() MailboxHealth {
+			now := time.Now().UTC()
+			return MailboxHealth{
+				Queued:              2,
+				HandedOff:           1,
+				PendingPrivate:      1,
+				PendingSky10Network: 1,
+				LastHandoffAt:       &now,
+			}
+		}),
+	)
 
 	result, err, handled := h.Dispatch(context.Background(), "skylink.status", nil)
 	if !handled {
@@ -52,6 +75,24 @@ func TestRPCStatus(t *testing.T) {
 	}
 	if len(status.Addrs) == 0 {
 		t.Fatal("expected at least one listen address")
+	}
+	if status.PrivatePeers != 0 {
+		t.Fatalf("expected 0 private peers, got %d", status.PrivatePeers)
+	}
+	if !status.Health.Netcheck.UDP {
+		t.Fatal("expected cached netcheck UDP reachability")
+	}
+	if status.Health.PreferredTransport != "quic" {
+		t.Fatalf("preferred transport = %q, want quic", status.Health.PreferredTransport)
+	}
+	if status.Health.Reachability != "public" {
+		t.Fatalf("reachability = %q, want public", status.Health.Reachability)
+	}
+	if status.Health.Mailbox.HandedOff != 1 {
+		t.Fatalf("mailbox handed_off = %d, want 1", status.Health.Mailbox.HandedOff)
+	}
+	if len(status.Health.Events) == 0 {
+		t.Fatal("expected recent health events")
 	}
 }
 

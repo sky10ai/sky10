@@ -173,6 +173,7 @@ func ServeCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("creating link node: %w", err)
 			}
+			runtimeHealth := link.NewRuntimeHealthTracker()
 			var resolverOpts []link.ResolverOption
 			if backend != nil {
 				resolverOpts = append(resolverOpts, link.WithBackend(backend))
@@ -180,7 +181,24 @@ func ServeCmd() *cobra.Command {
 			resolverOpts = append(resolverOpts, link.WithNostr(relays))
 			linkResolver := link.NewResolver(linkNode, resolverOpts...)
 			link.RegisterPrivateNetworkHandlers(linkNode)
-			server.RegisterHandler(link.NewRPCHandler(linkNode, linkResolver))
+			server.RegisterHandler(link.NewRPCHandler(
+				linkNode,
+				linkResolver,
+				link.WithRuntimeHealthTracker(runtimeHealth),
+				link.WithMailboxHealthProvider(func() link.MailboxHealth {
+					stats := mailboxStore.Stats()
+					return link.MailboxHealth{
+						Queued:              stats.Queued,
+						Failed:              stats.Failed,
+						HandedOff:           stats.HandedOff,
+						PendingPrivate:      stats.PendingPrivate,
+						PendingSky10Network: stats.PendingSky10Network,
+						LastHandoffAt:       optionalTime(stats.LastHandoffAt),
+						LastDeliveredAt:     optionalTime(stats.LastDeliveredAt),
+						LastFailureAt:       optionalTime(stats.LastFailureAt),
+					}
+				}),
+			))
 			var refreshPrivateNetwork func()
 			var kvSync *kv.P2PSync
 			var agentRouter *skyagent.Router
@@ -218,8 +236,10 @@ func ServeCmd() *cobra.Command {
 				}
 
 				if err := linkNode.PublishRecord(ctx); err != nil {
+					runtimeHealth.RecordPublish("dht", err)
 					logger.Warn("failed to publish private-network records to DHT", "error", err)
 				} else {
+					runtimeHealth.RecordPublish("dht", nil)
 					logger.Info("published private-network records to DHT")
 				}
 
@@ -229,14 +249,20 @@ func ServeCmd() *cobra.Command {
 					if err != nil {
 						logger.Warn("building private-network membership record failed", "error", err)
 					} else if err := nostr.PublishMembership(ctx, bundle.Identity, membershipRecord); err != nil {
+						runtimeHealth.RecordPublish("nostr_membership", err)
 						logger.Warn("failed to publish private-network membership to Nostr", "error", err)
+					} else {
+						runtimeHealth.RecordPublish("nostr_membership", nil)
 					}
 
 					presenceRecord, err := linkNode.CurrentPresenceRecordForPublish(ctx, 0)
 					if err != nil {
 						logger.Warn("building private-network presence record failed", "error", err)
 					} else if err := nostr.PublishPresence(ctx, bundle.Device, presenceRecord); err != nil {
+						runtimeHealth.RecordPublish("nostr_presence", err)
 						logger.Warn("failed to publish private-network presence to Nostr", "error", err)
+					} else {
+						runtimeHealth.RecordPublish("nostr_presence", nil)
 					}
 				}
 
@@ -256,6 +282,9 @@ func ServeCmd() *cobra.Command {
 			agentRouter = skyagent.NewRouter(agentRegistry, linkNode, server.Emit, bundle.DeviceID(), logRuntime.Logger)
 			agentRouter.SetMailbox(mailboxStore)
 			agentRouter.SetResolver(linkResolver)
+			agentRouter.SetMailboxObserver(func(action string, record agentmailbox.Record) {
+				runtimeHealth.RecordMailbox(action, string(record.State), record.Item.ID)
+			})
 			if len(relays) > 0 {
 				agentRouter.SetNetworkRelay(agentmailbox.NewRelayDropbox(
 					bundle.Identity,
@@ -380,7 +409,7 @@ func ServeCmd() *cobra.Command {
 				}
 
 				refreshPrivateNetwork()
-				watchPrivateNetworkAddressChanges(ctx, logger, linkNode, refreshPrivateNetwork)
+				watchPrivateNetworkAddressChanges(ctx, logger, linkNode, runtimeHealth, refreshPrivateNetwork)
 
 				go func() {
 					ticker := time.NewTicker(2 * time.Minute)
@@ -440,7 +469,7 @@ func ServeCmd() *cobra.Command {
 	return cmd
 }
 
-func watchPrivateNetworkAddressChanges(ctx context.Context, logger *slog.Logger, linkNode *link.Node, refresh func()) {
+func watchPrivateNetworkAddressChanges(ctx context.Context, logger *slog.Logger, linkNode *link.Node, tracker *link.RuntimeHealthTracker, refresh func()) {
 	if linkNode == nil || linkNode.Host() == nil || refresh == nil {
 		return
 	}
@@ -466,10 +495,16 @@ func watchPrivateNetworkAddressChanges(ctx context.Context, logger *slog.Logger,
 				}
 				switch evt := raw.(type) {
 				case event.EvtLocalAddressesUpdated:
+					if tracker != nil {
+						tracker.RecordAddressUpdate(len(evt.Current))
+					}
 					logger.Info("republishing private-network presence after local address update",
 						"current_addrs", len(evt.Current),
 					)
 				case event.EvtLocalReachabilityChanged:
+					if tracker != nil {
+						tracker.RecordReachability(evt.Reachability.String())
+					}
 					logger.Info("republishing private-network presence after reachability change",
 						"reachability", evt.Reachability.String(),
 					)
@@ -490,4 +525,12 @@ func expectedPrivateNetworkPeers(bundle *skyid.Bundle) int {
 		return 0
 	}
 	return len(bundle.Manifest.Devices) - 1
+}
+
+func optionalTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	cp := t
+	return &cp
 }

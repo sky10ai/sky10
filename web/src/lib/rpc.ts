@@ -343,6 +343,55 @@ export interface LinkStatus {
   mode: string;
   addrs: string[];
   peers: number;
+  private_peers: number;
+  health: LinkNetworkHealth;
+}
+
+export interface LinkHealthEvent {
+  type: string;
+  status: string;
+  detail?: string;
+  at: string;
+}
+
+export interface LinkNetcheckResult {
+  checked_at: string;
+  udp: boolean;
+  public_addr?: string;
+  preferred_server?: string;
+  mapping_varies_by_server?: boolean;
+  probes: Array<{
+    server: string;
+    public_addr?: string;
+    latency_ms?: number;
+    error?: string;
+  }>;
+}
+
+export interface LinkMailboxHealth {
+  queued: number;
+  failed: number;
+  handed_off: number;
+  pending_private: number;
+  pending_sky10_network: number;
+  last_handoff_at?: string;
+  last_delivered_at?: string;
+  last_failure_at?: string;
+}
+
+export interface LinkNetworkHealth {
+  preferred_transport: string;
+  transport_degraded_reason?: string;
+  delivery_degraded_reason?: string;
+  reachability?: string;
+  public_addr?: string;
+  mapping_varies_by_server?: boolean;
+  connected_private_peers: number;
+  last_published_at?: string;
+  last_address_change_at?: string;
+  netcheck: LinkNetcheckResult;
+  mailbox: LinkMailboxHealth;
+  events: LinkHealthEvent[];
 }
 
 export interface Peer {
