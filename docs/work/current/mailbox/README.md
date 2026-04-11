@@ -851,6 +851,37 @@ Checklist:
 - [x] Add repair actions for retry, dead-letter replay, and claim release.
 - [x] Add operational tests or fixtures for common failure scenarios.
 
+## Real-World Testing TODO
+
+These are the manual or multi-node validation passes still worth doing outside
+unit and integration coverage.
+
+- [ ] Run private-network offline delivery on two real devices: send while the
+  recipient device is offline, bring it back, and verify mailbox drain plus UI
+  state transitions.
+- [ ] Run late-agent registration recovery on a live daemon: queue work for an
+  unregistered local agent, register it later, and confirm delivery/resume.
+- [ ] Run human approval flow end-to-end from the web UI with a real pending
+  payment or approval request and verify principal-scoped visibility.
+- [ ] Run agent-to-agent payment recovery through an actual interruption:
+  disconnect or restart one side between `payment_required`, `payment_proof`,
+  `result`, and `receipt`, then confirm idempotent resume.
+- [ ] Run public-network direct delivery between two real sky10 peers and
+  confirm direct path first, mailbox fallback second.
+- [ ] Run public-network relay/dropbox handoff with the recipient fully offline
+  at send time, then confirm late pickup and delivery receipt propagation.
+- [ ] Run public capability queue flow with at least two competing public
+  agents, verify single-winner assignment, and inspect resulting mailbox audit
+  trail.
+- [ ] Run lifecycle sweep in a long-lived daemon and confirm expiry,
+  dead-lettering, replay, and retention behavior over real elapsed time rather
+  than forced test clocks.
+- [ ] Run a multi-device human mailbox check to confirm inbox/outbox views stay
+  coherent across private-network peers after reconnect and anti-entropy sync.
+- [ ] Do an operator pass on the mailbox UI debug surface: locate one stuck
+  item, trace its request/reply chain, inspect raw events, and repair it
+  without touching KV directly.
+
 ## Open Questions
 
 - Should mailbox acks be explicit events or implicit on claim/complete?
