@@ -526,6 +526,8 @@ export interface MailboxListParams {
   principal_id?: string;
   principal_kind?: string;
   queue?: string;
+  request_id?: string;
+  reply_to?: string;
 }
 
 export interface MailboxGetParams {

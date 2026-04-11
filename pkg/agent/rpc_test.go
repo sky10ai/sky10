@@ -319,6 +319,79 @@ func TestRPCMailboxGetHidesUnrelatedPrincipal(t *testing.T) {
 	}
 }
 
+func TestRPCMailboxListInboxFiltersByRequestAndReply(t *testing.T) {
+	t.Parallel()
+
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	h.SetMailbox(newTestMailboxStore(t))
+
+	rootSend, _ := json.Marshal(map[string]any{
+		"kind":            agentmailbox.ItemKindMessage,
+		"request_id":      "req-filter-root",
+		"idempotency_key": "msg-filter-root",
+		"to": map[string]any{
+			"id":    "human:alice",
+			"kind":  agentmailbox.PrincipalKindHuman,
+			"scope": agentmailbox.ScopePrivateNetwork,
+		},
+		"payload": map[string]any{
+			"text": "root",
+		},
+	})
+	rootRaw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.send", rootSend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := rootRaw.(map[string]interface{})["item"].(agentmailbox.Record)
+
+	replySend, _ := json.Marshal(map[string]any{
+		"kind":            agentmailbox.ItemKindMessage,
+		"request_id":      "req-filter-reply",
+		"idempotency_key": "msg-filter-reply",
+		"reply_to":        root.Item.ID,
+		"to": map[string]any{
+			"id":    "human:alice",
+			"kind":  agentmailbox.PrincipalKindHuman,
+			"scope": agentmailbox.ScopePrivateNetwork,
+		},
+		"payload": map[string]any{
+			"text": "reply",
+		},
+	})
+	if _, err, _ := h.Dispatch(context.Background(), "agent.mailbox.send", replySend); err != nil {
+		t.Fatal(err)
+	}
+
+	requestListRaw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.listInbox", mustJSON(t, map[string]string{
+		"principal_id":   "human:alice",
+		"principal_kind": agentmailbox.PrincipalKindHuman,
+		"request_id":     "req-filter-root",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requestListRaw.(map[string]interface{})["count"].(int) != 1 {
+		t.Fatalf("request filter count = %v, want 1", requestListRaw.(map[string]interface{})["count"])
+	}
+
+	replyListRaw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.listInbox", mustJSON(t, map[string]string{
+		"principal_id":   "human:alice",
+		"principal_kind": agentmailbox.PrincipalKindHuman,
+		"reply_to":       root.Item.ID,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := replyListRaw.(map[string]interface{})["items"].([]agentmailbox.Record)
+	if len(items) != 1 {
+		t.Fatalf("reply filter count = %d, want 1", len(items))
+	}
+	if items[0].Item.ReplyTo != root.Item.ID {
+		t.Fatalf("reply_to = %s, want %s", items[0].Item.ReplyTo, root.Item.ID)
+	}
+}
+
 func TestRPCMailboxApproveAndClaim(t *testing.T) {
 	t.Parallel()
 
@@ -579,6 +652,64 @@ func TestRPCMailboxRetryDrainsQueuedLocalMessage(t *testing.T) {
 	}
 	if emitted[len(emitted)-1].ID != queued.ID {
 		t.Fatalf("delivered message id = %s, want %s", emitted[len(emitted)-1].ID, queued.ID)
+	}
+}
+
+func TestRPCMailboxRetryReplaysDeadLetteredLocalMessage(t *testing.T) {
+	t.Parallel()
+
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	mailboxStore := newTestMailboxStore(t)
+	h.SetMailbox(mailboxStore)
+	router := NewRouter(r, makeTestNode(t), nil, r.DeviceID(), nil)
+	router.SetMailbox(mailboxStore)
+	h.SetRouter(router)
+
+	queued := Message{
+		ID:        "msg-replay-rpc",
+		SessionID: "session-replay",
+		From:      "D-deviceBB",
+		To:        "coder",
+		DeviceID:  r.DeviceID(),
+		Type:      "text",
+		Content:   json.RawMessage(`{"text":"hello replay"}`),
+		Timestamp: time.Now().UTC(),
+	}
+	result, err := router.routeIncoming(context.Background(), queued)
+	if err != nil {
+		t.Fatalf("queue incoming: %v", err)
+	}
+	itemID := result.(map[string]string)["mailbox_item_id"]
+	if itemID == "" {
+		t.Fatal("expected mailbox_item_id for queued message")
+	}
+	if _, err := mailboxStore.AppendEvent(context.Background(), agentmailbox.Event{
+		ItemID: itemID,
+		Type:   agentmailbox.EventTypeDeadLettered,
+		Actor: agentmailbox.Principal{
+			ID:    "human:alice",
+			Kind:  agentmailbox.PrincipalKindHuman,
+			Scope: agentmailbox.ScopePrivateNetwork,
+		},
+	}); err != nil {
+		t.Fatalf("dead-letter item: %v", err)
+	}
+
+	if _, err := r.Register(RegisterParams{Name: "coder"}, "A-coder00000000000"); err != nil {
+		t.Fatalf("register local agent: %v", err)
+	}
+	retryRaw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.retry", mustJSON(t, map[string]any{
+		"item_id":    itemID,
+		"actor_id":   "A-coder00000000000",
+		"actor_kind": agentmailbox.PrincipalKindLocalAgent,
+	}))
+	if err != nil {
+		t.Fatalf("mailbox.retry replay: %v", err)
+	}
+	replayed := retryRaw.(map[string]interface{})["item"].(agentmailbox.Record)
+	if replayed.State != agentmailbox.StateDelivered {
+		t.Fatalf("retry state = %s, want %s", replayed.State, agentmailbox.StateDelivered)
 	}
 }
 

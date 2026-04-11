@@ -15,6 +15,8 @@ type mailboxListParams struct {
 	PrincipalID   string `json:"principal_id,omitempty"`
 	PrincipalKind string `json:"principal_kind,omitempty"`
 	Queue         string `json:"queue,omitempty"`
+	RequestID     string `json:"request_id,omitempty"`
+	ReplyTo       string `json:"reply_to,omitempty"`
 }
 
 type mailboxGetParams struct {
@@ -131,7 +133,8 @@ func (h *RPCHandler) rpcMailboxListInbox(_ context.Context, params json.RawMessa
 		return nil, err
 	}
 	items := filterMailboxRecords(store.ListInbox(""), func(record agentmailbox.Record) bool {
-		return mailboxPrincipalMatchesID(view.Principal(), record.Item.RecipientID(), h.registry)
+		return mailboxPrincipalMatchesID(view.Principal(), record.Item.RecipientID(), h.registry) &&
+			mailboxRecordMatchesListParams(record, p)
 	})
 	return mailboxListResult(items), nil
 }
@@ -150,7 +153,8 @@ func (h *RPCHandler) rpcMailboxListOutbox(_ context.Context, params json.RawMess
 		return nil, err
 	}
 	items := filterMailboxRecords(store.ListOutbox(""), func(record agentmailbox.Record) bool {
-		return record.Item.From.ID == view.Principal().ID
+		return record.Item.From.ID == view.Principal().ID &&
+			mailboxRecordMatchesListParams(record, p)
 	})
 	return mailboxListResult(items), nil
 }
@@ -170,7 +174,8 @@ func (h *RPCHandler) rpcMailboxListQueue(_ context.Context, params json.RawMessa
 	}
 	queueName := strings.TrimSpace(p.Queue)
 	items := filterMailboxRecords(store.ListQueue(queueName), func(record agentmailbox.Record) bool {
-		return mailboxQueueVisibleToView(record, view, h.registry)
+		return mailboxQueueVisibleToView(record, view, h.registry) &&
+			mailboxRecordMatchesListParams(record, p)
 	})
 	return mailboxListResult(items), nil
 }
@@ -189,7 +194,8 @@ func (h *RPCHandler) rpcMailboxListFailed(_ context.Context, params json.RawMess
 		return nil, err
 	}
 	items := filterMailboxRecords(store.ListFailed(""), func(record agentmailbox.Record) bool {
-		return mailboxRecordVisibleToView(record, view, h.registry)
+		return mailboxRecordVisibleToView(record, view, h.registry) &&
+			mailboxRecordMatchesListParams(record, p)
 	})
 	return mailboxListResult(items), nil
 }
@@ -208,7 +214,8 @@ func (h *RPCHandler) rpcMailboxListSent(_ context.Context, params json.RawMessag
 		return nil, err
 	}
 	items := filterMailboxRecords(store.ListSent(""), func(record agentmailbox.Record) bool {
-		return record.Item.From.ID == view.Principal().ID
+		return record.Item.From.ID == view.Principal().ID &&
+			mailboxRecordMatchesListParams(record, p)
 	})
 	return mailboxListResult(items), nil
 }
@@ -452,27 +459,13 @@ func (h *RPCHandler) rpcMailboxRetry(ctx context.Context, params json.RawMessage
 		return nil, err
 	}
 
-	if record.Item.Scope() == agentmailbox.ScopeSky10Network {
-		updated, err := h.router.DeliverMailboxRecord(ctx, record)
-		if err != nil {
-			return nil, err
+	updated, err := h.router.DeliverMailboxRecord(ctx, record)
+	if err != nil {
+		if refreshed, ok := store.Get(record.Item.ID); ok {
+			return mailboxRecordResult(refreshed), err
 		}
-		return mailboxRecordResult(updated), nil
+		return nil, err
 	}
-
-	if record.Item.From.ID == h.registry.DeviceID() && record.Item.To != nil && record.Item.To.DeviceHint != "" {
-		if err := h.router.DrainOutbox(ctx, record.Item.To.DeviceHint); err != nil {
-			return nil, err
-		}
-	} else if record.Item.To != nil {
-		if err := h.router.DrainLocalPending(ctx, record.Item.To.ID); err != nil {
-			return nil, err
-		}
-	} else {
-		return nil, fmt.Errorf("mailbox item %s is not retryable", record.Item.ID)
-	}
-
-	updated, _ := store.Get(record.Item.ID)
 	return mailboxRecordResult(updated), nil
 }
 

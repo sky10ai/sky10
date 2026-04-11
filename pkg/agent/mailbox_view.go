@@ -250,6 +250,22 @@ func filterMailboxRecords(records []agentmailbox.Record, fn func(agentmailbox.Re
 	return out
 }
 
+func mailboxRecordMatchesListParams(record agentmailbox.Record, p mailboxListParams) bool {
+	requestID := strings.TrimSpace(p.RequestID)
+	if requestID != "" && record.Item.RequestID != requestID {
+		return false
+	}
+	replyTo := strings.TrimSpace(p.ReplyTo)
+	if replyTo != "" && record.Item.ReplyTo != replyTo {
+		return false
+	}
+	queue := strings.TrimSpace(p.Queue)
+	if queue != "" && record.Item.QueueName() != queue {
+		return false
+	}
+	return true
+}
+
 func (h *RPCHandler) authorizeMailboxAction(record agentmailbox.Record, actor agentmailbox.Principal, action string) error {
 	switch action {
 	case "ack":
@@ -310,7 +326,7 @@ func (h *RPCHandler) authorizeMailboxAction(record agentmailbox.Record, actor ag
 		}
 		return nil
 	case "retry":
-		if record.State != agentmailbox.StateQueued && record.State != agentmailbox.StateFailed {
+		if record.State != agentmailbox.StateQueued && record.State != agentmailbox.StateFailed && record.State != agentmailbox.StateDeadLettered {
 			return fmt.Errorf("mailbox item %s is not retryable", record.Item.ID)
 		}
 		if record.Item.From.ID != actor.ID && !mailboxPrincipalMatchesID(actor, record.Item.RecipientID(), h.registry) && (record.Claim == nil || record.Claim.Holder != actor.ID) {

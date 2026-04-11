@@ -110,8 +110,102 @@ func (r *Router) DeliverMailboxRecord(ctx context.Context, record agentmailbox.R
 		}
 		return r.deliverNetworkMailbox(ctx, record)
 	default:
-		return record, fmt.Errorf("mailbox item %s is not a sky10-network item", record.Item.ID)
+		return r.deliverPrivateMailboxRecord(ctx, record)
 	}
+}
+
+func (r *Router) deliverPrivateMailboxRecord(ctx context.Context, record agentmailbox.Record) (agentmailbox.Record, error) {
+	if r.mailbox == nil {
+		return agentmailbox.Record{}, fmt.Errorf("mailbox not configured")
+	}
+	if record.Item.To == nil {
+		return record, fmt.Errorf("mailbox item %s has no recipient", record.Item.ID)
+	}
+	msg, err := mailboxMessage(record)
+	if err != nil {
+		return agentmailbox.Record{}, err
+	}
+
+	if record.Item.From.ID == r.deviceID && record.Item.To.DeviceHint != "" {
+		attempted, err := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+			ItemID: record.Item.ID,
+			Type:   agentmailbox.EventTypeDeliveryAttempted,
+			Actor:  routerPrincipal(r.deviceID, r.deviceID),
+			Meta: map[string]string{
+				"transport": "skylink",
+				"device_id": msg.DeviceID,
+			},
+		})
+		if err != nil {
+			return agentmailbox.Record{}, err
+		}
+		r.emitMailboxUpdate("retrying", attempted)
+		if err := r.sendRemoteLive(ctx, msg); err != nil {
+			updated, appendErr := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+				ItemID: record.Item.ID,
+				Type:   agentmailbox.EventTypeDeliveryFailed,
+				Actor:  routerPrincipal(r.deviceID, r.deviceID),
+				Error:  err.Error(),
+				Meta: map[string]string{
+					"transport": "skylink",
+					"device_id": msg.DeviceID,
+				},
+			})
+			if appendErr == nil {
+				r.emitMailboxUpdate("queued", updated)
+				return updated, err
+			}
+			return record, err
+		}
+		updated, err := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+			ItemID: record.Item.ID,
+			Type:   agentmailbox.EventTypeDelivered,
+			Actor:  routerPrincipal(r.deviceID, r.deviceID),
+			Meta: map[string]string{
+				"transport": "skylink",
+				"device_id": msg.DeviceID,
+			},
+		})
+		if err != nil {
+			return agentmailbox.Record{}, err
+		}
+		r.emitMailboxUpdate("delivered", updated)
+		return updated, nil
+	}
+
+	if r.registry.Resolve(msg.To) == nil {
+		return record, fmt.Errorf("agent %s is not registered", msg.To)
+	}
+	attempted, err := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+		ItemID: record.Item.ID,
+		Type:   agentmailbox.EventTypeDeliveryAttempted,
+		Actor:  routerPrincipal(r.deviceID, r.deviceID),
+		Meta: map[string]string{
+			"transport": "local_registry",
+			"recipient": msg.To,
+		},
+	})
+	if err != nil {
+		return agentmailbox.Record{}, err
+	}
+	r.emitMailboxUpdate("retrying", attempted)
+	if r.emit != nil {
+		r.emit("agent.message", msg)
+	}
+	updated, err := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+		ItemID: record.Item.ID,
+		Type:   agentmailbox.EventTypeDelivered,
+		Actor:  routerPrincipal(r.deviceID, r.deviceID),
+		Meta: map[string]string{
+			"transport": "local_registry",
+			"recipient": msg.To,
+		},
+	})
+	if err != nil {
+		return agentmailbox.Record{}, err
+	}
+	r.emitMailboxUpdate("delivered", updated)
+	return updated, nil
 }
 
 // DrainNetworkOutbox retries durable sky10-network outbound items.
@@ -224,6 +318,22 @@ func (r *Router) DrainOutbox(ctx context.Context, deviceID string) error {
 			}
 			continue
 		}
+		attempted, appendErr := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+			ItemID: record.Item.ID,
+			Type:   agentmailbox.EventTypeDeliveryAttempted,
+			Actor:  routerPrincipal(r.deviceID, r.deviceID),
+			Meta: map[string]string{
+				"transport": "skylink",
+				"device_id": msg.DeviceID,
+			},
+		})
+		if appendErr != nil {
+			if firstErr == nil {
+				firstErr = appendErr
+			}
+			continue
+		}
+		r.emitMailboxUpdate("retrying", attempted)
 		if err := r.sendRemoteLive(ctx, msg); err != nil {
 			if firstErr == nil {
 				firstErr = err
@@ -233,6 +343,10 @@ func (r *Router) DrainOutbox(ctx context.Context, deviceID string) error {
 				Type:   agentmailbox.EventTypeDeliveryFailed,
 				Actor:  routerPrincipal(r.deviceID, r.deviceID),
 				Error:  err.Error(),
+				Meta: map[string]string{
+					"transport": "skylink",
+					"device_id": msg.DeviceID,
+				},
 			}); appendErr != nil && firstErr == nil {
 				firstErr = appendErr
 			}
@@ -242,6 +356,10 @@ func (r *Router) DrainOutbox(ctx context.Context, deviceID string) error {
 			ItemID: record.Item.ID,
 			Type:   agentmailbox.EventTypeDelivered,
 			Actor:  routerPrincipal(r.deviceID, r.deviceID),
+			Meta: map[string]string{
+				"transport": "skylink",
+				"device_id": msg.DeviceID,
+			},
 		})
 		if err != nil {
 			if firstErr == nil {
@@ -288,6 +406,22 @@ func (r *Router) DrainLocalPending(ctx context.Context, recipients ...string) er
 			if r.registry.Resolve(msg.To) == nil {
 				continue
 			}
+			attempted, err := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+				ItemID: record.Item.ID,
+				Type:   agentmailbox.EventTypeDeliveryAttempted,
+				Actor:  routerPrincipal(r.deviceID, r.deviceID),
+				Meta: map[string]string{
+					"transport": "local_registry",
+					"recipient": msg.To,
+				},
+			})
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+			r.emitMailboxUpdate("retrying", attempted)
 			if r.emit != nil {
 				r.emit("agent.message", msg)
 			}
@@ -295,6 +429,10 @@ func (r *Router) DrainLocalPending(ctx context.Context, recipients ...string) er
 				ItemID: record.Item.ID,
 				Type:   agentmailbox.EventTypeDelivered,
 				Actor:  routerPrincipal(r.deviceID, r.deviceID),
+				Meta: map[string]string{
+					"transport": "local_registry",
+					"recipient": msg.To,
+				},
 			})
 			if err != nil {
 				if firstErr == nil {
@@ -512,12 +650,31 @@ func (r *Router) deliverNetworkQueueOffer(ctx context.Context, record agentmailb
 	if hasMailboxEvent(record, agentmailbox.EventTypeHandedOff, "transport", "nostr_queue") {
 		return record, nil
 	}
+	attempted, err := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+		ItemID: record.Item.ID,
+		Type:   agentmailbox.EventTypeDeliveryAttempted,
+		Actor:  routerActor(agentmailbox.ScopeSky10Network, r.routerAddress(), r.deviceID),
+		Meta: map[string]string{
+			"transport": "nostr_queue",
+			"queue":     record.Item.QueueName(),
+			"skill":     strings.TrimSpace(record.Item.TargetSkill),
+		},
+	})
+	if err != nil {
+		return record, err
+	}
+	r.emitMailboxUpdate("retrying", attempted)
 	if _, err := r.networkQueue.PublishOffer(ctx, record.Item); err != nil {
 		updated, appendErr := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
 			ItemID: record.Item.ID,
 			Type:   agentmailbox.EventTypeDeliveryFailed,
 			Actor:  routerActor(agentmailbox.ScopeSky10Network, r.routerAddress(), r.deviceID),
 			Error:  err.Error(),
+			Meta: map[string]string{
+				"transport": "nostr_queue",
+				"queue":     record.Item.QueueName(),
+				"skill":     strings.TrimSpace(record.Item.TargetSkill),
+			},
 		})
 		if appendErr == nil {
 			r.emitMailboxUpdate("queued", updated)
@@ -575,12 +732,38 @@ func (r *Router) deliverNetworkMailbox(ctx context.Context, record agentmailbox.
 	if item.To != nil {
 		item.To.DeviceHint = ""
 	}
+	attempted, err := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+		ItemID: record.Item.ID,
+		Type:   agentmailbox.EventTypeDeliveryAttempted,
+		Actor:  routerActor(agentmailbox.ScopeSky10Network, r.routerAddress(), r.deviceID),
+		Meta: map[string]string{
+			"transport":     "skylink",
+			"route_address": targetAddress,
+		},
+	})
+	if err != nil {
+		return record, err
+	}
+	r.emitMailboxUpdate("retrying", attempted)
 	if err := r.sendNetworkMailboxLive(ctx, targetAddress, item); err != nil {
 		if r.relay != nil {
 			if existing, ok := relayHandoffForRecord(record); ok {
 				r.logger.Debug("network mailbox already handed off", "item_id", record.Item.ID, "handoff_id", existing)
 				return record, nil
 			}
+			handoffAttempted, appendErr := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+				ItemID: record.Item.ID,
+				Type:   agentmailbox.EventTypeDeliveryAttempted,
+				Actor:  routerActor(agentmailbox.ScopeSky10Network, r.routerAddress(), r.deviceID),
+				Meta: map[string]string{
+					"transport":     "nostr_dropbox",
+					"route_address": targetAddress,
+				},
+			})
+			if appendErr != nil {
+				return record, appendErr
+			}
+			r.emitMailboxUpdate("retrying", handoffAttempted)
 			handoff, handoffErr := r.relay.HandoffItem(ctx, item)
 			if handoffErr == nil {
 				updated, appendErr := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
@@ -620,6 +803,7 @@ func (r *Router) deliverNetworkMailbox(ctx context.Context, record agentmailbox.
 		Type:   agentmailbox.EventTypeDelivered,
 		Actor:  routerActor(agentmailbox.ScopeSky10Network, r.routerAddress(), r.deviceID),
 		Meta: map[string]string{
+			"transport":     "skylink",
 			"route_address": targetAddress,
 		},
 	})
@@ -846,11 +1030,27 @@ func (r *Router) queueRemoteFailure(ctx context.Context, msg Message, reason str
 	if err != nil {
 		return agentmailbox.Record{}, err
 	}
+	record, err = r.mailbox.AppendEvent(ctx, agentmailbox.Event{
+		ItemID: record.Item.ID,
+		Type:   agentmailbox.EventTypeDeliveryAttempted,
+		Actor:  routerPrincipal(r.deviceID, r.deviceID),
+		Meta: map[string]string{
+			"transport": "skylink",
+			"device_id": msg.DeviceID,
+		},
+	})
+	if err != nil {
+		return agentmailbox.Record{}, err
+	}
 	updated, err := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
 		ItemID: record.Item.ID,
 		Type:   agentmailbox.EventTypeDeliveryFailed,
 		Actor:  routerPrincipal(r.deviceID, r.deviceID),
 		Error:  reason,
+		Meta: map[string]string{
+			"transport": "skylink",
+			"device_id": msg.DeviceID,
+		},
 	})
 	if err != nil {
 		return agentmailbox.Record{}, err

@@ -69,6 +69,10 @@ function itemIcon(kind: string): string {
 
 function eventIcon(type: string): string {
   switch (type) {
+    case "delivery_attempted":
+      return "send";
+    case "handed_off":
+      return "outbox";
     case "approved":
       return "check_circle";
     case "rejected":
@@ -158,11 +162,45 @@ function latestTimestamp(record: MailboxRecord): string {
   return lastEvent?.timestamp || record.item.created_at;
 }
 
-function viewParams(view?: MailboxView) {
+function latestEventOfType(record: MailboxRecord, type: string): MailboxEvent | undefined {
+  for (let i = record.events.length - 1; i >= 0; i -= 1) {
+    const event = record.events[i];
+    if (event && event.type === type) {
+      return event;
+    }
+  }
+  return undefined;
+}
+
+function deliveryAttempts(record: MailboxRecord): MailboxEvent[] {
+  return record.events.filter((event) => event.type === "delivery_attempted");
+}
+
+function relatedRecords(record: MailboxRecord, records: MailboxRecord[]): MailboxRecord[] {
+  return records.filter((candidate) => {
+    if (candidate.item.id === record.item.id) return false;
+    if (record.item.request_id && candidate.item.request_id === record.item.request_id) return true;
+    if (candidate.item.reply_to === record.item.id) return true;
+    if (record.item.reply_to && candidate.item.id === record.item.reply_to) return true;
+    return false;
+  });
+}
+
+function debugText(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
+function viewParams(
+  view?: MailboxView,
+  filters?: { queue?: string; requestID?: string; replyTo?: string },
+) {
   if (!view) return undefined;
   return {
     principal_id: view.principal.id,
     principal_kind: view.principal.kind,
+    queue: filters?.queue?.trim() || undefined,
+    request_id: filters?.requestID?.trim() || undefined,
+    reply_to: filters?.replyTo?.trim() || undefined,
   };
 }
 
@@ -209,7 +247,7 @@ function canCompleteRecord(record: MailboxRecord, view?: MailboxView): boolean {
 }
 
 function canRetryRecord(record: MailboxRecord, view?: MailboxView): boolean {
-  if (!view || (record.state !== "queued" && record.state !== "failed")) {
+  if (!view || (record.state !== "queued" && record.state !== "failed" && record.state !== "dead_lettered")) {
     return false;
   }
   return isSenderForView(record, view) || isRecipientForView(record, view) || record.claim?.holder === view.principal.id;
@@ -225,49 +263,61 @@ export default function Mailbox() {
     refreshIntervalMs: 5_000,
   });
   const [selectedViewId, setSelectedViewId] = useState<string | null>(null);
+  const [requestFilter, setRequestFilter] = useState("");
+  const [replyToFilter, setReplyToFilter] = useState("");
+  const [queueFilter, setQueueFilter] = useState("");
 
   const availableViews = views.data?.views ?? [];
   const currentView =
     availableViews.find((view) => view.view_id === selectedViewId) ??
     availableViews.find((view) => view.view_id === views.data?.default_view_id) ??
     availableViews[0];
-  const params = viewParams(currentView);
+  const params = viewParams(currentView, {
+    queue: queueFilter,
+    requestID: requestFilter,
+    replyTo: replyToFilter,
+  });
 
   const inbox = useRPC(
     async () => currentView ? agent.mailbox.listInbox(params) : { items: [], count: 0 },
-    [currentView?.view_id],
+    [currentView?.view_id, queueFilter, replyToFilter, requestFilter],
     {
-    live: mailboxLiveEvents,
-    refreshIntervalMs: 5_000,
-  });
+      live: mailboxLiveEvents,
+      refreshIntervalMs: 5_000,
+    },
+  );
   const outbox = useRPC(
     async () => currentView ? agent.mailbox.listOutbox(params) : { items: [], count: 0 },
-    [currentView?.view_id],
+    [currentView?.view_id, queueFilter, replyToFilter, requestFilter],
     {
-    live: mailboxLiveEvents,
-    refreshIntervalMs: 5_000,
-  });
+      live: mailboxLiveEvents,
+      refreshIntervalMs: 5_000,
+    },
+  );
   const queue = useRPC(
     async () => currentView ? agent.mailbox.listQueue(params) : { items: [], count: 0 },
-    [currentView?.view_id],
+    [currentView?.view_id, queueFilter, replyToFilter, requestFilter],
     {
-    live: mailboxLiveEvents,
-    refreshIntervalMs: 5_000,
-  });
+      live: mailboxLiveEvents,
+      refreshIntervalMs: 5_000,
+    },
+  );
   const failed = useRPC(
     async () => currentView ? agent.mailbox.listFailed(params) : { items: [], count: 0 },
-    [currentView?.view_id],
+    [currentView?.view_id, queueFilter, replyToFilter, requestFilter],
     {
-    live: mailboxLiveEvents,
-    refreshIntervalMs: 5_000,
-  });
+      live: mailboxLiveEvents,
+      refreshIntervalMs: 5_000,
+    },
+  );
   const sent = useRPC(
     async () => currentView ? agent.mailbox.listSent(params) : { items: [], count: 0 },
-    [currentView?.view_id],
+    [currentView?.view_id, queueFilter, replyToFilter, requestFilter],
     {
-    live: mailboxLiveEvents,
-    refreshIntervalMs: 5_000,
-  });
+      live: mailboxLiveEvents,
+      refreshIntervalMs: 5_000,
+    },
+  );
 
   const [tab, setTab] = useState<TabKey>("inbox");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -303,6 +353,11 @@ export default function Mailbox() {
 
   const currentItems = tabItems[tab];
   const selected = (selectedId ? allRecords.get(selectedId) : undefined) ?? currentItems[0];
+  const selectedAttemptEvents = selected ? deliveryAttempts(selected) : [];
+  const lastDeliveryFailure = selected ? latestEventOfType(selected, "delivery_failed") : undefined;
+  const lastHandoff = selected ? latestEventOfType(selected, "handed_off") : undefined;
+  const related = selected ? relatedRecords(selected, Array.from(allRecords.values())) : [];
+  const filtersActive = Boolean(requestFilter.trim() || replyToFilter.trim() || queueFilter.trim());
 
   useEffect(() => {
     if (!currentView) return;
@@ -406,6 +461,56 @@ export default function Mailbox() {
         ))}
       </div>
 
+      <div className="grid gap-3 rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+        <label className="space-y-2">
+          <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-outline">
+            Request ID
+          </span>
+          <input
+            value={requestFilter}
+            onChange={(event) => setRequestFilter(event.target.value)}
+            placeholder="req-123"
+            className="w-full rounded-2xl border border-outline-variant/20 bg-surface-container-low px-4 py-3 text-sm text-on-surface outline-none transition-colors placeholder:text-outline focus:border-primary"
+          />
+        </label>
+        <label className="space-y-2">
+          <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-outline">
+            Reply To
+          </span>
+          <input
+            value={replyToFilter}
+            onChange={(event) => setReplyToFilter(event.target.value)}
+            placeholder="mailbox-item-id"
+            className="w-full rounded-2xl border border-outline-variant/20 bg-surface-container-low px-4 py-3 text-sm text-on-surface outline-none transition-colors placeholder:text-outline focus:border-primary"
+          />
+        </label>
+        <label className="space-y-2">
+          <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-outline">
+            Queue
+          </span>
+          <input
+            value={queueFilter}
+            onChange={(event) => setQueueFilter(event.target.value)}
+            placeholder="skill:research"
+            className="w-full rounded-2xl border border-outline-variant/20 bg-surface-container-low px-4 py-3 text-sm text-on-surface outline-none transition-colors placeholder:text-outline focus:border-primary"
+          />
+        </label>
+        <div className="flex items-end">
+          <button
+            onClick={() => {
+              setRequestFilter("");
+              setReplyToFilter("");
+              setQueueFilter("");
+            }}
+            disabled={!filtersActive}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-outline-variant/20 bg-surface-container-low px-4 py-3 text-xs font-bold uppercase tracking-[0.16em] text-secondary transition-colors hover:bg-surface-container disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Icon name="filter_alt_off" className="text-sm" />
+            Clear Filters
+          </button>
+        </div>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-4">
         <SummaryCard label="Inbox" value={inboxItems.length} icon="inbox" />
         <SummaryCard label="Approvals" value={approvalItems.length} icon="approval" />
@@ -446,9 +551,16 @@ export default function Mailbox() {
                 <h2 className="text-lg font-semibold text-on-surface">
                   {tab === "approvals" ? "Approvals Center" : tabLabels[tab]}
                 </h2>
-                <StatusBadge tone="neutral">
-                  {tabItems[tab].length} items
-                </StatusBadge>
+                <div className="flex items-center gap-2">
+                  {filtersActive && (
+                    <StatusBadge tone="processing">
+                      filtered
+                    </StatusBadge>
+                  )}
+                  <StatusBadge tone="neutral">
+                    {tabItems[tab].length} items
+                  </StatusBadge>
+                </div>
               </div>
             </div>
 
@@ -616,7 +728,7 @@ export default function Mailbox() {
                   {canRetryRecord(selected, currentView) && (
                     <ActionButton
                       busy={busyAction === "retry"}
-                      label="Retry"
+                      label={selected.state === "dead_lettered" ? "Replay" : "Retry"}
                       icon="refresh"
                       onClick={() =>
                         runAction("retry", async () => {
@@ -659,6 +771,15 @@ export default function Mailbox() {
                   <DetailField label="Expires" value={selected.item.expires_at || "-"} />
                 </div>
 
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <DetailField label="Delivery Attempts" value={String(selectedAttemptEvents.length)} />
+                  <DetailField label="Last Error" value={lastDeliveryFailure?.error || "-"} />
+                  <DetailField
+                    label="Last Transport"
+                    value={lastHandoff?.meta?.transport || lastDeliveryFailure?.meta?.transport || selectedAttemptEvents[selectedAttemptEvents.length - 1]?.meta?.transport || "-"}
+                  />
+                </div>
+
                 {selected.claim && (
                   <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-low p-4">
                     <div className="mb-2 flex items-center gap-2">
@@ -669,6 +790,48 @@ export default function Mailbox() {
                       <div>Holder: {selected.claim.holder}</div>
                       <div>Queue: {selected.claim.queue}</div>
                       <div>Expires: {selected.claim.expires_at}</div>
+                    </div>
+                  </div>
+                )}
+
+                {selected.item.payload_ref && (
+                  <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-low p-4">
+                    <div className="mb-2 flex items-center gap-2">
+                      <Icon name="attachment" className="text-primary" />
+                      <p className="text-sm font-semibold text-on-surface">Payload Ref</p>
+                    </div>
+                    <pre className="overflow-auto rounded-xl bg-[#111315] p-3 text-[11px] leading-5 text-[#d2d7dc]">
+                      {debugText(selected.item.payload_ref)}
+                    </pre>
+                  </div>
+                )}
+
+                {related.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Icon name="account_tree" className="text-secondary" />
+                      <p className="text-sm font-semibold text-on-surface">Related Items</p>
+                    </div>
+                    <div className="space-y-2">
+                      {related.map((record) => (
+                        <button
+                          key={record.item.id}
+                          onClick={() => setSelectedId(record.item.id)}
+                          className="flex w-full items-center justify-between gap-3 rounded-2xl border border-outline-variant/10 bg-surface-container-low px-4 py-3 text-left transition-colors hover:bg-surface-container"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-on-surface">
+                              {recordTitle(record)}
+                            </p>
+                            <p className="truncate text-xs text-secondary">
+                              {record.item.request_id || record.item.reply_to || record.item.id}
+                            </p>
+                          </div>
+                          <StatusBadge tone={stateTone(record.state)}>
+                            {record.state}
+                          </StatusBadge>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -698,6 +861,33 @@ export default function Mailbox() {
                     )}
                   </div>
                 </div>
+
+                <details className="rounded-2xl border border-outline-variant/10 bg-surface-container-low p-4">
+                  <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-on-surface">
+                    <Icon name="bug_report" className="text-secondary" />
+                    Debug JSON
+                  </summary>
+                  <div className="mt-4 space-y-4">
+                    <div>
+                      <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-outline">
+                        Record
+                      </p>
+                      <pre className="overflow-auto rounded-xl bg-[#111315] p-3 text-[11px] leading-5 text-[#d2d7dc]">
+                        {debugText(selected)}
+                      </pre>
+                    </div>
+                    {selectedAttemptEvents.length > 0 && (
+                      <div>
+                        <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-outline">
+                          Delivery Attempts
+                        </p>
+                        <pre className="overflow-auto rounded-xl bg-[#111315] p-3 text-[11px] leading-5 text-[#d2d7dc]">
+                          {debugText(selectedAttemptEvents)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                </details>
               </div>
             </div>
           ) : (

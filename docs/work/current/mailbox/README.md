@@ -832,13 +832,24 @@ Exit criteria:
 - request and reply chains can be traced by request id or reply target
 - repair actions exist for common stuck states
 
+Implementation:
+
+- the mailbox page keeps one operational surface and adds explicit principal
+  views, request/reply/queue filters, and related-item tracing
+- delivery attempts are recorded as first-class mailbox events instead of
+  inferred only from delivered/failed endpoints
+- the detail view exposes delivery attempts, last failure, claim state,
+  payload refs, and raw record/event JSON
+- operator repair uses explicit item-level actions for retry, dead-letter
+  replay, and claim release
+
 Checklist:
 
-- [ ] Add request-id, reply-to, queue, and principal filters to mailbox views.
-- [ ] Add a debug panel or route for raw item, event, claim, and payload-ref inspection.
-- [ ] Surface delivery attempts, retry reasons, and last-error details in the UI.
-- [ ] Add repair actions for retry, dead-letter replay, and claim release.
-- [ ] Add operational tests or fixtures for common failure scenarios.
+- [x] Add request-id, reply-to, queue, and principal filters to mailbox views.
+- [x] Add a debug panel or route for raw item, event, claim, and payload-ref inspection.
+- [x] Surface delivery attempts, retry reasons, and last-error details in the UI.
+- [x] Add repair actions for retry, dead-letter replay, and claim release.
+- [x] Add operational tests or fixtures for common failure scenarios.
 
 ## Open Questions
 

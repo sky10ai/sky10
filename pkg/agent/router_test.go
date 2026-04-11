@@ -1043,4 +1043,16 @@ func TestRouterDrainOutboxDeliversQueuedRemoteMessage(t *testing.T) {
 	if outbox[0].State != agentmailbox.StateDelivered {
 		t.Fatalf("state = %s, want %s", outbox[0].State, agentmailbox.StateDelivered)
 	}
+	attempts := 0
+	for _, event := range outbox[0].Events {
+		if event.Type == agentmailbox.EventTypeDeliveryAttempted {
+			attempts++
+		}
+	}
+	if attempts != 2 {
+		t.Fatalf("delivery attempts = %d, want 2", attempts)
+	}
+	if latest, ok := outbox[0].LatestEvent(); !ok || latest.Type != agentmailbox.EventTypeDelivered {
+		t.Fatalf("latest event = %+v, want delivered", latest)
+	}
 }
