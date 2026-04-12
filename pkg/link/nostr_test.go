@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -89,5 +90,71 @@ func TestNostrDiscoveryUsesCachedPresenceOnQueryFailure(t *testing.T) {
 	}
 	if got[0].DevicePubKey != presence.DevicePubKey {
 		t.Fatalf("device pubkey = %q, want %q", got[0].DevicePubKey, presence.DevicePubKey)
+	}
+}
+
+func TestNostrDiscoveryApplyPresenceRecordOnlyAdvancesOnNewerRecord(t *testing.T) {
+	t.Parallel()
+
+	node := generateTestNode(t)
+	current, err := node.CurrentPresenceRecord(0)
+	if err != nil {
+		t.Fatalf("presence record: %v", err)
+	}
+	older := clonePresenceRecord(current)
+	older.PublishedAt = current.PublishedAt.Add(-time.Minute)
+	older.ExpiresAt = current.ExpiresAt.Add(-time.Minute)
+
+	discovery := NewNostrDiscovery(nil, nil)
+	if !discovery.applyPresenceRecord(older) {
+		t.Fatal("expected first presence record to populate cache")
+	}
+	if discovery.applyPresenceRecord(older) {
+		t.Fatal("expected identical older presence not to change cache")
+	}
+	if !discovery.applyPresenceRecord(current) {
+		t.Fatal("expected newer presence record to advance cache")
+	}
+}
+
+func TestNostrDiscoveryApplyPresenceRecordIgnoresExpiredRecord(t *testing.T) {
+	t.Parallel()
+
+	node := generateTestNode(t)
+	current, err := node.CurrentPresenceRecord(0)
+	if err != nil {
+		t.Fatalf("presence record: %v", err)
+	}
+	expired := clonePresenceRecord(current)
+	expired.PublishedAt = time.Now().UTC().Add(-2 * time.Minute)
+	expired.ExpiresAt = time.Now().UTC().Add(-time.Minute)
+
+	discovery := NewNostrDiscovery(nil, nil)
+	if discovery.applyPresenceRecord(expired) {
+		t.Fatal("expected expired presence record to be ignored")
+	}
+}
+
+func TestNostrDiscoveryApplyMembershipRecordOnlyAdvancesOnNewerRevision(t *testing.T) {
+	t.Parallel()
+
+	node := generateTestNode(t)
+	current, err := node.CurrentMembershipRecord()
+	if err != nil {
+		t.Fatalf("membership record: %v", err)
+	}
+	older := cloneMembershipRecord(current)
+	older.Revision = current.Revision - 1
+	older.UpdatedAt = current.UpdatedAt.Add(-time.Minute)
+
+	discovery := NewNostrDiscovery(nil, nil)
+	if !discovery.applyMembershipRecord(older) {
+		t.Fatal("expected first membership record to populate cache")
+	}
+	if discovery.applyMembershipRecord(older) {
+		t.Fatal("expected identical older membership not to change cache")
+	}
+	if !discovery.applyMembershipRecord(current) {
+		t.Fatal("expected newer membership record to advance cache")
 	}
 }

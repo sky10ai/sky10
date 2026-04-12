@@ -81,6 +81,9 @@ function eventLabel(event: LinkHealthEvent) {
     case "reachability":
       return "Reachability";
     default:
+      if (event.type.startsWith("coordination:")) {
+        return `Coordination ${event.type.slice("coordination:".length)}`;
+      }
       if (event.type.startsWith("mailbox:")) {
         return `Mailbox ${event.type.slice("mailbox:".length)}`;
       }

@@ -196,6 +196,21 @@ func (t *RuntimeHealthTracker) RecordMailbox(action, state, itemID string) {
 	t.recordLocked("mailbox:"+action, "ok", detail, now)
 }
 
+// RecordCoordination records a control-plane update such as a Nostr
+// subscription event or reconnect.
+func (t *RuntimeHealthTracker) RecordCoordination(action, status, detail string) {
+	if t == nil {
+		return
+	}
+	now := time.Now().UTC()
+	if status == "" {
+		status = "ok"
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.recordLocked("coordination:"+action, status, detail, now)
+}
+
 func (t *RuntimeHealthTracker) recordLocked(eventType, status, detail string, at time.Time) {
 	t.events = append([]HealthEvent{{
 		Type:   eventType,

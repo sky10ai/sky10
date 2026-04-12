@@ -37,6 +37,12 @@ type NetworkRelay interface {
 	Poll(ctx context.Context) ([]RelayInbound, error)
 }
 
+// NetworkRelaySubscriber is an optional push-based interface for relay
+// backends that can stream inbound relay traffic without polling.
+type NetworkRelaySubscriber interface {
+	Subscribe(ctx context.Context, handler func(RelayInbound) error) error
+}
+
 // RelayHandoff is the sender-side confirmation that an item was stored in the
 // public-network dropbox.
 type RelayHandoff struct {
@@ -95,6 +101,11 @@ type RelayTransportEvent struct {
 type RelayTransport interface {
 	Publish(ctx context.Context, signer *skykey.Key, event RelayTransportEvent) error
 	Query(ctx context.Context, recipient, recordType string, limit int) ([]RelayTransportEvent, error)
+}
+
+// RelayTransportSubscriber is an optional push-based relay transport.
+type RelayTransportSubscriber interface {
+	Subscribe(ctx context.Context, recipient string, handler func(RelayTransportEvent) error) error
 }
 
 // RelayDropbox implements public-network mailbox handoff over Nostr relays.
@@ -342,6 +353,57 @@ func (r *RelayDropbox) Poll(ctx context.Context) ([]RelayInbound, error) {
 	return inbound, nil
 }
 
+// Subscribe streams inbound relay envelopes addressed to the dropbox owner.
+func (r *RelayDropbox) Subscribe(ctx context.Context, handler func(RelayInbound) error) error {
+	if r == nil || r.owner == nil || !r.owner.IsPrivate() {
+		return fmt.Errorf("relay dropbox owner key is required")
+	}
+	if handler == nil {
+		return fmt.Errorf("relay dropbox handler is required")
+	}
+	subscriber, ok := r.transport.(RelayTransportSubscriber)
+	if !ok {
+		return fmt.Errorf("relay dropbox transport is not subscribable")
+	}
+	return subscriber.Subscribe(ctx, r.owner.Address(), func(event RelayTransportEvent) error {
+		inbound, ok, err := r.decodeInboundEvent(event)
+		if err != nil || !ok {
+			return err
+		}
+		return handler(inbound)
+	})
+}
+
+func (r *RelayDropbox) decodeInboundEvent(event RelayTransportEvent) (RelayInbound, bool, error) {
+	if r == nil || r.owner == nil || !r.owner.IsPrivate() {
+		return RelayInbound{}, false, fmt.Errorf("relay dropbox owner key is required")
+	}
+	plain, err := skykey.Open(event.Payload, r.owner.PrivateKey)
+	if err != nil {
+		r.logger.Debug("relay payload open failed", "event_id", event.ID, "error", err)
+		return RelayInbound{}, false, nil
+	}
+	var envelope relayEnvelope
+	if err := json.Unmarshal(plain, &envelope); err != nil {
+		r.logger.Debug("relay payload decode failed", "event_id", event.ID, "error", err)
+		return RelayInbound{}, false, nil
+	}
+	if envelope.Recipient != r.owner.Address() {
+		return RelayInbound{}, false, nil
+	}
+	return RelayInbound{
+		EventID:    event.ID,
+		RecordType: envelope.Type,
+		HandoffID:  envelope.HandoffID,
+		Sender:     envelope.Sender,
+		Recipient:  envelope.Recipient,
+		CreatedAt:  envelope.CreatedAt,
+		Item:       envelope.Item,
+		Receipt:    envelope.Receipt,
+		Claim:      envelope.Claim,
+	}, true, nil
+}
+
 type nostrRelayTransport struct {
 	relays  []string
 	logger  *slog.Logger
@@ -459,6 +521,42 @@ func (t *nostrRelayTransport) Query(ctx context.Context, recipient, recordType s
 		return out[i].CreatedAt.Before(out[j].CreatedAt)
 	})
 	return out, nil
+}
+
+func (t *nostrRelayTransport) Subscribe(ctx context.Context, recipient string, handler func(RelayTransportEvent) error) error {
+	if strings.TrimSpace(recipient) == "" {
+		return fmt.Errorf("relay subscription recipient is required")
+	}
+	if handler == nil {
+		return fmt.Errorf("relay subscription handler is required")
+	}
+	filters := nostr.Filters{{
+		Kinds: []int{link.Sky10NostrKind},
+		Tags: nostr.TagMap{
+			"i": []string{recipient},
+			"r": []string{relayMailboxRole},
+			"t": []string{relayRecordTypeItem, relayRecordTypeDelivery, relayRecordTypeQueueClaim},
+		},
+	}}
+	return link.RunNostrSubscription(ctx, t.relays, t.tracker, t.logger, "mailbox:"+recipient, filters, func(_ string, event *nostr.Event) error {
+		payload, err := base64.RawURLEncoding.DecodeString(event.Content)
+		if err != nil {
+			return nil
+		}
+		recordType := nostrTagValue(event.Tags, "t")
+		if recordType == "" {
+			recordType = relayRecordTypeItem
+		}
+		return handler(RelayTransportEvent{
+			ID:         event.ID,
+			DTag:       nostrTagValue(event.Tags, "d"),
+			RecordType: recordType,
+			Recipient:  recipient,
+			ItemID:     nostrTagValue(event.Tags, "m"),
+			CreatedAt:  event.CreatedAt.Time(),
+			Payload:    payload,
+		})
+	})
 }
 
 func (t *nostrRelayTransport) debug(msg string, args ...interface{}) {

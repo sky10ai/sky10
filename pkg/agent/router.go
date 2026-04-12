@@ -277,6 +277,27 @@ func (r *Router) PollNetworkRelay(ctx context.Context) error {
 	return firstErr
 }
 
+// RunNetworkRelaySubscriber continuously ingests public-network relay traffic
+// from a push-based relay backend when available.
+func (r *Router) RunNetworkRelaySubscriber(ctx context.Context) error {
+	subscriber, ok := r.relay.(agentmailbox.NetworkRelaySubscriber)
+	if !ok || subscriber == nil {
+		return nil
+	}
+	return subscriber.Subscribe(ctx, func(entry agentmailbox.RelayInbound) error {
+		switch entry.RecordType {
+		case "item":
+			return r.ingestNetworkRelayItem(ctx, entry)
+		case "delivery_receipt":
+			return r.ingestNetworkRelayReceipt(ctx, entry)
+		case "queue_claim":
+			return r.ingestNetworkQueueClaim(ctx, entry)
+		default:
+			return nil
+		}
+	})
+}
+
 // RunNetworkRelayPoller continuously ingests public-network relay traffic.
 func (r *Router) RunNetworkRelayPoller(ctx context.Context, interval time.Duration) error {
 	if interval <= 0 {
@@ -773,6 +794,10 @@ func (r *Router) deliverNetworkMailbox(ctx context.Context, record agentmailbox.
 			r.emitMailboxUpdate("retrying", handoffAttempted)
 			handoff, handoffErr := r.relay.HandoffItem(ctx, item)
 			if handoffErr == nil {
+				if current, ok := r.mailbox.Get(record.Item.ID); ok && (current.State == agentmailbox.StateDelivered || current.Terminal()) {
+					r.emitMailboxUpdate("delivered", current)
+					return current, nil
+				}
 				updated, appendErr := r.mailbox.AppendEvent(ctx, agentmailbox.Event{
 					ItemID: record.Item.ID,
 					Type:   agentmailbox.EventTypeHandedOff,

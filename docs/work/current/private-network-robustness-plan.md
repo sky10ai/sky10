@@ -259,13 +259,16 @@ retry ambiguity into a more complicated system.
 As of 2026-04-12, M1 through M3 are implemented on this branch. M4 now has
 explicit delivery metadata in RPC and operator-facing UI surfaces. M5 now has
 shared Nostr relay health tracking and ranking, multi-relay publish quorum
-reporting, and last-good Nostr discovery cache fallback for membership and
-presence.
+reporting, last-good Nostr discovery cache fallback for membership and
+presence, long-lived private-network identity subscriptions, and push-based
+public relay subscriptions for mailbox receipts, queue claims, and handoff
+state.
 
-The next concrete implementation slice should be the rest of M5:
+The next concrete implementation slice should finish the rest of M5:
 
-- move Nostr coordination from ranked query/publish into longer-lived
-  subscriptions for presence, receipts, queue claims, and handoff state
+- tighten long-lived Nostr coordination with stronger stale-event handling,
+  subscription health reporting, and any missing push paths that still fall
+  back to polling only
 - finish the real-device mailbox-backed validation passes from
   [`docs/work/past/2026/04/11-Mailbox.md`](../past/2026/04/11-Mailbox.md)
   for offline delivery and relay handoff flows

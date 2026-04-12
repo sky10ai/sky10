@@ -25,6 +25,15 @@ type NostrDiscovery struct {
 	queryFn         func(context.Context, nostr.Filter) ([]*nostr.Event, error)
 }
 
+// NostrDiscoveryUpdate is one operator-relevant discovery update received from
+// a live Nostr subscription.
+type NostrDiscoveryUpdate struct {
+	Type         string
+	Relay        string
+	Identity     string
+	DevicePubKey string
+}
+
 // Sky10NostrKind is a NIP-78 application-specific event kind for sky10.
 const Sky10NostrKind = 30078
 
@@ -231,6 +240,60 @@ func (d *NostrDiscovery) QueryPresenceAll(ctx context.Context, identity string) 
 	return out, nil
 }
 
+// RunIdentitySubscription maintains live subscriptions for membership and
+// presence updates for one private-network identity.
+func (d *NostrDiscovery) RunIdentitySubscription(ctx context.Context, identity string, onUpdate func(NostrDiscoveryUpdate)) error {
+	if d == nil || len(d.relays) == 0 || identity == "" {
+		return nil
+	}
+	filters := nostr.Filters{{
+		Kinds: []int{Sky10NostrKind},
+		Tags: nostr.TagMap{
+			"i": []string{identity},
+			"r": []string{"membership", "presence"},
+		},
+	}}
+	return RunNostrSubscription(ctx, d.relays, d.tracker, d.logger, "sky10-private:"+identity, filters, func(relay string, event *nostr.Event) error {
+		if event == nil {
+			return nil
+		}
+		switch nostrTagValue(event.Tags, "r") {
+		case "membership":
+			var rec MembershipRecord
+			if err := json.Unmarshal([]byte(event.Content), &rec); err != nil {
+				return err
+			}
+			if err := rec.Validate(membershipDHTKey(rec.Identity)); err != nil {
+				return err
+			}
+			if d.applyMembershipRecord(&rec) && onUpdate != nil {
+				onUpdate(NostrDiscoveryUpdate{
+					Type:     "membership",
+					Relay:    relay,
+					Identity: rec.Identity,
+				})
+			}
+		case "presence":
+			var rec PresenceRecord
+			if err := json.Unmarshal([]byte(event.Content), &rec); err != nil {
+				return err
+			}
+			if err := rec.Validate(presenceDHTKey(rec.Identity, rec.DevicePubKey)); err != nil {
+				return err
+			}
+			if d.applyPresenceRecord(&rec) && onUpdate != nil {
+				onUpdate(NostrDiscoveryUpdate{
+					Type:         "presence",
+					Relay:        relay,
+					Identity:     rec.Identity,
+					DevicePubKey: rec.DevicePubKey,
+				})
+			}
+		}
+		return nil
+	})
+}
+
 func (d *NostrDiscovery) orderedRelays() []string {
 	if d == nil {
 		return nil
@@ -285,6 +348,21 @@ func (d *NostrDiscovery) storeMembership(rec *MembershipRecord) {
 	d.membershipCache[rec.Identity] = *cloneMembershipRecord(rec)
 }
 
+func (d *NostrDiscovery) applyMembershipRecord(rec *MembershipRecord) bool {
+	if d == nil || rec == nil {
+		return false
+	}
+	d.cacheMu.Lock()
+	defer d.cacheMu.Unlock()
+	current, ok := d.membershipCache[rec.Identity]
+	best := selectBestMembership(&current, rec)
+	if !ok || compareMembershipRecords(best, &current) > 0 {
+		d.membershipCache[rec.Identity] = *cloneMembershipRecord(best)
+		return true
+	}
+	return false
+}
+
 func (d *NostrDiscovery) cachedPresence(identity string, now time.Time) map[string]*PresenceRecord {
 	out := make(map[string]*PresenceRecord)
 	if d == nil {
@@ -323,6 +401,30 @@ func (d *NostrDiscovery) storePresence(identity string, records []*PresenceRecor
 	d.presenceCache[identity] = filtered
 }
 
+func (d *NostrDiscovery) applyPresenceRecord(rec *PresenceRecord) bool {
+	if d == nil || rec == nil {
+		return false
+	}
+	now := time.Now().UTC()
+	if !rec.ExpiresAt.After(now) {
+		return false
+	}
+	d.cacheMu.Lock()
+	defer d.cacheMu.Unlock()
+	byDevice := d.presenceCache[rec.Identity]
+	if byDevice == nil {
+		byDevice = make(map[string]PresenceRecord)
+	}
+	current, ok := byDevice[rec.DevicePubKey]
+	best := selectBestPresence(&current, rec)
+	if !ok || comparePresenceRecords(best, &current) > 0 {
+		byDevice[rec.DevicePubKey] = *clonePresenceRecord(best)
+		d.presenceCache[rec.Identity] = byDevice
+		return true
+	}
+	return false
+}
+
 func cloneMembershipRecord(rec *MembershipRecord) *MembershipRecord {
 	if rec == nil {
 		return nil
@@ -342,4 +444,13 @@ func clonePresenceRecord(rec *PresenceRecord) *PresenceRecord {
 	out.Multiaddrs = append([]string(nil), rec.Multiaddrs...)
 	out.Signature = append([]byte(nil), rec.Signature...)
 	return &out
+}
+
+func nostrTagValue(tags nostr.Tags, key string) string {
+	for _, tag := range tags {
+		if len(tag) >= 2 && tag[0] == key {
+			return tag[1]
+		}
+	}
+	return ""
 }

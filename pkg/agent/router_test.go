@@ -537,6 +537,79 @@ func TestRouterSky10NetworkRelayStoreAndForward(t *testing.T) {
 	}
 }
 
+func TestRouterSky10NetworkRelaySubscription(t *testing.T) {
+	t.Parallel()
+
+	senderKey, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipientKey, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	relayTransport := newTestRelayTransport()
+	senderRelay := agentmailbox.NewRelayDropbox(senderKey, relayTransport, nil)
+	recipientRelay := agentmailbox.NewRelayDropbox(recipientKey, relayTransport, nil)
+
+	senderStore := newRouterMailboxStore(t)
+	recipientStore := newRouterMailboxStore(t)
+
+	senderRouter := NewRouter(NewRegistry("D-sender", "sender", nil), nil, nil, "D-sender", nil)
+	senderRouter.SetMailbox(senderStore)
+	senderRouter.SetNetworkRelay(senderRelay)
+
+	recipientRegistry := NewRegistry("D-recipient", "recipient", nil)
+	recipientRegistry.Register(RegisterParams{Name: "worker"}, "A-worker010000000")
+	recipientRouter := NewRouter(recipientRegistry, nil, nil, "D-recipient", nil)
+	recipientRouter.SetMailbox(recipientStore)
+	recipientRouter.SetNetworkRelay(recipientRelay)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = senderRouter.RunNetworkRelaySubscriber(ctx) }()
+	go func() { _ = recipientRouter.RunNetworkRelaySubscriber(ctx) }()
+	waitForRelaySubscribers(t, relayTransport, 2)
+
+	record, err := senderStore.Create(context.Background(), agentmailbox.Item{
+		ID:             "relay-item-sub-1",
+		Kind:           agentmailbox.ItemKindMessage,
+		From:           agentmailbox.Principal{ID: senderKey.Address(), Kind: agentmailbox.PrincipalKindHuman, Scope: agentmailbox.ScopeSky10Network, RouteHint: senderKey.Address()},
+		To:             &agentmailbox.Principal{ID: "worker", Kind: agentmailbox.PrincipalKindNetworkAgent, Scope: agentmailbox.ScopeSky10Network, RouteHint: recipientKey.Address()},
+		SessionID:      "session-sub-1",
+		RequestID:      "request-sub-1",
+		IdempotencyKey: "request-sub-1",
+		PayloadInline:  json.RawMessage(`{"text":"relay subscribe"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := senderRouter.DeliverMailboxRecord(context.Background(), record); err != nil {
+		t.Fatalf("deliver via relay subscription: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		delivered, ok := senderStore.Get(record.Item.ID)
+		if ok && delivered.State == agentmailbox.StateDelivered {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("sender mailbox did not reach delivered state via relay subscription")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	received, ok := recipientStore.Get(record.Item.ID)
+	if !ok {
+		t.Fatal("recipient mailbox did not ingest relay item via subscription")
+	}
+	if received.Item.To == nil || received.Item.To.ID != "worker" {
+		t.Fatalf("recipient to = %+v, want worker", received.Item.To)
+	}
+}
+
 func TestRouterSky10PublicQueueClaimAssignAndResultRouting(t *testing.T) {
 	t.Parallel()
 
@@ -812,8 +885,9 @@ func newRouterMailboxStore(t *testing.T) *agentmailbox.Store {
 }
 
 type testRelayTransport struct {
-	mu     sync.RWMutex
-	events map[string]testRelayEvent
+	mu          sync.RWMutex
+	events      map[string]testRelayEvent
+	subscribers []testRelaySubscriber
 }
 
 type testRelayEvent struct {
@@ -824,19 +898,39 @@ type testRelayEvent struct {
 	createdAt  time.Time
 }
 
+type testRelaySubscriber struct {
+	recipient string
+	handler   func(agentmailbox.RelayTransportEvent) error
+}
+
 func newTestRelayTransport() *testRelayTransport {
 	return &testRelayTransport{events: make(map[string]testRelayEvent)}
 }
 
 func (t *testRelayTransport) Publish(_ context.Context, _ *skykey.Key, event agentmailbox.RelayTransportEvent) error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
+	subscribers := append([]testRelaySubscriber(nil), t.subscribers...)
 	t.events[event.DTag] = testRelayEvent{
 		recordType: event.RecordType,
 		recipient:  event.Recipient,
 		itemID:     event.ItemID,
 		payload:    append([]byte(nil), event.Payload...),
 		createdAt:  event.CreatedAt,
+	}
+	t.mu.Unlock()
+	for _, sub := range subscribers {
+		if sub.recipient != event.Recipient || sub.handler == nil {
+			continue
+		}
+		_ = sub.handler(agentmailbox.RelayTransportEvent{
+			ID:         event.DTag,
+			DTag:       event.DTag,
+			RecordType: event.RecordType,
+			Recipient:  event.Recipient,
+			ItemID:     event.ItemID,
+			CreatedAt:  event.CreatedAt,
+			Payload:    append([]byte(nil), event.Payload...),
+		})
 	}
 	return nil
 }
@@ -866,6 +960,37 @@ func (t *testRelayTransport) Query(_ context.Context, recipient, recordType stri
 		return out[i].CreatedAt.Before(out[j].CreatedAt)
 	})
 	return out, nil
+}
+
+func (t *testRelayTransport) Subscribe(ctx context.Context, recipient string, handler func(agentmailbox.RelayTransportEvent) error) error {
+	if handler == nil {
+		return nil
+	}
+	t.mu.Lock()
+	t.subscribers = append(t.subscribers, testRelaySubscriber{
+		recipient: recipient,
+		handler:   handler,
+	})
+	t.mu.Unlock()
+	<-ctx.Done()
+	return nil
+}
+
+func (t *testRelayTransport) subscriberCount() int {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return len(t.subscribers)
+}
+
+func waitForRelaySubscribers(t *testing.T, transport *testRelayTransport, want int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for transport.subscriberCount() < want {
+		if time.Now().After(deadline) {
+			t.Fatalf("relay subscribers = %d, want at least %d", transport.subscriberCount(), want)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 type testQueueTransport struct {

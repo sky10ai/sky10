@@ -176,13 +176,17 @@ func ServeCmd() *cobra.Command {
 				return fmt.Errorf("creating link node: %w", err)
 			}
 			runtimeHealth := link.NewRuntimeHealthTracker()
+			var nostrDiscovery *link.NostrDiscovery
+			if len(relays) > 0 {
+				nostrDiscovery = link.NewNostrDiscoveryWithTracker(relays, logRuntime.Logger, nostrRelayTracker)
+			}
 			var resolverOpts []link.ResolverOption
 			if backend != nil {
 				resolverOpts = append(resolverOpts, link.WithBackend(backend))
 			}
-			if len(relays) > 0 {
+			if nostrDiscovery != nil {
 				resolverOpts = append(resolverOpts, link.WithNostrDiscovery(
-					link.NewNostrDiscoveryWithTracker(relays, logRuntime.Logger, nostrRelayTracker),
+					nostrDiscovery,
 				))
 			}
 			linkResolver := link.NewResolver(linkNode, resolverOpts...)
@@ -261,13 +265,12 @@ func ServeCmd() *cobra.Command {
 						logger.Info("published private-network records to DHT")
 					}
 
-					if len(relays) > 0 {
-						nostr := link.NewNostrDiscoveryWithTracker(relays, logRuntime.Logger, nostrRelayTracker)
+					if nostrDiscovery != nil {
 						membershipRecord, err := linkNode.CurrentMembershipRecord()
 						if err != nil {
 							logger.Warn("building private-network membership record failed", "error", err)
 							errs = append(errs, fmt.Errorf("build membership record: %w", err))
-						} else if outcome, err := nostr.PublishMembership(runCtx, bundle.Identity, membershipRecord); err != nil {
+						} else if outcome, err := nostrDiscovery.PublishMembership(runCtx, bundle.Identity, membershipRecord); err != nil {
 							runtimeHealth.RecordNostrPublish("nostr_membership", outcome, err)
 							logger.Warn("failed to publish private-network membership to Nostr", "error", err)
 							errs = append(errs, fmt.Errorf("publish nostr membership: %w", err))
@@ -285,7 +288,7 @@ func ServeCmd() *cobra.Command {
 						if err != nil {
 							logger.Warn("building private-network presence record failed", "error", err)
 							errs = append(errs, fmt.Errorf("build presence record: %w", err))
-						} else if outcome, err := nostr.PublishPresence(runCtx, bundle.Device, presenceRecord); err != nil {
+						} else if outcome, err := nostrDiscovery.PublishPresence(runCtx, bundle.Device, presenceRecord); err != nil {
 							runtimeHealth.RecordNostrPublish("nostr_presence", outcome, err)
 							logger.Warn("failed to publish private-network presence to Nostr", "error", err)
 							errs = append(errs, fmt.Errorf("publish nostr presence: %w", err))
@@ -322,6 +325,23 @@ func ServeCmd() *cobra.Command {
 				}
 			}()
 			triggerPrivateNetwork = privateNetworkManager.Trigger
+			if nostrDiscovery != nil {
+				go func() {
+					err := nostrDiscovery.RunIdentitySubscription(ctx, bundle.Address(), func(update link.NostrDiscoveryUpdate) {
+						detail := update.Identity
+						if update.DevicePubKey != "" {
+							detail = update.DevicePubKey
+						}
+						runtimeHealth.RecordCoordination("nostr_"+update.Type, "ok", detail)
+						if triggerPrivateNetwork != nil {
+							triggerPrivateNetwork("nostr_"+update.Type, detail)
+						}
+					})
+					if err != nil && ctx.Err() == nil {
+						logger.Warn("nostr identity subscription stopped", "error", err)
+					}
+				}()
+			}
 			configureIdentityRPCHandler(identityRPC, bundle, idStore, backend, linkNode, relays, func() {
 				triggerPrivateNetwork("device_removed", "")
 			})
@@ -368,7 +388,12 @@ func ServeCmd() *cobra.Command {
 				linkNode.NotifyOwn(ctx, topic)
 			})
 			if len(relays) > 0 {
-				go agentRouter.RunNetworkRelayPoller(ctx, agentmailbox.DefaultRelayPollInterval())
+				go func() {
+					if err := agentRouter.RunNetworkRelaySubscriber(ctx); err != nil && ctx.Err() == nil {
+						logger.Warn("network relay subscriber stopped", "error", err)
+					}
+				}()
+				go agentRouter.RunNetworkRelayPoller(ctx, 5*agentmailbox.DefaultRelayPollInterval())
 			}
 			// TODO: re-enable health checker once agents reliably heartbeat.
 			// go skyagent.NewHealthChecker(agentRegistry, server.Emit, nil).Run(ctx)
