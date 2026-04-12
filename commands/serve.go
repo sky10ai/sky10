@@ -394,12 +394,20 @@ func ServeCmd() *cobra.Command {
 				linkNode.NotifyOwn(ctx, topic)
 			})
 			if len(relays) > 0 {
+				relaySubscriptionLabel := "mailbox:" + bundle.Address()
 				go func() {
 					if err := agentRouter.RunNetworkRelaySubscriber(ctx); err != nil && ctx.Err() == nil {
 						logger.Warn("network relay subscriber stopped", "error", err)
 					}
 				}()
-				go agentRouter.RunNetworkRelayPoller(ctx, 5*agentmailbox.DefaultRelayPollInterval())
+				go agentRouter.RunAdaptiveNetworkRelayPoller(ctx, func() time.Duration {
+					return nostrRelayTracker.AdaptivePollInterval(
+						relaySubscriptionLabel,
+						5*agentmailbox.DefaultRelayPollInterval(),
+						2*agentmailbox.DefaultRelayPollInterval(),
+						agentmailbox.DefaultRelayPollInterval(),
+					)
+				})
 			}
 			// TODO: re-enable health checker once agents reliably heartbeat.
 			// go skyagent.NewHealthChecker(agentRegistry, server.Emit, nil).Run(ctx)

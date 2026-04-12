@@ -300,22 +300,38 @@ func (r *Router) RunNetworkRelaySubscriber(ctx context.Context) error {
 
 // RunNetworkRelayPoller continuously ingests public-network relay traffic.
 func (r *Router) RunNetworkRelayPoller(ctx context.Context, interval time.Duration) error {
-	if interval <= 0 {
-		interval = agentmailbox.DefaultRelayPollInterval()
+	return r.RunAdaptiveNetworkRelayPoller(ctx, func() time.Duration {
+		return interval
+	})
+}
+
+// RunAdaptiveNetworkRelayPoller continuously ingests public-network relay
+// traffic using a dynamic safety-net interval.
+func (r *Router) RunAdaptiveNetworkRelayPoller(ctx context.Context, intervalFn func() time.Duration) error {
+	if intervalFn == nil {
+		intervalFn = func() time.Duration { return agentmailbox.DefaultRelayPollInterval() }
+	}
+	nextInterval := func() time.Duration {
+		interval := intervalFn()
+		if interval <= 0 {
+			interval = agentmailbox.DefaultRelayPollInterval()
+		}
+		return interval
 	}
 	if err := r.PollNetworkRelay(ctx); err != nil {
 		r.logger.Debug("initial network relay poll failed", "error", err)
 	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	timer := time.NewTimer(nextInterval())
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
+		case <-timer.C:
 			if err := r.PollNetworkRelay(ctx); err != nil {
 				r.logger.Debug("network relay poll failed", "error", err)
 			}
+			timer.Reset(nextInterval())
 		}
 	}
 }

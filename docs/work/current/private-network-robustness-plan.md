@@ -265,15 +265,15 @@ public relay subscriptions for mailbox receipts, queue claims, and handoff
 state. It also now tracks live subscription health alongside publish health so
 status can distinguish "Nostr publish worked" from "live relay watchers are
 currently attached." Public queue offer discovery is also now wired through a
-warm subscription cache instead of relay query-only lookups.
+warm subscription cache instead of relay query-only lookups, and the relay
+poll safety net now backs off or speeds up based on live mailbox subscription
+health instead of running on one blind ticker.
 
 The next concrete implementation slice should finish the rest of M5:
 
 - tighten any remaining push paths that still fall back to polling only and
   complete the real-device validation of long-lived relay coordination under
   disconnect/reconnect conditions
-- decide whether the slow relay poll safety net can become adaptive now that
-  the major Nostr coordination paths are push-first
 - finish the real-device mailbox-backed validation passes from
   [`docs/work/past/2026/04/11-Mailbox.md`](../past/2026/04/11-Mailbox.md)
   for offline delivery and relay handoff flows

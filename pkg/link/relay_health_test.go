@@ -139,3 +139,37 @@ func TestNostrRelayTrackerTracksLiveSubscriptions(t *testing.T) {
 		t.Fatal("expected at least one active subscription on relay snapshot")
 	}
 }
+
+func TestNostrRelayTrackerAdaptivePollIntervalFollowsSubscriptionHealth(t *testing.T) {
+	t.Parallel()
+
+	tracker := NewNostrRelayTracker([]string{
+		"wss://one.example",
+		"wss://two.example",
+		"wss://three.example",
+	})
+	healthy := 75 * time.Second
+	degraded := 30 * time.Second
+	down := 15 * time.Second
+	label := "mailbox:alice"
+
+	if got := tracker.AdaptivePollInterval(label, healthy, degraded, down); got != down {
+		t.Fatalf("initial poll interval = %s, want %s", got, down)
+	}
+
+	tracker.RecordSubscriptionConnect(label, "wss://one.example")
+	if got := tracker.AdaptivePollInterval(label, healthy, degraded, down); got != degraded {
+		t.Fatalf("degraded poll interval = %s, want %s", got, degraded)
+	}
+
+	tracker.RecordSubscriptionConnect(label, "wss://two.example")
+	if got := tracker.AdaptivePollInterval(label, healthy, degraded, down); got != healthy {
+		t.Fatalf("healthy poll interval = %s, want %s", got, healthy)
+	}
+
+	tracker.RecordSubscriptionDisconnect(label, "wss://one.example", errors.New("closed"))
+	tracker.RecordSubscriptionDisconnect(label, "wss://two.example", errors.New("closed"))
+	if got := tracker.AdaptivePollInterval(label, healthy, degraded, down); got != down {
+		t.Fatalf("down poll interval = %s, want %s", got, down)
+	}
+}

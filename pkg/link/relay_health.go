@@ -364,6 +364,48 @@ func (t *NostrRelayTracker) CoordinationSnapshot() NostrCoordinationHealth {
 	}
 }
 
+// SubscriptionSnapshot returns the current coordination snapshot for one
+// long-lived subscription label.
+func (t *NostrRelayTracker) SubscriptionSnapshot(label string) NostrSubscriptionHealth {
+	if t == nil {
+		return NostrSubscriptionHealth{}
+	}
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return NostrSubscriptionHealth{}
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	state := t.subscriptions[label]
+	if state == nil {
+		return NostrSubscriptionHealth{Label: label, RequiredRelays: DefaultNostrPublishQuorum(len(t.order))}
+	}
+	return NostrSubscriptionHealth{
+		Label:            label,
+		ActiveRelays:     len(state.activeRelays),
+		RequiredRelays:   DefaultNostrPublishQuorum(len(t.order)),
+		LastConnectAt:    timePtr(state.lastConnectAt),
+		LastEventAt:      timePtr(state.lastEventAt),
+		LastDisconnectAt: timePtr(state.lastDisconnectAt),
+		LastError:        state.lastError,
+	}
+}
+
+// AdaptivePollInterval chooses a safety-net poll interval from current
+// subscription health. Healthy push subscriptions poll slowly; degraded or down
+// subscriptions poll more aggressively.
+func (t *NostrRelayTracker) AdaptivePollInterval(label string, healthy, degraded, down time.Duration) time.Duration {
+	subscription := t.SubscriptionSnapshot(label)
+	switch {
+	case subscription.ActiveRelays == 0:
+		return down
+	case subscription.RequiredRelays > 0 && subscription.ActiveRelays < subscription.RequiredRelays:
+		return degraded
+	default:
+		return healthy
+	}
+}
+
 func (t *NostrRelayTracker) ensureLocked(relay string) *nostrRelayState {
 	if state, ok := t.states[relay]; ok && state != nil {
 		if state.activeSubscriptions == nil {
