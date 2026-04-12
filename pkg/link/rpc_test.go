@@ -60,6 +60,20 @@ func TestRPCStatus(t *testing.T) {
 				AverageLatencyMS: 28,
 			}}
 		}),
+		WithNostrCoordinationProvider(func() NostrCoordinationHealth {
+			now := time.Now().UTC()
+			return NostrCoordinationHealth{
+				ConfiguredRelays: 3,
+				LastPublish: NostrPublishOutcome{
+					Operation: "presence",
+					Attempts:  3,
+					Successes: 1,
+					Quorum:    2,
+					Degraded:  true,
+					At:        &now,
+				},
+			}
+		}),
 	)
 
 	result, err, handled := h.Dispatch(context.Background(), "skylink.status", nil)
@@ -107,6 +121,12 @@ func TestRPCStatus(t *testing.T) {
 	}
 	if status.Health.Relays[0].URL != "wss://relay.example" {
 		t.Fatalf("relay url = %q", status.Health.Relays[0].URL)
+	}
+	if status.Health.CoordinationDegradedReason != "nostr_publish_quorum" {
+		t.Fatalf("coordination degraded reason = %q", status.Health.CoordinationDegradedReason)
+	}
+	if status.Health.Nostr.LastPublish.Quorum != 2 {
+		t.Fatalf("publish quorum = %d, want 2", status.Health.Nostr.LastPublish.Quorum)
 	}
 	if len(status.Health.Events) == 0 {
 		t.Fatal("expected recent health events")

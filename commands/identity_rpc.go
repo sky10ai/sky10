@@ -352,11 +352,11 @@ func publishInviteBootstrap(ctx context.Context, linkNode *link.Node, relays []s
 	discovery := link.NewNostrDiscovery(relays, nil)
 	membership, err := linkNode.CurrentMembershipRecord()
 	if err == nil {
-		_ = discovery.PublishMembership(publishCtx, linkNode.Bundle().Identity, membership)
+		_, _ = discovery.PublishMembership(publishCtx, linkNode.Bundle().Identity, membership)
 	}
 	presence, err := linkNode.CurrentPresenceRecordForPublish(publishCtx, 0)
 	if err == nil {
-		_ = discovery.PublishPresence(publishCtx, linkNode.Bundle().Device, presence)
+		_, _ = discovery.PublishPresence(publishCtx, linkNode.Bundle().Device, presence)
 	}
 }
 

@@ -20,6 +20,23 @@ type NostrRelayHealth struct {
 	AverageLatencyMS int64      `json:"average_latency_ms,omitempty"`
 }
 
+// NostrPublishOutcome summarizes one multi-relay publish attempt.
+type NostrPublishOutcome struct {
+	Operation string     `json:"operation,omitempty"`
+	Attempts  int        `json:"attempts"`
+	Successes int        `json:"successes"`
+	Quorum    int        `json:"quorum"`
+	Degraded  bool       `json:"degraded,omitempty"`
+	At        *time.Time `json:"at,omitempty"`
+}
+
+// NostrCoordinationHealth summarizes the current multi-relay coordination
+// state used by discovery and public-network mailbox flows.
+type NostrCoordinationHealth struct {
+	ConfiguredRelays int                 `json:"configured_relays"`
+	LastPublish      NostrPublishOutcome `json:"last_publish"`
+}
+
 type nostrRelayState struct {
 	successes      int
 	failures       int
@@ -34,9 +51,10 @@ type nostrRelayState struct {
 // NostrRelayTracker keeps lightweight health and ranking state for the relay
 // set used across discovery and public-network mailbox coordination.
 type NostrRelayTracker struct {
-	mu     sync.RWMutex
-	order  []string
-	states map[string]*nostrRelayState
+	mu          sync.RWMutex
+	order       []string
+	states      map[string]*nostrRelayState
+	lastPublish NostrPublishOutcome
 }
 
 // NewNostrRelayTracker creates a tracker for the configured relay set.
@@ -82,6 +100,28 @@ func (t *NostrRelayTracker) Record(relay string, latency time.Duration, err erro
 	state.lastError = ""
 	state.totalLatency += latency
 	state.latencySamples++
+}
+
+// RecordPublishOutcome stores the latest multi-relay publish result.
+func (t *NostrRelayTracker) RecordPublishOutcome(operation string, attempts, successes, quorum int) NostrPublishOutcome {
+	outcome := NostrPublishOutcome{
+		Operation: strings.TrimSpace(operation),
+		Attempts:  attempts,
+		Successes: successes,
+		Quorum:    quorum,
+		Degraded:  successes > 0 && quorum > 0 && successes < quorum,
+	}
+	if attempts > 0 || successes > 0 || quorum > 0 || outcome.Operation != "" {
+		now := time.Now().UTC()
+		outcome.At = &now
+	}
+	if t == nil {
+		return outcome
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.lastPublish = outcome
+	return outcome
 }
 
 // Ordered returns relays sorted by recent health, with stable fallback to the
@@ -178,6 +218,19 @@ func (t *NostrRelayTracker) Snapshot() []NostrRelayHealth {
 	return out
 }
 
+// CoordinationSnapshot returns the current relay coordination summary.
+func (t *NostrRelayTracker) CoordinationSnapshot() NostrCoordinationHealth {
+	if t == nil {
+		return NostrCoordinationHealth{}
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return NostrCoordinationHealth{
+		ConfiguredRelays: len(t.order),
+		LastPublish:      t.lastPublish,
+	}
+}
+
 func (t *NostrRelayTracker) ensureLocked(relay string) *nostrRelayState {
 	if state, ok := t.states[relay]; ok && state != nil {
 		return state
@@ -207,6 +260,19 @@ func normalizeRelayList(relays []string) []string {
 		out = append(out, relay)
 	}
 	return out
+}
+
+// DefaultNostrPublishQuorum returns the minimum number of relay publishes
+// required for a multi-relay publish to count as healthy.
+func DefaultNostrPublishQuorum(relayCount int) int {
+	switch {
+	case relayCount <= 0:
+		return 0
+	case relayCount == 1:
+		return 1
+	default:
+		return 2
+	}
 }
 
 func relayRank(state nostrRelayState) int {

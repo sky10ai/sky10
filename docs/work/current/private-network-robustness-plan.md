@@ -257,17 +257,15 @@ retry ambiguity into a more complicated system.
 ## Immediate Next Work
 
 As of 2026-04-12, M1 through M3 are implemented on this branch. M4 now has
-explicit delivery metadata in RPC and operator-facing UI surfaces, and the
-first M5 slice is in place via shared Nostr relay health tracking and ranking.
+explicit delivery metadata in RPC and operator-facing UI surfaces. M5 now has
+shared Nostr relay health tracking and ranking, multi-relay publish quorum
+reporting, and last-good Nostr discovery cache fallback for membership and
+presence.
 
 The next concrete implementation slice should be the rest of M5:
 
 - move Nostr coordination from ranked query/publish into longer-lived
   subscriptions for presence, receipts, queue claims, and handoff state
-- add relay publish-quorum rules so partial relay success is visible instead of
-  treated as clean success
-- cache last-good relay state so brief relay outages do not erase usable
-  presence or handoff knowledge
 - finish the real-device mailbox-backed validation passes from
   [`docs/work/past/2026/04/11-Mailbox.md`](../past/2026/04/11-Mailbox.md)
   for offline delivery and relay handoff flows
@@ -275,9 +273,11 @@ The next concrete implementation slice should be the rest of M5:
 That work is small enough to ship incrementally and high leverage enough to
 make every later milestone easier:
 
-- keep relay ranking shared across private-network discovery, relay/dropbox,
-  and public queue coordination
-- surface relay degradation from one `skylink.status` call and the Network page
+- keep relay ranking, quorum reporting, and cached last-good state shared
+  across private-network discovery, relay/dropbox, and public queue
+  coordination
+- surface relay degradation and sub-quorum publish state from one
+  `skylink.status` call and the Network page
 - tighten Nostr convergence before considering any optional coordinator
 
 Once that exists, the rest of the plan can be driven by observed failures

@@ -390,10 +390,25 @@ export interface LinkRelayHealth {
   average_latency_ms?: number;
 }
 
+export interface LinkNostrPublishOutcome {
+  operation?: string;
+  attempts: number;
+  successes: number;
+  quorum: number;
+  degraded?: boolean;
+  at?: string;
+}
+
+export interface LinkNostrCoordinationHealth {
+  configured_relays: number;
+  last_publish: LinkNostrPublishOutcome;
+}
+
 export interface LinkNetworkHealth {
   preferred_transport: string;
   transport_degraded_reason?: string;
   delivery_degraded_reason?: string;
+  coordination_degraded_reason?: string;
   reachability?: string;
   public_addr?: string;
   mapping_varies_by_server?: boolean;
@@ -402,6 +417,7 @@ export interface LinkNetworkHealth {
   last_address_change_at?: string;
   netcheck: LinkNetcheckResult;
   mailbox: LinkMailboxHealth;
+  nostr: LinkNostrCoordinationHealth;
   relays?: LinkRelayHealth[];
   events?: LinkHealthEvent[];
 }

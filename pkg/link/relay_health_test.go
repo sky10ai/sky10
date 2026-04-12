@@ -65,3 +65,31 @@ func TestNostrRelayTrackerSnapshotIncludesLatencyAndErrors(t *testing.T) {
 		t.Fatal("expected last failure timestamp")
 	}
 }
+
+func TestNostrRelayTrackerCoordinationSnapshotTracksDegradedPublish(t *testing.T) {
+	t.Parallel()
+
+	tracker := NewNostrRelayTracker([]string{
+		"wss://one.example",
+		"wss://two.example",
+		"wss://three.example",
+	})
+	outcome := tracker.RecordPublishOutcome("presence", 3, 1, DefaultNostrPublishQuorum(3))
+	if !outcome.Degraded {
+		t.Fatal("expected degraded publish outcome")
+	}
+
+	snapshot := tracker.CoordinationSnapshot()
+	if snapshot.ConfiguredRelays != 3 {
+		t.Fatalf("configured relays = %d, want 3", snapshot.ConfiguredRelays)
+	}
+	if snapshot.LastPublish.Operation != "presence" {
+		t.Fatalf("last publish operation = %q", snapshot.LastPublish.Operation)
+	}
+	if snapshot.LastPublish.Quorum != 2 {
+		t.Fatalf("publish quorum = %d, want 2", snapshot.LastPublish.Quorum)
+	}
+	if !snapshot.LastPublish.Degraded {
+		t.Fatal("expected degraded coordination snapshot")
+	}
+}

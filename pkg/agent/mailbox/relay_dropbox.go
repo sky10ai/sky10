@@ -375,8 +375,9 @@ func (t *nostrRelayTransport) Publish(ctx context.Context, signer *skykey.Key, e
 		return fmt.Errorf("signing relay event: %w", err)
 	}
 
-	var published bool
-	for _, relay := range t.orderedRelays() {
+	ordered := t.orderedRelays()
+	successes := 0
+	for _, relay := range ordered {
 		started := time.Now()
 		r, err := nostr.RelayConnect(ctx, relay)
 		if err != nil {
@@ -391,10 +392,11 @@ func (t *nostrRelayTransport) Publish(ctx context.Context, signer *skykey.Key, e
 			continue
 		}
 		t.recordRelay(relay, time.Since(started), nil)
-		published = true
+		successes++
 		r.Close()
 	}
-	if !published {
+	t.recordPublishOutcome("mailbox_"+event.RecordType, len(ordered), successes)
+	if successes == 0 {
 		return fmt.Errorf("failed to publish relay event to any nostr relay")
 	}
 	return nil
@@ -481,6 +483,13 @@ func (t *nostrRelayTransport) recordRelay(relay string, latency time.Duration, e
 		return
 	}
 	t.tracker.Record(relay, latency, err)
+}
+
+func (t *nostrRelayTransport) recordPublishOutcome(operation string, attempts, successes int) {
+	if t == nil || t.tracker == nil {
+		return
+	}
+	t.tracker.RecordPublishOutcome(operation, attempts, successes, link.DefaultNostrPublishQuorum(attempts))
 }
 
 func relayItemDTag(recipient, itemID string) string {

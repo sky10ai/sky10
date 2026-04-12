@@ -306,10 +306,10 @@ func TestResolverNostrFallbackLive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("presence record A: %v", err)
 	}
-	if err := nostrA.PublishMembership(ctx, bundleA.Identity, membershipA); err != nil {
+	if _, err := nostrA.PublishMembership(ctx, bundleA.Identity, membershipA); err != nil {
 		t.Fatalf("publish membership A: %v", err)
 	}
-	if err := nostrA.PublishPresence(ctx, bundleA.Device, presenceA); err != nil {
+	if _, err := nostrA.PublishPresence(ctx, bundleA.Device, presenceA); err != nil {
 		t.Fatalf("publish presence A: %v", err)
 	}
 

@@ -41,19 +41,21 @@ type MailboxHealth struct {
 // NetworkHealth is the operator-facing status snapshot returned by
 // skylink.status.
 type NetworkHealth struct {
-	PreferredTransport      string             `json:"preferred_transport"`
-	TransportDegradedReason string             `json:"transport_degraded_reason,omitempty"`
-	DeliveryDegradedReason  string             `json:"delivery_degraded_reason,omitempty"`
-	Reachability            string             `json:"reachability,omitempty"`
-	PublicAddr              string             `json:"public_addr,omitempty"`
-	MappingVariesByServer   bool               `json:"mapping_varies_by_server,omitempty"`
-	ConnectedPrivatePeers   int                `json:"connected_private_peers"`
-	LastPublishedAt         *time.Time         `json:"last_published_at,omitempty"`
-	LastAddressChangeAt     *time.Time         `json:"last_address_change_at,omitempty"`
-	Netcheck                NetcheckResult     `json:"netcheck"`
-	Mailbox                 MailboxHealth      `json:"mailbox"`
-	Relays                  []NostrRelayHealth `json:"relays,omitempty"`
-	Events                  []HealthEvent      `json:"events,omitempty"`
+	PreferredTransport         string                  `json:"preferred_transport"`
+	TransportDegradedReason    string                  `json:"transport_degraded_reason,omitempty"`
+	DeliveryDegradedReason     string                  `json:"delivery_degraded_reason,omitempty"`
+	CoordinationDegradedReason string                  `json:"coordination_degraded_reason,omitempty"`
+	Reachability               string                  `json:"reachability,omitempty"`
+	PublicAddr                 string                  `json:"public_addr,omitempty"`
+	MappingVariesByServer      bool                    `json:"mapping_varies_by_server,omitempty"`
+	ConnectedPrivatePeers      int                     `json:"connected_private_peers"`
+	LastPublishedAt            *time.Time              `json:"last_published_at,omitempty"`
+	LastAddressChangeAt        *time.Time              `json:"last_address_change_at,omitempty"`
+	Netcheck                   NetcheckResult          `json:"netcheck"`
+	Mailbox                    MailboxHealth           `json:"mailbox"`
+	Nostr                      NostrCoordinationHealth `json:"nostr"`
+	Relays                     []NostrRelayHealth      `json:"relays,omitempty"`
+	Events                     []HealthEvent           `json:"events,omitempty"`
 }
 
 // RuntimeHealthTracker records recent operator-visible network events and
@@ -117,6 +119,12 @@ func (t *RuntimeHealthTracker) RecordReachability(reachability string) {
 
 // RecordPublish records one publish attempt to a discovery surface.
 func (t *RuntimeHealthTracker) RecordPublish(target string, err error) {
+	t.RecordNostrPublish(target, NostrPublishOutcome{}, err)
+}
+
+// RecordNostrPublish records one publish attempt, including degraded quorum
+// successes that should show up as warnings rather than clean success.
+func (t *RuntimeHealthTracker) RecordNostrPublish(target string, outcome NostrPublishOutcome, err error) {
 	if t == nil {
 		return
 	}
@@ -128,7 +136,13 @@ func (t *RuntimeHealthTracker) RecordPublish(target string, err error) {
 	if err != nil {
 		status = "error"
 		detail = fmt.Sprintf("%s: %v", target, err)
+	} else if outcome.Degraded {
+		status = "warn"
+		detail = fmt.Sprintf("%s quorum %d/%d", target, outcome.Successes, outcome.Quorum)
 	} else {
+		t.lastPublishedAt = now
+	}
+	if err == nil && outcome.Attempts > 0 {
 		t.lastPublishedAt = now
 	}
 	t.recordLocked("publish", status, detail, now)
@@ -223,6 +237,13 @@ func deliveryDegradedReason(mailbox MailboxHealth) string {
 	default:
 		return ""
 	}
+}
+
+func coordinationDegradedReason(coordination NostrCoordinationHealth) string {
+	if coordination.LastPublish.Degraded {
+		return "nostr_publish_quorum"
+	}
+	return ""
 }
 
 func timePtr(t time.Time) *time.Time {

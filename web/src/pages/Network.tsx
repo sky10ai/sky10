@@ -45,6 +45,31 @@ function fallbackLabel(mailbox?: LinkMailboxHealth) {
   return "Clear";
 }
 
+function coordinationTone(health?: LinkNetworkHealth) {
+  if (!health) return "bg-surface-container text-secondary";
+  if (health.coordination_degraded_reason) {
+    return "bg-amber-500/10 text-amber-700";
+  }
+  return "bg-emerald-500/10 text-emerald-700";
+}
+
+function coordinationLabel(health?: LinkNetworkHealth) {
+  if (!health?.nostr?.configured_relays) return "Not configured";
+  if (health.coordination_degraded_reason) return "Degraded";
+  return "Healthy";
+}
+
+function eventTone(status: string) {
+  switch (status) {
+    case "error":
+      return "bg-error-container/30 text-error";
+    case "warn":
+      return "bg-amber-500/10 text-amber-700";
+    default:
+      return "bg-emerald-500/10 text-emerald-700";
+  }
+}
+
 function eventLabel(event: LinkHealthEvent) {
   switch (event.type) {
     case "publish":
@@ -161,6 +186,14 @@ export default function Network() {
                 </span>
                 <span className={`inline-flex w-fit rounded-full px-2 py-1 text-xs font-bold ${fallbackTone(networkHealth?.mailbox)}`}>
                   {fallbackLabel(networkHealth?.mailbox)}
+                </span>
+              </div>
+              <div className="px-6 py-4 bg-surface-container-low rounded-xl flex flex-col gap-1 min-w-[150px]">
+                <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">
+                  Coordination
+                </span>
+                <span className={`inline-flex w-fit rounded-full px-2 py-1 text-xs font-bold ${coordinationTone(networkHealth)}`}>
+                  {coordinationLabel(networkHealth)}
                 </span>
               </div>
             </>
@@ -355,6 +388,14 @@ export default function Network() {
                 </div>
                 <div>
                   <div className="text-[10px] font-bold uppercase tracking-widest text-outline">
+                    Nostr Publish
+                  </div>
+                  <div className="mt-1 font-semibold text-on-surface">
+                    {networkHealth.nostr.last_publish.successes || 0}/{networkHealth.nostr.last_publish.quorum || 0}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-outline">
                     Failed
                   </div>
                   <div className="mt-1 font-semibold text-on-surface">
@@ -362,13 +403,16 @@ export default function Network() {
                   </div>
                 </div>
               </div>
-              {(networkHealth.transport_degraded_reason || networkHealth.delivery_degraded_reason) && (
+              {(networkHealth.transport_degraded_reason || networkHealth.delivery_degraded_reason || networkHealth.coordination_degraded_reason) && (
                 <div className="rounded-lg bg-surface-container-low p-3 text-xs text-secondary">
                   {networkHealth.transport_degraded_reason && (
                     <div>Transport: {networkHealth.transport_degraded_reason}</div>
                   )}
                   {networkHealth.delivery_degraded_reason && (
                     <div>Delivery: {networkHealth.delivery_degraded_reason}</div>
+                  )}
+                  {networkHealth.coordination_degraded_reason && (
+                    <div>Coordination: {networkHealth.coordination_degraded_reason}</div>
                   )}
                 </div>
               )}
@@ -420,6 +464,14 @@ export default function Network() {
                   </div>
                 ))}
               </div>
+              {networkHealth?.nostr?.last_publish?.at && (
+                <div className="rounded-lg bg-surface-container-low px-4 py-3 text-[11px] text-secondary">
+                  Last multi-relay publish {networkHealth.nostr.last_publish.operation || "unknown"} hit{" "}
+                  {networkHealth.nostr.last_publish.successes}/{networkHealth.nostr.last_publish.quorum || 0}
+                  {" "}
+                  relays <RelativeTime value={networkHealth.nostr.last_publish.at} />
+                </div>
+              )}
             </div>
           )}
 
@@ -516,11 +568,7 @@ export default function Network() {
                           {eventLabel(event)}
                         </span>
                         <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                            event.status === "error"
-                              ? "bg-error-container/30 text-error"
-                              : "bg-emerald-500/10 text-emerald-700"
-                          }`}
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${eventTone(event.status)}`}
                         >
                           {event.status}
                         </span>

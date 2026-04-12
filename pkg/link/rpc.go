@@ -17,6 +17,7 @@ type RPCHandler struct {
 	healthTracker  *RuntimeHealthTracker
 	mailboxHealth  func() MailboxHealth
 	relayHealth    func() []NostrRelayHealth
+	nostrHealth    func() NostrCoordinationHealth
 	netcheckMu     sync.Mutex
 	lastNetcheckAt time.Time
 	lastNetcheck   NetcheckResult
@@ -51,6 +52,14 @@ func WithMailboxHealthProvider(provider func() MailboxHealth) RPCHandlerOption {
 func WithRelayHealthProvider(provider func() []NostrRelayHealth) RPCHandlerOption {
 	return func(h *RPCHandler) {
 		h.relayHealth = provider
+	}
+}
+
+// WithNostrCoordinationProvider attaches shared Nostr coordination state to
+// skylink.status.
+func WithNostrCoordinationProvider(provider func() NostrCoordinationHealth) RPCHandlerOption {
+	return func(h *RPCHandler) {
+		h.nostrHealth = provider
 	}
 }
 
@@ -124,6 +133,10 @@ func (h *RPCHandler) rpcStatus(ctx context.Context) (interface{}, error, bool) {
 	if h.relayHealth != nil {
 		relays = h.relayHealth()
 	}
+	nostr := NostrCoordinationHealth{}
+	if h.nostrHealth != nil {
+		nostr = h.nostrHealth()
+	}
 	return statusResult{
 		PeerID:       h.node.PeerID().String(),
 		Address:      h.node.Address(),
@@ -132,19 +145,21 @@ func (h *RPCHandler) rpcStatus(ctx context.Context) (interface{}, error, bool) {
 		Peers:        len(h.node.ConnectedPeers()),
 		PrivatePeers: privatePeers,
 		Health: NetworkHealth{
-			PreferredTransport:      preferredTransportFromNetcheck(netcheck),
-			TransportDegradedReason: transportDegradedReason(netcheck),
-			DeliveryDegradedReason:  deliveryDegradedReason(mailbox),
-			Reachability:            runtime.Reachability,
-			PublicAddr:              netcheck.PublicAddr,
-			MappingVariesByServer:   netcheck.MappingVariesByServer,
-			ConnectedPrivatePeers:   privatePeers,
-			LastPublishedAt:         runtime.LastPublishedAt,
-			LastAddressChangeAt:     runtime.LastAddressChangeAt,
-			Netcheck:                netcheck,
-			Mailbox:                 mailbox,
-			Relays:                  relays,
-			Events:                  runtime.Events,
+			PreferredTransport:         preferredTransportFromNetcheck(netcheck),
+			TransportDegradedReason:    transportDegradedReason(netcheck),
+			DeliveryDegradedReason:     deliveryDegradedReason(mailbox),
+			CoordinationDegradedReason: coordinationDegradedReason(nostr),
+			Reachability:               runtime.Reachability,
+			PublicAddr:                 netcheck.PublicAddr,
+			MappingVariesByServer:      netcheck.MappingVariesByServer,
+			ConnectedPrivatePeers:      privatePeers,
+			LastPublishedAt:            runtime.LastPublishedAt,
+			LastAddressChangeAt:        runtime.LastAddressChangeAt,
+			Netcheck:                   netcheck,
+			Mailbox:                    mailbox,
+			Nostr:                      nostr,
+			Relays:                     relays,
+			Events:                     runtime.Events,
 		},
 	}, nil, true
 }

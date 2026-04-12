@@ -205,6 +205,7 @@ func ServeCmd() *cobra.Command {
 					}
 				}),
 				link.WithRelayHealthProvider(nostrRelayTracker.Snapshot),
+				link.WithNostrCoordinationProvider(nostrRelayTracker.CoordinationSnapshot),
 			))
 			var triggerPrivateNetwork func(reason, detail string)
 			var kvSync *kv.P2PSync
@@ -266,24 +267,36 @@ func ServeCmd() *cobra.Command {
 						if err != nil {
 							logger.Warn("building private-network membership record failed", "error", err)
 							errs = append(errs, fmt.Errorf("build membership record: %w", err))
-						} else if err := nostr.PublishMembership(runCtx, bundle.Identity, membershipRecord); err != nil {
-							runtimeHealth.RecordPublish("nostr_membership", err)
+						} else if outcome, err := nostr.PublishMembership(runCtx, bundle.Identity, membershipRecord); err != nil {
+							runtimeHealth.RecordNostrPublish("nostr_membership", outcome, err)
 							logger.Warn("failed to publish private-network membership to Nostr", "error", err)
 							errs = append(errs, fmt.Errorf("publish nostr membership: %w", err))
 						} else {
-							runtimeHealth.RecordPublish("nostr_membership", nil)
+							runtimeHealth.RecordNostrPublish("nostr_membership", outcome, nil)
+							if outcome.Degraded {
+								logger.Warn("published private-network membership to Nostr below quorum",
+									"successes", outcome.Successes,
+									"quorum", outcome.Quorum,
+								)
+							}
 						}
 
 						presenceRecord, err := linkNode.CurrentPresenceRecordForPublish(runCtx, 0)
 						if err != nil {
 							logger.Warn("building private-network presence record failed", "error", err)
 							errs = append(errs, fmt.Errorf("build presence record: %w", err))
-						} else if err := nostr.PublishPresence(runCtx, bundle.Device, presenceRecord); err != nil {
-							runtimeHealth.RecordPublish("nostr_presence", err)
+						} else if outcome, err := nostr.PublishPresence(runCtx, bundle.Device, presenceRecord); err != nil {
+							runtimeHealth.RecordNostrPublish("nostr_presence", outcome, err)
 							logger.Warn("failed to publish private-network presence to Nostr", "error", err)
 							errs = append(errs, fmt.Errorf("publish nostr presence: %w", err))
 						} else {
-							runtimeHealth.RecordPublish("nostr_presence", nil)
+							runtimeHealth.RecordNostrPublish("nostr_presence", outcome, nil)
+							if outcome.Degraded {
+								logger.Warn("published private-network presence to Nostr below quorum",
+									"successes", outcome.Successes,
+									"quorum", outcome.Quorum,
+								)
+							}
 						}
 					}
 

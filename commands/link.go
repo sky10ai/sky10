@@ -40,12 +40,23 @@ func linkStatusCmd() *cobra.Command {
 				Peers        int      `json:"peers"`
 				PrivatePeers int      `json:"private_peers"`
 				Health       struct {
-					PreferredTransport      string `json:"preferred_transport"`
-					TransportDegradedReason string `json:"transport_degraded_reason"`
-					DeliveryDegradedReason  string `json:"delivery_degraded_reason"`
-					Reachability            string `json:"reachability"`
-					PublicAddr              string `json:"public_addr"`
-					Relays                  []struct {
+					PreferredTransport         string `json:"preferred_transport"`
+					TransportDegradedReason    string `json:"transport_degraded_reason"`
+					DeliveryDegradedReason     string `json:"delivery_degraded_reason"`
+					CoordinationDegradedReason string `json:"coordination_degraded_reason"`
+					Reachability               string `json:"reachability"`
+					PublicAddr                 string `json:"public_addr"`
+					Nostr                      struct {
+						ConfiguredRelays int `json:"configured_relays"`
+						LastPublish      struct {
+							Operation string `json:"operation"`
+							Attempts  int    `json:"attempts"`
+							Successes int    `json:"successes"`
+							Quorum    int    `json:"quorum"`
+							Degraded  bool   `json:"degraded"`
+						} `json:"last_publish"`
+					} `json:"nostr"`
+					Relays []struct {
 						URL              string `json:"url"`
 						Successes        int    `json:"successes"`
 						Failures         int    `json:"failures"`
@@ -87,6 +98,16 @@ func linkStatusCmd() *cobra.Command {
 			}
 			if status.Health.DeliveryDegradedReason != "" {
 				fmt.Printf("delivery: %s\n", status.Health.DeliveryDegradedReason)
+			}
+			if status.Health.CoordinationDegradedReason != "" {
+				fmt.Printf("coord:    %s\n", status.Health.CoordinationDegradedReason)
+			}
+			if status.Health.Nostr.LastPublish.Quorum > 0 {
+				fmt.Printf("nostr:    %s %d/%d relays\n",
+					status.Health.Nostr.LastPublish.Operation,
+					status.Health.Nostr.LastPublish.Successes,
+					status.Health.Nostr.LastPublish.Quorum,
+				)
 			}
 			if status.Health.Mailbox.PendingPrivate > 0 || status.Health.Mailbox.PendingSky10Network > 0 || status.Health.Mailbox.Failed > 0 {
 				fmt.Printf("mailbox:  queued=%d failed=%d private=%d sky10=%d handed_off=%d\n",
