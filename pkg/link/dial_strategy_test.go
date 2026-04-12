@@ -26,6 +26,30 @@ func TestPrioritizeAddrInfoPrefersQUICWhenUDPHealthy(t *testing.T) {
 	}
 }
 
+func TestPrioritizeAddrInfoPrefersLastSuccessfulAddr(t *testing.T) {
+	t.Parallel()
+
+	info := testPeerAddrInfo(t, []string{
+		"/ip4/203.0.113.10/udp/4101/quic-v1",
+		"/ip4/203.0.113.10/tcp/4101",
+	})
+
+	got, scores := PrioritizeAddrInfoWithHint(info, NetcheckResult{
+		UDP:        true,
+		PublicAddr: "203.0.113.99:55000",
+	}, PathHint{
+		LastSuccessAt:        time.Now().UTC(),
+		LastSuccessTransport: "direct_tcp",
+		LastSuccessAddr:      "/ip4/203.0.113.10/tcp/4101",
+	})
+	if !isTCPAddr(got.Addrs[0]) {
+		t.Fatalf("first addr = %s, want TCP last-success path", got.Addrs[0])
+	}
+	if len(scores) == 0 || scores[0].Transport != "direct_tcp" {
+		t.Fatalf("top score = %+v, want direct_tcp", scores)
+	}
+}
+
 func TestPrioritizeAddrInfoPrefersTCPWhenUDPFlaky(t *testing.T) {
 	t.Parallel()
 
@@ -41,6 +65,37 @@ func TestPrioritizeAddrInfoPrefersTCPWhenUDPFlaky(t *testing.T) {
 	})
 	if !isTCPAddr(got.Addrs[0]) {
 		t.Fatalf("first addr = %s, want TCP", got.Addrs[0])
+	}
+}
+
+func TestPrioritizeAddrInfoPenalizesRecentFailures(t *testing.T) {
+	t.Parallel()
+
+	quicAddr := "/ip4/203.0.113.10/udp/4101/quic-v1"
+	info := testPeerAddrInfo(t, []string{
+		quicAddr,
+		"/ip4/203.0.113.10/tcp/4101",
+	})
+
+	got, scores := PrioritizeAddrInfoWithHint(info, NetcheckResult{
+		UDP:        true,
+		PublicAddr: "203.0.113.99:55000",
+	}, PathHint{
+		AddrFailures: map[string]PathFailure{
+			quicAddr: {Count: 2, LastAt: time.Now().UTC()},
+		},
+		TransportFailures: map[string]PathFailure{
+			"direct_quic": {Count: 1, LastAt: time.Now().UTC()},
+		},
+	})
+	if !isTCPAddr(got.Addrs[0]) {
+		t.Fatalf("first addr = %s, want TCP after recent QUIC failures", got.Addrs[0])
+	}
+	if len(scores) == 0 || scores[0].Transport != "direct_tcp" {
+		t.Fatalf("top score = %+v, want direct_tcp", scores)
+	}
+	if len(scores) < 2 || scores[1].FailureCount == 0 {
+		t.Fatalf("scores = %+v, want failure count on penalized QUIC addr", scores)
 	}
 }
 
@@ -99,6 +154,12 @@ func TestResolverResolveAllPrioritizesPeerAddrs(t *testing.T) {
 	}
 	if !isQUICAddr(resolution.Peers[0].Info.Addrs[0]) {
 		t.Fatalf("first resolved addr = %s, want QUIC", resolution.Peers[0].Info.Addrs[0])
+	}
+	if resolution.Peers[0].PreferredTransport != "direct_quic" {
+		t.Fatalf("preferred transport = %q, want direct_quic", resolution.Peers[0].PreferredTransport)
+	}
+	if len(resolution.Peers[0].AddrScores) == 0 {
+		t.Fatal("expected addr score explanations")
 	}
 }
 

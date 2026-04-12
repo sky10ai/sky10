@@ -256,7 +256,18 @@ retry ambiguity into a more complicated system.
 
 ## Immediate Next Work
 
-The next concrete implementation slice should be M1.
+As of 2026-04-12, M1 through M3 are implemented on this branch.
+
+The next concrete implementation slice should be M4:
+
+- make live-only versus mailbox-backed semantics explicit in RPC and router
+  code
+- return delivery metadata next to transport metadata
+- make queued, handed-off, and delivered states visible from one status/UI
+  surface
+- validate the mailbox-backed flows from
+  [`docs/work/past/2026/04/11-Mailbox.md`](../past/2026/04/11-Mailbox.md)
+  against real offline and relay-handoff scenarios
 
 That work is small enough to ship incrementally and high leverage enough to
 make every later milestone easier:

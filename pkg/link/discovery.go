@@ -15,11 +15,17 @@ import (
 
 // ResolvedPeer is one reachable device in a private network.
 type ResolvedPeer struct {
-	Info         *peer.AddrInfo
-	DevicePubKey string
-	PublishedAt  time.Time
-	ExpiresAt    time.Time
-	Source       string
+	Info                 *peer.AddrInfo
+	DevicePubKey         string
+	PublishedAt          time.Time
+	ExpiresAt            time.Time
+	Source               string
+	PreferredTransport   string
+	LastSuccessAt        time.Time
+	LastSuccessTransport string
+	LastSuccessSource    string
+	LastSuccessAddr      string
+	AddrScores           []AddrScore
 }
 
 // Resolution contains the winning membership record plus the currently
@@ -49,6 +55,7 @@ type Resolver struct {
 	netcheckMu     sync.Mutex
 	lastNetcheckAt time.Time
 	lastNetcheck   NetcheckResult
+	paths          *PathMemory
 }
 
 // ResolverOption configures the resolver.
@@ -61,6 +68,7 @@ func NewResolver(node *Node, opts ...ResolverOption) *Resolver {
 		stun:     append([]string(nil), DefaultSTUNServers...),
 		netcheck: Netcheck,
 		logger:   node.logger,
+		paths:    NewPathMemory(),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -211,6 +219,24 @@ func compareResolvedPeers(a, b *ResolvedPeer) int {
 	if b == nil {
 		return 1
 	}
+	switch {
+	case a.LastSuccessAt.After(b.LastSuccessAt):
+		return 1
+	case a.LastSuccessAt.Before(b.LastSuccessAt):
+		return -1
+	}
+	if as, bs := bestAddrScore(a.AddrScores), bestAddrScore(b.AddrScores); as != bs {
+		if as > bs {
+			return 1
+		}
+		return -1
+	}
+	if a.LastSuccessSource == a.Source && b.LastSuccessSource != b.Source {
+		return 1
+	}
+	if b.LastSuccessSource == b.Source && a.LastSuccessSource != a.Source {
+		return -1
+	}
 	if ar, br := resolvedPeerSourceRank(a.Source), resolvedPeerSourceRank(b.Source); ar != br {
 		if ar > br {
 			return 1
@@ -344,7 +370,16 @@ func (r *Resolver) ResolveAll(ctx context.Context, address string) (*Resolution,
 		if !ok || candidate == nil || candidate.Info == nil {
 			continue
 		}
-		candidate.Info = r.prioritizeAddrInfo(ctx, candidate.Info)
+		hint := PathHint{}
+		if r.paths != nil {
+			hint = r.paths.Snapshot(candidate.Info.ID)
+		}
+		candidate.Info, candidate.AddrScores = r.prioritizeAddrInfo(ctx, candidate.Info, hint)
+		candidate.PreferredTransport = preferredTransportFromScores(candidate.AddrScores)
+		candidate.LastSuccessAt = hint.LastSuccessAt
+		candidate.LastSuccessTransport = hint.LastSuccessTransport
+		candidate.LastSuccessSource = hint.LastSuccessSource
+		candidate.LastSuccessAddr = hint.LastSuccessAddr
 		peers = append(peers, candidate)
 	}
 	sort.Slice(peers, func(i, j int) bool {
@@ -364,6 +399,16 @@ func (r *Resolver) ResolveAll(ctx context.Context, address string) (*Resolution,
 
 // Resolve returns the freshest reachable peer for the given identity.
 func (r *Resolver) Resolve(ctx context.Context, address string) (*peer.AddrInfo, error) {
+	resolved, err := r.ResolvePeer(ctx, address)
+	if err != nil {
+		return nil, err
+	}
+	return resolved.Info, nil
+}
+
+// ResolvePeer returns the freshest reachable peer plus the resolver's current
+// explanation for why that candidate won.
+func (r *Resolver) ResolvePeer(ctx context.Context, address string) (*ResolvedPeer, error) {
 	resolution, err := r.ResolveAll(ctx, address)
 	if err != nil {
 		return nil, err
@@ -371,23 +416,38 @@ func (r *Resolver) Resolve(ctx context.Context, address string) (*peer.AddrInfo,
 	if len(resolution.Peers) == 0 {
 		return nil, fmt.Errorf("could not resolve %s", address)
 	}
-	return resolution.Peers[0].Info, nil
+	return resolution.Peers[0], nil
 }
 
 // Connect resolves a peer's addresses and establishes a connection.
 func (r *Resolver) Connect(ctx context.Context, address string) error {
-	info, err := r.Resolve(ctx, address)
+	resolved, err := r.ResolvePeer(ctx, address)
 	if err != nil {
 		return err
 	}
-	return r.node.host.Connect(ctx, *info)
+	return r.connectResolvedPeer(ctx, resolved)
 }
 
-func (r *Resolver) prioritizeAddrInfo(ctx context.Context, info *peer.AddrInfo) *peer.AddrInfo {
-	if r == nil || r.netcheck == nil {
-		return PrioritizeAddrInfo(info, NetcheckResult{})
+func (r *Resolver) connectResolvedPeer(ctx context.Context, resolved *ResolvedPeer) error {
+	if resolved == nil || resolved.Info == nil {
+		return fmt.Errorf("resolved peer is missing address info")
 	}
-	return PrioritizeAddrInfo(info, r.cachedNetcheck(ctx))
+	err := r.node.host.Connect(ctx, *resolved.Info)
+	if r.paths != nil {
+		if err != nil {
+			r.paths.RecordFailure(resolved.Info.ID, resolved.Info)
+		} else {
+			r.paths.RecordSuccess(resolved.Info.ID, resolved.Source, resolved.Info)
+		}
+	}
+	return err
+}
+
+func (r *Resolver) prioritizeAddrInfo(ctx context.Context, info *peer.AddrInfo, hint PathHint) (*peer.AddrInfo, []AddrScore) {
+	if r == nil || r.netcheck == nil {
+		return PrioritizeAddrInfoWithHint(info, NetcheckResult{}, hint)
+	}
+	return PrioritizeAddrInfoWithHint(info, r.cachedNetcheck(ctx), hint)
 }
 
 func (r *Resolver) cachedNetcheck(ctx context.Context) NetcheckResult {
@@ -436,9 +496,12 @@ func AutoConnect(ctx context.Context, resolver *Resolver) error {
 			continue
 		}
 		if resolver.node.host.Network().Connectedness(resolved.Info.ID) == network.Connected {
+			if resolver.paths != nil {
+				resolver.paths.RecordSuccess(resolved.Info.ID, resolved.Source, resolved.Info)
+			}
 			continue
 		}
-		if err := resolver.node.host.Connect(ctx, *resolved.Info); err != nil {
+		if err := resolver.connectResolvedPeer(ctx, resolved); err != nil {
 			resolver.logger.Debug("auto-connect failed",
 				"peer_id", resolved.Info.ID.String(),
 				"source", resolved.Source,

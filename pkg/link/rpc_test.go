@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
 )
 
 func TestRPCDispatchPrefix(t *testing.T) {
@@ -146,6 +149,105 @@ func TestRPCNetcheck(t *testing.T) {
 	}
 	if status.PublicAddr == "" {
 		t.Fatal("expected public_addr")
+	}
+}
+
+func TestRPCResolveIncludesPathScores(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	bundleA := generateTestBundle(t, "nodeA")
+	nodeA, err := New(bundleA, Config{Mode: Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go nodeA.Run(ctx)
+	waitForHost(t, nodeA)
+
+	membershipA, err := nodeA.CurrentMembershipRecord()
+	if err != nil {
+		t.Fatalf("membership record A: %v", err)
+	}
+	presenceA, err := nodeA.CurrentPresenceRecord(0)
+	if err != nil {
+		t.Fatalf("presence record A: %v", err)
+	}
+	pid := nodeA.PeerID().String()
+	presenceA.Multiaddrs = []string{
+		"/ip4/203.0.113.10/udp/4101/quic-v1/p2p/" + pid,
+		"/ip4/203.0.113.10/tcp/4101/p2p/" + pid,
+	}
+
+	bundleB := generateTestBundle(t, "nodeB")
+	nodeB, err := New(bundleB, Config{Mode: Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := NewResolver(nodeB)
+	resolver.nostr = &staticDiscovery{
+		membership: membershipA,
+		presences:  []*PresenceRecord{presenceA},
+	}
+	resolver.netcheck = func(context.Context, []string) NetcheckResult {
+		return NetcheckResult{
+			UDP:        true,
+			PublicAddr: "203.0.113.99:55000",
+		}
+	}
+	tcpAddr, err := ma.NewMultiaddr("/ip4/203.0.113.10/tcp/4101")
+	if err != nil {
+		t.Fatalf("NewMultiaddr(tcp): %v", err)
+	}
+	resolver.paths.RecordSuccess(nodeA.PeerID(), "nostr", &peer.AddrInfo{
+		ID:    nodeA.PeerID(),
+		Addrs: []ma.Multiaddr{tcpAddr},
+	})
+
+	h := NewRPCHandler(nodeB, resolver)
+	params, _ := json.Marshal(resolveParams{Address: bundleA.Address()})
+	result, err, handled := h.Dispatch(ctx, "skylink.resolve", params)
+	if !handled {
+		t.Fatal("should handle skylink.resolve")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, _ := json.Marshal(result)
+	var response struct {
+		Peers []struct {
+			PreferredTransport   string      `json:"preferred_transport"`
+			LastSuccessTransport string      `json:"last_success_transport"`
+			LastSuccessSource    string      `json:"last_success_source"`
+			LastSuccessAddr      string      `json:"last_success_addr"`
+			AddrScores           []AddrScore `json:"addr_scores"`
+		} `json:"peers"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Peers) != 1 {
+		t.Fatalf("peer count = %d, want 1", len(response.Peers))
+	}
+	if response.Peers[0].PreferredTransport != "direct_tcp" {
+		t.Fatalf("preferred transport = %q, want direct_tcp", response.Peers[0].PreferredTransport)
+	}
+	if response.Peers[0].LastSuccessTransport != "direct_tcp" {
+		t.Fatalf("last success transport = %q, want direct_tcp", response.Peers[0].LastSuccessTransport)
+	}
+	if response.Peers[0].LastSuccessSource != "nostr" {
+		t.Fatalf("last success source = %q, want nostr", response.Peers[0].LastSuccessSource)
+	}
+	if response.Peers[0].LastSuccessAddr == "" {
+		t.Fatal("expected last success addr")
+	}
+	if len(response.Peers[0].AddrScores) == 0 {
+		t.Fatal("expected addr scores")
+	}
+	if response.Peers[0].AddrScores[0].Transport != "direct_tcp" {
+		t.Fatalf("top addr score transport = %q, want direct_tcp", response.Peers[0].AddrScores[0].Transport)
 	}
 }
 

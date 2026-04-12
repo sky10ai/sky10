@@ -218,12 +218,18 @@ func (h *RPCHandler) rpcResolve(ctx context.Context, params json.RawMessage) (in
 					addrs = append(addrs, addr.String())
 				}
 				peers = append(peers, map[string]interface{}{
-					"peer_id":       resolved.Info.ID.String(),
-					"device_pubkey": resolved.DevicePubKey,
-					"published_at":  resolved.PublishedAt,
-					"expires_at":    resolved.ExpiresAt,
-					"source":        resolved.Source,
-					"multiaddrs":    addrs,
+					"peer_id":                resolved.Info.ID.String(),
+					"device_pubkey":          resolved.DevicePubKey,
+					"published_at":           resolved.PublishedAt,
+					"expires_at":             resolved.ExpiresAt,
+					"source":                 resolved.Source,
+					"preferred_transport":    resolved.PreferredTransport,
+					"last_success_at":        resolved.LastSuccessAt,
+					"last_success_transport": resolved.LastSuccessTransport,
+					"last_success_source":    resolved.LastSuccessSource,
+					"last_success_addr":      resolved.LastSuccessAddr,
+					"addr_scores":            resolved.AddrScores,
+					"multiaddrs":             addrs,
 				})
 			}
 			return map[string]interface{}{
