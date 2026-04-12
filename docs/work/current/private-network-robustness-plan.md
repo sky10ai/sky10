@@ -16,6 +16,8 @@ The useful lesson from Tailscale/headscale is structural, not literal:
 - keep coordination, direct transport, fallback delivery, and observability
   as separate concerns
 - keep peer-to-peer paths primary when they work
+- treat live relay as its own transport tier, not as an afterthought hidden
+  behind mailbox or retries
 - make degraded paths explicit and inspectable instead of hidden in retries
 - add an always-on coordinator only after the cheaper decentralized pieces
   are clearly insufficient
@@ -40,6 +42,13 @@ As of 2026-04-11, sky10 already has the right foundation:
 
 The remaining gap is not "basic fallback exists." The gap is that these pieces
 still behave like features, not one coherent network system.
+
+The 2026-04-12 Tailscale/headscale code re-study in
+[`docs/learned/tailscale-headscale-robustness.md`](../../learned/tailscale-headscale-robustness.md)
+also surfaced one major missing milestone: `sky10` still lacks a first-class
+managed live relay tier comparable to DERP plus peer relays. Nostr and mailbox
+cover coordination and durable async delivery, not dependable live byte
+transport when direct paths are bad.
 
 ## Architectural Boundary
 
@@ -78,7 +87,7 @@ The private network should satisfy all of these:
 | Scenario | Expected behavior | Current state | Gap |
 | --- | --- | --- | --- |
 | UDP blocked on one side | Prefer TCP quickly; use async delivery only for mailbox-eligible traffic | STUN influences QUIC vs TCP order | No unified path scorer or user-facing reason |
-| Symmetric NAT / no direct route | Use libp2p relay for live traffic when available; otherwise degrade mailbox-eligible work into durable async delivery | Mailbox + Nostr handoff exists for agent traffic | No clear transport-vs-delivery reporting or policy split |
+| Symmetric NAT / no direct route | Use a managed live relay tier for RPC/interactive traffic when available; otherwise degrade mailbox-eligible work into durable async delivery | Mailbox + Nostr handoff exists for agent traffic; relay use is not first-class | No managed live relay map, sticky relay selection, cached relay bootstrap, or relay-specific health model |
 | Both peers restart | Republish and reconnect within seconds once link is up | Startup refresh and address-change republish exist | Retry logic still leans on ad hoc calls and a 2 minute sweep |
 | One device offline for a while | Durable delivery on reconnect with receipts | Mailbox exists | Status/UI do not yet make this operationally clear |
 | DHT slow or stale | Use last-good records and alternate sources | Resolver chooses among local, DHT, Nostr | Source health and freshness are not surfaced |
@@ -217,13 +226,39 @@ Done when:
 - mailbox receipts and queue claims converge faster than the current poll-only
   behavior
 
-### M6. Decide Whether An Optional Coordinator Is Still Needed
+### M6. Add A First-Class Live Relay Tier
 
-Only after M1 through M5 should sky10 consider a headscale-like service.
+Tailscale feels robust because direct connectivity is not the only live path.
+When direct transport fails, the system still has a purpose-built live relay
+path. `sky10` does not yet have that explicitly.
+
+Add:
+
+- a managed relay set for live `skylink` traffic, separate from Nostr mailbox
+  relay/dropbox paths
+- cached relay bootstrap state that survives restart and partial coordination
+  loss
+- sticky relay selection and anti-flap logic, similar to a "home relay"
+- operator-facing relay transport health in `skylink.status` and the Network
+  page
+- either stable operator-managed relay nodes or a small dedicated `skyrelay`
+  service with clear configuration and invite support
+
+Done when:
+
+- live RPC traffic still has an explicit non-mailbox transport path on bad NATs
+- restart without fresh discovery can still recover the last known relay set
+- relay choice does not flap on one bad latency sample
+- status can distinguish direct, live relay, and mailbox-backed delivery
+
+### M7. Decide Whether An Optional Coordinator Is Still Needed
+
+Only after M1 through M6 should sky10 consider a headscale-like service.
 
 If needed, `skycoord` should stay control-plane only:
 
 - signed membership and presence watch stream
+- resumable watch sessions with sequence numbers, keepalive, and patch updates
 - relay and STUN configuration distribution
 - optional policy distribution for private networks
 - no mandatory proxying of healthy peer-to-peer traffic
@@ -249,44 +284,32 @@ The order matters:
 3. path memory and scoring
 4. explicit delivery policy
 5. stronger Nostr coordination
-6. optional coordinator decision
+6. first-class live relay tier
+7. optional coordinator decision
 
 Skipping straight to a coordinator would hide the real gaps and bake current
 retry ambiguity into a more complicated system.
 
 ## Immediate Next Work
 
-As of 2026-04-12, M1 through M3 are implemented on this branch. M4 now has
-explicit delivery metadata in RPC and operator-facing UI surfaces. M5 now has
-shared Nostr relay health tracking and ranking, multi-relay publish quorum
-reporting, last-good Nostr discovery cache fallback for membership and
-presence, long-lived private-network identity subscriptions, and push-based
-public relay subscriptions for mailbox receipts, queue claims, and handoff
-state. It also now tracks live subscription health alongside publish health so
-status can distinguish "Nostr publish worked" from "live relay watchers are
-currently attached." Public queue offer discovery is also now wired through a
-warm subscription cache instead of relay query-only lookups, and the relay
-poll safety net now backs off or speeds up based on live mailbox subscription
-health instead of running on one blind ticker.
+As of 2026-04-12, M1 through M5 are largely implemented on this branch:
 
-The next concrete implementation slice should finish the rest of M5:
+- M1 through M3 are in place for health, convergence, and path memory
+- M4 has explicit delivery metadata in RPC and operator-facing UI surfaces
+- M5 has shared Nostr relay health tracking and ranking, multi-relay publish
+  quorum reporting, last-good discovery cache fallback for membership and
+  presence, long-lived subscriptions, and push-based public relay
+  subscriptions for mailbox receipts, queue claims, and handoff state
 
-- tighten any remaining push paths that still fall back to polling only and
-  complete the real-device validation of long-lived relay coordination under
-  disconnect/reconnect conditions
-- finish the real-device mailbox-backed validation passes from
-  [`docs/work/past/2026/04/11-Mailbox.md`](../past/2026/04/11-Mailbox.md)
-  for offline delivery and relay handoff flows
+The Tailscale/headscale code re-study changed the conclusion about what is
+left. The next concrete implementation slice is no longer "just validation."
+It is M6:
 
-That work is small enough to ship incrementally and high leverage enough to
-make every later milestone easier:
+- define and build a first-class live relay tier for `skylink` traffic
+- cache relay bootstrap state on disk
+- add sticky relay selection and relay-specific health/reporting
 
-- keep relay ranking, quorum reporting, and cached last-good state shared
-  across private-network discovery, relay/dropbox, and public queue
-  coordination
-- surface relay degradation and sub-quorum publish state from one
-  `skylink.status` call and the Network page
-- tighten Nostr convergence before considering any optional coordinator
-
-Once that exists, the rest of the plan can be driven by observed failures
-instead of guesswork.
+Real-device validation from
+[`docs/work/past/2026/04/11-Mailbox.md`](../past/2026/04/11-Mailbox.md)
+still remains important, but it should now happen alongside M6 rather than
+being treated as the only substantive work left.
