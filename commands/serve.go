@@ -90,6 +90,7 @@ func ServeCmd() *cobra.Command {
 				return err
 			}
 			relays := resolvedRelays(cfg, relayOverrides, noDefaultRelays)
+			nostrRelayTracker := link.NewNostrRelayTracker(relays)
 			linkCfg, err := resolvedLinkConfig(linkListenAddrs, linkBootstrapPeers, noDefaultBootstrap)
 			if err != nil {
 				return err
@@ -179,7 +180,11 @@ func ServeCmd() *cobra.Command {
 			if backend != nil {
 				resolverOpts = append(resolverOpts, link.WithBackend(backend))
 			}
-			resolverOpts = append(resolverOpts, link.WithNostr(relays))
+			if len(relays) > 0 {
+				resolverOpts = append(resolverOpts, link.WithNostrDiscovery(
+					link.NewNostrDiscoveryWithTracker(relays, logRuntime.Logger, nostrRelayTracker),
+				))
+			}
 			linkResolver := link.NewResolver(linkNode, resolverOpts...)
 			link.RegisterPrivateNetworkHandlers(linkNode)
 			server.RegisterHandler(link.NewRPCHandler(
@@ -199,6 +204,7 @@ func ServeCmd() *cobra.Command {
 						LastFailureAt:       optionalTime(stats.LastFailureAt),
 					}
 				}),
+				link.WithRelayHealthProvider(nostrRelayTracker.Snapshot),
 			))
 			var triggerPrivateNetwork func(reason, detail string)
 			var kvSync *kv.P2PSync
@@ -255,7 +261,7 @@ func ServeCmd() *cobra.Command {
 					}
 
 					if len(relays) > 0 {
-						nostr := link.NewNostrDiscovery(relays, nil)
+						nostr := link.NewNostrDiscoveryWithTracker(relays, logRuntime.Logger, nostrRelayTracker)
 						membershipRecord, err := linkNode.CurrentMembershipRecord()
 						if err != nil {
 							logger.Warn("building private-network membership record failed", "error", err)
@@ -331,12 +337,12 @@ func ServeCmd() *cobra.Command {
 			if len(relays) > 0 {
 				agentRouter.SetNetworkRelay(agentmailbox.NewRelayDropbox(
 					bundle.Identity,
-					agentmailbox.NewNostrRelayTransport(relays, logRuntime.Logger),
+					agentmailbox.NewNostrRelayTransportWithTracker(relays, logRuntime.Logger, nostrRelayTracker),
 					logRuntime.Logger,
 				))
 				agentRouter.SetNetworkQueue(agentmailbox.NewPublicQueue(
 					bundle.Identity,
-					agentmailbox.NewNostrQueueTransport(relays, logRuntime.Logger),
+					agentmailbox.NewNostrQueueTransportWithTracker(relays, logRuntime.Logger, nostrRelayTracker),
 					logRuntime.Logger,
 				))
 			}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/nbd-wtf/go-nostr"
 	skykey "github.com/sky10/sky10/pkg/key"
@@ -13,8 +14,9 @@ import (
 // NostrDiscovery publishes and queries private-network discovery records via
 // Nostr relays. This is a discovery fallback only — never application traffic.
 type NostrDiscovery struct {
-	relays []string
-	logger *slog.Logger
+	relays  []string
+	logger  *slog.Logger
+	tracker *NostrRelayTracker
 }
 
 // Sky10NostrKind is a NIP-78 application-specific event kind for sky10.
@@ -22,7 +24,17 @@ const Sky10NostrKind = 30078
 
 // NewNostrDiscovery creates a Nostr discovery client.
 func NewNostrDiscovery(relays []string, logger *slog.Logger) *NostrDiscovery {
-	return &NostrDiscovery{relays: relays, logger: defaultLogger(logger)}
+	return NewNostrDiscoveryWithTracker(relays, logger, nil)
+}
+
+// NewNostrDiscoveryWithTracker creates a Nostr discovery client with optional
+// relay health tracking and ranking.
+func NewNostrDiscoveryWithTracker(relays []string, logger *slog.Logger, tracker *NostrRelayTracker) *NostrDiscovery {
+	return &NostrDiscovery{
+		relays:  append([]string(nil), relays...),
+		logger:  defaultLogger(logger),
+		tracker: tracker,
+	}
 }
 
 func (d *NostrDiscovery) publish(ctx context.Context, signer *skykey.Key, tags nostr.Tags, content []byte) error {
@@ -47,17 +59,21 @@ func (d *NostrDiscovery) publish(ctx context.Context, signer *skykey.Key, tags n
 	}
 
 	var published bool
-	for _, relay := range d.relays {
+	for _, relay := range d.orderedRelays() {
+		started := time.Now()
 		r, err := nostr.RelayConnect(ctx, relay)
 		if err != nil {
+			d.recordRelay(relay, time.Since(started), err)
 			d.logger.Debug("nostr relay connect failed", "relay", relay, "error", err)
 			continue
 		}
 		if err := r.Publish(ctx, ev); err != nil {
+			d.recordRelay(relay, time.Since(started), err)
 			d.logger.Debug("nostr publish failed", "relay", relay, "error", err)
 			r.Close()
 			continue
 		}
+		d.recordRelay(relay, time.Since(started), nil)
 		published = true
 		r.Close()
 	}
@@ -69,18 +85,22 @@ func (d *NostrDiscovery) publish(ctx context.Context, signer *skykey.Key, tags n
 
 func (d *NostrDiscovery) queryEvents(ctx context.Context, filter nostr.Filter) ([]*nostr.Event, error) {
 	var events []*nostr.Event
-	for _, relay := range d.relays {
+	for _, relay := range d.orderedRelays() {
+		started := time.Now()
 		r, err := nostr.RelayConnect(ctx, relay)
 		if err != nil {
+			d.recordRelay(relay, time.Since(started), err)
 			d.logger.Debug("nostr relay connect failed", "relay", relay, "error", err)
 			continue
 		}
 		evs, err := r.QuerySync(ctx, filter)
 		r.Close()
 		if err != nil {
+			d.recordRelay(relay, time.Since(started), err)
 			d.logger.Debug("nostr query failed", "relay", relay, "error", err)
 			continue
 		}
+		d.recordRelay(relay, time.Since(started), nil)
 		events = append(events, evs...)
 	}
 	if len(events) == 0 {
@@ -180,4 +200,21 @@ func (d *NostrDiscovery) QueryPresenceAll(ctx context.Context, identity string) 
 		out = append(out, rec)
 	}
 	return out, nil
+}
+
+func (d *NostrDiscovery) orderedRelays() []string {
+	if d == nil {
+		return nil
+	}
+	if d.tracker == nil {
+		return append([]string(nil), d.relays...)
+	}
+	return d.tracker.Ordered(d.relays)
+}
+
+func (d *NostrDiscovery) recordRelay(relay string, latency time.Duration, err error) {
+	if d == nil || d.tracker == nil {
+		return
+	}
+	d.tracker.Record(relay, latency, err)
 }

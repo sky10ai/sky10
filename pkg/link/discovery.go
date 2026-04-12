@@ -92,6 +92,14 @@ func WithNostr(relays []string) ResolverOption {
 	}
 }
 
+// WithNostrDiscovery injects a prebuilt Nostr discovery client. This is useful
+// when relay health or shared subscriptions need to be coordinated elsewhere.
+func WithNostrDiscovery(discovery privateNetworkDiscovery) ResolverOption {
+	return func(r *Resolver) {
+		r.nostr = discovery
+	}
+}
+
 // WithNostrOnly restricts discovery to the configured Nostr fallback source.
 // This is useful for invite bootstrap where we want to avoid waiting on slow
 // DHT propagation before trying the invite's relays.

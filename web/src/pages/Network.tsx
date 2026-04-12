@@ -10,6 +10,7 @@ import {
   type LinkHealthEvent,
   type LinkMailboxHealth,
   type LinkNetworkHealth,
+  type LinkRelayHealth,
 } from "../lib/rpc";
 import { useRPC, truncAddr } from "../lib/useRPC";
 
@@ -62,6 +63,23 @@ function eventLabel(event: LinkHealthEvent) {
   }
 }
 
+function relayTone(relay: LinkRelayHealth) {
+  if (relay.failures > 0 && relay.successes === 0) {
+    return "bg-error-container/30 text-error";
+  }
+  if (relay.failures > relay.successes) {
+    return "bg-amber-500/10 text-amber-700";
+  }
+  return "bg-emerald-500/10 text-emerald-700";
+}
+
+function relayLabel(relay: LinkRelayHealth) {
+  if (relay.failures > 0 && relay.successes === 0) return "Failing";
+  if (relay.failures > relay.successes) return "Degraded";
+  if (relay.successes > 0) return "Healthy";
+  return "Idle";
+}
+
 export default function Network() {
   const [connectAddr, setConnectAddr] = useState("");
   const [connecting, setConnecting] = useState(false);
@@ -84,6 +102,7 @@ export default function Network() {
   const peers = peersData?.peers ?? [];
   const networkHealth = linkStatus?.health;
   const recentEvents = networkHealth?.events ?? [];
+  const relayHealth = networkHealth?.relays ?? [];
 
   const deviceByPeerID = new Map<string, Device>();
   for (const d of deviceData?.devices ?? []) {
@@ -353,6 +372,54 @@ export default function Network() {
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {relayHealth.length > 0 && (
+            <div className="bg-surface-container-lowest rounded-xl p-6 border border-outline-variant/10 shadow-sm space-y-4">
+              <h4 className="text-sm font-bold text-on-surface uppercase tracking-widest">
+                Nostr Relays
+              </h4>
+              <div className="space-y-3">
+                {relayHealth.map((relay) => (
+                  <div
+                    key={relay.url}
+                    className="rounded-lg bg-surface-container-low px-4 py-3"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate font-mono text-xs text-on-surface">
+                          {relay.url}
+                        </div>
+                        <div className="mt-1 text-[11px] text-secondary">
+                          ok {relay.successes} · fail {relay.failures}
+                          {relay.average_latency_ms ? ` · avg ${relay.average_latency_ms}ms` : ""}
+                        </div>
+                      </div>
+                      <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${relayTone(relay)}`}>
+                        {relayLabel(relay)}
+                      </span>
+                    </div>
+                    {(relay.last_error || relay.last_success_at || relay.last_failure_at) && (
+                      <div className="mt-3 space-y-1 text-[11px] text-secondary">
+                        {relay.last_success_at && (
+                          <div>
+                            Last ok <RelativeTime value={relay.last_success_at} />
+                          </div>
+                        )}
+                        {relay.last_failure_at && (
+                          <div>
+                            Last fail <RelativeTime value={relay.last_failure_at} />
+                          </div>
+                        )}
+                        {relay.last_error && (
+                          <div className="truncate">Error: {relay.last_error}</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

@@ -256,27 +256,29 @@ retry ambiguity into a more complicated system.
 
 ## Immediate Next Work
 
-As of 2026-04-12, M1 through M3 are implemented on this branch.
+As of 2026-04-12, M1 through M3 are implemented on this branch. M4 now has
+explicit delivery metadata in RPC and operator-facing UI surfaces, and the
+first M5 slice is in place via shared Nostr relay health tracking and ranking.
 
-The next concrete implementation slice should be M4:
+The next concrete implementation slice should be the rest of M5:
 
-- make live-only versus mailbox-backed semantics explicit in RPC and router
-  code
-- return delivery metadata next to transport metadata
-- make queued, handed-off, and delivered states visible from one status/UI
-  surface
-- validate the mailbox-backed flows from
+- move Nostr coordination from ranked query/publish into longer-lived
+  subscriptions for presence, receipts, queue claims, and handoff state
+- add relay publish-quorum rules so partial relay success is visible instead of
+  treated as clean success
+- cache last-good relay state so brief relay outages do not erase usable
+  presence or handoff knowledge
+- finish the real-device mailbox-backed validation passes from
   [`docs/work/past/2026/04/11-Mailbox.md`](../past/2026/04/11-Mailbox.md)
-  against real offline and relay-handoff scenarios
+  for offline delivery and relay handoff flows
 
 That work is small enough to ship incrementally and high leverage enough to
 make every later milestone easier:
 
-- enrich `skylink.status`
-- surface transport state and mailbox fallback state separately in the Network
-  page
-- add structured recent-event reporting for publish, connect, relay handoff,
-  and mailbox drain
+- keep relay ranking shared across private-network discovery, relay/dropbox,
+  and public queue coordination
+- surface relay degradation from one `skylink.status` call and the Network page
+- tighten Nostr convergence before considering any optional coordinator
 
 Once that exists, the rest of the plan can be driven by observed failures
 instead of guesswork.

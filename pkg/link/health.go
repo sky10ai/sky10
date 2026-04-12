@@ -41,18 +41,19 @@ type MailboxHealth struct {
 // NetworkHealth is the operator-facing status snapshot returned by
 // skylink.status.
 type NetworkHealth struct {
-	PreferredTransport      string         `json:"preferred_transport"`
-	TransportDegradedReason string         `json:"transport_degraded_reason,omitempty"`
-	DeliveryDegradedReason  string         `json:"delivery_degraded_reason,omitempty"`
-	Reachability            string         `json:"reachability,omitempty"`
-	PublicAddr              string         `json:"public_addr,omitempty"`
-	MappingVariesByServer   bool           `json:"mapping_varies_by_server,omitempty"`
-	ConnectedPrivatePeers   int            `json:"connected_private_peers"`
-	LastPublishedAt         *time.Time     `json:"last_published_at,omitempty"`
-	LastAddressChangeAt     *time.Time     `json:"last_address_change_at,omitempty"`
-	Netcheck                NetcheckResult `json:"netcheck"`
-	Mailbox                 MailboxHealth  `json:"mailbox"`
-	Events                  []HealthEvent  `json:"events,omitempty"`
+	PreferredTransport      string             `json:"preferred_transport"`
+	TransportDegradedReason string             `json:"transport_degraded_reason,omitempty"`
+	DeliveryDegradedReason  string             `json:"delivery_degraded_reason,omitempty"`
+	Reachability            string             `json:"reachability,omitempty"`
+	PublicAddr              string             `json:"public_addr,omitempty"`
+	MappingVariesByServer   bool               `json:"mapping_varies_by_server,omitempty"`
+	ConnectedPrivatePeers   int                `json:"connected_private_peers"`
+	LastPublishedAt         *time.Time         `json:"last_published_at,omitempty"`
+	LastAddressChangeAt     *time.Time         `json:"last_address_change_at,omitempty"`
+	Netcheck                NetcheckResult     `json:"netcheck"`
+	Mailbox                 MailboxHealth      `json:"mailbox"`
+	Relays                  []NostrRelayHealth `json:"relays,omitempty"`
+	Events                  []HealthEvent      `json:"events,omitempty"`
 }
 
 // RuntimeHealthTracker records recent operator-visible network events and

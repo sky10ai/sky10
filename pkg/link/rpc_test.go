@@ -52,6 +52,14 @@ func TestRPCStatus(t *testing.T) {
 				LastHandoffAt:       &now,
 			}
 		}),
+		WithRelayHealthProvider(func() []NostrRelayHealth {
+			return []NostrRelayHealth{{
+				URL:              "wss://relay.example",
+				Successes:        3,
+				Failures:         1,
+				AverageLatencyMS: 28,
+			}}
+		}),
 	)
 
 	result, err, handled := h.Dispatch(context.Background(), "skylink.status", nil)
@@ -93,6 +101,12 @@ func TestRPCStatus(t *testing.T) {
 	}
 	if status.Health.Mailbox.HandedOff != 1 {
 		t.Fatalf("mailbox handed_off = %d, want 1", status.Health.Mailbox.HandedOff)
+	}
+	if len(status.Health.Relays) != 1 {
+		t.Fatalf("relay count = %d, want 1", len(status.Health.Relays))
+	}
+	if status.Health.Relays[0].URL != "wss://relay.example" {
+		t.Fatalf("relay url = %q", status.Health.Relays[0].URL)
 	}
 	if len(status.Health.Events) == 0 {
 		t.Fatal("expected recent health events")

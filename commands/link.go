@@ -45,7 +45,15 @@ func linkStatusCmd() *cobra.Command {
 					DeliveryDegradedReason  string `json:"delivery_degraded_reason"`
 					Reachability            string `json:"reachability"`
 					PublicAddr              string `json:"public_addr"`
-					Mailbox                 struct {
+					Relays                  []struct {
+						URL              string `json:"url"`
+						Successes        int    `json:"successes"`
+						Failures         int    `json:"failures"`
+						LastLatencyMS    int64  `json:"last_latency_ms"`
+						AverageLatencyMS int64  `json:"average_latency_ms"`
+						LastError        string `json:"last_error"`
+					} `json:"relays"`
+					Mailbox struct {
 						Queued              int    `json:"queued"`
 						Failed              int    `json:"failed"`
 						HandedOff           int    `json:"handed_off"`
@@ -88,6 +96,16 @@ func linkStatusCmd() *cobra.Command {
 					status.Health.Mailbox.PendingSky10Network,
 					status.Health.Mailbox.HandedOff,
 				)
+			}
+			for _, relay := range status.Health.Relays {
+				fmt.Printf("relay:    %s ok=%d fail=%d", relay.URL, relay.Successes, relay.Failures)
+				if relay.AverageLatencyMS > 0 {
+					fmt.Printf(" avg=%dms", relay.AverageLatencyMS)
+				}
+				if relay.LastError != "" {
+					fmt.Printf(" last_error=%s", relay.LastError)
+				}
+				fmt.Println()
 			}
 			for _, a := range status.Addrs {
 				fmt.Printf("listen:   %s\n", a)

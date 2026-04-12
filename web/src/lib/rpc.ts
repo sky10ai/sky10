@@ -379,6 +379,17 @@ export interface LinkMailboxHealth {
   last_failure_at?: string;
 }
 
+export interface LinkRelayHealth {
+  url: string;
+  successes: number;
+  failures: number;
+  last_success_at?: string;
+  last_failure_at?: string;
+  last_error?: string;
+  last_latency_ms?: number;
+  average_latency_ms?: number;
+}
+
 export interface LinkNetworkHealth {
   preferred_transport: string;
   transport_degraded_reason?: string;
@@ -391,7 +402,8 @@ export interface LinkNetworkHealth {
   last_address_change_at?: string;
   netcheck: LinkNetcheckResult;
   mailbox: LinkMailboxHealth;
-  events: LinkHealthEvent[];
+  relays?: LinkRelayHealth[];
+  events?: LinkHealthEvent[];
 }
 
 export interface Peer {

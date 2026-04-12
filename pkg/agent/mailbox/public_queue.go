@@ -177,7 +177,13 @@ func NewPublicQueue(owner *skykey.Key, transport QueueTransport, logger *slog.Lo
 
 // NewNostrQueueTransport creates a Nostr-backed queue offer transport.
 func NewNostrQueueTransport(relays []string, logger *slog.Logger) QueueTransport {
-	return &nostrQueueTransport{relays: relays, logger: logger}
+	return NewNostrQueueTransportWithTracker(relays, logger, nil)
+}
+
+// NewNostrQueueTransportWithTracker creates a Nostr-backed public queue
+// transport with optional shared relay health tracking.
+func NewNostrQueueTransportWithTracker(relays []string, logger *slog.Logger, tracker *link.NostrRelayTracker) QueueTransport {
+	return &nostrQueueTransport{relays: relays, logger: logger, tracker: tracker}
 }
 
 // PublishOffer derives and publishes an open public offer for a queue mailbox
@@ -261,8 +267,9 @@ func buildQueueOffer(item Item, sender string, now time.Time, status string) (Qu
 }
 
 type nostrQueueTransport struct {
-	relays []string
-	logger *slog.Logger
+	relays  []string
+	logger  *slog.Logger
+	tracker *link.NostrRelayTracker
 }
 
 func (t *nostrQueueTransport) Publish(ctx context.Context, signer *skykey.Key, offer QueueOffer) error {
@@ -298,17 +305,21 @@ func (t *nostrQueueTransport) Publish(ctx context.Context, signer *skykey.Key, o
 	}
 
 	var published bool
-	for _, relay := range t.relays {
+	for _, relay := range t.orderedRelays() {
+		started := time.Now()
 		r, err := nostr.RelayConnect(ctx, relay)
 		if err != nil {
+			t.recordRelay(relay, time.Since(started), err)
 			t.debug("queue relay connect failed", "relay", relay, "error", err)
 			continue
 		}
 		if err := r.Publish(ctx, ev); err != nil {
+			t.recordRelay(relay, time.Since(started), err)
 			t.debug("queue relay publish failed", "relay", relay, "error", err)
 			r.Close()
 			continue
 		}
+		t.recordRelay(relay, time.Since(started), nil)
 		published = true
 		r.Close()
 	}
@@ -339,18 +350,22 @@ func (t *nostrQueueTransport) Query(ctx context.Context, filter QueueOfferFilter
 	}
 
 	byItem := make(map[string]QueueOffer)
-	for _, relay := range t.relays {
+	for _, relay := range t.orderedRelays() {
+		started := time.Now()
 		r, err := nostr.RelayConnect(ctx, relay)
 		if err != nil {
+			t.recordRelay(relay, time.Since(started), err)
 			t.debug("queue relay connect failed", "relay", relay, "error", err)
 			continue
 		}
 		events, err := r.QuerySync(ctx, query)
 		r.Close()
 		if err != nil {
+			t.recordRelay(relay, time.Since(started), err)
 			t.debug("queue relay query failed", "relay", relay, "error", err)
 			continue
 		}
+		t.recordRelay(relay, time.Since(started), nil)
 		for _, event := range events {
 			var offer QueueOffer
 			if err := json.Unmarshal([]byte(event.Content), &offer); err != nil {
@@ -401,6 +416,23 @@ func (t *nostrQueueTransport) debug(msg string, args ...interface{}) {
 		return
 	}
 	t.logger.Debug(msg, args...)
+}
+
+func (t *nostrQueueTransport) orderedRelays() []string {
+	if t == nil {
+		return nil
+	}
+	if t.tracker == nil {
+		return append([]string(nil), t.relays...)
+	}
+	return t.tracker.Ordered(t.relays)
+}
+
+func (t *nostrQueueTransport) recordRelay(relay string, latency time.Duration, err error) {
+	if t == nil || t.tracker == nil {
+		return
+	}
+	t.tracker.Record(relay, latency, err)
 }
 
 func publicQueueOfferDTag(itemID string) string {

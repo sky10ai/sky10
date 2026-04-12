@@ -120,7 +120,13 @@ func NewRelayDropbox(owner *skykey.Key, transport RelayTransport, logger *slog.L
 
 // NewNostrRelayTransport creates a Nostr-backed relay transport.
 func NewNostrRelayTransport(relays []string, logger *slog.Logger) RelayTransport {
-	return &nostrRelayTransport{relays: relays, logger: logger}
+	return NewNostrRelayTransportWithTracker(relays, logger, nil)
+}
+
+// NewNostrRelayTransportWithTracker creates a Nostr-backed relay transport
+// with optional shared relay health tracking.
+func NewNostrRelayTransportWithTracker(relays []string, logger *slog.Logger, tracker *link.NostrRelayTracker) RelayTransport {
+	return &nostrRelayTransport{relays: relays, logger: logger, tracker: tracker}
 }
 
 // HandoffItem stores a mailbox item in the public-network dropbox for the
@@ -337,8 +343,9 @@ func (r *RelayDropbox) Poll(ctx context.Context) ([]RelayInbound, error) {
 }
 
 type nostrRelayTransport struct {
-	relays []string
-	logger *slog.Logger
+	relays  []string
+	logger  *slog.Logger
+	tracker *link.NostrRelayTracker
 }
 
 func (t *nostrRelayTransport) Publish(ctx context.Context, signer *skykey.Key, event RelayTransportEvent) error {
@@ -369,17 +376,21 @@ func (t *nostrRelayTransport) Publish(ctx context.Context, signer *skykey.Key, e
 	}
 
 	var published bool
-	for _, relay := range t.relays {
+	for _, relay := range t.orderedRelays() {
+		started := time.Now()
 		r, err := nostr.RelayConnect(ctx, relay)
 		if err != nil {
+			t.recordRelay(relay, time.Since(started), err)
 			t.debug("relay connect failed", "relay", relay, "error", err)
 			continue
 		}
 		if err := r.Publish(ctx, ev); err != nil {
+			t.recordRelay(relay, time.Since(started), err)
 			t.debug("relay publish failed", "relay", relay, "error", err)
 			r.Close()
 			continue
 		}
+		t.recordRelay(relay, time.Since(started), nil)
 		published = true
 		r.Close()
 	}
@@ -400,18 +411,22 @@ func (t *nostrRelayTransport) Query(ctx context.Context, recipient, recordType s
 		Limit: limit,
 	}
 	byID := make(map[string]RelayTransportEvent)
-	for _, relay := range t.relays {
+	for _, relay := range t.orderedRelays() {
+		started := time.Now()
 		r, err := nostr.RelayConnect(ctx, relay)
 		if err != nil {
+			t.recordRelay(relay, time.Since(started), err)
 			t.debug("relay connect failed", "relay", relay, "error", err)
 			continue
 		}
 		events, err := r.QuerySync(ctx, filter)
 		r.Close()
 		if err != nil {
+			t.recordRelay(relay, time.Since(started), err)
 			t.debug("relay query failed", "relay", relay, "error", err)
 			continue
 		}
+		t.recordRelay(relay, time.Since(started), nil)
 		for _, event := range events {
 			payload, err := base64.RawURLEncoding.DecodeString(event.Content)
 			if err != nil {
@@ -449,6 +464,23 @@ func (t *nostrRelayTransport) debug(msg string, args ...interface{}) {
 		return
 	}
 	t.logger.Debug(msg, args...)
+}
+
+func (t *nostrRelayTransport) orderedRelays() []string {
+	if t == nil {
+		return nil
+	}
+	if t.tracker == nil {
+		return append([]string(nil), t.relays...)
+	}
+	return t.tracker.Ordered(t.relays)
+}
+
+func (t *nostrRelayTransport) recordRelay(relay string, latency time.Duration, err error) {
+	if t == nil || t.tracker == nil {
+		return
+	}
+	t.tracker.Record(relay, latency, err)
 }
 
 func relayItemDTag(recipient, itemID string) string {

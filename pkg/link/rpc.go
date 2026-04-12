@@ -16,6 +16,7 @@ type RPCHandler struct {
 	stun           []string
 	healthTracker  *RuntimeHealthTracker
 	mailboxHealth  func() MailboxHealth
+	relayHealth    func() []NostrRelayHealth
 	netcheckMu     sync.Mutex
 	lastNetcheckAt time.Time
 	lastNetcheck   NetcheckResult
@@ -42,6 +43,14 @@ func WithRuntimeHealthTracker(tracker *RuntimeHealthTracker) RPCHandlerOption {
 func WithMailboxHealthProvider(provider func() MailboxHealth) RPCHandlerOption {
 	return func(h *RPCHandler) {
 		h.mailboxHealth = provider
+	}
+}
+
+// WithRelayHealthProvider attaches shared Nostr relay health state to
+// skylink.status.
+func WithRelayHealthProvider(provider func() []NostrRelayHealth) RPCHandlerOption {
+	return func(h *RPCHandler) {
+		h.relayHealth = provider
 	}
 }
 
@@ -111,6 +120,10 @@ func (h *RPCHandler) rpcStatus(ctx context.Context) (interface{}, error, bool) {
 	if h.mailboxHealth != nil {
 		mailbox = h.mailboxHealth()
 	}
+	var relays []NostrRelayHealth
+	if h.relayHealth != nil {
+		relays = h.relayHealth()
+	}
 	return statusResult{
 		PeerID:       h.node.PeerID().String(),
 		Address:      h.node.Address(),
@@ -130,6 +143,7 @@ func (h *RPCHandler) rpcStatus(ctx context.Context) (interface{}, error, bool) {
 			LastAddressChangeAt:     runtime.LastAddressChangeAt,
 			Netcheck:                netcheck,
 			Mailbox:                 mailbox,
+			Relays:                  relays,
 			Events:                  runtime.Events,
 		},
 	}, nil, true
