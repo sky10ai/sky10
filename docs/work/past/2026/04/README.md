@@ -2,6 +2,7 @@
 
 | Date | Entry |
 |------|-------|
+| 12 | [Private Network Robustness](12-Private-Network-Robustness.md) — Tailscale/headscale-informed transport hardening: unified health, convergence control, path memory, active Nostr coordination, managed live relay bootstrap, sticky home-relay selection, and remaining relay/productization work |
 | 11 | [Mailbox](11-Mailbox.md) — durable mailbox architecture, private-network and sky10-network backends, queue/lease semantics, payment and approval workflows, principal-scoped UI, and debug/repair tooling |
 | 08 | [Managed Apps Foundation](08-Managed-Apps-Foundation.md) — `pkg/apps`, hidden `/settings/apps`, `sky10 apps` CLI, versioned helper-binary installs under `~/.sky10/apps/` |
 | 07 | [Multi-Instance E2E Foundation](07-Multi-Instance-E2E-Foundation.md) — per-instance roots, hermetic network controls, real 3-process KV coverage, real 3-process MinIO-backed FS coverage, CI integration |

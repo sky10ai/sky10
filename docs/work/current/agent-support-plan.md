@@ -19,7 +19,7 @@ separate future work defined in `agent-protocol.md`.
 
 > Status note: the async mailbox and Nostr relay handoff now exist in the
 > codebase. Follow-on transport and convergence hardening lives in
-> [`private-network-robustness-plan.md`](private-network-robustness-plan.md).
+> [`../past/2026/04/12-Private-Network-Robustness.md`](../past/2026/04/12-Private-Network-Robustness.md).
 
 ## Architecture
 
