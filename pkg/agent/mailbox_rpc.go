@@ -496,7 +496,8 @@ func mailboxListResult(items []agentmailbox.Record) map[string]interface{} {
 
 func mailboxRecordResult(record agentmailbox.Record) map[string]interface{} {
 	return map[string]interface{}{
-		"item": record,
+		"item":     record,
+		"delivery": mailboxDeliveryMetadata(record),
 	}
 }
 

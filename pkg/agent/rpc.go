@@ -222,7 +222,18 @@ func (h *RPCHandler) rpcSend(ctx context.Context, params json.RawMessage) (inter
 	if h.emit != nil {
 		h.emit("agent.message", msg)
 	}
-	return map[string]string{"id": msg.ID, "status": "sent"}, nil
+	return SendResult{
+		ID:     msg.ID,
+		Status: "sent",
+		Delivery: DeliveryMetadata{
+			Policy:        DeliveryPolicyLiveOnly,
+			Scope:         agentmailbox.ScopePrivateNetwork,
+			Status:        "sent",
+			LiveTransport: "local_registry",
+			LastTransport: "local_registry",
+			LiveAttempted: true,
+		},
+	}, nil
 }
 
 func (h *RPCHandler) rpcHeartbeat(_ context.Context, params json.RawMessage) (interface{}, error) {
@@ -281,7 +292,8 @@ func (h *RPCHandler) rpcStatus(_ context.Context) (interface{}, error) {
 		skillList = append(skillList, s)
 	}
 	return map[string]interface{}{
-		"agents": len(agents),
-		"skills": skillList,
+		"agents":            len(agents),
+		"skills":            skillList,
+		"delivery_policies": deliveryPolicies(h.router != nil && h.mailbox != nil),
 	}, nil
 }

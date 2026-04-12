@@ -116,12 +116,18 @@ func TestRPCSend(t *testing.T) {
 	}
 
 	// Check we got a message ID back.
-	m := result.(map[string]string)
-	if m["status"] != "sent" {
-		t.Errorf("status = %s, want sent", m["status"])
+	sent := result.(SendResult)
+	if sent.Status != "sent" {
+		t.Errorf("status = %s, want sent", sent.Status)
 	}
-	if m["id"] == "" {
+	if sent.ID == "" {
 		t.Error("message id is empty")
+	}
+	if sent.Delivery.LiveTransport != "local_registry" {
+		t.Fatalf("live transport = %q, want local_registry", sent.Delivery.LiveTransport)
+	}
+	if sent.Delivery.Status != "sent" {
+		t.Fatalf("delivery status = %q, want sent", sent.Delivery.Status)
 	}
 
 	// Check SSE event was emitted (register + message = at least 2 events).
@@ -168,8 +174,12 @@ func TestRPCRegisterDrainsQueuedMailboxMessages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("queue incoming: %v", err)
 	}
-	if result.(map[string]string)["status"] != "queued" {
-		t.Fatalf("status = %s, want queued", result.(map[string]string)["status"])
+	queuedResult := result.(SendResult)
+	if queuedResult.Status != "queued" {
+		t.Fatalf("status = %s, want queued", queuedResult.Status)
+	}
+	if queuedResult.Delivery.DurableTransport != "private_mailbox" {
+		t.Fatalf("durable transport = %q, want private_mailbox", queuedResult.Delivery.DurableTransport)
 	}
 	mu.Lock()
 	emitted = nil
@@ -229,6 +239,16 @@ func TestRPCMailboxSendListAndGet(t *testing.T) {
 	if record.Item.Kind != agentmailbox.ItemKindApprovalRequest {
 		t.Fatalf("kind = %s, want %s", record.Item.Kind, agentmailbox.ItemKindApprovalRequest)
 	}
+	delivery := raw.(map[string]interface{})["delivery"].(DeliveryMetadata)
+	if delivery.Policy != DeliveryPolicyMailboxBacked {
+		t.Fatalf("delivery policy = %q, want %q", delivery.Policy, DeliveryPolicyMailboxBacked)
+	}
+	if delivery.Status != "queued" {
+		t.Fatalf("delivery status = %q, want queued", delivery.Status)
+	}
+	if delivery.DurableTransport != "private_mailbox" {
+		t.Fatalf("durable transport = %q, want private_mailbox", delivery.DurableTransport)
+	}
 
 	listRaw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.listInbox", mustJSON(t, map[string]string{"principal_id": "human:alice"}))
 	if err != nil {
@@ -250,6 +270,75 @@ func TestRPCMailboxSendListAndGet(t *testing.T) {
 	got := getRaw.(map[string]interface{})
 	if !got["found"].(bool) {
 		t.Fatal("expected mailbox item to be found")
+	}
+}
+
+func TestRPCSendQueuedIncludesDeliveryMetadata(t *testing.T) {
+	t.Parallel()
+
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	mailboxStore := newTestMailboxStore(t)
+	h.SetMailbox(mailboxStore)
+	router := NewRouter(r, makeTestNode(t), nil, r.DeviceID(), nil)
+	router.SetMailbox(mailboxStore)
+	h.SetRouter(router)
+
+	sendParams, _ := json.Marshal(SendParams{
+		To:        "researcher",
+		DeviceID:  "D-deviceBB",
+		SessionID: "session-queued",
+		Type:      "text",
+		Content:   json.RawMessage(`{"text":"queue this"}`),
+	})
+	result, err, handled := h.Dispatch(context.Background(), "agent.send", sendParams)
+	if !handled || err != nil {
+		t.Fatalf("send queued: handled=%v err=%v", handled, err)
+	}
+
+	queued := result.(SendResult)
+	if queued.Status != "queued" {
+		t.Fatalf("status = %q, want queued", queued.Status)
+	}
+	if queued.MailboxItemID == "" {
+		t.Fatal("expected mailbox item id")
+	}
+	if queued.Delivery.Policy != DeliveryPolicyMailboxBacked {
+		t.Fatalf("policy = %q, want %q", queued.Delivery.Policy, DeliveryPolicyMailboxBacked)
+	}
+	if queued.Delivery.LiveTransport != "skylink" {
+		t.Fatalf("live transport = %q, want skylink", queued.Delivery.LiveTransport)
+	}
+	if queued.Delivery.DurableTransport != "private_mailbox" {
+		t.Fatalf("durable transport = %q, want private_mailbox", queued.Delivery.DurableTransport)
+	}
+	if queued.Delivery.LastEvent != agentmailbox.EventTypeDeliveryFailed {
+		t.Fatalf("last event = %q, want %q", queued.Delivery.LastEvent, agentmailbox.EventTypeDeliveryFailed)
+	}
+}
+
+func TestRPCStatusWithMailboxShowsMailboxBackedAgentSendPolicy(t *testing.T) {
+	t.Parallel()
+
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	mailboxStore := newTestMailboxStore(t)
+	h.SetMailbox(mailboxStore)
+	router := NewRouter(r, makeTestNode(t), nil, r.DeviceID(), nil)
+	router.SetMailbox(mailboxStore)
+	h.SetRouter(router)
+
+	result, err, _ := h.Dispatch(context.Background(), "agent.status", nil)
+	if err != nil {
+		t.Fatalf("status with mailbox: %v", err)
+	}
+	status := result.(map[string]interface{})
+	policies := status["delivery_policies"].(map[string]DeliveryPolicyDescription)
+	if policies["agent_send"].Policy != DeliveryPolicyMailboxBacked {
+		t.Fatalf("agent_send policy = %q, want %q", policies["agent_send"].Policy, DeliveryPolicyMailboxBacked)
+	}
+	if policies["agent_send"].DurableTransport != "private_mailbox" {
+		t.Fatalf("agent_send durable transport = %q, want private_mailbox", policies["agent_send"].DurableTransport)
 	}
 }
 
@@ -624,7 +713,7 @@ func TestRPCMailboxRetryDrainsQueuedLocalMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("queue incoming: %v", err)
 	}
-	itemID := result.(map[string]string)["mailbox_item_id"]
+	itemID := result.(SendResult).MailboxItemID
 	if itemID == "" {
 		t.Fatal("expected mailbox_item_id for queued message")
 	}
@@ -680,7 +769,7 @@ func TestRPCMailboxRetryReplaysDeadLetteredLocalMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("queue incoming: %v", err)
 	}
-	itemID := result.(map[string]string)["mailbox_item_id"]
+	itemID := result.(SendResult).MailboxItemID
 	if itemID == "" {
 		t.Fatal("expected mailbox_item_id for queued message")
 	}
@@ -806,6 +895,10 @@ func TestRPCStatus(t *testing.T) {
 	status := result.(map[string]interface{})
 	if status["agents"].(int) != 1 {
 		t.Errorf("agents = %v, want 1", status["agents"])
+	}
+	policies := status["delivery_policies"].(map[string]DeliveryPolicyDescription)
+	if policies["agent_send"].Policy != DeliveryPolicyLiveOnly {
+		t.Fatalf("agent_send policy = %q, want %q", policies["agent_send"].Policy, DeliveryPolicyLiveOnly)
 	}
 }
 

@@ -102,9 +102,9 @@ func (r *Router) Send(ctx context.Context, msg Message) (interface{}, error) {
 		if queueErr != nil {
 			return nil, queueErr
 		}
-		return r.queuedResult(msg.ID, record.Item.ID), nil
+		return r.queuedResult(msg.ID, record, "skylink", true), nil
 	}
-	return r.sentResult(msg.ID), nil
+	return r.sentResult(msg.ID, agentmailbox.ScopePrivateNetwork, "skylink"), nil
 }
 
 // DeliverMailboxRecord retries a durable mailbox item through the direct
@@ -613,9 +613,9 @@ func (r *Router) routeIncoming(ctx context.Context, msg Message) (interface{}, e
 		if err != nil {
 			return nil, err
 		}
-		return r.queuedResult(msg.ID, record.Item.ID), nil
+		return r.queuedResult(msg.ID, record, "local_registry", false), nil
 	}
-	return r.sentResult(msg.ID), nil
+	return r.sentResult(msg.ID, agentmailbox.ScopePrivateNetwork, "local_registry"), nil
 }
 
 func (r *Router) sendRemoteLive(ctx context.Context, msg Message) error {
@@ -1116,16 +1116,50 @@ func (r *Router) emitMailboxUpdate(action string, record agentmailbox.Record) {
 	r.emit("agent.mailbox.updated", payload)
 }
 
-func (r *Router) sentResult(id string) map[string]string {
-	return map[string]string{"id": id, "status": "sent"}
+func (r *Router) sentResult(id, scope, transport string) SendResult {
+	return SendResult{
+		ID:     id,
+		Status: "sent",
+		Delivery: DeliveryMetadata{
+			Policy:        r.sendPolicy(),
+			Scope:         scope,
+			Status:        "sent",
+			LiveTransport: transport,
+			LastTransport: transport,
+			LiveAttempted: true,
+		},
+	}
 }
 
-func (r *Router) queuedResult(id, mailboxItemID string) map[string]string {
-	return map[string]string{
-		"id":              id,
-		"status":          "queued",
-		"mailbox_item_id": mailboxItemID,
+func (r *Router) queuedResult(id string, record agentmailbox.Record, liveTransport string, liveAttempted bool) SendResult {
+	delivery := mailboxDeliveryMetadata(record)
+	delivery.Policy = r.sendPolicy()
+	if liveTransport != "" {
+		delivery.LiveTransport = liveTransport
 	}
+	if liveAttempted {
+		delivery.LiveAttempted = true
+	}
+	if delivery.LastTransport == "" {
+		if delivery.LiveAttempted && liveTransport != "" {
+			delivery.LastTransport = liveTransport
+		} else {
+			delivery.LastTransport = delivery.DurableTransport
+		}
+	}
+	return SendResult{
+		ID:            id,
+		Status:        "queued",
+		MailboxItemID: record.Item.ID,
+		Delivery:      delivery,
+	}
+}
+
+func (r *Router) sendPolicy() string {
+	if r != nil && r.mailbox != nil {
+		return DeliveryPolicyMailboxBacked
+	}
+	return DeliveryPolicyLiveOnly
 }
 
 func messageFromID(msg Message, fallback string) string {

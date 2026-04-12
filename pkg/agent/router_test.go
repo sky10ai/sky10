@@ -127,9 +127,15 @@ func TestRouterSendLocal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("local send: %v", err)
 	}
-	m := result.(map[string]string)
-	if m["status"] != "sent" {
-		t.Errorf("status = %s, want sent", m["status"])
+	sent := result.(SendResult)
+	if sent.Status != "sent" {
+		t.Errorf("status = %s, want sent", sent.Status)
+	}
+	if sent.Delivery.LiveTransport != "local_registry" {
+		t.Fatalf("live transport = %q, want local_registry", sent.Delivery.LiveTransport)
+	}
+	if sent.Delivery.Policy != DeliveryPolicyLiveOnly {
+		t.Fatalf("policy = %q, want %q", sent.Delivery.Policy, DeliveryPolicyLiveOnly)
 	}
 	if len(emitted) != 1 {
 		t.Fatalf("emitted %d messages, want 1", len(emitted))
@@ -177,9 +183,15 @@ func TestRouterSendRemote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("remote send: %v", err)
 	}
-	m := result.(map[string]string)
-	if m["status"] != "sent" {
-		t.Errorf("status = %s, want sent", m["status"])
+	sent := result.(SendResult)
+	if sent.Status != "sent" {
+		t.Errorf("status = %s, want sent", sent.Status)
+	}
+	if sent.Delivery.LiveTransport != "skylink" {
+		t.Fatalf("live transport = %q, want skylink", sent.Delivery.LiveTransport)
+	}
+	if sent.Delivery.Scope != agentmailbox.ScopePrivateNetwork {
+		t.Fatalf("scope = %q, want %q", sent.Delivery.Scope, agentmailbox.ScopePrivateNetwork)
 	}
 	if len(receivedOnB) != 1 {
 		t.Fatalf("node B received %d messages, want 1", len(receivedOnB))
@@ -972,9 +984,27 @@ func TestRouterSendQueuesWhenRemoteDeviceUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("send: %v", err)
 	}
-	m := result.(map[string]string)
-	if m["status"] != "queued" {
-		t.Fatalf("status = %s, want queued", m["status"])
+	queued := result.(SendResult)
+	if queued.Status != "queued" {
+		t.Fatalf("status = %s, want queued", queued.Status)
+	}
+	if queued.MailboxItemID == "" {
+		t.Fatal("expected mailbox item id for queued remote message")
+	}
+	if queued.Delivery.Policy != DeliveryPolicyMailboxBacked {
+		t.Fatalf("policy = %q, want %q", queued.Delivery.Policy, DeliveryPolicyMailboxBacked)
+	}
+	if queued.Delivery.LiveTransport != "skylink" {
+		t.Fatalf("live transport = %q, want skylink", queued.Delivery.LiveTransport)
+	}
+	if queued.Delivery.DurableTransport != "private_mailbox" {
+		t.Fatalf("durable transport = %q, want private_mailbox", queued.Delivery.DurableTransport)
+	}
+	if queued.Delivery.MailboxState != string(agentmailbox.StateFailed) {
+		t.Fatalf("mailbox state = %q, want %q", queued.Delivery.MailboxState, agentmailbox.StateFailed)
+	}
+	if queued.Delivery.LastEvent != agentmailbox.EventTypeDeliveryFailed {
+		t.Fatalf("last event = %q, want %q", queued.Delivery.LastEvent, agentmailbox.EventTypeDeliveryFailed)
 	}
 
 	outbox := mailboxStore.ListOutbox("D-deviceAA")
@@ -1024,8 +1054,9 @@ func TestRouterDrainOutboxDeliversQueuedRemoteMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("initial send: %v", err)
 	}
-	if result.(map[string]string)["status"] != "queued" {
-		t.Fatalf("initial status = %s, want queued", result.(map[string]string)["status"])
+	queued := result.(SendResult)
+	if queued.Status != "queued" {
+		t.Fatalf("initial status = %s, want queued", queued.Status)
 	}
 
 	routerA.cachePeer("D-deviceBB", nodeB.PeerID())
