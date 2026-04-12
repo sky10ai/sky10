@@ -2,9 +2,9 @@ name: test
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
-    branches: [main]
+    branches: ["**"]
 
 jobs:
   test-go:
@@ -57,4 +57,4 @@ jobs:
         run: go test ./pkg/fs/ -tags integration -v -count=1
 
       - name: Run multi-instance integration tests
-        run: go test . -tags integration -v -count=1
+        run: go test ./integration -tags integration -v -count=1
