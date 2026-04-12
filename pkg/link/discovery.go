@@ -417,18 +417,20 @@ func (r *Resolver) cachedNetcheck(ctx context.Context) NetcheckResult {
 // AutoConnect discovers all reachable peers in the current node's private
 // network and connects to them. It is resilient to stale local cache because
 // the resolver chooses the best signed membership first.
-func AutoConnect(ctx context.Context, resolver *Resolver) {
+func AutoConnect(ctx context.Context, resolver *Resolver) error {
 	if resolver == nil || resolver.node == nil {
-		return
+		return nil
 	}
 
 	resolution, err := resolver.ResolveAll(ctx, resolver.node.Address())
 	if err != nil {
 		resolver.logger.Debug("auto-connect resolve failed", "error", err)
-		return
+		return err
 	}
 
 	selfPeerID := resolver.node.PeerID()
+	var firstErr error
+	connected := 0
 	for _, resolved := range resolution.Peers {
 		if resolved.Info == nil || resolved.Info.ID == selfPeerID {
 			continue
@@ -442,11 +444,19 @@ func AutoConnect(ctx context.Context, resolver *Resolver) {
 				"source", resolved.Source,
 				"error", err,
 			)
+			if firstErr == nil {
+				firstErr = err
+			}
 			continue
 		}
+		connected++
 		resolver.logger.Info("auto-connected to private-network peer",
 			"peer_id", resolved.Info.ID.String(),
 			"source", resolved.Source,
 		)
 	}
+	if connected == 0 && firstErr != nil {
+		return firstErr
+	}
+	return nil
 }

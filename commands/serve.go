@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -199,7 +200,7 @@ func ServeCmd() *cobra.Command {
 					}
 				}),
 			))
-			var refreshPrivateNetwork func()
+			var triggerPrivateNetwork func(reason, detail string)
 			var kvSync *kv.P2PSync
 			var agentRouter *skyagent.Router
 			identityRPC := skyid.NewRPCHandler(bundle)
@@ -212,70 +213,99 @@ func ServeCmd() *cobra.Command {
 			server.RegisterHandler(updateRPC)
 
 			var privateNetworkMu sync.Mutex
-			refreshPrivateNetwork = func() {
-				privateNetworkMu.Lock()
-				defer privateNetworkMu.Unlock()
+			privateNetworkManager := link.NewManager(
+				logging.WithComponent(logRuntime.Logger, "link.manager"),
+				func(runCtx context.Context, batch link.ConvergenceBatch) error {
+					privateNetworkMu.Lock()
+					defer privateNetworkMu.Unlock()
 
-				membership, source, err := linkResolver.ResolveMembership(ctx, bundle.Address())
-				if err != nil {
-					logger.Warn("private-network membership resolve failed", "error", err)
-				} else if source != "local" {
-					manifest, err := membership.ToManifest(bundle.Identity)
+					var errs []error
+
+					membership, source, err := linkResolver.ResolveMembership(runCtx, bundle.Address())
 					if err != nil {
-						logger.Warn("private-network membership cache rebuild failed", "error", err)
-					} else if !manifest.HasDevice(bundle.Device.PublicKey) {
-						logger.Warn("resolved membership missing current device; keeping local cache",
-							"identity", bundle.Address(),
-						)
-					} else {
-						bundle.Manifest = manifest
-						if err := idStore.Save(bundle); err != nil {
-							logger.Warn("saving refreshed private-network cache failed", "error", err)
+						logger.Warn("private-network membership resolve failed", "error", err)
+						errs = append(errs, fmt.Errorf("resolve membership: %w", err))
+					} else if source != "local" {
+						manifest, err := membership.ToManifest(bundle.Identity)
+						if err != nil {
+							logger.Warn("private-network membership cache rebuild failed", "error", err)
+							errs = append(errs, fmt.Errorf("membership cache rebuild: %w", err))
+						} else if !manifest.HasDevice(bundle.Device.PublicKey) {
+							err := fmt.Errorf("resolved membership missing current device")
+							logger.Warn("resolved membership missing current device; keeping local cache",
+								"identity", bundle.Address(),
+							)
+							errs = append(errs, err)
+						} else {
+							bundle.Manifest = manifest
+							if err := idStore.Save(bundle); err != nil {
+								logger.Warn("saving refreshed private-network cache failed", "error", err)
+								errs = append(errs, fmt.Errorf("save refreshed membership: %w", err))
+							}
 						}
 					}
-				}
 
-				if err := linkNode.PublishRecord(ctx); err != nil {
-					runtimeHealth.RecordPublish("dht", err)
-					logger.Warn("failed to publish private-network records to DHT", "error", err)
-				} else {
-					runtimeHealth.RecordPublish("dht", nil)
-					logger.Info("published private-network records to DHT")
-				}
-
-				if len(relays) > 0 {
-					nostr := link.NewNostrDiscovery(relays, nil)
-					membershipRecord, err := linkNode.CurrentMembershipRecord()
-					if err != nil {
-						logger.Warn("building private-network membership record failed", "error", err)
-					} else if err := nostr.PublishMembership(ctx, bundle.Identity, membershipRecord); err != nil {
-						runtimeHealth.RecordPublish("nostr_membership", err)
-						logger.Warn("failed to publish private-network membership to Nostr", "error", err)
+					if err := linkNode.PublishRecord(runCtx); err != nil {
+						runtimeHealth.RecordPublish("dht", err)
+						logger.Warn("failed to publish private-network records to DHT", "error", err)
+						errs = append(errs, fmt.Errorf("publish DHT presence: %w", err))
 					} else {
-						runtimeHealth.RecordPublish("nostr_membership", nil)
+						runtimeHealth.RecordPublish("dht", nil)
+						logger.Info("published private-network records to DHT")
 					}
 
-					presenceRecord, err := linkNode.CurrentPresenceRecordForPublish(ctx, 0)
-					if err != nil {
-						logger.Warn("building private-network presence record failed", "error", err)
-					} else if err := nostr.PublishPresence(ctx, bundle.Device, presenceRecord); err != nil {
-						runtimeHealth.RecordPublish("nostr_presence", err)
-						logger.Warn("failed to publish private-network presence to Nostr", "error", err)
-					} else {
-						runtimeHealth.RecordPublish("nostr_presence", nil)
-					}
-				}
+					if len(relays) > 0 {
+						nostr := link.NewNostrDiscovery(relays, nil)
+						membershipRecord, err := linkNode.CurrentMembershipRecord()
+						if err != nil {
+							logger.Warn("building private-network membership record failed", "error", err)
+							errs = append(errs, fmt.Errorf("build membership record: %w", err))
+						} else if err := nostr.PublishMembership(runCtx, bundle.Identity, membershipRecord); err != nil {
+							runtimeHealth.RecordPublish("nostr_membership", err)
+							logger.Warn("failed to publish private-network membership to Nostr", "error", err)
+							errs = append(errs, fmt.Errorf("publish nostr membership: %w", err))
+						} else {
+							runtimeHealth.RecordPublish("nostr_membership", nil)
+						}
 
-				link.AutoConnect(ctx, linkResolver)
-				if kvSync != nil {
-					go kvSync.PushToAll(context.Background())
+						presenceRecord, err := linkNode.CurrentPresenceRecordForPublish(runCtx, 0)
+						if err != nil {
+							logger.Warn("building private-network presence record failed", "error", err)
+							errs = append(errs, fmt.Errorf("build presence record: %w", err))
+						} else if err := nostr.PublishPresence(runCtx, bundle.Device, presenceRecord); err != nil {
+							runtimeHealth.RecordPublish("nostr_presence", err)
+							logger.Warn("failed to publish private-network presence to Nostr", "error", err)
+							errs = append(errs, fmt.Errorf("publish nostr presence: %w", err))
+						} else {
+							runtimeHealth.RecordPublish("nostr_presence", nil)
+						}
+					}
+
+					if err := link.AutoConnect(runCtx, linkResolver); err != nil {
+						logger.Warn("private-network auto-connect failed", "error", err)
+						errs = append(errs, fmt.Errorf("auto-connect: %w", err))
+					}
+					if kvSync != nil {
+						go kvSync.PushToAll(context.Background())
+					}
+					if agentRouter != nil {
+						go agentRouter.DrainOutbox(context.Background(), "")
+						go agentRouter.DrainNetworkOutbox(context.Background(), "")
+					}
+
+					return errors.Join(errs...)
+				},
+				link.WithManagerSafetySweep(2*time.Minute),
+			)
+			go func() {
+				if err := privateNetworkManager.Run(ctx); err != nil && ctx.Err() == nil {
+					logger.Warn("private-network manager stopped", "error", err)
 				}
-				if agentRouter != nil {
-					go agentRouter.DrainOutbox(context.Background(), "")
-					go agentRouter.DrainNetworkOutbox(context.Background(), "")
-				}
-			}
-			configureIdentityRPCHandler(identityRPC, bundle, idStore, backend, linkNode, relays, refreshPrivateNetwork)
+			}()
+			triggerPrivateNetwork = privateNetworkManager.Trigger
+			configureIdentityRPCHandler(identityRPC, bundle, idStore, backend, linkNode, relays, func() {
+				triggerPrivateNetwork("device_removed", "")
+			})
 
 			// Agent registry — local agent registration and message routing.
 			agentRegistry := skyagent.NewRegistry(bundle.DeviceID(), skyfs.GetDeviceName(), logRuntime.Logger)
@@ -284,6 +314,19 @@ func ServeCmd() *cobra.Command {
 			agentRouter.SetResolver(linkResolver)
 			agentRouter.SetMailboxObserver(func(action string, record agentmailbox.Record) {
 				runtimeHealth.RecordMailbox(action, string(record.State), record.Item.ID)
+				if triggerPrivateNetwork == nil {
+					return
+				}
+				if action != "queued" && action != "handed_off" {
+					return
+				}
+				if record.Item.Scope() == agentmailbox.ScopeSky10Network {
+					triggerPrivateNetwork("mailbox_"+action, record.Item.ID)
+					return
+				}
+				if record.Item.To != nil && record.Item.To.DeviceHint != "" {
+					triggerPrivateNetwork("mailbox_"+action, record.Item.To.DeviceHint)
+				}
 			})
 			if len(relays) > 0 {
 				agentRouter.SetNetworkRelay(agentmailbox.NewRelayDropbox(
@@ -329,16 +372,19 @@ func ServeCmd() *cobra.Command {
 				case strings.HasPrefix(topic, "agent:connected:"):
 					deviceID := strings.TrimPrefix(topic, "agent:connected:")
 					server.Emit("agent:connected", map[string]string{"from": from.String(), "device_id": deviceID})
-					if agentRouter != nil {
-						go agentRouter.DrainOutbox(context.Background(), deviceID)
+					if triggerPrivateNetwork != nil {
+						triggerPrivateNetwork("agent_connected", deviceID)
 					}
 				case strings.HasPrefix(topic, "agent:disconnected:"):
 					deviceID := strings.TrimPrefix(topic, "agent:disconnected:")
 					server.Emit("agent:disconnected", map[string]string{"from": from.String(), "device_id": deviceID})
+					if triggerPrivateNetwork != nil {
+						triggerPrivateNetwork("agent_disconnected", deviceID)
+					}
 				case strings.HasPrefix(topic, "agent:"):
 					server.Emit(topic, map[string]string{"from": from.String()})
-					if agentRouter != nil {
-						go agentRouter.DrainOutbox(context.Background(), "")
+					if triggerPrivateNetwork != nil {
+						triggerPrivateNetwork("agent_update", topic)
 					}
 				}
 			})
@@ -386,7 +432,9 @@ func ServeCmd() *cobra.Command {
 					if err := idStore.Save(updated); err != nil {
 						return err
 					}
-					go refreshPrivateNetwork()
+					if triggerPrivateNetwork != nil {
+						triggerPrivateNetwork("bundle_updated", "join")
+					}
 					return nil
 				})
 				linkNode.Host().SetStreamHandler(skyjoin.Protocol, joinHandler.HandleStream)
@@ -408,21 +456,10 @@ func ServeCmd() *cobra.Command {
 					}
 				}
 
-				refreshPrivateNetwork()
-				watchPrivateNetworkAddressChanges(ctx, logger, linkNode, runtimeHealth, refreshPrivateNetwork)
-
-				go func() {
-					ticker := time.NewTicker(2 * time.Minute)
-					defer ticker.Stop()
-					for {
-						select {
-						case <-ctx.Done():
-							return
-						case <-ticker.C:
-							refreshPrivateNetwork()
-						}
-					}
-				}()
+				if triggerPrivateNetwork != nil {
+					triggerPrivateNetwork("startup", "")
+				}
+				watchPrivateNetworkEvents(ctx, logger, linkNode, runtimeHealth, triggerPrivateNetwork)
 			}()
 
 			// Log KV startup errors but don't block the daemon.
@@ -469,14 +506,15 @@ func ServeCmd() *cobra.Command {
 	return cmd
 }
 
-func watchPrivateNetworkAddressChanges(ctx context.Context, logger *slog.Logger, linkNode *link.Node, tracker *link.RuntimeHealthTracker, refresh func()) {
-	if linkNode == nil || linkNode.Host() == nil || refresh == nil {
+func watchPrivateNetworkEvents(ctx context.Context, logger *slog.Logger, linkNode *link.Node, tracker *link.RuntimeHealthTracker, trigger func(reason, detail string)) {
+	if linkNode == nil || linkNode.Host() == nil || trigger == nil {
 		return
 	}
 
 	sub, err := linkNode.Host().EventBus().Subscribe([]any{
 		new(event.EvtLocalAddressesUpdated),
 		new(event.EvtLocalReachabilityChanged),
+		new(event.EvtPeerConnectednessChanged),
 	})
 	if err != nil {
 		logger.Warn("failed to subscribe to local address updates", "error", err)
@@ -501,6 +539,7 @@ func watchPrivateNetworkAddressChanges(ctx context.Context, logger *slog.Logger,
 					logger.Info("republishing private-network presence after local address update",
 						"current_addrs", len(evt.Current),
 					)
+					trigger("address_change", fmt.Sprintf("%d", len(evt.Current)))
 				case event.EvtLocalReachabilityChanged:
 					if tracker != nil {
 						tracker.RecordReachability(evt.Reachability.String())
@@ -508,13 +547,41 @@ func watchPrivateNetworkAddressChanges(ctx context.Context, logger *slog.Logger,
 					logger.Info("republishing private-network presence after reachability change",
 						"reachability", evt.Reachability.String(),
 					)
+					trigger("reachability_change", evt.Reachability.String())
+				case event.EvtPeerConnectednessChanged:
+					if !isPrivateNetworkPeer(linkNode, evt.Peer) {
+						continue
+					}
+					if tracker != nil {
+						tracker.RecordPeerConnectedness(evt.Peer.String(), evt.Connectedness.String())
+					}
+					logger.Info("private-network peer connectedness changed",
+						"peer_id", evt.Peer.String(),
+						"connectedness", evt.Connectedness.String(),
+					)
+					trigger("peer_connectedness", evt.Peer.String()+":"+evt.Connectedness.String())
 				default:
 					continue
 				}
-				go refresh()
 			}
 		}
 	}()
+}
+
+func isPrivateNetworkPeer(linkNode *link.Node, pid peer.ID) bool {
+	if linkNode == nil || linkNode.Bundle() == nil || linkNode.Bundle().Manifest == nil {
+		return false
+	}
+	for _, device := range linkNode.Bundle().Manifest.Devices {
+		expected, err := link.PeerIDFromPubKey(device.PublicKey)
+		if err != nil {
+			continue
+		}
+		if expected == pid {
+			return true
+		}
+	}
+	return false
 }
 
 func expectedPrivateNetworkPeers(bundle *skyid.Bundle) int {

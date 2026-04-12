@@ -150,6 +150,21 @@ func (t *RuntimeHealthTracker) RecordConnect(target string, err error) {
 	t.recordLocked("connect", status, detail, now)
 }
 
+// RecordPeerConnectedness records a private-peer connection state transition.
+func (t *RuntimeHealthTracker) RecordPeerConnectedness(peerID, state string) {
+	if t == nil {
+		return
+	}
+	now := time.Now().UTC()
+	detail := peerID
+	if state != "" {
+		detail = fmt.Sprintf("%s %s", peerID, state)
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.recordLocked("peer", "ok", detail, now)
+}
+
 // RecordMailbox records a mailbox-driven fallback event such as queueing,
 // relay handoff, or reconnect delivery.
 func (t *RuntimeHealthTracker) RecordMailbox(action, state, itemID string) {
