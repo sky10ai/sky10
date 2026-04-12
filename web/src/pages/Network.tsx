@@ -11,6 +11,7 @@ import {
   type LinkMailboxHealth,
   type LinkNetworkHealth,
   type LinkRelayHealth,
+  type LinkNostrSubscriptionHealth,
 } from "../lib/rpc";
 import { useRPC, truncAddr } from "../lib/useRPC";
 
@@ -108,6 +109,14 @@ function relayLabel(relay: LinkRelayHealth) {
   return "Idle";
 }
 
+function subscriptionLabel(subscription: LinkNostrSubscriptionHealth) {
+  if (subscription.active_relays === 0) return "Down";
+  if (subscription.required_relays > 0 && subscription.active_relays < subscription.required_relays) {
+    return "Partial";
+  }
+  return "Live";
+}
+
 export default function Network() {
   const [connectAddr, setConnectAddr] = useState("");
   const [connecting, setConnecting] = useState(false);
@@ -131,6 +140,7 @@ export default function Network() {
   const networkHealth = linkStatus?.health;
   const recentEvents = networkHealth?.events ?? [];
   const relayHealth = networkHealth?.relays ?? [];
+  const coordinationSubscriptions = networkHealth?.nostr?.subscriptions ?? [];
 
   const deviceByPeerID = new Map<string, Device>();
   for (const d of deviceData?.devices ?? []) {
@@ -399,6 +409,14 @@ export default function Network() {
                 </div>
                 <div>
                   <div className="text-[10px] font-bold uppercase tracking-widest text-outline">
+                    Live Subs
+                  </div>
+                  <div className="mt-1 font-semibold text-on-surface">
+                    {coordinationSubscriptions.length}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-outline">
                     Failed
                   </div>
                   <div className="mt-1 font-semibold text-on-surface">
@@ -441,13 +459,14 @@ export default function Network() {
                         <div className="mt-1 text-[11px] text-secondary">
                           ok {relay.successes} · fail {relay.failures}
                           {relay.average_latency_ms ? ` · avg ${relay.average_latency_ms}ms` : ""}
+                          {relay.active_subscriptions ? ` · subs ${relay.active_subscriptions}` : ""}
                         </div>
                       </div>
                       <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${relayTone(relay)}`}>
                         {relayLabel(relay)}
                       </span>
                     </div>
-                    {(relay.last_error || relay.last_success_at || relay.last_failure_at) && (
+                    {(relay.last_error || relay.last_success_at || relay.last_failure_at || relay.last_subscription_at || relay.last_subscription_error) && (
                       <div className="mt-3 space-y-1 text-[11px] text-secondary">
                         {relay.last_success_at && (
                           <div>
@@ -462,6 +481,14 @@ export default function Network() {
                         {relay.last_error && (
                           <div className="truncate">Error: {relay.last_error}</div>
                         )}
+                        {relay.last_subscription_at && (
+                          <div>
+                            Last sub <RelativeTime value={relay.last_subscription_at} />
+                          </div>
+                        )}
+                        {relay.last_subscription_error && (
+                          <div className="truncate">Sub error: {relay.last_subscription_error}</div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -473,6 +500,53 @@ export default function Network() {
                   {networkHealth.nostr.last_publish.successes}/{networkHealth.nostr.last_publish.quorum || 0}
                   {" "}
                   relays <RelativeTime value={networkHealth.nostr.last_publish.at} />
+                </div>
+              )}
+              {coordinationSubscriptions.length > 0 && (
+                <div className="space-y-3">
+                  {coordinationSubscriptions.map((subscription) => (
+                    <div
+                      key={subscription.label}
+                      className="rounded-lg bg-surface-container-low px-4 py-3"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate font-mono text-xs text-on-surface">
+                            {subscription.label}
+                          </div>
+                          <div className="mt-1 text-[11px] text-secondary">
+                            active {subscription.active_relays}/{subscription.required_relays || networkHealth?.nostr?.configured_relays || 0}
+                          </div>
+                        </div>
+                        <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                          subscription.active_relays === 0
+                            ? "bg-error-container/30 text-error"
+                            : subscription.required_relays > 0 && subscription.active_relays < subscription.required_relays
+                              ? "bg-amber-500/10 text-amber-700"
+                              : "bg-emerald-500/10 text-emerald-700"
+                        }`}>
+                          {subscriptionLabel(subscription)}
+                        </span>
+                      </div>
+                      {(subscription.last_event_at || subscription.last_disconnect_at || subscription.last_error) && (
+                        <div className="mt-3 space-y-1 text-[11px] text-secondary">
+                          {subscription.last_event_at && (
+                            <div>
+                              Last event <RelativeTime value={subscription.last_event_at} />
+                            </div>
+                          )}
+                          {subscription.last_disconnect_at && (
+                            <div>
+                              Last disconnect <RelativeTime value={subscription.last_disconnect_at} />
+                            </div>
+                          )}
+                          {subscription.last_error && (
+                            <div className="truncate">Error: {subscription.last_error}</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

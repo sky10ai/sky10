@@ -54,10 +54,11 @@ func TestRPCStatus(t *testing.T) {
 		}),
 		WithRelayHealthProvider(func() []NostrRelayHealth {
 			return []NostrRelayHealth{{
-				URL:              "wss://relay.example",
-				Successes:        3,
-				Failures:         1,
-				AverageLatencyMS: 28,
+				URL:                 "wss://relay.example",
+				Successes:           3,
+				Failures:            1,
+				AverageLatencyMS:    28,
+				ActiveSubscriptions: 1,
 			}}
 		}),
 		WithNostrCoordinationProvider(func() NostrCoordinationHealth {
@@ -72,6 +73,12 @@ func TestRPCStatus(t *testing.T) {
 					Degraded:  true,
 					At:        &now,
 				},
+				Subscriptions: []NostrSubscriptionHealth{{
+					Label:          "sky10-private:test",
+					ActiveRelays:   1,
+					RequiredRelays: 2,
+					LastEventAt:    &now,
+				}},
 			}
 		}),
 	)
@@ -122,14 +129,36 @@ func TestRPCStatus(t *testing.T) {
 	if status.Health.Relays[0].URL != "wss://relay.example" {
 		t.Fatalf("relay url = %q", status.Health.Relays[0].URL)
 	}
+	if status.Health.Relays[0].ActiveSubscriptions != 1 {
+		t.Fatalf("relay active subscriptions = %d, want 1", status.Health.Relays[0].ActiveSubscriptions)
+	}
 	if status.Health.CoordinationDegradedReason != "nostr_publish_quorum" {
 		t.Fatalf("coordination degraded reason = %q", status.Health.CoordinationDegradedReason)
 	}
 	if status.Health.Nostr.LastPublish.Quorum != 2 {
 		t.Fatalf("publish quorum = %d, want 2", status.Health.Nostr.LastPublish.Quorum)
 	}
+	if len(status.Health.Nostr.Subscriptions) != 1 {
+		t.Fatalf("subscription count = %d, want 1", len(status.Health.Nostr.Subscriptions))
+	}
 	if len(status.Health.Events) == 0 {
 		t.Fatal("expected recent health events")
+	}
+}
+
+func TestCoordinationDegradedReasonTracksSubscriptionQuorum(t *testing.T) {
+	t.Parallel()
+
+	health := NostrCoordinationHealth{
+		ConfiguredRelays: 3,
+		Subscriptions: []NostrSubscriptionHealth{{
+			Label:          "mailbox:test",
+			ActiveRelays:   1,
+			RequiredRelays: 2,
+		}},
+	}
+	if got := coordinationDegradedReason(health); got != "nostr_subscription_quorum" {
+		t.Fatalf("coordination degraded reason = %q, want nostr_subscription_quorum", got)
 	}
 }
 

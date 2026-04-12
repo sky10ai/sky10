@@ -262,13 +262,15 @@ shared Nostr relay health tracking and ranking, multi-relay publish quorum
 reporting, last-good Nostr discovery cache fallback for membership and
 presence, long-lived private-network identity subscriptions, and push-based
 public relay subscriptions for mailbox receipts, queue claims, and handoff
-state.
+state. It also now tracks live subscription health alongside publish health so
+status can distinguish "Nostr publish worked" from "live relay watchers are
+currently attached."
 
 The next concrete implementation slice should finish the rest of M5:
 
-- tighten long-lived Nostr coordination with stronger stale-event handling,
-  subscription health reporting, and any missing push paths that still fall
-  back to polling only
+- tighten any remaining push paths that still fall back to polling only and
+  complete the real-device validation of long-lived relay coordination under
+  disconnect/reconnect conditions
 - finish the real-device mailbox-backed validation passes from
   [`docs/work/past/2026/04/11-Mailbox.md`](../past/2026/04/11-Mailbox.md)
   for offline delivery and relay handoff flows

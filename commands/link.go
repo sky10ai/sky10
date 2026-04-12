@@ -55,14 +55,22 @@ func linkStatusCmd() *cobra.Command {
 							Quorum    int    `json:"quorum"`
 							Degraded  bool   `json:"degraded"`
 						} `json:"last_publish"`
+						Subscriptions []struct {
+							Label          string `json:"label"`
+							ActiveRelays   int    `json:"active_relays"`
+							RequiredRelays int    `json:"required_relays"`
+							LastError      string `json:"last_error"`
+						} `json:"subscriptions"`
 					} `json:"nostr"`
 					Relays []struct {
-						URL              string `json:"url"`
-						Successes        int    `json:"successes"`
-						Failures         int    `json:"failures"`
-						LastLatencyMS    int64  `json:"last_latency_ms"`
-						AverageLatencyMS int64  `json:"average_latency_ms"`
-						LastError        string `json:"last_error"`
+						URL                   string `json:"url"`
+						Successes             int    `json:"successes"`
+						Failures              int    `json:"failures"`
+						LastLatencyMS         int64  `json:"last_latency_ms"`
+						AverageLatencyMS      int64  `json:"average_latency_ms"`
+						LastError             string `json:"last_error"`
+						ActiveSubscriptions   int    `json:"active_subscriptions"`
+						LastSubscriptionError string `json:"last_subscription_error"`
 					} `json:"relays"`
 					Mailbox struct {
 						Queued              int    `json:"queued"`
@@ -109,6 +117,17 @@ func linkStatusCmd() *cobra.Command {
 					status.Health.Nostr.LastPublish.Quorum,
 				)
 			}
+			for _, sub := range status.Health.Nostr.Subscriptions {
+				fmt.Printf("sub:      %s active=%d/%d",
+					sub.Label,
+					sub.ActiveRelays,
+					sub.RequiredRelays,
+				)
+				if sub.LastError != "" {
+					fmt.Printf(" last_error=%s", sub.LastError)
+				}
+				fmt.Println()
+			}
 			if status.Health.Mailbox.PendingPrivate > 0 || status.Health.Mailbox.PendingSky10Network > 0 || status.Health.Mailbox.Failed > 0 {
 				fmt.Printf("mailbox:  queued=%d failed=%d private=%d sky10=%d handed_off=%d\n",
 					status.Health.Mailbox.Queued,
@@ -123,8 +142,14 @@ func linkStatusCmd() *cobra.Command {
 				if relay.AverageLatencyMS > 0 {
 					fmt.Printf(" avg=%dms", relay.AverageLatencyMS)
 				}
+				if relay.ActiveSubscriptions > 0 {
+					fmt.Printf(" subs=%d", relay.ActiveSubscriptions)
+				}
 				if relay.LastError != "" {
 					fmt.Printf(" last_error=%s", relay.LastError)
+				}
+				if relay.LastSubscriptionError != "" {
+					fmt.Printf(" sub_error=%s", relay.LastSubscriptionError)
 				}
 				fmt.Println()
 			}

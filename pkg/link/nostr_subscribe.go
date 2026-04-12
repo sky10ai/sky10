@@ -83,6 +83,7 @@ func runNostrRelaySubscription(
 		sub, err := relay.Subscribe(ctx, filters, nostr.WithLabel(label), nostr.WithCheckDuplicate(dedupe.Check))
 		if err != nil {
 			recordNostrRelay(tracker, relayURL, 0, err)
+			recordNostrSubscriptionDisconnect(tracker, label, relayURL, err)
 			logger.Debug("nostr subscription start failed", "relay", relayURL, "label", label, "error", err)
 			_ = relay.Close()
 			if !waitNostrSubscriptionRetry(ctx, attempt) {
@@ -91,9 +92,10 @@ func runNostrRelaySubscription(
 			attempt++
 			continue
 		}
+		recordNostrSubscriptionConnect(tracker, label, relayURL)
 
 		attempt = 0
-		if !consumeNostrSubscription(ctx, relay, sub, relayURL, tracker, logger, handler) {
+		if !consumeNostrSubscription(ctx, relay, sub, relayURL, label, tracker, logger, handler) {
 			return
 		}
 	}
@@ -104,6 +106,7 @@ func consumeNostrSubscription(
 	relay *nostr.Relay,
 	sub *nostr.Subscription,
 	relayURL string,
+	label string,
 	tracker *NostrRelayTracker,
 	logger *slog.Logger,
 	handler nostrEventHandler,
@@ -119,24 +122,33 @@ func consumeNostrSubscription(
 			return false
 		case evt, ok := <-sub.Events:
 			if !ok {
+				recordNostrSubscriptionDisconnect(tracker, label, relayURL, nil)
 				if ctx.Err() == nil {
-					recordNostrRelay(tracker, relayURL, 0, fmt.Errorf("subscription closed"))
+					err := fmt.Errorf("subscription closed")
+					recordNostrRelay(tracker, relayURL, 0, err)
+					recordNostrSubscriptionDisconnect(tracker, label, relayURL, err)
 				}
 				return ctx.Err() == nil
 			}
+			recordNostrSubscriptionEvent(tracker, label, relayURL)
 			if err := handler(relayURL, evt); err != nil {
 				logger.Debug("nostr subscription handler failed", "relay", relayURL, "error", err)
 			}
 		case reason := <-sub.ClosedReason:
 			err := fmt.Errorf("subscription closed: %s", reason)
 			recordNostrRelay(tracker, relayURL, 0, err)
+			recordNostrSubscriptionDisconnect(tracker, label, relayURL, err)
 			logger.Debug("nostr subscription closed", "relay", relayURL, "reason", reason)
 			return ctx.Err() == nil
 		case <-sub.EndOfStoredEvents:
 			recordNostrRelay(tracker, relayURL, 0, nil)
+			recordNostrSubscriptionEvent(tracker, label, relayURL)
 		case <-relay.Context().Done():
+			recordNostrSubscriptionDisconnect(tracker, label, relayURL, nil)
 			if ctx.Err() == nil {
-				recordNostrRelay(tracker, relayURL, 0, context.Cause(relay.Context()))
+				err := context.Cause(relay.Context())
+				recordNostrRelay(tracker, relayURL, 0, err)
+				recordNostrSubscriptionDisconnect(tracker, label, relayURL, err)
 			}
 			return ctx.Err() == nil
 		}
@@ -166,6 +178,27 @@ func recordNostrRelay(tracker *NostrRelayTracker, relay string, latency time.Dur
 		return
 	}
 	tracker.Record(relay, latency, err)
+}
+
+func recordNostrSubscriptionConnect(tracker *NostrRelayTracker, label, relay string) {
+	if tracker == nil {
+		return
+	}
+	tracker.RecordSubscriptionConnect(label, relay)
+}
+
+func recordNostrSubscriptionEvent(tracker *NostrRelayTracker, label, relay string) {
+	if tracker == nil {
+		return
+	}
+	tracker.RecordSubscriptionEvent(label, relay)
+}
+
+func recordNostrSubscriptionDisconnect(tracker *NostrRelayTracker, label, relay string, err error) {
+	if tracker == nil {
+		return
+	}
+	tracker.RecordSubscriptionDisconnect(label, relay, err)
 }
 
 type nostrEventDeduper struct {

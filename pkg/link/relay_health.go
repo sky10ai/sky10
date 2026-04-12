@@ -10,14 +10,18 @@ import (
 // NostrRelayHealth is the operator-facing health snapshot for one configured
 // Nostr relay.
 type NostrRelayHealth struct {
-	URL              string     `json:"url"`
-	Successes        int        `json:"successes"`
-	Failures         int        `json:"failures"`
-	LastSuccessAt    *time.Time `json:"last_success_at,omitempty"`
-	LastFailureAt    *time.Time `json:"last_failure_at,omitempty"`
-	LastError        string     `json:"last_error,omitempty"`
-	LastLatencyMS    int64      `json:"last_latency_ms,omitempty"`
-	AverageLatencyMS int64      `json:"average_latency_ms,omitempty"`
+	URL                     string     `json:"url"`
+	Successes               int        `json:"successes"`
+	Failures                int        `json:"failures"`
+	LastSuccessAt           *time.Time `json:"last_success_at,omitempty"`
+	LastFailureAt           *time.Time `json:"last_failure_at,omitempty"`
+	LastError               string     `json:"last_error,omitempty"`
+	LastLatencyMS           int64      `json:"last_latency_ms,omitempty"`
+	AverageLatencyMS        int64      `json:"average_latency_ms,omitempty"`
+	ActiveSubscriptions     int        `json:"active_subscriptions,omitempty"`
+	LastSubscriptionAt      *time.Time `json:"last_subscription_at,omitempty"`
+	LastSubscriptionErrorAt *time.Time `json:"last_subscription_error_at,omitempty"`
+	LastSubscriptionError   string     `json:"last_subscription_error,omitempty"`
 }
 
 // NostrPublishOutcome summarizes one multi-relay publish attempt.
@@ -33,28 +37,54 @@ type NostrPublishOutcome struct {
 // NostrCoordinationHealth summarizes the current multi-relay coordination
 // state used by discovery and public-network mailbox flows.
 type NostrCoordinationHealth struct {
-	ConfiguredRelays int                 `json:"configured_relays"`
-	LastPublish      NostrPublishOutcome `json:"last_publish"`
+	ConfiguredRelays int                       `json:"configured_relays"`
+	LastPublish      NostrPublishOutcome       `json:"last_publish"`
+	Subscriptions    []NostrSubscriptionHealth `json:"subscriptions,omitempty"`
 }
 
 type nostrRelayState struct {
-	successes      int
-	failures       int
-	lastSuccessAt  time.Time
-	lastFailureAt  time.Time
-	lastError      string
-	lastLatency    time.Duration
-	totalLatency   time.Duration
-	latencySamples int
+	successes               int
+	failures                int
+	lastSuccessAt           time.Time
+	lastFailureAt           time.Time
+	lastError               string
+	lastLatency             time.Duration
+	totalLatency            time.Duration
+	latencySamples          int
+	activeSubscriptions     map[string]time.Time
+	lastSubscriptionAt      time.Time
+	lastSubscriptionErrorAt time.Time
+	lastSubscriptionError   string
+}
+
+// NostrSubscriptionHealth summarizes one long-lived Nostr coordination
+// subscription across the configured relay set.
+type NostrSubscriptionHealth struct {
+	Label            string     `json:"label"`
+	ActiveRelays     int        `json:"active_relays"`
+	RequiredRelays   int        `json:"required_relays"`
+	LastConnectAt    *time.Time `json:"last_connect_at,omitempty"`
+	LastEventAt      *time.Time `json:"last_event_at,omitempty"`
+	LastDisconnectAt *time.Time `json:"last_disconnect_at,omitempty"`
+	LastError        string     `json:"last_error,omitempty"`
+}
+
+type nostrSubscriptionState struct {
+	activeRelays     map[string]time.Time
+	lastConnectAt    time.Time
+	lastEventAt      time.Time
+	lastDisconnectAt time.Time
+	lastError        string
 }
 
 // NostrRelayTracker keeps lightweight health and ranking state for the relay
 // set used across discovery and public-network mailbox coordination.
 type NostrRelayTracker struct {
-	mu          sync.RWMutex
-	order       []string
-	states      map[string]*nostrRelayState
-	lastPublish NostrPublishOutcome
+	mu            sync.RWMutex
+	order         []string
+	states        map[string]*nostrRelayState
+	subscriptions map[string]*nostrSubscriptionState
+	lastPublish   NostrPublishOutcome
 }
 
 // NewNostrRelayTracker creates a tracker for the configured relay set.
@@ -62,11 +92,12 @@ func NewNostrRelayTracker(relays []string) *NostrRelayTracker {
 	order := normalizeRelayList(relays)
 	states := make(map[string]*nostrRelayState, len(order))
 	for _, relay := range order {
-		states[relay] = &nostrRelayState{}
+		states[relay] = &nostrRelayState{activeSubscriptions: make(map[string]time.Time)}
 	}
 	return &NostrRelayTracker{
-		order:  order,
-		states: states,
+		order:         order,
+		states:        states,
+		subscriptions: make(map[string]*nostrSubscriptionState),
 	}
 }
 
@@ -122,6 +153,81 @@ func (t *NostrRelayTracker) RecordPublishOutcome(operation string, attempts, suc
 	defer t.mu.Unlock()
 	t.lastPublish = outcome
 	return outcome
+}
+
+// RecordSubscriptionConnect marks one relay subscription as active.
+func (t *NostrRelayTracker) RecordSubscriptionConnect(label, relay string) {
+	t.recordSubscription(label, relay, false, nil)
+}
+
+// RecordSubscriptionEvent records one successfully consumed subscription event.
+func (t *NostrRelayTracker) RecordSubscriptionEvent(label, relay string) {
+	t.recordSubscription(label, relay, true, nil)
+}
+
+// RecordSubscriptionDisconnect marks one relay subscription as inactive.
+func (t *NostrRelayTracker) RecordSubscriptionDisconnect(label, relay string, err error) {
+	if t == nil {
+		return
+	}
+	label = strings.TrimSpace(label)
+	relay = strings.TrimSpace(relay)
+	if label == "" || relay == "" {
+		return
+	}
+
+	now := time.Now().UTC()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	state := t.ensureLocked(relay)
+	delete(state.activeSubscriptions, label)
+	state.lastSubscriptionAt = now
+	if err != nil {
+		state.lastSubscriptionError = err.Error()
+		state.lastSubscriptionErrorAt = now
+	}
+
+	sub := t.ensureSubscriptionLocked(label)
+	delete(sub.activeRelays, relay)
+	sub.lastDisconnectAt = now
+	if err != nil {
+		sub.lastError = err.Error()
+	}
+}
+
+func (t *NostrRelayTracker) recordSubscription(label, relay string, seenEvent bool, err error) {
+	if t == nil {
+		return
+	}
+	label = strings.TrimSpace(label)
+	relay = strings.TrimSpace(relay)
+	if label == "" || relay == "" {
+		return
+	}
+
+	now := time.Now().UTC()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	state := t.ensureLocked(relay)
+	state.activeSubscriptions[label] = now
+	state.lastSubscriptionAt = now
+	if err == nil {
+		state.lastSubscriptionError = ""
+	}
+
+	sub := t.ensureSubscriptionLocked(label)
+	sub.activeRelays[relay] = now
+	if sub.lastConnectAt.IsZero() {
+		sub.lastConnectAt = now
+	}
+	if err == nil {
+		sub.lastError = ""
+	}
+	if seenEvent {
+		sub.lastEventAt = now
+	}
 }
 
 // Ordered returns relays sorted by recent health, with stable fallback to the
@@ -205,14 +311,18 @@ func (t *NostrRelayTracker) Snapshot() []NostrRelayHealth {
 			state = &nostrRelayState{}
 		}
 		out = append(out, NostrRelayHealth{
-			URL:              relay,
-			Successes:        state.successes,
-			Failures:         state.failures,
-			LastSuccessAt:    timePtr(state.lastSuccessAt),
-			LastFailureAt:    timePtr(state.lastFailureAt),
-			LastError:        state.lastError,
-			LastLatencyMS:    durationMS(state.lastLatency),
-			AverageLatencyMS: durationMS(relayAverageLatency(*state)),
+			URL:                     relay,
+			Successes:               state.successes,
+			Failures:                state.failures,
+			LastSuccessAt:           timePtr(state.lastSuccessAt),
+			LastFailureAt:           timePtr(state.lastFailureAt),
+			LastError:               state.lastError,
+			LastLatencyMS:           durationMS(state.lastLatency),
+			AverageLatencyMS:        durationMS(relayAverageLatency(*state)),
+			ActiveSubscriptions:     len(state.activeSubscriptions),
+			LastSubscriptionAt:      timePtr(state.lastSubscriptionAt),
+			LastSubscriptionErrorAt: timePtr(state.lastSubscriptionErrorAt),
+			LastSubscriptionError:   state.lastSubscriptionError,
 		})
 	}
 	return out
@@ -225,24 +335,65 @@ func (t *NostrRelayTracker) CoordinationSnapshot() NostrCoordinationHealth {
 	}
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+	subscriptions := make([]NostrSubscriptionHealth, 0, len(t.subscriptions))
+	required := DefaultNostrPublishQuorum(len(t.order))
+	labels := make([]string, 0, len(t.subscriptions))
+	for label := range t.subscriptions {
+		labels = append(labels, label)
+	}
+	sort.Strings(labels)
+	for _, label := range labels {
+		state := t.subscriptions[label]
+		if state == nil {
+			continue
+		}
+		subscriptions = append(subscriptions, NostrSubscriptionHealth{
+			Label:            label,
+			ActiveRelays:     len(state.activeRelays),
+			RequiredRelays:   required,
+			LastConnectAt:    timePtr(state.lastConnectAt),
+			LastEventAt:      timePtr(state.lastEventAt),
+			LastDisconnectAt: timePtr(state.lastDisconnectAt),
+			LastError:        state.lastError,
+		})
+	}
 	return NostrCoordinationHealth{
 		ConfiguredRelays: len(t.order),
 		LastPublish:      t.lastPublish,
+		Subscriptions:    subscriptions,
 	}
 }
 
 func (t *NostrRelayTracker) ensureLocked(relay string) *nostrRelayState {
 	if state, ok := t.states[relay]; ok && state != nil {
+		if state.activeSubscriptions == nil {
+			state.activeSubscriptions = make(map[string]time.Time)
+		}
 		return state
 	}
 	if t.states == nil {
 		t.states = map[string]*nostrRelayState{}
 	}
-	t.states[relay] = &nostrRelayState{}
+	t.states[relay] = &nostrRelayState{
+		activeSubscriptions: make(map[string]time.Time),
+	}
 	if !containsString(t.order, relay) {
 		t.order = append(t.order, relay)
 	}
 	return t.states[relay]
+}
+
+func (t *NostrRelayTracker) ensureSubscriptionLocked(label string) *nostrSubscriptionState {
+	if state, ok := t.subscriptions[label]; ok && state != nil {
+		return state
+	}
+	if t.subscriptions == nil {
+		t.subscriptions = map[string]*nostrSubscriptionState{}
+	}
+	t.subscriptions[label] = &nostrSubscriptionState{
+		activeRelays: make(map[string]time.Time),
+	}
+	return t.subscriptions[label]
 }
 
 func normalizeRelayList(relays []string) []string {

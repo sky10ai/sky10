@@ -388,6 +388,10 @@ export interface LinkRelayHealth {
   last_error?: string;
   last_latency_ms?: number;
   average_latency_ms?: number;
+  active_subscriptions?: number;
+  last_subscription_at?: string;
+  last_subscription_error_at?: string;
+  last_subscription_error?: string;
 }
 
 export interface LinkNostrPublishOutcome {
@@ -402,6 +406,17 @@ export interface LinkNostrPublishOutcome {
 export interface LinkNostrCoordinationHealth {
   configured_relays: number;
   last_publish: LinkNostrPublishOutcome;
+  subscriptions?: LinkNostrSubscriptionHealth[];
+}
+
+export interface LinkNostrSubscriptionHealth {
+  label: string;
+  active_relays: number;
+  required_relays: number;
+  last_connect_at?: string;
+  last_event_at?: string;
+  last_disconnect_at?: string;
+  last_error?: string;
 }
 
 export interface LinkNetworkHealth {

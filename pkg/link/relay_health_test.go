@@ -93,3 +93,49 @@ func TestNostrRelayTrackerCoordinationSnapshotTracksDegradedPublish(t *testing.T
 		t.Fatal("expected degraded coordination snapshot")
 	}
 }
+
+func TestNostrRelayTrackerTracksLiveSubscriptions(t *testing.T) {
+	t.Parallel()
+
+	tracker := NewNostrRelayTracker([]string{
+		"wss://one.example",
+		"wss://two.example",
+		"wss://three.example",
+	})
+	tracker.RecordSubscriptionConnect("sky10-private:alice", "wss://one.example")
+	tracker.RecordSubscriptionEvent("sky10-private:alice", "wss://one.example")
+	tracker.RecordSubscriptionConnect("sky10-private:alice", "wss://two.example")
+	tracker.RecordSubscriptionDisconnect("sky10-private:alice", "wss://two.example", errors.New("closed"))
+
+	snapshot := tracker.CoordinationSnapshot()
+	if len(snapshot.Subscriptions) != 1 {
+		t.Fatalf("subscriptions = %d, want 1", len(snapshot.Subscriptions))
+	}
+	subscription := snapshot.Subscriptions[0]
+	if subscription.Label != "sky10-private:alice" {
+		t.Fatalf("subscription label = %q", subscription.Label)
+	}
+	if subscription.ActiveRelays != 1 {
+		t.Fatalf("active relays = %d, want 1", subscription.ActiveRelays)
+	}
+	if subscription.RequiredRelays != 2 {
+		t.Fatalf("required relays = %d, want 2", subscription.RequiredRelays)
+	}
+	if subscription.LastEventAt == nil {
+		t.Fatal("expected last event timestamp")
+	}
+	if subscription.LastDisconnectAt == nil {
+		t.Fatal("expected last disconnect timestamp")
+	}
+	if subscription.LastError == "" {
+		t.Fatal("expected subscription last error")
+	}
+
+	relays := tracker.Snapshot()
+	if len(relays) != 3 {
+		t.Fatalf("relay count = %d, want 3", len(relays))
+	}
+	if relays[0].ActiveSubscriptions == 0 && relays[1].ActiveSubscriptions == 0 && relays[2].ActiveSubscriptions == 0 {
+		t.Fatal("expected at least one active subscription on relay snapshot")
+	}
+}

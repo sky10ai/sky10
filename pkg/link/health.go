@@ -258,6 +258,14 @@ func coordinationDegradedReason(coordination NostrCoordinationHealth) string {
 	if coordination.LastPublish.Degraded {
 		return "nostr_publish_quorum"
 	}
+	for _, subscription := range coordination.Subscriptions {
+		switch {
+		case subscription.ActiveRelays == 0:
+			return "nostr_subscription_down"
+		case subscription.RequiredRelays > 0 && subscription.ActiveRelays < subscription.RequiredRelays:
+			return "nostr_subscription_quorum"
+		}
+	}
 	return ""
 }
 
