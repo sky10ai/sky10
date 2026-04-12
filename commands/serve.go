@@ -15,6 +15,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/event"
 	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
 	skyagent "github.com/sky10/sky10/pkg/agent"
 	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
 	"github.com/sky10/sky10/pkg/config"
@@ -34,6 +35,7 @@ import (
 func ServeCmd() *cobra.Command {
 	var linkListenAddrs []string
 	var linkBootstrapPeers []string
+	var linkRelayPeers []string
 	var noDefaultBootstrap bool
 	var relayOverrides []string
 	var noDefaultRelays bool
@@ -84,6 +86,7 @@ func ServeCmd() *cobra.Command {
 				sockPath = skyfs.DaemonSocketPath()
 			}
 			cfgDir, _ := config.Dir()
+			relayBootstrapPath := filepath.Join(cfgDir, "link-relays.json")
 
 			cfg, err := config.Load()
 			if err != nil {
@@ -91,9 +94,16 @@ func ServeCmd() *cobra.Command {
 			}
 			relays := resolvedRelays(cfg, relayOverrides, noDefaultRelays)
 			nostrRelayTracker := link.NewNostrRelayTracker(relays)
-			linkCfg, err := resolvedLinkConfig(linkListenAddrs, linkBootstrapPeers, noDefaultBootstrap)
+			linkCfg, relayBootstrapSnapshot, err := resolvedLinkConfig(cfg, linkListenAddrs, linkBootstrapPeers, linkRelayPeers, noDefaultBootstrap, relayBootstrapPath)
 			if err != nil {
 				return err
+			}
+			if len(linkCfg.RelayPeers) > 0 {
+				if err := link.SaveRelayBootstrapPeers(relayBootstrapPath, linkCfg.RelayPeers); err != nil {
+					logger.Warn("failed to persist live relay bootstrap cache", "error", err)
+				} else if _, snapshot, err := link.LoadRelayBootstrapPeers(relayBootstrapPath); err == nil {
+					relayBootstrapSnapshot = snapshot
+				}
 			}
 			backend, err := makeBackend(ctx, cfg)
 			if err != nil {
@@ -176,6 +186,35 @@ func ServeCmd() *cobra.Command {
 				return fmt.Errorf("creating link node: %w", err)
 			}
 			runtimeHealth := link.NewRuntimeHealthTracker()
+			var relayBootstrapMu sync.RWMutex
+			updateRelayBootstrapSnapshot := func(snapshot link.RelayBootstrapSnapshot) {
+				relayBootstrapMu.Lock()
+				relayBootstrapSnapshot = snapshot
+				relayBootstrapMu.Unlock()
+			}
+			currentRelayBootstrapSnapshot := func() link.RelayBootstrapSnapshot {
+				relayBootstrapMu.RLock()
+				defer relayBootstrapMu.RUnlock()
+				return relayBootstrapSnapshot
+			}
+			rememberLiveRelays := func() {
+				if linkNode == nil || linkNode.Host() == nil {
+					return
+				}
+				observed := link.RelayBootstrapPeersFromHostAddrs(linkNode.Host().Addrs())
+				if len(observed) == 0 {
+					return
+				}
+				if err := link.SaveRelayBootstrapPeers(relayBootstrapPath, observed); err != nil {
+					logger.Warn("failed to refresh live relay bootstrap cache", "error", err)
+					return
+				}
+				if _, snapshot, err := link.LoadRelayBootstrapPeers(relayBootstrapPath); err == nil {
+					updateRelayBootstrapSnapshot(snapshot)
+				} else {
+					logger.Warn("failed to reload live relay bootstrap cache", "error", err)
+				}
+			}
 			var nostrDiscovery *link.NostrDiscovery
 			if len(relays) > 0 {
 				nostrDiscovery = link.NewNostrDiscoveryWithTracker(relays, logRuntime.Logger, nostrRelayTracker)
@@ -195,6 +234,13 @@ func ServeCmd() *cobra.Command {
 				linkNode,
 				linkResolver,
 				link.WithRuntimeHealthTracker(runtimeHealth),
+				link.WithLiveRelayHealthProvider(func() link.LiveRelayHealth {
+					var hostAddrs []ma.Multiaddr
+					if host := linkNode.Host(); host != nil {
+						hostAddrs = append(hostAddrs, host.Addrs()...)
+					}
+					return link.LiveRelayHealthFromHost(hostAddrs, linkCfg.RelayPeers, currentRelayBootstrapSnapshot())
+				}),
 				link.WithMailboxHealthProvider(func() link.MailboxHealth {
 					stats := mailboxStore.Stats()
 					return link.MailboxHealth{
@@ -517,7 +563,8 @@ func ServeCmd() *cobra.Command {
 				if triggerPrivateNetwork != nil {
 					triggerPrivateNetwork("startup", "")
 				}
-				watchPrivateNetworkEvents(ctx, logger, linkNode, runtimeHealth, triggerPrivateNetwork)
+				rememberLiveRelays()
+				watchPrivateNetworkEvents(ctx, logger, linkNode, runtimeHealth, triggerPrivateNetwork, rememberLiveRelays)
 			}()
 
 			// Log KV startup errors but don't block the daemon.
@@ -557,6 +604,7 @@ func ServeCmd() *cobra.Command {
 	cmd.Flags().Int("http-port", skyrpc.DefaultHTTPPort, "HTTP RPC port")
 	cmd.Flags().StringSliceVar(&linkListenAddrs, "link-listen", nil, "Additional libp2p listen addresses")
 	cmd.Flags().StringSliceVar(&linkBootstrapPeers, "link-bootstrap", nil, "Bootstrap peer multiaddrs for libp2p discovery")
+	cmd.Flags().StringSliceVar(&linkRelayPeers, "link-relay", nil, "Static libp2p relay multiaddrs for live skylink fallback")
 	cmd.Flags().BoolVar(&noDefaultBootstrap, "no-default-bootstrap", false, "Disable default public libp2p bootstrap peers")
 	cmd.Flags().StringSliceVar(&relayOverrides, "nostr-relay", nil, "Nostr relay URLs for private-network discovery")
 	cmd.Flags().BoolVar(&noDefaultRelays, "no-default-relays", false, "Disable default public Nostr relays")
@@ -564,7 +612,7 @@ func ServeCmd() *cobra.Command {
 	return cmd
 }
 
-func watchPrivateNetworkEvents(ctx context.Context, logger *slog.Logger, linkNode *link.Node, tracker *link.RuntimeHealthTracker, trigger func(reason, detail string)) {
+func watchPrivateNetworkEvents(ctx context.Context, logger *slog.Logger, linkNode *link.Node, tracker *link.RuntimeHealthTracker, trigger func(reason, detail string), onAddressUpdate func()) {
 	if linkNode == nil || linkNode.Host() == nil || trigger == nil {
 		return
 	}
@@ -591,6 +639,9 @@ func watchPrivateNetworkEvents(ctx context.Context, logger *slog.Logger, linkNod
 				}
 				switch evt := raw.(type) {
 				case event.EvtLocalAddressesUpdated:
+					if onAddressUpdate != nil {
+						onAddressUpdate()
+					}
 					if tracker != nil {
 						tracker.RecordAddressUpdate(len(evt.Current))
 					}

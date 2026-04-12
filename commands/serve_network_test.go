@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
 	"github.com/sky10/sky10/pkg/config"
 	skykey "github.com/sky10/sky10/pkg/key"
 	"github.com/sky10/sky10/pkg/link"
@@ -46,13 +48,19 @@ func TestResolvedLinkConfig(t *testing.T) {
 	bootstrap := fmt.Sprintf("/ip4/127.0.0.1/tcp/4101/p2p/%s", peerID.String())
 
 	t.Run("custom bootstrap and listen", func(t *testing.T) {
-		cfg, err := resolvedLinkConfig(
+		cfg, snapshot, err := resolvedLinkConfig(
+			&config.Config{},
 			[]string{"/ip4/127.0.0.1/tcp/0", "/ip4/127.0.0.1/tcp/0"},
 			[]string{bootstrap},
+			nil,
 			false,
+			"",
 		)
 		if err != nil {
 			t.Fatalf("resolvedLinkConfig: %v", err)
+		}
+		if snapshot.UpdatedAt != (link.RelayBootstrapSnapshot{}).UpdatedAt {
+			t.Fatalf("unexpected relay bootstrap snapshot: %+v", snapshot)
 		}
 		if got, want := cfg.ListenAddrs, []string{"/ip4/127.0.0.1/tcp/0"}; !reflect.DeepEqual(got, want) {
 			t.Fatalf("listen = %v, want %v", got, want)
@@ -66,7 +74,7 @@ func TestResolvedLinkConfig(t *testing.T) {
 	})
 
 	t.Run("no default bootstrap", func(t *testing.T) {
-		cfg, err := resolvedLinkConfig(nil, nil, true)
+		cfg, _, err := resolvedLinkConfig(&config.Config{}, nil, nil, nil, true, "")
 		if err != nil {
 			t.Fatalf("resolvedLinkConfig: %v", err)
 		}
@@ -77,4 +85,54 @@ func TestResolvedLinkConfig(t *testing.T) {
 			t.Fatalf("bootstrap peers = %d, want 0", len(cfg.BootstrapPeers))
 		}
 	})
+
+	t.Run("configured live relay peers", func(t *testing.T) {
+		cfg, _, err := resolvedLinkConfig(
+			&config.Config{LinkRelays: []string{bootstrap}},
+			nil,
+			nil,
+			nil,
+			false,
+			"",
+		)
+		if err != nil {
+			t.Fatalf("resolvedLinkConfig: %v", err)
+		}
+		if len(cfg.RelayPeers) != 1 {
+			t.Fatalf("relay peers = %d, want 1", len(cfg.RelayPeers))
+		}
+		if cfg.RelayPeers[0].ID != peerID {
+			t.Fatalf("relay peer id = %s, want %s", cfg.RelayPeers[0].ID, peerID)
+		}
+	})
+
+	t.Run("cached live relay peers", func(t *testing.T) {
+		cachePath := fmt.Sprintf("%s/link-relays.json", t.TempDir())
+		info := mustPeerInfo(bootstrap)
+		if err := link.SaveRelayBootstrapPeers(cachePath, []peer.AddrInfo{*info}); err != nil {
+			t.Fatalf("SaveRelayBootstrapPeers: %v", err)
+		}
+		cfg, snapshot, err := resolvedLinkConfig(&config.Config{}, nil, nil, nil, false, cachePath)
+		if err != nil {
+			t.Fatalf("resolvedLinkConfig: %v", err)
+		}
+		if len(cfg.RelayPeers) != 1 {
+			t.Fatalf("relay peers = %d, want 1", len(cfg.RelayPeers))
+		}
+		if snapshot.UpdatedAt.IsZero() {
+			t.Fatal("expected cached relay snapshot updated_at")
+		}
+	})
+}
+
+func mustPeerInfo(raw string) *peer.AddrInfo {
+	addr, err := ma.NewMultiaddr(raw)
+	if err != nil {
+		panic(err)
+	}
+	info, err := peer.AddrInfoFromP2pAddr(addr)
+	if err != nil {
+		panic(err)
+	}
+	return info
 }

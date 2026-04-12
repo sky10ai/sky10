@@ -132,8 +132,14 @@ func scoreAddr(addr ma.Multiaddr, result NetcheckResult, hint PathHint) AddrScor
 	}
 
 	if score.Transport == "libp2p_relay" {
-		score.Score -= 20
-		score.Reasons = append(score.Reasons, "relay_fallback")
+		switch {
+		case !result.UDP || result.MappingVariesByServer:
+			score.Score += 15
+			score.Reasons = append(score.Reasons, "relay_live_fallback")
+		default:
+			score.Score -= 10
+			score.Reasons = append(score.Reasons, "relay_deprioritized")
+		}
 	}
 
 	if hint.LastSuccessTransport != "" && hint.LastSuccessTransport == score.Transport {

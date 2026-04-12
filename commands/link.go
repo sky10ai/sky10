@@ -46,7 +46,16 @@ func linkStatusCmd() *cobra.Command {
 					CoordinationDegradedReason string `json:"coordination_degraded_reason"`
 					Reachability               string `json:"reachability"`
 					PublicAddr                 string `json:"public_addr"`
-					Nostr                      struct {
+					LiveRelay                  struct {
+						ConfiguredPeers int      `json:"configured_peers"`
+						CachedPeers     int      `json:"cached_peers"`
+						ActivePeers     int      `json:"active_peers"`
+						CurrentPeerID   string   `json:"current_peer_id"`
+						ActivePeerIDs   []string `json:"active_peer_ids"`
+						ActiveAddrs     []string `json:"active_addrs"`
+						LastBootstrapAt string   `json:"last_bootstrap_at"`
+					} `json:"live_relay"`
+					Nostr struct {
 						ConfiguredRelays int `json:"configured_relays"`
 						LastPublish      struct {
 							Operation string `json:"operation"`
@@ -100,6 +109,20 @@ func linkStatusCmd() *cobra.Command {
 			}
 			if status.Health.PublicAddr != "" {
 				fmt.Printf("public:   %s\n", status.Health.PublicAddr)
+			}
+			if status.Health.LiveRelay.ConfiguredPeers > 0 || status.Health.LiveRelay.CachedPeers > 0 || status.Health.LiveRelay.ActivePeers > 0 {
+				fmt.Printf("relay:    active=%d configured=%d cached=%d",
+					status.Health.LiveRelay.ActivePeers,
+					status.Health.LiveRelay.ConfiguredPeers,
+					status.Health.LiveRelay.CachedPeers,
+				)
+				if status.Health.LiveRelay.CurrentPeerID != "" {
+					fmt.Printf(" current=%s", status.Health.LiveRelay.CurrentPeerID)
+				}
+				fmt.Println()
+				for _, addr := range status.Health.LiveRelay.ActiveAddrs {
+					fmt.Printf("raddr:    %s\n", addr)
+				}
 			}
 			if status.Health.TransportDegradedReason != "" {
 				fmt.Printf("degrade:  %s\n", status.Health.TransportDegradedReason)

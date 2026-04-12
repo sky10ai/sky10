@@ -52,6 +52,7 @@ type NetworkHealth struct {
 	LastPublishedAt            *time.Time              `json:"last_published_at,omitempty"`
 	LastAddressChangeAt        *time.Time              `json:"last_address_change_at,omitempty"`
 	Netcheck                   NetcheckResult          `json:"netcheck"`
+	LiveRelay                  LiveRelayHealth         `json:"live_relay"`
 	Mailbox                    MailboxHealth           `json:"mailbox"`
 	Nostr                      NostrCoordinationHealth `json:"nostr"`
 	Relays                     []NostrRelayHealth      `json:"relays,omitempty"`

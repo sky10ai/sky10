@@ -244,6 +244,17 @@ Add:
 - either stable operator-managed relay nodes or a small dedicated `skyrelay`
   service with clear configuration and invite support
 
+Current checkpoint:
+
+- static live relay peers can be configured from config or CLI and are cached on
+  disk for restart bootstrap
+- network-mode nodes now enable relay client plus autorelay wiring against that
+  managed relay set
+- `skylink.status` and the Network page surface configured, cached, and active
+  live relay state
+- dial scoring now treats live relay as a first-class degraded-path transport
+  instead of an undifferentiated fallback
+
 Done when:
 
 - live RPC traffic still has an explicit non-mailbox transport path on bad NATs

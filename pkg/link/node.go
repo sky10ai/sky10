@@ -31,9 +31,12 @@ const (
 
 // Config holds Node configuration.
 type Config struct {
-	Mode           Mode            // Private (default) or Network
-	ListenAddrs    []string        // default: ["/ip4/0.0.0.0/tcp/0", "/ip4/0.0.0.0/udp/0/quic-v1"]
-	BootstrapPeers []peer.AddrInfo // nil => libp2p defaults, empty => no default bootstrap peers
+	Mode                     Mode            // Private (default) or Network
+	ListenAddrs              []string        // default: ["/ip4/0.0.0.0/tcp/0", "/ip4/0.0.0.0/udp/0/quic-v1"]
+	BootstrapPeers           []peer.AddrInfo // nil => libp2p defaults, empty => no default bootstrap peers
+	RelayPeers               []peer.AddrInfo // static relay peers for live autorelay fallback
+	ForcePrivateReachability bool            // primarily useful in tests to force autorelay reservation
+	ForcePublicReachability  bool            // primarily useful in tests to force relay-service viability
 }
 
 func (c Config) listenAddrs() []string {
@@ -193,10 +196,19 @@ func (n *Node) Run(ctx context.Context) error {
 	}
 
 	if n.config.Mode == Network {
+		if n.config.ForcePublicReachability {
+			opts = append(opts, libp2p.ForceReachabilityPublic())
+		} else if n.config.ForcePrivateReachability {
+			opts = append(opts, libp2p.ForceReachabilityPrivate())
+		}
 		opts = append(opts,
+			libp2p.EnableRelay(),
 			libp2p.EnableRelayService(),
 			libp2p.EnableAutoNATv2(),
 		)
+		if len(n.config.RelayPeers) > 0 {
+			opts = append(opts, libp2p.EnableAutoRelayWithStaticRelays(n.config.RelayPeers))
+		}
 	} else {
 		opts = append(opts, libp2p.DisableRelay())
 	}

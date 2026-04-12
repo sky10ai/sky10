@@ -96,6 +96,22 @@ func TestRelays(t *testing.T) {
 	})
 }
 
+func TestLiveRelays(t *testing.T) {
+	t.Run("defaults", func(t *testing.T) {
+		cfg := &Config{}
+		if got := cfg.LiveRelays(); len(got) != 0 {
+			t.Fatalf("LiveRelays() = %v, want none", got)
+		}
+	})
+	t.Run("custom", func(t *testing.T) {
+		cfg := &Config{LinkRelays: []string{"/ip4/203.0.113.10/tcp/4001/p2p/relay"}}
+		got := cfg.LiveRelays()
+		if len(got) != 1 || got[0] != "/ip4/203.0.113.10/tcp/4001/p2p/relay" {
+			t.Errorf("LiveRelays() = %v, want configured relay", got)
+		}
+	})
+}
+
 func TestMigrateFromFlatLayout(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

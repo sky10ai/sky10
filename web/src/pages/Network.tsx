@@ -8,6 +8,7 @@ import {
   skylink,
   type Device,
   type LinkHealthEvent,
+  type LinkLiveRelayHealth,
   type LinkMailboxHealth,
   type LinkNetworkHealth,
   type LinkRelayHealth,
@@ -58,6 +59,22 @@ function coordinationLabel(health?: LinkNetworkHealth) {
   if (!health?.nostr?.configured_relays) return "Not configured";
   if (health.coordination_degraded_reason) return "Degraded";
   return "Healthy";
+}
+
+function liveRelayTone(liveRelay?: LinkLiveRelayHealth) {
+  if (!liveRelay) return "bg-surface-container text-secondary";
+  if (liveRelay.active_peers > 0) return "bg-emerald-500/10 text-emerald-700";
+  if (liveRelay.configured_peers > 0 || liveRelay.cached_peers > 0) {
+    return "bg-amber-500/10 text-amber-700";
+  }
+  return "bg-surface-container text-secondary";
+}
+
+function liveRelayLabel(liveRelay?: LinkLiveRelayHealth) {
+  if (!liveRelay) return "Unknown";
+  if (liveRelay.active_peers > 0) return "Active";
+  if (liveRelay.configured_peers > 0 || liveRelay.cached_peers > 0) return "Configured";
+  return "None";
 }
 
 function eventTone(status: string) {
@@ -207,6 +224,14 @@ export default function Network() {
                 </span>
                 <span className={`inline-flex w-fit rounded-full px-2 py-1 text-xs font-bold ${coordinationTone(networkHealth)}`}>
                   {coordinationLabel(networkHealth)}
+                </span>
+              </div>
+              <div className="px-6 py-4 bg-surface-container-low rounded-xl flex flex-col gap-1 min-w-[150px]">
+                <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">
+                  Live Relay
+                </span>
+                <span className={`inline-flex w-fit rounded-full px-2 py-1 text-xs font-bold ${liveRelayTone(networkHealth?.live_relay)}`}>
+                  {liveRelayLabel(networkHealth?.live_relay)}
                 </span>
               </div>
             </>
@@ -417,6 +442,14 @@ export default function Network() {
                 </div>
                 <div>
                   <div className="text-[10px] font-bold uppercase tracking-widest text-outline">
+                    Live Relay
+                  </div>
+                  <div className="mt-1 font-semibold text-on-surface">
+                    {networkHealth.live_relay.active_peers}/{networkHealth.live_relay.configured_peers || networkHealth.live_relay.cached_peers || 0}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-outline">
                     Failed
                   </div>
                   <div className="mt-1 font-semibold text-on-surface">
@@ -439,6 +472,43 @@ export default function Network() {
               )}
             </div>
           )}
+
+          {(networkHealth?.live_relay?.configured_peers || networkHealth?.live_relay?.cached_peers || networkHealth?.live_relay?.active_peers) ? (
+            <div className="bg-surface-container-lowest rounded-xl p-6 border border-outline-variant/10 shadow-sm space-y-4">
+              <h4 className="text-sm font-bold text-on-surface uppercase tracking-widest">
+                Live Relay
+              </h4>
+              <div className="rounded-lg bg-surface-container-low px-4 py-3 text-[11px] text-secondary space-y-1">
+                <div>Configured peers: {networkHealth?.live_relay?.configured_peers ?? 0}</div>
+                <div>Cached peers: {networkHealth?.live_relay?.cached_peers ?? 0}</div>
+                <div>Active peers: {networkHealth?.live_relay?.active_peers ?? 0}</div>
+                {networkHealth?.live_relay?.last_bootstrap_at && (
+                  <div>
+                    Cache updated <RelativeTime value={networkHealth.live_relay.last_bootstrap_at} />
+                  </div>
+                )}
+              </div>
+              {networkHealth?.live_relay?.current_peer_id && (
+                <div className="rounded-lg bg-surface-container-low px-4 py-3">
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-outline">
+                    Current Relay
+                  </div>
+                  <div className="mt-1 font-mono text-xs text-on-surface">
+                    {networkHealth.live_relay.current_peer_id}
+                  </div>
+                </div>
+              )}
+              {(networkHealth?.live_relay?.active_addrs ?? []).length > 0 && (
+                <div className="space-y-2">
+                  {(networkHealth?.live_relay?.active_addrs ?? []).map((addr) => (
+                    <div key={addr} className="rounded-lg bg-surface-container-low px-4 py-3 font-mono text-[11px] text-on-surface break-all">
+                      {addr}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
 
           {relayHealth.length > 0 && (
             <div className="bg-surface-container-lowest rounded-xl p-6 border border-outline-variant/10 shadow-sm space-y-4">

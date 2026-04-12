@@ -30,6 +30,7 @@ type Config struct {
 	ForcePathStyle bool     `json:"force_path_style,omitempty"`
 	IdentityFile   string   `json:"identity_file,omitempty"`
 	NostrRelays    []string `json:"nostr_relays,omitempty"`
+	LinkRelays     []string `json:"link_relays,omitempty"`
 }
 
 // HasStorage reports whether an S3-compatible storage backend is configured.
@@ -43,6 +44,16 @@ func (c *Config) Relays() []string {
 		return c.NostrRelays
 	}
 	return DefaultNostrRelays
+}
+
+// LiveRelays returns the configured static libp2p relay peers used for live
+// skylink fallback transport. Unlike Nostr relays, there is intentionally no
+// public default here.
+func (c *Config) LiveRelays() []string {
+	if c != nil && len(c.LinkRelays) > 0 {
+		return c.LinkRelays
+	}
+	return nil
 }
 
 // Dir returns the skyfs configuration directory path (~/.sky10/fs/).

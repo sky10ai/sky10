@@ -99,6 +99,32 @@ func TestPrioritizeAddrInfoPenalizesRecentFailures(t *testing.T) {
 	}
 }
 
+func TestPrioritizeAddrInfoAllowsRelayToWinAfterDirectFailures(t *testing.T) {
+	t.Parallel()
+
+	relayAddr := "/ip4/127.0.0.1/tcp/4101/p2p/12D3KooWQJ9m1x5v6Lq3J1s4mP4h9j9bpt5yN4B8pJxWf1dP6W8M/p2p-circuit"
+	info := testPeerAddrInfo(t, []string{
+		"/ip4/203.0.113.10/tcp/4101",
+		relayAddr,
+	})
+
+	got, scores := PrioritizeAddrInfoWithHint(info, NetcheckResult{
+		UDP:                   false,
+		PublicAddr:            "203.0.113.99:55000",
+		MappingVariesByServer: true,
+	}, PathHint{
+		TransportFailures: map[string]PathFailure{
+			"direct_tcp": {Count: 3, LastAt: time.Now().UTC()},
+		},
+	})
+	if !isRelayAddr(got.Addrs[0]) {
+		t.Fatalf("first addr = %s, want relay after direct failures", got.Addrs[0])
+	}
+	if len(scores) == 0 || scores[0].Transport != "libp2p_relay" {
+		t.Fatalf("top score = %+v, want libp2p_relay", scores)
+	}
+}
+
 func TestResolverResolveAllPrioritizesPeerAddrs(t *testing.T) {
 	t.Parallel()
 

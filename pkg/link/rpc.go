@@ -15,6 +15,7 @@ type RPCHandler struct {
 	resolver       *Resolver
 	stun           []string
 	healthTracker  *RuntimeHealthTracker
+	liveRelay      func() LiveRelayHealth
 	mailboxHealth  func() MailboxHealth
 	relayHealth    func() []NostrRelayHealth
 	nostrHealth    func() NostrCoordinationHealth
@@ -37,6 +38,14 @@ func WithSTUNServers(servers []string) RPCHandlerOption {
 func WithRuntimeHealthTracker(tracker *RuntimeHealthTracker) RPCHandlerOption {
 	return func(h *RPCHandler) {
 		h.healthTracker = tracker
+	}
+}
+
+// WithLiveRelayHealthProvider attaches live relay transport health to
+// skylink.status.
+func WithLiveRelayHealthProvider(provider func() LiveRelayHealth) RPCHandlerOption {
+	return func(h *RPCHandler) {
+		h.liveRelay = provider
 	}
 }
 
@@ -129,6 +138,10 @@ func (h *RPCHandler) rpcStatus(ctx context.Context) (interface{}, error, bool) {
 	if h.mailboxHealth != nil {
 		mailbox = h.mailboxHealth()
 	}
+	liveRelay := LiveRelayHealth{}
+	if h.liveRelay != nil {
+		liveRelay = h.liveRelay()
+	}
 	var relays []NostrRelayHealth
 	if h.relayHealth != nil {
 		relays = h.relayHealth()
@@ -156,6 +169,7 @@ func (h *RPCHandler) rpcStatus(ctx context.Context) (interface{}, error, bool) {
 			LastPublishedAt:            runtime.LastPublishedAt,
 			LastAddressChangeAt:        runtime.LastAddressChangeAt,
 			Netcheck:                   netcheck,
+			LiveRelay:                  liveRelay,
 			Mailbox:                    mailbox,
 			Nostr:                      nostr,
 			Relays:                     relays,

@@ -24,25 +24,45 @@ func resolvedRelays(cfg *config.Config, override []string, noDefault bool) []str
 	return append([]string(nil), config.DefaultNostrRelays...)
 }
 
-func resolvedLinkConfig(listenAddrs, bootstrapAddrs []string, noDefaultBootstrap bool) (link.Config, error) {
-	cfg := link.Config{Mode: link.Network}
+func resolvedLinkConfig(cfg *config.Config, listenAddrs, bootstrapAddrs, relayAddrs []string, noDefaultBootstrap bool, relayCachePath string) (link.Config, link.RelayBootstrapSnapshot, error) {
+	linkCfg := link.Config{Mode: link.Network}
 
 	if addrs := cleanStrings(listenAddrs); len(addrs) > 0 {
-		cfg.ListenAddrs = addrs
+		linkCfg.ListenAddrs = addrs
 	}
 
 	bootstrap, err := parseBootstrapPeers(bootstrapAddrs)
 	if err != nil {
-		return link.Config{}, err
+		return link.Config{}, link.RelayBootstrapSnapshot{}, err
 	}
 	switch {
 	case len(bootstrap) > 0:
-		cfg.BootstrapPeers = bootstrap
+		linkCfg.BootstrapPeers = bootstrap
 	case noDefaultBootstrap:
-		cfg.BootstrapPeers = []peer.AddrInfo{}
+		linkCfg.BootstrapPeers = []peer.AddrInfo{}
 	}
 
-	return cfg, nil
+	configuredRelays := cleanStrings(relayAddrs)
+	if len(configuredRelays) == 0 && cfg != nil {
+		configuredRelays = cleanStrings(cfg.LiveRelays())
+	}
+
+	cachedRelays, snapshot, err := link.LoadRelayBootstrapPeers(relayCachePath)
+	if err != nil {
+		return link.Config{}, link.RelayBootstrapSnapshot{}, err
+	}
+
+	switch {
+	case len(configuredRelays) > 0:
+		linkCfg.RelayPeers, err = parseBootstrapPeers(configuredRelays)
+		if err != nil {
+			return link.Config{}, link.RelayBootstrapSnapshot{}, fmt.Errorf("parsing live relay peers: %w", err)
+		}
+	case len(cachedRelays) > 0:
+		linkCfg.RelayPeers = cachedRelays
+	}
+
+	return linkCfg, snapshot, nil
 }
 
 func parseBootstrapPeers(values []string) ([]peer.AddrInfo, error) {

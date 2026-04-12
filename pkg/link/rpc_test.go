@@ -42,6 +42,18 @@ func TestRPCStatus(t *testing.T) {
 		nil,
 		WithSTUNServers([]string{server}),
 		WithRuntimeHealthTracker(tracker),
+		WithLiveRelayHealthProvider(func() LiveRelayHealth {
+			now := time.Now().UTC()
+			return LiveRelayHealth{
+				ConfiguredPeers: 2,
+				CachedPeers:     1,
+				ActivePeers:     1,
+				CurrentPeerID:   "12D3KooWrelay",
+				ActivePeerIDs:   []string{"12D3KooWrelay"},
+				ActiveAddrs:     []string{"/ip4/127.0.0.1/tcp/4101/p2p/12D3KooWrelay/p2p-circuit"},
+				LastBootstrapAt: &now,
+			}
+		}),
 		WithMailboxHealthProvider(func() MailboxHealth {
 			now := time.Now().UTC()
 			return MailboxHealth{
@@ -119,6 +131,15 @@ func TestRPCStatus(t *testing.T) {
 	}
 	if status.Health.Reachability != "public" {
 		t.Fatalf("reachability = %q, want public", status.Health.Reachability)
+	}
+	if status.Health.LiveRelay.ConfiguredPeers != 2 {
+		t.Fatalf("live relay configured peers = %d, want 2", status.Health.LiveRelay.ConfiguredPeers)
+	}
+	if status.Health.LiveRelay.ActivePeers != 1 {
+		t.Fatalf("live relay active peers = %d, want 1", status.Health.LiveRelay.ActivePeers)
+	}
+	if status.Health.LiveRelay.CurrentPeerID != "12D3KooWrelay" {
+		t.Fatalf("live relay current peer id = %q", status.Health.LiveRelay.CurrentPeerID)
 	}
 	if status.Health.Mailbox.HandedOff != 1 {
 		t.Fatalf("mailbox handed_off = %d, want 1", status.Health.Mailbox.HandedOff)

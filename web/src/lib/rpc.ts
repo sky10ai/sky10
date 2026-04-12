@@ -379,6 +379,16 @@ export interface LinkMailboxHealth {
   last_failure_at?: string;
 }
 
+export interface LinkLiveRelayHealth {
+  configured_peers: number;
+  cached_peers: number;
+  active_peers: number;
+  current_peer_id?: string;
+  active_peer_ids?: string[];
+  active_addrs?: string[];
+  last_bootstrap_at?: string;
+}
+
 export interface LinkRelayHealth {
   url: string;
   successes: number;
@@ -431,6 +441,7 @@ export interface LinkNetworkHealth {
   last_published_at?: string;
   last_address_change_at?: string;
   netcheck: LinkNetcheckResult;
+  live_relay: LinkLiveRelayHealth;
   mailbox: LinkMailboxHealth;
   nostr: LinkNostrCoordinationHealth;
   relays?: LinkRelayHealth[];

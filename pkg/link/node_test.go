@@ -2,11 +2,18 @@ package link
 
 import (
 	"context"
+	"fmt"
+	"sort"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/libp2p/go-libp2p"
+	p2pnetwork "github.com/libp2p/go-libp2p/core/network"
 	p2ppeer "github.com/libp2p/go-libp2p/core/peer"
+	circuitv2_proto "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/proto"
+	ma "github.com/multiformats/go-multiaddr"
 	"github.com/sky10/sky10/pkg/id"
 	skykey "github.com/sky10/sky10/pkg/key"
 )
@@ -44,6 +51,63 @@ func startTestNode(t *testing.T, n *Node) context.CancelFunc {
 		<-errCh
 	})
 	return cancel
+}
+
+func startTestRelayHost(t *testing.T) (p2ppeer.AddrInfo, func()) {
+	t.Helper()
+
+	relayHost, err := libp2p.New(
+		libp2p.DisableRelay(),
+		libp2p.EnableRelayService(),
+		libp2p.ForceReachabilityPublic(),
+		libp2p.AddrsFactory(func(addrs []ma.Multiaddr) []ma.Multiaddr {
+			out := append([]ma.Multiaddr{}, addrs...)
+			for _, addr := range addrs {
+				publicAlias, err := relayPublicAlias(addr)
+				if err != nil {
+					continue
+				}
+				out = append(out, publicAlias)
+			}
+			return out
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 5*time.Second, func() bool {
+		for _, proto := range relayHost.Mux().Protocols() {
+			if proto == circuitv2_proto.ProtoIDv2Hop {
+				return true
+			}
+		}
+		return false
+	}, func() string {
+		return "relay service protocol not ready"
+	})
+
+	info := p2ppeer.AddrInfo{
+		ID:    relayHost.ID(),
+		Addrs: relayHost.Addrs(),
+	}
+	return info, func() {
+		_ = relayHost.Close()
+	}
+}
+
+func relayPublicAlias(addr ma.Multiaddr) (ma.Multiaddr, error) {
+	parts := strings.Split(addr.String(), "/")
+	if len(parts) < 5 {
+		return nil, fmt.Errorf("unsupported relay addr %q", addr.String())
+	}
+	if parts[1] != "ip4" && parts[1] != "ip6" {
+		return nil, fmt.Errorf("unsupported relay addr %q", addr.String())
+	}
+	alias := make([]string, 0, len(parts))
+	alias = append(alias, "")
+	alias = append(alias, "dns4", "relay.sky10.test")
+	alias = append(alias, parts[3:]...)
+	return ma.NewMultiaddr(strings.Join(alias, "/"))
 }
 
 func TestNodeNew(t *testing.T) {
@@ -95,6 +159,44 @@ func TestNodeNetworkModeInitializesDHT(t *testing.T) {
 	if n.dht == nil {
 		t.Fatal("expected DHT to initialize in network mode")
 	}
+}
+
+func TestNodeNetworkModeBootstrapsStaticRelayPeer(t *testing.T) {
+	t.Parallel()
+
+	relayInfo, closeRelay := startTestRelayHost(t)
+	t.Cleanup(closeRelay)
+
+	key, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := NewFromKey(key, Config{
+		Mode:                     Network,
+		BootstrapPeers:           []p2ppeer.AddrInfo{},
+		RelayPeers:               []p2ppeer.AddrInfo{relayInfo},
+		ForcePrivateReachability: true,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startTestNode(t, node)
+
+	waitFor(t, 10*time.Second, func() bool {
+		return node.Host().Network().Connectedness(relayInfo.ID) == p2pnetwork.Connected
+	}, func() string {
+		hostAddrs := make([]string, 0, len(node.Host().Addrs()))
+		for _, addr := range node.Host().Addrs() {
+			hostAddrs = append(hostAddrs, addr.String())
+		}
+		sort.Strings(hostAddrs)
+		relayAddrs := make([]string, 0, len(node.Host().Peerstore().Addrs(relayInfo.ID)))
+		for _, addr := range node.Host().Peerstore().Addrs(relayInfo.ID) {
+			relayAddrs = append(relayAddrs, addr.String())
+		}
+		sort.Strings(relayAddrs)
+		return "static relay peer not connected; host addrs=" + strings.Join(hostAddrs, ", ") + " relay addrs=" + strings.Join(relayAddrs, ", ")
+	})
 }
 
 func TestTwoNodesConnect(t *testing.T) {
