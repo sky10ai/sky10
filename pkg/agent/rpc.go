@@ -71,6 +71,10 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		result, err = h.rpcHeartbeat(ctx, params)
 	case "agent.discover":
 		result, err = h.rpcDiscover(ctx, params)
+	case "agent.queue.discover":
+		result, err = h.rpcQueueDiscover(ctx, params)
+	case "agent.queue.claim":
+		result, err = h.rpcQueueClaim(ctx, params)
 	case "agent.status":
 		result, err = h.rpcStatus(ctx)
 	case "agent.mailbox.send":
