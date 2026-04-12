@@ -4,7 +4,7 @@ import Markdown from "react-markdown";
 import { Icon } from "../components/Icon";
 import { StatusBadge } from "../components/StatusBadge";
 import { AGENT_EVENT_TYPES, subscribe } from "../lib/events";
-import { agent, AgentInfo } from "../lib/rpc";
+import { agent, type AgentInfo, type AgentSendResult, type DeliveryMetadata } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
 // uuid() is only available in secure contexts (HTTPS or
@@ -26,6 +26,27 @@ interface ChatMessage {
   content: string;
   timestamp: Date;
   delivered?: boolean;
+  delivery?: DeliveryMetadata;
+}
+
+function deliveryLabel(delivery?: DeliveryMetadata): string | null {
+  if (!delivery) return null;
+  if (delivery.status === "queued") {
+    return delivery.durable_transport
+      ? `Queued via ${delivery.durable_transport}`
+      : "Queued";
+  }
+  if (delivery.status === "handed_off") {
+    return delivery.durable_transport
+      ? `Handed off via ${delivery.durable_transport}`
+      : "Handed off";
+  }
+  if (delivery.status === "sent" || delivery.status === "delivered") {
+    return delivery.live_transport
+      ? `Sent via ${delivery.live_transport}`
+      : "Sent";
+  }
+  return delivery.status.replaceAll("_", " ");
 }
 
 export default function AgentChat() {
@@ -137,20 +158,33 @@ export default function AgentChat() {
     setSending(true);
 
     try {
-      await agent.send({
+      const result: AgentSendResult = await agent.send({
         to: agentInfo.id,
         device_id: agentInfo.device_id,
         session_id: sessionId,
         type: "text",
         content: { text },
       });
-      // Mark as delivered, show typing indicator with timeout.
+      // Mark the outbound delivery mode explicitly so queued mailbox fallback is
+      // visible instead of being treated as a normal live send.
       setMessages((prev) =>
-        prev.map((m) => (m.id === userMsg.id ? { ...m, delivered: true } : m))
+        prev.map((m) => (
+          m.id === userMsg.id
+            ? {
+                ...m,
+                delivered: result.status === "sent" && result.delivery.status === "sent",
+                delivery: result.delivery,
+              }
+            : m
+        ))
       );
-      setWaiting(true);
-      clearTimeout(waitingTimerRef.current);
-      waitingTimerRef.current = setTimeout(() => setWaiting(false), 30_000);
+      if (result.status === "sent" && result.delivery.status === "sent") {
+        setWaiting(true);
+        clearTimeout(waitingTimerRef.current);
+        waitingTimerRef.current = setTimeout(() => setWaiting(false), 30_000);
+      } else {
+        setWaiting(false);
+      }
     } catch (e) {
       setMessages((prev) => [
         ...prev,
@@ -292,7 +326,16 @@ export default function AgentChat() {
             </div>
             {msg.from === "user" && msg.delivered && (
               <div className="flex justify-end mt-1 pr-1">
-                <span className="text-[10px] text-secondary">Delivered</span>
+                <span className="text-[10px] text-secondary">
+                  {deliveryLabel(msg.delivery) || "Delivered"}
+                </span>
+              </div>
+            )}
+            {msg.from === "user" && !msg.delivered && msg.delivery && (
+              <div className="flex justify-end mt-1 pr-1">
+                <span className="text-[10px] text-secondary">
+                  {deliveryLabel(msg.delivery)}
+                </span>
               </div>
             )}
           </div>

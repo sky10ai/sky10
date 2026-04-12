@@ -454,6 +454,7 @@ export interface AgentListResult {
 export interface AgentStatus {
   agents: number;
   skills: string[];
+  delivery_policies: Record<string, DeliveryPolicyDescription>;
 }
 
 export interface AgentSendParams {
@@ -468,6 +469,30 @@ export interface AgentSendResult {
   id: string;
   status: string;
   mailbox_item_id?: string;
+  delivery: DeliveryMetadata;
+}
+
+export interface DeliveryMetadata {
+  policy: string;
+  scope?: string;
+  status: string;
+  live_transport?: string;
+  durable_transport?: string;
+  last_transport?: string;
+  mailbox_item_id?: string;
+  mailbox_state?: string;
+  last_event?: string;
+  last_error?: string;
+  live_attempted: boolean;
+  durable_used: boolean;
+}
+
+export interface DeliveryPolicyDescription {
+  policy: string;
+  scope?: string;
+  live_transport?: string;
+  durable_transport?: string;
+  description: string;
 }
 
 export interface MailboxPayloadRef {
@@ -551,14 +576,17 @@ export interface MailboxListResult {
 export interface MailboxGetResult {
   item: MailboxRecord;
   found: boolean;
+  delivery: DeliveryMetadata;
 }
 
 export interface MailboxRecordResult {
   item: MailboxRecord;
+  delivery: DeliveryMetadata;
 }
 
 export interface MailboxActionResult {
   item: MailboxRecord;
+  delivery?: DeliveryMetadata;
   claimed?: boolean;
   released?: boolean;
 }

@@ -271,6 +271,16 @@ func TestRPCMailboxSendListAndGet(t *testing.T) {
 	if !got["found"].(bool) {
 		t.Fatal("expected mailbox item to be found")
 	}
+	getDelivery := got["delivery"].(DeliveryMetadata)
+	if getDelivery.Policy != DeliveryPolicyMailboxBacked {
+		t.Fatalf("get delivery policy = %q, want %q", getDelivery.Policy, DeliveryPolicyMailboxBacked)
+	}
+	if getDelivery.DurableTransport != "private_mailbox" {
+		t.Fatalf("get durable transport = %q, want private_mailbox", getDelivery.DurableTransport)
+	}
+	if getDelivery.MailboxItemID != record.Item.ID {
+		t.Fatalf("get mailbox item id = %q, want %q", getDelivery.MailboxItemID, record.Item.ID)
+	}
 }
 
 func TestRPCSendQueuedIncludesDeliveryMetadata(t *testing.T) {

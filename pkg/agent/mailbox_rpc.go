@@ -240,14 +240,16 @@ func (h *RPCHandler) rpcMailboxGet(_ context.Context, params json.RawMessage) (i
 		}
 		if !mailboxRecordVisibleToView(record, view, h.registry) {
 			return map[string]interface{}{
-				"item":  agentmailbox.Record{},
-				"found": false,
+				"item":     agentmailbox.Record{},
+				"found":    false,
+				"delivery": DeliveryMetadata{},
 			}, nil
 		}
 	}
 	return map[string]interface{}{
-		"item":  record,
-		"found": ok,
+		"item":     record,
+		"found":    ok,
+		"delivery": mailboxDeliveryMetadata(record),
 	}, nil
 }
 
@@ -282,6 +284,7 @@ func (h *RPCHandler) rpcMailboxClaim(ctx context.Context, params json.RawMessage
 	}
 	return map[string]interface{}{
 		"item":     record,
+		"delivery": mailboxDeliveryMetadata(record),
 		"claimed":  ok,
 		"released": false,
 	}, nil
@@ -316,6 +319,7 @@ func (h *RPCHandler) rpcMailboxRelease(ctx context.Context, params json.RawMessa
 	}
 	return map[string]interface{}{
 		"item":     record,
+		"delivery": mailboxDeliveryMetadata(record),
 		"claimed":  false,
 		"released": ok,
 	}, nil
