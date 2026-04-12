@@ -125,6 +125,33 @@ func TestPrioritizeAddrInfoAllowsRelayToWinAfterDirectFailures(t *testing.T) {
 	}
 }
 
+func TestPrioritizeAddrInfoPrefersCurrentHomeRelay(t *testing.T) {
+	t.Parallel()
+
+	const preferredID = "12D3KooWQJ9m1x5v6Lq3J1s4mP4h9j9bpt5yN4B8pJxWf1dP6W8M"
+	const fallbackID = "12D3KooWQJ9m1x5v6Lq3J1s4mP4h9j9bpt5yN4B8pJxWf1dP6W8N"
+	preferredRelay := "/ip4/127.0.0.1/tcp/4101/p2p/" + preferredID + "/p2p-circuit"
+	otherRelay := "/ip4/127.0.0.1/tcp/4102/p2p/" + fallbackID + "/p2p-circuit"
+	info := testPeerAddrInfo(t, []string{
+		otherRelay,
+		preferredRelay,
+	})
+
+	got, scores := PrioritizeAddrInfoWithRelayPreference(info, NetcheckResult{
+		UDP:                   false,
+		PublicAddr:            "203.0.113.99:55000",
+		MappingVariesByServer: true,
+	}, PathHint{}, LiveRelayPreference{
+		CurrentPeerID: preferredID,
+	})
+	if got.Addrs[0].String() != preferredRelay {
+		t.Fatalf("first relay addr = %s, want preferred relay", got.Addrs[0])
+	}
+	if len(scores) == 0 || scores[0].Multiaddr != preferredRelay {
+		t.Fatalf("top score = %+v, want preferred relay first", scores)
+	}
+}
+
 func TestResolverResolveAllPrioritizesPeerAddrs(t *testing.T) {
 	t.Parallel()
 

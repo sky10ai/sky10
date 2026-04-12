@@ -20,13 +20,20 @@ type AddrScore struct {
 // according to the current netcheck signal. Stable UDP reachability prefers
 // QUIC-style addrs; missing or flaky UDP mapping prefers TCP.
 func PrioritizeAddrInfo(info *peer.AddrInfo, result NetcheckResult) *peer.AddrInfo {
-	out, _ := PrioritizeAddrInfoWithHint(info, result, PathHint{})
+	out, _ := PrioritizeAddrInfoWithRelayPreference(info, result, PathHint{}, LiveRelayPreference{})
 	return out
 }
 
 // PrioritizeAddrInfoWithHint returns a reordered copy of info plus the scoring
 // explanation used to rank each address.
 func PrioritizeAddrInfoWithHint(info *peer.AddrInfo, result NetcheckResult, hint PathHint) (*peer.AddrInfo, []AddrScore) {
+	return PrioritizeAddrInfoWithRelayPreference(info, result, hint, LiveRelayPreference{})
+}
+
+// PrioritizeAddrInfoWithRelayPreference returns a reordered copy of info plus
+// the scoring explanation used to rank each address, including an optional
+// current-relay preference for relayed multiaddrs.
+func PrioritizeAddrInfoWithRelayPreference(info *peer.AddrInfo, result NetcheckResult, hint PathHint, relayPreference LiveRelayPreference) (*peer.AddrInfo, []AddrScore) {
 	if info == nil {
 		return nil, nil
 	}
@@ -49,7 +56,7 @@ func PrioritizeAddrInfoWithHint(info *peer.AddrInfo, result NetcheckResult, hint
 	for idx, addr := range out.Addrs {
 		ranked = append(ranked, rankedAddr{
 			addr:  addr,
-			score: scoreAddr(addr, result, hint),
+			score: scoreAddr(addr, result, hint, relayPreference),
 			index: idx,
 		})
 	}
@@ -111,7 +118,7 @@ func addrDialRank(addr ma.Multiaddr, result NetcheckResult) int {
 	}
 }
 
-func scoreAddr(addr ma.Multiaddr, result NetcheckResult, hint PathHint) AddrScore {
+func scoreAddr(addr ma.Multiaddr, result NetcheckResult, hint PathHint, relayPreference LiveRelayPreference) AddrScore {
 	score := AddrScore{
 		Multiaddr: addr.String(),
 		Transport: transportClass(addr),
@@ -139,6 +146,12 @@ func scoreAddr(addr ma.Multiaddr, result NetcheckResult, hint PathHint) AddrScor
 		default:
 			score.Score -= 10
 			score.Reasons = append(score.Reasons, "relay_deprioritized")
+		}
+	}
+	if score.Transport == "libp2p_relay" && relayPreference.CurrentPeerID != "" {
+		if relayPeerID := relayPeerID(addr); relayPeerID == relayPreference.CurrentPeerID {
+			score.Score += 35
+			score.Reasons = append(score.Reasons, "relay_home")
 		}
 	}
 
@@ -203,6 +216,18 @@ func isQUICAddr(addr ma.Multiaddr) bool {
 
 func isRelayAddr(addr ma.Multiaddr) bool {
 	return multiaddrHasProtocol(addr, ma.P_CIRCUIT)
+}
+
+func relayPeerID(addr ma.Multiaddr) string {
+	prefix, ok := relayPrefixAddr(addr)
+	if !ok {
+		return ""
+	}
+	info, err := peer.AddrInfoFromP2pAddr(prefix)
+	if err != nil || info == nil {
+		return ""
+	}
+	return info.ID.String()
 }
 
 func multiaddrHasProtocol(addr ma.Multiaddr, code int) bool {

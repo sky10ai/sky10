@@ -49,8 +49,11 @@ func TestRPCStatus(t *testing.T) {
 				CachedPeers:     1,
 				ActivePeers:     1,
 				CurrentPeerID:   "12D3KooWrelay",
+				PreferredPeerID: "12D3KooWrelay",
 				ActivePeerIDs:   []string{"12D3KooWrelay"},
 				ActiveAddrs:     []string{"/ip4/127.0.0.1/tcp/4101/p2p/12D3KooWrelay/p2p-circuit"},
+				PreferredAt:     &now,
+				LastSwitchAt:    &now,
 				LastBootstrapAt: &now,
 			}
 		}),
@@ -140,6 +143,9 @@ func TestRPCStatus(t *testing.T) {
 	}
 	if status.Health.LiveRelay.CurrentPeerID != "12D3KooWrelay" {
 		t.Fatalf("live relay current peer id = %q", status.Health.LiveRelay.CurrentPeerID)
+	}
+	if status.Health.LiveRelay.PreferredPeerID != "12D3KooWrelay" {
+		t.Fatalf("live relay preferred peer id = %q", status.Health.LiveRelay.PreferredPeerID)
 	}
 	if status.Health.Mailbox.HandedOff != 1 {
 		t.Fatalf("mailbox handed_off = %d, want 1", status.Health.Mailbox.HandedOff)

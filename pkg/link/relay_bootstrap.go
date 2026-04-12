@@ -16,13 +16,19 @@ import (
 // RelayBootstrapSnapshot is the operator-facing summary of the cached live
 // relay bootstrap set.
 type RelayBootstrapSnapshot struct {
-	PeerIDs   []string  `json:"peer_ids,omitempty"`
-	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	PeerIDs         []string  `json:"peer_ids,omitempty"`
+	PreferredPeerID string    `json:"preferred_peer_id,omitempty"`
+	PreferredAt     time.Time `json:"preferred_at,omitempty"`
+	LastSwitchAt    time.Time `json:"last_switch_at,omitempty"`
+	UpdatedAt       time.Time `json:"updated_at,omitempty"`
 }
 
 type relayBootstrapFile struct {
-	UpdatedAt time.Time `json:"updated_at,omitempty"`
-	Relays    []string  `json:"relays,omitempty"`
+	UpdatedAt       time.Time `json:"updated_at,omitempty"`
+	PreferredPeerID string    `json:"preferred_peer_id,omitempty"`
+	PreferredAt     time.Time `json:"preferred_at,omitempty"`
+	LastSwitchAt    time.Time `json:"last_switch_at,omitempty"`
+	Relays          []string  `json:"relays,omitempty"`
 }
 
 // LoadRelayBootstrapPeers reads the cached static relay set from disk.
@@ -49,21 +55,37 @@ func LoadRelayBootstrapPeers(path string) ([]peer.AddrInfo, RelayBootstrapSnapsh
 		return nil, RelayBootstrapSnapshot{}, fmt.Errorf("parsing relay bootstrap peers: %w", err)
 	}
 	return peers, RelayBootstrapSnapshot{
-		PeerIDs:   peerIDsFromInfos(peers),
-		UpdatedAt: payload.UpdatedAt.UTC(),
+		PeerIDs:         peerIDsFromInfos(peers),
+		PreferredPeerID: strings.TrimSpace(payload.PreferredPeerID),
+		PreferredAt:     payload.PreferredAt.UTC(),
+		LastSwitchAt:    payload.LastSwitchAt.UTC(),
+		UpdatedAt:       payload.UpdatedAt.UTC(),
 	}, nil
 }
 
 // SaveRelayBootstrapPeers stores the static relay set to disk so live relay
 // bootstrap can survive restarts and temporary coordinator loss.
 func SaveRelayBootstrapPeers(path string, peers []peer.AddrInfo) error {
+	return SaveRelayBootstrapState(path, peers, RelayBootstrapSnapshot{})
+}
+
+// SaveRelayBootstrapState stores the static relay set and home-relay
+// preference to disk so live relay bootstrap can survive restarts and
+// temporary coordinator loss.
+func SaveRelayBootstrapState(path string, peers []peer.AddrInfo, snapshot RelayBootstrapSnapshot) error {
 	if strings.TrimSpace(path) == "" {
 		return nil
 	}
 
 	payload := relayBootstrapFile{
-		UpdatedAt: time.Now().UTC(),
-		Relays:    peerInfosToStrings(peers),
+		UpdatedAt:       time.Now().UTC(),
+		PreferredPeerID: strings.TrimSpace(snapshot.PreferredPeerID),
+		PreferredAt:     snapshot.PreferredAt.UTC(),
+		LastSwitchAt:    snapshot.LastSwitchAt.UTC(),
+		Relays:          peerInfosToStrings(peers),
+	}
+	if !snapshot.UpdatedAt.IsZero() {
+		payload.UpdatedAt = snapshot.UpdatedAt.UTC()
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
@@ -100,6 +122,7 @@ func SaveRelayBootstrapPeers(path string, peers []peer.AddrInfo) error {
 // autorelay addresses such as /.../p2p/<relay>/p2p-circuit.
 func RelayBootstrapPeersFromHostAddrs(addrs []ma.Multiaddr) []peer.AddrInfo {
 	seen := make(map[peer.ID]peer.AddrInfo)
+	order := make([]peer.ID, 0, len(addrs))
 	for _, addr := range addrs {
 		if addr == nil || !isRelayAddr(addr) {
 			continue
@@ -115,6 +138,7 @@ func RelayBootstrapPeersFromHostAddrs(addrs []ma.Multiaddr) []peer.AddrInfo {
 		existing, ok := seen[info.ID]
 		if !ok {
 			seen[info.ID] = *info
+			order = append(order, info.ID)
 			continue
 		}
 		existing.Addrs = append(existing.Addrs, info.Addrs...)
@@ -123,13 +147,10 @@ func RelayBootstrapPeersFromHostAddrs(addrs []ma.Multiaddr) []peer.AddrInfo {
 	if len(seen) == 0 {
 		return nil
 	}
-	out := make([]peer.AddrInfo, 0, len(seen))
-	for _, info := range seen {
-		out = append(out, info)
+	out := make([]peer.AddrInfo, 0, len(order))
+	for _, id := range order {
+		out = append(out, seen[id])
 	}
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].ID.String() < out[j].ID.String()
-	})
 	return out
 }
 
@@ -140,15 +161,23 @@ type LiveRelayHealth struct {
 	CachedPeers     int        `json:"cached_peers"`
 	ActivePeers     int        `json:"active_peers"`
 	CurrentPeerID   string     `json:"current_peer_id,omitempty"`
+	PreferredPeerID string     `json:"preferred_peer_id,omitempty"`
 	ActivePeerIDs   []string   `json:"active_peer_ids,omitempty"`
 	ActiveAddrs     []string   `json:"active_addrs,omitempty"`
+	PreferredAt     *time.Time `json:"preferred_at,omitempty"`
+	LastSwitchAt    *time.Time `json:"last_switch_at,omitempty"`
 	LastBootstrapAt *time.Time `json:"last_bootstrap_at,omitempty"`
 }
 
 // LiveRelayHealthFromHost returns the current live relay status derived from
 // host addresses plus the configured and cached relay sets.
 func LiveRelayHealthFromHost(hostAddrs []ma.Multiaddr, configured []peer.AddrInfo, cached RelayBootstrapSnapshot) LiveRelayHealth {
-	activeRelayInfos := RelayBootstrapPeersFromHostAddrs(hostAddrs)
+	activeRelayInfos := orderRelayInfos(
+		RelayBootstrapPeersFromHostAddrs(hostAddrs),
+		currentRelayPeerID(RelayBootstrapPeersFromHostAddrs(hostAddrs), cached, configured),
+		cached.PeerIDs,
+		peerIDsFromInfos(configured),
+	)
 	activeAddrs := make([]string, 0, len(hostAddrs))
 	for _, addr := range hostAddrs {
 		if addr == nil || !isRelayAddr(addr) {
@@ -159,18 +188,18 @@ func LiveRelayHealthFromHost(hostAddrs []ma.Multiaddr, configured []peer.AddrInf
 	sort.Strings(activeAddrs)
 
 	peerIDs := peerIDsFromInfos(activeRelayInfos)
-	current := ""
-	if len(peerIDs) > 0 {
-		current = peerIDs[0]
-	}
+	current := currentRelayPeerID(activeRelayInfos, cached, configured)
 
 	return LiveRelayHealth{
 		ConfiguredPeers: len(configured),
 		CachedPeers:     len(cached.PeerIDs),
 		ActivePeers:     len(peerIDs),
 		CurrentPeerID:   current,
+		PreferredPeerID: cached.PreferredPeerID,
 		ActivePeerIDs:   peerIDs,
 		ActiveAddrs:     activeAddrs,
+		PreferredAt:     timePtr(cached.PreferredAt),
+		LastSwitchAt:    timePtr(cached.LastSwitchAt),
 		LastBootstrapAt: timePtr(cached.UpdatedAt),
 	}
 }
@@ -223,7 +252,6 @@ func peerInfosToStrings(peers []peer.AddrInfo) []string {
 			out = append(out, raw)
 		}
 	}
-	sort.Strings(out)
 	return out
 }
 
@@ -238,8 +266,97 @@ func peerIDsFromInfos(peers []peer.AddrInfo) []string {
 		}
 		out = append(out, info.ID.String())
 	}
-	sort.Strings(out)
 	return out
+}
+
+func currentRelayPeerID(active []peer.AddrInfo, cached RelayBootstrapSnapshot, configured []peer.AddrInfo) string {
+	if len(active) == 0 {
+		return ""
+	}
+	if cached.PreferredPeerID != "" && relayPeerActive(active, cached.PreferredPeerID) {
+		return cached.PreferredPeerID
+	}
+	ordered := orderRelayInfos(active, "", cached.PeerIDs, peerIDsFromInfos(configured))
+	if len(ordered) == 0 {
+		return ""
+	}
+	return ordered[0].ID.String()
+}
+
+func orderRelayInfos(active []peer.AddrInfo, currentPeerID string, preferredOrders ...[]string) []peer.AddrInfo {
+	if len(active) == 0 {
+		return nil
+	}
+
+	orderIndex := make(map[string]int)
+	nextIndex := 0
+	for _, preferredOrder := range preferredOrders {
+		for _, peerID := range preferredOrder {
+			peerID = strings.TrimSpace(peerID)
+			if peerID == "" {
+				continue
+			}
+			if _, ok := orderIndex[peerID]; ok {
+				continue
+			}
+			orderIndex[peerID] = nextIndex
+			nextIndex++
+		}
+	}
+
+	type candidate struct {
+		info  peer.AddrInfo
+		index int
+		order int
+	}
+
+	candidates := make([]candidate, 0, len(active))
+	for idx, info := range active {
+		order := len(orderIndex) + idx + 1
+		if ranked, ok := orderIndex[info.ID.String()]; ok {
+			order = ranked
+		}
+		candidates = append(candidates, candidate{
+			info:  info,
+			index: idx,
+			order: order,
+		})
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		a := candidates[i]
+		b := candidates[j]
+		if currentPeerID != "" {
+			aCurrent := a.info.ID.String() == currentPeerID
+			bCurrent := b.info.ID.String() == currentPeerID
+			if aCurrent != bCurrent {
+				return aCurrent
+			}
+		}
+		if a.order != b.order {
+			return a.order < b.order
+		}
+		return a.index < b.index
+	})
+
+	out := make([]peer.AddrInfo, 0, len(candidates))
+	for _, candidate := range candidates {
+		out = append(out, candidate.info)
+	}
+	return out
+}
+
+func relayPeerActive(active []peer.AddrInfo, peerID string) bool {
+	peerID = strings.TrimSpace(peerID)
+	if peerID == "" {
+		return false
+	}
+	for _, info := range active {
+		if info.ID.String() == peerID {
+			return true
+		}
+	}
+	return false
 }
 
 func relayPrefixAddr(addr ma.Multiaddr) (ma.Multiaddr, bool) {

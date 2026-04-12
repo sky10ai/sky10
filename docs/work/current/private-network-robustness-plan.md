@@ -250,8 +250,14 @@ Current checkpoint:
   disk for restart bootstrap
 - network-mode nodes now enable relay client plus autorelay wiring against that
   managed relay set
+- live relay cache now persists a sticky home-relay preference and last switch
+  time across restarts
+- published relayed multiaddrs now prefer the current home relay instead of
+  treating all relay paths as interchangeable
+- home-relay promotion now uses a hold-down window so relay choice does not flap
+  on one transient disappearance
 - `skylink.status` and the Network page surface configured, cached, and active
-  live relay state
+  live relay state, including home relay and last switch
 - dial scoring now treats live relay as a first-class degraded-path transport
   instead of an undifferentiated fallback
 
@@ -319,6 +325,14 @@ It is M6:
 - define and build a first-class live relay tier for `skylink` traffic
 - cache relay bootstrap state on disk
 - add sticky relay selection and relay-specific health/reporting
+
+The next concrete M6 work after this slice is narrower:
+
+- prove live relay transport end-to-end on ugly networks instead of only
+  mailbox fallback
+- decide whether stable operator-managed relay nodes are enough or whether
+  `skyrelay` needs to exist as a dedicated service
+- run real-device validation for relay failover and home-relay stability
 
 Real-device validation from
 [`docs/work/past/2026/04/11-Mailbox.md`](../past/2026/04/11-Mailbox.md)

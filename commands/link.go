@@ -51,8 +51,11 @@ func linkStatusCmd() *cobra.Command {
 						CachedPeers     int      `json:"cached_peers"`
 						ActivePeers     int      `json:"active_peers"`
 						CurrentPeerID   string   `json:"current_peer_id"`
+						PreferredPeerID string   `json:"preferred_peer_id"`
 						ActivePeerIDs   []string `json:"active_peer_ids"`
 						ActiveAddrs     []string `json:"active_addrs"`
+						PreferredAt     string   `json:"preferred_at"`
+						LastSwitchAt    string   `json:"last_switch_at"`
 						LastBootstrapAt string   `json:"last_bootstrap_at"`
 					} `json:"live_relay"`
 					Nostr struct {
@@ -119,7 +122,17 @@ func linkStatusCmd() *cobra.Command {
 				if status.Health.LiveRelay.CurrentPeerID != "" {
 					fmt.Printf(" current=%s", status.Health.LiveRelay.CurrentPeerID)
 				}
+				if status.Health.LiveRelay.PreferredPeerID != "" &&
+					status.Health.LiveRelay.PreferredPeerID != status.Health.LiveRelay.CurrentPeerID {
+					fmt.Printf(" home=%s", status.Health.LiveRelay.PreferredPeerID)
+				}
 				fmt.Println()
+				if status.Health.LiveRelay.PreferredAt != "" {
+					fmt.Printf("rhome:    since=%s\n", status.Health.LiveRelay.PreferredAt)
+				}
+				if status.Health.LiveRelay.LastSwitchAt != "" {
+					fmt.Printf("rswitch:  %s\n", status.Health.LiveRelay.LastSwitchAt)
+				}
 				for _, addr := range status.Health.LiveRelay.ActiveAddrs {
 					fmt.Printf("raddr:    %s\n", addr)
 				}

@@ -68,6 +68,9 @@ type Node struct {
 	mu      sync.RWMutex
 	running bool
 
+	liveRelayPreferenceMu       sync.RWMutex
+	liveRelayPreferenceProvider func() LiveRelayPreference
+
 	// syncNotifyHandler is called when an own device sends a sync notification.
 	syncNotifyMu      sync.RWMutex
 	syncNotifyHandler func(from peer.ID, topic string)
@@ -141,6 +144,24 @@ func (n *Node) Gater() *Gater { return n.gater }
 
 // ChannelManager returns the channel manager. Nil before Run.
 func (n *Node) ChannelManager() *ChannelManager { return n.channels }
+
+// SetLiveRelayPreferenceProvider installs a callback used when publishing
+// relayed multiaddrs, so relay hints can prefer the current sticky home relay.
+func (n *Node) SetLiveRelayPreferenceProvider(provider func() LiveRelayPreference) {
+	n.liveRelayPreferenceMu.Lock()
+	defer n.liveRelayPreferenceMu.Unlock()
+	n.liveRelayPreferenceProvider = provider
+}
+
+func (n *Node) liveRelayPreference() LiveRelayPreference {
+	n.liveRelayPreferenceMu.RLock()
+	provider := n.liveRelayPreferenceProvider
+	n.liveRelayPreferenceMu.RUnlock()
+	if provider == nil {
+		return LiveRelayPreference{}
+	}
+	return provider()
+}
 
 // ConnectedPeers returns the peer IDs of all connected peers.
 func (n *Node) ConnectedPeers() []peer.ID {

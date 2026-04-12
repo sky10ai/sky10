@@ -25,10 +25,10 @@ func hostMultiaddrsForResult(n *Node, result NetcheckResult) []string {
 		return nil
 	}
 
-	info := PrioritizeAddrInfo(&peer.AddrInfo{
+	info, _ := PrioritizeAddrInfoWithRelayPreference(&peer.AddrInfo{
 		ID:    n.PeerID(),
 		Addrs: append([]ma.Multiaddr(nil), n.host.Addrs()...),
-	}, result)
+	}, result, PathHint{}, n.liveRelayPreference())
 	if info == nil {
 		return nil
 	}

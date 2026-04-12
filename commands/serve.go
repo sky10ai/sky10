@@ -15,7 +15,6 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/event"
 	"github.com/libp2p/go-libp2p/core/peer"
-	ma "github.com/multiformats/go-multiaddr"
 	skyagent "github.com/sky10/sky10/pkg/agent"
 	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
 	"github.com/sky10/sky10/pkg/config"
@@ -99,7 +98,7 @@ func ServeCmd() *cobra.Command {
 				return err
 			}
 			if len(linkCfg.RelayPeers) > 0 {
-				if err := link.SaveRelayBootstrapPeers(relayBootstrapPath, linkCfg.RelayPeers); err != nil {
+				if err := link.SaveRelayBootstrapState(relayBootstrapPath, linkCfg.RelayPeers, relayBootstrapSnapshot); err != nil {
 					logger.Warn("failed to persist live relay bootstrap cache", "error", err)
 				} else if _, snapshot, err := link.LoadRelayBootstrapPeers(relayBootstrapPath); err == nil {
 					relayBootstrapSnapshot = snapshot
@@ -186,35 +185,26 @@ func ServeCmd() *cobra.Command {
 				return fmt.Errorf("creating link node: %w", err)
 			}
 			runtimeHealth := link.NewRuntimeHealthTracker()
-			var relayBootstrapMu sync.RWMutex
-			updateRelayBootstrapSnapshot := func(snapshot link.RelayBootstrapSnapshot) {
-				relayBootstrapMu.Lock()
-				relayBootstrapSnapshot = snapshot
-				relayBootstrapMu.Unlock()
-			}
-			currentRelayBootstrapSnapshot := func() link.RelayBootstrapSnapshot {
-				relayBootstrapMu.RLock()
-				defer relayBootstrapMu.RUnlock()
-				return relayBootstrapSnapshot
-			}
+			liveRelayTracker := link.NewLiveRelayTracker(linkCfg.RelayPeers, relayBootstrapSnapshot)
 			rememberLiveRelays := func() {
 				if linkNode == nil || linkNode.Host() == nil {
 					return
 				}
-				observed := link.RelayBootstrapPeersFromHostAddrs(linkNode.Host().Addrs())
-				if len(observed) == 0 {
+				observed, snapshot, changed := liveRelayTracker.ObserveHostAddrs(linkNode.Host().Addrs())
+				if !changed || len(observed) == 0 {
 					return
 				}
-				if err := link.SaveRelayBootstrapPeers(relayBootstrapPath, observed); err != nil {
+				if err := link.SaveRelayBootstrapState(relayBootstrapPath, observed, snapshot); err != nil {
 					logger.Warn("failed to refresh live relay bootstrap cache", "error", err)
 					return
 				}
-				if _, snapshot, err := link.LoadRelayBootstrapPeers(relayBootstrapPath); err == nil {
-					updateRelayBootstrapSnapshot(snapshot)
-				} else {
-					logger.Warn("failed to reload live relay bootstrap cache", "error", err)
-				}
 			}
+			linkNode.SetLiveRelayPreferenceProvider(func() link.LiveRelayPreference {
+				if host := linkNode.Host(); host != nil {
+					return liveRelayTracker.Preference(host.Addrs())
+				}
+				return liveRelayTracker.Preference(nil)
+			})
 			var nostrDiscovery *link.NostrDiscovery
 			if len(relays) > 0 {
 				nostrDiscovery = link.NewNostrDiscoveryWithTracker(relays, logRuntime.Logger, nostrRelayTracker)
@@ -235,11 +225,10 @@ func ServeCmd() *cobra.Command {
 				linkResolver,
 				link.WithRuntimeHealthTracker(runtimeHealth),
 				link.WithLiveRelayHealthProvider(func() link.LiveRelayHealth {
-					var hostAddrs []ma.Multiaddr
 					if host := linkNode.Host(); host != nil {
-						hostAddrs = append(hostAddrs, host.Addrs()...)
+						return liveRelayTracker.Health(host.Addrs())
 					}
-					return link.LiveRelayHealthFromHost(hostAddrs, linkCfg.RelayPeers, currentRelayBootstrapSnapshot())
+					return liveRelayTracker.Health(nil)
 				}),
 				link.WithMailboxHealthProvider(func() link.MailboxHealth {
 					stats := mailboxStore.Stats()
@@ -560,10 +549,10 @@ func ServeCmd() *cobra.Command {
 					}
 				}
 
+				rememberLiveRelays()
 				if triggerPrivateNetwork != nil {
 					triggerPrivateNetwork("startup", "")
 				}
-				rememberLiveRelays()
 				watchPrivateNetworkEvents(ctx, logger, linkNode, runtimeHealth, triggerPrivateNetwork, rememberLiveRelays)
 			}()
 

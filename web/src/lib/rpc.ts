@@ -384,8 +384,11 @@ export interface LinkLiveRelayHealth {
   cached_peers: number;
   active_peers: number;
   current_peer_id?: string;
+  preferred_peer_id?: string;
   active_peer_ids?: string[];
   active_addrs?: string[];
+  preferred_at?: string;
+  last_switch_at?: string;
   last_bootstrap_at?: string;
 }
 

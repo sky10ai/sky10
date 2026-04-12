@@ -498,6 +498,28 @@ export default function Network() {
                   </div>
                 </div>
               )}
+              {networkHealth?.live_relay?.preferred_peer_id && (
+                <div className="rounded-lg bg-surface-container-low px-4 py-3">
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-outline">
+                    Home Relay
+                  </div>
+                  <div className="mt-1 font-mono text-xs text-on-surface">
+                    {networkHealth.live_relay.preferred_peer_id}
+                  </div>
+                  <div className="mt-2 space-y-1 text-[11px] text-secondary">
+                    {networkHealth.live_relay.preferred_at && (
+                      <div>
+                        Preferred <RelativeTime value={networkHealth.live_relay.preferred_at} />
+                      </div>
+                    )}
+                    {networkHealth.live_relay.last_switch_at && (
+                      <div>
+                        Last switch <RelativeTime value={networkHealth.live_relay.last_switch_at} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
               {(networkHealth?.live_relay?.active_addrs ?? []).length > 0 && (
                 <div className="space-y-2">
                   {(networkHealth?.live_relay?.active_addrs ?? []).map((addr) => (
