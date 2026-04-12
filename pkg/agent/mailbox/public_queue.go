@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -148,10 +149,21 @@ type NetworkQueue interface {
 	QueryOffers(ctx context.Context, filter QueueOfferFilter) ([]QueueOffer, error)
 }
 
+// NetworkQueueSubscriber is an optional push-based helper for keeping public
+// queue discovery state warm without repeated relay queries.
+type NetworkQueueSubscriber interface {
+	RunSubscription(ctx context.Context) error
+}
+
 // QueueTransport stores and queries public queue offers.
 type QueueTransport interface {
 	Publish(ctx context.Context, signer *skykey.Key, offer QueueOffer) error
 	Query(ctx context.Context, filter QueueOfferFilter) ([]QueueOffer, error)
+}
+
+// QueueTransportSubscriber is an optional push-based public queue transport.
+type QueueTransportSubscriber interface {
+	Subscribe(ctx context.Context, filter QueueOfferFilter, handler func(QueueOffer) error) error
 }
 
 // PublicQueue publishes minimal public queue offers for claimable tasks.
@@ -160,6 +172,10 @@ type PublicQueue struct {
 	transport QueueTransport
 	logger    *slog.Logger
 	now       func() time.Time
+
+	mu          sync.RWMutex
+	cache       map[string]QueueOffer
+	cachePrimed bool
 }
 
 // NewPublicQueue creates a public queue publisher/query helper.
@@ -172,6 +188,7 @@ func NewPublicQueue(owner *skykey.Key, transport QueueTransport, logger *slog.Lo
 		transport: transport,
 		logger:    logger,
 		now:       func() time.Time { return time.Now().UTC() },
+		cache:     make(map[string]QueueOffer),
 	}
 }
 
@@ -208,6 +225,7 @@ func (q *PublicQueue) PublishState(ctx context.Context, item Item, status string
 	if err := q.transport.Publish(ctx, q.owner, offer); err != nil {
 		return QueueOffer{}, err
 	}
+	q.storeOffer(offer)
 	return offer, nil
 }
 
@@ -216,22 +234,37 @@ func (q *PublicQueue) QueryOffers(ctx context.Context, filter QueueOfferFilter) 
 	if q == nil || q.transport == nil {
 		return nil, fmt.Errorf("public queue transport is required")
 	}
-	offers, err := q.transport.Query(ctx, filter)
-	if err != nil {
-		return nil, err
-	}
-	now := q.now()
-	out := offers[:0]
-	for _, offer := range offers {
-		if !offer.Open() {
-			continue
+	offers, ok := q.cachedOffers()
+	if !ok {
+		var err error
+		offers, err = q.transport.Query(ctx, filter)
+		if err != nil {
+			return nil, err
 		}
-		if !offer.ExpiresAt.IsZero() && offer.ExpiresAt.Before(now) {
-			continue
-		}
-		out = append(out, offer)
 	}
-	return out, nil
+	return q.filterOffers(offers, filter), nil
+}
+
+// RunSubscription keeps a local offer cache up to date from a push-capable
+// queue transport so discovery stops depending on repeated relay queries.
+func (q *PublicQueue) RunSubscription(ctx context.Context) error {
+	if q == nil || q.transport == nil {
+		return fmt.Errorf("public queue transport is required")
+	}
+	subscriber, ok := q.transport.(QueueTransportSubscriber)
+	if !ok || subscriber == nil {
+		return nil
+	}
+	offers, err := q.transport.Query(ctx, QueueOfferFilter{Limit: defaultQueueQueryLimit})
+	if err == nil {
+		q.replaceCache(offers)
+	} else if q.logger != nil {
+		q.logger.Debug("public queue initial query failed", "error", err)
+	}
+	return subscriber.Subscribe(ctx, QueueOfferFilter{Limit: defaultQueueQueryLimit}, func(offer QueueOffer) error {
+		q.storeOffer(offer)
+		return nil
+	})
 }
 
 func buildQueueOffer(item Item, sender string, now time.Time, status string) (QueueOffer, error) {
@@ -369,33 +402,12 @@ func (t *nostrQueueTransport) Query(ctx context.Context, filter QueueOfferFilter
 		}
 		t.recordRelay(relay, time.Since(started), nil)
 		for _, event := range events {
-			var offer QueueOffer
-			if err := json.Unmarshal([]byte(event.Content), &offer); err != nil {
+			offer, ok := decodeQueueOfferEvent(event)
+			if !ok {
 				continue
-			}
-			if offer.ItemID == "" {
-				offer.ItemID = nostrTagValue(event.Tags, "m")
-			}
-			if offer.Sender == "" {
-				offer.Sender = nostrTagValue(event.Tags, "i")
-			}
-			if offer.Queue == "" {
-				offer.Queue = nostrTagValue(event.Tags, "q")
-			}
-			if offer.Skill == "" {
-				offer.Skill = nostrTagValue(event.Tags, "s")
-			}
-			if offer.Status == "" {
-				offer.Status = nostrTagValue(event.Tags, "x")
-			}
-			if offer.ItemID == "" || offer.Queue == "" || offer.Sender == "" {
-				continue
-			}
-			if offer.CreatedAt.IsZero() {
-				offer.CreatedAt = event.CreatedAt.Time()
 			}
 			current, ok := byItem[offer.ItemID]
-			if !ok || offer.CreatedAt.After(current.CreatedAt) {
+			if !ok || shouldReplaceQueueOffer(current, offer) {
 				byItem[offer.ItemID] = offer
 			}
 		}
@@ -411,6 +423,32 @@ func (t *nostrQueueTransport) Query(ctx context.Context, filter QueueOfferFilter
 		return out[i].CreatedAt.After(out[j].CreatedAt)
 	})
 	return out, nil
+}
+
+func (t *nostrQueueTransport) Subscribe(ctx context.Context, filter QueueOfferFilter, handler func(QueueOffer) error) error {
+	if handler == nil {
+		return fmt.Errorf("queue subscription handler is required")
+	}
+	tagMap := nostr.TagMap{
+		"r": []string{queueOfferRole},
+	}
+	if skill := strings.TrimSpace(filter.Skill); skill != "" {
+		tagMap["s"] = []string{skill}
+	}
+	if queue := strings.TrimSpace(filter.Queue); queue != "" {
+		tagMap["q"] = []string{queue}
+	}
+	filters := nostr.Filters{{
+		Kinds: []int{link.Sky10NostrKind},
+		Tags:  tagMap,
+	}}
+	return link.RunNostrSubscription(ctx, t.relays, t.tracker, t.logger, queueSubscriptionLabel(filter), filters, func(_ string, event *nostr.Event) error {
+		offer, ok := decodeQueueOfferEvent(event)
+		if !ok {
+			return nil
+		}
+		return handler(offer)
+	})
 }
 
 func (t *nostrQueueTransport) debug(msg string, args ...interface{}) {
@@ -444,6 +482,136 @@ func (t *nostrQueueTransport) recordPublishOutcome(operation string, attempts, s
 	t.tracker.RecordPublishOutcome(operation, attempts, successes, link.DefaultNostrPublishQuorum(attempts))
 }
 
+func (q *PublicQueue) cachedOffers() ([]QueueOffer, bool) {
+	if q == nil {
+		return nil, false
+	}
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+	if !q.cachePrimed {
+		return nil, false
+	}
+	out := make([]QueueOffer, 0, len(q.cache))
+	for _, offer := range q.cache {
+		out = append(out, offer)
+	}
+	return out, true
+}
+
+func (q *PublicQueue) filterOffers(offers []QueueOffer, filter QueueOfferFilter) []QueueOffer {
+	now := q.now()
+	out := make([]QueueOffer, 0, len(offers))
+	for _, offer := range offers {
+		if filter.Skill != "" && offer.Skill != filter.Skill {
+			continue
+		}
+		if filter.Queue != "" && offer.Queue != filter.Queue {
+			continue
+		}
+		if !offer.Open() {
+			continue
+		}
+		if !offer.ExpiresAt.IsZero() && offer.ExpiresAt.Before(now) {
+			continue
+		}
+		out = append(out, offer)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].ItemID < out[j].ItemID
+		}
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
+	if filter.Limit > 0 && len(out) > filter.Limit {
+		out = out[:filter.Limit]
+	}
+	return out
+}
+
+func (q *PublicQueue) replaceCache(offers []QueueOffer) {
+	if q == nil {
+		return
+	}
+	next := make(map[string]QueueOffer, len(offers))
+	for _, offer := range offers {
+		current, ok := next[offer.ItemID]
+		if !ok || shouldReplaceQueueOffer(current, offer) {
+			next[offer.ItemID] = offer
+		}
+	}
+	q.mu.Lock()
+	q.cache = next
+	q.cachePrimed = true
+	q.mu.Unlock()
+}
+
+func (q *PublicQueue) storeOffer(offer QueueOffer) {
+	if q == nil || offer.ItemID == "" {
+		return
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	current, ok := q.cache[offer.ItemID]
+	if !ok || shouldReplaceQueueOffer(current, offer) {
+		q.cache[offer.ItemID] = offer
+	}
+	q.cachePrimed = true
+}
+
+func decodeQueueOfferEvent(event *nostr.Event) (QueueOffer, bool) {
+	if event == nil {
+		return QueueOffer{}, false
+	}
+	var offer QueueOffer
+	if err := json.Unmarshal([]byte(event.Content), &offer); err != nil {
+		return QueueOffer{}, false
+	}
+	if offer.ItemID == "" {
+		offer.ItemID = nostrTagValue(event.Tags, "m")
+	}
+	if offer.Sender == "" {
+		offer.Sender = nostrTagValue(event.Tags, "i")
+	}
+	if offer.Queue == "" {
+		offer.Queue = nostrTagValue(event.Tags, "q")
+	}
+	if offer.Skill == "" {
+		offer.Skill = nostrTagValue(event.Tags, "s")
+	}
+	if offer.Status == "" {
+		offer.Status = nostrTagValue(event.Tags, "x")
+	}
+	if offer.ItemID == "" || offer.Queue == "" || offer.Sender == "" {
+		return QueueOffer{}, false
+	}
+	if offer.CreatedAt.IsZero() {
+		offer.CreatedAt = event.CreatedAt.Time()
+	}
+	return offer, true
+}
+
+func shouldReplaceQueueOffer(current, next QueueOffer) bool {
+	switch {
+	case next.CreatedAt.After(current.CreatedAt):
+		return true
+	case next.CreatedAt.Before(current.CreatedAt):
+		return false
+	default:
+		return true
+	}
+}
+
 func publicQueueOfferDTag(itemID string) string {
 	return "mailbox:queue:offer:" + itemID
+}
+
+func queueSubscriptionLabel(filter QueueOfferFilter) string {
+	label := "queue-offers"
+	if skill := strings.TrimSpace(filter.Skill); skill != "" {
+		label += ":skill=" + skill
+	}
+	if queue := strings.TrimSpace(filter.Queue); queue != "" {
+		label += ":queue=" + queue
+	}
+	return label
 }

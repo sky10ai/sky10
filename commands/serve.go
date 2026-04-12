@@ -373,11 +373,17 @@ func ServeCmd() *cobra.Command {
 					agentmailbox.NewNostrRelayTransportWithTracker(relays, logRuntime.Logger, nostrRelayTracker),
 					logRuntime.Logger,
 				))
-				agentRouter.SetNetworkQueue(agentmailbox.NewPublicQueue(
+				publicQueue := agentmailbox.NewPublicQueue(
 					bundle.Identity,
 					agentmailbox.NewNostrQueueTransportWithTracker(relays, logRuntime.Logger, nostrRelayTracker),
 					logRuntime.Logger,
-				))
+				)
+				agentRouter.SetNetworkQueue(publicQueue)
+				go func() {
+					if err := publicQueue.RunSubscription(ctx); err != nil && ctx.Err() == nil {
+						logger.Warn("public queue subscriber stopped", "error", err)
+					}
+				}()
 			}
 			agentRPC := skyagent.NewRPCHandler(agentRegistry, bundle.Identity, server.Emit)
 			agentRPC.SetRouter(agentRouter)
