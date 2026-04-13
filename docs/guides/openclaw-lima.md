@@ -8,7 +8,9 @@ This flow uses the repo's Lima template at
 ## What You Get
 
 - Ubuntu 24.04 VM on Lima using `vz`
+- guest-local `sky10` installed inside the VM
 - OpenClaw installed with Chromium + Xvfb browser automation
+- the sky10 web UI reachable on guest port `9101`
 - Caddy reverse proxy for guest-local UI access on port `18790`
 - a shared host directory at `~/sky10/sandboxes/<slug>`
 
@@ -45,8 +47,8 @@ That flow:
 - creates `~/sky10/sandboxes/my-agent/.env` if it does not exist yet
 - writes `~/sky10/sandboxes/my-agent/update-lima-hosts.sh`
 - starts the Lima VM
-- installs OpenClaw, Chromium, Xvfb, and Caddy inside the guest
-- waits for the OpenClaw gateway to report healthy
+- installs guest-local `sky10`, OpenClaw, Chromium, Xvfb, and Caddy inside the guest
+- waits for both the guest `sky10` daemon and the OpenClaw gateway to report healthy
 
 ## Shared Host Directory
 
@@ -68,17 +70,17 @@ EOF
 
 ## Scope
 
-This milestone only sets up OpenClaw inside the guest.
+This milestone sets up guest-local `sky10` and OpenClaw inside the guest.
 
 It does not yet:
 
-- install `sky10` in the guest
 - join the guest to your existing sky10 network
 - install the OpenClaw sky10 plugin
 - auto-register the VM as a sky10 agent
 
-## Open The UI
+## Open The UIs
 
+Guest-local `sky10` listens on guest port `9101`.
 OpenClaw listens on guest port `18790`.
 
 Find the guest IP:
@@ -90,6 +92,7 @@ limactl shell my-agent -- bash -lc 'ip -4 addr show dev lima0'
 Then open:
 
 ```text
+http://<guest-ip>:9101
 http://<guest-ip>:18790/chat?session=main
 ```
 
@@ -107,6 +110,12 @@ OpenClaw status inside the guest:
 
 ```bash
 limactl shell my-agent -- bash -lc 'openclaw gateway status'
+```
+
+Guest sky10 status inside the guest:
+
+```bash
+limactl shell my-agent -- bash -lc 'sky10 daemon status || curl -s localhost:9101/health'
 ```
 
 Recent guest logs:

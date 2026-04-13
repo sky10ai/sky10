@@ -31,6 +31,8 @@ const (
 	templateNameToken         = "__SKY10_SANDBOX_NAME__"
 	templateSharedToken       = "__SKY10_SHARED_DIR__"
 	openClawReadyTimeout      = 2 * time.Minute
+	guestSky10ReadyURL        = "http://127.0.0.1:9101/health"
+	openClawReadyURL          = "http://127.0.0.1:18789/health"
 )
 
 var agentLimaAssetFiles = []string{
@@ -122,9 +124,11 @@ func sandboxCreateCmd() *cobra.Command {
 			}
 
 			ipAddr, ipErr := lookupLimaInstanceIPv4(cmd.Context(), limactl, slug)
-			httpURL := ""
+			openClawURL := ""
+			sky10URL := ""
 			if ipErr == nil && ipAddr != "" {
-				httpURL = fmt.Sprintf("http://%s:18790/chat?session=main", ipAddr)
+				sky10URL = fmt.Sprintf("http://%s:9101", ipAddr)
+				openClawURL = fmt.Sprintf("http://%s:18790/chat?session=main", ipAddr)
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "\nSandbox ready.\n")
@@ -133,17 +137,23 @@ func sandboxCreateCmd() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "Provider:   %s\n", provider)
 			fmt.Fprintf(cmd.OutOrStdout(), "Template:   %s\n", template)
 			fmt.Fprintf(cmd.OutOrStdout(), "Shared dir: %s\n", sharedDir)
-			fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:   installed inside the guest with Chromium, Xvfb, and a local gateway on http://127.0.0.1:18789\n")
+			fmt.Fprintf(cmd.OutOrStdout(), "Guest sky10: installed inside the guest and serving on http://127.0.0.1:9101\n")
+			fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:    installed inside the guest with Chromium, Xvfb, and a local gateway on http://127.0.0.1:18789\n")
 
-			if httpURL != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "UI:         %s\n", httpURL)
+			if sky10URL != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "sky10 UI:   %s\n", sky10URL)
 			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "UI:         run 'limactl shell %s -- bash -lc \"ip -4 addr show dev lima0\"' to find the host-reachable guest IP\n", slug)
+				fmt.Fprintf(cmd.OutOrStdout(), "sky10 UI:   run 'limactl shell %s -- bash -lc \"ip -4 addr show dev lima0\"' to find the host-reachable guest IP\n", slug)
+			}
+			if openClawURL != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw UI:%s %s\n", strings.Repeat(" ", 2), openClawURL)
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw UI: run 'limactl shell %s -- bash -lc \"ip -4 addr show dev lima0\"' to find the host-reachable guest IP\n", slug)
 			}
 
 			if openUI {
-				if httpURL != "" {
-					if err := openBrowser(httpURL); err != nil {
+				if openClawURL != "" {
+					if err := openBrowser(openClawURL); err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not open browser: %v\n", err)
 					}
 				} else {
@@ -158,7 +168,7 @@ func sandboxCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", "", "Sandbox provider to use")
 	cmd.Flags().StringVar(&template, "template", "", "Sandbox template/payload to install")
 	cmd.Flags().StringVar(&model, "model", "", "Override the default OpenClaw model for this sandbox")
-	cmd.Flags().DurationVar(&waitTimeout, "wait", openClawReadyTimeout, "How long to wait for the OpenClaw gateway to report healthy after provisioning")
+	cmd.Flags().DurationVar(&waitTimeout, "wait", openClawReadyTimeout, "How long to wait for the OpenClaw gateway and guest-local sky10 daemon to report healthy after provisioning")
 	cmd.Flags().BoolVar(&openUI, "open", false, "Open the OpenClaw UI after the VM is ready when a direct URL is available")
 	_ = cmd.MarkFlagRequired("provider")
 	_ = cmd.MarkFlagRequired("template")
@@ -380,6 +390,13 @@ func prepareLimaSharedDir(sharedDir string, hostsScript []byte) error {
 }
 
 func waitForOpenClawReady(ctx context.Context, limactl, name string, timeout time.Duration) error {
+	if err := waitForGuestHTTPHealth(ctx, limactl, name, openClawReadyURL, "OpenClaw", timeout); err != nil {
+		return err
+	}
+	return waitForGuestHTTPHealth(ctx, limactl, name, guestSky10ReadyURL, "guest-local sky10", timeout)
+}
+
+func waitForGuestHTTPHealth(ctx context.Context, limactl, name, url, label string, timeout time.Duration) error {
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -388,7 +405,7 @@ func waitForOpenClawReady(ctx context.Context, limactl, name string, timeout tim
 
 	var lastErr error
 	for {
-		cmd := exec.CommandContext(waitCtx, limactl, "shell", name, "--", "bash", "-lc", "curl -fsS http://127.0.0.1:18789/health >/dev/null")
+		cmd := exec.CommandContext(waitCtx, limactl, "shell", name, "--", "bash", "-lc", fmt.Sprintf("curl -fsS %s >/dev/null", url))
 		if err := cmd.Run(); err == nil {
 			return nil
 		} else {
@@ -398,9 +415,9 @@ func waitForOpenClawReady(ctx context.Context, limactl, name string, timeout tim
 		select {
 		case <-waitCtx.Done():
 			if lastErr != nil {
-				return fmt.Errorf("timed out waiting for OpenClaw in sandbox %q: %w", name, lastErr)
+				return fmt.Errorf("timed out waiting for %s in sandbox %q: %w", label, name, lastErr)
 			}
-			return fmt.Errorf("timed out waiting for OpenClaw in sandbox %q", name)
+			return fmt.Errorf("timed out waiting for %s in sandbox %q", label, name)
 		case <-ticker.C:
 		}
 	}

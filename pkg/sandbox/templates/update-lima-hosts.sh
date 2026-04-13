@@ -34,7 +34,10 @@ for line in sys.stdin:
     continue
   fi
 
-  ip="$("${LIMACTL_BIN}" shell "${name}" -- bash -lc "ip -4 route get 1.1.1.1 | awk '{for (i = 1; i <= NF; i++) if (\$i == \"src\") {print \$(i + 1); exit}}'" 2>/dev/null | tail -n1 | tr -d '\r')"
+  ip="$("${LIMACTL_BIN}" shell "${name}" -- bash -lc "ip -4 addr show dev lima0 | awk '/inet / {sub(/\/.*/, \"\", \$2); print \$2; exit}'" 2>/dev/null | tail -n1 | tr -d '\r')"
+  if [[ -z "${ip}" ]]; then
+    ip="$("${LIMACTL_BIN}" shell "${name}" -- bash -lc "ip -4 route get 1.1.1.1 | awk '{for (i = 1; i <= NF; i++) if (\$i == \"src\") {print \$(i + 1); exit}}'" 2>/dev/null | tail -n1 | tr -d '\r')"
+  fi
   if [ -z "${ip}" ]; then
     continue
   fi

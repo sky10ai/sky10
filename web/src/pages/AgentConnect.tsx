@@ -6,16 +6,16 @@ const GUIDES = [
     id: "lima",
     icon: "deployed_code",
     label: "OpenClaw + Lima",
-    description: "Managed Ubuntu VM with OpenClaw, Chromium, and local UI access",
+    description: "Managed Ubuntu VM with guest-local sky10, OpenClaw, Chromium, and local UI access",
     steps: [
       "Preferred path: Agents -> Create OpenClaw. CLI equivalent:",
       null,
       "Optional: fill provider keys in ~/sky10/sandboxes/my-agent/.env:",
       null,
-      "This first milestone only provisions OpenClaw inside the guest. sky10 registration and plugin wiring come later.",
+      "This second milestone provisions guest-local sky10 and OpenClaw inside the guest. sky10 network join, plugin wiring, and agent registration come later.",
       "Inspect the guest or fetch the UI IP with:",
       null,
-      "Then open http://<guest-ip>:18790/chat?session=main in your browser.",
+      "Then open http://<guest-ip>:9101 for sky10 and http://<guest-ip>:18790/chat?session=main for OpenClaw.",
     ],
     codeBlocks: [
       `sky10 sandbox create my-agent --provider lima --template openclaw`,
@@ -24,7 +24,7 @@ ANTHROPIC_API_KEY=your-anthropic-key
 OPENAI_API_KEY=your-openai-key
 EOF`,
       `limactl shell my-agent
-limactl shell my-agent -- bash -lc 'ip -4 route get 1.1.1.1'`,
+limactl shell my-agent -- bash -lc 'ip -4 addr show dev lima0'`,
     ],
   },
   {

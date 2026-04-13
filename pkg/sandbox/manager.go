@@ -37,6 +37,8 @@ const (
 	templateNameToken    = "__SKY10_SANDBOX_NAME__"
 	templateSharedToken  = "__SKY10_SHARED_DIR__"
 	openClawReadyTimeout = 2 * time.Minute
+	guestSky10ReadyURL   = "http://127.0.0.1:9101/health"
+	openClawReadyURL     = "http://127.0.0.1:18789/health"
 )
 
 var slugWordPattern = regexp.MustCompile(`[a-z0-9]+`)
@@ -446,6 +448,9 @@ func (m *Manager) finishReady(ctx context.Context, name, limactl string) error {
 	}
 	if rec.Template == templateOpenClaw {
 		if err := waitForOpenClawGateway(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
+			return err
+		}
+		if err := waitForGuestSky10(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
 			return err
 		}
 	}
@@ -1040,6 +1045,24 @@ func waitForOpenClawGateway(
 	limactl, name string,
 	timeout time.Duration,
 ) error {
+	return waitForGuestHTTPHealth(ctx, outputCmd, limactl, name, openClawReadyURL, "OpenClaw gateway", timeout)
+}
+
+func waitForGuestSky10(
+	ctx context.Context,
+	outputCmd func(context.Context, string, []string) ([]byte, error),
+	limactl, name string,
+	timeout time.Duration,
+) error {
+	return waitForGuestHTTPHealth(ctx, outputCmd, limactl, name, guestSky10ReadyURL, "guest sky10", timeout)
+}
+
+func waitForGuestHTTPHealth(
+	ctx context.Context,
+	outputCmd func(context.Context, string, []string) ([]byte, error),
+	limactl, name, url, label string,
+	timeout time.Duration,
+) error {
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -1054,7 +1077,7 @@ func waitForOpenClawGateway(
 			"--",
 			"bash",
 			"-lc",
-			"curl -fsS http://127.0.0.1:18789/health >/dev/null",
+			fmt.Sprintf("curl -fsS %s >/dev/null", url),
 		})
 		if err == nil {
 			return nil
@@ -1064,9 +1087,9 @@ func waitForOpenClawGateway(
 		select {
 		case <-waitCtx.Done():
 			if lastErr != nil {
-				return fmt.Errorf("waiting for OpenClaw gateway: %w", lastErr)
+				return fmt.Errorf("waiting for %s: %w", label, lastErr)
 			}
-			return fmt.Errorf("timed out waiting for OpenClaw gateway")
+			return fmt.Errorf("timed out waiting for %s", label)
 		case <-ticker.C:
 		}
 	}

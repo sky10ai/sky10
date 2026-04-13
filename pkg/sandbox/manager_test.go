@@ -402,6 +402,31 @@ func TestReadBundledTemplate(t *testing.T) {
 	}
 }
 
+func TestReadBundledOpenClawTemplateProbeUsesHealthChecks(t *testing.T) {
+	t.Parallel()
+
+	body, err := readBundledTemplateAsset(templateOpenClawYAML)
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset() error: %v", err)
+	}
+	text := string(body)
+	if strings.Contains(text, "command -v openclaw") {
+		t.Fatalf("openclaw template probe should not require openclaw on PATH")
+	}
+	if strings.Contains(text, "command -v sky10") {
+		t.Fatalf("openclaw template probe should not require sky10 on PATH")
+	}
+	if !strings.Contains(text, "http://127.0.0.1:9101/health") {
+		t.Fatalf("openclaw template probe missing guest sky10 health check")
+	}
+	if !strings.Contains(text, "http://127.0.0.1:18789/health") {
+		t.Fatalf("openclaw template probe missing OpenClaw health check")
+	}
+	if !strings.Contains(text, "portForwards:") || !strings.Contains(text, "ignore: true") {
+		t.Fatalf("openclaw template should disable Lima host port forwarding")
+	}
+}
+
 func TestPrepareOpenClawSharedDir(t *testing.T) {
 	t.Parallel()
 
@@ -469,6 +494,25 @@ func TestWaitForOpenClawGateway(t *testing.T) {
 	}
 	if attempts != 3 {
 		t.Fatalf("waitForOpenClawGateway() attempts = %d, want 3", attempts)
+	}
+}
+
+func TestWaitForGuestSky10(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	err := waitForGuestSky10(context.Background(), func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		attempts++
+		if attempts < 2 {
+			return nil, fmt.Errorf("not ready")
+		}
+		return []byte("ok"), nil
+	}, "/tmp/fake/limactl", "agent-123", 5*time.Second)
+	if err != nil {
+		t.Fatalf("waitForGuestSky10() error: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("waitForGuestSky10() attempts = %d, want 2", attempts)
 	}
 }
 

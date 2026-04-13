@@ -15,6 +15,64 @@ mkdir -p "${OPENCLAW_DIR}/agents/main/sessions"
 mkdir -p "${WORKSPACE_DIR}"
 mkdir -p "${STATE_DIR}"
 mkdir -p "${UNIT_DIR}"
+mkdir -p "${HOME}/.bin"
+
+curl4() {
+  curl -4 --retry 5 --retry-delay 2 --retry-connrefused -fsSL "$@"
+}
+
+wait_for_sky10() {
+  timeout 120s bash -lc 'until curl -fsS http://127.0.0.1:9101/health >/dev/null 2>&1; do sleep 2; done'
+}
+
+install_sky10() {
+  local arch latest asset tmp
+
+  case "$(uname -m)" in
+    x86_64|amd64)
+      arch="amd64"
+      ;;
+    arm64|aarch64)
+      arch="arm64"
+      ;;
+    *)
+      echo >&2 "unsupported sky10 guest architecture: $(uname -m)"
+      return 1
+      ;;
+  esac
+
+  latest="$(
+    curl4 https://api.github.com/repos/sky10ai/sky10/releases/latest \
+      | python3 -c 'import json, sys; print(json.load(sys.stdin)["tag_name"])'
+  )"
+  if [ -z "${latest}" ]; then
+    echo >&2 "failed to resolve latest sky10 release"
+    return 1
+  fi
+
+  asset="sky10-linux-${arch}"
+  tmp="$(mktemp)"
+  curl4 -o "${tmp}" "https://github.com/sky10ai/sky10/releases/download/${latest}/${asset}"
+  install -m 755 "${tmp}" "${HOME}/.bin/sky10"
+  rm -f "${tmp}"
+}
+
+ensure_guest_sky10() {
+  if ! command -v sky10 >/dev/null 2>&1; then
+    install_sky10
+  fi
+
+  if curl -fsS http://127.0.0.1:9101/health >/dev/null 2>&1; then
+    return 0
+  fi
+
+  sky10 daemon install || true
+  if ! curl -fsS http://127.0.0.1:9101/health >/dev/null 2>&1; then
+    nohup sky10 serve > "${STATE_DIR}/sky10-serve.log" 2>&1 &
+  fi
+
+  wait_for_sky10
+}
 
 if ! command -v openclaw >/dev/null 2>&1; then
   echo >&2 "openclaw is not installed; system provisioning did not complete"
@@ -25,6 +83,8 @@ if ! command -v chromium >/dev/null 2>&1; then
   echo >&2 "chromium is not installed; system provisioning did not complete"
   exit 1
 fi
+
+ensure_guest_sky10
 
 if [ ! -f "${WORKSPACE_DIR}/IDENTITY.md" ]; then
   cat > "${WORKSPACE_DIR}/IDENTITY.md" <<EOF
@@ -75,13 +135,15 @@ cat > "${UNIT_DIR}/openclaw-gateway.service" <<EOF
 [Unit]
 Description=OpenClaw Gateway
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 ExecStart=/usr/bin/env openclaw gateway run
 Restart=always
 RestartSec=5
-WorkingDirectory=%h
-Environment=HOME=%h
+WorkingDirectory=${HOME}
+Environment=HOME=${HOME}
+Environment=PATH=${HOME}/.bin:/usr/local/bin:/usr/bin:/bin
 Environment=DISPLAY=:99
 Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 

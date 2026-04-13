@@ -12,6 +12,12 @@ disk: 30GiB
 networks:
 - vzNAT: true
 
+portForwards:
+- guestIP: "0.0.0.0"
+  guestPortRange: [1, 65535]
+  proto: any
+  ignore: true
+
 mounts:
 - location: "__SKY10_SHARED_DIR__"
   mountPoint: "/shared"
@@ -32,8 +38,7 @@ probes:
 - script: |
     #!/bin/bash
     set -eux -o pipefail
-    command -v openclaw >/dev/null 2>&1
-    timeout 120s bash -lc "until curl -fsS http://127.0.0.1:18789/health >/dev/null 2>&1 || ss -lnt | grep -q ':18789 '; do sleep 3; done"
+    timeout 180s bash -lc "until curl -fsS http://127.0.0.1:18789/health >/dev/null 2>&1 && curl -fsS http://127.0.0.1:9101/health >/dev/null 2>&1; do sleep 3; done"
   hint: See "/var/log/cloud-init-output.log" in the guest
 
 message: |
@@ -43,20 +48,22 @@ message: |
     __SKY10_SHARED_DIR__
 
   The VM auto-installs:
+  - sky10 on guest-local port 9101
   - OpenClaw
   - Chromium + Xvfb browser support
   - Caddy for guest-local UI access on port 18790
 
-  This milestone only sets up OpenClaw inside the guest.
-  sky10 registration and plugin wiring come later.
+  This milestone sets up guest-local sky10 and OpenClaw inside the guest.
+  sky10 network join, plugin wiring, and agent registration come later.
 
   Open the guest shell with:
     limactl shell __SKY10_SANDBOX_NAME__
 
-  Open the OpenClaw UI by first checking the guest IP:
+  Open the guest UI URLs by first checking the guest IP:
     limactl shell __SKY10_SANDBOX_NAME__ -- bash -lc "ip -4 addr show dev lima0"
 
   Then browse to:
+    http://<guest-ip>:9101
     http://<guest-ip>:18790/chat?session=main
 
 param:

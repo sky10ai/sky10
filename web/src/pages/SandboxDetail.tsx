@@ -158,6 +158,9 @@ export default function SandboxDetail() {
 
   const shellCommand = selected?.shell || `limactl shell ${selected?.slug ?? slug}`;
   const terminalEnabled = selected?.provider === "lima" && (selected.status === "ready" || selected.vm_status === "Running");
+  const guestIP = selected?.ip_address?.trim() ?? "";
+  const openClawURL = selected?.template === "openclaw" && guestIP ? `http://${guestIP}:18790/chat?session=main` : "";
+  const guestSky10URL = selected?.template === "openclaw" && guestIP ? `http://${guestIP}:9101` : "";
 
   return (
     <section className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 p-12">
@@ -250,6 +253,12 @@ export default function SandboxDetail() {
               <InfoCard label="Created" mono value={selected.created_at} />
               <InfoCard label="Updated" mono value={selected.updated_at} />
               <InfoCard label="Last Log" mono value={selected.last_log_at || "Waiting..."} />
+              {openClawURL && (
+                <InfoCard label="OpenClaw UI" mono value={openClawURL} href={openClawURL} />
+              )}
+              {guestSky10URL && (
+                <InfoCard label="Guest sky10 UI" mono value={guestSky10URL} href={guestSky10URL} />
+              )}
               <InfoCard
                 className="md:col-span-2 xl:col-span-3"
                 label="Shared Directory"
@@ -425,11 +434,13 @@ export default function SandboxDetail() {
 
 function InfoCard({
   className = "",
+  href,
   label,
   mono = false,
   value,
 }: {
   className?: string;
+  href?: string;
   label: string;
   mono?: boolean;
   value: string;
@@ -439,9 +450,20 @@ function InfoCard({
       <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
         {label}
       </p>
-      <p className={`mt-2 break-all text-sm text-secondary ${mono ? "font-mono" : ""}`}>
-        {value}
-      </p>
+      {href ? (
+        <a
+          className={`mt-2 block break-all text-sm text-secondary underline decoration-outline-variant/30 underline-offset-4 transition-colors hover:text-on-surface ${mono ? "font-mono" : ""}`}
+          href={href}
+          rel="noreferrer"
+          target="_blank"
+        >
+          {value}
+        </a>
+      ) : (
+        <p className={`mt-2 break-all text-sm text-secondary ${mono ? "font-mono" : ""}`}>
+          {value}
+        </p>
+      )}
     </div>
   );
 }

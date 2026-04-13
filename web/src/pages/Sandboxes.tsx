@@ -187,10 +187,10 @@ export default function Sandboxes() {
               {templateConfig.id === "openclaw" ? (
                 <>
                   <p>
-                    The OpenClaw template installs OpenClaw, Chromium, Xvfb, and Caddy inside the guest and exposes the UI on guest port <code>18790</code>.
+                    The OpenClaw template installs guest-local <code>sky10</code>, OpenClaw, Chromium, Xvfb, and Caddy inside the guest, with guest UIs on ports <code>9101</code> and <code>18790</code>.
                   </p>
                   <p>
-                    This first milestone stops at a working OpenClaw sandbox. sky10 plugin wiring and agent registration come later.
+                    This second milestone stops at a working OpenClaw sandbox with guest-local sky10. sky10 network join, plugin wiring, and agent registration come later.
                   </p>
                 </>
               ) : (
