@@ -46,9 +46,11 @@ That flow:
 - stages the Lima template locally
 - creates `~/sky10/sandboxes/my-agent/.env` if it does not exist yet
 - writes `~/sky10/sandboxes/my-agent/update-lima-hosts.sh`
+- stages the bundled `openclaw-sky10-channel` plugin into the shared directory
 - starts the Lima VM
 - installs guest-local `sky10`, OpenClaw, Chromium, Xvfb, and Caddy inside the guest
-- waits for both the guest `sky10` daemon and the OpenClaw gateway to report healthy
+- configures OpenClaw to talk to guest-local `sky10` at `http://localhost:9101`
+- waits for the guest `sky10` daemon, the OpenClaw gateway, and the guest agent registration to report healthy
 
 ## Shared Host Directory
 
@@ -70,13 +72,11 @@ EOF
 
 ## Scope
 
-This milestone sets up guest-local `sky10` and OpenClaw inside the guest.
+This milestone sets up guest-local `sky10` and OpenClaw inside the guest,
+loads the bundled `sky10` OpenClaw channel plugin, and auto-registers the VM
+as an agent on the guest-local daemon.
 
-It does not yet:
-
-- join the guest to your existing sky10 network
-- install the OpenClaw sky10 plugin
-- auto-register the VM as a sky10 agent
+It does not yet join the guest to your existing sky10 network.
 
 ## Open The UIs
 
@@ -95,6 +95,16 @@ Then open:
 http://<guest-ip>:9101
 http://<guest-ip>:18790/chat?session=main
 ```
+
+Confirm the guest-local agent registration:
+
+```bash
+curl -s http://<guest-ip>:9101/rpc \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"agent.list","params":{},"id":1}'
+```
+
+The response should include an agent whose `name` matches the sandbox slug.
 
 ## Manage Instances
 

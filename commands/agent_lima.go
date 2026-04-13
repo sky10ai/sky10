@@ -25,6 +25,11 @@ const (
 	agentLimaSystemScript     = "openclaw-sky10.system.sh"
 	agentLimaUserScript       = "openclaw-sky10.user.sh"
 	agentLimaHostsScript      = "update-lima-hosts.sh"
+	agentLimaPluginDir        = "openclaw-sky10-channel"
+	agentLimaPluginPackage    = agentLimaPluginDir + "/package.json"
+	agentLimaPluginManifest   = agentLimaPluginDir + "/openclaw.plugin.json"
+	agentLimaPluginIndex      = agentLimaPluginDir + "/src/index.js"
+	agentLimaPluginClient     = agentLimaPluginDir + "/src/sky10.js"
 	agentLimaRemoteAssetBase  = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
 	sandboxProviderLima       = "lima"
 	sandboxTemplateOpenClaw   = "openclaw"
@@ -40,6 +45,13 @@ var agentLimaAssetFiles = []string{
 	agentLimaDependencyScript,
 	agentLimaSystemScript,
 	agentLimaUserScript,
+}
+
+var agentLimaSharedPluginFiles = []string{
+	agentLimaPluginPackage,
+	agentLimaPluginManifest,
+	agentLimaPluginIndex,
+	agentLimaPluginClient,
 }
 
 var sandboxNameWordPattern = regexp.MustCompile(`[a-z0-9]+`)
@@ -90,7 +102,11 @@ func sandboxCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := prepareLimaSharedDir(sharedDir, hostsScript); err != nil {
+			pluginAssets, err := loadLimaSharedPluginAssets(cmd.Context())
+			if err != nil {
+				return err
+			}
+			if err := prepareLimaSharedDir(sharedDir, hostsScript, pluginAssets); err != nil {
 				return err
 			}
 
@@ -138,7 +154,7 @@ func sandboxCreateCmd() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "Template:   %s\n", template)
 			fmt.Fprintf(cmd.OutOrStdout(), "Shared dir: %s\n", sharedDir)
 			fmt.Fprintf(cmd.OutOrStdout(), "Guest sky10: installed inside the guest and serving on http://127.0.0.1:9101\n")
-			fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:    installed inside the guest with Chromium, Xvfb, and a local gateway on http://127.0.0.1:18789\n")
+			fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:    installed inside the guest with Chromium, Xvfb, a local gateway on http://127.0.0.1:18789, and a bundled sky10 channel plugin\n")
 
 			if sky10URL != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "sky10 UI:   %s\n", sky10URL)
@@ -168,7 +184,7 @@ func sandboxCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", "", "Sandbox provider to use")
 	cmd.Flags().StringVar(&template, "template", "", "Sandbox template/payload to install")
 	cmd.Flags().StringVar(&model, "model", "", "Override the default OpenClaw model for this sandbox")
-	cmd.Flags().DurationVar(&waitTimeout, "wait", openClawReadyTimeout, "How long to wait for the OpenClaw gateway and guest-local sky10 daemon to report healthy after provisioning")
+	cmd.Flags().DurationVar(&waitTimeout, "wait", openClawReadyTimeout, "How long to wait for the OpenClaw gateway, guest-local sky10 daemon, and guest OpenClaw agent registration after provisioning")
 	cmd.Flags().BoolVar(&openUI, "open", false, "Open the OpenClaw UI after the VM is ready when a direct URL is available")
 	_ = cmd.MarkFlagRequired("provider")
 	_ = cmd.MarkFlagRequired("template")
@@ -358,7 +374,7 @@ func downloadLimaAsset(ctx context.Context, name string) ([]byte, error) {
 	return body, nil
 }
 
-func prepareLimaSharedDir(sharedDir string, hostsScript []byte) error {
+func prepareLimaSharedDir(sharedDir string, hostsScript []byte, pluginAssets map[string][]byte) error {
 	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
 		return fmt.Errorf("creating shared Lima directory %q: %w", sharedDir, err)
 	}
@@ -386,6 +402,16 @@ func prepareLimaSharedDir(sharedDir string, hostsScript []byte) error {
 		}
 	}
 
+	for relPath, body := range pluginAssets {
+		targetPath := filepath.Join(sharedDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+			return fmt.Errorf("creating bundled plugin dir %q: %w", filepath.Dir(targetPath), err)
+		}
+		if err := os.WriteFile(targetPath, body, 0o644); err != nil {
+			return fmt.Errorf("writing bundled plugin asset %q: %w", targetPath, err)
+		}
+	}
+
 	return nil
 }
 
@@ -393,10 +419,24 @@ func waitForOpenClawReady(ctx context.Context, limactl, name string, timeout tim
 	if err := waitForGuestHTTPHealth(ctx, limactl, name, openClawReadyURL, "OpenClaw", timeout); err != nil {
 		return err
 	}
-	return waitForGuestHTTPHealth(ctx, limactl, name, guestSky10ReadyURL, "guest-local sky10", timeout)
+	if err := waitForGuestHTTPHealth(ctx, limactl, name, guestSky10ReadyURL, "guest-local sky10", timeout); err != nil {
+		return err
+	}
+	return waitForGuestCommand(
+		ctx,
+		limactl,
+		name,
+		fmt.Sprintf(`curl -fsS http://127.0.0.1:9101/rpc -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"agent.list","params":{},"id":1}' | grep -F '"name":"%s"' >/dev/null`, name),
+		"guest OpenClaw agent registration",
+		timeout,
+	)
 }
 
 func waitForGuestHTTPHealth(ctx context.Context, limactl, name, url, label string, timeout time.Duration) error {
+	return waitForGuestCommand(ctx, limactl, name, fmt.Sprintf("curl -fsS %s >/dev/null", url), label, timeout)
+}
+
+func waitForGuestCommand(ctx context.Context, limactl, name, script, label string, timeout time.Duration) error {
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -405,7 +445,7 @@ func waitForGuestHTTPHealth(ctx context.Context, limactl, name, url, label strin
 
 	var lastErr error
 	for {
-		cmd := exec.CommandContext(waitCtx, limactl, "shell", name, "--", "bash", "-lc", fmt.Sprintf("curl -fsS %s >/dev/null", url))
+		cmd := exec.CommandContext(waitCtx, limactl, "shell", name, "--", "bash", "-lc", script)
 		if err := cmd.Run(); err == nil {
 			return nil
 		} else {
@@ -421,6 +461,29 @@ func waitForGuestHTTPHealth(ctx context.Context, limactl, name, url, label strin
 		case <-ticker.C:
 		}
 	}
+}
+
+func loadLimaSharedPluginAssets(ctx context.Context) (map[string][]byte, error) {
+	assets := make(map[string][]byte, len(agentLimaSharedPluginFiles))
+	if localDir, err := findLocalLimaTemplateDir(); err == nil {
+		for _, assetName := range agentLimaSharedPluginFiles {
+			body, err := os.ReadFile(filepath.Join(localDir, assetName))
+			if err != nil {
+				return nil, fmt.Errorf("reading local Lima shared asset %q: %w", assetName, err)
+			}
+			assets[assetName] = body
+		}
+		return assets, nil
+	}
+
+	for _, assetName := range agentLimaSharedPluginFiles {
+		body, err := downloadLimaAsset(ctx, assetName)
+		if err != nil {
+			return nil, err
+		}
+		assets[assetName] = body
+	}
+	return assets, nil
 }
 
 func lookupLimaInstanceIPv4(ctx context.Context, limactl, name string) (string, error) {

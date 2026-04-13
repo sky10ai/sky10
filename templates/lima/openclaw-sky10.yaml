@@ -53,8 +53,9 @@ message: |
   - Chromium + Xvfb browser support
   - Caddy for guest-local UI access on port 18790
 
-  This milestone sets up guest-local sky10 and OpenClaw inside the guest.
-  sky10 network join, plugin wiring, and agent registration come later.
+  This milestone sets up guest-local sky10 and OpenClaw inside the guest,
+  including the bundled sky10 channel plugin and local agent registration.
+  sky10 network join and invite-based remote discovery come later.
 
   Open the guest shell with:
     limactl shell __SKY10_SANDBOX_NAME__

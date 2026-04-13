@@ -4,11 +4,13 @@ set -eux -o pipefail
 export PATH="${HOME}/.bin:/usr/local/bin:/usr/bin:${PATH}"
 export XDG_RUNTIME_DIR="/run/user/{{.UID}}"
 export OPENCLAW_MODEL="{{.Param.model}}"
+export OPENCLAW_AGENT_NAME="{{.Name}}"
+export PLUGIN_DIR="/shared/openclaw-sky10-channel"
 
 OPENCLAW_DIR="${HOME}/.openclaw"
 WORKSPACE_DIR="${OPENCLAW_DIR}/workspace"
 STATE_DIR="${OPENCLAW_DIR}/.openclaw-lima"
-SENTINEL="${STATE_DIR}/initialized-v1"
+SENTINEL="${STATE_DIR}/initialized-v2"
 UNIT_DIR="${HOME}/.config/systemd/user"
 
 mkdir -p "${OPENCLAW_DIR}/agents/main/sessions"
@@ -23,6 +25,10 @@ curl4() {
 
 wait_for_sky10() {
   timeout 120s bash -lc 'until curl -fsS http://127.0.0.1:9101/health >/dev/null 2>&1; do sleep 2; done'
+}
+
+wait_for_openclaw_agent() {
+  timeout 120s bash -lc "until curl -fsS http://127.0.0.1:9101/rpc -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"agent.list\",\"params\":{},\"id\":1}' | grep -F '\"name\":\"${OPENCLAW_AGENT_NAME}\"' >/dev/null; do sleep 2; done"
 }
 
 install_sky10() {
@@ -86,6 +92,11 @@ fi
 
 ensure_guest_sky10
 
+if [ ! -d "${PLUGIN_DIR}" ]; then
+  echo >&2 "bundled sky10 plugin not found at ${PLUGIN_DIR}"
+  exit 1
+fi
+
 if [ ! -f "${WORKSPACE_DIR}/IDENTITY.md" ]; then
   cat > "${WORKSPACE_DIR}/IDENTITY.md" <<EOF
 ---
@@ -99,8 +110,7 @@ if [ ! -e "${OPENCLAW_DIR}/.env" ] && [ -f /shared/.env ]; then
   ln -s /shared/.env "${OPENCLAW_DIR}/.env"
 fi
 
-if [ ! -f "${SENTINEL}" ]; then
-  python3 - <<'PY'
+python3 - <<'PY'
 import json
 import os
 from pathlib import Path
@@ -125,9 +135,30 @@ browser["executablePath"] = "/usr/local/bin/chromium"
 browser["headless"] = False
 browser["noSandbox"] = True
 
+plugins = config.setdefault("plugins", {})
+load = plugins.setdefault("load", {})
+paths = load.get("paths")
+if not isinstance(paths, list):
+    paths = []
+if os.environ["PLUGIN_DIR"] not in paths:
+    paths.append(os.environ["PLUGIN_DIR"])
+load["paths"] = paths
+
+entries = plugins.setdefault("entries", {})
+entries["sky10"] = {
+    "enabled": True,
+    "config": {
+        "rpcUrl": "http://localhost:9101",
+        "agentName": os.environ["OPENCLAW_AGENT_NAME"],
+        "skills": ["code", "shell", "web-search", "file-ops"],
+        "gatewayUrl": "http://localhost:18789",
+    },
+}
+
 config_path.write_text(json.dumps(config, indent=2) + "\n")
 PY
 
+if [ ! -f "${SENTINEL}" ]; then
   touch "${SENTINEL}"
 fi
 
@@ -154,3 +185,4 @@ EOF
 systemctl --user daemon-reload
 systemctl --user enable openclaw-gateway.service
 systemctl --user restart openclaw-gateway.service || systemctl --user start openclaw-gateway.service
+wait_for_openclaw_agent

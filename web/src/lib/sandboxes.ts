@@ -14,7 +14,7 @@ export const SANDBOX_TEMPLATES = [
     label: "OpenClaw Sandbox",
     summary: "Managed browser runtime",
     description:
-      "Ubuntu VM on Lima that installs guest-local sky10 plus OpenClaw, Chromium, Xvfb, and guest UIs on ports 9101 and 18790.",
+      "Ubuntu VM on Lima that installs guest-local sky10, OpenClaw, a bundled sky10 channel plugin, and guest UIs on ports 9101 and 18790.",
   },
 ] as const;
 

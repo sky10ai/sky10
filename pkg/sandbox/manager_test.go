@@ -432,7 +432,11 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 
 	sharedDir := t.TempDir()
 	helper := []byte("#!/bin/sh\n")
-	if err := prepareOpenClawSharedDir(sharedDir, helper); err != nil {
+	pluginAssets := map[string][]byte{
+		templateOpenClawPluginManifest: []byte(`{"id":"sky10"}` + "\n"),
+		templateOpenClawPluginIndex:    []byte("export default function register() {}\n"),
+	}
+	if err := prepareOpenClawSharedDir(sharedDir, helper, pluginAssets); err != nil {
 		t.Fatalf("prepareOpenClawSharedDir() error: %v", err)
 	}
 
@@ -452,6 +456,15 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	}
 	if string(helperData) != string(helper) {
 		t.Fatalf("hosts helper = %q, want %q", string(helperData), string(helper))
+	}
+
+	pluginManifestPath := filepath.Join(sharedDir, templateOpenClawPluginManifest)
+	pluginManifestData, err := os.ReadFile(pluginManifestPath)
+	if err != nil {
+		t.Fatalf("ReadFile(plugin manifest) error: %v", err)
+	}
+	if string(pluginManifestData) != string(pluginAssets[templateOpenClawPluginManifest]) {
+		t.Fatalf("plugin manifest = %q, want %q", string(pluginManifestData), string(pluginAssets[templateOpenClawPluginManifest]))
 	}
 }
 
@@ -513,6 +526,25 @@ func TestWaitForGuestSky10(t *testing.T) {
 	}
 	if attempts != 2 {
 		t.Fatalf("waitForGuestSky10() attempts = %d, want 2", attempts)
+	}
+}
+
+func TestWaitForGuestOpenClawAgent(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	err := waitForGuestOpenClawAgent(context.Background(), func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		attempts++
+		if attempts < 4 {
+			return nil, fmt.Errorf("not ready")
+		}
+		return []byte("ok"), nil
+	}, "/tmp/fake/limactl", "agent-123", 8*time.Second)
+	if err != nil {
+		t.Fatalf("waitForGuestOpenClawAgent() error: %v", err)
+	}
+	if attempts != 4 {
+		t.Fatalf("waitForGuestOpenClawAgent() attempts = %d, want 4", attempts)
 	}
 }
 

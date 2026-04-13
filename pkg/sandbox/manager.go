@@ -23,23 +23,35 @@ import (
 )
 
 const (
-	providerLima         = "lima"
-	templateUbuntu       = "ubuntu"
-	templateUbuntuAsset  = "ubuntu-sky10.yaml"
-	templateOpenClaw     = "openclaw"
-	templateOpenClawYAML = "openclaw-sky10.yaml"
-	templateOpenClawDep  = "openclaw-sky10.dependency.sh"
-	templateOpenClawSys  = "openclaw-sky10.system.sh"
-	templateOpenClawUser = "openclaw-sky10.user.sh"
-	templateHostsHelper  = "update-lima-hosts.sh"
-	templateRemoteBase   = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
-	logFileName          = "boot.log"
-	templateNameToken    = "__SKY10_SANDBOX_NAME__"
-	templateSharedToken  = "__SKY10_SHARED_DIR__"
-	openClawReadyTimeout = 2 * time.Minute
-	guestSky10ReadyURL   = "http://127.0.0.1:9101/health"
-	openClawReadyURL     = "http://127.0.0.1:18789/health"
+	providerLima                   = "lima"
+	templateUbuntu                 = "ubuntu"
+	templateUbuntuAsset            = "ubuntu-sky10.yaml"
+	templateOpenClaw               = "openclaw"
+	templateOpenClawYAML           = "openclaw-sky10.yaml"
+	templateOpenClawDep            = "openclaw-sky10.dependency.sh"
+	templateOpenClawSys            = "openclaw-sky10.system.sh"
+	templateOpenClawUser           = "openclaw-sky10.user.sh"
+	templateHostsHelper            = "update-lima-hosts.sh"
+	templateOpenClawPluginDir      = "openclaw-sky10-channel"
+	templateOpenClawPluginPackage  = templateOpenClawPluginDir + "/package.json"
+	templateOpenClawPluginManifest = templateOpenClawPluginDir + "/openclaw.plugin.json"
+	templateOpenClawPluginIndex    = templateOpenClawPluginDir + "/src/index.js"
+	templateOpenClawPluginClient   = templateOpenClawPluginDir + "/src/sky10.js"
+	templateRemoteBase             = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
+	logFileName                    = "boot.log"
+	templateNameToken              = "__SKY10_SANDBOX_NAME__"
+	templateSharedToken            = "__SKY10_SHARED_DIR__"
+	openClawReadyTimeout           = 2 * time.Minute
+	guestSky10ReadyURL             = "http://127.0.0.1:9101/health"
+	openClawReadyURL               = "http://127.0.0.1:18789/health"
 )
+
+var openClawSharedAssetFiles = []string{
+	templateOpenClawPluginPackage,
+	templateOpenClawPluginManifest,
+	templateOpenClawPluginIndex,
+	templateOpenClawPluginClient,
+}
 
 var slugWordPattern = regexp.MustCompile(`[a-z0-9]+`)
 
@@ -453,6 +465,9 @@ func (m *Manager) finishReady(ctx context.Context, name, limactl string) error {
 		if err := waitForGuestSky10(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
 			return err
 		}
+		if err := waitForGuestOpenClawAgent(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
+			return err
+		}
 	}
 	ipAddr, err := lookupLimaInstanceIPv4(ctx, m.outputCmd, limactl, name)
 	if err != nil {
@@ -527,7 +542,11 @@ func (m *Manager) materializeTemplate(ctx context.Context, rec Record) (string, 
 		if err != nil {
 			return "", err
 		}
-		if err := prepareOpenClawSharedDir(rec.SharedDir, hostsHelper); err != nil {
+		pluginAssets, err := loadSandboxAssets(ctx, openClawSharedAssetFiles)
+		if err != nil {
+			return "", err
+		}
+		if err := prepareOpenClawSharedDir(rec.SharedDir, hostsHelper, pluginAssets); err != nil {
 			return "", err
 		}
 	} else if err := os.MkdirAll(rec.SharedDir, 0o755); err != nil {
@@ -630,7 +649,7 @@ func sandboxTemplateDefinition(template string) (templateDefinition, error) {
 	}
 }
 
-func prepareOpenClawSharedDir(sharedDir string, hostsHelper []byte) error {
+func prepareOpenClawSharedDir(sharedDir string, hostsHelper []byte, pluginAssets map[string][]byte) error {
 	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
 		return fmt.Errorf("creating shared directory: %w", err)
 	}
@@ -655,6 +674,16 @@ func prepareOpenClawSharedDir(sharedDir string, hostsHelper []byte) error {
 		helperPath := filepath.Join(sharedDir, templateHostsHelper)
 		if err := os.WriteFile(helperPath, hostsHelper, 0o755); err != nil {
 			return fmt.Errorf("writing hosts helper: %w", err)
+		}
+	}
+
+	for relPath, body := range pluginAssets {
+		targetPath := filepath.Join(sharedDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+			return fmt.Errorf("creating bundled plugin dir: %w", err)
+		}
+		if err := os.WriteFile(targetPath, body, 0o644); err != nil {
+			return fmt.Errorf("writing bundled plugin asset %q: %w", relPath, err)
 		}
 	}
 
@@ -1005,6 +1034,18 @@ func loadSandboxAsset(ctx context.Context, name string) ([]byte, error) {
 	return httpRequest(ctx, templateRemoteBase+name)
 }
 
+func loadSandboxAssets(ctx context.Context, names []string) (map[string][]byte, error) {
+	assets := make(map[string][]byte, len(names))
+	for _, name := range names {
+		body, err := loadSandboxAsset(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		assets[name] = body
+	}
+	return assets, nil
+}
+
 func walkUp(start string) []string {
 	start = filepath.Clean(start)
 	var dirs []string
@@ -1057,10 +1098,44 @@ func waitForGuestSky10(
 	return waitForGuestHTTPHealth(ctx, outputCmd, limactl, name, guestSky10ReadyURL, "guest sky10", timeout)
 }
 
+func waitForGuestOpenClawAgent(
+	ctx context.Context,
+	outputCmd func(context.Context, string, []string) ([]byte, error),
+	limactl, name string,
+	timeout time.Duration,
+) error {
+	return waitForGuestCommand(
+		ctx,
+		outputCmd,
+		limactl,
+		name,
+		fmt.Sprintf(`curl -fsS http://127.0.0.1:9101/rpc -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"agent.list","params":{},"id":1}' | grep -F '"name":"%s"' >/dev/null`, name),
+		"guest OpenClaw agent registration",
+		timeout,
+	)
+}
+
 func waitForGuestHTTPHealth(
 	ctx context.Context,
 	outputCmd func(context.Context, string, []string) ([]byte, error),
 	limactl, name, url, label string,
+	timeout time.Duration,
+) error {
+	return waitForGuestCommand(
+		ctx,
+		outputCmd,
+		limactl,
+		name,
+		fmt.Sprintf("curl -fsS %s >/dev/null", url),
+		label,
+		timeout,
+	)
+}
+
+func waitForGuestCommand(
+	ctx context.Context,
+	outputCmd func(context.Context, string, []string) ([]byte, error),
+	limactl, name, script, label string,
 	timeout time.Duration,
 ) error {
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -1077,7 +1152,7 @@ func waitForGuestHTTPHealth(
 			"--",
 			"bash",
 			"-lc",
-			fmt.Sprintf("curl -fsS %s >/dev/null", url),
+			script,
 		})
 		if err == nil {
 			return nil

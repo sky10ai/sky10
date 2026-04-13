@@ -89,7 +89,11 @@ func TestPrepareLimaSharedDir(t *testing.T) {
 	t.Parallel()
 
 	sharedDir := t.TempDir()
-	if err := prepareLimaSharedDir(sharedDir, []byte("#!/bin/sh\n")); err != nil {
+	pluginAssets := map[string][]byte{
+		agentLimaPluginManifest: []byte(`{"id":"sky10"}` + "\n"),
+		agentLimaPluginIndex:    []byte("export default function register() {}\n"),
+	}
+	if err := prepareLimaSharedDir(sharedDir, []byte("#!/bin/sh\n"), pluginAssets); err != nil {
 		t.Fatalf("prepareLimaSharedDir() error: %v", err)
 	}
 
@@ -98,5 +102,8 @@ func TestPrepareLimaSharedDir(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(sharedDir, ".env")); err != nil {
 		t.Fatalf("Stat(.env) error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(sharedDir, agentLimaPluginManifest)); err != nil {
+		t.Fatalf("Stat(plugin manifest) error: %v", err)
 	}
 }
