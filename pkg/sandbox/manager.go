@@ -2,16 +2,19 @@ package sandbox
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -19,16 +22,23 @@ import (
 
 	skyapps "github.com/sky10/sky10/pkg/apps"
 	"github.com/sky10/sky10/pkg/config"
+	skyrpc "github.com/sky10/sky10/pkg/rpc"
 )
 
 const (
-	providerLima        = "lima"
-	templateUbuntu      = "ubuntu"
-	templateUbuntuAsset = "ubuntu-sky10.yaml"
-	templateRemoteBase  = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
-	logFileName         = "boot.log"
-	templateNameToken   = "__SKY10_SANDBOX_NAME__"
-	templateSharedToken = "__SKY10_SHARED_DIR__"
+	providerLima         = "lima"
+	templateUbuntu       = "ubuntu"
+	templateUbuntuAsset  = "ubuntu-sky10.yaml"
+	templateOpenClaw     = "openclaw"
+	templateOpenClawYAML = "openclaw-sky10.yaml"
+	templateOpenClawSys  = "openclaw-sky10.system.sh"
+	templateOpenClawUser = "openclaw-sky10.user.sh"
+	templateHostsHelper  = "update-lima-hosts.sh"
+	inviteFileName       = "sky10-invite.txt"
+	templateRemoteBase   = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
+	logFileName          = "boot.log"
+	templateNameToken    = "__SKY10_SANDBOX_NAME__"
+	templateSharedToken  = "__SKY10_SHARED_DIR__"
 )
 
 var slugWordPattern = regexp.MustCompile(`[a-z0-9]+`)
@@ -88,17 +98,24 @@ type stateFile struct {
 	Sandboxes []Record `json:"sandboxes"`
 }
 
+type templateDefinition struct {
+	mainAsset string
+	assets    []string
+}
+
 type Manager struct {
-	mu        sync.Mutex
-	records   map[string]Record
-	rootDir   string
-	emit      Emitter
-	logger    *slog.Logger
-	running   map[string]bool
-	appStatus func(id skyapps.ID) (*skyapps.Status, error)
-	appUpgr   func(id skyapps.ID, onProgress skyapps.ProgressFunc) (*skyapps.ReleaseInfo, error)
-	runCmd    func(ctx context.Context, bin string, args []string, onLine func(stream, line string)) error
-	outputCmd func(ctx context.Context, bin string, args []string) ([]byte, error)
+	mu           sync.Mutex
+	records      map[string]Record
+	rootDir      string
+	emit         Emitter
+	logger       *slog.Logger
+	running      map[string]bool
+	hostHTTPAddr func() string
+	inviteCode   func(ctx context.Context) (string, error)
+	appStatus    func(id skyapps.ID) (*skyapps.Status, error)
+	appUpgr      func(id skyapps.ID, onProgress skyapps.ProgressFunc) (*skyapps.ReleaseInfo, error)
+	runCmd       func(ctx context.Context, bin string, args []string, onLine func(stream, line string)) error
+	outputCmd    func(ctx context.Context, bin string, args []string) ([]byte, error)
 }
 
 func NewManager(emit Emitter, logger *slog.Logger) (*Manager, error) {
@@ -124,6 +141,10 @@ func NewManager(emit Emitter, logger *slog.Logger) (*Manager, error) {
 		return nil, err
 	}
 	return m, nil
+}
+
+func (m *Manager) SetHostHTTPAddrFunc(fn func() string) {
+	m.hostHTTPAddr = fn
 }
 
 func (m *Manager) List(ctx context.Context) (*ListResult, error) {
@@ -216,8 +237,11 @@ func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, err
 	if provider != providerLima {
 		return nil, fmt.Errorf("unsupported sandbox provider %q (supported: %s)", provider, providerLima)
 	}
-	if template != templateUbuntu {
-		return nil, fmt.Errorf("unsupported sandbox template %q (supported: %s)", template, templateUbuntu)
+	if _, err := sandboxTemplateDefinition(template); err != nil {
+		return nil, err
+	}
+	if template == templateOpenClaw && runtime.GOOS != "darwin" {
+		return nil, fmt.Errorf("sandbox template %q is macOS-only for now (the current Lima template uses vz)", templateOpenClaw)
 	}
 
 	sharedDir, err := defaultSharedDir(slug)
@@ -387,10 +411,6 @@ func (m *Manager) runCreate(ctx context.Context, rec Record) {
 		_ = m.updateStatus(rec.Slug, "error", err.Error())
 		return
 	}
-	if err := os.MkdirAll(rec.SharedDir, 0o755); err != nil {
-		_ = m.updateStatus(rec.Slug, "error", fmt.Sprintf("creating shared directory: %v", err))
-		return
-	}
 
 	templatePath, err := m.materializeTemplate(ctx, rec)
 	if err != nil {
@@ -398,12 +418,10 @@ func (m *Manager) runCreate(ctx context.Context, rec Record) {
 		return
 	}
 
-	args := []string{
-		"start",
-		"--tty=false",
-		"--progress",
-		"--name", rec.Slug,
-		templatePath,
+	args, err := m.buildStartArgs(ctx, rec, templatePath)
+	if err != nil {
+		_ = m.updateStatus(rec.Slug, "error", err.Error())
+		return
 	}
 	if err := m.runCmd(ctx, limactl, args, func(stream, line string) {
 		m.appendLog(rec.Slug, stream, line)
@@ -416,6 +434,26 @@ func (m *Manager) runCreate(ctx context.Context, rec Record) {
 		_ = m.updateStatus(rec.Slug, "error", err.Error())
 		return
 	}
+}
+
+func (m *Manager) buildStartArgs(ctx context.Context, rec Record, templatePath string) ([]string, error) {
+	args := []string{
+		"start",
+		"--tty=false",
+		"--progress",
+		"--name", rec.Slug,
+	}
+	if rec.Template == templateOpenClaw {
+		inviteCode, err := m.hostInviteCode(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(filepath.Join(rec.SharedDir, inviteFileName), []byte(inviteCode+"\n"), 0o600); err != nil {
+			return nil, fmt.Errorf("writing sandbox invite file: %w", err)
+		}
+	}
+	args = append(args, templatePath)
+	return args, nil
 }
 
 func (m *Manager) finishReady(ctx context.Context, name, limactl string) error {
@@ -478,20 +516,48 @@ func (m *Manager) ensureManagedApp(_ context.Context, id skyapps.ID, install boo
 }
 
 func (m *Manager) materializeTemplate(ctx context.Context, rec Record) (string, error) {
-	cacheDir := filepath.Join(m.rootDir, "templates")
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		return "", fmt.Errorf("creating sandbox template dir: %w", err)
-	}
-	dest := filepath.Join(cacheDir, rec.Slug+"-"+templateUbuntuAsset)
-	body, err := loadSandboxTemplate(ctx, templateUbuntuAsset)
+	spec, err := sandboxTemplateDefinition(rec.Template)
 	if err != nil {
 		return "", err
 	}
-	rendered := renderSandboxTemplate(body, rec.Slug, rec.SharedDir)
-	if err := os.WriteFile(dest, rendered, 0o644); err != nil {
-		return "", fmt.Errorf("writing sandbox template cache: %w", err)
+	cacheDir := filepath.Join(m.rootDir, "templates", rec.Slug)
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return "", fmt.Errorf("creating sandbox template dir: %w", err)
 	}
-	return dest, nil
+
+	if rec.Template == templateOpenClaw {
+		hostsHelper, err := loadSandboxAsset(ctx, templateHostsHelper)
+		if err != nil {
+			return "", err
+		}
+		if err := prepareOpenClawSharedDir(rec.SharedDir, hostsHelper); err != nil {
+			return "", err
+		}
+	} else if err := os.MkdirAll(rec.SharedDir, 0o755); err != nil {
+		return "", fmt.Errorf("creating shared directory: %w", err)
+	}
+
+	renderedPath := filepath.Join(cacheDir, rec.Slug+"-"+spec.mainAsset)
+	for _, assetName := range spec.assets {
+		body, err := loadSandboxAsset(ctx, assetName)
+		if err != nil {
+			return "", err
+		}
+		targetPath := filepath.Join(cacheDir, assetName)
+		data := body
+		mode := os.FileMode(0o644)
+		if strings.HasSuffix(assetName, ".sh") {
+			mode = 0o755
+		}
+		if assetName == spec.mainAsset {
+			targetPath = renderedPath
+			data = renderSandboxTemplate(body, rec.Slug, rec.SharedDir)
+		}
+		if err := os.WriteFile(targetPath, data, mode); err != nil {
+			return "", fmt.Errorf("writing sandbox template asset %q: %w", assetName, err)
+		}
+	}
+	return renderedPath, nil
 }
 
 func (m *Manager) limaInstanceExists(_ context.Context, _ string, name string) (bool, error) {
@@ -543,6 +609,58 @@ func renderSandboxTemplate(body []byte, name, sharedDir string) []byte {
 	rendered := strings.ReplaceAll(string(body), templateNameToken, name)
 	rendered = strings.ReplaceAll(rendered, templateSharedToken, sharedDir)
 	return []byte(rendered)
+}
+
+func sandboxTemplateDefinition(template string) (templateDefinition, error) {
+	switch template {
+	case templateUbuntu:
+		return templateDefinition{
+			mainAsset: templateUbuntuAsset,
+			assets:    []string{templateUbuntuAsset},
+		}, nil
+	case templateOpenClaw:
+		return templateDefinition{
+			mainAsset: templateOpenClawYAML,
+			assets: []string{
+				templateOpenClawYAML,
+				templateOpenClawSys,
+				templateOpenClawUser,
+			},
+		}, nil
+	default:
+		return templateDefinition{}, fmt.Errorf("unsupported sandbox template %q (supported: %s, %s)", template, templateUbuntu, templateOpenClaw)
+	}
+}
+
+func prepareOpenClawSharedDir(sharedDir string, hostsHelper []byte) error {
+	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
+		return fmt.Errorf("creating shared directory: %w", err)
+	}
+
+	envPath := filepath.Join(sharedDir, ".env")
+	if _, err := os.Stat(envPath); os.IsNotExist(err) {
+		stub := strings.Join([]string{
+			"# Optional provider keys for OpenClaw inside Lima.",
+			"# Fill these in before using the agent for real requests.",
+			"ANTHROPIC_API_KEY=",
+			"OPENAI_API_KEY=",
+			"",
+		}, "\n")
+		if err := os.WriteFile(envPath, []byte(stub), 0o600); err != nil {
+			return fmt.Errorf("writing shared env file: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("checking shared env file: %w", err)
+	}
+
+	if len(hostsHelper) > 0 {
+		helperPath := filepath.Join(sharedDir, templateHostsHelper)
+		if err := os.WriteFile(helperPath, hostsHelper, 0o755); err != nil {
+			return fmt.Errorf("writing hosts helper: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (m *Manager) refreshRuntime(ctx context.Context) error {
@@ -875,15 +993,15 @@ func findLocalTemplateFile(name string) (string, error) {
 	return "", fmt.Errorf("template %q not found locally", name)
 }
 
-func loadSandboxTemplate(ctx context.Context, name string) ([]byte, error) {
+func loadSandboxAsset(ctx context.Context, name string) ([]byte, error) {
 	if local, err := findLocalTemplateFile(name); err == nil {
 		data, err := os.ReadFile(local)
 		if err != nil {
-			return nil, fmt.Errorf("reading local sandbox template: %w", err)
+			return nil, fmt.Errorf("reading local sandbox template asset: %w", err)
 		}
 		return data, nil
 	}
-	if data, err := readBundledTemplate(name); err == nil {
+	if data, err := readBundledTemplateAsset(name); err == nil {
 		return data, nil
 	}
 	return httpRequest(ctx, templateRemoteBase+name)
@@ -921,6 +1039,83 @@ func httpRequest(ctx context.Context, url string) ([]byte, error) {
 		return nil, fmt.Errorf("reading sandbox template %q: %w", url, err)
 	}
 	return body, nil
+}
+
+func (m *Manager) hostInviteCode(ctx context.Context) (string, error) {
+	if m.inviteCode != nil {
+		return m.inviteCode(ctx)
+	}
+	if m.hostHTTPAddr == nil {
+		return "", fmt.Errorf("host HTTP RPC address is not available")
+	}
+	port, err := extractPortSuffix(m.hostHTTPAddr())
+	if err != nil {
+		return "", fmt.Errorf("parsing host HTTP RPC address: %w", err)
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "identity.invite",
+	})
+	if err != nil {
+		return "", fmt.Errorf("encoding identity invite request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://127.0.0.1"+port+"/rpc", bytes.NewReader(payload))
+	if err != nil {
+		return "", fmt.Errorf("building identity invite request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("calling identity.invite: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("calling identity.invite: unexpected HTTP %d", resp.StatusCode)
+	}
+
+	var rpcResp struct {
+		Result struct {
+			Code string `json:"code"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
+		return "", fmt.Errorf("decoding identity invite response: %w", err)
+	}
+	if rpcResp.Error != nil {
+		return "", fmt.Errorf("calling identity.invite: %s", strings.TrimSpace(rpcResp.Error.Message))
+	}
+	if strings.TrimSpace(rpcResp.Result.Code) == "" {
+		return "", fmt.Errorf("identity.invite returned no code")
+	}
+	return strings.TrimSpace(rpcResp.Result.Code), nil
+}
+
+func extractPortSuffix(addr string) (string, error) {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return "", fmt.Errorf("empty address")
+	}
+	if strings.HasPrefix(addr, ":") {
+		if len(addr) == 1 {
+			return "", fmt.Errorf("missing port")
+		}
+		return addr, nil
+	}
+	_, port, err := net.SplitHostPort(addr)
+	if err == nil && port != "" {
+		return ":" + port, nil
+	}
+	if idx := strings.LastIndex(addr, ":"); idx >= 0 && idx+1 < len(addr) {
+		return addr[idx:], nil
+	}
+	return fmt.Sprintf(":%d", skyrpc.DefaultHTTPPort), nil
 }
 
 func lookupLimaInstanceIPv4(ctx context.Context, outputCmd func(context.Context, string, []string) ([]byte, error), limactl, name string) (string, error) {

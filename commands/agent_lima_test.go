@@ -1,48 +1,29 @@
 package commands
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestExtractPortSuffix(t *testing.T) {
+func TestLoadInviteCodeParsesResult(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{name: "empty host", in: ":9101", want: ":9101"},
-		{name: "ipv4", in: "127.0.0.1:9101", want: ":9101"},
-		{name: "ipv6", in: "[::]:9101", want: ":9101"},
-		{name: "wildcard", in: "0.0.0.0:9101", want: ":9101"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := extractPortSuffix(tt.in)
-			if err != nil {
-				t.Fatalf("extractPortSuffix(%q): %v", tt.in, err)
-			}
-			if got != tt.want {
-				t.Fatalf("extractPortSuffix(%q) = %q, want %q", tt.in, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestGuestRPCURLFromHTTPAddr(t *testing.T) {
-	t.Parallel()
-
-	got, err := guestRPCURLFromHTTPAddr("[::]:9101")
+	body, err := json.Marshal(struct {
+		Code string `json:"code"`
+	}{Code: "invite-123"})
 	if err != nil {
-		t.Fatalf("guestRPCURLFromHTTPAddr: %v", err)
+		t.Fatalf("Marshal() error: %v", err)
 	}
-	if want := "http://host.lima.internal:9101"; got != want {
-		t.Fatalf("guestRPCURLFromHTTPAddr = %q, want %q", got, want)
+
+	got, err := parseInviteCode(body)
+	if err != nil {
+		t.Fatalf("parseInviteCode() error: %v", err)
+	}
+	if got != "invite-123" {
+		t.Fatalf("parseInviteCode() = %q, want invite-123", got)
 	}
 }
 
@@ -58,18 +39,6 @@ func TestDefaultLimaSharedDir(t *testing.T) {
 	want := filepath.Join(home, "sky10", "sandboxes", "bobs-burgers")
 	if got != want {
 		t.Fatalf("defaultLimaSharedDir = %q, want %q", got, want)
-	}
-}
-
-func TestSandboxHostnameAndURL(t *testing.T) {
-	t.Parallel()
-
-	if got, want := sandboxHostname("bobs-burgers"), "bobs-burgers.sb.sky10.local"; got != want {
-		t.Fatalf("sandboxHostname = %q, want %q", got, want)
-	}
-
-	if got, want := sandboxHTTPSURL("bobs-burgers"), "https://bobs-burgers.sb.sky10.local:18790/chat?session=main"; got != want {
-		t.Fatalf("sandboxHTTPSURL = %q, want %q", got, want)
 	}
 }
 
@@ -133,5 +102,28 @@ func TestRenderLimaTemplate(t *testing.T) {
 	}
 	if !strings.Contains(got, "/Users/bf/sky10/sandboxes/bobs-burgers") {
 		t.Fatalf("renderLimaTemplate() missing shared dir: %q", got)
+	}
+}
+
+func TestPrepareLimaSharedDirWritesInviteFile(t *testing.T) {
+	t.Parallel()
+
+	sharedDir := t.TempDir()
+	if err := prepareLimaSharedDir(sharedDir, []byte("#!/bin/sh\n"), "invite-123"); err != nil {
+		t.Fatalf("prepareLimaSharedDir() error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(sharedDir, sandboxInviteFile))
+	if err != nil {
+		t.Fatalf("ReadFile(invite) error: %v", err)
+	}
+	if string(data) != "invite-123\n" {
+		t.Fatalf("invite file = %q, want %q", string(data), "invite-123\n")
+	}
+	if _, err := os.Stat(filepath.Join(sharedDir, agentLimaHostsScript)); err != nil {
+		t.Fatalf("Stat(hosts helper) error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(sharedDir, ".env")); err != nil {
+		t.Fatalf("Stat(.env) error: %v", err)
 	}
 }

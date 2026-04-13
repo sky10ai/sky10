@@ -24,13 +24,22 @@ export default function Agents() {
           <p className="text-secondary">
             Connect an AI agent to your sky10 network.
           </p>
-          <button
-            onClick={() => navigate("/agents/connect")}
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary rounded-xl text-sm font-medium hover:shadow-lg transition-shadow"
-          >
-            <Icon name="add" className="text-base" />
-            Connect Agent
-          </button>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button
+              onClick={() => navigate("/agents/create")}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary rounded-xl text-sm font-medium hover:shadow-lg transition-shadow"
+            >
+              <Icon name="deployed_code" className="text-base" />
+              Create Agent
+            </button>
+            <button
+              onClick={() => navigate("/agents/connect")}
+              className="inline-flex items-center gap-2 px-5 py-2.5 border border-outline-variant/20 text-on-surface rounded-xl text-sm font-medium hover:bg-surface-container transition-colors"
+            >
+              <Icon name="add" className="text-base" />
+              Connect Agent
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -48,14 +57,32 @@ export default function Agents() {
       )}
 
       {/* My Agents */}
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold tracking-tight text-on-surface mb-2">
-          My Agents
-        </h1>
-        <p className="text-secondary font-medium">
-          {agents.length} agent{agents.length !== 1 ? "s" : ""} across{" "}
-          {deviceSet.size} device{deviceSet.size !== 1 ? "s" : ""}
-        </p>
+      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-4xl font-bold tracking-tight text-on-surface mb-2">
+            My Agents
+          </h1>
+          <p className="text-secondary font-medium">
+            {agents.length} agent{agents.length !== 1 ? "s" : ""} across{" "}
+            {deviceSet.size} device{deviceSet.size !== 1 ? "s" : ""}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => navigate("/agents/create")}
+            className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary shadow-lg transition-all active:scale-95"
+          >
+            <Icon name="deployed_code" className="text-base" />
+            Create Agent
+          </button>
+          <button
+            onClick={() => navigate("/agents/connect")}
+            className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-5 py-2.5 text-sm font-semibold text-on-surface transition-colors hover:bg-surface-container"
+          >
+            <Icon name="add" className="text-base" />
+            Connect Agent
+          </button>
+        </div>
       </div>
 
       {loading && agents.length === 0 && (
@@ -150,4 +177,3 @@ export default function Agents() {
     </div>
   );
 }
-

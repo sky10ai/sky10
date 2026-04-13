@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -27,9 +26,7 @@ const (
 	agentLimaUserScript      = "openclaw-sky10.user.sh"
 	agentLimaHostsScript     = "update-lima-hosts.sh"
 	agentLimaRemoteAssetBase = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
-	sandboxDomainSuffix      = ".sb.sky10.local"
-	sandboxCertFile          = "sb.sky10.local.pem"
-	sandboxCertKeyFile       = "sb.sky10.local-key.pem"
+	sandboxInviteFile        = "sky10-invite.txt"
 	sandboxProviderLima      = "lima"
 	sandboxTemplateOpenClaw  = "openclaw"
 	templateNameToken        = "__SKY10_SANDBOX_NAME__"
@@ -81,11 +78,7 @@ func sandboxCreateCmd() *cobra.Command {
 					sandboxProviderLima, sandboxTemplateOpenClaw)
 			}
 
-			health, err := loadDaemonHealth()
-			if err != nil {
-				return err
-			}
-			guestRPCURL, err := guestRPCURLFromHTTPAddr(health.HTTPAddr)
+			inviteCode, err := loadInviteCode()
 			if err != nil {
 				return err
 			}
@@ -99,10 +92,7 @@ func sandboxCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := prepareLimaSharedDir(sharedDir, hostsScript); err != nil {
-				return err
-			}
-			if err := ensureSandboxCertificate(cmd.Context(), cmd, sharedDir); err != nil {
+			if err := prepareLimaSharedDir(sharedDir, hostsScript, inviteCode); err != nil {
 				return err
 			}
 
@@ -115,7 +105,6 @@ func sandboxCreateCmd() *cobra.Command {
 				"start",
 				"--tty=false",
 				"--name", slug,
-				"--set", fmt.Sprintf(".param.sky10RPCURL = %q", guestRPCURL),
 			}
 			if strings.TrimSpace(model) != "" {
 				startArgs = append(startArgs, "--set", fmt.Sprintf(".param.model = %q", strings.TrimSpace(model)))
@@ -138,7 +127,7 @@ func sandboxCreateCmd() *cobra.Command {
 
 			ipAddr, ipErr := lookupLimaInstanceIPv4(cmd.Context(), limactl, slug)
 			httpURL := ""
-			if ipErr == nil && ipAddr != "" && !limaTLSCertsPresent(sharedDir) {
+			if ipErr == nil && ipAddr != "" {
 				httpURL = fmt.Sprintf("http://%s:18790/chat?session=main", ipAddr)
 			}
 
@@ -148,29 +137,21 @@ func sandboxCreateCmd() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "Provider:   %s\n", provider)
 			fmt.Fprintf(cmd.OutOrStdout(), "Template:   %s\n", template)
 			fmt.Fprintf(cmd.OutOrStdout(), "Shared dir: %s\n", sharedDir)
-			fmt.Fprintf(cmd.OutOrStdout(), "Guest RPC:  %s\n", guestRPCURL)
-			fmt.Fprintf(cmd.OutOrStdout(), "Network:    routed through the host sky10 daemon/private network\n")
+			fmt.Fprintf(cmd.OutOrStdout(), "Invite:     %s\n", filepath.Join(sharedDir, sandboxInviteFile))
+			fmt.Fprintf(cmd.OutOrStdout(), "Guest sky10: auto-installs in the VM, joins your existing sky10 network, and OpenClaw talks to http://localhost:9101 inside the guest\n")
 
 			if httpURL != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:   %s\n", httpURL)
-			} else if limaTLSCertsPresent(sharedDir) {
-				fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:   run %s and open %s\n",
-					filepath.Join(sharedDir, agentLimaHostsScript), sandboxHTTPSURL(slug))
-			} else if ipAddr != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:   guest IP %s on port 18790 (TLS certs are enabled, so hostname mapping is recommended)\n", ipAddr)
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:   run 'limactl shell %s -- bash -lc \"ip -4 route get 1.1.1.1\"' to find the guest IP\n", slug)
 			}
 
 			if openUI {
-				switch {
-				case httpURL != "":
+				if httpURL != "" {
 					if err := openBrowser(httpURL); err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not open browser: %v\n", err)
 					}
-				case limaTLSCertsPresent(sharedDir):
-					fmt.Fprintf(cmd.ErrOrStderr(), "warning: --open skipped because TLS hostname mapping still depends on %s\n", filepath.Join(sharedDir, agentLimaHostsScript))
-				default:
+				} else {
 					fmt.Fprintf(cmd.ErrOrStderr(), "warning: --open skipped because the guest IP could not be resolved automatically\n")
 				}
 			}
@@ -204,52 +185,25 @@ func validateSandboxCreate(provider, template string) error {
 	}
 }
 
-func loadDaemonHealth() (*daemonHealth, error) {
-	raw, err := rpcCall("skyfs.health", nil)
+func loadInviteCode() (string, error) {
+	raw, err := rpcCall("identity.invite", nil)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	var health daemonHealth
-	if err := json.Unmarshal(raw, &health); err != nil {
-		return nil, fmt.Errorf("parsing daemon health response: %w", err)
-	}
-	if strings.TrimSpace(health.HTTPAddr) == "" {
-		return nil, fmt.Errorf("daemon HTTP server is not running (start with 'sky10 serve')")
-	}
-	return &health, nil
+	return parseInviteCode(raw)
 }
 
-type daemonHealth struct {
-	HTTPAddr string `json:"http_addr"`
-}
-
-func guestRPCURLFromHTTPAddr(httpAddr string) (string, error) {
-	port, err := extractPortSuffix(httpAddr)
-	if err != nil {
-		return "", fmt.Errorf("parsing daemon http_addr %q: %w", httpAddr, err)
+func parseInviteCode(raw []byte) (string, error) {
+	var resp struct {
+		Code string `json:"code"`
 	}
-	return "http://host.lima.internal" + port, nil
-}
-
-func extractPortSuffix(addr string) (string, error) {
-	addr = strings.TrimSpace(addr)
-	if addr == "" {
-		return "", fmt.Errorf("empty address")
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return "", fmt.Errorf("parsing invite response: %w", err)
 	}
-	if strings.HasPrefix(addr, ":") {
-		if len(addr) == 1 {
-			return "", fmt.Errorf("missing port")
-		}
-		return addr, nil
+	if strings.TrimSpace(resp.Code) == "" {
+		return "", fmt.Errorf("identity.invite returned no code")
 	}
-	_, port, err := net.SplitHostPort(addr)
-	if err == nil && port != "" {
-		return ":" + port, nil
-	}
-	if idx := strings.LastIndex(addr, ":"); idx >= 0 && idx+1 < len(addr) {
-		return addr[idx:], nil
-	}
-	return "", fmt.Errorf("missing port")
+	return strings.TrimSpace(resp.Code), nil
 }
 
 func defaultLimaSharedDir(name string) (string, error) {
@@ -258,14 +212,6 @@ func defaultLimaSharedDir(name string) (string, error) {
 		return "", fmt.Errorf("finding home directory: %w", err)
 	}
 	return filepath.Join(home, "sky10", "sandboxes", name), nil
-}
-
-func sandboxHostname(name string) string {
-	return name + sandboxDomainSuffix
-}
-
-func sandboxHTTPSURL(name string) string {
-	return "https://" + sandboxHostname(name) + ":18790/chat?session=main"
 }
 
 func slugifySandboxName(name string) string {
@@ -428,7 +374,7 @@ func downloadLimaAsset(ctx context.Context, name string) ([]byte, error) {
 	return body, nil
 }
 
-func prepareLimaSharedDir(sharedDir string, hostsScript []byte) error {
+func prepareLimaSharedDir(sharedDir string, hostsScript []byte, inviteCode string) error {
 	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
 		return fmt.Errorf("creating shared Lima directory %q: %w", sharedDir, err)
 	}
@@ -453,6 +399,12 @@ func prepareLimaSharedDir(sharedDir string, hostsScript []byte) error {
 	if len(hostsScript) > 0 {
 		if err := os.WriteFile(helperPath, hostsScript, 0o755); err != nil {
 			return fmt.Errorf("writing Lima hosts helper %q: %w", helperPath, err)
+		}
+	}
+	if strings.TrimSpace(inviteCode) != "" {
+		invitePath := filepath.Join(sharedDir, sandboxInviteFile)
+		if err := os.WriteFile(invitePath, []byte(strings.TrimSpace(inviteCode)+"\n"), 0o600); err != nil {
+			return fmt.Errorf("writing Lima invite file %q: %w", invitePath, err)
 		}
 	}
 
@@ -518,20 +470,6 @@ func lookupLimaInstanceIPv4(ctx context.Context, limactl, name string) (string, 
 	return strings.TrimSpace(string(out)), nil
 }
 
-func limaTLSCertsPresent(sharedDir string) bool {
-	if sharedDir == "" {
-		return false
-	}
-	cert := filepath.Join(sharedDir, "certs", sandboxCertFile)
-	key := filepath.Join(sharedDir, "certs", sandboxCertKeyFile)
-	return localFileExists(cert) && localFileExists(key)
-}
-
-func localFileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
 func ensureManagedAppPath(cmd *cobra.Command, id skyapps.ID) (string, error) {
 	status, err := sandboxManagedAppStatus(id)
 	if err != nil {
@@ -554,44 +492,4 @@ func ensureManagedAppPath(cmd *cobra.Command, id skyapps.ID) (string, error) {
 		return "", fmt.Errorf("%s installed but no active binary was found", id)
 	}
 	return status.ActivePath, nil
-}
-
-func ensureSandboxCertificate(ctx context.Context, cmd *cobra.Command, sharedDir string) error {
-	if limaTLSCertsPresent(sharedDir) {
-		return nil
-	}
-
-	mkcert, err := ensureManagedAppPath(cmd, skyapps.AppMkcert)
-	if err != nil {
-		return err
-	}
-
-	certsDir := filepath.Join(sharedDir, "certs")
-	if err := os.MkdirAll(certsDir, 0o700); err != nil {
-		return fmt.Errorf("creating certs directory: %w", err)
-	}
-
-	installCmd := exec.CommandContext(ctx, mkcert, "-install")
-	installCmd.Stdin = os.Stdin
-	installCmd.Stdout = cmd.OutOrStdout()
-	installCmd.Stderr = cmd.ErrOrStderr()
-	if err := installCmd.Run(); err != nil {
-		return fmt.Errorf("initializing mkcert trust store: %w", err)
-	}
-
-	certPath := filepath.Join(certsDir, sandboxCertFile)
-	keyPath := filepath.Join(certsDir, sandboxCertKeyFile)
-	certCmd := exec.CommandContext(ctx, mkcert,
-		"-cert-file", certPath,
-		"-key-file", keyPath,
-		"sb.sky10.local",
-		"*.sb.sky10.local",
-	)
-	certCmd.Stdin = os.Stdin
-	certCmd.Stdout = cmd.OutOrStdout()
-	certCmd.Stderr = cmd.ErrOrStderr()
-	if err := certCmd.Run(); err != nil {
-		return fmt.Errorf("generating sandbox TLS certificate: %w", err)
-	}
-	return nil
 }

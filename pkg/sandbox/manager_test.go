@@ -347,15 +347,86 @@ func TestRenderSandboxTemplate(t *testing.T) {
 func TestReadBundledTemplate(t *testing.T) {
 	t.Parallel()
 
-	body, err := readBundledTemplate(templateUbuntuAsset)
+	body, err := readBundledTemplateAsset(templateUbuntuAsset)
 	if err != nil {
-		t.Fatalf("readBundledTemplate() error: %v", err)
+		t.Fatalf("readBundledTemplateAsset() error: %v", err)
 	}
 	if !strings.Contains(string(body), templateNameToken) {
-		t.Fatalf("readBundledTemplate() missing sandbox token")
+		t.Fatalf("readBundledTemplateAsset() missing sandbox token")
 	}
 	if !strings.Contains(string(body), templateSharedToken) {
-		t.Fatalf("readBundledTemplate() missing shared-dir token")
+		t.Fatalf("readBundledTemplateAsset() missing shared-dir token")
+	}
+}
+
+func TestPrepareOpenClawSharedDir(t *testing.T) {
+	t.Parallel()
+
+	sharedDir := t.TempDir()
+	helper := []byte("#!/bin/sh\n")
+	if err := prepareOpenClawSharedDir(sharedDir, helper); err != nil {
+		t.Fatalf("prepareOpenClawSharedDir() error: %v", err)
+	}
+
+	envPath := filepath.Join(sharedDir, ".env")
+	envData, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatalf("ReadFile(.env) error: %v", err)
+	}
+	if !strings.Contains(string(envData), "ANTHROPIC_API_KEY=") {
+		t.Fatalf(".env = %q, want provider key stub", string(envData))
+	}
+
+	helperPath := filepath.Join(sharedDir, templateHostsHelper)
+	helperData, err := os.ReadFile(helperPath)
+	if err != nil {
+		t.Fatalf("ReadFile(hosts helper) error: %v", err)
+	}
+	if string(helperData) != string(helper) {
+		t.Fatalf("hosts helper = %q, want %q", string(helperData), string(helper))
+	}
+}
+
+func TestBuildStartArgsOpenClawWritesInviteFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+	t.Setenv("HOME", home)
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+	m.inviteCode = func(ctx context.Context) (string, error) {
+		return "invite-123", nil
+	}
+
+	sharedDir := filepath.Join(home, "sky10", "sandboxes", "agent-123")
+	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll(sharedDir) error: %v", err)
+	}
+
+	args, err := m.buildStartArgs(context.Background(), Record{
+		Name:      "agent-123",
+		Slug:      "agent-123",
+		Provider:  providerLima,
+		Template:  templateOpenClaw,
+		SharedDir: sharedDir,
+	}, "/tmp/openclaw.yaml")
+	if err != nil {
+		t.Fatalf("buildStartArgs() error: %v", err)
+	}
+
+	wantArgs := []string{"start", "--tty=false", "--progress", "--name", "agent-123", "/tmp/openclaw.yaml"}
+	if strings.Join(args, "\n") != strings.Join(wantArgs, "\n") {
+		t.Fatalf("buildStartArgs() = %v, want %v", args, wantArgs)
+	}
+
+	inviteData, err := os.ReadFile(filepath.Join(sharedDir, inviteFileName))
+	if err != nil {
+		t.Fatalf("ReadFile(invite file) error: %v", err)
+	}
+	if string(inviteData) != "invite-123\n" {
+		t.Fatalf("invite file = %q, want %q", string(inviteData), "invite-123\n")
 	}
 }
 

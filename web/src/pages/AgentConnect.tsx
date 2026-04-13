@@ -6,15 +6,16 @@ const GUIDES = [
     id: "lima",
     icon: "deployed_code",
     label: "OpenClaw + Lima",
-    description: "Isolated Ubuntu VM with browser tools and sky10 auto-registration",
+    description: "Managed Ubuntu VM with guest sky10 + OpenClaw auto-registration",
     steps: [
-      "Create the named sandbox with an explicit provider and template:",
+      "Preferred path: Agents -> Create Agent. CLI equivalent:",
       null,
       "Optional: fill provider keys in ~/sky10/sandboxes/my-agent/.env:",
       null,
-      "Optional: add HTTPS hostname mappings for the UI:",
+      "The VM installs sky10 and OpenClaw inside the guest, joins your existing sky10 network with the staged invite, and points the OpenClaw plugin at guest-local http://localhost:9101.",
+      "Inspect the guest or fetch the UI IP with:",
       null,
-      "The command stages the Lima template, auto-installs Lima and mkcert when needed, generates the wildcard sb.sky10.local certificate, starts OpenClaw, and registers the VM name on your host daemon.",
+      "Then open http://<guest-ip>:18790/chat?session=main in your browser.",
     ],
     codeBlocks: [
       `sky10 sandbox create my-agent --provider lima --template openclaw`,
@@ -22,11 +23,8 @@ const GUIDES = [
 ANTHROPIC_API_KEY=your-anthropic-key
 OPENAI_API_KEY=your-openai-key
 EOF`,
-      `chmod +x ~/sky10/sandboxes/my-agent/update-lima-hosts.sh
-~/sky10/sandboxes/my-agent/update-lima-hosts.sh
-
-# Then open:
-# https://my-agent.sb.sky10.local:18790/chat?session=main`,
+      `limactl shell my-agent
+limactl shell my-agent -- bash -lc 'ip -4 route get 1.1.1.1'`,
     ],
   },
   {
@@ -51,10 +49,10 @@ cd ~/.openclaw/plugins/sky10 && npm i eventsource`,
     "sky10": {
       "enabled": true,
       "config": {
+        "rpcUrl": "http://localhost:9101",
         "agentName": "my-agent",
         "skills": ["code", "shell", "web-search", "file-ops"],
-        "gatewayUrl": "http://localhost:18789",
-        "gatewayToken": "<your gateway auth token>"
+        "gatewayUrl": "http://localhost:18789"
       }
     }
   }

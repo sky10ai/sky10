@@ -1,5 +1,5 @@
-import { startTransition, useCallback, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { startTransition, useCallback, useEffect, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { Icon } from "../components/Icon";
 import { PageHeader } from "../components/PageHeader";
 import { StatusBadge } from "../components/StatusBadge";
@@ -7,6 +7,7 @@ import { SANDBOX_STATE_EVENT_TYPES } from "../lib/events";
 import { sandbox } from "../lib/rpc";
 import {
   nextSandboxName,
+  sandboxTemplateById,
   SANDBOX_TEMPLATES,
   sandboxLabel,
   sandboxSlug,
@@ -16,8 +17,10 @@ import { timeAgo, useRPC } from "../lib/useRPC";
 
 export default function Sandboxes() {
   const navigate = useNavigate();
-  const [draftName, setDraftName] = useState(nextSandboxName);
-  const [selectedTemplate, setSelectedTemplate] = useState<string>(SANDBOX_TEMPLATES[0].id);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTemplate = sandboxTemplateById(searchParams.get("template") ?? undefined);
+  const [draftName, setDraftName] = useState(() => nextSandboxName(requestedTemplate.id));
+  const [selectedTemplate, setSelectedTemplate] = useState<string>(requestedTemplate.id);
   const [actionError, setActionError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -32,8 +35,22 @@ export default function Sandboxes() {
   });
 
   const sandboxes = listData?.sandboxes ?? [];
-  const templateConfig = SANDBOX_TEMPLATES.find((item) => item.id === selectedTemplate) ?? SANDBOX_TEMPLATES[0];
+  const templateConfig = sandboxTemplateById(selectedTemplate);
   const draftSlug = sandboxSlug(draftName);
+  const creatingLabel = templateConfig.id === "openclaw" ? "Create Agent" : "Provision Sandbox";
+  const creatingBusyLabel = templateConfig.id === "openclaw" ? "Creating Agent..." : "Provisioning...";
+
+  useEffect(() => {
+    if (requestedTemplate.id === selectedTemplate) return;
+    setSelectedTemplate(requestedTemplate.id);
+  }, [requestedTemplate.id, selectedTemplate]);
+
+  const handleTemplateSelect = useCallback((templateId: string) => {
+    setSelectedTemplate(templateId);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("template", templateId);
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const handleCreate = useCallback(async () => {
     const name = draftName.trim();
@@ -47,7 +64,7 @@ export default function Sandboxes() {
         provider: templateConfig.provider,
         template: templateConfig.id,
       });
-      setDraftName(nextSandboxName());
+      setDraftName(nextSandboxName(templateConfig.id));
       refetchList({ background: true });
       startTransition(() => {
         navigate(`/settings/sandboxes/${encodeURIComponent(created.slug)}`);
@@ -108,7 +125,7 @@ export default function Sandboxes() {
                         ? "border-primary/40 bg-primary/10 shadow-sm"
                         : "border-outline-variant/10 bg-surface-container hover:bg-surface-container-high"
                     }`}
-                    onClick={() => setSelectedTemplate(template.id)}
+                    onClick={() => handleTemplateSelect(template.id)}
                     type="button"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -141,7 +158,7 @@ export default function Sandboxes() {
                 type="button"
               >
                 <Icon name="add" />
-                {creating ? "Provisioning..." : "Provision Sandbox"}
+                {creating ? creatingBusyLabel : creatingLabel}
               </button>
             </div>
             <p className="text-xs text-secondary">
@@ -167,12 +184,25 @@ export default function Sandboxes() {
                 Sandboxes are isolated workspaces with a shared host directory under your local{" "}
                 <code>~/sky10/sandboxes/&lt;slug&gt;</code> path.
               </p>
-              <p>
-                Provisioning logs stream live once the sandbox detail page opens, so boot failures stay visible.
-              </p>
-              <p>
-                Each sandbox gets its own detail page for lifecycle actions, runtime metadata, logs, and terminal access.
-              </p>
+              {templateConfig.id === "openclaw" ? (
+                <>
+                  <p>
+                    The OpenClaw template installs <code>sky10</code> and OpenClaw inside the guest, stages a host invite, and has the guest join your current sky10 network automatically.
+                  </p>
+                  <p>
+                    OpenClaw then talks to the guest-local daemon at <code>http://localhost:9101</code>, so the VM keeps its own local agent runtime while still showing up on your Agents page.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p>
+                    Provisioning logs stream live once the sandbox detail page opens, so boot failures stay visible.
+                  </p>
+                  <p>
+                    Each sandbox gets its own detail page for lifecycle actions, runtime metadata, logs, and terminal access.
+                  </p>
+                </>
+              )}
             </div>
           </div>
         </aside>

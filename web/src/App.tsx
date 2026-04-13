@@ -43,6 +43,7 @@ export default function App() {
           <Route path="devices" element={<Devices />} />
           <Route path="devices/invite" element={<InviteDevice />} />
           <Route path="agents" element={<Agents />} />
+          <Route path="agents/create" element={<Navigate replace to="/settings/sandboxes?template=openclaw" />} />
           <Route path="agents/connect" element={<AgentConnect />} />
           <Route path="agents/:agentId" element={<AgentChat />} />
           <Route path="mailbox" element={<Mailbox />} />
