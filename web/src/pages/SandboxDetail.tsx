@@ -301,16 +301,6 @@ export default function SandboxDetail() {
                 Updated {timeAgo(selected.last_log_at)}
               </span>
             )}
-            {activePanel === "terminal" && (
-              <button
-                className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary transition-colors hover:text-on-surface"
-                onClick={() => void handleCopyTerminal()}
-                type="button"
-              >
-                <Icon name="content_copy" />
-                Copy shell command
-              </button>
-            )}
             <div
               aria-label="Sandbox detail panel"
               className="inline-flex rounded-full bg-surface-container p-1"
@@ -407,6 +397,17 @@ export default function SandboxDetail() {
 
           <div className="rounded-2xl bg-[#111315] p-4 font-mono text-xs text-[#d7dadc]">
             {shellCommand}
+          </div>
+
+          <div>
+            <button
+              className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary transition-colors hover:text-on-surface"
+              onClick={() => void handleCopyTerminal()}
+              type="button"
+            >
+              <Icon name="content_copy" />
+              Copy shell command
+            </button>
           </div>
 
           <p className="text-sm text-secondary">
