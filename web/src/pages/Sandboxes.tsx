@@ -37,8 +37,8 @@ export default function Sandboxes() {
   const sandboxes = listData?.sandboxes ?? [];
   const templateConfig = sandboxTemplateById(selectedTemplate);
   const draftSlug = sandboxSlug(draftName);
-  const creatingLabel = templateConfig.id === "openclaw" ? "Create Agent" : "Provision Sandbox";
-  const creatingBusyLabel = templateConfig.id === "openclaw" ? "Creating Agent..." : "Provisioning...";
+  const creatingLabel = templateConfig.id === "openclaw" ? "Create OpenClaw" : "Provision Sandbox";
+  const creatingBusyLabel = templateConfig.id === "openclaw" ? "Creating OpenClaw..." : "Provisioning...";
 
   useEffect(() => {
     if (requestedTemplate.id === selectedTemplate) return;
@@ -187,10 +187,10 @@ export default function Sandboxes() {
               {templateConfig.id === "openclaw" ? (
                 <>
                   <p>
-                    The OpenClaw template installs <code>sky10</code> and OpenClaw inside the guest, stages a host invite, and has the guest join your current sky10 network automatically.
+                    The OpenClaw template installs OpenClaw, Chromium, Xvfb, and Caddy inside the guest and exposes the UI on guest port <code>18790</code>.
                   </p>
                   <p>
-                    OpenClaw then talks to the guest-local daemon at <code>http://localhost:9101</code>, so the VM keeps its own local agent runtime while still showing up on your Agents page.
+                    This first milestone stops at a working OpenClaw sandbox. sky10 plugin wiring and agent registration come later.
                   </p>
                 </>
               ) : (

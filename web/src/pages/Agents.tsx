@@ -22,7 +22,7 @@ export default function Agents() {
           <Icon name="smart_toy" className="text-5xl text-secondary" />
           <h1 className="text-2xl font-bold text-on-surface">No Agents</h1>
           <p className="text-secondary">
-            Connect an AI agent to your sky10 network.
+            Connect an AI agent to your sky10 network, or spin up OpenClaw in an isolated Lima VM first.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
             <button
@@ -30,7 +30,7 @@ export default function Agents() {
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary rounded-xl text-sm font-medium hover:shadow-lg transition-shadow"
             >
               <Icon name="deployed_code" className="text-base" />
-              Create Agent
+              Create OpenClaw
             </button>
             <button
               onClick={() => navigate("/agents/connect")}
@@ -73,7 +73,7 @@ export default function Agents() {
             className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary shadow-lg transition-all active:scale-95"
           >
             <Icon name="deployed_code" className="text-base" />
-            Create Agent
+            Create OpenClaw
           </button>
           <button
             onClick={() => navigate("/agents/connect")}

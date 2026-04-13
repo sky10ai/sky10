@@ -18,6 +18,9 @@ mounts:
   writable: true
 
 provision:
+- mode: dependency
+  file:
+    url: openclaw-sky10.dependency.sh
 - mode: system
   file:
     url: openclaw-sky10.system.sh
@@ -34,28 +37,24 @@ probes:
   hint: See "/var/log/cloud-init-output.log" in the guest
 
 message: |
-  OpenClaw + sky10 is provisioning inside "__SKY10_SANDBOX_NAME__".
+  OpenClaw is provisioning inside "__SKY10_SANDBOX_NAME__".
 
   Shared host directory:
     __SKY10_SHARED_DIR__
 
   The VM auto-installs:
-  - sky10
   - OpenClaw
   - Chromium + Xvfb browser support
-  - the sky10 OpenClaw channel plugin
+  - Caddy for guest-local UI access on port 18790
 
-  The guest sky10 daemon joins your existing sky10 network using the invite
-  staged into the shared directory.
-
-  OpenClaw then registers this VM as the "__SKY10_SANDBOX_NAME__" agent
-  against the guest-local sky10 daemon on http://localhost:9101.
+  This milestone only sets up OpenClaw inside the guest.
+  sky10 registration and plugin wiring come later.
 
   Open the guest shell with:
     limactl shell __SKY10_SANDBOX_NAME__
 
   Open the OpenClaw UI by first checking the guest IP:
-    limactl shell __SKY10_SANDBOX_NAME__ -- bash -lc "ip -4 route get 1.1.1.1"
+    limactl shell __SKY10_SANDBOX_NAME__ -- bash -lc "ip -4 addr show dev lima0"
 
   Then browse to:
     http://<guest-ip>:18790/chat?session=main

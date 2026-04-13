@@ -262,7 +262,6 @@ func ServeCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("creating sandbox manager: %w", err)
 			}
-			sandboxManager.SetHostHTTPAddrFunc(server.HTTPAddr)
 			server.RegisterHandler(skysandbox.NewRPCHandler(sandboxManager))
 			server.HandleHTTP("GET /rpc/sandboxes/{slug}/terminal", sandboxManager.HandleTerminal)
 

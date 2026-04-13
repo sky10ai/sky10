@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,21 +19,23 @@ import (
 )
 
 const (
-	agentLimaTemplateName    = "openclaw-sky10"
-	agentLimaTemplateYAML    = "openclaw-sky10.yaml"
-	agentLimaSystemScript    = "openclaw-sky10.system.sh"
-	agentLimaUserScript      = "openclaw-sky10.user.sh"
-	agentLimaHostsScript     = "update-lima-hosts.sh"
-	agentLimaRemoteAssetBase = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
-	sandboxInviteFile        = "sky10-invite.txt"
-	sandboxProviderLima      = "lima"
-	sandboxTemplateOpenClaw  = "openclaw"
-	templateNameToken        = "__SKY10_SANDBOX_NAME__"
-	templateSharedToken      = "__SKY10_SHARED_DIR__"
+	agentLimaTemplateName     = "openclaw-sky10"
+	agentLimaTemplateYAML     = "openclaw-sky10.yaml"
+	agentLimaDependencyScript = "openclaw-sky10.dependency.sh"
+	agentLimaSystemScript     = "openclaw-sky10.system.sh"
+	agentLimaUserScript       = "openclaw-sky10.user.sh"
+	agentLimaHostsScript      = "update-lima-hosts.sh"
+	agentLimaRemoteAssetBase  = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
+	sandboxProviderLima       = "lima"
+	sandboxTemplateOpenClaw   = "openclaw"
+	templateNameToken         = "__SKY10_SANDBOX_NAME__"
+	templateSharedToken       = "__SKY10_SHARED_DIR__"
+	openClawReadyTimeout      = 2 * time.Minute
 )
 
 var agentLimaAssetFiles = []string{
 	agentLimaTemplateYAML,
+	agentLimaDependencyScript,
 	agentLimaSystemScript,
 	agentLimaUserScript,
 }
@@ -78,11 +79,6 @@ func sandboxCreateCmd() *cobra.Command {
 					sandboxProviderLima, sandboxTemplateOpenClaw)
 			}
 
-			inviteCode, err := loadInviteCode()
-			if err != nil {
-				return err
-			}
-
 			sharedDir, err := defaultLimaSharedDir(slug)
 			if err != nil {
 				return err
@@ -92,7 +88,7 @@ func sandboxCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := prepareLimaSharedDir(sharedDir, hostsScript, inviteCode); err != nil {
+			if err := prepareLimaSharedDir(sharedDir, hostsScript); err != nil {
 				return err
 			}
 
@@ -120,7 +116,7 @@ func sandboxCreateCmd() *cobra.Command {
 			}
 
 			if waitTimeout > 0 {
-				if err := waitForAgentRegistration(cmd.Context(), slug, waitTimeout); err != nil {
+				if err := waitForOpenClawReady(cmd.Context(), limactl, slug, waitTimeout); err != nil {
 					return err
 				}
 			}
@@ -137,13 +133,12 @@ func sandboxCreateCmd() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "Provider:   %s\n", provider)
 			fmt.Fprintf(cmd.OutOrStdout(), "Template:   %s\n", template)
 			fmt.Fprintf(cmd.OutOrStdout(), "Shared dir: %s\n", sharedDir)
-			fmt.Fprintf(cmd.OutOrStdout(), "Invite:     %s\n", filepath.Join(sharedDir, sandboxInviteFile))
-			fmt.Fprintf(cmd.OutOrStdout(), "Guest sky10: auto-installs in the VM, joins your existing sky10 network, and OpenClaw talks to http://localhost:9101 inside the guest\n")
+			fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:   installed inside the guest with Chromium, Xvfb, and a local gateway on http://127.0.0.1:18789\n")
 
 			if httpURL != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:   %s\n", httpURL)
+				fmt.Fprintf(cmd.OutOrStdout(), "UI:         %s\n", httpURL)
 			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:   run 'limactl shell %s -- bash -lc \"ip -4 route get 1.1.1.1\"' to find the guest IP\n", slug)
+				fmt.Fprintf(cmd.OutOrStdout(), "UI:         run 'limactl shell %s -- bash -lc \"ip -4 addr show dev lima0\"' to find the host-reachable guest IP\n", slug)
 			}
 
 			if openUI {
@@ -163,7 +158,7 @@ func sandboxCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", "", "Sandbox provider to use")
 	cmd.Flags().StringVar(&template, "template", "", "Sandbox template/payload to install")
 	cmd.Flags().StringVar(&model, "model", "", "Override the default OpenClaw model for this sandbox")
-	cmd.Flags().DurationVar(&waitTimeout, "wait", 2*time.Minute, "How long to wait for the sandbox agent to register back to the host daemon")
+	cmd.Flags().DurationVar(&waitTimeout, "wait", openClawReadyTimeout, "How long to wait for the OpenClaw gateway to report healthy after provisioning")
 	cmd.Flags().BoolVar(&openUI, "open", false, "Open the OpenClaw UI after the VM is ready when a direct URL is available")
 	_ = cmd.MarkFlagRequired("provider")
 	_ = cmd.MarkFlagRequired("template")
@@ -183,27 +178,6 @@ func validateSandboxCreate(provider, template string) error {
 	default:
 		return nil
 	}
-}
-
-func loadInviteCode() (string, error) {
-	raw, err := rpcCall("identity.invite", nil)
-	if err != nil {
-		return "", err
-	}
-	return parseInviteCode(raw)
-}
-
-func parseInviteCode(raw []byte) (string, error) {
-	var resp struct {
-		Code string `json:"code"`
-	}
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		return "", fmt.Errorf("parsing invite response: %w", err)
-	}
-	if strings.TrimSpace(resp.Code) == "" {
-		return "", fmt.Errorf("identity.invite returned no code")
-	}
-	return strings.TrimSpace(resp.Code), nil
 }
 
 func defaultLimaSharedDir(name string) (string, error) {
@@ -374,7 +348,7 @@ func downloadLimaAsset(ctx context.Context, name string) ([]byte, error) {
 	return body, nil
 }
 
-func prepareLimaSharedDir(sharedDir string, hostsScript []byte, inviteCode string) error {
+func prepareLimaSharedDir(sharedDir string, hostsScript []byte) error {
 	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
 		return fmt.Errorf("creating shared Lima directory %q: %w", sharedDir, err)
 	}
@@ -401,17 +375,11 @@ func prepareLimaSharedDir(sharedDir string, hostsScript []byte, inviteCode strin
 			return fmt.Errorf("writing Lima hosts helper %q: %w", helperPath, err)
 		}
 	}
-	if strings.TrimSpace(inviteCode) != "" {
-		invitePath := filepath.Join(sharedDir, sandboxInviteFile)
-		if err := os.WriteFile(invitePath, []byte(strings.TrimSpace(inviteCode)+"\n"), 0o600); err != nil {
-			return fmt.Errorf("writing Lima invite file %q: %w", invitePath, err)
-		}
-	}
 
 	return nil
 }
 
-func waitForAgentRegistration(ctx context.Context, name string, timeout time.Duration) error {
+func waitForOpenClawReady(ctx context.Context, limactl, name string, timeout time.Duration) error {
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -420,54 +388,45 @@ func waitForAgentRegistration(ctx context.Context, name string, timeout time.Dur
 
 	var lastErr error
 	for {
-		registered, err := agentRegistered(name)
-		if err == nil && registered {
+		cmd := exec.CommandContext(waitCtx, limactl, "shell", name, "--", "bash", "-lc", "curl -fsS http://127.0.0.1:18789/health >/dev/null")
+		if err := cmd.Run(); err == nil {
 			return nil
-		}
-		if err != nil {
+		} else {
 			lastErr = err
 		}
 
 		select {
 		case <-waitCtx.Done():
 			if lastErr != nil {
-				return fmt.Errorf("timed out waiting for agent %q to register: %w", name, lastErr)
+				return fmt.Errorf("timed out waiting for OpenClaw in sandbox %q: %w", name, lastErr)
 			}
-			return fmt.Errorf("timed out waiting for agent %q to register", name)
+			return fmt.Errorf("timed out waiting for OpenClaw in sandbox %q", name)
 		case <-ticker.C:
 		}
 	}
 }
 
-func agentRegistered(name string) (bool, error) {
-	raw, err := rpcCall("agent.list", nil)
-	if err != nil {
-		return false, err
+func lookupLimaInstanceIPv4(ctx context.Context, limactl, name string) (string, error) {
+	scripts := []string{
+		`ip -4 addr show dev lima0 | awk '/inet / {sub(/\/.*/, "", $2); print $2; exit}'`,
+		`ip -4 route get 1.1.1.1 | awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}'`,
 	}
-	var resp struct {
-		Agents []struct {
-			Name string `json:"name"`
-		} `json:"agents"`
-	}
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		return false, fmt.Errorf("parsing agent list: %w", err)
-	}
-	for _, agent := range resp.Agents {
-		if agent.Name == name {
-			return true, nil
+	var lastErr error
+	for _, script := range scripts {
+		cmd := exec.CommandContext(ctx, limactl, "shell", name, "--", "bash", "-lc", script)
+		out, err := cmd.Output()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if ip := strings.TrimSpace(string(out)); ip != "" {
+			return ip, nil
 		}
 	}
-	return false, nil
-}
-
-func lookupLimaInstanceIPv4(ctx context.Context, limactl, name string) (string, error) {
-	cmd := exec.CommandContext(ctx, limactl, "shell", name, "--", "bash", "-lc",
-		`ip -4 route get 1.1.1.1 | awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}'`)
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("querying guest IP: %w", err)
+	if lastErr != nil {
+		return "", fmt.Errorf("querying guest IP: %w", lastErr)
 	}
-	return strings.TrimSpace(string(out)), nil
+	return "", nil
 }
 
 func ensureManagedAppPath(cmd *cobra.Command, id skyapps.ID) (string, error) {

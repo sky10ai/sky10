@@ -2,13 +2,11 @@ package sandbox
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -22,7 +20,6 @@ import (
 
 	skyapps "github.com/sky10/sky10/pkg/apps"
 	"github.com/sky10/sky10/pkg/config"
-	skyrpc "github.com/sky10/sky10/pkg/rpc"
 )
 
 const (
@@ -31,14 +28,15 @@ const (
 	templateUbuntuAsset  = "ubuntu-sky10.yaml"
 	templateOpenClaw     = "openclaw"
 	templateOpenClawYAML = "openclaw-sky10.yaml"
+	templateOpenClawDep  = "openclaw-sky10.dependency.sh"
 	templateOpenClawSys  = "openclaw-sky10.system.sh"
 	templateOpenClawUser = "openclaw-sky10.user.sh"
 	templateHostsHelper  = "update-lima-hosts.sh"
-	inviteFileName       = "sky10-invite.txt"
 	templateRemoteBase   = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
 	logFileName          = "boot.log"
 	templateNameToken    = "__SKY10_SANDBOX_NAME__"
 	templateSharedToken  = "__SKY10_SHARED_DIR__"
+	openClawReadyTimeout = 2 * time.Minute
 )
 
 var slugWordPattern = regexp.MustCompile(`[a-z0-9]+`)
@@ -104,18 +102,16 @@ type templateDefinition struct {
 }
 
 type Manager struct {
-	mu           sync.Mutex
-	records      map[string]Record
-	rootDir      string
-	emit         Emitter
-	logger       *slog.Logger
-	running      map[string]bool
-	hostHTTPAddr func() string
-	inviteCode   func(ctx context.Context) (string, error)
-	appStatus    func(id skyapps.ID) (*skyapps.Status, error)
-	appUpgr      func(id skyapps.ID, onProgress skyapps.ProgressFunc) (*skyapps.ReleaseInfo, error)
-	runCmd       func(ctx context.Context, bin string, args []string, onLine func(stream, line string)) error
-	outputCmd    func(ctx context.Context, bin string, args []string) ([]byte, error)
+	mu        sync.Mutex
+	records   map[string]Record
+	rootDir   string
+	emit      Emitter
+	logger    *slog.Logger
+	running   map[string]bool
+	appStatus func(id skyapps.ID) (*skyapps.Status, error)
+	appUpgr   func(id skyapps.ID, onProgress skyapps.ProgressFunc) (*skyapps.ReleaseInfo, error)
+	runCmd    func(ctx context.Context, bin string, args []string, onLine func(stream, line string)) error
+	outputCmd func(ctx context.Context, bin string, args []string) ([]byte, error)
 }
 
 func NewManager(emit Emitter, logger *slog.Logger) (*Manager, error) {
@@ -141,10 +137,6 @@ func NewManager(emit Emitter, logger *slog.Logger) (*Manager, error) {
 		return nil, err
 	}
 	return m, nil
-}
-
-func (m *Manager) SetHostHTTPAddrFunc(fn func() string) {
-	m.hostHTTPAddr = fn
 }
 
 func (m *Manager) List(ctx context.Context) (*ListResult, error) {
@@ -436,27 +428,27 @@ func (m *Manager) runCreate(ctx context.Context, rec Record) {
 	}
 }
 
-func (m *Manager) buildStartArgs(ctx context.Context, rec Record, templatePath string) ([]string, error) {
+func (m *Manager) buildStartArgs(_ context.Context, rec Record, templatePath string) ([]string, error) {
 	args := []string{
 		"start",
 		"--tty=false",
 		"--progress",
 		"--name", rec.Slug,
 	}
-	if rec.Template == templateOpenClaw {
-		inviteCode, err := m.hostInviteCode(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if err := os.WriteFile(filepath.Join(rec.SharedDir, inviteFileName), []byte(inviteCode+"\n"), 0o600); err != nil {
-			return nil, fmt.Errorf("writing sandbox invite file: %w", err)
-		}
-	}
 	args = append(args, templatePath)
 	return args, nil
 }
 
 func (m *Manager) finishReady(ctx context.Context, name, limactl string) error {
+	rec, err := m.requireRecord(name)
+	if err != nil {
+		return err
+	}
+	if rec.Template == templateOpenClaw {
+		if err := waitForOpenClawGateway(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
+			return err
+		}
+	}
 	ipAddr, err := lookupLimaInstanceIPv4(ctx, m.outputCmd, limactl, name)
 	if err != nil {
 		m.logger.Debug("sandbox ip lookup failed", "name", name, "error", err)
@@ -623,6 +615,7 @@ func sandboxTemplateDefinition(template string) (templateDefinition, error) {
 			mainAsset: templateOpenClawYAML,
 			assets: []string{
 				templateOpenClawYAML,
+				templateOpenClawDep,
 				templateOpenClawSys,
 				templateOpenClawUser,
 			},
@@ -701,7 +694,7 @@ func (m *Manager) refreshRuntime(ctx context.Context) error {
 	for name, rec := range m.records {
 		if status, ok := statuses[name]; ok && rec.VMStatus != status {
 			rec.VMStatus = status
-			if status == "Running" && rec.Status != "ready" {
+			if status == "Running" && rec.Status == "stopped" {
 				rec.Status = "ready"
 			}
 			if status != "Running" && rec.Status == "ready" {
@@ -1041,90 +1034,64 @@ func httpRequest(ctx context.Context, url string) ([]byte, error) {
 	return body, nil
 }
 
-func (m *Manager) hostInviteCode(ctx context.Context) (string, error) {
-	if m.inviteCode != nil {
-		return m.inviteCode(ctx)
-	}
-	if m.hostHTTPAddr == nil {
-		return "", fmt.Errorf("host HTTP RPC address is not available")
-	}
-	port, err := extractPortSuffix(m.hostHTTPAddr())
-	if err != nil {
-		return "", fmt.Errorf("parsing host HTTP RPC address: %w", err)
-	}
+func waitForOpenClawGateway(
+	ctx context.Context,
+	outputCmd func(context.Context, string, []string) ([]byte, error),
+	limactl, name string,
+	timeout time.Duration,
+) error {
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
-	payload, err := json.Marshal(map[string]any{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "identity.invite",
-	})
-	if err != nil {
-		return "", fmt.Errorf("encoding identity invite request: %w", err)
-	}
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://127.0.0.1"+port+"/rpc", bytes.NewReader(payload))
-	if err != nil {
-		return "", fmt.Errorf("building identity invite request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("calling identity.invite: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("calling identity.invite: unexpected HTTP %d", resp.StatusCode)
-	}
-
-	var rpcResp struct {
-		Result struct {
-			Code string `json:"code"`
-		} `json:"result"`
-		Error *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
-		return "", fmt.Errorf("decoding identity invite response: %w", err)
-	}
-	if rpcResp.Error != nil {
-		return "", fmt.Errorf("calling identity.invite: %s", strings.TrimSpace(rpcResp.Error.Message))
-	}
-	if strings.TrimSpace(rpcResp.Result.Code) == "" {
-		return "", fmt.Errorf("identity.invite returned no code")
-	}
-	return strings.TrimSpace(rpcResp.Result.Code), nil
-}
-
-func extractPortSuffix(addr string) (string, error) {
-	addr = strings.TrimSpace(addr)
-	if addr == "" {
-		return "", fmt.Errorf("empty address")
-	}
-	if strings.HasPrefix(addr, ":") {
-		if len(addr) == 1 {
-			return "", fmt.Errorf("missing port")
+	var lastErr error
+	for {
+		_, err := outputCmd(waitCtx, limactl, []string{
+			"shell",
+			name,
+			"--",
+			"bash",
+			"-lc",
+			"curl -fsS http://127.0.0.1:18789/health >/dev/null",
+		})
+		if err == nil {
+			return nil
 		}
-		return addr, nil
+		lastErr = err
+
+		select {
+		case <-waitCtx.Done():
+			if lastErr != nil {
+				return fmt.Errorf("waiting for OpenClaw gateway: %w", lastErr)
+			}
+			return fmt.Errorf("timed out waiting for OpenClaw gateway")
+		case <-ticker.C:
+		}
 	}
-	_, port, err := net.SplitHostPort(addr)
-	if err == nil && port != "" {
-		return ":" + port, nil
-	}
-	if idx := strings.LastIndex(addr, ":"); idx >= 0 && idx+1 < len(addr) {
-		return addr[idx:], nil
-	}
-	return fmt.Sprintf(":%d", skyrpc.DefaultHTTPPort), nil
 }
 
 func lookupLimaInstanceIPv4(ctx context.Context, outputCmd func(context.Context, string, []string) ([]byte, error), limactl, name string) (string, error) {
-	out, err := outputCmd(ctx, limactl, []string{"shell", name, "--", "bash", "-lc",
-		`ip -4 route get 1.1.1.1 | awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}'`})
-	if err != nil {
-		return "", fmt.Errorf("querying guest IP: %w", err)
+	commands := []string{
+		`ip -4 addr show dev lima0 | awk '/inet / {sub(/\/.*/, "", $2); print $2; exit}'`,
+		`ip -4 route get 1.1.1.1 | awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}'`,
 	}
-	return strings.TrimSpace(string(out)), nil
+	var lastErr error
+	for _, script := range commands {
+		out, err := outputCmd(ctx, limactl, []string{"shell", name, "--", "bash", "-lc", script})
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if ip := strings.TrimSpace(string(out)); ip != "" {
+			return ip, nil
+		}
+	}
+	if lastErr != nil {
+		return "", fmt.Errorf("querying guest IP: %w", lastErr)
+	}
+	return "", nil
 }
 
 func defaultRunCommand(ctx context.Context, bin string, args []string, onLine func(stream, line string)) error {

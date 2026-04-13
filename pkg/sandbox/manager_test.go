@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -174,6 +175,48 @@ func TestLogsMissingSandboxReturnsNotFound(t *testing.T) {
 	}
 	if _, err := m.Logs("missing", 10); err == nil {
 		t.Fatalf("Logs() error = nil, want not found")
+	}
+}
+
+func TestRefreshRuntimeDoesNotPromoteCreatingSandbox(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["openclaw-m1"] = Record{
+		Name:      "openclaw-m1",
+		Slug:      "openclaw-m1",
+		Provider:  providerLima,
+		Template:  templateOpenClaw,
+		Status:    "creating",
+		VMStatus:  "Stopped",
+		SharedDir: filepath.Join(t.TempDir(), "shared"),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	m.outputCmd = func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "list" {
+			return []byte(`{"name":"openclaw-m1","status":"Running"}` + "\n"), nil
+		}
+		return nil, nil
+	}
+	m.appStatus = func(id skyapps.ID) (*skyapps.Status, error) {
+		return &skyapps.Status{ActivePath: "/tmp/fake/" + string(id)}, nil
+	}
+
+	got, err := m.Get(context.Background(), "openclaw-m1")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if got.Status != "creating" {
+		t.Fatalf("status = %q, want creating", got.Status)
+	}
+	if got.VMStatus != "Running" {
+		t.Fatalf("vm status = %q, want Running", got.VMStatus)
 	}
 }
 
@@ -387,30 +430,18 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	}
 }
 
-func TestBuildStartArgsOpenClawWritesInviteFile(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv(config.EnvHome, home)
-	t.Setenv("HOME", home)
+func TestBuildStartArgsOpenClaw(t *testing.T) {
+	t.Parallel()
 
 	m, err := NewManager(nil, nil)
 	if err != nil {
 		t.Fatalf("NewManager() error: %v", err)
 	}
-	m.inviteCode = func(ctx context.Context) (string, error) {
-		return "invite-123", nil
-	}
-
-	sharedDir := filepath.Join(home, "sky10", "sandboxes", "agent-123")
-	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
-		t.Fatalf("MkdirAll(sharedDir) error: %v", err)
-	}
-
 	args, err := m.buildStartArgs(context.Background(), Record{
-		Name:      "agent-123",
-		Slug:      "agent-123",
-		Provider:  providerLima,
-		Template:  templateOpenClaw,
-		SharedDir: sharedDir,
+		Name:     "agent-123",
+		Slug:     "agent-123",
+		Provider: providerLima,
+		Template: templateOpenClaw,
 	}, "/tmp/openclaw.yaml")
 	if err != nil {
 		t.Fatalf("buildStartArgs() error: %v", err)
@@ -420,13 +451,24 @@ func TestBuildStartArgsOpenClawWritesInviteFile(t *testing.T) {
 	if strings.Join(args, "\n") != strings.Join(wantArgs, "\n") {
 		t.Fatalf("buildStartArgs() = %v, want %v", args, wantArgs)
 	}
+}
 
-	inviteData, err := os.ReadFile(filepath.Join(sharedDir, inviteFileName))
+func TestWaitForOpenClawGateway(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	err := waitForOpenClawGateway(context.Background(), func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		attempts++
+		if attempts < 3 {
+			return nil, fmt.Errorf("not ready")
+		}
+		return []byte("ok"), nil
+	}, "/tmp/fake/limactl", "agent-123", 5*time.Second)
 	if err != nil {
-		t.Fatalf("ReadFile(invite file) error: %v", err)
+		t.Fatalf("waitForOpenClawGateway() error: %v", err)
 	}
-	if string(inviteData) != "invite-123\n" {
-		t.Fatalf("invite file = %q, want %q", string(inviteData), "invite-123\n")
+	if attempts != 3 {
+		t.Fatalf("waitForOpenClawGateway() attempts = %d, want 3", attempts)
 	}
 }
 

@@ -1,31 +1,11 @@
 package commands
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-func TestLoadInviteCodeParsesResult(t *testing.T) {
-	t.Parallel()
-
-	body, err := json.Marshal(struct {
-		Code string `json:"code"`
-	}{Code: "invite-123"})
-	if err != nil {
-		t.Fatalf("Marshal() error: %v", err)
-	}
-
-	got, err := parseInviteCode(body)
-	if err != nil {
-		t.Fatalf("parseInviteCode() error: %v", err)
-	}
-	if got != "invite-123" {
-		t.Fatalf("parseInviteCode() = %q, want invite-123", got)
-	}
-}
 
 func TestDefaultLimaSharedDir(t *testing.T) {
 	home := t.TempDir()
@@ -105,21 +85,14 @@ func TestRenderLimaTemplate(t *testing.T) {
 	}
 }
 
-func TestPrepareLimaSharedDirWritesInviteFile(t *testing.T) {
+func TestPrepareLimaSharedDir(t *testing.T) {
 	t.Parallel()
 
 	sharedDir := t.TempDir()
-	if err := prepareLimaSharedDir(sharedDir, []byte("#!/bin/sh\n"), "invite-123"); err != nil {
+	if err := prepareLimaSharedDir(sharedDir, []byte("#!/bin/sh\n")); err != nil {
 		t.Fatalf("prepareLimaSharedDir() error: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(sharedDir, sandboxInviteFile))
-	if err != nil {
-		t.Fatalf("ReadFile(invite) error: %v", err)
-	}
-	if string(data) != "invite-123\n" {
-		t.Fatalf("invite file = %q, want %q", string(data), "invite-123\n")
-	}
 	if _, err := os.Stat(filepath.Join(sharedDir, agentLimaHostsScript)); err != nil {
 		t.Fatalf("Stat(hosts helper) error: %v", err)
 	}

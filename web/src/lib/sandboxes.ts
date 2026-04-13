@@ -11,10 +11,10 @@ export const SANDBOX_TEMPLATES = [
   {
     id: "openclaw",
     provider: "lima",
-    label: "OpenClaw Agent",
-    summary: "Guest sky10 + managed agent",
+    label: "OpenClaw Sandbox",
+    summary: "Managed browser runtime",
     description:
-      "Ubuntu VM on Lima that installs sky10 and OpenClaw inside the guest, joins your current sky10 network, and auto-registers the agent.",
+      "Ubuntu VM on Lima that installs OpenClaw, Chromium, Xvfb, and a guest-local UI reachable on port 18790.",
   },
 ] as const;
 
@@ -25,7 +25,7 @@ export function sandboxTemplateById(templateId?: string) {
 }
 
 export function nextSandboxName(templateId: string = DEFAULT_SANDBOX_TEMPLATE.id) {
-  const prefix = templateId === "openclaw" ? "agent" : "linux";
+  const prefix = templateId === "openclaw" ? "openclaw" : "linux";
   return `${prefix}-${Math.random().toString(36).slice(2, 6)}`;
 }
 

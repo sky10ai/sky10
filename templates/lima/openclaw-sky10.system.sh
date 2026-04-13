@@ -4,29 +4,42 @@ set -eux -o pipefail
 export HOME=/root
 export DEBIAN_FRONTEND=noninteractive
 
-STATE_DIR=/var/lib/sky10
-SENTINEL="${STATE_DIR}/openclaw-sky10-system-v1"
+STATE_DIR=/var/lib/openclaw-lima
+SENTINEL="${STATE_DIR}/openclaw-system-v1"
+APT_FLAGS=(-o Acquire::ForceIPv4=true -o Acquire::Retries=3)
 
 mkdir -p "${STATE_DIR}"
 mkdir -p /shared
 
+prefer_eth0_default_route() {
+  local gateway
+  gateway="$(ip route show default dev eth0 | awk '/^default/ {print $3; exit}')"
+  if [ -n "${gateway}" ]; then
+    ip route del default dev lima0 2>/dev/null || true
+    ip route replace default via "${gateway}" dev eth0 metric 100
+  fi
+}
+
+curl4() {
+  curl -4 --retry 5 --retry-delay 2 --retry-connrefused -fsSL "$@"
+}
+
+prefer_eth0_default_route
+
 if [ ! -f "${SENTINEL}" ]; then
-  apt-get update -y
-  apt-get upgrade -y
-  apt-get install -y \
+  apt-get "${APT_FLAGS[@]}" update -y
+  apt-get "${APT_FLAGS[@]}" install -y \
     apt-transport-https \
     ca-certificates \
     curl \
-    debian-archive-keyring \
-    debian-keyring \
     dbus-user-session \
     git \
     gnupg \
     python3 \
     xvfb
 
-  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-  apt-get install -y nodejs
+  curl4 https://deb.nodesource.com/setup_22.x | bash -
+  apt-get "${APT_FLAGS[@]}" install -y nodejs
 
   npm install -g openclaw@latest
 
@@ -42,12 +55,12 @@ if [ ! -f "${SENTINEL}" ]; then
   ln -sf "${CHROME_BIN}" /usr/local/bin/chromium
   ln -sf "${CHROME_BIN}" /usr/local/bin/google-chrome
 
-  curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/gpg.key \
+  curl4 https://dl.cloudsmith.io/public/caddy/stable/gpg.key \
     | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-  curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt \
+  curl4 https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt \
     | tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
-  apt-get update -y
-  apt-get install -y caddy
+  apt-get "${APT_FLAGS[@]}" update -y
+  apt-get "${APT_FLAGS[@]}" install -y caddy
 
   cat > /etc/systemd/system/xvfb.service <<'EOF'
 [Unit]
