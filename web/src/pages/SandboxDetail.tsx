@@ -23,6 +23,7 @@ export default function SandboxDetail() {
   const params = useParams();
   const slug = decodeURIComponent(params.slug ?? params.name ?? "");
   const [logs, setLogs] = useState<SandboxLogEntry[]>([]);
+  const [activePanel, setActivePanel] = useState<"logs" | "terminal">("logs");
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
@@ -277,58 +278,29 @@ export default function SandboxDetail() {
         )}
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(420px,0.85fr)]">
-        <section className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm">
-          <div className="mb-4 flex items-center justify-between gap-4">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
-                Provisioning Log
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold text-on-surface">
-                Boot and runtime output
-              </h2>
-            </div>
-            {selected?.last_log_at && (
+      <section className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
+              Sandbox Console
+            </p>
+            <h2 className="text-2xl font-semibold text-on-surface">
+              {activePanel === "logs" ? "Boot and runtime output" : "Interactive shell"}
+            </h2>
+            <p className="text-sm text-secondary">
+              {activePanel === "logs"
+                ? "Watch provisioning and runtime events as they stream in."
+                : "Open a shell inside the sandbox or copy the host command."}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            {activePanel === "logs" && selected?.last_log_at && (
               <span className="text-xs text-secondary">
                 Updated {timeAgo(selected.last_log_at)}
               </span>
             )}
-          </div>
-
-          <div className="h-[560px] overflow-y-auto rounded-2xl bg-[#111315] p-4 font-mono text-xs text-[#d7dadc]">
-            {logs.length ? (
-              <div className="space-y-1">
-                {logs.map((entry, index) => (
-                  <div key={sandboxLogKey(entry, index)} className="whitespace-pre-wrap break-words">
-                    <span className="text-[#7f8c98]">{entry.time}</span>
-                    {" "}
-                    <span className={entry.stream === "stderr" ? "text-[#ffbf69]" : "text-[#8bd3dd]"}>
-                      [{entry.stream}]
-                    </span>
-                    {" "}
-                    <span>{entry.line}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-[#7f8c98]">
-                Waiting for sandbox log output...
-              </div>
-            )}
-          </div>
-        </section>
-
-        <aside className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm">
-          <div className="space-y-5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
-                  Terminal
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold text-on-surface">
-                  Interactive shell
-                </h2>
-              </div>
+            {activePanel === "terminal" && (
               <button
                 className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary transition-colors hover:text-on-surface"
                 onClick={() => void handleCopyTerminal()}
@@ -337,12 +309,81 @@ export default function SandboxDetail() {
                 <Icon name="content_copy" />
                 Copy shell command
               </button>
+            )}
+            <div
+              aria-label="Sandbox detail panel"
+              className="inline-flex rounded-full bg-surface-container p-1"
+              role="tablist"
+            >
+              <button
+                aria-controls="sandbox-logs-panel"
+                aria-selected={activePanel === "logs"}
+                className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+                  activePanel === "logs"
+                    ? "bg-surface-container-lowest text-on-surface shadow-sm"
+                    : "text-secondary hover:text-on-surface"
+                }`}
+                id="sandbox-logs-tab"
+                onClick={() => setActivePanel("logs")}
+                role="tab"
+                type="button"
+              >
+                Logs
+              </button>
+              <button
+                aria-controls="sandbox-terminal-panel"
+                aria-selected={activePanel === "terminal"}
+                className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+                  activePanel === "terminal"
+                    ? "bg-surface-container-lowest text-on-surface shadow-sm"
+                    : "text-secondary hover:text-on-surface"
+                }`}
+                id="sandbox-terminal-tab"
+                onClick={() => setActivePanel("terminal")}
+                role="tab"
+                type="button"
+              >
+                Terminal
+              </button>
             </div>
+          </div>
+        </div>
 
-            <p className="text-sm text-secondary">
-              Use the embedded terminal when the sandbox is running, or drop to the host shell with the command below.
-            </p>
-
+        {activePanel === "logs" ? (
+          <div
+            aria-labelledby="sandbox-logs-tab"
+            id="sandbox-logs-panel"
+            role="tabpanel"
+          >
+            <div className="h-[560px] overflow-y-auto rounded-2xl bg-[#111315] p-4 font-mono text-xs text-[#d7dadc]">
+              {logs.length ? (
+                <div className="space-y-1">
+                  {logs.map((entry, index) => (
+                    <div key={sandboxLogKey(entry, index)} className="whitespace-pre-wrap break-words">
+                      <span className="text-[#7f8c98]">{entry.time}</span>
+                      {" "}
+                      <span className={entry.stream === "stderr" ? "text-[#ffbf69]" : "text-[#8bd3dd]"}>
+                        [{entry.stream}]
+                      </span>
+                      {" "}
+                      <span>{entry.line}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[#7f8c98]">
+                  Waiting for sandbox log output...
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div
+            aria-labelledby="sandbox-terminal-tab"
+            className="space-y-5"
+            id="sandbox-terminal-panel"
+            role="tabpanel"
+          >
             <div className="rounded-2xl bg-[#111315] p-4 font-mono text-xs text-[#d7dadc]">
               {shellCommand}
             </div>
@@ -362,8 +403,8 @@ export default function SandboxDetail() {
               </div>
             )}
           </div>
-        </aside>
-      </div>
+        )}
+      </section>
     </section>
   );
 }
