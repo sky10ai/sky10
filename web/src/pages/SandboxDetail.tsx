@@ -61,7 +61,7 @@ export default function SandboxDetail() {
       return;
     }
     const result: SandboxLogsResult = await sandbox.logs({ slug, limit: 400 });
-    setLogs(result.entries);
+    setLogs(Array.isArray(result.entries) ? result.entries : []);
   }, [slug]);
 
   useEffect(() => {

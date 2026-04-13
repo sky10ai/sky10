@@ -178,7 +178,7 @@ func (m *Manager) Logs(name string, limit int) (*LogsResult, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &LogsResult{Name: rec.Name, Slug: rec.Slug}, nil
+			return &LogsResult{Name: rec.Name, Slug: rec.Slug, Entries: []LogEntry{}}, nil
 		}
 		return nil, fmt.Errorf("reading sandbox logs: %w", err)
 	}
@@ -455,25 +455,13 @@ func (m *Manager) materializeTemplate(ctx context.Context, rec Record) (string, 
 		return "", fmt.Errorf("creating sandbox template dir: %w", err)
 	}
 	dest := filepath.Join(cacheDir, rec.Slug+"-"+templateUbuntuAsset)
-	if local, err := findLocalTemplateFile(templateUbuntuAsset); err == nil {
-		data, err := os.ReadFile(local)
-		if err != nil {
-			return "", fmt.Errorf("reading local sandbox template: %w", err)
-		}
-		rendered := renderSandboxTemplate(data, rec.Slug, rec.SharedDir)
-		if err := os.WriteFile(dest, rendered, 0o644); err != nil {
-			return "", fmt.Errorf("writing sandbox template cache: %w", err)
-		}
-		return dest, nil
-	}
-
-	req, err := httpRequest(ctx, templateRemoteBase+templateUbuntuAsset)
+	body, err := loadSandboxTemplate(ctx, templateUbuntuAsset)
 	if err != nil {
 		return "", err
 	}
-	rendered := renderSandboxTemplate(req, rec.Slug, rec.SharedDir)
+	rendered := renderSandboxTemplate(body, rec.Slug, rec.SharedDir)
 	if err := os.WriteFile(dest, rendered, 0o644); err != nil {
-		return "", fmt.Errorf("writing downloaded sandbox template: %w", err)
+		return "", fmt.Errorf("writing sandbox template cache: %w", err)
 	}
 	return dest, nil
 }
@@ -812,6 +800,20 @@ func findLocalTemplateFile(name string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("template %q not found locally", name)
+}
+
+func loadSandboxTemplate(ctx context.Context, name string) ([]byte, error) {
+	if local, err := findLocalTemplateFile(name); err == nil {
+		data, err := os.ReadFile(local)
+		if err != nil {
+			return nil, fmt.Errorf("reading local sandbox template: %w", err)
+		}
+		return data, nil
+	}
+	if data, err := readBundledTemplate(name); err == nil {
+		return data, nil
+	}
+	return httpRequest(ctx, templateRemoteBase+name)
 }
 
 func walkUp(start string) []string {

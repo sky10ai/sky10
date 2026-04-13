@@ -1,7 +1,9 @@
 package sandbox
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -175,6 +177,45 @@ func TestLogsMissingSandboxReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestLogsMissingFileReturnsEmptyEntries(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["devbox"] = Record{
+		Name:      "devbox",
+		Slug:      "devbox",
+		Provider:  providerLima,
+		Template:  templateUbuntu,
+		Status:    "creating",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	logs, err := m.Logs("devbox", 10)
+	if err != nil {
+		t.Fatalf("Logs() error: %v", err)
+	}
+	if logs.Entries == nil {
+		t.Fatalf("Logs() entries = nil, want empty slice")
+	}
+	if len(logs.Entries) != 0 {
+		t.Fatalf("Logs() entries len = %d, want 0", len(logs.Entries))
+	}
+
+	data, err := json.Marshal(logs)
+	if err != nil {
+		t.Fatalf("json.Marshal() error: %v", err)
+	}
+	if bytes.Contains(data, []byte(`"entries":null`)) {
+		t.Fatalf("logs JSON = %s, want entries array", data)
+	}
+}
+
 func TestDefaultSharedDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -206,5 +247,20 @@ func TestRenderSandboxTemplate(t *testing.T) {
 	}
 	if !strings.Contains(got, "/Users/bf/sky10/sandboxes/devbox") {
 		t.Fatalf("renderSandboxTemplate() missing shared dir: %q", got)
+	}
+}
+
+func TestReadBundledTemplate(t *testing.T) {
+	t.Parallel()
+
+	body, err := readBundledTemplate(templateUbuntuAsset)
+	if err != nil {
+		t.Fatalf("readBundledTemplate() error: %v", err)
+	}
+	if !strings.Contains(string(body), templateNameToken) {
+		t.Fatalf("readBundledTemplate() missing sandbox token")
+	}
+	if !strings.Contains(string(body), templateSharedToken) {
+		t.Fatalf("readBundledTemplate() missing shared-dir token")
 	}
 }
