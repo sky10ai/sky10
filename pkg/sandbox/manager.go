@@ -353,6 +353,9 @@ func (m *Manager) Delete(ctx context.Context, name string) (*Record, error) {
 			}
 		}
 	}
+	if err := cleanupLimaInstanceDir(rec.Slug); err != nil {
+		return nil, err
+	}
 
 	m.mu.Lock()
 	delete(m.records, rec.Slug)
@@ -506,6 +509,14 @@ func (m *Manager) limaInstanceExists(_ context.Context, _ string, name string) (
 }
 
 func limaInstanceConfigPath(name string) (string, error) {
+	dir, err := limaInstanceDirPath(name)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "lima.yaml"), nil
+}
+
+func limaInstanceDirPath(name string) (string, error) {
 	root := strings.TrimSpace(os.Getenv("LIMA_HOME"))
 	if root == "" {
 		home, err := os.UserHomeDir()
@@ -514,7 +525,18 @@ func limaInstanceConfigPath(name string) (string, error) {
 		}
 		root = filepath.Join(home, ".lima")
 	}
-	return filepath.Join(root, name, "lima.yaml"), nil
+	return filepath.Join(root, name), nil
+}
+
+func cleanupLimaInstanceDir(name string) error {
+	dir, err := limaInstanceDirPath(name)
+	if err != nil {
+		return err
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("removing Lima instance dir %q: %w", dir, err)
+	}
+	return nil
 }
 
 func renderSandboxTemplate(body []byte, name, sharedDir string) []byte {

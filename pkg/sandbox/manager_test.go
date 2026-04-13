@@ -219,7 +219,9 @@ func TestStopMissingInstanceMarksSandboxStopped(t *testing.T) {
 }
 
 func TestDeleteMissingInstanceRemovesRecord(t *testing.T) {
-	t.Setenv(config.EnvHome, t.TempDir())
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+	t.Setenv("HOME", home)
 
 	m, err := NewManager(nil, nil)
 	if err != nil {
@@ -246,6 +248,13 @@ func TestDeleteMissingInstanceRemovesRecord(t *testing.T) {
 		t.Fatalf("runCmd should not be called when the instance is missing")
 		return nil
 	}
+	orphanDir := filepath.Join(home, ".lima", "devbox")
+	if err := os.MkdirAll(orphanDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(orphanDir, "ha.stderr.log"), []byte("orphan"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
 
 	rec, err := m.Delete(context.Background(), "devbox")
 	if err != nil {
@@ -256,6 +265,9 @@ func TestDeleteMissingInstanceRemovesRecord(t *testing.T) {
 	}
 	if _, err := m.Get(context.Background(), "devbox"); err == nil {
 		t.Fatalf("sandbox record still present after Delete()")
+	}
+	if _, err := os.Stat(orphanDir); !os.IsNotExist(err) {
+		t.Fatalf("orphan Lima dir still present after Delete(): %v", err)
 	}
 }
 
@@ -344,5 +356,20 @@ func TestReadBundledTemplate(t *testing.T) {
 	}
 	if !strings.Contains(string(body), templateSharedToken) {
 		t.Fatalf("readBundledTemplate() missing shared-dir token")
+	}
+}
+
+func TestLimaInstanceDirPathUsesHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("LIMA_HOME", "")
+
+	got, err := limaInstanceDirPath("devbox")
+	if err != nil {
+		t.Fatalf("limaInstanceDirPath() error: %v", err)
+	}
+	want := filepath.Join(home, ".lima", "devbox")
+	if got != want {
+		t.Fatalf("limaInstanceDirPath() = %q, want %q", got, want)
 	}
 }
