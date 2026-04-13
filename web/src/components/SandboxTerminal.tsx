@@ -186,6 +186,12 @@ export function SandboxTerminal({ slug, enabled }: SandboxTerminalProps) {
 
   return (
     <div className="space-y-4">
+      <div className="overflow-hidden rounded-2xl border border-outline-variant/10 bg-[#111315]">
+        <div className="h-[520px] w-full p-3">
+          <div className="h-full w-full" ref={containerRef} />
+        </div>
+      </div>
+      <p className="text-sm text-secondary">{message}</p>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span className={`rounded-full px-3 py-1 text-xs font-semibold ${stateClasses(state)}`}>
           {stateLabel(state)}
@@ -197,12 +203,6 @@ export function SandboxTerminal({ slug, enabled }: SandboxTerminalProps) {
         >
           Reconnect
         </button>
-      </div>
-      <p className="text-sm text-secondary">{message}</p>
-      <div className="overflow-hidden rounded-2xl border border-outline-variant/10 bg-[#111315]">
-        <div className="h-[520px] w-full p-3">
-          <div className="h-full w-full" ref={containerRef} />
-        </div>
       </div>
     </div>
   );
