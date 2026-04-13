@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/host"
@@ -46,6 +47,9 @@ type P2PSync struct {
 	node     p2pNode
 	identity *skykey.Key
 	logger   *slog.Logger
+
+	mu     sync.Mutex
+	stores []*Store
 }
 
 // NewP2PSync creates a P2P sync handler for the given KV store.
@@ -56,7 +60,24 @@ func NewP2PSync(store *Store, node p2pNode, identity *skykey.Key, logger *slog.L
 		node:     node,
 		identity: identity,
 		logger:   logger,
+		stores:   []*Store{store},
 	}
+}
+
+// AddStore registers an additional KV store to share the same P2P sync
+// protocol handler. This allows multiple namespaces to coexist on one host.
+func (s *P2PSync) AddStore(store *Store) {
+	if store == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, existing := range s.stores {
+		if existing == store {
+			return
+		}
+	}
+	s.stores = append(s.stores, store)
 }
 
 // RegisterProtocol registers the KV sync stream handler on the libp2p host.
@@ -76,41 +97,44 @@ func (s *P2PSync) RegisterProtocol() {
 // PushToAll runs a summary-first anti-entropy round with all connected peers.
 func (s *P2PSync) PushToAll(ctx context.Context) {
 	peers := s.node.ConnectedPrivateNetworkPeers()
-	s.logger.Info("kv p2p push: broadcasting", "peers", len(peers))
+	stores := s.registeredStores()
+	s.logger.Info("kv p2p push: broadcasting", "peers", len(peers), "stores", len(stores))
 	for _, pid := range peers {
 		if pid == s.node.PeerID() {
 			continue
 		}
-		go func(pid peer.ID) {
-			boundedCtx, cancel := boundedSyncContext(ctx)
-			defer cancel()
-			s.syncWithPeer(boundedCtx, pid)
-		}(pid)
+		for _, store := range stores {
+			go func(pid peer.ID, store *Store) {
+				boundedCtx, cancel := boundedSyncContext(ctx)
+				defer cancel()
+				s.syncWithPeer(boundedCtx, pid, store)
+			}(pid, store)
+		}
 	}
 }
 
 // syncWithPeer exchanges summaries first, then sends only the state the peer
 // is missing. This keeps reconnect healing correct without always blasting a
 // full snapshot.
-func (s *P2PSync) syncWithPeer(ctx context.Context, pid peer.ID) {
-	snap, err := s.store.localLog.Snapshot()
+func (s *P2PSync) syncWithPeer(ctx context.Context, pid peer.ID, store *Store) {
+	snap, err := store.localLog.Snapshot()
 	if err != nil {
 		s.logger.Warn("kv p2p push: snapshot failed", "peer", pid, "err", err)
 		return
 	}
 
-	nsID := s.store.nsID
+	nsID := store.nsID
 	if nsID == "" {
 		s.logger.Warn("kv p2p push: namespace not resolved", "peer", pid)
 		return
 	}
 
-	response, err := s.requestSummary(ctx, pid, snap.Summary())
+	response, err := s.requestSummary(ctx, pid, store, snap.Summary())
 	if err != nil {
 		if response != nil && response.ExpectedNSID != "" {
-			s.store.recordNamespaceMismatch(pid.String(), response.ObservedNSID, response.ExpectedNSID)
+			store.recordNamespaceMismatch(pid.String(), response.ObservedNSID, response.ExpectedNSID)
 		} else {
-			s.store.recordSyncError(pid.String(), err)
+			store.recordSyncError(pid.String(), err)
 		}
 		s.logger.Warn("kv p2p push: summary exchange failed", "peer", pid, "error", err)
 		return
@@ -118,7 +142,7 @@ func (s *P2PSync) syncWithPeer(ctx context.Context, pid peer.ID) {
 
 	if response != nil {
 		if merged, err := s.mergeSnapshotMessage(*response, pid, false); err != nil {
-			s.store.recordSyncError(pid.String(), err)
+			store.recordSyncError(pid.String(), err)
 			s.logger.Warn("kv p2p push: merge response failed", "peer", pid, "error", err)
 		} else if merged > 0 {
 			s.logger.Info("kv p2p push: merged peer delta", "peer", pid, "entries", merged)
@@ -126,30 +150,30 @@ func (s *P2PSync) syncWithPeer(ctx context.Context, pid peer.ID) {
 	}
 
 	if response == nil || response.Summary == nil {
-		s.store.recordSyncError(pid.String(), fmt.Errorf("peer did not return a causal summary"))
+		store.recordSyncError(pid.String(), fmt.Errorf("peer did not return a causal summary"))
 		return
 	}
 
-	latest, err := s.store.localLog.Snapshot()
+	latest, err := store.localLog.Snapshot()
 	if err != nil {
 		s.logger.Warn("kv p2p push: snapshot refresh failed", "peer", pid, "error", err)
 		return
 	}
 	delta := latest.DeltaSince(response.Summary.Vector)
 	if !delta.HasState() {
-		s.store.recordSyncSuccess(pid.String())
+		store.recordSyncSuccess(pid.String())
 		return
 	}
-	if err := s.sendSnapshotMessage(ctx, pid, "delta", delta); err != nil {
-		s.store.recordSyncError(pid.String(), err)
+	if err := s.sendSnapshotMessage(ctx, pid, store, "delta", delta); err != nil {
+		store.recordSyncError(pid.String(), err)
 		s.logger.Warn("kv p2p push: send delta failed", "peer", pid, "error", err)
 		return
 	}
-	s.store.recordSyncSuccess(pid.String())
+	store.recordSyncSuccess(pid.String())
 	s.logger.Info("kv p2p push: sent delta", "peer", pid, "keys", delta.Len(), "tombstones", len(delta.Tombstones()))
 }
 
-func (s *P2PSync) requestSummary(ctx context.Context, pid peer.ID, summary SnapshotSummary) (*p2pSyncMsg, error) {
+func (s *P2PSync) requestSummary(ctx context.Context, pid peer.ID, store *Store, summary SnapshotSummary) (*p2pSyncMsg, error) {
 	h := s.node.Host()
 	if h == nil {
 		return nil, fmt.Errorf("host not running")
@@ -167,7 +191,7 @@ func (s *P2PSync) requestSummary(ctx context.Context, pid peer.ID, summary Snaps
 
 	msg := p2pSyncMsg{
 		Type:    "summary",
-		NSID:    s.store.nsID,
+		NSID:    store.nsID,
 		Summary: &summary,
 	}
 	payload, err := json.Marshal(msg)
@@ -196,18 +220,18 @@ func (s *P2PSync) requestSummary(ctx context.Context, pid peer.ID, summary Snaps
 	return &response, nil
 }
 
-func (s *P2PSync) sendSnapshotMessage(ctx context.Context, pid peer.ID, kind string, snap *Snapshot) error {
+func (s *P2PSync) sendSnapshotMessage(ctx context.Context, pid peer.ID, store *Store, kind string, snap *Snapshot) error {
 	h := s.node.Host()
 	if h == nil {
 		return fmt.Errorf("host not running")
 	}
 
-	nsID := s.store.nsID
+	nsID := store.nsID
 	if nsID == "" {
 		return fmt.Errorf("namespace not resolved")
 	}
 
-	encJSON, err := s.encodeSnapshotData(snap)
+	encJSON, err := s.encodeSnapshotData(store, snap)
 	if err != nil {
 		return err
 	}
@@ -275,20 +299,27 @@ func (s *P2PSync) handleStream(stream network.Stream) {
 }
 
 func (s *P2PSync) handleSummary(stream network.Stream, msg p2pSyncMsg, from peer.ID) {
-	nsID := s.store.nsID
+	store, exact := s.storeForNSID(msg.NSID)
+	if store == nil {
+		s.writeErrorResponse(stream, "unknown namespace", "", msg.NSID)
+		s.logger.Warn("kv p2p: unknown namespace", "nsid", msg.NSID)
+		return
+	}
+
+	nsID := store.nsID
 	if nsID == "" {
 		s.writeErrorResponse(stream, "kv namespace not resolved", "", msg.NSID)
 		s.logger.Warn("kv p2p: namespace not resolved, ignoring summary")
 		return
 	}
-	if msg.NSID != nsID {
-		s.store.recordNamespaceMismatch(from.String(), msg.NSID, nsID)
+	if !exact || msg.NSID != nsID {
+		store.recordNamespaceMismatch(from.String(), msg.NSID, nsID)
 		s.writeErrorResponse(stream, fmt.Sprintf("namespace mismatch: got %s want %s", msg.NSID, nsID), nsID, msg.NSID)
 		s.logger.Warn("kv p2p: namespace mismatch", "got", msg.NSID, "want", nsID)
 		return
 	}
 
-	snap, err := s.store.localLog.Snapshot()
+	snap, err := store.localLog.Snapshot()
 	if err != nil {
 		s.writeErrorResponse(stream, "local snapshot failed", nsID, msg.NSID)
 		s.logger.Warn("kv p2p: local snapshot failed", "error", err)
@@ -303,7 +334,7 @@ func (s *P2PSync) handleSummary(stream network.Stream, msg p2pSyncMsg, from peer
 	if msg.Summary != nil {
 		delta := snap.DeltaSince(msg.Summary.Vector)
 		if delta.HasState() {
-			encJSON, err := s.encodeSnapshotData(delta)
+			encJSON, err := s.encodeSnapshotData(store, delta)
 			if err != nil {
 				s.logger.Warn("kv p2p: encode delta failed", "error", err)
 				return
@@ -319,28 +350,33 @@ func (s *P2PSync) handleSummary(stream network.Stream, msg p2pSyncMsg, from peer
 		return
 	}
 	if err := writeMsg(stream, payload); err != nil {
-		s.store.recordSyncError(from.String(), err)
+		store.recordSyncError(from.String(), err)
 		s.logger.Warn("kv p2p: write summary response failed", "error", err)
 		return
 	}
-	s.store.recordSyncSuccess(from.String())
+	store.recordSyncSuccess(from.String())
 }
 
 func (s *P2PSync) mergeSnapshotMessage(msg p2pSyncMsg, from peer.ID, useBaseline bool) (int, error) {
-	nsKey := s.store.nsKey
-	nsID := s.store.nsID
+	store, exact := s.storeForNSID(msg.NSID)
+	if store == nil {
+		return 0, fmt.Errorf("unknown namespace: %s", msg.NSID)
+	}
+
+	nsKey := store.nsKey
+	nsID := store.nsID
 	if nsKey == nil || nsID == "" {
 		return 0, fmt.Errorf("namespace not resolved")
 	}
-	if msg.NSID != nsID {
-		s.store.recordNamespaceMismatch(from.String(), msg.NSID, nsID)
+	if !exact || msg.NSID != nsID {
+		store.recordNamespaceMismatch(from.String(), msg.NSID, nsID)
 		return 0, fmt.Errorf("namespace mismatch: got %s want %s", msg.NSID, nsID)
 	}
 	if len(msg.Data) == 0 {
 		return 0, nil
 	}
 
-	remote, err := s.decodeSnapshotData(msg.Data)
+	remote, err := s.decodeSnapshotData(store, msg.Data)
 	if err != nil {
 		return 0, err
 	}
@@ -352,27 +388,27 @@ func (s *P2PSync) mergeSnapshotMessage(msg p2pSyncMsg, from peer.ID, useBaseline
 
 	var baseline *Snapshot
 	if useBaseline {
-		baseline, _ = s.store.baselines.Load(peerID)
+		baseline, _ = store.baselines.Load(peerID)
 	}
-	merged := diffAndMerge(s.store.localLog, remote, baseline, s.logger)
+	merged := diffAndMerge(store.localLog, remote, baseline, s.logger)
 
 	if useBaseline {
-		if err := s.store.baselines.Save(peerID, remote); err != nil {
+		if err := store.baselines.Save(peerID, remote); err != nil {
 			s.logger.Warn("kv p2p: save baseline failed", "error", err)
 		}
 	}
 
 	if merged > 0 {
-		if s.store.uploader != nil {
-			s.store.uploader.Poke()
+		if store.uploader != nil {
+			store.uploader.Poke()
 		}
 	}
-	s.store.recordSyncSuccess(from.String())
+	store.recordSyncSuccess(from.String())
 	return merged, nil
 }
 
-func (s *P2PSync) encodeSnapshotData(snap *Snapshot) (json.RawMessage, error) {
-	nsKey := s.store.nsKey
+func (s *P2PSync) encodeSnapshotData(store *Store, snap *Snapshot) (json.RawMessage, error) {
+	nsKey := store.nsKey
 	if nsKey == nil {
 		return nil, fmt.Errorf("namespace key not resolved")
 	}
@@ -391,8 +427,8 @@ func (s *P2PSync) encodeSnapshotData(snap *Snapshot) (json.RawMessage, error) {
 	return encJSON, nil
 }
 
-func (s *P2PSync) decodeSnapshotData(data json.RawMessage) (*Snapshot, error) {
-	nsKey := s.store.nsKey
+func (s *P2PSync) decodeSnapshotData(store *Store, data json.RawMessage) (*Snapshot, error) {
+	nsKey := store.nsKey
 	if nsKey == nil {
 		return nil, fmt.Errorf("namespace key not resolved")
 	}
@@ -443,6 +479,32 @@ func boundedSyncContext(parent context.Context) (context.Context, context.Cancel
 	return context.WithTimeout(parent, syncExchangeTimeout)
 }
 
+func (s *P2PSync) registeredStores() []*Store {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]*Store, 0, len(s.stores))
+	for _, store := range s.stores {
+		if store != nil {
+			out = append(out, store)
+		}
+	}
+	return out
+}
+
+func (s *P2PSync) storeForNSID(nsid string) (*Store, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, store := range s.stores {
+		if store != nil && store.nsID == nsid {
+			return store, true
+		}
+	}
+	if len(s.stores) == 1 && s.stores[0] != nil {
+		return s.stores[0], false
+	}
+	return nil, false
+}
+
 // writeMsg writes a length-prefixed message to a stream.
 func writeMsg(w io.Writer, data []byte) error {
 	// Simple length prefix: 4 bytes big-endian.
@@ -462,7 +524,7 @@ func readMsg(r io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	length := uint32(header[0])<<24 | uint32(header[1])<<16 | uint32(header[2])<<8 | uint32(header[3])
-	if length > 4*1024*1024 { // 4MB max
+	if length > 4*1024*1024 {
 		return nil, fmt.Errorf("message too large: %d bytes", length)
 	}
 	data := make([]byte, length)

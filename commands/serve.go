@@ -26,6 +26,7 @@ import (
 	"github.com/sky10/sky10/pkg/logging"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
 	skysandbox "github.com/sky10/sky10/pkg/sandbox"
+	"github.com/sky10/sky10/pkg/secrets"
 	skyupdate "github.com/sky10/sky10/pkg/update"
 	skywallet "github.com/sky10/sky10/pkg/wallet"
 	"github.com/spf13/cobra"
@@ -178,6 +179,13 @@ func ServeCmd() *cobra.Command {
 				if err := mailboxStore.RunLifecycle(ctx, agentmailbox.DefaultLifecycleSweepInterval()); err != nil && ctx.Err() == nil {
 					logger.Warn("mailbox lifecycle failed", "error", err)
 				}
+			}()
+
+			secretsStore := secrets.New(backend, bundle, secrets.Config{}, nil)
+			server.RegisterHandler(secrets.NewRPCHandler(secretsStore))
+			secretsRunErr := make(chan error, 1)
+			go func() {
+				secretsRunErr <- secretsStore.Run(ctx)
 			}()
 
 			// Skylink P2P node — network mode enables DHT, relay, and external peers.
@@ -465,10 +473,15 @@ func ServeCmd() *cobra.Command {
 			kvStore.SetNotifier(func(ns string) {
 				linkNode.NotifyOwn(ctx, "kv:"+ns)
 			})
+			secretsStore.SetNotifier(func(ns string) {
+				linkNode.NotifyOwn(ctx, "kv:"+ns)
+			})
 			linkNode.OnSyncNotify(func(from peer.ID, topic string) {
 				switch {
 				case topic == "kv:default":
 					kvStore.Poke()
+				case topic == "kv:secrets":
+					secretsStore.Poke()
 				case strings.HasPrefix(topic, "agent:connected:"):
 					deviceID := strings.TrimPrefix(topic, "agent:connected:")
 					server.Emit("agent:connected", map[string]string{"from": from.String(), "device_id": deviceID})
@@ -491,7 +504,9 @@ func ServeCmd() *cobra.Command {
 
 			// In P2P-only mode, wire direct KV snapshot sync over libp2p.
 			kvSync = kv.NewP2PSync(kvStore, linkNode, bundle.Identity, nil)
+			kvSync.AddStore(secretsStore.Transport())
 			kvStore.SetP2PSync(kvSync)
+			secretsStore.SetP2PSync(kvSync)
 
 			linkRunErr := make(chan error, 1)
 			go func() {
@@ -567,6 +582,11 @@ func ServeCmd() *cobra.Command {
 			go func() {
 				if err := <-kvRunErr; err != nil {
 					logger.Warn("kv store failed", "error", err)
+				}
+			}()
+			go func() {
+				if err := <-secretsRunErr; err != nil {
+					slog.Warn("secrets store failed", "error", err)
 				}
 			}()
 

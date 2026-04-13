@@ -43,6 +43,7 @@ func main() {
 	root.AddCommand(commands.KeyCmd())
 	root.AddCommand(commands.FsCmd())
 	root.AddCommand(commands.KvCmd())
+	root.AddCommand(commands.SecretsCmd())
 	root.AddCommand(commands.LinkCmd())
 	root.AddCommand(commands.SandboxCmd())
 	root.AddCommand(commands.IdCmd())

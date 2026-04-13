@@ -169,6 +169,10 @@ func getOrCreateNamespaceKey(
 	if err := backend.Put(ctx, devKeyPath, bytes.NewReader(wrapped), int64(len(wrapped))); err != nil {
 		return nil, err
 	}
+	sharedKeyPath = "keys/namespaces/" + keyName + ".ns.enc"
+	if err := backend.Put(ctx, sharedKeyPath, bytes.NewReader(wrapped), int64(len(wrapped))); err != nil {
+		return nil, err
+	}
 
 	wrapForAllDevices(ctx, backend, keyName, key, deviceID)
 	CacheKeyLocally(nsName, deviceID, key)

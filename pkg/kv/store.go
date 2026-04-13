@@ -108,6 +108,12 @@ func New(
 
 // Set stores a key-value pair. Appends to local log and triggers sync.
 func (s *Store) Set(ctx context.Context, key string, value []byte) error {
+	if s.nsKey == nil || s.nsID == "" {
+		if err := s.resolveKeys(ctx); err != nil {
+			s.markResolveError(err)
+			return err
+		}
+	}
 	if err := s.ensureReady(); err != nil {
 		return err
 	}
@@ -137,6 +143,12 @@ func (s *Store) Get(key string) ([]byte, bool) {
 
 // Delete removes a key. Appends delete to local log and triggers sync.
 func (s *Store) Delete(ctx context.Context, key string) error {
+	if s.nsKey == nil || s.nsID == "" {
+		if err := s.resolveKeys(ctx); err != nil {
+			s.markResolveError(err)
+			return err
+		}
+	}
 	if err := s.ensureReady(); err != nil {
 		return err
 	}
@@ -162,7 +174,7 @@ func (s *Store) pokeSync(ctx context.Context) {
 	if p2p != nil {
 		go p2p.PushToAll(context.Background())
 	} else {
-		s.logger.Info("kv pokeSync: p2pSync is nil")
+		s.logger.Debug("kv pokeSync: p2pSync is nil")
 	}
 }
 
@@ -250,14 +262,14 @@ func (s *Store) Run(ctx context.Context) error {
 
 // SyncOnce performs a single poll + upload cycle.
 func (s *Store) SyncOnce(ctx context.Context) error {
-	if err := s.ensureReady(); err != nil {
-		return err
-	}
 	if s.nsKey == nil {
 		if err := s.resolveKeys(ctx); err != nil {
 			s.markResolveError(err)
 			return err
 		}
+	}
+	if err := s.ensureReady(); err != nil {
+		return err
 	}
 
 	if s.poller == nil {
