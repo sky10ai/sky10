@@ -191,7 +191,9 @@ export function SandboxTerminal({ slug, enabled }: SandboxTerminalProps) {
           <div className="h-full w-full" ref={containerRef} />
         </div>
       </div>
-      <p className="text-sm text-secondary">{message}</p>
+      {state !== "connected" && (
+        <p className="text-sm text-secondary">{message}</p>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span className={`rounded-full px-3 py-1 text-xs font-semibold ${stateClasses(state)}`}>
           {stateLabel(state)}
