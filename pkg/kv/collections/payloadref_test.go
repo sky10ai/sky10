@@ -1,6 +1,10 @@
 package collections
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/sky10/sky10/pkg/kv"
+)
 
 func TestPayloadRefValidate(t *testing.T) {
 	t.Parallel()
@@ -28,10 +32,10 @@ func TestPayloadRefValidateRejectsMissingFields(t *testing.T) {
 func TestShouldInline(t *testing.T) {
 	t.Parallel()
 
-	if !ShouldInline(4096, 4096) {
+	if !ShouldInline(kv.MaxValueSize, kv.MaxValueSize) {
 		t.Fatal("size equal to max should stay inline")
 	}
-	if ShouldInline(4097, 4096) {
+	if ShouldInline(kv.MaxValueSize+1, kv.MaxValueSize) {
 		t.Fatal("size above max should not stay inline")
 	}
 }

@@ -30,6 +30,15 @@ and not agent-scoped access control.
 - Mailbox is not a blocker for V1 storage/sync. It is follow-on work for
   approvals and durable workflows.
 
+## V1 secret classes
+
+- API keys
+- Tokens
+- DSNs
+- Certs
+- Small files and binary blobs
+- OWS backups remain supported, but are not the default path
+
 ## Stash audit
 
 Current conclusion after reviewing `stash@{0}` and `stash@{1}`:
@@ -45,26 +54,26 @@ Current conclusion after reviewing `stash@{0}` and `stash@{1}`:
 
 ## Milestone 0: Checkpoint Current Base
 
-- [ ] Commit the current secrets worktree as the baseline.
-- [ ] Treat the current implementation as the source of truth, not either stash.
-- [ ] Drop `stash@{1}` after the baseline commit exists.
-- [ ] Drop `stash@{0}` after confirming the baseline commit contains the full
+- [x] Commit the current secrets worktree as the baseline.
+- [x] Treat the current implementation as the source of truth, not either stash.
+- [x] Drop `stash@{1}` after the baseline commit exists.
+- [x] Drop `stash@{0}` after confirming the baseline commit contains the full
       secrets implementation.
-- [ ] Preserve the current secrets package, CLI, tests, and KV transport
+- [x] Preserve the current secrets package, CLI, tests, and KV transport
       integration as the starting point.
-- [ ] Record explicitly that soft agent policy is present in code but not part
+- [x] Record explicitly that soft agent policy is present in code but not part
       of the V1 product boundary.
 
 ## Milestone 1: Clarify Product Surface
 
-- [ ] Reframe secrets as general-purpose private-network secret sync for API
+- [x] Reframe secrets as general-purpose private-network secret sync for API
       keys and similar small artifacts.
-- [ ] Remove wallet-specific assumptions from the CLI and docs.
-- [ ] Change the default secret kind away from `ows-backup`.
-- [ ] Keep support for binary payloads, but make string/value flows ergonomic.
-- [ ] Define the V1 supported secret classes:
+- [x] Remove wallet-specific assumptions from the CLI and docs.
+- [x] Change the default secret kind away from `ows-backup`.
+- [x] Keep support for binary payloads, but make string/value flows ergonomic.
+- [x] Define the V1 supported secret classes:
       API keys, tokens, DSNs, certs, small files.
-- [ ] Keep secret names and secret payloads out of raw KV keys and values.
+- [x] Keep secret names and secret payloads out of raw KV keys and values.
 
 ## Milestone 2: Introduce Device Trust Classes
 

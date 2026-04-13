@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	skysecrets "github.com/sky10/sky10/pkg/secrets"
 	"github.com/spf13/cobra"
 )
 
@@ -14,7 +15,7 @@ import (
 func SecretsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "secrets",
-		Short: "Encrypted secrets store for wrapped artifacts",
+		Short: "Encrypted secrets store for API keys, tokens, and files",
 	}
 
 	cmd.AddCommand(secretsPutCmd())
@@ -41,10 +42,17 @@ func secretsPutCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "put <name>",
-		Short: "Store a secret artifact",
-		Args:  cobra.ExactArgs(1),
+		Short: "Store a secret value or file",
+		Example: strings.TrimSpace(`
+sky10 secrets put openai --value "$OPENAI_API_KEY" --kind api-key
+sky10 secrets put service-cert --file cert.pem --kind cert
+`),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var payload []byte
+			if filePath != "" && value != "" {
+				return fmt.Errorf("use either --file or --value, not both")
+			}
 			switch {
 			case filePath != "":
 				data, err := os.ReadFile(filePath)
@@ -56,6 +64,13 @@ func secretsPutCmd() *cobra.Command {
 				payload = []byte(value)
 			default:
 				return fmt.Errorf("either --file or --value is required")
+			}
+			if contentType == "" {
+				if value != "" {
+					contentType = "text/plain; charset=utf-8"
+				} else {
+					contentType = "application/octet-stream"
+				}
 			}
 
 			raw, err := rpcCall("secrets.put", map[string]interface{}{
@@ -88,8 +103,8 @@ func secretsPutCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&filePath, "file", "", "read secret bytes from file")
 	cmd.Flags().StringVar(&value, "value", "", "store literal string value")
-	cmd.Flags().StringVar(&kind, "kind", "ows-backup", "artifact kind")
-	cmd.Flags().StringVar(&contentType, "content-type", "application/octet-stream", "content type")
+	cmd.Flags().StringVar(&kind, "kind", skysecrets.KindBlob, "secret kind (for example: api-key, token, cert, blob)")
+	cmd.Flags().StringVar(&contentType, "content-type", "", "content type override (defaults to text/plain for --value, application/octet-stream for --file)")
 	cmd.Flags().StringArrayVar(&recipientDevice, "device", nil, "recipient device ID (repeatable, default current device)")
 	cmd.Flags().StringArrayVar(&allowedAgents, "agent", nil, "allowed agent ID (soft policy, repeatable)")
 	cmd.Flags().BoolVar(&requireApproval, "require-approval", false, "require human approval for agent-mode access")
@@ -100,7 +115,7 @@ func secretsGetCmd() *cobra.Command {
 	var outPath string
 	cmd := &cobra.Command{
 		Use:   "get <id-or-name>",
-		Short: "Fetch and decrypt a secret artifact",
+		Short: "Fetch and decrypt a secret",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			raw, err := rpcCall("secrets.get", map[string]string{"id_or_name": args[0]})
@@ -181,7 +196,7 @@ func secretsListCmd() *cobra.Command {
 func secretsDevicesCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "devices",
-		Short: "List devices that can be chosen as secret recipients",
+		Short: "List devices that can receive secrets",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			raw, err := rpcCall("secrets.devices", nil)
 			if err != nil {

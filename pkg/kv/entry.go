@@ -17,7 +17,7 @@ const (
 type Entry struct {
 	Type      EntryType     `json:"op"`
 	Key       string        `json:"key"`
-	Value     []byte        `json:"value,omitempty"` // inline, max 4KB for v1
+	Value     []byte        `json:"value,omitempty"` // inline, max 8KB for v1
 	Namespace string        `json:"namespace,omitempty"`
 	Device    string        `json:"device"`
 	Timestamp int64         `json:"timestamp"`

@@ -61,6 +61,12 @@ type rpcLinkStatusResult struct {
 	} `json:"health"`
 }
 
+type rpcKVGetResult struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+	Found bool   `json:"found"`
+}
+
 func rpcCall[T any](t *testing.T, home, method string, params any) T {
 	t.Helper()
 
@@ -188,6 +194,24 @@ func waitForMailboxList(t *testing.T, home, method string, params map[string]any
 	}
 	t.Fatalf("mailbox list %s on %s did not satisfy condition; params=%v last=%+v", method, home, params, last)
 	return rpcMailboxListResult{}
+}
+
+func waitForKVValueRPC(t *testing.T, home, key, want string) rpcKVGetResult {
+	t.Helper()
+
+	deadline := time.Now().Add(20 * time.Second)
+	var last rpcKVGetResult
+	for time.Now().Before(deadline) {
+		last = rpcCall[rpcKVGetResult](t, home, "skykv.get", map[string]any{
+			"key": key,
+		})
+		if last.Found && last.Value == want {
+			return last
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("kv %s on %s = found=%v len=%d, want len=%d", key, home, last.Found, len(last.Value), len(want))
+	return rpcKVGetResult{}
 }
 
 func waitForQueueOffers(t *testing.T, home, skill, queue string, cond func(rpcQueueDiscoverResult) bool) rpcQueueDiscoverResult {

@@ -16,14 +16,14 @@ import (
 )
 
 // MaxValueSize is the maximum inline value size for v1.
-const MaxValueSize = 4096
+const MaxValueSize = 8192
 
 // defaultAntiEntropyInterval is the background P2P sync cadence when no
 // writes or reconnect events occur.
 const defaultAntiEntropyInterval = 30 * time.Second
 
 // ErrValueTooLarge is returned when a value exceeds MaxValueSize.
-var ErrValueTooLarge = errors.New("value exceeds 4KB limit")
+var ErrValueTooLarge = errors.New("value exceeds 8KB limit")
 
 // Config holds KV store configuration.
 type Config struct {
