@@ -24,6 +24,7 @@ export default function SandboxDetail() {
   const slug = decodeURIComponent(params.slug ?? params.name ?? "");
   const [logs, setLogs] = useState<SandboxLogEntry[]>([]);
   const [activePanel, setActivePanel] = useState<"logs" | "terminal">("logs");
+  const [hasOpenedTerminal, setHasOpenedTerminal] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
@@ -290,7 +291,7 @@ export default function SandboxDetail() {
             <p className="text-sm text-secondary">
               {activePanel === "logs"
                 ? "Watch provisioning and runtime events as they stream in."
-                : "Open a shell inside the sandbox or copy the host command."}
+                : "Switch between live logs and the embedded shell without leaving this page."}
             </p>
           </div>
 
@@ -339,7 +340,10 @@ export default function SandboxDetail() {
                     : "text-secondary hover:text-on-surface"
                 }`}
                 id="sandbox-terminal-tab"
-                onClick={() => setActivePanel("terminal")}
+                onClick={() => {
+                  setHasOpenedTerminal(true);
+                  setActivePanel("terminal");
+                }}
                 role="tab"
                 type="button"
               >
@@ -349,61 +353,70 @@ export default function SandboxDetail() {
           </div>
         </div>
 
-        {activePanel === "logs" ? (
-          <div
-            aria-labelledby="sandbox-logs-tab"
-            id="sandbox-logs-panel"
-            role="tabpanel"
-          >
-            <div className="h-[560px] overflow-y-auto rounded-2xl bg-[#111315] p-4 font-mono text-xs text-[#d7dadc]">
-              {logs.length ? (
-                <div className="space-y-1">
-                  {logs.map((entry, index) => (
-                    <div key={sandboxLogKey(entry, index)} className="whitespace-pre-wrap break-words">
-                      <span className="text-[#7f8c98]">{entry.time}</span>
-                      {" "}
-                      <span className={entry.stream === "stderr" ? "text-[#ffbf69]" : "text-[#8bd3dd]"}>
-                        [{entry.stream}]
-                      </span>
-                      {" "}
-                      <span>{entry.line}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-[#7f8c98]">
-                  Waiting for sandbox log output...
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div
-            aria-labelledby="sandbox-terminal-tab"
-            className="space-y-5"
-            id="sandbox-terminal-panel"
-            role="tabpanel"
-          >
-            <div className="rounded-2xl bg-[#111315] p-4 font-mono text-xs text-[#d7dadc]">
-              {shellCommand}
-            </div>
-
-            {copyMessage && (
-              <p className="text-sm text-secondary">{copyMessage}</p>
+        <div
+          aria-labelledby="sandbox-logs-tab"
+          className={activePanel === "logs" ? "" : "hidden"}
+          id="sandbox-logs-panel"
+          role="tabpanel"
+        >
+          <div className="h-[560px] overflow-y-auto rounded-2xl bg-[#111315] p-4 font-mono text-xs text-[#d7dadc]">
+            {logs.length ? (
+              <div className="space-y-1">
+                {logs.map((entry, index) => (
+                  <div key={sandboxLogKey(entry, index)} className="whitespace-pre-wrap break-words">
+                    <span className="text-[#7f8c98]">{entry.time}</span>
+                    {" "}
+                    <span className={entry.stream === "stderr" ? "text-[#ffbf69]" : "text-[#8bd3dd]"}>
+                      [{entry.stream}]
+                    </span>
+                    {" "}
+                    <span>{entry.line}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-[#7f8c98]">
+                Waiting for sandbox log output...
+              </div>
             )}
+          </div>
+        </div>
 
-            {selected ? (
+        <div
+          aria-labelledby="sandbox-terminal-tab"
+          className={`space-y-5 ${activePanel === "terminal" ? "" : "hidden"}`}
+          id="sandbox-terminal-panel"
+          role="tabpanel"
+        >
+          <div className="rounded-2xl bg-[#111315] p-4 font-mono text-xs text-[#d7dadc]">
+            {shellCommand}
+          </div>
+
+          <p className="text-sm text-secondary">
+            Open a shell inside the sandbox or copy the host command.
+          </p>
+
+          {copyMessage && (
+            <p className="text-sm text-secondary">{copyMessage}</p>
+          )}
+
+          {selected ? (
+            hasOpenedTerminal ? (
               <SandboxTerminal
                 enabled={terminalEnabled}
                 slug={selected.slug}
               />
             ) : (
               <div className="rounded-2xl bg-surface-container p-4 text-sm text-secondary">
-                Terminal availability will appear once the sandbox record loads.
+                Open the terminal tab to connect to the sandbox shell.
               </div>
-            )}
-          </div>
-        )}
+            )
+          ) : (
+            <div className="rounded-2xl bg-surface-container p-4 text-sm text-secondary">
+              Terminal availability will appear once the sandbox record loads.
+            </div>
+          )}
+        </div>
       </section>
     </section>
   );
