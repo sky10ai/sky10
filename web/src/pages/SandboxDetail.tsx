@@ -388,18 +388,6 @@ export default function SandboxDetail() {
           id="sandbox-terminal-panel"
           role="tabpanel"
         >
-          <div className="rounded-2xl bg-[#111315] p-4 font-mono text-xs text-[#d7dadc]">
-            {shellCommand}
-          </div>
-
-          <p className="text-sm text-secondary">
-            Open a shell inside the sandbox or copy the host command.
-          </p>
-
-          {copyMessage && (
-            <p className="text-sm text-secondary">{copyMessage}</p>
-          )}
-
           {selected ? (
             hasOpenedTerminal ? (
               <SandboxTerminal
@@ -415,6 +403,18 @@ export default function SandboxDetail() {
             <div className="rounded-2xl bg-surface-container p-4 text-sm text-secondary">
               Terminal availability will appear once the sandbox record loads.
             </div>
+          )}
+
+          <div className="rounded-2xl bg-[#111315] p-4 font-mono text-xs text-[#d7dadc]">
+            {shellCommand}
+          </div>
+
+          <p className="text-sm text-secondary">
+            Open a shell inside the sandbox or copy the host command.
+          </p>
+
+          {copyMessage && (
+            <p className="text-sm text-secondary">{copyMessage}</p>
           )}
         </div>
       </section>
