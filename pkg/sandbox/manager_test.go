@@ -177,6 +177,88 @@ func TestLogsMissingSandboxReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestStopMissingInstanceMarksSandboxStopped(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["devbox"] = Record{
+		Name:      "devbox",
+		Slug:      "devbox",
+		Provider:  providerLima,
+		Template:  templateUbuntu,
+		Status:    "error",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	m.appStatus = func(id skyapps.ID) (*skyapps.Status, error) {
+		return &skyapps.Status{ActivePath: "/tmp/fake/" + string(id)}, nil
+	}
+	m.outputCmd = func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		return nil, nil
+	}
+	m.runCmd = func(ctx context.Context, bin string, args []string, onLine func(stream, line string)) error {
+		t.Fatalf("runCmd should not be called when the instance is missing")
+		return nil
+	}
+
+	rec, err := m.Stop(context.Background(), "devbox")
+	if err != nil {
+		t.Fatalf("Stop() error: %v", err)
+	}
+	if rec.Status != "stopped" {
+		t.Fatalf("Stop() status = %q, want stopped", rec.Status)
+	}
+	if rec.VMStatus != "Stopped" {
+		t.Fatalf("Stop() vm status = %q, want Stopped", rec.VMStatus)
+	}
+}
+
+func TestDeleteMissingInstanceRemovesRecord(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["devbox"] = Record{
+		Name:      "devbox",
+		Slug:      "devbox",
+		Provider:  providerLima,
+		Template:  templateUbuntu,
+		Status:    "error",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	m.appStatus = func(id skyapps.ID) (*skyapps.Status, error) {
+		return &skyapps.Status{ActivePath: "/tmp/fake/" + string(id)}, nil
+	}
+	m.outputCmd = func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		return nil, nil
+	}
+	m.runCmd = func(ctx context.Context, bin string, args []string, onLine func(stream, line string)) error {
+		t.Fatalf("runCmd should not be called when the instance is missing")
+		return nil
+	}
+
+	rec, err := m.Delete(context.Background(), "devbox")
+	if err != nil {
+		t.Fatalf("Delete() error: %v", err)
+	}
+	if rec.Slug != "devbox" {
+		t.Fatalf("Delete() slug = %q, want devbox", rec.Slug)
+	}
+	if _, err := m.Get(context.Background(), "devbox"); err == nil {
+		t.Fatalf("sandbox record still present after Delete()")
+	}
+}
+
 func TestLogsMissingFileReturnsEmptyEntries(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
 

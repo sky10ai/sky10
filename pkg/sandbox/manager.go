@@ -297,6 +297,19 @@ func (m *Manager) Stop(ctx context.Context, name string) (*Record, error) {
 	if err != nil {
 		return nil, err
 	}
+	exists, err := m.limaInstanceExists(ctx, limactl, rec.Slug)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		if err := m.updateVMStatus(rec.Slug, "Stopped"); err != nil {
+			return nil, err
+		}
+		if err := m.updateStatus(rec.Slug, "stopped", ""); err != nil {
+			return nil, err
+		}
+		return m.Get(ctx, rec.Slug)
+	}
 	if err := m.runCmd(ctx, limactl, []string{"stop", rec.Slug}, func(stream, line string) {
 		m.appendLog(rec.Slug, stream, line)
 	}); err != nil {
@@ -320,13 +333,25 @@ func (m *Manager) Delete(ctx context.Context, name string) (*Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	_ = m.runCmd(ctx, limactl, []string{"stop", rec.Slug}, func(stream, line string) {
-		m.appendLog(rec.Slug, stream, line)
-	})
-	if err := m.runCmd(ctx, limactl, []string{"delete", "--force", rec.Slug}, func(stream, line string) {
-		m.appendLog(rec.Slug, stream, line)
-	}); err != nil {
-		return nil, fmt.Errorf("deleting sandbox %q: %w", rec.Name, err)
+	exists, err := m.limaInstanceExists(ctx, limactl, rec.Slug)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		_ = m.runCmd(ctx, limactl, []string{"stop", rec.Slug}, func(stream, line string) {
+			m.appendLog(rec.Slug, stream, line)
+		})
+		if err := m.runCmd(ctx, limactl, []string{"delete", "--force", rec.Slug}, func(stream, line string) {
+			m.appendLog(rec.Slug, stream, line)
+		}); err != nil {
+			exists, checkErr := m.limaInstanceExists(ctx, limactl, rec.Slug)
+			if checkErr != nil {
+				return nil, checkErr
+			}
+			if exists {
+				return nil, fmt.Errorf("deleting sandbox %q: %w", rec.Name, err)
+			}
+		}
 	}
 
 	m.mu.Lock()
@@ -464,6 +489,32 @@ func (m *Manager) materializeTemplate(ctx context.Context, rec Record) (string, 
 		return "", fmt.Errorf("writing sandbox template cache: %w", err)
 	}
 	return dest, nil
+}
+
+func (m *Manager) limaInstanceExists(_ context.Context, _ string, name string) (bool, error) {
+	path, err := limaInstanceConfigPath(name)
+	if err != nil {
+		return false, err
+	}
+	if _, err := os.Stat(path); err == nil {
+		return true, nil
+	} else if os.IsNotExist(err) {
+		return false, nil
+	} else {
+		return false, fmt.Errorf("stat Lima instance config %q: %w", path, err)
+	}
+}
+
+func limaInstanceConfigPath(name string) (string, error) {
+	root := strings.TrimSpace(os.Getenv("LIMA_HOME"))
+	if root == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("finding home directory: %w", err)
+		}
+		root = filepath.Join(home, ".lima")
+	}
+	return filepath.Join(root, name, "lima.yaml"), nil
 }
 
 func renderSandboxTemplate(body []byte, name, sharedDir string) []byte {
