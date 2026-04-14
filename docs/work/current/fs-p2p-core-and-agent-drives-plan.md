@@ -108,29 +108,33 @@ handoff folders, and collaboration outside the private network.
 
 Goal: lock down one FS model before implementation branches.
 
+Reference draft:
+
+- [`fs-sync-model-and-invariants.md`](./fs-sync-model-and-invariants.md)
+
 Checklist:
 
-- [ ] Write the end-state sync model for `p2p-only` and `p2p+s3`.
-- [ ] Explicitly define which KV-hardening lessons carry over unchanged into
+- [x] Write the end-state sync model for `p2p-only` and `p2p+s3`.
+- [x] Explicitly define which KV-hardening lessons carry over unchanged into
       FS and which need FS-specific adaptation.
-- [ ] Explicitly define which mailbox layering lessons apply to FS and where
+- [x] Explicitly define which mailbox layering lessons apply to FS and where
       mailbox semantics should stop.
-- [ ] Define which local data is durable truth vs derived cache.
-- [ ] Define publish rules: when a local or remote file becomes visible in the
+- [x] Define which local data is durable truth vs derived cache.
+- [x] Define publish rules: when a local or remote file becomes visible in the
       working tree.
-- [ ] Define delete semantics for long-offline peers.
-- [ ] Define conflict semantics for modify/modify and modify/delete.
-- [ ] Define how peer state, local state, and optional S3 state relate.
-- [ ] Define the `Agents` drive as a first-class consumer of the FS engine.
-- [ ] Define the initial file contract for `soul.md`, `memory.md`, and
+- [x] Define delete semantics for long-offline peers.
+- [x] Define conflict semantics for modify/modify and modify/delete.
+- [x] Define how peer state, local state, and optional S3 state relate.
+- [x] Define the `Agents` drive as a first-class consumer of the FS engine.
+- [x] Define the initial file contract for `soul.md`, `memory.md`, and
       `sky10.md`.
 
 Done when:
 
-- [ ] We can explain the same sync outcome with S3 disabled or enabled.
-- [ ] We can explain why the FS design does not regress back to baseline-only
+- [x] We can explain the same sync outcome with S3 disabled or enabled.
+- [x] We can explain why the FS design does not regress back to baseline-only
       delete detection or clock-first merge authority.
-- [ ] We can explain what data is needed to reconstruct an agent folder on a
+- [x] We can explain what data is needed to reconstruct an agent folder on a
       new machine.
 
 ## Milestone 1: Hidden Transfer Workspace

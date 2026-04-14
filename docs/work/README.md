@@ -4,6 +4,7 @@
 
 - See [`current/`](current/) for active work-in-progress plans.
 - Active FS plan: [`current/fs-p2p-core-and-agent-drives-plan.md`](current/fs-p2p-core-and-agent-drives-plan.md)
+- Active FS model: [`current/fs-sync-model-and-invariants.md`](current/fs-sync-model-and-invariants.md)
 
 ## Past
 
