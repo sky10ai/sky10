@@ -160,6 +160,14 @@ Done when:
       normal sync behavior.
 - [ ] Interrupted downloads leave recoverable state instead of ambiguous files.
 
+Likely repo touchpoints:
+
+- `pkg/fs/reconciler.go` for staged download, verify, and publish flow
+- `pkg/fs/rpc_http.go` for browser uploads that currently write straight into
+  the watched tree
+- `pkg/fs/outbox_worker.go` for publish ordering and blob readiness
+- `pkg/fs/daemon_v2_5.go` for per-drive startup and workspace wiring
+
 ## Milestone 2: Local Detection Hardening
 
 Goal: make local change detection reliable without trusting watcher events
@@ -181,6 +189,15 @@ Done when:
 - [ ] Missed watcher events no longer require restart to recover.
 - [ ] Local write churn does not produce unstable sync state.
 
+Likely repo touchpoints:
+
+- `pkg/fs/watcher_handler.go` for watcher ingestion
+- `pkg/fs/daemon_v2_5.go` for scheduled scan and reconcile cadence
+- `pkg/fs/snapshot_poller.go` for removing over-reliance on baseline-only
+  remote healing
+- `pkg/fs/rpc_handler.go` and `web/src/pages/Drives.tsx` for surfacing scan
+  and reconcile state
+
 ## Milestone 3: Agents Drive V1
 
 Goal: ship the first durable personality-sharing drive on the current engine
@@ -189,6 +206,8 @@ while deeper FS work continues.
 Checklist:
 
 - [ ] Define how an `Agents` drive is created and discovered.
+- [ ] Decide whether `Agents` is user-created, daemon-suggested, or
+      auto-provisioned on first agent setup.
 - [ ] Define the per-agent folder naming convention.
 - [ ] Define which files are seeded automatically for a new agent folder.
 - [ ] Create initial `sky10.md` template content and field ownership rules.
@@ -206,6 +225,28 @@ Done when:
       meant to recreate the agent elsewhere.
 - [ ] `sky10.md` is specific enough to be operationally useful, not just a
       prose note.
+
+Likely repo touchpoints:
+
+- `pkg/fs/drive.go` for drive creation/discovery rules
+- `pkg/fs/rpc_drives.go` for create/list/start semantics and drive metadata
+- `commands/fs.go` for CLI drive creation and management flows
+- `web/src/lib/rpc.ts` for drive RPC additions consumed by the UI
+- `web/src/pages/Drives.tsx` for first-class `Agents` drive presentation
+- `web/src/pages/FileBrowser.tsx` for navigating seeded agent folders
+- `web/src/pages/Agents.tsx` for linking runtime agents to folder-backed state
+- `pkg/agent/rpc.go` and `pkg/agent/router.go` for any future runtime/folder
+  correlation
+
+Initial `sky10.md` contract to define during this milestone:
+
+- stable agent ID, display name, and owning device ID
+- runtime family and runtime version
+- model, provider, and important inference settings
+- bootstrap instructions or prompt references needed to recreate behavior
+- expected working directories, repo assumptions, and tool requirements
+- which fields are human-authored, runtime-authored, or daemon-authored
+- last migration/export note that helps another machine recreate the agent
 
 ## Milestone 4: Peer Metadata Engine
 
@@ -236,6 +277,16 @@ Done when:
 - [ ] Fresh private-network join can start FS metadata sync without requiring a
       second reconnect or restart.
 
+Likely repo touchpoints:
+
+- `pkg/fs/opslog/opslog.go` for current file metadata and conflict behavior
+- `pkg/fs/snapshot_poller.go` for replacing baseline-diff assumptions
+- `pkg/fs/daemon_v2_5.go` for peer sync loop startup and anti-entropy cadence
+- `pkg/kv/p2p.go` as the model for summary-first anti-entropy and startup
+  ordering
+- `pkg/fs/rpc_drives.go` and `pkg/fs/rpc_handler.go` for drive sync/debug
+  surfaces
+
 ## Milestone 5: Unified Pull Planner
 
 Goal: fetch data from the best available source instead of hardwiring one
@@ -260,6 +311,14 @@ Done when:
       when peers are absent, with no semantic change.
 - [ ] Existing local content reuse reduces unnecessary downloads.
 
+Likely repo touchpoints:
+
+- `pkg/fs/reconciler.go` for download planning and publish
+- `pkg/fs/chunk.go` for reuse of current chunking behavior
+- `pkg/fs/rpc_files.go` for future non-S3 download semantics
+- `pkg/fs/rpc_http.go` for UI/browser-driven uploads and downloads
+- `web/src/pages/FileBrowser.tsx` for transfer progress and source visibility
+
 ## Milestone 6: S3 As Optional Durability Layer
 
 Goal: preserve and harden the recent S3 durability work without making it the
@@ -282,6 +341,14 @@ Done when:
 - [ ] Enabling S3 improves durability and availability but does not alter
       merge semantics.
 - [ ] Disabling S3 does not downgrade the engine into a second-class mode.
+
+Likely repo touchpoints:
+
+- `pkg/fs/outbox_worker.go` for upload-then-record guarantees
+- `pkg/fs/rpc_handler.go` for RPC gating that currently assumes storage-backed
+  operations
+- `pkg/fs/rpc_files.go` for S3-backed and non-S3-backed file flows
+- `pkg/fs/rpc_drives.go` and `pkg/fs/rpc_logs.go` for health/debug output
 
 ## Milestone 7: Observability, Conflicts, And Reliability Matrix
 
@@ -316,6 +383,16 @@ Done when:
 - [ ] Reliability claims are backed by repeatable tests instead of manual
       confidence.
 
+Likely repo touchpoints:
+
+- `pkg/fs/rpc_handler.go` for per-drive health/status responses
+- `pkg/fs/rpc_drives.go` for richer drive state inspection
+- `web/src/pages/Drives.tsx` and `web/src/pages/Activity.tsx` for user-visible
+  health and transfer phases
+- `pkg/fs/rpc_test.go` and `pkg/fs/integration_http_test.go` for RPC and HTTP
+  coverage
+- new end-to-end sync tests around peer-only and hybrid recovery paths
+
 ## Recommended Order
 
 1. Milestone 0
@@ -336,3 +413,17 @@ Done when:
 - Later shared drives for agent work output and cross-network collaboration
   should be planned separately once the core private-network FS model is
   stable.
+
+## Implementation Slices
+
+If we want this plan to land in reviewable checkpoints instead of one large FS
+rewrite, the first slices should be:
+
+1. Write the Milestone 0 model doc with explicit FS invariants, using the KV
+   and mailbox work as named inputs.
+2. Lock down the `Agents` drive contract and `sky10.md` field ownership before
+   wiring agent-folder creation into the product.
+3. Land the hidden transfer workspace before deeper peer-protocol changes so
+   watcher correctness improves immediately for both peer and S3 sources.
+4. Move peer metadata anti-entropy and the unified pull planner separately so
+   metadata correctness and transfer efficiency can be tested in isolation.
