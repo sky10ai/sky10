@@ -48,6 +48,13 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		}
 		result, err := h.manager.Create(ctx, p)
 		return result, err, true
+	case "sandbox.ensure":
+		var p CreateParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("parse sandbox.ensure params: %w", err), true
+		}
+		result, err := h.manager.Ensure(ctx, p)
+		return result, err, true
 	case "sandbox.start":
 		var p NamedParams
 		if err := json.Unmarshal(params, &p); err != nil {

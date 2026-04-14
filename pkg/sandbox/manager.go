@@ -61,6 +61,7 @@ type CreateParams struct {
 	Name     string `json:"name"`
 	Provider string `json:"provider"`
 	Template string `json:"template"`
+	Model    string `json:"model,omitempty"`
 }
 
 type NamedParams struct {
@@ -79,6 +80,7 @@ type Record struct {
 	Slug      string `json:"slug"`
 	Provider  string `json:"provider"`
 	Template  string `json:"template"`
+	Model     string `json:"model,omitempty"`
 	Status    string `json:"status"`
 	VMStatus  string `json:"vm_status,omitempty"`
 	SharedDir string `json:"shared_dir,omitempty"`
@@ -235,27 +237,7 @@ func (m *Manager) Logs(name string, limit int) (*LogsResult, error) {
 }
 
 func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, error) {
-	displayName := normalizeDisplayName(params.Name)
-	provider := strings.ToLower(strings.TrimSpace(params.Provider))
-	template := strings.ToLower(strings.TrimSpace(params.Template))
-	if displayName == "" {
-		return nil, fmt.Errorf("sandbox name is required")
-	}
-	slug := slugifySandboxName(displayName)
-	if slug == "" {
-		return nil, fmt.Errorf("sandbox name must include letters or numbers")
-	}
-	if provider != providerLima {
-		return nil, fmt.Errorf("unsupported sandbox provider %q (supported: %s)", provider, providerLima)
-	}
-	if _, err := sandboxTemplateDefinition(template); err != nil {
-		return nil, err
-	}
-	if template == templateOpenClaw && runtime.GOOS != "darwin" {
-		return nil, fmt.Errorf("sandbox template %q is macOS-only for now (the current Lima template uses vz)", templateOpenClaw)
-	}
-
-	sharedDir, err := defaultSharedDir(slug)
+	displayName, slug, provider, template, model, sharedDir, err := normalizeCreateParams(params)
 	if err != nil {
 		return nil, err
 	}
@@ -266,6 +248,7 @@ func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, err
 		Slug:      slug,
 		Provider:  provider,
 		Template:  template,
+		Model:     model,
 		Status:    "creating",
 		SharedDir: sharedDir,
 		Shell:     fmt.Sprintf("limactl shell %s", slug),
@@ -296,6 +279,98 @@ func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, err
 	go m.runCreate(context.Background(), rec)
 
 	return &rec, nil
+}
+
+func (m *Manager) Ensure(ctx context.Context, params CreateParams) (*Record, error) {
+	displayName, slug, provider, template, model, sharedDir, err := normalizeCreateParams(params)
+	if err != nil {
+		return nil, err
+	}
+
+	limactl, err := m.ensureManagedApp(ctx, skyapps.AppLima, true)
+	if err != nil {
+		return nil, err
+	}
+
+	m.mu.Lock()
+	rec, recordExists := m.records[slug]
+	running := m.running[slug]
+	m.mu.Unlock()
+
+	if recordExists {
+		if running || rec.Status == "creating" || rec.Status == "starting" {
+			copy := rec
+			return &copy, nil
+		}
+
+		vmStatus, exists, err := m.lookupLimaInstanceStatus(ctx, limactl, slug)
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			if vmStatus == "Running" {
+				if err := m.updateVMStatus(slug, vmStatus); err != nil {
+					return nil, err
+				}
+				if err := m.updateStatus(slug, "ready", ""); err != nil {
+					return nil, err
+				}
+				if ipAddr, err := lookupLimaInstanceIPv4(ctx, m.outputCmd, limactl, slug); err == nil && ipAddr != "" {
+					if err := m.updateIPAddress(slug, ipAddr); err != nil {
+						return nil, err
+					}
+				}
+				return m.Get(ctx, slug)
+			}
+			return m.Start(ctx, slug)
+		}
+
+		if _, err := m.Delete(ctx, slug); err != nil {
+			return nil, err
+		}
+	}
+
+	vmStatus, exists, err := m.lookupLimaInstanceStatus(ctx, limactl, slug)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		now := time.Now().UTC().Format(time.RFC3339)
+		rec = Record{
+			Name:      displayName,
+			Slug:      slug,
+			Provider:  provider,
+			Template:  template,
+			Model:     model,
+			Status:    sandboxStatusFromVMStatus(vmStatus),
+			VMStatus:  vmStatus,
+			SharedDir: sharedDir,
+			Shell:     fmt.Sprintf("limactl shell %s", slug),
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		if vmStatus == "Running" {
+			if ipAddr, err := lookupLimaInstanceIPv4(ctx, m.outputCmd, limactl, slug); err == nil && ipAddr != "" {
+				rec.IPAddress = ipAddr
+			}
+		}
+
+		m.mu.Lock()
+		m.records[slug] = rec
+		err = m.saveLocked()
+		m.mu.Unlock()
+		if err != nil {
+			return nil, err
+		}
+		m.emitState(rec)
+
+		if vmStatus == "Running" {
+			return m.Get(ctx, slug)
+		}
+		return m.Start(ctx, slug)
+	}
+
+	return m.Create(ctx, params)
 }
 
 func (m *Manager) Start(ctx context.Context, name string) (*Record, error) {
@@ -457,6 +532,9 @@ func (m *Manager) buildStartArgs(_ context.Context, rec Record, templatePath str
 		"--progress",
 		"--name", rec.Slug,
 	}
+	if rec.Template == templateOpenClaw && strings.TrimSpace(rec.Model) != "" {
+		args = append(args, "--set", fmt.Sprintf(".param.model = %q", strings.TrimSpace(rec.Model)))
+	}
 	args = append(args, templatePath)
 	return args, nil
 }
@@ -615,6 +693,72 @@ func (m *Manager) limaInstanceExists(_ context.Context, _ string, name string) (
 	} else {
 		return false, fmt.Errorf("stat Lima instance config %q: %w", path, err)
 	}
+}
+
+func (m *Manager) lookupLimaInstanceStatus(ctx context.Context, limactl, name string) (string, bool, error) {
+	out, err := m.outputCmd(ctx, limactl, []string{"list", "--json"})
+	if err != nil {
+		return "", false, err
+	}
+	type vm struct {
+		Name   string `json:"name"`
+		Status string `json:"status"`
+	}
+	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var v vm
+		if err := json.Unmarshal([]byte(line), &v); err != nil {
+			continue
+		}
+		if v.Name == name {
+			return v.Status, true, nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", false, err
+	}
+	return "", false, nil
+}
+
+func normalizeCreateParams(params CreateParams) (displayName, slug, provider, template, model, sharedDir string, err error) {
+	displayName = normalizeDisplayName(params.Name)
+	provider = strings.ToLower(strings.TrimSpace(params.Provider))
+	template = strings.ToLower(strings.TrimSpace(params.Template))
+	model = strings.TrimSpace(params.Model)
+	if displayName == "" {
+		err = fmt.Errorf("sandbox name is required")
+		return
+	}
+	slug = slugifySandboxName(displayName)
+	if slug == "" {
+		err = fmt.Errorf("sandbox name must include letters or numbers")
+		return
+	}
+	if provider != providerLima {
+		err = fmt.Errorf("unsupported sandbox provider %q (supported: %s)", provider, providerLima)
+		return
+	}
+	if _, checkErr := sandboxTemplateDefinition(template); checkErr != nil {
+		err = checkErr
+		return
+	}
+	if template == templateOpenClaw && runtime.GOOS != "darwin" {
+		err = fmt.Errorf("sandbox template %q is macOS-only for now (the current Lima template uses vz)", templateOpenClaw)
+		return
+	}
+	sharedDir, err = defaultSharedDir(slug)
+	return
+}
+
+func sandboxStatusFromVMStatus(vmStatus string) string {
+	if strings.EqualFold(strings.TrimSpace(vmStatus), "running") {
+		return "ready"
+	}
+	return "stopped"
 }
 
 func limaInstanceConfigPath(name string) (string, error) {

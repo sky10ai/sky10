@@ -96,6 +96,26 @@ func sandboxCreateCmd() *cobra.Command {
 					sandboxProviderLima, sandboxTemplateOpenClaw)
 			}
 
+			params := skysandbox.CreateParams{
+				Name:     displayName,
+				Provider: provider,
+				Template: template,
+				Model:    strings.TrimSpace(model),
+			}
+			if rec, ok, err := ensureSandboxViaDaemon(cmd.Context(), params); err != nil {
+				return err
+			} else if ok {
+				if waitTimeout > 0 {
+					rec, err = waitForSandboxReadyViaDaemon(cmd.Context(), rec.Slug, waitTimeout)
+					if err != nil {
+						return err
+					}
+				}
+				printSandboxSummary(cmd, *rec)
+				maybeOpenSandboxUI(cmd, *rec, openUI)
+				return nil
+			}
+
 			sharedDir, err := defaultLimaSharedDir(slug)
 			if err != nil {
 				return err
@@ -146,43 +166,23 @@ func sandboxCreateCmd() *cobra.Command {
 				}
 			}
 
-			ipAddr, ipErr := lookupLimaInstanceIPv4(cmd.Context(), limactl, slug)
-			openClawURL := ""
-			sky10URL := ""
-			if ipErr == nil && ipAddr != "" {
-				sky10URL = fmt.Sprintf("http://%s:9101", ipAddr)
-				openClawURL = fmt.Sprintf("http://%s:18790/chat?session=main", ipAddr)
-			}
-
+			ipAddr, _ := lookupLimaInstanceIPv4(cmd.Context(), limactl, slug)
 			fmt.Fprintf(cmd.OutOrStdout(), "\nSandbox ready.\n")
-			fmt.Fprintf(cmd.OutOrStdout(), "Name:       %s\n", displayName)
-			fmt.Fprintf(cmd.OutOrStdout(), "Runtime ID: %s\n", slug)
-			fmt.Fprintf(cmd.OutOrStdout(), "Provider:   %s\n", provider)
-			fmt.Fprintf(cmd.OutOrStdout(), "Template:   %s\n", template)
-			fmt.Fprintf(cmd.OutOrStdout(), "Shared dir: %s\n", sharedDir)
-			fmt.Fprintf(cmd.OutOrStdout(), "Guest sky10: installed inside the guest and serving on http://127.0.0.1:9101\n")
-			fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:    installed inside the guest with Chromium, Xvfb, a local gateway on http://127.0.0.1:18789, and a bundled sky10 channel plugin\n")
-
-			if sky10URL != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "sky10 UI:   %s\n", sky10URL)
-			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "sky10 UI:   run 'limactl shell %s -- bash -lc \"ip -4 addr show dev lima0\"' to find the host-reachable guest IP\n", slug)
-			}
-			if openClawURL != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw UI:%s %s\n", strings.Repeat(" ", 2), openClawURL)
-			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw UI: run 'limactl shell %s -- bash -lc \"ip -4 addr show dev lima0\"' to find the host-reachable guest IP\n", slug)
-			}
-
-			if openUI {
-				if openClawURL != "" {
-					if err := openBrowser(openClawURL); err != nil {
-						fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not open browser: %v\n", err)
-					}
-				} else {
-					fmt.Fprintf(cmd.ErrOrStderr(), "warning: --open skipped because the guest IP could not be resolved automatically\n")
-				}
-			}
+			printSandboxSummary(cmd, skysandbox.Record{
+				Name:      displayName,
+				Slug:      slug,
+				Provider:  provider,
+				Template:  template,
+				Model:     strings.TrimSpace(model),
+				Status:    "ready",
+				SharedDir: sharedDir,
+				IPAddress: ipAddr,
+				Shell:     fmt.Sprintf("limactl shell %s", slug),
+			})
+			maybeOpenSandboxUI(cmd, skysandbox.Record{
+				Slug:      slug,
+				IPAddress: ipAddr,
+			}, openUI)
 
 			return nil
 		},
@@ -196,6 +196,115 @@ func sandboxCreateCmd() *cobra.Command {
 	_ = cmd.MarkFlagRequired("provider")
 	_ = cmd.MarkFlagRequired("template")
 	return cmd
+}
+
+func ensureSandboxViaDaemon(ctx context.Context, params skysandbox.CreateParams) (*skysandbox.Record, bool, error) {
+	raw, err := rpcCall("sandbox.ensure", params)
+	if err != nil {
+		if sandboxDaemonUnavailable(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	var rec skysandbox.Record
+	if err := json.Unmarshal(raw, &rec); err != nil {
+		return nil, false, fmt.Errorf("parsing sandbox.ensure response: %w", err)
+	}
+	return &rec, true, nil
+}
+
+func waitForSandboxReadyViaDaemon(ctx context.Context, slug string, timeout time.Duration) (*skysandbox.Record, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		rec, err := getSandboxViaDaemon(slug)
+		if err != nil {
+			return nil, err
+		}
+		switch rec.Status {
+		case "ready":
+			return rec, nil
+		case "error":
+			if strings.TrimSpace(rec.LastError) != "" {
+				return nil, fmt.Errorf("sandbox %q failed: %s", rec.Name, rec.LastError)
+			}
+			return nil, fmt.Errorf("sandbox %q failed", rec.Name)
+		}
+
+		select {
+		case <-waitCtx.Done():
+			return nil, fmt.Errorf("timed out waiting for sandbox %q to become ready", slug)
+		case <-ticker.C:
+		}
+	}
+}
+
+func getSandboxViaDaemon(slug string) (*skysandbox.Record, error) {
+	raw, err := rpcCall("sandbox.get", skysandbox.NamedParams{Slug: slug})
+	if err != nil {
+		return nil, err
+	}
+	var rec skysandbox.Record
+	if err := json.Unmarshal(raw, &rec); err != nil {
+		return nil, fmt.Errorf("parsing sandbox.get response: %w", err)
+	}
+	return &rec, nil
+}
+
+func sandboxDaemonUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "daemon not running")
+}
+
+func printSandboxSummary(cmd *cobra.Command, rec skysandbox.Record) {
+	sky10URL, openClawURL := sandboxURLs(rec)
+
+	fmt.Fprintf(cmd.OutOrStdout(), "\nSandbox ready.\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "Name:       %s\n", rec.Name)
+	fmt.Fprintf(cmd.OutOrStdout(), "Runtime ID: %s\n", rec.Slug)
+	fmt.Fprintf(cmd.OutOrStdout(), "Provider:   %s\n", rec.Provider)
+	fmt.Fprintf(cmd.OutOrStdout(), "Template:   %s\n", rec.Template)
+	fmt.Fprintf(cmd.OutOrStdout(), "Shared dir: %s\n", rec.SharedDir)
+	fmt.Fprintf(cmd.OutOrStdout(), "Guest sky10: installed inside the guest and serving on http://127.0.0.1:9101\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:    installed inside the guest with Chromium, Xvfb, a local gateway on http://127.0.0.1:18789, and a bundled sky10 channel plugin\n")
+
+	if sky10URL != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "sky10 UI:   %s\n", sky10URL)
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "sky10 UI:   run 'limactl shell %s -- bash -lc \"ip -4 addr show dev lima0\"' to find the host-reachable guest IP\n", rec.Slug)
+	}
+	if openClawURL != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw UI:%s %s\n", strings.Repeat(" ", 2), openClawURL)
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw UI: run 'limactl shell %s -- bash -lc \"ip -4 addr show dev lima0\"' to find the host-reachable guest IP\n", rec.Slug)
+	}
+}
+
+func maybeOpenSandboxUI(cmd *cobra.Command, rec skysandbox.Record, openUI bool) {
+	if !openUI {
+		return
+	}
+	_, openClawURL := sandboxURLs(rec)
+	if openClawURL == "" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: --open skipped because the guest IP could not be resolved automatically\n")
+		return
+	}
+	if err := openBrowser(openClawURL); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not open browser: %v\n", err)
+	}
+}
+
+func sandboxURLs(rec skysandbox.Record) (string, string) {
+	if strings.TrimSpace(rec.IPAddress) == "" {
+		return "", ""
+	}
+	return fmt.Sprintf("http://%s:9101", rec.IPAddress), fmt.Sprintf("http://%s:18790/chat?session=main", rec.IPAddress)
 }
 
 func validateSandboxCreate(provider, template string) error {

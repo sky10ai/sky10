@@ -556,6 +556,94 @@ func TestBuildStartArgsOpenClaw(t *testing.T) {
 	}
 }
 
+func TestBuildStartArgsOpenClawWithModel(t *testing.T) {
+	t.Parallel()
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+	args, err := m.buildStartArgs(context.Background(), Record{
+		Name:     "agent-123",
+		Slug:     "agent-123",
+		Provider: providerLima,
+		Template: templateOpenClaw,
+		Model:    "anthropic/claude-opus-4-6",
+	}, "/tmp/openclaw.yaml")
+	if err != nil {
+		t.Fatalf("buildStartArgs() error: %v", err)
+	}
+
+	wantArgs := []string{
+		"start",
+		"--tty=false",
+		"--progress",
+		"--name", "agent-123",
+		"--set", `.param.model = "anthropic/claude-opus-4-6"`,
+		"/tmp/openclaw.yaml",
+	}
+	if strings.Join(args, "\n") != strings.Join(wantArgs, "\n") {
+		t.Fatalf("buildStartArgs() = %v, want %v", args, wantArgs)
+	}
+}
+
+func TestManagerEnsureAdoptsRunningInstanceWithoutRecord(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	m.appStatus = func(id skyapps.ID) (*skyapps.Status, error) {
+		return &skyapps.Status{ActivePath: "/tmp/fake/" + string(id)}, nil
+	}
+	m.outputCmd = func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		switch {
+		case len(args) >= 2 && args[0] == "list" && args[1] == "--json":
+			return []byte(`{"name":"openclaw-m6","status":"Running"}` + "\n"), nil
+		case len(args) >= 2 && args[0] == "shell":
+			return []byte("192.168.64.14\n"), nil
+		default:
+			return nil, nil
+		}
+	}
+	m.runCmd = func(ctx context.Context, bin string, args []string, onLine func(stream, line string)) error {
+		t.Fatalf("runCmd should not be called when Ensure adopts an already-running instance")
+		return nil
+	}
+
+	rec, err := m.Ensure(context.Background(), CreateParams{
+		Name:     "openclaw-m6",
+		Provider: providerLima,
+		Template: templateOpenClaw,
+		Model:    "anthropic/claude-opus-4-6",
+	})
+	if err != nil {
+		t.Fatalf("Ensure() error: %v", err)
+	}
+	if rec.Status != "ready" {
+		t.Fatalf("Ensure() status = %q, want ready", rec.Status)
+	}
+	if rec.VMStatus != "Running" {
+		t.Fatalf("Ensure() vm status = %q, want Running", rec.VMStatus)
+	}
+	if rec.IPAddress != "192.168.64.14" {
+		t.Fatalf("Ensure() ip address = %q, want 192.168.64.14", rec.IPAddress)
+	}
+	if rec.Model != "anthropic/claude-opus-4-6" {
+		t.Fatalf("Ensure() model = %q, want anthropic/claude-opus-4-6", rec.Model)
+	}
+
+	got, err := m.Get(context.Background(), "openclaw-m6")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if got.Status != "ready" {
+		t.Fatalf("Get() status = %q, want ready", got.Status)
+	}
+}
+
 func TestWaitForOpenClawGateway(t *testing.T) {
 	t.Parallel()
 
