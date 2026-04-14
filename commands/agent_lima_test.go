@@ -116,3 +116,20 @@ func TestPrepareLimaSharedDir(t *testing.T) {
 		t.Fatalf("Stat(plugin manifest) error: %v", err)
 	}
 }
+
+func TestOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
+	t.Parallel()
+
+	dir, err := findLocalLimaTemplateDir()
+	if err != nil {
+		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(dir, agentLimaUserScript))
+	if err != nil {
+		t.Fatalf("ReadFile(user script) error: %v", err)
+	}
+	if !strings.Contains(string(body), "EnvironmentFile=-%h/.openclaw/.env") {
+		t.Fatalf("user script missing systemd env file import: %q", string(body))
+	}
+}

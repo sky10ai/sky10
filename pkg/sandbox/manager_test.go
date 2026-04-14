@@ -220,6 +220,18 @@ func TestRefreshRuntimeDoesNotPromoteCreatingSandbox(t *testing.T) {
 	}
 }
 
+func TestBundledOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
+	t.Parallel()
+
+	body, err := readBundledTemplateAsset(templateOpenClawUser)
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateOpenClawUser, err)
+	}
+	if !strings.Contains(string(body), "EnvironmentFile=-%h/.openclaw/.env") {
+		t.Fatalf("bundled user script missing systemd env file import: %q", string(body))
+	}
+}
+
 func TestStopMissingInstanceMarksSandboxStopped(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
 

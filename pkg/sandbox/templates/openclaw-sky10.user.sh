@@ -173,6 +173,7 @@ ExecStart=/usr/bin/env openclaw gateway run
 Restart=always
 RestartSec=5
 WorkingDirectory=${HOME}
+EnvironmentFile=-%h/.openclaw/.env
 Environment=HOME=${HOME}
 Environment=PATH=${HOME}/.bin:/usr/local/bin:/usr/bin:/bin
 Environment=DISPLAY=:99
