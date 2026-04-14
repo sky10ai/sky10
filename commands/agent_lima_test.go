@@ -136,3 +136,27 @@ func TestOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 		t.Fatalf("user script missing CLI pairing bootstrap: %q", string(body))
 	}
 }
+
+func TestOpenClawDependencyScriptPersistsRouteMetrics(t *testing.T) {
+	t.Parallel()
+
+	dir, err := findLocalLimaTemplateDir()
+	if err != nil {
+		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(dir, agentLimaDependencyScript))
+	if err != nil {
+		t.Fatalf("ReadFile(dependency script) error: %v", err)
+	}
+	script := string(body)
+	if !strings.Contains(script, "99-openclaw-route-metrics.yaml") {
+		t.Fatalf("dependency script missing netplan route override: %q", script)
+	}
+	if !strings.Contains(script, "route-metric: 100") || !strings.Contains(script, "route-metric: 200") {
+		t.Fatalf("dependency script missing persistent route metrics: %q", script)
+	}
+	if !strings.Contains(script, "netplan apply") {
+		t.Fatalf("dependency script missing netplan apply: %q", script)
+	}
+}

@@ -235,6 +235,25 @@ func TestBundledOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	}
 }
 
+func TestBundledOpenClawDependencyScriptPersistsRouteMetrics(t *testing.T) {
+	t.Parallel()
+
+	body, err := readBundledTemplateAsset(templateOpenClawDep)
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateOpenClawDep, err)
+	}
+	script := string(body)
+	if !strings.Contains(script, "99-openclaw-route-metrics.yaml") {
+		t.Fatalf("bundled dependency script missing netplan route override: %q", script)
+	}
+	if !strings.Contains(script, "route-metric: 100") || !strings.Contains(script, "route-metric: 200") {
+		t.Fatalf("bundled dependency script missing persistent route metrics: %q", script)
+	}
+	if !strings.Contains(script, "netplan apply") {
+		t.Fatalf("bundled dependency script missing netplan apply: %q", script)
+	}
+}
+
 func TestStopMissingInstanceMarksSandboxStopped(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
 
