@@ -20,6 +20,7 @@ func SecretsCmd() *cobra.Command {
 
 	cmd.AddCommand(secretsPutCmd())
 	cmd.AddCommand(secretsGetCmd())
+	cmd.AddCommand(secretsDeleteCmd())
 	cmd.AddCommand(secretsListCmd())
 	cmd.AddCommand(secretsDevicesCmd())
 	cmd.AddCommand(secretsRewrapCmd())
@@ -127,6 +128,22 @@ sky10 secrets put service-cert --file cert.pem --kind cert
 	cmd.Flags().StringVar(&scope, "scope", "", "secret scope: current, trusted, or explicit")
 	cmd.Flags().StringArrayVar(&recipientDevice, "device", nil, "recipient device ID (repeatable, implies --scope explicit when omitted)")
 	return cmd
+}
+
+func secretsDeleteCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "delete <id-or-name>",
+		Short: "Delete a secret",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, err := rpcCall("secrets.delete", map[string]string{"id_or_name": args[0]})
+			if err != nil {
+				return err
+			}
+			fmt.Printf("deleted %s\n", args[0])
+			return nil
+		},
+	}
 }
 
 func secretsGetCmd() *cobra.Command {

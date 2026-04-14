@@ -30,6 +30,8 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 	switch method {
 	case "secrets.put":
 		result, err = h.rpcPut(ctx, params)
+	case "secrets.delete":
+		result, err = h.rpcDelete(ctx, params)
 	case "secrets.get":
 		result, err = h.rpcGet(params)
 	case "secrets.list":
@@ -93,6 +95,24 @@ func (h *RPCHandler) rpcPut(ctx context.Context, params json.RawMessage) (interf
 		return nil, err
 	}
 	return summary, nil
+}
+
+type deleteParams struct {
+	IDOrName string `json:"id_or_name"`
+}
+
+func (h *RPCHandler) rpcDelete(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p deleteParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.IDOrName == "" {
+		return nil, fmt.Errorf("id_or_name is required")
+	}
+	if err := h.store.Delete(ctx, DeleteParams{IDOrName: p.IDOrName}); err != nil {
+		return nil, err
+	}
+	return map[string]string{"status": "ok"}, nil
 }
 
 type getParams struct {

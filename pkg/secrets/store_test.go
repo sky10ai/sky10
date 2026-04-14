@@ -338,6 +338,61 @@ func TestStorePutByNameCreatesNewVersionAndPreservesMetadata(t *testing.T) {
 	}
 }
 
+func TestStoreDeleteRemovesHeadAndVersions(t *testing.T) {
+	t.Parallel()
+
+	bundle := newSingleBundle(t)
+	store := New(s3backend.NewMemory(), bundle, Config{DataDir: t.TempDir()}, nil)
+	ctx := context.Background()
+
+	first, err := store.Put(ctx, PutParams{
+		Name:    "delete-me",
+		Payload: []byte("first"),
+	})
+	if err != nil {
+		t.Fatalf("first Put: %v", err)
+	}
+	second, err := store.Put(ctx, PutParams{
+		Name:    "delete-me",
+		Payload: []byte("second"),
+	})
+	if err != nil {
+		t.Fatalf("second Put: %v", err)
+	}
+	if second.ID != first.ID {
+		t.Fatalf("ID changed: first=%s second=%s", first.ID, second.ID)
+	}
+	if _, err := store.Put(ctx, PutParams{
+		Name:    "keep-me",
+		Payload: []byte("keep"),
+	}); err != nil {
+		t.Fatalf("third Put: %v", err)
+	}
+
+	if err := store.Delete(ctx, DeleteParams{IDOrName: "delete-me"}); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	if _, err := store.Get(second.ID, Requester{Type: RequesterOwner}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get deleted secret error = %v, want ErrNotFound", err)
+	}
+
+	items, err := store.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(items) != 1 || items[0].Name != "keep-me" {
+		t.Fatalf("List after delete = %+v, want only keep-me", items)
+	}
+
+	if got := store.transport.List(headPrefix); len(got) != 1 {
+		t.Fatalf("headPrefix keys after delete = %v, want 1", got)
+	}
+	if got := store.transport.List(versionPrefix + second.ID + "/"); len(got) != 0 {
+		t.Fatalf("version keys for deleted secret = %v, want none", got)
+	}
+}
+
 func TestAgentPolicySoftGate(t *testing.T) {
 	t.Parallel()
 

@@ -294,6 +294,28 @@ func waitForSecretRecipientCountRPC(t *testing.T, home, idOrName string, want in
 	t.Fatalf("secret %s on %s did not reach %d recipients; last=%+v", idOrName, home, want, last.Items)
 }
 
+func waitForSecretMissingInListRPC(t *testing.T, home, idOrName string) {
+	t.Helper()
+
+	deadline := time.Now().Add(45 * time.Second)
+	var last rpcSecretsListResult
+	for time.Now().Before(deadline) {
+		last = rpcCall[rpcSecretsListResult](t, home, "secrets.list", nil)
+		found := false
+		for _, item := range last.Items {
+			if item.ID == idOrName || item.Name == idOrName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("secret %s on %s still listed; last=%+v", idOrName, home, last.Items)
+}
+
 func waitForQueueOffers(t *testing.T, home, skill, queue string, cond func(rpcQueueDiscoverResult) bool) rpcQueueDiscoverResult {
 	t.Helper()
 

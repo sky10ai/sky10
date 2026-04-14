@@ -62,6 +62,7 @@ export default function SettingsSecrets() {
   const [loadingSecret, setLoadingSecret] = useState(false);
   const [storing, setStoring] = useState(false);
   const [rewrapping, setRewrapping] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
   const [actionError, setActionError] = useState<string | null>(null);
@@ -286,6 +287,28 @@ export default function SettingsSecrets() {
       setSyncing(false);
     }
   }, [refetchAll]);
+
+  const handleDelete = useCallback(async () => {
+    if (!selectedSecret) return;
+    if (!window.confirm(`Delete secret "${selectedSecret.name}"? This removes it from synced secrets storage.`)) {
+      return;
+    }
+
+    setDeleting(true);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      await secrets.delete({ id_or_name: selectedSecret.id });
+      setActionMessage(`Deleted ${selectedSecret.name}.`);
+      setSelectedSecretID(null);
+      setActiveSecret(null);
+      refetchAll();
+    } catch (error: unknown) {
+      setActionError(error instanceof Error ? error.message : "Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  }, [refetchAll, selectedSecret]);
 
   const preview = useMemo(() => {
     if (!activeSecret) return null;
@@ -690,6 +713,15 @@ export default function SettingsSecrets() {
                       >
                         <Icon className="text-base" name="download" />
                         Download
+                      </button>
+                      <button
+                        className="inline-flex items-center gap-2 rounded-full border border-error/30 px-4 py-2 text-sm font-semibold text-error transition-colors active:scale-95 disabled:opacity-60"
+                        disabled={deleting}
+                        onClick={() => void handleDelete()}
+                        type="button"
+                      >
+                        <Icon className={deleting ? "animate-spin text-base" : "text-base"} name={deleting ? "sync" : "delete"} />
+                        {deleting ? "Deleting..." : "Delete Secret"}
                       </button>
                     </div>
 

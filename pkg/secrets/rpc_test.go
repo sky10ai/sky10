@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -96,6 +97,54 @@ func TestRPCGetAndListDoNotExposePolicy(t *testing.T) {
 	}
 	if _, ok := items[0]["policy"]; ok {
 		t.Fatalf("rpcList unexpectedly exposed policy: %v", items[0]["policy"])
+	}
+}
+
+func TestRPCDeleteRemovesSecret(t *testing.T) {
+	t.Parallel()
+
+	handler := newRPCTestHandler(t)
+	if _, err := handler.store.Put(context.Background(), PutParams{
+		Name:    "delete-me",
+		Payload: []byte("value"),
+	}); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	got, err := handler.rpcDelete(context.Background(), mustRPCJSON(t, map[string]any{
+		"id_or_name": "delete-me",
+	}))
+	if err != nil {
+		t.Fatalf("rpcDelete: %v", err)
+	}
+	if got.(map[string]string)["status"] != "ok" {
+		t.Fatalf("rpcDelete result = %#v, want status ok", got)
+	}
+
+	if _, err := handler.rpcGet(mustRPCJSON(t, map[string]any{
+		"id_or_name": "delete-me",
+	})); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("rpcGet after delete error = %v, want ErrNotFound", err)
+	}
+
+	listed, err := handler.rpcList()
+	if err != nil {
+		t.Fatalf("rpcList: %v", err)
+	}
+	listResp := listed.(map[string]interface{})
+	items := listResp["items"].([]map[string]interface{})
+	if len(items) != 0 {
+		t.Fatalf("rpcList items after delete = %+v, want none", items)
+	}
+}
+
+func TestRPCDeleteRequiresIDOrName(t *testing.T) {
+	t.Parallel()
+
+	handler := newRPCTestHandler(t)
+	_, err := handler.rpcDelete(context.Background(), mustRPCJSON(t, map[string]any{}))
+	if err == nil || !strings.Contains(err.Error(), "id_or_name is required") {
+		t.Fatalf("rpcDelete error = %v, want id_or_name required", err)
 	}
 }
 

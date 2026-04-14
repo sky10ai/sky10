@@ -1,8 +1,10 @@
 package secrets
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"github.com/sky10/sky10/pkg/adapter"
+	skyconfig "github.com/sky10/sky10/pkg/config"
 	"github.com/sky10/sky10/pkg/id"
 	skykey "github.com/sky10/sky10/pkg/key"
 	"github.com/sky10/sky10/pkg/kv"
@@ -37,15 +40,18 @@ type Config struct {
 	Namespace    string
 	DataDir      string
 	PollInterval time.Duration
+	BootstrapKV  *kv.Store
 }
 
 // Store manages encrypted secret artifacts on top of KV transport.
 type Store struct {
-	bundle    *id.Bundle
-	deviceID  string
-	namespace string
-	transport *kv.Store
-	logger    *slog.Logger
+	backend     adapter.Backend
+	bundle      *id.Bundle
+	deviceID    string
+	namespace   string
+	transport   *kv.Store
+	bootstrapKV *kv.Store
+	logger      *slog.Logger
 }
 
 type headPayload struct {
@@ -74,6 +80,14 @@ type versionPayload struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+type namespaceBootstrapRecord struct {
+	Version        int       `json:"version"`
+	Namespace      string    `json:"namespace"`
+	Key            string    `json:"key"`
+	SourceDeviceID string    `json:"source_device_id"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
 // New creates a secrets store backed by a private KV namespace.
 func New(backend adapter.Backend, bundle *id.Bundle, config Config, logger *slog.Logger) *Store {
 	if logger == nil {
@@ -83,8 +97,12 @@ func New(backend adapter.Backend, bundle *id.Bundle, config Config, logger *slog
 		config.Namespace = DefaultNamespace
 	}
 	if config.DataDir == "" {
-		home, _ := os.UserHomeDir()
-		config.DataDir = filepath.Join(home, ".sky10", "secrets", "stores", config.Namespace)
+		root, err := skyconfig.RootDir()
+		if err != nil {
+			home, _ := os.UserHomeDir()
+			root = filepath.Join(home, ".sky10")
+		}
+		config.DataDir = filepath.Join(root, "secrets", "stores", config.Namespace)
 	}
 	expectedPeers := 0
 	if bundle.Manifest != nil && len(bundle.Manifest.Devices) > 1 {
@@ -102,21 +120,29 @@ func New(backend adapter.Backend, bundle *id.Bundle, config Config, logger *slog
 	}, logger)
 
 	return &Store{
-		bundle:    bundle,
-		deviceID:  bundle.DeviceID(),
-		namespace: config.Namespace,
-		transport: transport,
-		logger:    logger,
+		backend:     backend,
+		bundle:      bundle,
+		deviceID:    bundle.DeviceID(),
+		namespace:   config.Namespace,
+		transport:   transport,
+		bootstrapKV: config.BootstrapKV,
+		logger:      logger,
 	}
 }
 
 // Run starts the internal KV transport.
 func (s *Store) Run(ctx context.Context) error {
+	if err := s.ensureNamespaceBootstrap(ctx); err != nil {
+		return fmt.Errorf("bootstrapping secrets namespace key: %w", err)
+	}
 	return s.transport.Run(ctx)
 }
 
 // SyncOnce performs one transport sync cycle.
 func (s *Store) SyncOnce(ctx context.Context) error {
+	if err := s.ensureNamespaceBootstrap(ctx); err != nil {
+		return err
+	}
 	return s.transport.SyncOnce(ctx)
 }
 
@@ -159,6 +185,9 @@ func (s *Store) Devices() []Device {
 
 // List returns all secrets this device can decrypt.
 func (s *Store) List() ([]SecretSummary, error) {
+	if err := s.ensureNamespaceBootstrap(context.Background()); err != nil {
+		return nil, err
+	}
 	keys := s.listHeadKeys()
 	summaries := make([]SecretSummary, 0, len(keys))
 	for _, key := range keys {
@@ -199,6 +228,9 @@ func (s *Store) Status() (map[string]interface{}, error) {
 
 // Put writes a new secret or a new version of an existing secret.
 func (s *Store) Put(ctx context.Context, params PutParams) (*SecretSummary, error) {
+	if err := s.ensureNamespaceBootstrap(ctx); err != nil {
+		return nil, err
+	}
 	if len(params.Payload) == 0 {
 		return nil, fmt.Errorf("payload is required")
 	}
@@ -361,6 +393,9 @@ func (s *Store) Put(ctx context.Context, params PutParams) (*SecretSummary, erro
 
 // Get decrypts the latest version of a secret.
 func (s *Store) Get(idOrName string, requester Requester) (*Secret, error) {
+	if err := s.ensureNamespaceBootstrap(context.Background()); err != nil {
+		return nil, err
+	}
 	head, err := s.resolveHead(idOrName)
 	if err != nil {
 		return nil, err
@@ -409,6 +444,9 @@ func (s *Store) Get(idOrName string, requester Requester) (*Secret, error) {
 
 // Rewrap rotates a secret to a fresh data key and recipient set.
 func (s *Store) Rewrap(ctx context.Context, params RewrapParams) (*SecretSummary, error) {
+	if err := s.ensureNamespaceBootstrap(ctx); err != nil {
+		return nil, err
+	}
 	head, err := s.resolveHead(params.IDOrName)
 	if err != nil {
 		return nil, err
@@ -442,9 +480,49 @@ func (s *Store) Rewrap(ctx context.Context, params RewrapParams) (*SecretSummary
 	})
 }
 
+// Delete removes a secret head and all stored versions from the transport.
+func (s *Store) Delete(ctx context.Context, params DeleteParams) error {
+	if err := s.ensureNamespaceBootstrap(ctx); err != nil {
+		return err
+	}
+	if strings.TrimSpace(params.IDOrName) == "" {
+		return fmt.Errorf("id_or_name is required")
+	}
+
+	head, err := s.resolveHead(params.IDOrName)
+	if err != nil {
+		return err
+	}
+
+	keys := []string{
+		headKey(head.SecretID),
+		legacyHeadKey(head.SecretID),
+	}
+	keys = append(keys, s.transport.List(versionPrefix+head.SecretID+"/")...)
+	keys = append(keys, s.transport.List(legacyVersionPath+head.SecretID+"/")...)
+
+	seen := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		if err := s.transport.Delete(ctx, key); err != nil {
+			return fmt.Errorf("deleting secret key %s: %w", key, err)
+		}
+	}
+	return nil
+}
+
 // ReconcileTrustedScope rewraps trusted-scope secrets whose resolved recipient
 // set no longer matches the current trusted-device manifest.
 func (s *Store) ReconcileTrustedScope(ctx context.Context) (int, error) {
+	if err := s.ensureNamespaceBootstrap(ctx); err != nil {
+		return 0, err
+	}
 	keys := s.listHeadKeys()
 	trustedRecipients, err := s.resolveTrustedRecipients()
 	if err != nil {
@@ -480,6 +558,97 @@ func (s *Store) ReconcileTrustedScope(ctx context.Context) (int, error) {
 		rewrapped++
 	}
 	return rewrapped, nil
+}
+
+func (s *Store) ensureNamespaceBootstrap(ctx context.Context) error {
+	if s.backend != nil || s.bootstrapKV == nil {
+		return nil
+	}
+
+	localKey, localErr := kv.LoadCachedKey(s.namespace, s.deviceID)
+	bootstrapKey, ok, err := s.loadBootstrapKey()
+	if err != nil {
+		return err
+	}
+
+	switch {
+	case localErr == nil && ok:
+		if !bytes.Equal(localKey, bootstrapKey) {
+			return fmt.Errorf("cached namespace key for %q does not match bootstrap record", s.namespace)
+		}
+		return nil
+	case localErr == nil:
+		return s.publishBootstrapKey(ctx, localKey)
+	case ok:
+		kv.CacheKeyLocally(s.namespace, s.deviceID, bootstrapKey)
+		return nil
+	default:
+		key, err := deriveP2PNamespaceKey(s.bundle.Identity, s.namespace)
+		if err != nil {
+			return err
+		}
+		kv.CacheKeyLocally(s.namespace, s.deviceID, key)
+		return s.publishBootstrapKey(ctx, key)
+	}
+}
+
+func (s *Store) loadBootstrapKey() ([]byte, bool, error) {
+	raw, ok := s.bootstrapKV.Get(namespaceBootstrapKVKey(s.namespace))
+	if !ok || len(raw) == 0 {
+		return nil, false, nil
+	}
+
+	var record namespaceBootstrapRecord
+	if err := json.Unmarshal(raw, &record); err != nil {
+		return nil, false, fmt.Errorf("parsing secrets namespace bootstrap record: %w", err)
+	}
+	if record.Namespace != s.namespace {
+		return nil, false, fmt.Errorf("unexpected bootstrap namespace %q for %q", record.Namespace, s.namespace)
+	}
+	key, err := base64.StdEncoding.DecodeString(record.Key)
+	if err != nil {
+		return nil, false, fmt.Errorf("decoding secrets namespace bootstrap key: %w", err)
+	}
+	if len(key) != skykey.KeySize {
+		return nil, false, fmt.Errorf("invalid secrets namespace bootstrap key size: %d", len(key))
+	}
+	return key, true, nil
+}
+
+func (s *Store) publishBootstrapKey(ctx context.Context, key []byte) error {
+	existing, ok, err := s.loadBootstrapKey()
+	if err != nil {
+		return err
+	}
+	if ok {
+		if !bytes.Equal(existing, key) {
+			return fmt.Errorf("bootstrap record for %q conflicts with local cached key", s.namespace)
+		}
+		return nil
+	}
+
+	record := namespaceBootstrapRecord{
+		Version:        1,
+		Namespace:      s.namespace,
+		Key:            base64.StdEncoding.EncodeToString(key),
+		SourceDeviceID: s.deviceID,
+		CreatedAt:      time.Now().UTC(),
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("marshaling secrets namespace bootstrap record: %w", err)
+	}
+	if err := s.bootstrapKV.Set(ctx, namespaceBootstrapKVKey(s.namespace), data); err != nil {
+		return fmt.Errorf("publishing secrets namespace bootstrap key: %w", err)
+	}
+	return nil
+}
+
+func deriveP2PNamespaceKey(identity *skykey.Key, namespace string) ([]byte, error) {
+	if identity == nil || len(identity.PrivateKey) == 0 {
+		return nil, fmt.Errorf("missing identity key for namespace bootstrap")
+	}
+	return skykey.DeriveKey(identity.PrivateKey.Seed(), []byte("kv:"+namespace), "sky10-kv-namespace-bootstrap")
 }
 
 func (s *Store) findExisting(idValue, name string) (*headPayload, error) {
@@ -768,6 +937,10 @@ const (
 	versionPrefix     = internalPrefix + "versions/"
 	legacyVersionPath = "versions/"
 )
+
+func namespaceBootstrapKVKey(namespace string) string {
+	return "_sys/namespaces/" + namespace + "/key"
+}
 
 func headKey(secretID string) string {
 	return headPrefix + secretID

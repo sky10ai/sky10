@@ -71,6 +71,11 @@ type RewrapParams struct {
 	Policy             AccessPolicy
 }
 
+// DeleteParams identifies a secret to delete.
+type DeleteParams struct {
+	IDOrName string
+}
+
 // SecretSummary is the non-sensitive metadata returned by list/status APIs.
 type SecretSummary struct {
 	ID                 string       `json:"id"`

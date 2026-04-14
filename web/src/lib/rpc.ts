@@ -117,6 +117,7 @@ export const secrets = {
   devices: () => rpc<SecretsDevicesResult>("secrets.devices"),
   status: () => rpc<SecretsStatus>("secrets.status"),
   sync: () => rpc<{ status: string }>("secrets.sync"),
+  delete: (p: { id_or_name: string }) => rpc<{ status: string }>("secrets.delete", p),
   get: (p: { id_or_name: string }) => rpc<SecretRecord>("secrets.get", p),
   put: (p: {
     name: string;

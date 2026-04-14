@@ -207,6 +207,11 @@ func CacheKeyLocally(nsName, deviceID string, key []byte) {
 	os.WriteFile(filepath.Join(dir, nsName+".key"), key, 0600)
 }
 
+// LoadCachedKey reads a locally cached namespace key for the given device.
+func LoadCachedKey(nsName, deviceID string) ([]byte, error) {
+	return loadCachedKey(nsName, deviceID)
+}
+
 func loadCachedKey(nsName, deviceID string) ([]byte, error) {
 	dir, err := config.KVKeysDir(deviceID)
 	if err != nil {

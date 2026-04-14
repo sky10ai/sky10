@@ -181,7 +181,7 @@ func ServeCmd() *cobra.Command {
 				}
 			}()
 
-			secretsStore := secrets.New(backend, bundle, secrets.Config{}, nil)
+			secretsStore := secrets.New(backend, bundle, secrets.Config{BootstrapKV: kvStore}, nil)
 			server.RegisterHandler(secrets.NewRPCHandler(secretsStore))
 			secretsRunErr := make(chan error, 1)
 			go func() {
