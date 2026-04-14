@@ -19,6 +19,7 @@ import Bucket from "./pages/Bucket";
 import Activity from "./pages/Activity";
 import Settings from "./pages/Settings";
 import SettingsApps from "./pages/SettingsApps";
+import SettingsSecrets from "./pages/SettingsSecrets";
 
 function HomeRedirect() {
   const { data } = useRPC(() => identity.deviceList(), []);
@@ -56,6 +57,7 @@ export default function App() {
           <Route path="bucket/*" element={<Bucket />} />
           <Route path="activity" element={<Activity />} />
           <Route path="settings/apps" element={<SettingsApps />} />
+          <Route path="settings/secrets" element={<SettingsSecrets />} />
           <Route path="settings/sandboxes" element={<Sandboxes />} />
           <Route path="settings/sandboxes/:slug" element={<SandboxDetail />} />
           <Route path="settings" element={<Settings />} />

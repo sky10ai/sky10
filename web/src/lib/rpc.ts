@@ -111,6 +111,28 @@ export const identity = {
   deviceRemove: (p: { pubkey: string }) => rpc("identity.deviceRemove", p),
 };
 
+// -- secrets --
+export const secrets = {
+  list: () => rpc<SecretsListResult>("secrets.list"),
+  devices: () => rpc<SecretsDevicesResult>("secrets.devices"),
+  status: () => rpc<SecretsStatus>("secrets.status"),
+  sync: () => rpc<{ status: string }>("secrets.sync"),
+  get: (p: { id_or_name: string }) => rpc<SecretRecord>("secrets.get", p),
+  put: (p: {
+    name: string;
+    kind?: string;
+    content_type?: string;
+    scope?: string;
+    payload: string;
+    recipient_devices?: string[];
+  }) => rpc<SecretSummary>("secrets.put", p),
+  rewrap: (p: {
+    id_or_name: string;
+    scope?: string;
+    recipient_devices?: string[];
+  }) => rpc<SecretSummary>("secrets.rewrap", p),
+};
+
 // -- agent --
 export const agent = {
   list: () => rpc<AgentListResult>("agent.list"),
@@ -496,6 +518,47 @@ export interface IdentityDevice {
 export interface IdentityDevices {
   identity: string;
   devices: IdentityDevice[];
+}
+
+export interface SecretSummary {
+  id: string;
+  name: string;
+  kind: string;
+  content_type: string;
+  scope: "current" | "trusted" | "explicit";
+  size: number;
+  sha256: string;
+  created_at: string;
+  updated_at: string;
+  recipient_device_ids: string[];
+}
+
+export interface SecretRecord extends SecretSummary {
+  version_id: string;
+  payload: string;
+}
+
+export interface SecretDevice {
+  id: string;
+  name: string;
+  role: "trusted" | "sandbox";
+  current: boolean;
+}
+
+export interface SecretsListResult {
+  items: SecretSummary[];
+  count: number;
+}
+
+export interface SecretsDevicesResult {
+  devices: SecretDevice[];
+  count: number;
+}
+
+export interface SecretsStatus {
+  namespace: string;
+  device_id: string;
+  count: number;
 }
 
 export interface SyncActivityEntry {

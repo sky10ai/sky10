@@ -62,6 +62,13 @@ const commands: Command[] = [
     section: "System",
   },
   {
+    id: "secrets",
+    label: "Secrets",
+    icon: "key_vertical",
+    action: "/settings/secrets",
+    section: "System",
+  },
+  {
     id: "sandboxes",
     label: "Sandboxes",
     icon: "deployed_code",

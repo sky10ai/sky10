@@ -78,6 +78,13 @@ function getRouteMeta(pathname: string) {
     };
   }
 
+  if (pathname.startsWith("/settings/secrets")) {
+    return {
+      description: "Store and rewrap synced secrets without exposing them as raw KV entries.",
+      title: "Secrets",
+    };
+  }
+
   if (pathname.startsWith("/settings")) {
     return {
       description: "Review identity, runtime, and local node configuration details.",
