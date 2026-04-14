@@ -207,27 +207,36 @@ Likely repo touchpoints:
 Goal: ship the first durable personality-sharing drive on the current engine
 while deeper FS work continues.
 
+Reference draft:
+
+- [`agents-drive-contract.md`](./agents-drive-contract.md)
+
+Contract status:
+
+- The folder contract and recreation model are defined here.
+- Product and runtime wiring remain future implementation work.
+
 Checklist:
 
-- [ ] Define how an `Agents` drive is created and discovered.
-- [ ] Decide whether `Agents` is user-created, daemon-suggested, or
+- [x] Define how an `Agents` drive is created and discovered.
+- [x] Decide whether `Agents` is user-created, daemon-suggested, or
       auto-provisioned on first agent setup.
-- [ ] Define the per-agent folder naming convention.
-- [ ] Define which files are seeded automatically for a new agent folder.
-- [ ] Create initial `sky10.md` template content and field ownership rules.
-- [ ] Decide what is human-edited vs runtime-updated vs daemon-generated.
-- [ ] Define how an agent folder maps to a local agent runtime instance.
-- [ ] Define how another machine should interpret and recreate an agent from
+- [x] Define the per-agent folder naming convention.
+- [x] Define which files are seeded automatically for a new agent folder.
+- [x] Create initial `sky10.md` template content and field ownership rules.
+- [x] Decide what is human-edited vs runtime-updated vs daemon-generated.
+- [x] Define how an agent folder maps to a local agent runtime instance.
+- [x] Define how another machine should interpret and recreate an agent from
       `sky10.md`.
-- [ ] Add docs for expected folder examples and replication intent.
-- [ ] Ensure the `Agents` drive uses the same durable FS semantics as ordinary
+- [x] Add docs for expected folder examples and replication intent.
+- [x] Ensure the `Agents` drive uses the same durable FS semantics as ordinary
       synced content rather than special-casing agent personality files.
 
 Done when:
 
-- [ ] A user can point to one agent folder and understand how that folder is
+- [x] A user can point to one agent folder and understand how that folder is
       meant to recreate the agent elsewhere.
-- [ ] `sky10.md` is specific enough to be operationally useful, not just a
+- [x] `sky10.md` is specific enough to be operationally useful, not just a
       prose note.
 
 Likely repo touchpoints:
