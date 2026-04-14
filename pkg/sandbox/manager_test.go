@@ -436,7 +436,9 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 		templateOpenClawPluginManifest: []byte(`{"id":"sky10"}` + "\n"),
 		templateOpenClawPluginIndex:    []byte("export default function register() {}\n"),
 	}
-	if err := prepareOpenClawSharedDir(sharedDir, helper, pluginAssets); err != nil {
+	if err := prepareOpenClawSharedDir(sharedDir, helper, pluginAssets, map[string]string{
+		"OPENAI_API_KEY": "openai-key",
+	}); err != nil {
 		t.Fatalf("prepareOpenClawSharedDir() error: %v", err)
 	}
 
@@ -447,6 +449,9 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	}
 	if !strings.Contains(string(envData), "ANTHROPIC_API_KEY=") {
 		t.Fatalf(".env = %q, want provider key stub", string(envData))
+	}
+	if !strings.Contains(string(envData), "OPENAI_API_KEY=openai-key") {
+		t.Fatalf(".env = %q, want resolved openai key", string(envData))
 	}
 
 	helperPath := filepath.Join(sharedDir, templateHostsHelper)

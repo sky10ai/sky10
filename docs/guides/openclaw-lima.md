@@ -45,6 +45,7 @@ That flow:
 
 - stages the Lima template locally
 - creates `~/sky10/sandboxes/my-agent/.env` if it does not exist yet
+- merges host `sky10` secrets into that shared `.env` when known provider secrets exist
 - writes `~/sky10/sandboxes/my-agent/update-lima-hosts.sh`
 - stages the bundled `openclaw-sky10-channel` plugin into the shared directory
 - starts the Lima VM
@@ -62,6 +63,22 @@ Each sandbox gets a shared host directory at:
 
 Provider keys are optional at boot, but the agent will need them before it can
 answer real requests:
+
+If you already store provider keys in host `sky10`, the OpenClaw sandbox will
+merge them into the shared `.env` automatically. The currently recognized secret
+names are:
+
+- `OPENAI_API_KEY` or `openai`
+- `ANTHROPIC_API_KEY` or `anthropic`
+
+For example:
+
+```bash
+sky10 secrets put openai --from-env OPENAI_API_KEY --kind api-key --scope current
+sky10 secrets put anthropic --from-env ANTHROPIC_API_KEY --kind api-key --scope current
+```
+
+You can still set or override the shared `.env` manually:
 
 ```bash
 cat > ~/sky10/sandboxes/my-agent/.env <<'EOF'

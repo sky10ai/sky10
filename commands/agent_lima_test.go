@@ -93,7 +93,9 @@ func TestPrepareLimaSharedDir(t *testing.T) {
 		agentLimaPluginManifest: []byte(`{"id":"sky10"}` + "\n"),
 		agentLimaPluginIndex:    []byte("export default function register() {}\n"),
 	}
-	if err := prepareLimaSharedDir(sharedDir, []byte("#!/bin/sh\n"), pluginAssets); err != nil {
+	if err := prepareLimaSharedDir(sharedDir, []byte("#!/bin/sh\n"), pluginAssets, map[string]string{
+		"OPENAI_API_KEY": "openai-key",
+	}); err != nil {
 		t.Fatalf("prepareLimaSharedDir() error: %v", err)
 	}
 
@@ -102,6 +104,13 @@ func TestPrepareLimaSharedDir(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(sharedDir, ".env")); err != nil {
 		t.Fatalf("Stat(.env) error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(sharedDir, ".env"))
+	if err != nil {
+		t.Fatalf("ReadFile(.env) error: %v", err)
+	}
+	if !strings.Contains(string(data), "OPENAI_API_KEY=openai-key") {
+		t.Fatalf(".env = %q, want resolved openai key", string(data))
 	}
 	if _, err := os.Stat(filepath.Join(sharedDir, agentLimaPluginManifest)); err != nil {
 		t.Fatalf("Stat(plugin manifest) error: %v", err)

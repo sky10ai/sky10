@@ -2,6 +2,8 @@ package commands
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +17,7 @@ import (
 
 	skyapps "github.com/sky10/sky10/pkg/apps"
 	"github.com/sky10/sky10/pkg/config"
+	skysandbox "github.com/sky10/sky10/pkg/sandbox"
 	"github.com/spf13/cobra"
 )
 
@@ -106,7 +109,11 @@ func sandboxCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := prepareLimaSharedDir(sharedDir, hostsScript, pluginAssets); err != nil {
+			resolvedEnv, err := resolveOpenClawProviderEnvFromDaemon(cmd.Context())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not resolve host secrets for sandbox env: %v\n", err)
+			}
+			if err := prepareLimaSharedDir(sharedDir, hostsScript, pluginAssets, resolvedEnv); err != nil {
 				return err
 			}
 
@@ -374,25 +381,18 @@ func downloadLimaAsset(ctx context.Context, name string) ([]byte, error) {
 	return body, nil
 }
 
-func prepareLimaSharedDir(sharedDir string, hostsScript []byte, pluginAssets map[string][]byte) error {
+func prepareLimaSharedDir(sharedDir string, hostsScript []byte, pluginAssets map[string][]byte, resolvedEnv map[string]string) error {
 	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
 		return fmt.Errorf("creating shared Lima directory %q: %w", sharedDir, err)
 	}
 
 	envPath := filepath.Join(sharedDir, ".env")
-	if _, err := os.Stat(envPath); os.IsNotExist(err) {
-		stub := strings.Join([]string{
-			"# Optional provider keys for OpenClaw inside Lima.",
-			"# Fill these in before using the agent for real requests.",
-			"ANTHROPIC_API_KEY=",
-			"OPENAI_API_KEY=",
-			"",
-		}, "\n")
-		if err := os.WriteFile(envPath, []byte(stub), 0o600); err != nil {
-			return fmt.Errorf("writing shared env file %q: %w", envPath, err)
-		}
-	} else if err != nil {
+	existingEnv, err := os.ReadFile(envPath)
+	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("checking shared env file %q: %w", envPath, err)
+	}
+	if err := os.WriteFile(envPath, skysandbox.BuildOpenClawSharedEnv(existingEnv, resolvedEnv), 0o600); err != nil {
+		return fmt.Errorf("writing shared env file %q: %w", envPath, err)
 	}
 
 	helperPath := filepath.Join(sharedDir, agentLimaHostsScript)
@@ -484,6 +484,34 @@ func loadLimaSharedPluginAssets(ctx context.Context) (map[string][]byte, error) 
 		assets[assetName] = body
 	}
 	return assets, nil
+}
+
+func resolveOpenClawProviderEnvFromDaemon(ctx context.Context) (map[string]string, error) {
+	return skysandbox.ResolveOpenClawProviderEnv(ctx, func(_ context.Context, idOrName string) ([]byte, error) {
+		raw, err := rpcCall("secrets.get", map[string]string{"id_or_name": idOrName})
+		if err != nil {
+			switch {
+			case strings.Contains(err.Error(), "daemon not running"):
+				return nil, skysandbox.ErrProviderSecretNotFound
+			case strings.Contains(strings.ToLower(err.Error()), "secret not found"):
+				return nil, skysandbox.ErrProviderSecretNotFound
+			default:
+				return nil, err
+			}
+		}
+
+		var secret struct {
+			Payload string `json:"payload"`
+		}
+		if err := json.Unmarshal(raw, &secret); err != nil {
+			return nil, fmt.Errorf("parsing secret %q: %w", idOrName, err)
+		}
+		payload, err := base64.StdEncoding.DecodeString(secret.Payload)
+		if err != nil {
+			return nil, fmt.Errorf("decoding secret %q: %w", idOrName, err)
+		}
+		return payload, nil
+	})
 }
 
 func lookupLimaInstanceIPv4(ctx context.Context, limactl, name string) (string, error) {

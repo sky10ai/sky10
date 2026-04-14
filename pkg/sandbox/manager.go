@@ -116,16 +116,17 @@ type templateDefinition struct {
 }
 
 type Manager struct {
-	mu        sync.Mutex
-	records   map[string]Record
-	rootDir   string
-	emit      Emitter
-	logger    *slog.Logger
-	running   map[string]bool
-	appStatus func(id skyapps.ID) (*skyapps.Status, error)
-	appUpgr   func(id skyapps.ID, onProgress skyapps.ProgressFunc) (*skyapps.ReleaseInfo, error)
-	runCmd    func(ctx context.Context, bin string, args []string, onLine func(stream, line string)) error
-	outputCmd func(ctx context.Context, bin string, args []string) ([]byte, error)
+	mu                       sync.Mutex
+	records                  map[string]Record
+	rootDir                  string
+	emit                     Emitter
+	logger                   *slog.Logger
+	running                  map[string]bool
+	appStatus                func(id skyapps.ID) (*skyapps.Status, error)
+	appUpgr                  func(id skyapps.ID, onProgress skyapps.ProgressFunc) (*skyapps.ReleaseInfo, error)
+	runCmd                   func(ctx context.Context, bin string, args []string, onLine func(stream, line string)) error
+	outputCmd                func(ctx context.Context, bin string, args []string) ([]byte, error)
+	resolveOpenClawSharedEnv func(context.Context) (map[string]string, error)
 }
 
 func NewManager(emit Emitter, logger *slog.Logger) (*Manager, error) {
@@ -151,6 +152,10 @@ func NewManager(emit Emitter, logger *slog.Logger) (*Manager, error) {
 		return nil, err
 	}
 	return m, nil
+}
+
+func (m *Manager) SetOpenClawSharedEnvResolver(fn func(context.Context) (map[string]string, error)) {
+	m.resolveOpenClawSharedEnv = fn
 }
 
 func (m *Manager) List(ctx context.Context) (*ListResult, error) {
@@ -296,6 +301,9 @@ func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, err
 func (m *Manager) Start(ctx context.Context, name string) (*Record, error) {
 	rec, err := m.requireRecord(name)
 	if err != nil {
+		return nil, err
+	}
+	if err := m.prepareTemplateSharedDir(ctx, *rec); err != nil {
 		return nil, err
 	}
 	limactl, err := m.ensureManagedApp(ctx, skyapps.AppLima, true)
@@ -537,20 +545,8 @@ func (m *Manager) materializeTemplate(ctx context.Context, rec Record) (string, 
 		return "", fmt.Errorf("creating sandbox template dir: %w", err)
 	}
 
-	if rec.Template == templateOpenClaw {
-		hostsHelper, err := loadSandboxAsset(ctx, templateHostsHelper)
-		if err != nil {
-			return "", err
-		}
-		pluginAssets, err := loadSandboxAssets(ctx, openClawSharedAssetFiles)
-		if err != nil {
-			return "", err
-		}
-		if err := prepareOpenClawSharedDir(rec.SharedDir, hostsHelper, pluginAssets); err != nil {
-			return "", err
-		}
-	} else if err := os.MkdirAll(rec.SharedDir, 0o755); err != nil {
-		return "", fmt.Errorf("creating shared directory: %w", err)
+	if err := m.prepareTemplateSharedDir(ctx, rec); err != nil {
+		return "", err
 	}
 
 	renderedPath := filepath.Join(cacheDir, rec.Slug+"-"+spec.mainAsset)
@@ -574,6 +570,37 @@ func (m *Manager) materializeTemplate(ctx context.Context, rec Record) (string, 
 		}
 	}
 	return renderedPath, nil
+}
+
+func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) error {
+	if rec.Template != templateOpenClaw {
+		if err := os.MkdirAll(rec.SharedDir, 0o755); err != nil {
+			return fmt.Errorf("creating shared directory: %w", err)
+		}
+		return nil
+	}
+
+	hostsHelper, err := loadSandboxAsset(ctx, templateHostsHelper)
+	if err != nil {
+		return err
+	}
+	pluginAssets, err := loadSandboxAssets(ctx, openClawSharedAssetFiles)
+	if err != nil {
+		return err
+	}
+	resolvedEnv := map[string]string{}
+	if m.resolveOpenClawSharedEnv != nil {
+		values, err := m.resolveOpenClawSharedEnv(ctx)
+		if err != nil {
+			m.logger.Warn("failed to resolve host secrets for sandbox env", "sandbox", rec.Slug, "error", err)
+		} else {
+			resolvedEnv = values
+		}
+	}
+	if err := prepareOpenClawSharedDir(rec.SharedDir, hostsHelper, pluginAssets, resolvedEnv); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) limaInstanceExists(_ context.Context, _ string, name string) (bool, error) {
@@ -649,25 +676,18 @@ func sandboxTemplateDefinition(template string) (templateDefinition, error) {
 	}
 }
 
-func prepareOpenClawSharedDir(sharedDir string, hostsHelper []byte, pluginAssets map[string][]byte) error {
+func prepareOpenClawSharedDir(sharedDir string, hostsHelper []byte, pluginAssets map[string][]byte, resolvedEnv map[string]string) error {
 	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
 		return fmt.Errorf("creating shared directory: %w", err)
 	}
 
 	envPath := filepath.Join(sharedDir, ".env")
-	if _, err := os.Stat(envPath); os.IsNotExist(err) {
-		stub := strings.Join([]string{
-			"# Optional provider keys for OpenClaw inside Lima.",
-			"# Fill these in before using the agent for real requests.",
-			"ANTHROPIC_API_KEY=",
-			"OPENAI_API_KEY=",
-			"",
-		}, "\n")
-		if err := os.WriteFile(envPath, []byte(stub), 0o600); err != nil {
-			return fmt.Errorf("writing shared env file: %w", err)
-		}
-	} else if err != nil {
+	existingEnv, err := os.ReadFile(envPath)
+	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("checking shared env file: %w", err)
+	}
+	if err := os.WriteFile(envPath, BuildOpenClawSharedEnv(existingEnv, resolvedEnv), 0o600); err != nil {
+		return fmt.Errorf("writing shared env file: %w", err)
 	}
 
 	if len(hostsHelper) > 0 {
