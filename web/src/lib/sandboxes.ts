@@ -16,6 +16,14 @@ export const SANDBOX_TEMPLATES = [
     description:
       "Ubuntu VM on Lima that installs guest-local sky10, OpenClaw, a bundled sky10 channel plugin, and guest UIs on ports 9101 and 18790.",
   },
+  {
+    id: "hermes",
+    provider: "lima",
+    label: "Hermes Sandbox",
+    summary: "Hermes CLI/TUI runtime",
+    description:
+      "Ubuntu VM on Lima that installs Hermes Agent, links a shared /shared/.env into ~/.hermes/.env, and exposes the Hermes TUI through the sandbox terminal.",
+  },
 ] as const;
 
 export const DEFAULT_SANDBOX_TEMPLATE = SANDBOX_TEMPLATES[0];
@@ -25,7 +33,7 @@ export function sandboxTemplateById(templateId?: string) {
 }
 
 export function nextSandboxName(templateId: string = DEFAULT_SANDBOX_TEMPLATE.id) {
-  const prefix = templateId === "openclaw" ? "openclaw" : "linux";
+  const prefix = templateId === "openclaw" ? "openclaw" : templateId === "hermes" ? "hermes" : "linux";
   return `${prefix}-${Math.random().toString(36).slice(2, 6)}`;
 }
 

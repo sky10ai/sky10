@@ -152,6 +152,16 @@ func TestManagerCreateSlugifiesDisplayName(t *testing.T) {
 	waitForCreateToFinish(t, m, "bob-the-fish")
 }
 
+func TestDefaultShellCommandHermes(t *testing.T) {
+	t.Parallel()
+
+	got := defaultShellCommand("hermes-dev", templateHermes)
+	want := "limactl shell hermes-dev -- bash -lc 'hermes-shared'"
+	if got != want {
+		t.Fatalf("defaultShellCommand() = %q, want %q", got, want)
+	}
+}
+
 func waitForCreateToFinish(t *testing.T, m *Manager, name string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -360,6 +370,25 @@ func TestBundledOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	}
 	if strings.Contains(string(indexBody), `/v1/responses`) {
 		t.Fatalf("bundled plugin index should not self-call the gateway responses API: %q", string(indexBody))
+	}
+}
+
+func TestBundledHermesTemplateProbeUsesHermesCLI(t *testing.T) {
+	t.Parallel()
+
+	body, err := readBundledTemplateAsset(templateHermesYAML)
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset() error: %v", err)
+	}
+	text := string(body)
+	if !strings.Contains(text, `command -v hermes`) {
+		t.Fatalf("hermes template probe missing Hermes CLI check")
+	}
+	if !strings.Contains(text, `hermes-shared`) {
+		t.Fatalf("hermes template message missing helper command")
+	}
+	if !strings.Contains(text, "portForwards:") || !strings.Contains(text, "ignore: true") {
+		t.Fatalf("hermes template should disable Lima host port forwarding")
 	}
 }
 
@@ -638,6 +667,27 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	}
 }
 
+func TestPrepareHermesSharedDir(t *testing.T) {
+	t.Parallel()
+
+	sharedDir := t.TempDir()
+	if err := prepareHermesSharedDir(sharedDir); err != nil {
+		t.Fatalf("prepareHermesSharedDir() error: %v", err)
+	}
+
+	envData, err := os.ReadFile(filepath.Join(sharedDir, ".env"))
+	if err != nil {
+		t.Fatalf("ReadFile(.env) error: %v", err)
+	}
+	text := string(envData)
+	if !strings.Contains(text, "Optional provider keys for Hermes") {
+		t.Fatalf(".env = %q, want Hermes comment header", text)
+	}
+	if !strings.Contains(text, "OPENAI_API_KEY") {
+		t.Fatalf(".env = %q, want provider key examples", text)
+	}
+}
+
 func TestBuildStartArgsOpenClaw(t *testing.T) {
 	t.Parallel()
 
@@ -798,6 +848,25 @@ func TestWaitForGuestOpenClawAgent(t *testing.T) {
 	}
 	if attempts != 4 {
 		t.Fatalf("waitForGuestOpenClawAgent() attempts = %d, want 4", attempts)
+	}
+}
+
+func TestWaitForGuestHermesCLI(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	err := waitForGuestHermesCLI(context.Background(), func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		attempts++
+		if attempts < 3 {
+			return nil, fmt.Errorf("not ready")
+		}
+		return []byte("ok"), nil
+	}, "/tmp/fake/limactl", "agent-123", 5*time.Second)
+	if err != nil {
+		t.Fatalf("waitForGuestHermesCLI() error: %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("waitForGuestHermesCLI() attempts = %d, want 3", attempts)
 	}
 }
 

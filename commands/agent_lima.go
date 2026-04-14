@@ -27,6 +27,11 @@ const (
 	agentLimaDependencyScript = "openclaw-sky10.dependency.sh"
 	agentLimaSystemScript     = "openclaw-sky10.system.sh"
 	agentLimaUserScript       = "openclaw-sky10.user.sh"
+	agentLimaHermesName       = "hermes-sky10"
+	agentLimaHermesYAML       = "hermes-sky10.yaml"
+	agentLimaHermesDep        = "hermes-sky10.dependency.sh"
+	agentLimaHermesSys        = "hermes-sky10.system.sh"
+	agentLimaHermesUser       = "hermes-sky10.user.sh"
 	agentLimaHostsScript      = "update-lima-hosts.sh"
 	agentLimaPluginDir        = "openclaw-sky10-channel"
 	agentLimaPluginPackage    = agentLimaPluginDir + "/package.json"
@@ -36,6 +41,7 @@ const (
 	agentLimaRemoteAssetBase  = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
 	sandboxProviderLima       = "lima"
 	sandboxTemplateOpenClaw   = "openclaw"
+	sandboxTemplateHermes     = "hermes"
 	templateNameToken         = "__SKY10_SANDBOX_NAME__"
 	templateSharedToken       = "__SKY10_SHARED_DIR__"
 	openClawReadyTimeout      = 2 * time.Minute
@@ -55,6 +61,15 @@ var agentLimaSharedPluginFiles = []string{
 	agentLimaPluginManifest,
 	agentLimaPluginIndex,
 	agentLimaPluginClient,
+}
+
+type limaTemplateSpec struct {
+	templateID         string
+	cacheDir           string
+	mainAsset          string
+	assets             []string
+	sharedAssetFiles   []string
+	includeHostsHelper bool
 }
 
 var sandboxNameWordPattern = regexp.MustCompile(`[a-z0-9]+`)
@@ -90,10 +105,14 @@ func sandboxCreateCmd() *cobra.Command {
 			if err := validateSandboxCreate(provider, template); err != nil {
 				return err
 			}
+			spec, err := limaTemplateDefinition(template)
+			if err != nil {
+				return err
+			}
 
 			if runtime.GOOS != "darwin" {
 				return fmt.Errorf("sky10 sandbox create --provider %s --template %s is macOS-only for now (the current template uses Lima vz)",
-					sandboxProviderLima, sandboxTemplateOpenClaw)
+					sandboxProviderLima, template)
 			}
 
 			params := skysandbox.CreateParams{
@@ -121,19 +140,22 @@ func sandboxCreateCmd() *cobra.Command {
 				return err
 			}
 
-			templatePath, hostsScript, err := materializeLimaAssets(cmd.Context(), slug, sharedDir)
+			templatePath, hostsScript, err := materializeLimaAssets(cmd.Context(), slug, sharedDir, spec)
 			if err != nil {
 				return err
 			}
-			pluginAssets, err := loadLimaSharedPluginAssets(cmd.Context())
+			sharedAssets, err := loadLimaSharedAssets(cmd.Context(), spec)
 			if err != nil {
 				return err
 			}
-			resolvedEnv, err := resolveOpenClawProviderEnvFromDaemon(cmd.Context())
-			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not resolve host secrets for sandbox env: %v\n", err)
+			resolvedEnv := map[string]string{}
+			if template == sandboxTemplateOpenClaw {
+				resolvedEnv, err = resolveOpenClawProviderEnvFromDaemon(cmd.Context())
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not resolve host secrets for sandbox env: %v\n", err)
+				}
 			}
-			if err := prepareLimaSharedDir(sharedDir, hostsScript, pluginAssets, resolvedEnv); err != nil {
+			if err := prepareLimaSharedDir(template, sharedDir, hostsScript, sharedAssets, resolvedEnv); err != nil {
 				return err
 			}
 
@@ -161,14 +183,13 @@ func sandboxCreateCmd() *cobra.Command {
 			}
 
 			if waitTimeout > 0 {
-				if err := waitForOpenClawReady(cmd.Context(), limactl, slug, waitTimeout); err != nil {
+				if err := waitForTemplateReady(cmd.Context(), limactl, slug, template, waitTimeout); err != nil {
 					return err
 				}
 			}
 
 			ipAddr, _ := lookupLimaInstanceIPv4(cmd.Context(), limactl, slug)
-			fmt.Fprintf(cmd.OutOrStdout(), "\nSandbox ready.\n")
-			printSandboxSummary(cmd, skysandbox.Record{
+			rec := skysandbox.Record{
 				Name:      displayName,
 				Slug:      slug,
 				Provider:  provider,
@@ -177,12 +198,10 @@ func sandboxCreateCmd() *cobra.Command {
 				Status:    "ready",
 				SharedDir: sharedDir,
 				IPAddress: ipAddr,
-				Shell:     fmt.Sprintf("limactl shell %s", slug),
-			})
-			maybeOpenSandboxUI(cmd, skysandbox.Record{
-				Slug:      slug,
-				IPAddress: ipAddr,
-			}, openUI)
+				Shell:     localSandboxShellCommand(template, slug),
+			}
+			printSandboxSummary(cmd, rec)
+			maybeOpenSandboxUI(cmd, rec, openUI)
 
 			return nil
 		},
@@ -190,9 +209,9 @@ func sandboxCreateCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&provider, "provider", "", "Sandbox provider to use")
 	cmd.Flags().StringVar(&template, "template", "", "Sandbox template/payload to install")
-	cmd.Flags().StringVar(&model, "model", "", "Override the default OpenClaw model for this sandbox")
-	cmd.Flags().DurationVar(&waitTimeout, "wait", openClawReadyTimeout, "How long to wait for the OpenClaw gateway, guest-local sky10 daemon, and guest OpenClaw agent registration after provisioning")
-	cmd.Flags().BoolVar(&openUI, "open", false, "Open the OpenClaw UI after the VM is ready when a direct URL is available")
+	cmd.Flags().StringVar(&model, "model", "", "Override the default model for supported sandbox templates")
+	cmd.Flags().DurationVar(&waitTimeout, "wait", openClawReadyTimeout, "How long to wait for the sandbox bootstrap to finish after provisioning")
+	cmd.Flags().BoolVar(&openUI, "open", false, "Open the sandbox web UI after the VM is ready when a direct URL is available")
 	_ = cmd.MarkFlagRequired("provider")
 	_ = cmd.MarkFlagRequired("template")
 	return cmd
@@ -263,31 +282,41 @@ func sandboxDaemonUnavailable(err error) bool {
 }
 
 func printSandboxSummary(cmd *cobra.Command, rec skysandbox.Record) {
-	sky10URL, openClawURL := sandboxURLs(rec)
-
 	fmt.Fprintf(cmd.OutOrStdout(), "\nSandbox ready.\n")
 	fmt.Fprintf(cmd.OutOrStdout(), "Name:       %s\n", rec.Name)
 	fmt.Fprintf(cmd.OutOrStdout(), "Runtime ID: %s\n", rec.Slug)
 	fmt.Fprintf(cmd.OutOrStdout(), "Provider:   %s\n", rec.Provider)
 	fmt.Fprintf(cmd.OutOrStdout(), "Template:   %s\n", rec.Template)
 	fmt.Fprintf(cmd.OutOrStdout(), "Shared dir: %s\n", rec.SharedDir)
-	fmt.Fprintf(cmd.OutOrStdout(), "Guest sky10: installed inside the guest and serving on http://127.0.0.1:9101\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:    installed inside the guest with Chromium, Xvfb, a local gateway on http://127.0.0.1:18789, and a bundled sky10 channel plugin\n")
 
-	if sky10URL != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "sky10 UI:   %s\n", sky10URL)
-	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "sky10 UI:   run 'limactl shell %s -- bash -lc \"ip -4 addr show dev lima0\"' to find the host-reachable guest IP\n", rec.Slug)
-	}
-	if openClawURL != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw UI:%s %s\n", strings.Repeat(" ", 2), openClawURL)
-	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw UI: run 'limactl shell %s -- bash -lc \"ip -4 addr show dev lima0\"' to find the host-reachable guest IP\n", rec.Slug)
+	switch rec.Template {
+	case sandboxTemplateHermes:
+		fmt.Fprintf(cmd.OutOrStdout(), "Hermes:     installed inside the guest with its CLI/TUI available via `hermes` and `hermes-shared`\n")
+		fmt.Fprintf(cmd.OutOrStdout(), "Launch:     limactl shell %s -- bash -lc 'hermes-shared'\n", rec.Slug)
+	default:
+		sky10URL, openClawURL := sandboxURLs(rec)
+		fmt.Fprintf(cmd.OutOrStdout(), "Guest sky10: installed inside the guest and serving on http://127.0.0.1:9101\n")
+		fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:    installed inside the guest with Chromium, Xvfb, a local gateway on http://127.0.0.1:18789, and a bundled sky10 channel plugin\n")
+
+		if sky10URL != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "sky10 UI:   %s\n", sky10URL)
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "sky10 UI:   run 'limactl shell %s -- bash -lc \"ip -4 addr show dev lima0\"' to find the host-reachable guest IP\n", rec.Slug)
+		}
+		if openClawURL != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw UI:%s %s\n", strings.Repeat(" ", 2), openClawURL)
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw UI: run 'limactl shell %s -- bash -lc \"ip -4 addr show dev lima0\"' to find the host-reachable guest IP\n", rec.Slug)
+		}
 	}
 }
 
 func maybeOpenSandboxUI(cmd *cobra.Command, rec skysandbox.Record, openUI bool) {
 	if !openUI {
+		return
+	}
+	if rec.Template == sandboxTemplateHermes {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: --open is not supported for the Hermes template yet\n")
 		return
 	}
 	_, openClawURL := sandboxURLs(rec)
@@ -301,10 +330,20 @@ func maybeOpenSandboxUI(cmd *cobra.Command, rec skysandbox.Record, openUI bool) 
 }
 
 func sandboxURLs(rec skysandbox.Record) (string, string) {
+	if rec.Template != sandboxTemplateOpenClaw {
+		return "", ""
+	}
 	if strings.TrimSpace(rec.IPAddress) == "" {
 		return "", ""
 	}
 	return fmt.Sprintf("http://%s:9101", rec.IPAddress), fmt.Sprintf("http://%s:18790/chat?session=main", rec.IPAddress)
+}
+
+func localSandboxShellCommand(template, slug string) string {
+	if template == sandboxTemplateHermes {
+		return fmt.Sprintf("limactl shell %s -- bash -lc 'hermes-shared'", slug)
+	}
+	return fmt.Sprintf("limactl shell %s", slug)
 }
 
 func validateSandboxCreate(provider, template string) error {
@@ -315,10 +354,38 @@ func validateSandboxCreate(provider, template string) error {
 		return fmt.Errorf("template is required")
 	case provider != sandboxProviderLima:
 		return fmt.Errorf("unsupported sandbox provider %q (supported: %s)", provider, sandboxProviderLima)
-	case template != sandboxTemplateOpenClaw:
-		return fmt.Errorf("unsupported sandbox template %q (supported: %s)", template, sandboxTemplateOpenClaw)
+	case template != sandboxTemplateOpenClaw && template != sandboxTemplateHermes:
+		return fmt.Errorf("unsupported sandbox template %q (supported: %s, %s)", template, sandboxTemplateOpenClaw, sandboxTemplateHermes)
 	default:
 		return nil
+	}
+}
+
+func limaTemplateDefinition(template string) (limaTemplateSpec, error) {
+	switch template {
+	case sandboxTemplateOpenClaw:
+		return limaTemplateSpec{
+			templateID:         template,
+			cacheDir:           agentLimaTemplateName,
+			mainAsset:          agentLimaTemplateYAML,
+			assets:             append([]string(nil), agentLimaAssetFiles...),
+			sharedAssetFiles:   append([]string(nil), agentLimaSharedPluginFiles...),
+			includeHostsHelper: true,
+		}, nil
+	case sandboxTemplateHermes:
+		return limaTemplateSpec{
+			templateID: template,
+			cacheDir:   agentLimaHermesName,
+			mainAsset:  agentLimaHermesYAML,
+			assets: []string{
+				agentLimaHermesYAML,
+				agentLimaHermesDep,
+				agentLimaHermesSys,
+				agentLimaHermesUser,
+			},
+		}, nil
+	default:
+		return limaTemplateSpec{}, fmt.Errorf("unsupported sandbox template %q", template)
 	}
 }
 
@@ -336,26 +403,30 @@ func slugifySandboxName(name string) string {
 	return strings.Join(parts, "-")
 }
 
-func materializeLimaAssets(ctx context.Context, sandboxName, sharedDir string) (string, []byte, error) {
+func materializeLimaAssets(ctx context.Context, sandboxName, sharedDir string, spec limaTemplateSpec) (string, []byte, error) {
 	root, err := config.RootDir()
 	if err != nil {
 		return "", nil, err
 	}
-	destDir := filepath.Join(root, "lima", "templates", agentLimaTemplateName)
+	destDir := filepath.Join(root, "lima", "templates", spec.cacheDir)
 	if err := os.MkdirAll(destDir, 0o700); err != nil {
 		return "", nil, fmt.Errorf("creating Lima template cache %q: %w", destDir, err)
 	}
-	templatePath := filepath.Join(destDir, sandboxName+"-"+agentLimaTemplateYAML)
+	templatePath := filepath.Join(destDir, sandboxName+"-"+spec.mainAsset)
+	assetNames := append([]string(nil), spec.assets...)
+	if spec.includeHostsHelper {
+		assetNames = append(assetNames, agentLimaHostsScript)
+	}
 
-	if localDir, err := findLocalLimaTemplateDir(); err == nil {
-		for _, assetName := range append(append([]string(nil), agentLimaAssetFiles...), agentLimaHostsScript) {
+	if localDir, err := findLocalLimaTemplateDir(spec); err == nil {
+		for _, assetName := range assetNames {
 			src := filepath.Join(localDir, assetName)
 			dst := filepath.Join(destDir, assetName)
 			mode := os.FileMode(0o644)
 			if strings.HasSuffix(assetName, ".sh") {
 				mode = 0o755
 			}
-			if assetName == agentLimaTemplateYAML {
+			if assetName == spec.mainAsset {
 				if err := copyAndRenderTemplate(src, templatePath, mode, sandboxName, sharedDir); err != nil {
 					return "", nil, err
 				}
@@ -365,6 +436,9 @@ func materializeLimaAssets(ctx context.Context, sandboxName, sharedDir string) (
 				return "", nil, err
 			}
 		}
+		if !spec.includeHostsHelper {
+			return templatePath, nil, nil
+		}
 		helper, err := os.ReadFile(filepath.Join(destDir, agentLimaHostsScript))
 		if err != nil {
 			return "", nil, fmt.Errorf("reading copied Lima hosts helper: %w", err)
@@ -372,7 +446,7 @@ func materializeLimaAssets(ctx context.Context, sandboxName, sharedDir string) (
 		return templatePath, helper, nil
 	}
 
-	for _, assetName := range append(append([]string(nil), agentLimaAssetFiles...), agentLimaHostsScript) {
+	for _, assetName := range assetNames {
 		body, err := downloadLimaAsset(ctx, assetName)
 		if err != nil {
 			return "", nil, err
@@ -391,6 +465,9 @@ func materializeLimaAssets(ctx context.Context, sandboxName, sharedDir string) (
 		}
 	}
 
+	if !spec.includeHostsHelper {
+		return templatePath, nil, nil
+	}
 	helper, err := os.ReadFile(filepath.Join(destDir, agentLimaHostsScript))
 	if err != nil {
 		return "", nil, fmt.Errorf("reading downloaded Lima hosts helper: %w", err)
@@ -415,7 +492,7 @@ func renderLimaTemplate(body []byte, name, sharedDir string) []byte {
 	return []byte(rendered)
 }
 
-func findLocalLimaTemplateDir() (string, error) {
+func findLocalLimaTemplateDir(spec limaTemplateSpec) (string, error) {
 	candidates := make([]string, 0, 2)
 	if cwd, err := os.Getwd(); err == nil {
 		candidates = append(candidates, cwd)
@@ -427,7 +504,7 @@ func findLocalLimaTemplateDir() (string, error) {
 	for _, start := range candidates {
 		for _, dir := range walkUp(start) {
 			templateDir := filepath.Join(dir, "templates", "lima")
-			if hasLimaTemplateAssets(templateDir) {
+			if hasLimaTemplateAssets(templateDir, spec) {
 				return templateDir, nil
 			}
 		}
@@ -449,8 +526,12 @@ func walkUp(start string) []string {
 	return dirs
 }
 
-func hasLimaTemplateAssets(dir string) bool {
-	for _, name := range append(append([]string(nil), agentLimaAssetFiles...), agentLimaHostsScript) {
+func hasLimaTemplateAssets(dir string, spec limaTemplateSpec) bool {
+	names := append([]string(nil), spec.assets...)
+	if spec.includeHostsHelper {
+		names = append(names, agentLimaHostsScript)
+	}
+	for _, name := range names {
 		info, err := os.Stat(filepath.Join(dir, name))
 		if err != nil || info.IsDir() {
 			return false
@@ -490,7 +571,7 @@ func downloadLimaAsset(ctx context.Context, name string) ([]byte, error) {
 	return body, nil
 }
 
-func prepareLimaSharedDir(sharedDir string, hostsScript []byte, pluginAssets map[string][]byte, resolvedEnv map[string]string) error {
+func prepareLimaSharedDir(template, sharedDir string, hostsScript []byte, sharedAssets map[string][]byte, resolvedEnv map[string]string) error {
 	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
 		return fmt.Errorf("creating shared Lima directory %q: %w", sharedDir, err)
 	}
@@ -500,8 +581,15 @@ func prepareLimaSharedDir(sharedDir string, hostsScript []byte, pluginAssets map
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("checking shared env file %q: %w", envPath, err)
 	}
-	if err := os.WriteFile(envPath, skysandbox.BuildOpenClawSharedEnv(existingEnv, resolvedEnv), 0o600); err != nil {
-		return fmt.Errorf("writing shared env file %q: %w", envPath, err)
+	switch template {
+	case sandboxTemplateOpenClaw:
+		if err := os.WriteFile(envPath, skysandbox.BuildOpenClawSharedEnv(existingEnv, resolvedEnv), 0o600); err != nil {
+			return fmt.Errorf("writing shared env file %q: %w", envPath, err)
+		}
+	case sandboxTemplateHermes:
+		if err := os.WriteFile(envPath, skysandbox.BuildHermesSharedEnv(existingEnv), 0o600); err != nil {
+			return fmt.Errorf("writing shared env file %q: %w", envPath, err)
+		}
 	}
 
 	helperPath := filepath.Join(sharedDir, agentLimaHostsScript)
@@ -511,7 +599,7 @@ func prepareLimaSharedDir(sharedDir string, hostsScript []byte, pluginAssets map
 		}
 	}
 
-	for relPath, body := range pluginAssets {
+	for relPath, body := range sharedAssets {
 		targetPath := filepath.Join(sharedDir, relPath)
 		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 			return fmt.Errorf("creating bundled plugin dir %q: %w", filepath.Dir(targetPath), err)
@@ -539,6 +627,28 @@ func waitForOpenClawReady(ctx context.Context, limactl, name string, timeout tim
 		"guest OpenClaw agent registration",
 		timeout,
 	)
+}
+
+func waitForHermesReady(ctx context.Context, limactl, name string, timeout time.Duration) error {
+	return waitForGuestCommand(
+		ctx,
+		limactl,
+		name,
+		`export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"; command -v hermes >/dev/null`,
+		"Hermes CLI",
+		timeout,
+	)
+}
+
+func waitForTemplateReady(ctx context.Context, limactl, name, template string, timeout time.Duration) error {
+	switch template {
+	case sandboxTemplateOpenClaw:
+		return waitForOpenClawReady(ctx, limactl, name, timeout)
+	case sandboxTemplateHermes:
+		return waitForHermesReady(ctx, limactl, name, timeout)
+	default:
+		return nil
+	}
 }
 
 func waitForGuestHTTPHealth(ctx context.Context, limactl, name, url, label string, timeout time.Duration) error {
@@ -572,10 +682,13 @@ func waitForGuestCommand(ctx context.Context, limactl, name, script, label strin
 	}
 }
 
-func loadLimaSharedPluginAssets(ctx context.Context) (map[string][]byte, error) {
-	assets := make(map[string][]byte, len(agentLimaSharedPluginFiles))
-	if localDir, err := findLocalLimaTemplateDir(); err == nil {
-		for _, assetName := range agentLimaSharedPluginFiles {
+func loadLimaSharedAssets(ctx context.Context, spec limaTemplateSpec) (map[string][]byte, error) {
+	assets := make(map[string][]byte, len(spec.sharedAssetFiles))
+	if len(spec.sharedAssetFiles) == 0 {
+		return assets, nil
+	}
+	if localDir, err := findLocalLimaTemplateDir(spec); err == nil {
+		for _, assetName := range spec.sharedAssetFiles {
 			body, err := os.ReadFile(filepath.Join(localDir, assetName))
 			if err != nil {
 				return nil, fmt.Errorf("reading local Lima shared asset %q: %w", assetName, err)
@@ -585,7 +698,7 @@ func loadLimaSharedPluginAssets(ctx context.Context) (map[string][]byte, error) 
 		return assets, nil
 	}
 
-	for _, assetName := range agentLimaSharedPluginFiles {
+	for _, assetName := range spec.sharedAssetFiles {
 		body, err := downloadLimaAsset(ctx, assetName)
 		if err != nil {
 			return nil, err

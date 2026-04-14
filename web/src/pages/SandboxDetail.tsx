@@ -420,7 +420,9 @@ export default function SandboxDetail() {
           </div>
 
           <p className="text-sm text-secondary">
-            Open a shell inside the sandbox or copy the host command.
+            {selected?.template === "hermes"
+              ? "Open a shell inside the sandbox or copy the host command that launches the Hermes TUI directly."
+              : "Open a shell inside the sandbox or copy the host command."}
           </p>
 
           {copyMessage && (

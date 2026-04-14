@@ -36,6 +36,11 @@ const (
 	templateOpenClawDep            = "openclaw-sky10.dependency.sh"
 	templateOpenClawSys            = "openclaw-sky10.system.sh"
 	templateOpenClawUser           = "openclaw-sky10.user.sh"
+	templateHermes                 = "hermes"
+	templateHermesYAML             = "hermes-sky10.yaml"
+	templateHermesDep              = "hermes-sky10.dependency.sh"
+	templateHermesSys              = "hermes-sky10.system.sh"
+	templateHermesUser             = "hermes-sky10.user.sh"
 	templateHostsHelper            = "update-lima-hosts.sh"
 	templateOpenClawPluginDir      = "openclaw-sky10-channel"
 	templateOpenClawPluginPackage  = templateOpenClawPluginDir + "/package.json"
@@ -476,7 +481,7 @@ func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, err
 		Model:     model,
 		Status:    "creating",
 		SharedDir: sharedDir,
-		Shell:     fmt.Sprintf("limactl shell %s", slug),
+		Shell:     defaultShellCommand(slug, template),
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -570,7 +575,7 @@ func (m *Manager) Ensure(ctx context.Context, params CreateParams) (*Record, err
 			Status:    sandboxStatusFromVMStatus(vmStatus),
 			VMStatus:  vmStatus,
 			SharedDir: sharedDir,
-			Shell:     fmt.Sprintf("limactl shell %s", slug),
+			Shell:     defaultShellCommand(slug, template),
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
@@ -757,7 +762,7 @@ func (m *Manager) buildStartArgs(_ context.Context, rec Record, templatePath str
 		"--progress",
 		"--name", rec.Slug,
 	}
-	if rec.Template == templateOpenClaw && strings.TrimSpace(rec.Model) != "" {
+	if (rec.Template == templateOpenClaw || rec.Template == templateHermes) && strings.TrimSpace(rec.Model) != "" {
 		args = append(args, "--set", fmt.Sprintf(".param.model = %q", strings.TrimSpace(rec.Model)))
 	}
 	args = append(args, templatePath)
@@ -788,6 +793,11 @@ func (m *Manager) finishReady(ctx context.Context, name, limactl string) error {
 			return err
 		}
 		if err := m.ensureHostConnectedGuestAgent(ctx, *updatedRec, hostIdentity); err != nil {
+			return err
+		}
+	}
+	if rec.Template == templateHermes {
+		if err := waitForGuestHermesCLI(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
 			return err
 		}
 	}
@@ -887,7 +897,11 @@ func (m *Manager) materializeTemplate(ctx context.Context, rec Record) (string, 
 }
 
 func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) error {
-	if rec.Template != templateOpenClaw {
+	switch rec.Template {
+	case templateHermes:
+		return prepareHermesSharedDir(rec.SharedDir)
+	case templateOpenClaw:
+	default:
 		if err := os.MkdirAll(rec.SharedDir, 0o755); err != nil {
 			return fmt.Errorf("creating shared directory: %w", err)
 		}
@@ -1158,8 +1172,8 @@ func normalizeCreateParams(params CreateParams) (displayName, slug, provider, te
 		err = checkErr
 		return
 	}
-	if template == templateOpenClaw && runtime.GOOS != "darwin" {
-		err = fmt.Errorf("sandbox template %q is macOS-only for now (the current Lima template uses vz)", templateOpenClaw)
+	if (template == templateOpenClaw || template == templateHermes) && runtime.GOOS != "darwin" {
+		err = fmt.Errorf("sandbox template %q is macOS-only for now (the current Lima template uses vz)", template)
 		return
 	}
 	sharedDir, err = defaultSharedDir(slug)
@@ -1204,6 +1218,13 @@ func cleanupLimaInstanceDir(name string) error {
 	return nil
 }
 
+func defaultShellCommand(slug, template string) string {
+	if template == templateHermes {
+		return fmt.Sprintf("limactl shell %s -- bash -lc 'hermes-shared'", slug)
+	}
+	return fmt.Sprintf("limactl shell %s", slug)
+}
+
 func renderSandboxTemplate(body []byte, name, sharedDir string) []byte {
 	rendered := strings.ReplaceAll(string(body), templateNameToken, name)
 	rendered = strings.ReplaceAll(rendered, templateSharedToken, sharedDir)
@@ -1227,8 +1248,18 @@ func sandboxTemplateDefinition(template string) (templateDefinition, error) {
 				templateOpenClawUser,
 			},
 		}, nil
+	case templateHermes:
+		return templateDefinition{
+			mainAsset: templateHermesYAML,
+			assets: []string{
+				templateHermesYAML,
+				templateHermesDep,
+				templateHermesSys,
+				templateHermesUser,
+			},
+		}, nil
 	default:
-		return templateDefinition{}, fmt.Errorf("unsupported sandbox template %q (supported: %s, %s)", template, templateUbuntu, templateOpenClaw)
+		return templateDefinition{}, fmt.Errorf("unsupported sandbox template %q (supported: %s, %s, %s)", template, templateUbuntu, templateOpenClaw, templateHermes)
 	}
 }
 
@@ -1278,6 +1309,23 @@ func prepareOpenClawSharedDir(sharedDir string, hostsHelper []byte, pluginAssets
 		if err := os.WriteFile(targetPath, body, 0o644); err != nil {
 			return fmt.Errorf("writing bundled plugin asset %q: %w", relPath, err)
 		}
+	}
+
+	return nil
+}
+
+func prepareHermesSharedDir(sharedDir string) error {
+	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
+		return fmt.Errorf("creating shared directory: %w", err)
+	}
+
+	envPath := filepath.Join(sharedDir, ".env")
+	existingEnv, err := os.ReadFile(envPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("checking shared env file: %w", err)
+	}
+	if err := os.WriteFile(envPath, BuildHermesSharedEnv(existingEnv), 0o600); err != nil {
+		return fmt.Errorf("writing shared env file: %w", err)
 	}
 
 	return nil
@@ -1704,6 +1752,23 @@ func waitForGuestOpenClawAgent(
 		name,
 		fmt.Sprintf(`curl -fsS http://127.0.0.1:9101/rpc -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"agent.list","params":{},"id":1}' | grep -F '"name":"%s"' >/dev/null`, name),
 		"guest OpenClaw agent registration",
+		timeout,
+	)
+}
+
+func waitForGuestHermesCLI(
+	ctx context.Context,
+	outputCmd func(context.Context, string, []string) ([]byte, error),
+	limactl, name string,
+	timeout time.Duration,
+) error {
+	return waitForGuestCommand(
+		ctx,
+		outputCmd,
+		limactl,
+		name,
+		`export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"; command -v hermes >/dev/null`,
+		"Hermes CLI",
 		timeout,
 	)
 }

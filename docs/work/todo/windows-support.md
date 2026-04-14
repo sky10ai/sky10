@@ -85,7 +85,7 @@ Tracking all work needed to run sky10 on Windows.
 
 ## 10. Agent Bootstrap Runtimes
 
-**Current gap: `sky10 sandbox create ... --provider lima --template openclaw` is macOS-only because the template uses Lima `vz`.**
+**Current gap: `sky10 sandbox create ... --provider lima --template openclaw|hermes` is macOS-only because the templates use Lima `vz`.**
 
 - [ ] Define the Windows equivalent of agent sandbox/bootstrap
 - [ ] Decide whether that is WSL, a local host sandbox, or a packaged VM runtime

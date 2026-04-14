@@ -37,8 +37,16 @@ export default function Sandboxes() {
   const sandboxes = listData?.sandboxes ?? [];
   const templateConfig = sandboxTemplateById(selectedTemplate);
   const draftSlug = sandboxSlug(draftName);
-  const creatingLabel = templateConfig.id === "openclaw" ? "Create OpenClaw" : "Provision Sandbox";
-  const creatingBusyLabel = templateConfig.id === "openclaw" ? "Creating OpenClaw..." : "Provisioning...";
+  const creatingLabel = templateConfig.id === "openclaw"
+    ? "Create OpenClaw"
+    : templateConfig.id === "hermes"
+      ? "Create Hermes"
+      : "Provision Sandbox";
+  const creatingBusyLabel = templateConfig.id === "openclaw"
+    ? "Creating OpenClaw..."
+    : templateConfig.id === "hermes"
+      ? "Creating Hermes..."
+      : "Provisioning...";
 
   useEffect(() => {
     if (requestedTemplate.id === selectedTemplate) return;
@@ -191,6 +199,15 @@ export default function Sandboxes() {
                   </p>
                   <p>
                     It also loads the bundled <code>sky10</code> OpenClaw channel and waits for the guest agent to register on the guest-local daemon. sky10 network join comes later.
+                  </p>
+                </>
+              ) : templateConfig.id === "hermes" ? (
+                <>
+                  <p>
+                    The Hermes template installs Hermes Agent inside the guest, links the shared <code>/shared/.env</code> file into <code>~/.hermes/.env</code>, and adds a <code>hermes-shared</code> helper that launches the TUI from the shared workspace.
+                  </p>
+                  <p>
+                    This first cut is intentionally local-only: it gives you a working Hermes runtime in the sandbox terminal without wiring Hermes into sky10 message routing yet.
                   </p>
                 </>
               ) : (

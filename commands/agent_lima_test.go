@@ -42,14 +42,18 @@ func TestHasLimaTemplateAssets(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	for _, name := range append(append([]string(nil), agentLimaAssetFiles...), agentLimaHostsScript) {
+	spec, err := limaTemplateDefinition(sandboxTemplateOpenClaw)
+	if err != nil {
+		t.Fatalf("limaTemplateDefinition(openclaw): %v", err)
+	}
+	for _, name := range append(append([]string(nil), spec.assets...), agentLimaHostsScript) {
 		path := filepath.Join(dir, name)
 		if err := os.WriteFile(path, []byte(name), 0o644); err != nil {
 			t.Fatalf("WriteFile(%q): %v", path, err)
 		}
 	}
 
-	if !hasLimaTemplateAssets(dir) {
+	if !hasLimaTemplateAssets(dir, spec) {
 		t.Fatal("hasLimaTemplateAssets() = false, want true")
 	}
 }
@@ -59,6 +63,9 @@ func TestValidateSandboxCreate(t *testing.T) {
 
 	if err := validateSandboxCreate(sandboxProviderLima, sandboxTemplateOpenClaw); err != nil {
 		t.Fatalf("validateSandboxCreate(valid): %v", err)
+	}
+	if err := validateSandboxCreate(sandboxProviderLima, sandboxTemplateHermes); err != nil {
+		t.Fatalf("validateSandboxCreate(hermes): %v", err)
 	}
 	if err := validateSandboxCreate("docker", sandboxTemplateOpenClaw); err == nil {
 		t.Fatal("validateSandboxCreate(docker): want error")
@@ -93,7 +100,7 @@ func TestPrepareLimaSharedDir(t *testing.T) {
 		agentLimaPluginManifest: []byte(`{"id":"sky10"}` + "\n"),
 		agentLimaPluginIndex:    []byte("export default function register() {}\n"),
 	}
-	if err := prepareLimaSharedDir(sharedDir, []byte("#!/bin/sh\n"), pluginAssets, map[string]string{
+	if err := prepareLimaSharedDir(sandboxTemplateOpenClaw, sharedDir, []byte("#!/bin/sh\n"), pluginAssets, map[string]string{
 		"OPENAI_API_KEY": "openai-key",
 	}); err != nil {
 		t.Fatalf("prepareLimaSharedDir() error: %v", err)
@@ -117,10 +124,31 @@ func TestPrepareLimaSharedDir(t *testing.T) {
 	}
 }
 
+func TestPrepareLimaSharedDirHermes(t *testing.T) {
+	t.Parallel()
+
+	sharedDir := t.TempDir()
+	if err := prepareLimaSharedDir(sandboxTemplateHermes, sharedDir, nil, nil, nil); err != nil {
+		t.Fatalf("prepareLimaSharedDir(hermes) error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(sharedDir, ".env"))
+	if err != nil {
+		t.Fatalf("ReadFile(.env) error: %v", err)
+	}
+	if !strings.Contains(string(data), "Optional provider keys for Hermes") {
+		t.Fatalf(".env = %q, want Hermes header", string(data))
+	}
+}
+
 func TestOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	t.Parallel()
 
-	dir, err := findLocalLimaTemplateDir()
+	spec, err := limaTemplateDefinition(sandboxTemplateOpenClaw)
+	if err != nil {
+		t.Fatalf("limaTemplateDefinition(openclaw): %v", err)
+	}
+	dir, err := findLocalLimaTemplateDir(spec)
 	if err != nil {
 		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
 	}
@@ -185,7 +213,11 @@ func TestOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 func TestOpenClawDependencyScriptPersistsRouteMetrics(t *testing.T) {
 	t.Parallel()
 
-	dir, err := findLocalLimaTemplateDir()
+	spec, err := limaTemplateDefinition(sandboxTemplateOpenClaw)
+	if err != nil {
+		t.Fatalf("limaTemplateDefinition(openclaw): %v", err)
+	}
+	dir, err := findLocalLimaTemplateDir(spec)
 	if err != nil {
 		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
 	}
@@ -209,7 +241,11 @@ func TestOpenClawDependencyScriptPersistsRouteMetrics(t *testing.T) {
 func TestOpenClawSystemScriptPinsOpenClawVersion(t *testing.T) {
 	t.Parallel()
 
-	dir, err := findLocalLimaTemplateDir()
+	spec, err := limaTemplateDefinition(sandboxTemplateOpenClaw)
+	if err != nil {
+		t.Fatalf("limaTemplateDefinition(openclaw): %v", err)
+	}
+	dir, err := findLocalLimaTemplateDir(spec)
 	if err != nil {
 		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
 	}
@@ -236,7 +272,11 @@ func TestOpenClawSystemScriptPinsOpenClawVersion(t *testing.T) {
 func TestOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	t.Parallel()
 
-	dir, err := findLocalLimaTemplateDir()
+	spec, err := limaTemplateDefinition(sandboxTemplateOpenClaw)
+	if err != nil {
+		t.Fatalf("limaTemplateDefinition(openclaw): %v", err)
+	}
+	dir, err := findLocalLimaTemplateDir(spec)
 	if err != nil {
 		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
 	}
@@ -276,5 +316,30 @@ func TestOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	}
 	if strings.Contains(string(indexBody), `/v1/responses`) {
 		t.Fatalf("plugin index should not self-call the gateway responses API: %q", string(indexBody))
+	}
+}
+
+func TestHermesUserScriptInstallsHelper(t *testing.T) {
+	t.Parallel()
+
+	spec, err := limaTemplateDefinition(sandboxTemplateHermes)
+	if err != nil {
+		t.Fatalf("limaTemplateDefinition(hermes): %v", err)
+	}
+	dir, err := findLocalLimaTemplateDir(spec)
+	if err != nil {
+		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(dir, agentLimaHermesUser))
+	if err != nil {
+		t.Fatalf("ReadFile(user script) error: %v", err)
+	}
+	script := string(body)
+	if !strings.Contains(script, "hermes-shared") {
+		t.Fatalf("user script missing helper command: %q", script)
+	}
+	if !strings.Contains(script, "hermes config set terminal.cwd /shared") {
+		t.Fatalf("user script missing shared cwd config: %q", script)
 	}
 }
