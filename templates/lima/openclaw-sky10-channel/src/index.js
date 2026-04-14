@@ -8,15 +8,25 @@
 
 import { Sky10Client } from "./sky10.js";
 
-let client;
-let agentId;
-let heartbeatTimer;
-let sseConnection = null;
-let runtimeInitPromise = null;
-let shutdownRequested = false;
-
-const seenIds = new Map();
+const GLOBAL_STATE_KEY = Symbol.for("sky10.openclaw.bridge");
 const DEDUP_TTL_MS = 30_000;
+
+function getBridgeState() {
+  const globalScope = globalThis;
+  if (!globalScope[GLOBAL_STATE_KEY]) {
+    globalScope[GLOBAL_STATE_KEY] = {
+      client: null,
+      agentId: null,
+      heartbeatTimer: null,
+      sseConnection: null,
+      runtimeInitPromise: null,
+      shutdownRequested: false,
+      serviceRefs: 0,
+      seenIds: new Map(),
+    };
+  }
+  return globalScope[GLOBAL_STATE_KEY];
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -47,28 +57,34 @@ function resolveConfig(api) {
 }
 
 function stopRuntime() {
-  if (heartbeatTimer) {
-    clearInterval(heartbeatTimer);
-    heartbeatTimer = null;
+  const state = getBridgeState();
+  if (state.heartbeatTimer) {
+    clearInterval(state.heartbeatTimer);
+    state.heartbeatTimer = null;
   }
-  if (sseConnection) {
-    sseConnection.close();
-    sseConnection = null;
+  if (state.sseConnection) {
+    state.sseConnection.close();
+    state.sseConnection = null;
   }
-  runtimeInitPromise = null;
+  state.runtimeInitPromise = null;
 }
 
 async function ensureRegistered(log, cfg) {
-  const reg = await client.register(cfg.agentName, cfg.skills);
-  agentId = reg.agent_id;
-  log.info(`sky10: registered as ${agentId} (${cfg.agentName})`);
+  const state = getBridgeState();
+  const reg = await state.client.register(cfg.agentName, cfg.skills);
+  state.agentId = reg.agent_id;
+  log.info(`sky10: registered as ${state.agentId} (${cfg.agentName})`);
 }
 
 function startHeartbeat(log, cfg) {
-  if (heartbeatTimer) return;
-  heartbeatTimer = setInterval(async () => {
+  const state = getBridgeState();
+  if (state.heartbeatTimer) return;
+  state.heartbeatTimer = setInterval(async () => {
     try {
-      await client.heartbeat(agentId);
+      if (!state.agentId) {
+        return;
+      }
+      await state.client.heartbeat(state.agentId);
     } catch {
       log.warn("sky10: heartbeat failed, re-registering");
       try {
@@ -90,7 +106,8 @@ function waitForAbort(signal) {
 }
 
 async function bootstrapRuntime(log, cfg) {
-  while (!shutdownRequested) {
+  const state = getBridgeState();
+  while (!state.shutdownRequested) {
     try {
       await ensureRuntime(log, cfg);
       return;
@@ -102,30 +119,32 @@ async function bootstrapRuntime(log, cfg) {
 }
 
 async function ensureRuntime(log, cfg) {
-  if (shutdownRequested) {
+  const state = getBridgeState();
+  if (state.shutdownRequested) {
     throw new Error("plugin is shutting down");
   }
-  if (runtimeInitPromise) return runtimeInitPromise;
-  runtimeInitPromise = (async () => {
-    client ??= new Sky10Client(cfg.rpcUrl);
+  if (state.runtimeInitPromise) return state.runtimeInitPromise;
+  state.runtimeInitPromise = (async () => {
+    state.client ??= new Sky10Client(cfg.rpcUrl);
     await ensureRegistered(log, cfg);
     startHeartbeat(log, cfg);
-    if (!sseConnection) {
+    if (!state.sseConnection) {
       startListener(log, cfg);
     }
   })().catch((err) => {
-    runtimeInitPromise = null;
+    state.runtimeInitPromise = null;
     throw err;
   });
-  return runtimeInitPromise;
+  return state.runtimeInitPromise;
 }
 
 export default function register(api) {
   const log = makeLogger(api);
   const cfg = resolveConfig(api);
+  const state = getBridgeState();
 
   log.info(`sky10: config = ${JSON.stringify(cfg)}`);
-  client = new Sky10Client(cfg.rpcUrl);
+  state.client = new Sky10Client(cfg.rpcUrl);
 
   if (api.registrationMode === "cli-metadata") {
     return;
@@ -146,12 +165,16 @@ export default function register(api) {
     api.registerService({
       id: "sky10-bridge",
       start: async () => {
-        shutdownRequested = false;
+        state.serviceRefs += 1;
+        state.shutdownRequested = false;
         await bootstrapRuntime(log, cfg);
       },
       stop: async () => {
-        shutdownRequested = true;
-        stopRuntime();
+        state.serviceRefs = Math.max(0, state.serviceRefs - 1);
+        if (state.serviceRefs === 0) {
+          state.shutdownRequested = true;
+          stopRuntime();
+        }
       },
     });
     log.info("sky10: bridge service registered");
@@ -282,21 +305,22 @@ function drainSSEBuffer(buffer, onEvent) {
 
 function handleAgentMessage(log, cfg, data) {
   try {
+    const state = getBridgeState();
     const parsed = JSON.parse(data);
     const msg = parsed.data ?? parsed;
 
-    if (msg.to !== agentId && msg.to !== cfg.agentName) {
+    if (msg.to !== state.agentId && msg.to !== cfg.agentName) {
       return;
     }
 
     const msgId = msg.id || `${msg.session_id}:${msg.from}:${msg.timestamp ?? ""}`;
-    if (seenIds.has(msgId)) {
+    if (state.seenIds.has(msgId)) {
       return;
     }
-    seenIds.set(msgId, Date.now());
-    for (const [key, ts] of seenIds) {
+    state.seenIds.set(msgId, Date.now());
+    for (const [key, ts] of state.seenIds) {
       if (Date.now() - ts > DEDUP_TTL_MS) {
-        seenIds.delete(key);
+        state.seenIds.delete(key);
       }
     }
 
@@ -308,11 +332,12 @@ function handleAgentMessage(log, cfg, data) {
 }
 
 function startListener(log, cfg) {
-  const url = client.sseUrl();
+  const state = getBridgeState();
+  const url = state.client.sseUrl();
   const controller = new AbortController();
   let closed = false;
 
-  sseConnection = {
+  state.sseConnection = {
     close() {
       closed = true;
       controller.abort();
@@ -321,7 +346,7 @@ function startListener(log, cfg) {
 
   void (async () => {
     const decoder = new TextDecoder();
-    while (!closed && !shutdownRequested) {
+    while (!closed && !state.shutdownRequested) {
       try {
         const response = await fetch(url, {
           headers: {
@@ -340,7 +365,7 @@ function startListener(log, cfg) {
         log.info(`sky10: SSE connected to ${url}`);
         let buffer = "";
         const reader = response.body.getReader();
-        while (!closed && !shutdownRequested) {
+        while (!closed && !state.shutdownRequested) {
           const { value, done } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -352,19 +377,19 @@ function startListener(log, cfg) {
         }
         reader.releaseLock?.();
       } catch (err) {
-        if (closed || controller.signal.aborted || shutdownRequested) {
+        if (closed || controller.signal.aborted || state.shutdownRequested) {
           return;
         }
         log.warn(`sky10: SSE connection lost: ${err?.message ?? err}; reconnecting in 5s`);
       }
 
-      if (closed || controller.signal.aborted || shutdownRequested) {
+      if (closed || controller.signal.aborted || state.shutdownRequested) {
         return;
       }
       await sleep(5_000);
     }
   })().catch((err) => {
-    if (!closed && !controller.signal.aborted && !shutdownRequested) {
+    if (!closed && !controller.signal.aborted && !state.shutdownRequested) {
       log.error(`sky10: SSE loop crashed: ${err?.message ?? err}`);
     }
   });

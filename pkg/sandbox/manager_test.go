@@ -293,6 +293,9 @@ func TestBundledOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	if !strings.Contains(string(indexBody), `api.registerService({`) {
 		t.Fatalf("bundled plugin index missing bridge service registration: %q", string(indexBody))
 	}
+	if !strings.Contains(string(indexBody), `Symbol.for("sky10.openclaw.bridge")`) {
+		t.Fatalf("bundled plugin index missing global bridge singleton: %q", string(indexBody))
+	}
 	if strings.Contains(string(indexBody), `startAccount: async`) {
 		t.Fatalf("bundled plugin index should not register a gateway account runtime: %q", string(indexBody))
 	}
