@@ -43,6 +43,7 @@ type DaemonV2_5 struct {
 	localLog         *opslog.LocalOpsLog
 	outbox           *SyncLog[OutboxEntry]
 	config           DaemonConfig
+	driveDir         string
 	logger           *slog.Logger
 	onEvent          func(string, map[string]any)
 }
@@ -63,6 +64,9 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 		driveDir = filepath.Dir(config.ManifestPath)
 	}
 	os.MkdirAll(driveDir, 0700)
+	if err := ensureTransferWorkspace(driveDir); err != nil {
+		return nil, fmt.Errorf("creating transfer workspace: %w", err)
+	}
 
 	outboxPath := filepath.Join(driveDir, "outbox.jsonl")
 	opsLogPath := filepath.Join(driveDir, "ops.jsonl")
@@ -134,6 +138,7 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 		localLog:         localLog,
 		outbox:           outbox,
 		config:           config,
+		driveDir:         driveDir,
 		logger:           logger,
 		onEvent:          func(string, map[string]any) {},
 	}
@@ -159,9 +164,25 @@ func (d *DaemonV2_5) emitEvent(event string, data map[string]any) {
 	}
 }
 
+func (d *DaemonV2_5) prepareTransferWorkspace() {
+	if err := ensureTransferWorkspace(d.driveDir); err != nil {
+		d.logger.Warn("transfer workspace setup failed", "error", err)
+		return
+	}
+	removed, err := cleanupStagingDir(transferStagingDir(d.driveDir))
+	if err != nil {
+		d.logger.Warn("stale staging cleanup failed", "error", err)
+		return
+	}
+	if removed > 0 {
+		d.logger.Info("stale staging cleaned", "removed", removed, "drive", d.config.DriveName)
+	}
+}
+
 // Run starts all goroutines and blocks until context is cancelled.
 func (d *DaemonV2_5) Run(ctx context.Context) error {
 	d.logger.Info("daemon starting", "root", d.config.LocalRoot)
+	d.prepareTransferWorkspace()
 
 	// Resolve namespace encryption key for snapshot upload/download.
 	if err := d.resolveSnapshotKey(ctx); err != nil {
@@ -204,6 +225,7 @@ func (d *DaemonV2_5) Run(ctx context.Context) error {
 
 // SyncOnce does a one-shot sync: seed, poll, reconcile, drain, upload.
 func (d *DaemonV2_5) SyncOnce(ctx context.Context) {
+	d.prepareTransferWorkspace()
 	d.resolveSnapshotKey(ctx)
 	d.seedStateFromDisk()
 	d.snapshotPoller.pollOnce(ctx)

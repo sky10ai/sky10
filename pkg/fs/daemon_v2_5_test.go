@@ -114,6 +114,74 @@ func TestDaemonV25SetsPerDriveReconcilerStagingDir(t *testing.T) {
 	}
 }
 
+func TestDaemonV25CreatesTransferWorkspaceDirs(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	cfg := DaemonConfig{
+		SyncConfig:  SyncConfig{LocalRoot: localDir},
+		DriveID:     "test_transfer_workspace",
+		PollSeconds: 300,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatalf("creating daemon: %v", err)
+	}
+
+	for _, dir := range []string{
+		transferStagingDir(daemon.driveDir),
+		transferObjectsDir(daemon.driveDir),
+		transferSessionsDir(daemon.driveDir),
+	} {
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatalf("stat %s: %v", dir, err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("%s should be a directory", dir)
+		}
+	}
+}
+
+func TestDaemonV25SyncOnceCleansStaleStagingFiles(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	cfg := DaemonConfig{
+		SyncConfig:  SyncConfig{LocalRoot: localDir},
+		DriveID:     "test_transfer_cleanup",
+		PollSeconds: 300,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatalf("creating daemon: %v", err)
+	}
+
+	stagingDir := transferStagingDir(daemon.driveDir)
+	stalePath := filepath.Join(stagingDir, "stale-upload.tmp")
+	if err := os.WriteFile(stalePath, []byte("stale"), 0600); err != nil {
+		t.Fatalf("write stale file: %v", err)
+	}
+
+	daemon.SyncOnce(context.Background())
+
+	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
+		t.Fatalf("stale staging file should be removed on startup, stat err=%v", err)
+	}
+}
+
 // DaemonV2.5 should detect a pre-existing file and upload it to S3.
 func TestDaemonV25SeedsFromDisk(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

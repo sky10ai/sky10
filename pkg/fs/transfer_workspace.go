@@ -22,6 +22,60 @@ func transferStagingDir(baseDir string) string {
 	return filepath.Join(dir, "staging")
 }
 
+func transferObjectsDir(baseDir string) string {
+	dir := transferDir(baseDir)
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "objects")
+}
+
+func transferSessionsDir(baseDir string) string {
+	dir := transferDir(baseDir)
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "sessions")
+}
+
+func ensureTransferWorkspace(baseDir string) error {
+	for _, dir := range []string{
+		transferStagingDir(baseDir),
+		transferObjectsDir(baseDir),
+		transferSessionsDir(baseDir),
+	} {
+		if dir == "" {
+			return fmt.Errorf("transfer workspace base dir is required")
+		}
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return fmt.Errorf("creating transfer workspace %s: %w", dir, err)
+		}
+	}
+	return nil
+}
+
+func cleanupStagingDir(stagingDir string) (int, error) {
+	if stagingDir == "" {
+		return 0, fmt.Errorf("staging dir is required")
+	}
+	entries, err := os.ReadDir(stagingDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("reading staging dir: %w", err)
+	}
+	removed := 0
+	for _, entry := range entries {
+		path := filepath.Join(stagingDir, entry.Name())
+		if err := os.RemoveAll(path); err != nil {
+			return removed, fmt.Errorf("removing stale staging path %s: %w", path, err)
+		}
+		removed++
+	}
+	return removed, nil
+}
+
 func createStagingTempFile(stagingDir, pattern string) (*os.File, string, error) {
 	if stagingDir == "" {
 		return nil, "", fmt.Errorf("staging dir is required")
