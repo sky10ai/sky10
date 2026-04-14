@@ -6,10 +6,16 @@
  * outbound channel account for direct sends.
  */
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { Sky10Client } from "./sky10.js";
 
 const GLOBAL_STATE_KEY = Symbol.for("sky10.openclaw.bridge");
 const DEDUP_TTL_MS = 30_000;
+const CLAIM_PRUNE_INTERVAL_MS = 60_000;
+const CLAIM_DIR = path.join(os.homedir(), ".openclaw", ".sky10-bridge-seen");
 
 function getBridgeState() {
   const globalScope = globalThis;
@@ -19,9 +25,11 @@ function getBridgeState() {
       agentId: null,
       heartbeatTimer: null,
       sseConnection: null,
+      serviceRegistered: false,
       runtimeInitPromise: null,
       shutdownRequested: false,
       serviceRefs: 0,
+      lastClaimPruneAt: 0,
       seenIds: new Map(),
     };
   }
@@ -32,6 +40,66 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isGatewayProcess() {
+  const title = String(process.title ?? "").toLowerCase();
+  if (title.startsWith("openclaw-gateway")) {
+    return true;
+  }
+  const argv0 = path.basename(process.argv0 ?? process.argv?.[0] ?? "").toLowerCase();
+  return argv0.startsWith("openclaw-gateway");
+}
+
+function claimPathFor(msgId) {
+  return path.join(CLAIM_DIR, encodeURIComponent(msgId));
+}
+
+function pruneClaimFiles(now) {
+  const state = getBridgeState();
+  if (now - state.lastClaimPruneAt < CLAIM_PRUNE_INTERVAL_MS) {
+    return;
+  }
+  state.lastClaimPruneAt = now;
+  try {
+    fs.mkdirSync(CLAIM_DIR, { recursive: true });
+    for (const name of fs.readdirSync(CLAIM_DIR)) {
+      const filePath = path.join(CLAIM_DIR, name);
+      const stat = fs.statSync(filePath, { throwIfNoEntry: false });
+      if (!stat) continue;
+      if (now - stat.mtimeMs > DEDUP_TTL_MS) {
+        fs.rmSync(filePath, { force: true });
+      }
+    }
+  } catch {
+    // Best-effort cleanup only.
+  }
+}
+
+function claimMessage(msgId) {
+  const now = Date.now();
+  const state = getBridgeState();
+  pruneClaimFiles(now);
+  if (state.seenIds.has(msgId)) {
+    return false;
+  }
+  try {
+    fs.mkdirSync(CLAIM_DIR, { recursive: true });
+    const fd = fs.openSync(claimPathFor(msgId), "wx");
+    fs.closeSync(fd);
+  } catch (err) {
+    if (err?.code === "EEXIST") {
+      return false;
+    }
+    throw err;
+  }
+  state.seenIds.set(msgId, now);
+  for (const [key, ts] of state.seenIds) {
+    if (now - ts > DEDUP_TTL_MS) {
+      state.seenIds.delete(key);
+    }
+  }
+  return true;
+}
+
 function makeLogger(api) {
   const base = api?.logger ?? console;
   return {
@@ -39,10 +107,6 @@ function makeLogger(api) {
     warn: (...args) => (base.warn ?? console.warn).call(base, ...args),
     error: (...args) => (base.error ?? console.error).call(base, ...args),
   };
-}
-
-function resolveAccount(cfg, accountId) {
-  return { accountId: accountId ?? cfg.agentName };
 }
 
 function resolveConfig(api) {
@@ -140,24 +204,27 @@ async function ensureRuntime(log, cfg) {
 
 export default function register(api) {
   const log = makeLogger(api);
+
+  if (api.registrationMode === "cli-metadata") {
+    return;
+  }
+
+  if (api.registrationMode !== "full") {
+    return;
+  }
+
+  if (!isGatewayProcess()) {
+    return;
+  }
+
   const cfg = resolveConfig(api);
   const state = getBridgeState();
 
   log.info(`sky10: config = ${JSON.stringify(cfg)}`);
   state.client = new Sky10Client(cfg.rpcUrl);
 
-  if (api.registrationMode === "cli-metadata") {
-    return;
-  }
-
-  try {
-    api.registerChannel({ plugin: createChannel(api, cfg, log) });
-    log.info("sky10: channel registered");
-  } catch (err) {
-    log.warn(`sky10: registerChannel failed: ${err?.message ?? err}`);
-  }
-
-  if (api.registrationMode !== "full") {
+  if (state.serviceRegistered) {
+    log.info("sky10: bridge service already registered");
     return;
   }
 
@@ -177,51 +244,11 @@ export default function register(api) {
         }
       },
     });
+    state.serviceRegistered = true;
     log.info("sky10: bridge service registered");
   } catch (err) {
     log.warn(`sky10: registerService failed: ${err?.message ?? err}`);
   }
-}
-
-function createChannel(api, cfg, log) {
-  return {
-    id: "sky10",
-    meta: {
-      id: "sky10",
-      label: "Sky10",
-      selectionLabel: "Sky10 P2P Network",
-      blurb: "Communicate with agents on the sky10 P2P network",
-    },
-    capabilities: {
-      chatTypes: ["direct"],
-    },
-    config: {
-      listAccountIds: () => [cfg.agentName],
-      resolveAccount: (_cfg, accountId) => resolveAccount(cfg, accountId),
-      defaultAccountId: () => cfg.agentName,
-      isEnabled: () => true,
-      isConfigured: () => true,
-      describeAccount: (account) => ({
-        accountId: account.accountId,
-        name: account.accountId,
-        enabled: true,
-        configured: true,
-      }),
-    },
-    outbound: {
-      deliveryMode: "direct",
-      sendText: async (params) => {
-        try {
-          await ensureRuntime(log, cfg);
-          const result = await client.send(params.to, params.sessionId, params.text, params.to);
-          return { ok: true, messageId: result?.id };
-        } catch (err) {
-          log.error(`sky10: sendText failed: ${err?.message ?? err}`);
-          return { ok: false, error: String(err) };
-        }
-      },
-    },
-  };
 }
 
 async function dispatchInbound(log, cfg, msg, text) {
@@ -269,7 +296,8 @@ async function dispatchInbound(log, cfg, msg, text) {
       return;
     }
 
-    await client.send(msg.from, msg.session_id, reply, msg.from);
+    const state = getBridgeState();
+    await state.client.send(msg.from, msg.session_id, reply, msg.from);
     log.info("sky10: reply sent");
   } catch (err) {
     log.error(`sky10: gateway API dispatch failed: ${err?.message ?? err}`);
@@ -314,14 +342,8 @@ function handleAgentMessage(log, cfg, data) {
     }
 
     const msgId = msg.id || `${msg.session_id}:${msg.from}:${msg.timestamp ?? ""}`;
-    if (state.seenIds.has(msgId)) {
+    if (!claimMessage(msgId)) {
       return;
-    }
-    state.seenIds.set(msgId, Date.now());
-    for (const [key, ts] of state.seenIds) {
-      if (Date.now() - ts > DEDUP_TTL_MS) {
-        state.seenIds.delete(key);
-      }
     }
 
     const text = msg.content?.text ?? JSON.stringify(msg.content ?? {});

@@ -3,7 +3,6 @@
   "name": "Sky10 Channel",
   "version": "0.1.0",
   "description": "Connect OpenClaw agents to the sky10 P2P network",
-  "channels": ["sky10"],
   "configSchema": {
     "type": "object",
     "properties": {

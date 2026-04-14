@@ -239,9 +239,6 @@ func TestBundledOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), `browser["ssrfPolicy"] = {"dangerouslyAllowPrivateNetwork": True}`) {
 		t.Fatalf("bundled user script missing relaxed browser SSRF policy: %q", string(body))
 	}
-	if !strings.Contains(string(body), `channels.setdefault("sky10", {})["healthMonitor"] = {"enabled": False}`) {
-		t.Fatalf("bundled user script missing sky10 health monitor disable: %q", string(body))
-	}
 }
 
 func TestBundledOpenClawDependencyScriptPersistsRouteMetrics(t *testing.T) {
@@ -273,6 +270,9 @@ func TestBundledOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	if !strings.Contains(string(manifestBody), `["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("bundled plugin manifest missing browser skill default: %q", string(manifestBody))
 	}
+	if strings.Contains(string(manifestBody), `"channels"`) {
+		t.Fatalf("bundled plugin manifest should not declare channel registration: %q", string(manifestBody))
+	}
 
 	indexBody, err := readBundledTemplateAsset(filepath.Join(templateOpenClawPluginDir, "src", "index.js"))
 	if err != nil {
@@ -281,23 +281,26 @@ func TestBundledOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	if !strings.Contains(string(indexBody), `["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("bundled plugin index missing browser skill default: %q", string(indexBody))
 	}
-	if !strings.Contains(string(indexBody), `listAccountIds: () => [cfg.agentName]`) {
-		t.Fatalf("bundled plugin index missing stable account IDs: %q", string(indexBody))
-	}
-	if !strings.Contains(string(indexBody), `defaultAccountId: () => cfg.agentName`) {
-		t.Fatalf("bundled plugin index missing stable default account ID: %q", string(indexBody))
-	}
-	if !strings.Contains(string(indexBody), `isConfigured: () => true`) {
-		t.Fatalf("bundled plugin index missing configured account state: %q", string(indexBody))
-	}
 	if !strings.Contains(string(indexBody), `api.registerService({`) {
 		t.Fatalf("bundled plugin index missing bridge service registration: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `serviceRegistered: false`) {
+		t.Fatalf("bundled plugin index missing service registration guard state: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `if (state.serviceRegistered)`) {
+		t.Fatalf("bundled plugin index missing duplicate service registration guard: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `fs.openSync(claimPathFor(msgId), "wx")`) {
+		t.Fatalf("bundled plugin index missing cross-process claim guard: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `process.title`) || !strings.Contains(string(indexBody), `openclaw-gateway`) {
+		t.Fatalf("bundled plugin index missing gateway-only process guard: %q", string(indexBody))
 	}
 	if !strings.Contains(string(indexBody), `Symbol.for("sky10.openclaw.bridge")`) {
 		t.Fatalf("bundled plugin index missing global bridge singleton: %q", string(indexBody))
 	}
-	if strings.Contains(string(indexBody), `startAccount: async`) {
-		t.Fatalf("bundled plugin index should not register a gateway account runtime: %q", string(indexBody))
+	if strings.Contains(string(indexBody), `api.registerChannel({`) {
+		t.Fatalf("bundled plugin index should not register an OpenClaw channel runtime: %q", string(indexBody))
 	}
 }
 

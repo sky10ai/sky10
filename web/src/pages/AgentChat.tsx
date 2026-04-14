@@ -4,6 +4,7 @@ import Markdown from "react-markdown";
 import { Icon } from "../components/Icon";
 import { StatusBadge } from "../components/StatusBadge";
 import { AGENT_EVENT_TYPES, subscribe } from "../lib/events";
+import { appendChatMessage, loadChatMessages, type ChatMessage } from "../lib/agentChat";
 import { agent, type AgentInfo, type AgentSendResult, type DeliveryMetadata } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
@@ -17,16 +18,6 @@ function uuid(): string {
   b[8]! = (b[8]! & 0x3f) | 0x80;
   const h = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
-}
-
-interface ChatMessage {
-  id: string;
-  from: "user" | "agent";
-  type: string;
-  content: string;
-  timestamp: Date;
-  delivered?: boolean;
-  delivery?: DeliveryMetadata;
 }
 
 function deliveryLabel(delivery?: DeliveryMetadata): string | null {
@@ -56,12 +47,7 @@ export default function AgentChat() {
   const sessionKey = `sky10:session:${agentId}`;
 
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
+    return loadChatMessages(localStorage.getItem(storageKey));
   });
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -111,9 +97,7 @@ export default function AgentChat() {
       if (ai && (msg.to === ai.id || msg.to === ai.name)) return;
 
       setWaiting(false);
-      setMessages((prev) => [
-        ...prev,
-        {
+      setMessages((prev) => appendChatMessage(prev, {
           id: (msg.id as string) || uuid(),
           from: "agent" as const,
           type: (msg.type as string) || "text",
@@ -121,8 +105,7 @@ export default function AgentChat() {
             (msg.content as { text?: string })?.text ||
             JSON.stringify(msg.content),
           timestamp: new Date(),
-        },
-      ]);
+        }));
     });
   }, [sessionId, agentId]);
 
