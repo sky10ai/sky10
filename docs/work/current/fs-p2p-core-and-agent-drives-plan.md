@@ -34,6 +34,41 @@ human-useful replication notes.
 - Agent personality/state files are durable synced content, not special RPC
   metadata disguised as files.
 
+## Existing Work To Leverage
+
+This plan should explicitly build on two recent bodies of work instead of
+re-solving their core reliability problems inside `pkg/fs`.
+
+### KV Hardening Lessons To Reuse
+
+From
+[`../past/2026/04/07-KV-CRDT-Reliability-Hardening.md`](../past/2026/04/07-KV-CRDT-Reliability-Hardening.md):
+
+- causal metadata should beat wall-clock ordering whenever possible
+- delete intent should be replicated explicitly through tombstones
+- peer sync should be summary-first anti-entropy, not blind full-state replay
+- periodic bounded anti-entropy should heal missed pushes and reconnect gaps
+- sync health should be visible and loud when namespaces drift or stall
+- protocol registration and startup ordering matter for fresh joins
+
+FS is larger and more complex than KV, but the underlying private-network
+correctness problems are the same. We should adapt these patterns for file
+metadata and transfer planning.
+
+### Mailbox Layering Lessons To Reuse
+
+From [`../past/2026/04/11-Mailbox.md`](../past/2026/04/11-Mailbox.md):
+
+- one product model can sit above multiple backends
+- persist first, deliver second
+- keep the fast path and durable fallback path separate
+- keep control state separate from larger payload bytes
+- make lifecycle and stuck-state behavior observable
+
+FS should reuse those layering ideas without literally modeling bulk file
+transfer as mailbox items. The mailbox package is a control-plane system; FS
+should borrow its architecture, not its object model.
+
 ## Early Product Shape
 
 Initial target layout for the `Agents` drive:
@@ -76,6 +111,10 @@ Goal: lock down one FS model before implementation branches.
 Checklist:
 
 - [ ] Write the end-state sync model for `p2p-only` and `p2p+s3`.
+- [ ] Explicitly define which KV-hardening lessons carry over unchanged into
+      FS and which need FS-specific adaptation.
+- [ ] Explicitly define which mailbox layering lessons apply to FS and where
+      mailbox semantics should stop.
 - [ ] Define which local data is durable truth vs derived cache.
 - [ ] Define publish rules: when a local or remote file becomes visible in the
       working tree.
@@ -89,6 +128,8 @@ Checklist:
 Done when:
 
 - [ ] We can explain the same sync outcome with S3 disabled or enabled.
+- [ ] We can explain why the FS design does not regress back to baseline-only
+      delete detection or clock-first merge authority.
 - [ ] We can explain what data is needed to reconstruct an agent folder on a
       new machine.
 
@@ -102,10 +143,13 @@ Checklist:
 - [ ] Add `staging/` for in-progress downloads and promotions.
 - [ ] Add `objects/` for verified retained content or chunk data.
 - [ ] Add `sessions/` or equivalent resumable transfer metadata.
+- [ ] Keep transfer control state separate from bulk payload storage, following
+      the mailbox layering pattern.
 - [ ] Update remote download paths to assemble and verify in hidden storage
       first.
 - [ ] Publish into the working tree only via atomic rename or equivalent
       promotion.
+- [ ] Apply the "persist first, publish second" rule to remote file materialization.
 - [ ] Ensure watcher logic ignores all internal staging/object paths.
 - [ ] Define crash recovery and cleanup for stale transfer state.
 
@@ -153,6 +197,8 @@ Checklist:
 - [ ] Define how another machine should interpret and recreate an agent from
       `sky10.md`.
 - [ ] Add docs for expected folder examples and replication intent.
+- [ ] Ensure the `Agents` drive uses the same durable FS semantics as ordinary
+      synced content rather than special-casing agent personality files.
 
 Done when:
 
@@ -171,17 +217,24 @@ Checklist:
 - [ ] Add a durable per-drive metadata DB for local state and remote-per-peer
       state.
 - [ ] Persist explicit tombstones instead of relying on absence.
-- [ ] Add stronger conflict metadata than timestamp-first LWW.
+- [ ] Add stronger conflict metadata than timestamp-first LWW, reusing the
+      causal direction established in KV hardening.
 - [ ] Add an FS libp2p metadata protocol for full sync on first contact.
+- [ ] Reuse the summary-first anti-entropy pattern proven in `pkg/kv/p2p.go`
+      instead of inventing a fresh snapshot-broadcast loop.
 - [ ] Add delta or summary-based anti-entropy for reconnects.
 - [ ] Add periodic bounded anti-entropy even without new writes.
 - [ ] Persist peer sync state across restart.
+- [ ] Make protocol registration/startup ordering deterministic so fresh joins
+      do not miss FS metadata sync.
 - [ ] Add tests for long-offline catch-up and delete propagation without S3.
 
 Done when:
 
 - [ ] Two peers can converge correctly after long offline periods with no S3.
 - [ ] Delete intent survives reconnects without depending on a lucky baseline.
+- [ ] Fresh private-network join can start FS metadata sync without requiring a
+      second reconnect or restart.
 
 ## Milestone 5: Unified Pull Planner
 
@@ -196,6 +249,8 @@ Checklist:
 - [ ] Add bounded concurrency and backpressure for file and chunk pulls.
 - [ ] Add verified block or chunk fetch with retry and source fallback.
 - [ ] Ensure peers can serve verified data from hidden local storage.
+- [ ] Keep peer transfer as the fast/live path and S3 as the durable/bootstrap
+      path without changing file semantics.
 - [ ] Ensure S3 slots in as an optional source, not a different engine.
 - [ ] Surface per-file transfer progress and active source selection.
 
@@ -213,6 +268,8 @@ definition of correctness.
 Checklist:
 
 - [ ] Keep upload-then-record behavior when S3 is enabled.
+- [ ] Preserve one FS model above multiple backends, following the mailbox
+      layering rule.
 - [ ] Treat S3 as durable replica, bootstrap source, and optional blob source.
 - [ ] Ensure peer-native sync works unchanged when S3 is disabled.
 - [ ] Ensure cold-start or peer-absent recovery can leverage S3 when present.
@@ -234,8 +291,12 @@ Checklist:
 
 - [ ] Add per-drive health surfaces for watcher, scan, anti-entropy, peers,
       staging, and S3.
+- [ ] Reuse KV-style sync health expectations: readiness, peer count, last
+      successful anti-entropy, and loud failure surfaces.
 - [ ] Add clear user-visible transfer phases: scanning, uploading,
       downloading, reconciling, retrying, conflict, degraded.
+- [ ] Reuse mailbox-style lifecycle visibility for transfer sessions and stuck
+      work: attempted, in-progress, failed, retrying, delivered/published.
 - [ ] Make conflict-copy behavior explicit and testable.
 - [ ] Review Windows, case-sensitivity, and path-normalization edge cases.
 - [ ] Add end-to-end coverage for P2P-only two-device sync.
