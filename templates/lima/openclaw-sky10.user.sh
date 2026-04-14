@@ -167,6 +167,7 @@ browser = config.setdefault("browser", {})
 browser["executablePath"] = "/usr/local/bin/chromium"
 browser["headless"] = False
 browser["noSandbox"] = True
+browser["ssrfPolicy"] = {"dangerouslyAllowPrivateNetwork": True}
 
 plugins = config.setdefault("plugins", {})
 load = plugins.setdefault("load", {})

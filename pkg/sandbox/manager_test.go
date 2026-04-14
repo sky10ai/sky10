@@ -236,6 +236,9 @@ func TestBundledOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), `"skills": ["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("bundled user script missing browser skill registration: %q", string(body))
 	}
+	if !strings.Contains(string(body), `browser["ssrfPolicy"] = {"dangerouslyAllowPrivateNetwork": True}`) {
+		t.Fatalf("bundled user script missing relaxed browser SSRF policy: %q", string(body))
+	}
 }
 
 func TestBundledOpenClawDependencyScriptPersistsRouteMetrics(t *testing.T) {
