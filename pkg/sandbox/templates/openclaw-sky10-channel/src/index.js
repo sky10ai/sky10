@@ -32,7 +32,7 @@ function resolveConfig(api) {
   return {
     rpcUrl: c.rpcUrl ?? "http://localhost:9101",
     agentName: c.agentName ?? "openclaw",
-    skills: c.skills ?? ["code", "shell", "web-search", "file-ops"],
+    skills: c.skills ?? ["code", "shell", "browser", "web-search", "file-ops"],
     gatewayUrl: c.gatewayUrl ?? "http://localhost:18789",
     gatewayToken: c.gatewayToken ?? "",
   };

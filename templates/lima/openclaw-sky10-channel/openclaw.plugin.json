@@ -19,7 +19,7 @@
       "skills": {
         "type": "array",
         "items": { "type": "string" },
-        "default": ["code", "shell", "web-search", "file-ops"],
+        "default": ["code", "shell", "browser", "web-search", "file-ops"],
         "description": "Skills to advertise on the sky10 network"
       },
       "gatewayUrl": {

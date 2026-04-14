@@ -183,7 +183,7 @@ entries["sky10"] = {
     "config": {
         "rpcUrl": "http://localhost:9101",
         "agentName": os.environ["OPENCLAW_AGENT_NAME"],
-        "skills": ["code", "shell", "web-search", "file-ops"],
+        "skills": ["code", "shell", "browser", "web-search", "file-ops"],
         "gatewayUrl": "http://localhost:18789",
     },
 }

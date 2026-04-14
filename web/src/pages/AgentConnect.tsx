@@ -55,7 +55,7 @@ cd ~/.openclaw/plugins/sky10 && npm i eventsource`,
       "config": {
         "rpcUrl": "http://localhost:9101",
         "agentName": "my-agent",
-        "skills": ["code", "shell", "web-search", "file-ops"],
+        "skills": ["code", "shell", "browser", "web-search", "file-ops"],
         "gatewayUrl": "http://localhost:18789"
       }
     }

@@ -135,6 +135,9 @@ func TestOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), "bootstrap_local_cli_pairing") {
 		t.Fatalf("user script missing CLI pairing bootstrap: %q", string(body))
 	}
+	if !strings.Contains(string(body), `"skills": ["code", "shell", "browser", "web-search", "file-ops"]`) {
+		t.Fatalf("user script missing browser skill registration: %q", string(body))
+	}
 }
 
 func TestOpenClawDependencyScriptPersistsRouteMetrics(t *testing.T) {
@@ -158,5 +161,30 @@ func TestOpenClawDependencyScriptPersistsRouteMetrics(t *testing.T) {
 	}
 	if !strings.Contains(script, "netplan apply") {
 		t.Fatalf("dependency script missing netplan apply: %q", script)
+	}
+}
+
+func TestOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
+	t.Parallel()
+
+	dir, err := findLocalLimaTemplateDir()
+	if err != nil {
+		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
+	}
+
+	manifestBody, err := os.ReadFile(filepath.Join(dir, agentLimaPluginManifest))
+	if err != nil {
+		t.Fatalf("ReadFile(plugin manifest) error: %v", err)
+	}
+	if !strings.Contains(string(manifestBody), `["code", "shell", "browser", "web-search", "file-ops"]`) {
+		t.Fatalf("plugin manifest missing browser skill default: %q", string(manifestBody))
+	}
+
+	indexBody, err := os.ReadFile(filepath.Join(dir, agentLimaPluginIndex))
+	if err != nil {
+		t.Fatalf("ReadFile(plugin index) error: %v", err)
+	}
+	if !strings.Contains(string(indexBody), `["code", "shell", "browser", "web-search", "file-ops"]`) {
+		t.Fatalf("plugin index missing browser skill default: %q", string(indexBody))
 	}
 }

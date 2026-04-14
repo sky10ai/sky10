@@ -233,6 +233,9 @@ func TestBundledOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), "bootstrap_local_cli_pairing") {
 		t.Fatalf("bundled user script missing CLI pairing bootstrap: %q", string(body))
 	}
+	if !strings.Contains(string(body), `"skills": ["code", "shell", "browser", "web-search", "file-ops"]`) {
+		t.Fatalf("bundled user script missing browser skill registration: %q", string(body))
+	}
 }
 
 func TestBundledOpenClawDependencyScriptPersistsRouteMetrics(t *testing.T) {
@@ -251,6 +254,26 @@ func TestBundledOpenClawDependencyScriptPersistsRouteMetrics(t *testing.T) {
 	}
 	if !strings.Contains(script, "netplan apply") {
 		t.Fatalf("bundled dependency script missing netplan apply: %q", script)
+	}
+}
+
+func TestBundledOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
+	t.Parallel()
+
+	manifestBody, err := readBundledTemplateAsset(filepath.Join(templateOpenClawPluginDir, "openclaw.plugin.json"))
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset(plugin manifest) error: %v", err)
+	}
+	if !strings.Contains(string(manifestBody), `["code", "shell", "browser", "web-search", "file-ops"]`) {
+		t.Fatalf("bundled plugin manifest missing browser skill default: %q", string(manifestBody))
+	}
+
+	indexBody, err := readBundledTemplateAsset(filepath.Join(templateOpenClawPluginDir, "src", "index.js"))
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset(plugin index) error: %v", err)
+	}
+	if !strings.Contains(string(indexBody), `["code", "shell", "browser", "web-search", "file-ops"]`) {
+		t.Fatalf("bundled plugin index missing browser skill default: %q", string(indexBody))
 	}
 }
 
