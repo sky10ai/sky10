@@ -16,10 +16,12 @@ import (
 // DaemonConfig configures the sync daemon.
 type DaemonConfig struct {
 	SyncConfig
-	DriveID      string // drive ID for state persistence
-	DriveName    string // human-readable name for progress events
-	ManifestPath string // override state path (for tests)
-	PollSeconds  int    // remote poll interval in seconds (default 30)
+	DriveID          string // drive ID for state persistence
+	DriveName        string // human-readable name for progress events
+	ManifestPath     string // override state path (for tests)
+	PollSeconds      int    // remote poll interval in seconds (default 30)
+	ScanSeconds      int    // local full-scan interval in seconds (default 60)
+	ReconcileSeconds int    // periodic reconcile interval in seconds (default 60)
 }
 
 // DaemonV2_5 is the sync daemon. Local ops log is the single source of
@@ -55,6 +57,12 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 	}
 	if config.PollSeconds <= 0 {
 		config.PollSeconds = 30
+	}
+	if config.ScanSeconds <= 0 {
+		config.ScanSeconds = 60
+	}
+	if config.ReconcileSeconds <= 0 {
+		config.ReconcileSeconds = 60
 	}
 	logger = componentLogger(logger)
 
@@ -179,6 +187,36 @@ func (d *DaemonV2_5) prepareTransferWorkspace() {
 	}
 }
 
+func (d *DaemonV2_5) localScanLoop(ctx context.Context) {
+	ticker := time.NewTicker(time.Duration(d.config.ScanSeconds) * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			d.logger.Debug("periodic local scan", "drive", d.config.DriveName)
+			d.seedStateFromDisk()
+		}
+	}
+}
+
+func (d *DaemonV2_5) reconcileLoop(ctx context.Context) {
+	ticker := time.NewTicker(time.Duration(d.config.ReconcileSeconds) * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			d.logger.Debug("periodic reconcile poke", "drive", d.config.DriveName)
+			d.reconciler.Poke()
+		}
+	}
+}
+
 // Run starts all goroutines and blocks until context is cancelled.
 func (d *DaemonV2_5) Run(ctx context.Context) error {
 	d.logger.Info("daemon starting", "root", d.config.LocalRoot)
@@ -214,6 +252,8 @@ func (d *DaemonV2_5) Run(ctx context.Context) error {
 	go d.reconciler.Run(ctx)
 	go d.snapshotPoller.Run(ctx)
 	go d.snapshotUploader.Run(ctx)
+	go d.localScanLoop(ctx)
+	go d.reconcileLoop(ctx)
 	go d.watcherLoop(ctx)
 	go wd.Run(ctx)
 

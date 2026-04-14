@@ -35,9 +35,10 @@ type Watcher struct {
 	watcher *fsnotify.Watcher
 	done    chan struct{}
 
-	mu       sync.Mutex
-	pending  map[string]time.Time // debounce: path → last event time
-	debounce time.Duration
+	closeOnce sync.Once
+	mu        sync.Mutex
+	pending   map[string]time.Time // debounce: path → last event time
+	debounce  time.Duration
 }
 
 // NewWatcher creates a filesystem watcher for the given root directory.
@@ -75,8 +76,12 @@ func (w *Watcher) Events() <-chan FileEvent {
 
 // Close stops the watcher and closes the events channel.
 func (w *Watcher) Close() error {
-	close(w.done)
-	return w.watcher.Close()
+	var err error
+	w.closeOnce.Do(func() {
+		close(w.done)
+		err = w.watcher.Close()
+	})
+	return err
 }
 
 func (w *Watcher) loop() {

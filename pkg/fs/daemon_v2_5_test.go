@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -180,6 +181,114 @@ func TestDaemonV25SyncOnceCleansStaleStagingFiles(t *testing.T) {
 	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
 		t.Fatalf("stale staging file should be removed on startup, stat err=%v", err)
 	}
+}
+
+func TestDaemonV25PeriodicScanFindsMissedLocalFile(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	cfg := DaemonConfig{
+		SyncConfig:       SyncConfig{LocalRoot: localDir},
+		DriveID:          "test_periodic_scan",
+		PollSeconds:      300,
+		ScanSeconds:      1,
+		ReconcileSeconds: 300,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatalf("creating daemon: %v", err)
+	}
+
+	stop := runDaemon(ctx, cancel, daemon)
+	defer stop()
+
+	if err := daemon.watcher.Close(); err != nil {
+		t.Fatalf("close watcher: %v", err)
+	}
+
+	target := filepath.Join(localDir, "scan-only.txt")
+	if err := os.WriteFile(target, []byte("found by scan"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := daemon.localLog.Lookup("scan-only.txt"); ok {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("periodic scan did not queue missed local file")
+}
+
+func TestDaemonV25PeriodicReconcileDownloadsRemoteWithoutPoke(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	cfg := DaemonConfig{
+		SyncConfig:       SyncConfig{LocalRoot: localDir},
+		DriveID:          "test_periodic_reconcile",
+		PollSeconds:      300,
+		ScanSeconds:      300,
+		ReconcileSeconds: 1,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatalf("creating daemon: %v", err)
+	}
+
+	stop := runDaemon(ctx, cancel, daemon)
+	defer stop()
+
+	if err := store.Put(ctx, "remote-only.txt", strings.NewReader("from periodic reconcile")); err != nil {
+		t.Fatalf("store.Put: %v", err)
+	}
+	res := store.LastPutResult()
+	if res == nil {
+		t.Fatal("LastPutResult nil")
+	}
+	if err := daemon.localLog.Append(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "remote-only.txt",
+		Chunks:    res.Chunks,
+		Checksum:  res.Checksum,
+		Size:      res.Size,
+		Namespace: NamespaceFromPath("remote-only.txt"),
+		Device:    "remote-device",
+		Timestamp: time.Now().Unix(),
+		Seq:       1,
+	}); err != nil {
+		t.Fatalf("append remote op: %v", err)
+	}
+
+	target := filepath.Join(localDir, "remote-only.txt")
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(target)
+		if err == nil && string(data) == "from periodic reconcile" {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("periodic reconcile did not materialize remote file")
 }
 
 // DaemonV2.5 should detect a pre-existing file and upload it to S3.

@@ -64,7 +64,7 @@ func (r *Reconciler) Poke() {
 // Run reconciles on startup then waits for pokes until context is cancelled.
 func (r *Reconciler) Run(ctx context.Context) {
 	r.logger.Info("reconciler started")
-	r.reconcile(ctx)
+	r.reconcileUntilSettled(ctx)
 
 	for {
 		select {
@@ -72,7 +72,19 @@ func (r *Reconciler) Run(ctx context.Context) {
 			r.logger.Info("reconciler stopped")
 			return
 		case <-r.notify:
+			r.reconcileUntilSettled(ctx)
+		}
+	}
+}
+
+func (r *Reconciler) reconcileUntilSettled(ctx context.Context) {
+	r.reconcile(ctx)
+	for {
+		select {
+		case <-r.notify:
 			r.reconcile(ctx)
+		default:
+			return
 		}
 	}
 }
