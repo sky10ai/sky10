@@ -102,6 +102,7 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 
 	// Reconciler
 	reconciler := NewReconciler(store, localLog, outbox, config.LocalRoot, ignoreFunc, logger)
+	reconciler.stagingDir = transferStagingDir(driveDir)
 
 	// Namespace ID for S3 path scoping and encryption.
 	nsForKey := ns

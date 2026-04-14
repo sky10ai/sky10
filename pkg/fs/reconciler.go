@@ -2,7 +2,6 @@ package fs
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -30,6 +29,7 @@ type Reconciler struct {
 	localLog   *opslog.LocalOpsLog
 	outbox     *SyncLog[OutboxEntry]
 	localDir   string
+	stagingDir string
 	ignore     func(string) bool
 	logger     *slog.Logger
 	notify     chan struct{}
@@ -264,6 +264,13 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 	}
 }
 
+func (r *Reconciler) effectiveStagingDir() string {
+	if r.stagingDir != "" {
+		return r.stagingDir
+	}
+	return filepath.Join(os.TempDir(), "sky10", "reconcile")
+}
+
 func (r *Reconciler) downloadFile(ctx context.Context, path string, fi opslog.FileInfo) bool {
 	localPath := filepath.Join(r.localDir, filepath.FromSlash(path))
 
@@ -303,14 +310,11 @@ func (r *Reconciler) downloadFile(ctx context.Context, path string, fi opslog.Fi
 
 	// Download to temp dir first, then atomic rename.
 	// Prevents the watcher from seeing a 0-byte intermediate file.
-	tmpDir := filepath.Join(os.TempDir(), "sky10", "reconcile")
-	os.MkdirAll(tmpDir, 0700)
-	tmpFile, err := os.CreateTemp(tmpDir, "dl-*")
+	tmpFile, tmpPath, err := createStagingTempFile(r.effectiveStagingDir(), "dl-*")
 	if err != nil {
 		r.logger.Warn("reconcile: create temp failed", "path", path, "error", err)
 		return false
 	}
-	tmpPath := tmpFile.Name()
 
 	// No wall-clock timeout — each chunk has its own 30s idle/stall
 	// detection via transfer.Reader in downloadChunks. As long as bytes
@@ -324,38 +328,14 @@ func (r *Reconciler) downloadFile(ctx context.Context, path string, fi opslog.Fi
 	}
 	tmpFile.Close()
 
-	// Atomic move to final location
-	dir := filepath.Dir(localPath)
-	os.MkdirAll(dir, 0755)
-	if err := os.Rename(tmpPath, localPath); err != nil {
-		// Cross-device rename fallback
-		r.logger.Debug("reconcile: rename failed, copying", "error", err)
-		if copyErr := copyFile(tmpPath, localPath); copyErr != nil {
-			r.logger.Warn("reconcile: copy failed", "path", path, "error", copyErr)
-			os.Remove(tmpPath)
-			return false
-		}
+	if err := publishStagedFile(tmpPath, localPath); err != nil {
+		r.logger.Warn("reconcile: publish failed", "path", path, "error", err)
 		os.Remove(tmpPath)
+		return false
 	}
 
 	r.logger.Info("reconcile: downloaded", "path", path)
 	return true
-}
-
-// copyFile copies src to dst for cross-device moves.
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	_, err = io.Copy(out, in)
-	return err
 }
 
 // checksumMatch checks if a content hash matches a FileInfo's checksum,

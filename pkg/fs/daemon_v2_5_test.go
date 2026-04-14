@@ -88,6 +88,32 @@ func TestDaemonV25SeedQueuesOutbox(t *testing.T) {
 	}
 }
 
+func TestDaemonV25SetsPerDriveReconcilerStagingDir(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	cfg := DaemonConfig{
+		SyncConfig:  SyncConfig{LocalRoot: localDir},
+		DriveID:     "test_reconcile_staging",
+		PollSeconds: 300,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatalf("creating daemon: %v", err)
+	}
+
+	want := transferStagingDir(driveDataDir(cfg.DriveID))
+	if daemon.reconciler.stagingDir != want {
+		t.Fatalf("reconciler staging dir = %q, want %q", daemon.reconciler.stagingDir, want)
+	}
+}
+
 // DaemonV2.5 should detect a pre-existing file and upload it to S3.
 func TestDaemonV25SeedsFromDisk(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

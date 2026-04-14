@@ -72,6 +72,42 @@ func TestReconcilerDownload(t *testing.T) {
 	}
 }
 
+func TestReconcilerDownloadUsesConfiguredStagingDir(t *testing.T) {
+	t.Parallel()
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "different-device")
+	putAndLog(t, store, localLog, "remote.txt", "from remote", 1)
+
+	stagingDir := filepath.Join(tmpDir, "drive-data", "transfer", "staging")
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.stagingDir = stagingDir
+	r.reconcile(context.Background())
+
+	data, err := os.ReadFile(filepath.Join(localDir, "remote.txt"))
+	if err != nil {
+		t.Fatalf("file not downloaded: %v", err)
+	}
+	if string(data) != "from remote" {
+		t.Fatalf("content = %q", string(data))
+	}
+
+	entries, err := os.ReadDir(stagingDir)
+	if err != nil {
+		t.Fatalf("read staging dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("staging dir should be empty after publish, found %d entries", len(entries))
+	}
+}
+
 // Regression: empty files (size=0, chunks=0) were skipped by the
 // reconciler because the chunkless-put guard treated them as "upload
 // pending." An empty file's presence is state — it must be created.

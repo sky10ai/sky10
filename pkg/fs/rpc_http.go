@@ -41,6 +41,9 @@ func (s *FSHandler) HandleUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid multipart: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
 
 	file, _, err := r.FormFile("file")
 	if err != nil {
@@ -49,22 +52,27 @@ func (s *FSHandler) HandleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-		http.Error(w, "creating directory: "+err.Error(), http.StatusInternalServerError)
+	tmpFile, tmpPath, err := createStagingTempFile(transferStagingDir(driveDataDir(drive.ID)), "upload-*")
+	if err != nil {
+		http.Error(w, "creating staging file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	out, err := os.Create(target)
+	n, err := io.Copy(tmpFile, file)
 	if err != nil {
-		http.Error(w, "creating file: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	n, err := io.Copy(out, file)
-	out.Close()
-	if err != nil {
-		os.Remove(target)
+		tmpFile.Close()
+		os.Remove(tmpPath)
 		http.Error(w, "writing file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		http.Error(w, "closing upload temp file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := publishStagedFile(tmpPath, target); err != nil {
+		os.Remove(tmpPath)
+		http.Error(w, "publishing upload: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
