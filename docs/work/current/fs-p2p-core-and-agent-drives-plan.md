@@ -141,6 +141,10 @@ Done when:
 
 Goal: separate transfer mechanics from the watched working tree.
 
+Reference draft:
+
+- [`fs-hidden-transfer-workspace.md`](./fs-hidden-transfer-workspace.md)
+
 Checklist:
 
 - [ ] Create a per-drive hidden transfer area outside the watched root.
