@@ -117,7 +117,7 @@ func TestManifestJSONRoundTrip(t *testing.T) {
 	d2, _ := skykey.Generate()
 
 	m := NewManifest(identity)
-	m.AddDevice(d1.PublicKey, "laptop")
+	m.AddDeviceWithRole(d1.PublicKey, "laptop", DeviceRoleSandbox)
 	m.AddDevice(d2.PublicKey, "phone")
 	m.Sign(identity.PrivateKey)
 
@@ -137,8 +137,25 @@ func TestManifestJSONRoundTrip(t *testing.T) {
 	if len(loaded.Devices) != 2 {
 		t.Fatalf("devices = %d, want 2", len(loaded.Devices))
 	}
+	if NormalizeDeviceRole(loaded.Devices[0].Role) != DeviceRoleSandbox {
+		t.Fatalf("device role = %q, want %q", NormalizeDeviceRole(loaded.Devices[0].Role), DeviceRoleSandbox)
+	}
 	if !loaded.Verify(identity.PublicKey) {
 		t.Error("deserialized manifest should verify")
+	}
+}
+
+func TestNormalizeDeviceRoleDefaultsToTrusted(t *testing.T) {
+	t.Parallel()
+
+	if got := NormalizeDeviceRole(""); got != DeviceRoleTrusted {
+		t.Fatalf("NormalizeDeviceRole(\"\") = %q, want %q", got, DeviceRoleTrusted)
+	}
+	if got := NormalizeDeviceRole("TRUSTED"); got != DeviceRoleTrusted {
+		t.Fatalf("NormalizeDeviceRole(TRUSTED) = %q, want %q", got, DeviceRoleTrusted)
+	}
+	if got := NormalizeDeviceRole(DeviceRoleSandbox); got != DeviceRoleSandbox {
+		t.Fatalf("NormalizeDeviceRole(sandbox) = %q, want %q", got, DeviceRoleSandbox)
 	}
 }
 

@@ -107,7 +107,8 @@ func (h *RPCHandler) rpcDelete(ctx context.Context, params json.RawMessage) (int
 }
 
 type listParams struct {
-	Prefix string `json:"prefix"`
+	Prefix          string `json:"prefix"`
+	IncludeInternal bool   `json:"include_internal,omitempty"`
 }
 
 func (h *RPCHandler) rpcList(_ context.Context, params json.RawMessage) (interface{}, error) {
@@ -115,12 +116,13 @@ func (h *RPCHandler) rpcList(_ context.Context, params json.RawMessage) (interfa
 	if params != nil {
 		json.Unmarshal(params, &p)
 	}
-	keys := h.store.List(p.Prefix)
+	keys := filterVisibleKeys(h.store.List(p.Prefix), p.IncludeInternal)
 	return map[string]interface{}{"keys": keys, "count": len(keys)}, nil
 }
 
 type getAllParams struct {
-	Prefix string `json:"prefix"`
+	Prefix          string `json:"prefix"`
+	IncludeInternal bool   `json:"include_internal,omitempty"`
 }
 
 func (h *RPCHandler) rpcGetAll(_ context.Context, params json.RawMessage) (interface{}, error) {
@@ -128,7 +130,7 @@ func (h *RPCHandler) rpcGetAll(_ context.Context, params json.RawMessage) (inter
 	if params != nil {
 		json.Unmarshal(params, &p)
 	}
-	entries := h.store.GetAll(p.Prefix)
+	entries := filterVisibleEntries(h.store.GetAll(p.Prefix), p.IncludeInternal)
 	result := make(map[string]string, len(entries))
 	for k, v := range entries {
 		result[k] = string(v)

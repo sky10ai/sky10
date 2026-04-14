@@ -20,6 +20,7 @@ import (
 	skykey "github.com/sky10/sky10/pkg/key"
 	"github.com/sky10/sky10/pkg/kv"
 	"github.com/sky10/sky10/pkg/link"
+	skysecrets "github.com/sky10/sky10/pkg/secrets"
 )
 
 func configureIdentityRPCHandler(
@@ -41,8 +42,8 @@ func configureIdentityRPCHandler(
 	handler.SetInviteHandler(func(ctx context.Context) (string, error) {
 		return createIdentityInvite(ctx, backend, bundle, linkNode, relays)
 	})
-	handler.SetJoinHandler(func(ctx context.Context, code string) (interface{}, error) {
-		return joinIdentity(ctx, code, bundle, idStore, linkNode)
+	handler.SetJoinHandler(func(ctx context.Context, code, role string) (interface{}, error) {
+		return joinIdentity(ctx, code, role, bundle, idStore, linkNode)
 	})
 	handler.SetApproveHandler(func(ctx context.Context) (int, error) {
 		return approveIdentityJoins(ctx, backend, bundle)
@@ -182,6 +183,7 @@ func createIdentityInvite(ctx context.Context, backend adapter.Backend, bundle *
 func joinIdentity(
 	ctx context.Context,
 	code string,
+	role string,
 	currentBundle *skyid.Bundle,
 	idStore *skyid.Store,
 	linkNode *link.Node,
@@ -193,15 +195,21 @@ func joinIdentity(
 		return nil, fmt.Errorf("identity.join requires an unlinked device")
 	}
 
-	if skyjoin.IsP2PInvite(code) {
-		return joinIdentityP2P(ctx, code, currentBundle, idStore, linkNode)
+	normalizedRole, err := skyjoin.NormalizeJoinDeviceRole(role)
+	if err != nil {
+		return nil, err
 	}
-	return joinIdentityS3(ctx, code, currentBundle, idStore)
+
+	if skyjoin.IsP2PInvite(code) {
+		return joinIdentityP2P(ctx, code, normalizedRole, currentBundle, idStore, linkNode)
+	}
+	return joinIdentityS3(ctx, code, normalizedRole, currentBundle, idStore)
 }
 
 func joinIdentityP2P(
 	ctx context.Context,
 	code string,
+	role string,
 	currentBundle *skyid.Bundle,
 	idStore *skyid.Store,
 	linkNode *link.Node,
@@ -230,6 +238,7 @@ func joinIdentityP2P(
 		invite,
 		currentBundle.Device.Address(),
 		skyfs.GetDeviceName(),
+		role,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("join request failed: %w", err)
@@ -241,8 +250,8 @@ func joinIdentityP2P(
 		}
 		return nil, fmt.Errorf("join request was %s", errMsg)
 	}
-	if !hasNamespaceKey(resp.NSKeys, "default") {
-		return nil, fmt.Errorf("join response missing default KV namespace key")
+	if err := validateJoinNamespaceKeys(resp.NSKeys); err != nil {
+		return nil, err
 	}
 
 	var wrappedIdentity []byte
@@ -392,12 +401,30 @@ func hasNamespaceKey(keys []skyjoin.WrappedNSKey, namespace string) bool {
 	return false
 }
 
+func requiredJoinNamespaces() []string {
+	return []string{"default", skysecrets.DefaultNamespace}
+}
+
+func validateJoinNamespaceKeys(keys []skyjoin.WrappedNSKey) error {
+	for _, namespace := range requiredJoinNamespaces() {
+		if !hasNamespaceKey(keys, namespace) {
+			return fmt.Errorf("join response missing %s KV namespace key", namespace)
+		}
+	}
+	return nil
+}
+
 func joinIdentityS3(
 	ctx context.Context,
 	code string,
+	role string,
 	currentBundle *skyid.Bundle,
 	idStore *skyid.Store,
 ) (interface{}, error) {
+	if role != "" {
+		return nil, fmt.Errorf("identity.join role %q is only supported for P2P private-network invites", skyid.NormalizeDeviceRole(role))
+	}
+
 	invite, err := skyjoin.DecodeS3Invite(code)
 	if err != nil {
 		return nil, err

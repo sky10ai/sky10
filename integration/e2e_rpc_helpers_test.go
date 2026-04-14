@@ -5,6 +5,7 @@ package integration
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,6 +67,23 @@ type rpcKVGetResult struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
 	Found bool   `json:"found"`
+}
+
+type rpcSecretsGetResult struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Scope   string `json:"scope"`
+	Payload string `json:"payload"`
+}
+
+type rpcSecretsListResult struct {
+	Items []struct {
+		ID                 string   `json:"id"`
+		Name               string   `json:"name"`
+		Scope              string   `json:"scope"`
+		RecipientDeviceIDs []string `json:"recipient_device_ids"`
+	} `json:"items"`
+	Count int `json:"count"`
 }
 
 func rpcCall[T any](t *testing.T, home, method string, params any) T {
@@ -212,6 +231,67 @@ func waitForKVValueRPC(t *testing.T, home, key, want string) rpcKVGetResult {
 	}
 	t.Fatalf("kv %s on %s = found=%v len=%d, want len=%d", key, home, last.Found, len(last.Value), len(want))
 	return rpcKVGetResult{}
+}
+
+func waitForSecretValueRPC(t *testing.T, home, idOrName, want, wantScope string) rpcSecretsGetResult {
+	t.Helper()
+
+	deadline := time.Now().Add(20 * time.Second)
+	var (
+		last    rpcSecretsGetResult
+		lastErr error
+	)
+	for time.Now().Before(deadline) {
+		last = rpcSecretsGetResult{}
+		lastErr = rpcCallInto(home, "secrets.get", map[string]any{
+			"id_or_name": idOrName,
+		}, &last)
+		if lastErr == nil {
+			payload, err := base64.StdEncoding.DecodeString(last.Payload)
+			if err == nil && string(payload) == want && (wantScope == "" || last.Scope == wantScope) {
+				return last
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("secret %s on %s did not converge: last_err=%v last_scope=%q", idOrName, home, lastErr, last.Scope)
+	return rpcSecretsGetResult{}
+}
+
+func waitForSecretErrorRPC(t *testing.T, home, idOrName, wantErr string) {
+	t.Helper()
+
+	deadline := time.Now().Add(45 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		lastErr = rpcCallInto(home, "secrets.get", map[string]any{
+			"id_or_name": idOrName,
+		}, nil)
+		if lastErr != nil && strings.Contains(lastErr.Error(), wantErr) {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("secret %s on %s did not fail with %q; last_err=%v", idOrName, home, wantErr, lastErr)
+}
+
+func waitForSecretRecipientCountRPC(t *testing.T, home, idOrName string, want int) {
+	t.Helper()
+
+	deadline := time.Now().Add(20 * time.Second)
+	var last rpcSecretsListResult
+	for time.Now().Before(deadline) {
+		last = rpcCall[rpcSecretsListResult](t, home, "secrets.list", nil)
+		for _, item := range last.Items {
+			if item.ID == idOrName || item.Name == idOrName {
+				if len(item.RecipientDeviceIDs) == want {
+					return
+				}
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("secret %s on %s did not reach %d recipients; last=%+v", idOrName, home, want, last.Items)
 }
 
 func waitForQueueOffers(t *testing.T, home, skill, queue string, cond func(rpcQueueDiscoverResult) bool) rpcQueueDiscoverResult {

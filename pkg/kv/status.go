@@ -112,7 +112,7 @@ func (s *Store) Status() (Status, error) {
 	status := Status{
 		Namespace:     s.config.Namespace,
 		DeviceID:      s.deviceID,
-		Keys:          snap.Len(),
+		Keys:          visibleKeyCount(snap),
 		NSID:          s.nsID,
 		Ready:         s.nsKey != nil && s.nsID != "" && s.health.readyError == "",
 		ExpectedPeers: s.config.ExpectedPeers,

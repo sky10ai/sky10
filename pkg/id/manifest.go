@@ -6,15 +6,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	skykey "github.com/sky10/sky10/pkg/key"
+)
+
+const (
+	DeviceRoleTrusted = "trusted"
+	DeviceRoleSandbox = "sandbox"
 )
 
 // DeviceEntry is one authorized device in the manifest.
 type DeviceEntry struct {
 	PublicKey []byte    `json:"public_key"`
 	Name      string    `json:"name"`
+	Role      string    `json:"role,omitempty"`
 	AddedAt   time.Time `json:"added_at"`
 }
 
@@ -35,11 +42,37 @@ func NewManifest(identity *skykey.Key) *DeviceManifest {
 	}
 }
 
+// CanonicalDeviceRole stores trusted as the zero/default role to preserve
+// compatibility with manifests created before roles existed.
+func CanonicalDeviceRole(role string) string {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "", DeviceRoleTrusted:
+		return ""
+	default:
+		return strings.ToLower(strings.TrimSpace(role))
+	}
+}
+
+// NormalizeDeviceRole returns the effective role for policy and UI use.
+func NormalizeDeviceRole(role string) string {
+	if canonical := CanonicalDeviceRole(role); canonical != "" {
+		return canonical
+	}
+	return DeviceRoleTrusted
+}
+
 // AddDevice appends a device entry. Does not re-sign — call Sign after.
 func (m *DeviceManifest) AddDevice(pub ed25519.PublicKey, name string) {
+	m.AddDeviceWithRole(pub, name, "")
+}
+
+// AddDeviceWithRole appends a device entry with an optional role. Does not
+// re-sign — call Sign after.
+func (m *DeviceManifest) AddDeviceWithRole(pub ed25519.PublicKey, name, role string) {
 	m.Devices = append(m.Devices, DeviceEntry{
 		PublicKey: []byte(pub),
 		Name:      name,
+		Role:      CanonicalDeviceRole(role),
 		AddedAt:   time.Now().UTC(),
 	})
 	m.UpdatedAt = time.Now().UTC()

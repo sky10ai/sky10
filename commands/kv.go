@@ -84,7 +84,8 @@ func kvDeleteCmd() *cobra.Command {
 }
 
 func kvListCmd() *cobra.Command {
-	return &cobra.Command{
+	var includeInternal bool
+	cmd := &cobra.Command{
 		Use:   "list [prefix]",
 		Short: "List keys",
 		Args:  cobra.MaximumNArgs(1),
@@ -93,7 +94,10 @@ func kvListCmd() *cobra.Command {
 			if len(args) > 0 {
 				prefix = args[0]
 			}
-			result, err := rpcCall("skykv.list", map[string]string{"prefix": prefix})
+			result, err := rpcCall("skykv.list", map[string]interface{}{
+				"prefix":           prefix,
+				"include_internal": includeInternal,
+			})
 			if err != nil {
 				return err
 			}
@@ -111,6 +115,8 @@ func kvListCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&includeInternal, "internal", false, "include reserved _sys/* keys")
+	return cmd
 }
 
 func kvSyncCmd() *cobra.Command {
@@ -129,7 +135,8 @@ func kvSyncCmd() *cobra.Command {
 }
 
 func kvStatusCmd() *cobra.Command {
-	return &cobra.Command{
+	var includeInternal bool
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show KV store status",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -158,7 +165,10 @@ func kvStatusCmd() *cobra.Command {
 			}
 
 			if r.Keys > 0 {
-				all, err := rpcCall("skykv.getAll", map[string]string{"prefix": ""})
+				all, err := rpcCall("skykv.getAll", map[string]interface{}{
+					"prefix":           "",
+					"include_internal": includeInternal,
+				})
 				if err == nil {
 					var ar struct {
 						Entries map[string]string `json:"entries"`
@@ -177,4 +187,6 @@ func kvStatusCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&includeInternal, "internal", false, "include reserved _sys/* keys in the entry dump")
+	return cmd
 }

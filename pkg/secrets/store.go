@@ -53,6 +53,7 @@ type headPayload struct {
 	Name               string       `json:"name"`
 	Kind               string       `json:"kind"`
 	ContentType        string       `json:"content_type"`
+	Scope              string       `json:"scope,omitempty"`
 	LatestVersionID    string       `json:"latest_version_id"`
 	Size               int64        `json:"size"`
 	SHA256             string       `json:"sha256"`
@@ -158,7 +159,7 @@ func (s *Store) Devices() []Device {
 
 // List returns all secrets this device can decrypt.
 func (s *Store) List() ([]SecretSummary, error) {
-	keys := s.transport.List(headPrefix)
+	keys := s.listHeadKeys()
 	summaries := make([]SecretSummary, 0, len(keys))
 	for _, key := range keys {
 		raw, ok := s.transport.Get(key)
@@ -201,6 +202,12 @@ func (s *Store) Put(ctx context.Context, params PutParams) (*SecretSummary, erro
 	if len(params.Payload) == 0 {
 		return nil, fmt.Errorf("payload is required")
 	}
+	if rawScope := strings.TrimSpace(params.Scope); rawScope != "" {
+		params.Scope = NormalizeSecretScope(rawScope)
+		if params.Scope == "" {
+			return nil, fmt.Errorf("unknown scope: %s", rawScope)
+		}
+	}
 
 	existing, err := s.findExisting(params.ID, params.Name)
 	if err != nil {
@@ -220,7 +227,10 @@ func (s *Store) Put(ctx context.Context, params PutParams) (*SecretSummary, erro
 		if params.ContentType == "" {
 			params.ContentType = existing.ContentType
 		}
-		if len(params.RecipientDeviceIDs) == 0 {
+		if params.Scope == "" {
+			params.Scope = existing.Scope
+		}
+		if len(params.RecipientDeviceIDs) == 0 && params.Scope == ScopeExplicit {
 			params.RecipientDeviceIDs = append([]string(nil), existing.RecipientDeviceIDs...)
 		}
 		if params.Policy.IsZero() {
@@ -237,11 +247,28 @@ func (s *Store) Put(ctx context.Context, params PutParams) (*SecretSummary, erro
 	if params.ContentType == "" {
 		params.ContentType = "application/octet-stream"
 	}
-	if len(params.RecipientDeviceIDs) == 0 {
-		params.RecipientDeviceIDs = []string{s.deviceID}
+	if params.Scope == "" {
+		switch {
+		case len(params.RecipientDeviceIDs) == 1 && strings.EqualFold(strings.TrimSpace(params.RecipientDeviceIDs[0]), "all"):
+			params.Scope = ScopeTrusted
+			params.RecipientDeviceIDs = nil
+		case len(params.RecipientDeviceIDs) > 0:
+			params.Scope = ScopeExplicit
+		default:
+			params.Scope = ScopeCurrent
+		}
+	}
+	if params.Scope == ScopeCurrent && len(params.RecipientDeviceIDs) > 0 {
+		return nil, fmt.Errorf("scope %q does not accept explicit recipient devices", ScopeCurrent)
+	}
+	if params.Scope == ScopeTrusted && len(params.RecipientDeviceIDs) > 0 {
+		return nil, fmt.Errorf("scope %q does not accept explicit recipient devices", ScopeTrusted)
+	}
+	if params.Scope == ScopeExplicit && len(params.RecipientDeviceIDs) == 0 {
+		return nil, fmt.Errorf("scope %q requires at least one recipient device", ScopeExplicit)
 	}
 
-	recipients, err := s.resolveRecipients(params.RecipientDeviceIDs)
+	recipients, err := s.resolveRecipients(params.Scope, params.RecipientDeviceIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -307,6 +334,7 @@ func (s *Store) Put(ctx context.Context, params PutParams) (*SecretSummary, erro
 		Name:               params.Name,
 		Kind:               params.Kind,
 		ContentType:        params.ContentType,
+		Scope:              params.Scope,
 		LatestVersionID:    versionID,
 		Size:               int64(len(params.Payload)),
 		SHA256:             sha,
@@ -341,7 +369,7 @@ func (s *Store) Get(idOrName string, requester Requester) (*Secret, error) {
 		return nil, err
 	}
 
-	rawMeta, ok := s.transport.Get(versionMetaKey(head.SecretID, head.LatestVersionID))
+	rawMeta, ok := s.resolveVersionMeta(head.SecretID, head.LatestVersionID)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -360,7 +388,7 @@ func (s *Store) Get(idOrName string, requester Requester) (*Secret, error) {
 
 	ciphertext := make([]byte, 0, version.Size)
 	for i := 0; i < version.ChunkCount; i++ {
-		chunk, ok := s.transport.Get(chunkKey(head.SecretID, version.VersionID, i))
+		chunk, ok := s.resolveChunk(head.SecretID, version.VersionID, i)
 		if !ok {
 			return nil, fmt.Errorf("secret chunk missing: %d", i)
 		}
@@ -391,7 +419,12 @@ func (s *Store) Rewrap(ctx context.Context, params RewrapParams) (*SecretSummary
 	}
 
 	if len(params.RecipientDeviceIDs) == 0 {
-		params.RecipientDeviceIDs = append([]string(nil), head.RecipientDeviceIDs...)
+		if head.Scope == ScopeExplicit {
+			params.RecipientDeviceIDs = append([]string(nil), head.RecipientDeviceIDs...)
+		}
+	}
+	if params.Scope == "" {
+		params.Scope = head.Scope
 	}
 	if params.Policy.IsZero() {
 		params.Policy = head.Policy
@@ -402,10 +435,51 @@ func (s *Store) Rewrap(ctx context.Context, params RewrapParams) (*SecretSummary
 		Name:               head.Name,
 		Kind:               head.Kind,
 		ContentType:        head.ContentType,
+		Scope:              params.Scope,
 		Payload:            secret.Payload,
 		RecipientDeviceIDs: params.RecipientDeviceIDs,
 		Policy:             params.Policy,
 	})
+}
+
+// ReconcileTrustedScope rewraps trusted-scope secrets whose resolved recipient
+// set no longer matches the current trusted-device manifest.
+func (s *Store) ReconcileTrustedScope(ctx context.Context) (int, error) {
+	keys := s.listHeadKeys()
+	trustedRecipients, err := s.resolveTrustedRecipients()
+	if err != nil {
+		return 0, err
+	}
+	trustedIDs := recipientIDs(trustedRecipients)
+
+	rewrapped := 0
+	for _, key := range keys {
+		raw, ok := s.transport.Get(key)
+		if !ok {
+			continue
+		}
+		head, err := s.decryptHead(raw)
+		if err != nil {
+			if errors.Is(err, ErrAccessDenied) {
+				continue
+			}
+			return rewrapped, err
+		}
+		if head.Scope != ScopeTrusted {
+			continue
+		}
+		if sameRecipientIDSet(head.RecipientDeviceIDs, trustedIDs) {
+			continue
+		}
+		if _, err := s.Rewrap(ctx, RewrapParams{
+			IDOrName: head.SecretID,
+			Scope:    ScopeTrusted,
+		}); err != nil {
+			return rewrapped, fmt.Errorf("rewrapping trusted secret %s: %w", head.SecretID, err)
+		}
+		rewrapped++
+	}
+	return rewrapped, nil
 }
 
 func (s *Store) findExisting(idValue, name string) (*headPayload, error) {
@@ -439,6 +513,13 @@ func (s *Store) resolveHead(idOrName string) (*headPayload, error) {
 		}
 		return head, nil
 	}
+	if raw, ok := s.transport.Get(legacyHeadKey(idOrName)); ok {
+		head, err := s.decryptHead(raw)
+		if err != nil {
+			return nil, err
+		}
+		return head, nil
+	}
 	return s.findHeadByName(idOrName)
 }
 
@@ -454,11 +535,12 @@ func (s *Store) decryptHead(raw []byte) (*headPayload, error) {
 	if err := json.Unmarshal(headJSON, &head); err != nil {
 		return nil, fmt.Errorf("parsing head metadata: %w", err)
 	}
+	head.Scope = InferSecretScope(head.Scope, head.RecipientDeviceIDs, s.deviceID)
 	return &head, nil
 }
 
 func (s *Store) findHeadByName(name string) (*headPayload, error) {
-	keys := s.transport.List(headPrefix)
+	keys := s.listHeadKeys()
 	for _, key := range keys {
 		raw, ok := s.transport.Get(key)
 		if !ok {
@@ -503,18 +585,21 @@ func (s *Store) authorize(policy AccessPolicy, requester Requester) error {
 	}
 }
 
-func (s *Store) resolveRecipients(ids []string) ([]recipientRef, error) {
-	all := s.manifestRecipientMap()
-	if len(ids) == 1 && strings.EqualFold(ids[0], "all") {
-		ids = ids[:0]
-		for id := range all {
-			ids = append(ids, id)
-		}
+func (s *Store) resolveRecipients(scope string, ids []string) ([]recipientRef, error) {
+	switch scope {
+	case ScopeCurrent:
+		return s.resolveExplicitRecipients([]string{s.deviceID})
+	case ScopeTrusted:
+		return s.resolveTrustedRecipients()
+	case ScopeExplicit:
+		return s.resolveExplicitRecipients(ids)
+	default:
+		return nil, fmt.Errorf("unknown scope: %s", scope)
 	}
-	if len(ids) == 0 {
-		ids = []string{s.deviceID}
-	}
+}
 
+func (s *Store) resolveExplicitRecipients(ids []string) ([]recipientRef, error) {
+	all := s.manifestRecipientMap()
 	seen := make(map[string]bool, len(ids))
 	recipients := make([]recipientRef, 0, len(ids))
 	for _, idValue := range ids {
@@ -535,6 +620,24 @@ func (s *Store) resolveRecipients(ids []string) ([]recipientRef, error) {
 	return recipients, nil
 }
 
+func (s *Store) resolveTrustedRecipients() ([]recipientRef, error) {
+	all := s.manifestRecipientMap()
+	recipients := make([]recipientRef, 0, len(all))
+	for _, recipient := range all {
+		if recipient.Role != id.DeviceRoleTrusted {
+			continue
+		}
+		recipients = append(recipients, recipient)
+	}
+	sort.Slice(recipients, func(i, j int) bool {
+		return recipients[i].DeviceID < recipients[j].DeviceID
+	})
+	if len(recipients) == 0 {
+		return nil, fmt.Errorf("no trusted recipient devices available")
+	}
+	return recipients, nil
+}
+
 func (s *Store) manifestDevices() []Device {
 	all := s.manifestRecipientMap()
 	out := make([]Device, 0, len(all))
@@ -542,9 +645,13 @@ func (s *Store) manifestDevices() []Device {
 		out = append(out, Device{
 			ID:      recipient.DeviceID,
 			Name:    recipient.Name,
+			Role:    recipient.Role,
 			Current: recipient.DeviceID == s.deviceID,
 		})
 	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].ID < out[j].ID
+	})
 	return out
 }
 
@@ -559,6 +666,7 @@ func (s *Store) manifestRecipientMap() map[string]recipientRef {
 		out[idValue] = recipientRef{
 			DeviceID:  idValue,
 			Name:      entry.Name,
+			Role:      id.NormalizeDeviceRole(entry.Role),
 			PublicKey: pub,
 		}
 	}
@@ -568,6 +676,7 @@ func (s *Store) manifestRecipientMap() map[string]recipientRef {
 		out[currentID] = recipientRef{
 			DeviceID:  currentID,
 			Name:      "current",
+			Role:      id.DeviceRoleTrusted,
 			PublicKey: s.bundle.Device.PublicKey,
 		}
 	}
@@ -582,12 +691,29 @@ func recipientIDs(recipients []recipientRef) []string {
 	return ids
 }
 
+func sameRecipientIDSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	left := append([]string(nil), a...)
+	right := append([]string(nil), b...)
+	sort.Strings(left)
+	sort.Strings(right)
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func summaryFromHead(head headPayload) SecretSummary {
 	return SecretSummary{
 		ID:                 head.SecretID,
 		Name:               head.Name,
 		Kind:               head.Kind,
 		ContentType:        head.ContentType,
+		Scope:              head.Scope,
 		Size:               head.Size,
 		SHA256:             head.SHA256,
 		CreatedAt:          head.CreatedAt,
@@ -597,22 +723,83 @@ func summaryFromHead(head headPayload) SecretSummary {
 	}
 }
 
+func (s *Store) listHeadKeys() []string {
+	keysByID := make(map[string]string)
+	for _, key := range s.transport.List(legacyHeadPrefix) {
+		if secretID, ok := secretIDFromHeadKey(key); ok {
+			keysByID[secretID] = key
+		}
+	}
+	for _, key := range s.transport.List(headPrefix) {
+		if secretID, ok := secretIDFromHeadKey(key); ok {
+			keysByID[secretID] = key
+		}
+	}
+	keys := make([]string, 0, len(keysByID))
+	for _, key := range keysByID {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func (s *Store) resolveVersionMeta(secretID, versionID string) ([]byte, bool) {
+	if raw, ok := s.transport.Get(versionMetaKey(secretID, versionID)); ok {
+		return raw, true
+	}
+	return s.transport.Get(legacyVersionMetaKey(secretID, versionID))
+}
+
+func (s *Store) resolveChunk(secretID, versionID string, idx int) ([]byte, bool) {
+	if raw, ok := s.transport.Get(chunkKey(secretID, versionID, idx)); ok {
+		return raw, true
+	}
+	return s.transport.Get(legacyChunkKey(secretID, versionID, idx))
+}
+
 func deviceIDFromPublicKey(pub ed25519.PublicKey) string {
 	return "D-" + skykey.FromPublicKey(pub).ShortID()
 }
 
 const (
-	headPrefix = "heads/"
+	internalPrefix    = "_sys/secrets/"
+	headPrefix        = internalPrefix + "heads/"
+	legacyHeadPrefix  = "heads/"
+	versionPrefix     = internalPrefix + "versions/"
+	legacyVersionPath = "versions/"
 )
 
 func headKey(secretID string) string {
 	return headPrefix + secretID
 }
 
+func legacyHeadKey(secretID string) string {
+	return legacyHeadPrefix + secretID
+}
+
 func versionMetaKey(secretID, versionID string) string {
-	return fmt.Sprintf("versions/%s/%s/meta", secretID, versionID)
+	return fmt.Sprintf("%s%s/%s/meta", versionPrefix, secretID, versionID)
+}
+
+func legacyVersionMetaKey(secretID, versionID string) string {
+	return fmt.Sprintf("%s%s/%s/meta", legacyVersionPath, secretID, versionID)
 }
 
 func chunkKey(secretID, versionID string, idx int) string {
-	return fmt.Sprintf("versions/%s/%s/chunk/%06d", secretID, versionID, idx)
+	return fmt.Sprintf("%s%s/%s/chunk/%06d", versionPrefix, secretID, versionID, idx)
+}
+
+func legacyChunkKey(secretID, versionID string, idx int) string {
+	return fmt.Sprintf("%s%s/%s/chunk/%06d", legacyVersionPath, secretID, versionID, idx)
+}
+
+func secretIDFromHeadKey(key string) (string, bool) {
+	switch {
+	case strings.HasPrefix(key, headPrefix):
+		return strings.TrimPrefix(key, headPrefix), true
+	case strings.HasPrefix(key, legacyHeadPrefix):
+		return strings.TrimPrefix(key, legacyHeadPrefix), true
+	default:
+		return "", false
+	}
 }

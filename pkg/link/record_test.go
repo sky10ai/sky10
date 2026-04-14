@@ -18,7 +18,7 @@ func TestMembershipRecordRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bundle.Manifest.AddDevice(phone.PublicKey, "phone")
+	bundle.Manifest.AddDeviceWithRole(phone.PublicKey, "phone", id.DeviceRoleSandbox)
 	if err := bundle.Manifest.Sign(bundle.Identity.PrivateKey); err != nil {
 		t.Fatal(err)
 	}
@@ -46,6 +46,17 @@ func TestMembershipRecordRoundTrip(t *testing.T) {
 	}
 	if !manifest.HasDevice(phone.PublicKey) {
 		t.Fatal("round-tripped manifest missing phone device")
+	}
+
+	var phoneRole string
+	for _, device := range manifest.Devices {
+		if string(device.PublicKey) == string(phone.PublicKey) {
+			phoneRole = id.NormalizeDeviceRole(device.Role)
+			break
+		}
+	}
+	if phoneRole != id.DeviceRoleSandbox {
+		t.Fatalf("round-tripped phone role = %q, want %q", phoneRole, id.DeviceRoleSandbox)
 	}
 }
 

@@ -33,11 +33,11 @@ func secretsPutCmd() *cobra.Command {
 	var (
 		filePath        string
 		value           string
+		envName         string
 		kind            string
 		contentType     string
+		scope           string
 		recipientDevice []string
-		allowedAgents   []string
-		requireApproval bool
 	)
 
 	cmd := &cobra.Command{
@@ -45,13 +45,24 @@ func secretsPutCmd() *cobra.Command {
 		Short: "Store a secret value or file",
 		Example: strings.TrimSpace(`
 sky10 secrets put openai --value "$OPENAI_API_KEY" --kind api-key
+sky10 secrets put openai --from-env OPENAI_API_KEY --kind api-key --scope trusted
 sky10 secrets put service-cert --file cert.pem --kind cert
 `),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var payload []byte
-			if filePath != "" && value != "" {
-				return fmt.Errorf("use either --file or --value, not both")
+			selectedInputs := 0
+			if filePath != "" {
+				selectedInputs++
+			}
+			if value != "" {
+				selectedInputs++
+			}
+			if envName != "" {
+				selectedInputs++
+			}
+			if selectedInputs > 1 {
+				return fmt.Errorf("use exactly one of --file, --value, or --from-env")
 			}
 			switch {
 			case filePath != "":
@@ -62,25 +73,31 @@ sky10 secrets put service-cert --file cert.pem --kind cert
 				payload = data
 			case value != "":
 				payload = []byte(value)
+			case envName != "":
+				envValue, ok := os.LookupEnv(envName)
+				if !ok {
+					return fmt.Errorf("environment variable %s is not set", envName)
+				}
+				payload = []byte(envValue)
 			default:
-				return fmt.Errorf("either --file or --value is required")
+				return fmt.Errorf("one of --file, --value, or --from-env is required")
 			}
 			if contentType == "" {
-				if value != "" {
+				if value != "" || envName != "" {
 					contentType = "text/plain; charset=utf-8"
 				} else {
 					contentType = "application/octet-stream"
 				}
 			}
+			warnSandboxRecipients(recipientDevice)
 
 			raw, err := rpcCall("secrets.put", map[string]interface{}{
 				"name":              args[0],
 				"kind":              kind,
 				"content_type":      contentType,
+				"scope":             scope,
 				"payload":           base64.StdEncoding.EncodeToString(payload),
 				"recipient_devices": recipientDevice,
-				"allowed_agents":    allowedAgents,
-				"require_approval":  requireApproval,
 			})
 			if err != nil {
 				return err
@@ -90,24 +107,25 @@ sky10 secrets put service-cert --file cert.pem --kind cert
 				ID      string `json:"id"`
 				Name    string `json:"name"`
 				Kind    string `json:"kind"`
+				Scope   string `json:"scope"`
 				Size    int64  `json:"size"`
 				SHA256  string `json:"sha256"`
 				Updated string `json:"updated_at"`
 			}
 			json.Unmarshal(raw, &summary)
 			fmt.Printf("stored %s (%s, %d bytes)\n", summary.Name, summary.ID, summary.Size)
-			fmt.Printf("kind:   %s\nsha256: %s\n", summary.Kind, summary.SHA256)
+			fmt.Printf("kind:   %s\nscope:  %s\nsha256: %s\n", summary.Kind, summary.Scope, summary.SHA256)
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&filePath, "file", "", "read secret bytes from file")
 	cmd.Flags().StringVar(&value, "value", "", "store literal string value")
+	cmd.Flags().StringVar(&envName, "from-env", "", "read secret value from environment variable")
 	cmd.Flags().StringVar(&kind, "kind", skysecrets.KindBlob, "secret kind (for example: api-key, token, cert, blob)")
 	cmd.Flags().StringVar(&contentType, "content-type", "", "content type override (defaults to text/plain for --value, application/octet-stream for --file)")
-	cmd.Flags().StringArrayVar(&recipientDevice, "device", nil, "recipient device ID (repeatable, default current device)")
-	cmd.Flags().StringArrayVar(&allowedAgents, "agent", nil, "allowed agent ID (soft policy, repeatable)")
-	cmd.Flags().BoolVar(&requireApproval, "require-approval", false, "require human approval for agent-mode access")
+	cmd.Flags().StringVar(&scope, "scope", "", "secret scope: current, trusted, or explicit")
+	cmd.Flags().StringArrayVar(&recipientDevice, "device", nil, "recipient device ID (repeatable, implies --scope explicit when omitted)")
 	return cmd
 }
 
@@ -175,6 +193,7 @@ func secretsListCmd() *cobra.Command {
 					ID                 string   `json:"id"`
 					Name               string   `json:"name"`
 					Kind               string   `json:"kind"`
+					Scope              string   `json:"scope"`
 					RecipientDeviceIDs []string `json:"recipient_device_ids"`
 				} `json:"items"`
 			}
@@ -186,7 +205,7 @@ func secretsListCmd() *cobra.Command {
 				return nil
 			}
 			for _, item := range resp.Items {
-				fmt.Printf("%s\t%s\t%s\t%s\n", item.ID, item.Name, item.Kind, strings.Join(item.RecipientDeviceIDs, ","))
+				fmt.Printf("%s\t%s\t%s\t%s\t%s\n", item.ID, item.Name, item.Kind, item.Scope, strings.Join(item.RecipientDeviceIDs, ","))
 			}
 			return nil
 		},
@@ -206,6 +225,7 @@ func secretsDevicesCmd() *cobra.Command {
 				Devices []struct {
 					ID      string `json:"id"`
 					Name    string `json:"name"`
+					Role    string `json:"role"`
 					Current bool   `json:"current"`
 				} `json:"devices"`
 			}
@@ -217,7 +237,7 @@ func secretsDevicesCmd() *cobra.Command {
 				if dev.Current {
 					label += " (current)"
 				}
-				fmt.Printf("%s\t%s\n", dev.ID, label)
+				fmt.Printf("%s\t%s\t%s\n", dev.ID, label, dev.Role)
 			}
 			return nil
 		},
@@ -226,36 +246,35 @@ func secretsDevicesCmd() *cobra.Command {
 
 func secretsRewrapCmd() *cobra.Command {
 	var (
+		scope           string
 		recipientDevice []string
-		allowedAgents   []string
-		requireApproval bool
 	)
 	cmd := &cobra.Command{
 		Use:   "rewrap <id-or-name>",
 		Short: "Rotate a secret to a fresh key and recipient set",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			warnSandboxRecipients(recipientDevice)
 			raw, err := rpcCall("secrets.rewrap", map[string]interface{}{
 				"id_or_name":        args[0],
+				"scope":             scope,
 				"recipient_devices": recipientDevice,
-				"allowed_agents":    allowedAgents,
-				"require_approval":  requireApproval,
 			})
 			if err != nil {
 				return err
 			}
 			var summary struct {
-				ID   string `json:"id"`
-				Name string `json:"name"`
+				ID    string `json:"id"`
+				Name  string `json:"name"`
+				Scope string `json:"scope"`
 			}
 			json.Unmarshal(raw, &summary)
-			fmt.Printf("rewrapped %s (%s)\n", summary.Name, summary.ID)
+			fmt.Printf("rewrapped %s (%s) [%s]\n", summary.Name, summary.ID, summary.Scope)
 			return nil
 		},
 	}
-	cmd.Flags().StringArrayVar(&recipientDevice, "device", nil, "recipient device ID (repeatable)")
-	cmd.Flags().StringArrayVar(&allowedAgents, "agent", nil, "allowed agent ID (soft policy, repeatable)")
-	cmd.Flags().BoolVar(&requireApproval, "require-approval", false, "require human approval for agent-mode access")
+	cmd.Flags().StringVar(&scope, "scope", "", "secret scope: current, trusted, or explicit")
+	cmd.Flags().StringArrayVar(&recipientDevice, "device", nil, "recipient device ID (repeatable, implies --scope explicit when omitted)")
 	return cmd
 }
 
@@ -306,4 +325,37 @@ func isPrintable(data []byte) bool {
 		}
 	}
 	return true
+}
+
+func warnSandboxRecipients(recipientDeviceIDs []string) {
+	if len(recipientDeviceIDs) == 0 {
+		return
+	}
+
+	raw, err := rpcCall("secrets.devices", nil)
+	if err != nil {
+		return
+	}
+
+	var resp struct {
+		Devices []struct {
+			ID   string `json:"id"`
+			Role string `json:"role"`
+		} `json:"devices"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return
+	}
+
+	roles := make(map[string]string, len(resp.Devices))
+	for _, device := range resp.Devices {
+		roles[device.ID] = device.Role
+	}
+
+	for _, deviceID := range recipientDeviceIDs {
+		if roles[deviceID] != "sandbox" {
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "warning: sandbox device %s will be able to decrypt this secret\n", deviceID)
+	}
 }

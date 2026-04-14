@@ -17,7 +17,7 @@ func TestRPCDeviceListUsesManifestAndMetadata(t *testing.T) {
 
 	manifest := NewManifest(identity)
 	manifest.AddDevice(current.PublicKey, "mac")
-	manifest.AddDevice(other.PublicKey, "linux")
+	manifest.AddDeviceWithRole(other.PublicKey, "linux", DeviceRoleSandbox)
 	if err := manifest.Sign(identity.PrivateKey); err != nil {
 		t.Fatalf("sign manifest: %v", err)
 	}
@@ -59,6 +59,12 @@ func TestRPCDeviceListUsesManifestAndMetadata(t *testing.T) {
 
 	if !result.Devices[0].Current {
 		t.Fatalf("first device should be current: %+v", result.Devices[0])
+	}
+	if result.Devices[0].Role != DeviceRoleTrusted {
+		t.Fatalf("current device role = %q, want %q", result.Devices[0].Role, DeviceRoleTrusted)
+	}
+	if result.Devices[1].Role != DeviceRoleSandbox {
+		t.Fatalf("other device role = %q, want %q", result.Devices[1].Role, DeviceRoleSandbox)
 	}
 	if result.Devices[1].Platform != "Linux" {
 		t.Fatalf("platform = %q, want Linux", result.Devices[1].Platform)
@@ -132,15 +138,18 @@ func TestRPCJoinParsesCode(t *testing.T) {
 	handler := NewRPCHandler(bundle)
 
 	called := false
-	handler.SetJoinHandler(func(_ context.Context, code string) (interface{}, error) {
+	handler.SetJoinHandler(func(_ context.Context, code, role string) (interface{}, error) {
 		called = true
 		if code != "sky10p2p_test" {
 			t.Fatalf("code = %q, want sky10p2p_test", code)
 		}
+		if role != DeviceRoleSandbox {
+			t.Fatalf("role = %q, want %q", role, DeviceRoleSandbox)
+		}
 		return map[string]string{"status": "joined"}, nil
 	})
 
-	params, _ := json.Marshal(map[string]string{"code": "  sky10p2p_test  "})
+	params, _ := json.Marshal(map[string]string{"code": "  sky10p2p_test  ", "role": " sandbox "})
 	raw, err, handled := handler.Dispatch(context.Background(), "identity.join", params)
 	if err != nil {
 		t.Fatalf("dispatch error: %v", err)
@@ -169,6 +178,7 @@ func TestRPCDevicesFormatsTimestampsUTC(t *testing.T) {
 	manifest.Devices = []DeviceEntry{{
 		PublicKey: current.PublicKey,
 		Name:      "mac",
+		Role:      DeviceRoleSandbox,
 		AddedAt:   time.Date(2026, 4, 6, 15, 4, 5, 0, time.FixedZone("CDT", -5*60*60)),
 	}}
 	manifest.UpdatedAt = time.Now().UTC()
@@ -193,5 +203,8 @@ func TestRPCDevicesFormatsTimestampsUTC(t *testing.T) {
 	result := raw.(devicesResult)
 	if result.Devices[0].AddedAt != "2026-04-06T20:04:05Z" {
 		t.Fatalf("added_at = %q, want UTC timestamp", result.Devices[0].AddedAt)
+	}
+	if result.Devices[0].Role != DeviceRoleSandbox {
+		t.Fatalf("role = %q, want %q", result.Devices[0].Role, DeviceRoleSandbox)
 	}
 }

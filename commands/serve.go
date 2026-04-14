@@ -187,6 +187,18 @@ func ServeCmd() *cobra.Command {
 			go func() {
 				secretsRunErr <- secretsStore.Run(ctx)
 			}()
+			reconcileTrustedSecrets := func(reason string) {
+				reconcileCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				defer cancel()
+				count, err := secretsStore.ReconcileTrustedScope(reconcileCtx)
+				if err != nil {
+					logger.Warn("failed to reconcile trusted secrets", "reason", reason, "error", err)
+					return
+				}
+				if count > 0 {
+					logger.Info("reconciled trusted secrets", "reason", reason, "count", count)
+				}
+			}
 
 			// Skylink P2P node — network mode enables DHT, relay, and external peers.
 			linkNode, err := link.New(bundle, linkCfg, logRuntime.Logger)
@@ -393,6 +405,7 @@ func ServeCmd() *cobra.Command {
 				}()
 			}
 			configureIdentityRPCHandler(identityRPC, bundle, idStore, backend, linkNode, relays, func() {
+				reconcileTrustedSecrets("device_removed")
 				triggerPrivateNetwork("device_removed", "")
 			})
 
@@ -537,16 +550,20 @@ func ServeCmd() *cobra.Command {
 				// Register P2P join handler as soon as the host exists.
 				joinHandler := skyjoin.NewHandler(bundle, nil, logRuntime.Logger)
 				joinHandler.SetNSKeyProvider(func() []skyjoin.NSKey {
-					ns, key := kvStore.NamespaceKey()
-					if key == nil {
-						return nil
+					out := make([]skyjoin.NSKey, 0, 2)
+					if ns, key := kvStore.NamespaceKey(); key != nil {
+						out = append(out, skyjoin.NSKey{Namespace: ns, Key: key})
 					}
-					return []skyjoin.NSKey{{Namespace: ns, Key: key}}
+					if ns, key := secretsStore.Transport().NamespaceKey(); key != nil {
+						out = append(out, skyjoin.NSKey{Namespace: ns, Key: key})
+					}
+					return out
 				})
 				joinHandler.SetOnBundleUpdated(func(updated *skyid.Bundle) error {
 					if err := idStore.Save(updated); err != nil {
 						return err
 					}
+					reconcileTrustedSecrets("join")
 					if triggerPrivateNetwork != nil {
 						triggerPrivateNetwork("bundle_updated", "join")
 					}

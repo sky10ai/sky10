@@ -1,6 +1,9 @@
 package secrets
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 const (
 	// DefaultNamespace is the internal KV namespace used for secrets metadata
@@ -16,12 +19,22 @@ const (
 	// RequesterOwner is the trusted local owner path.
 	RequesterOwner = "owner"
 
-	// RequesterAgent is the soft-gated agent access path. Full caller auth
-	// still requires daemon-level RPC authentication.
+	// RequesterAgent is a deferred internal path for future brokered access.
+	// It is not part of the public secrets v1 surface.
 	RequesterAgent = "agent"
+
+	// ScopeCurrent stores a secret only for the current device.
+	ScopeCurrent = "current"
+
+	// ScopeTrusted stores a secret for all trusted devices in the manifest.
+	ScopeTrusted = "trusted"
+
+	// ScopeExplicit stores a secret for an explicit pinned device set.
+	ScopeExplicit = "explicit"
 )
 
-// AccessPolicy controls how agent-mode requests are evaluated.
+// AccessPolicy is deferred metadata for future brokered agent access. It is
+// not part of the public secrets v1 boundary.
 type AccessPolicy struct {
 	AllowedAgents   []string `json:"allowed_agents,omitempty"`
 	RequireApproval bool     `json:"require_approval,omitempty"`
@@ -44,6 +57,7 @@ type PutParams struct {
 	Name               string
 	Kind               string
 	ContentType        string
+	Scope              string
 	Payload            []byte
 	RecipientDeviceIDs []string
 	Policy             AccessPolicy
@@ -52,6 +66,7 @@ type PutParams struct {
 // RewrapParams rotates a secret to a fresh data key and recipient set.
 type RewrapParams struct {
 	IDOrName           string
+	Scope              string
 	RecipientDeviceIDs []string
 	Policy             AccessPolicy
 }
@@ -62,6 +77,7 @@ type SecretSummary struct {
 	Name               string       `json:"name"`
 	Kind               string       `json:"kind"`
 	ContentType        string       `json:"content_type"`
+	Scope              string       `json:"scope"`
 	Size               int64        `json:"size"`
 	SHA256             string       `json:"sha256"`
 	CreatedAt          time.Time    `json:"created_at"`
@@ -81,5 +97,36 @@ type Secret struct {
 type Device struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
+	Role    string `json:"role"`
 	Current bool   `json:"current"`
+}
+
+// NormalizeSecretScope returns the canonical scope name or an empty string
+// for unknown scopes.
+func NormalizeSecretScope(scope string) string {
+	switch strings.ToLower(strings.TrimSpace(scope)) {
+	case "", ScopeCurrent:
+		return ScopeCurrent
+	case ScopeTrusted:
+		return ScopeTrusted
+	case ScopeExplicit:
+		return ScopeExplicit
+	default:
+		return ""
+	}
+}
+
+// InferSecretScope preserves older scope-less records by deriving the most
+// conservative scope from their resolved recipient set.
+func InferSecretScope(scope string, recipientDeviceIDs []string, currentDeviceID string) string {
+	if normalized := NormalizeSecretScope(scope); normalized != "" {
+		return normalized
+	}
+	if len(recipientDeviceIDs) == 0 {
+		return ScopeCurrent
+	}
+	if len(recipientDeviceIDs) == 1 && recipientDeviceIDs[0] == currentDeviceID {
+		return ScopeCurrent
+	}
+	return ScopeExplicit
 }

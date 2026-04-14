@@ -28,6 +28,7 @@ type Request struct {
 	InviteID     string `json:"invite_id"`
 	DevicePubKey string `json:"device_pubkey"`
 	DeviceName   string `json:"device_name"`
+	DeviceRole   string `json:"device_role,omitempty"`
 }
 
 // Response is sent by the inviter after approval.
@@ -112,6 +113,13 @@ func (h *Handler) HandleStream(s network.Stream) {
 		writeResponse(s, msg.ID, resp)
 		return
 	}
+	deviceRole, err := NormalizeJoinDeviceRole(req.DeviceRole)
+	if err != nil {
+		resp.Approved = false
+		resp.Error = err.Error()
+		writeResponse(s, msg.ID, resp)
+		return
+	}
 
 	wrappedIdentity, err := skykey.WrapKey(h.bundle.Identity.PrivateKey, joinerKey.PublicKey)
 	if err != nil {
@@ -126,7 +134,7 @@ func (h *Handler) HandleStream(s network.Stream) {
 	manifest := h.bundle.Manifest
 	changed := false
 	if !manifest.HasDevice(joinerKey.PublicKey) {
-		manifest.AddDevice(joinerKey.PublicKey, req.DeviceName)
+		manifest.AddDeviceWithRole(joinerKey.PublicKey, req.DeviceName, deviceRole)
 		manifest.Sign(h.bundle.Identity.PrivateKey)
 		changed = true
 	}
@@ -154,7 +162,7 @@ func (h *Handler) HandleStream(s network.Stream) {
 		}
 	}
 
-	h.logger.Info("join approved", "device", req.DeviceName, "ns_keys", len(resp.NSKeys))
+	h.logger.Info("join approved", "device", req.DeviceName, "role", id.NormalizeDeviceRole(deviceRole), "ns_keys", len(resp.NSKeys))
 	writeResponse(s, msg.ID, resp)
 }
 

@@ -39,6 +39,7 @@ type privateNetworkKey struct {
 type MembershipDevice struct {
 	PublicKey string    `json:"public_key"`
 	Name      string    `json:"name"`
+	Role      string    `json:"role,omitempty"`
 	AddedAt   time.Time `json:"added_at"`
 }
 
@@ -263,6 +264,7 @@ func (r *MembershipRecord) ToManifest(identity *skykey.Key) (*id.DeviceManifest,
 		manifest.Devices = append(manifest.Devices, id.DeviceEntry{
 			PublicKey: []byte(pub),
 			Name:      device.Name,
+			Role:      id.CanonicalDeviceRole(device.Role),
 			AddedAt:   device.AddedAt.UTC(),
 		})
 	}
@@ -281,6 +283,7 @@ func membershipRecordFromManifest(manifest *id.DeviceManifest) *MembershipRecord
 		devices = append(devices, MembershipDevice{
 			PublicKey: strings.ToLower(hex.EncodeToString(device.PublicKey)),
 			Name:      device.Name,
+			Role:      id.CanonicalDeviceRole(device.Role),
 			AddedAt:   device.AddedAt.UTC(),
 		})
 	}

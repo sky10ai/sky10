@@ -19,21 +19,28 @@ import (
 
 // JoinCmd returns the top-level `sky10 join` command.
 func JoinCmd() *cobra.Command {
-	return &cobra.Command{
+	var role string
+	cmd := &cobra.Command{
 		Use:   "join <invite-code>",
 		Short: "Join another device's identity using an invite code",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			normalizedRole, err := join.NormalizeJoinDeviceRole(role)
+			if err != nil {
+				return err
+			}
 			code := args[0]
 			if join.IsP2PInvite(code) {
-				return runJoinP2P(cmd, code)
+				return runJoinP2P(cmd, code, normalizedRole)
 			}
-			return runJoinS3(cmd, code)
+			return runJoinS3(cmd, code, normalizedRole)
 		},
 	}
+	cmd.Flags().StringVar(&role, "role", "trusted", "Device role for this join: trusted or sandbox")
+	return cmd
 }
 
-func runJoinP2P(cmd *cobra.Command, code string) error {
+func runJoinP2P(cmd *cobra.Command, code, role string) error {
 	invite, err := join.DecodeP2PInvite(code)
 	if err != nil {
 		return err
@@ -76,7 +83,7 @@ func runJoinP2P(cmd *cobra.Command, code string) error {
 		return err
 	}
 
-	resp, err := join.RequestP2PJoin(ctx, node.Host(), info.ID, invite, deviceKey.Address(), skyfs.GetDeviceName())
+	resp, err := join.RequestP2PJoin(ctx, node.Host(), info.ID, invite, deviceKey.Address(), skyfs.GetDeviceName(), role)
 	if err != nil {
 		return fmt.Errorf("join request failed: %w", err)
 	}
@@ -88,8 +95,8 @@ func runJoinP2P(cmd *cobra.Command, code string) error {
 		}
 		return fmt.Errorf("join request was %s", errMsg)
 	}
-	if !hasNamespaceKey(resp.NSKeys, "default") {
-		return fmt.Errorf("join response missing default KV namespace key")
+	if err := validateJoinNamespaceKeys(resp.NSKeys); err != nil {
+		return err
 	}
 
 	// Unwrap identity key.
@@ -138,11 +145,15 @@ func runJoinP2P(cmd *cobra.Command, code string) error {
 		return err
 	}
 
-	fmt.Printf("Joined!\n  Identity: %s\n  Device:   %s\n", bundle.Address(), bundle.DeviceID())
+	fmt.Printf("Joined!\n  Identity: %s\n  Device:   %s\n  Role:     %s\n", bundle.Address(), bundle.DeviceID(), skyid.NormalizeDeviceRole(role))
 	return nil
 }
 
-func runJoinS3(cmd *cobra.Command, code string) error {
+func runJoinS3(cmd *cobra.Command, code, role string) error {
+	if role != "" {
+		return fmt.Errorf("join --role %q is only supported for P2P private-network invites", skyid.NormalizeDeviceRole(role))
+	}
+
 	invite, err := join.DecodeS3Invite(code)
 	if err != nil {
 		return err

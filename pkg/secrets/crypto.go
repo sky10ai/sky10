@@ -17,6 +17,7 @@ var errNoWrappedKey = errors.New("wrapped key for current device not found")
 type recipientRef struct {
 	DeviceID  string
 	Name      string
+	Role      string
 	PublicKey ed25519.PublicKey
 }
 

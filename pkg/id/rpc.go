@@ -45,8 +45,9 @@ type DeviceMetadataProvider func(context.Context) (map[string]DeviceMetadata, er
 // InviteHandler generates an invite code for this identity.
 type InviteHandler func(context.Context) (string, error)
 
-// JoinHandler joins another identity/private network using an invite code.
-type JoinHandler func(context.Context, string) (interface{}, error)
+// JoinHandler joins another identity/private network using an invite code and
+// optional device role.
+type JoinHandler func(context.Context, string, string) (interface{}, error)
 
 // ApproveHandler approves pending join requests and returns the count.
 type ApproveHandler func(context.Context) (int, error)
@@ -125,6 +126,7 @@ func (h *RPCHandler) rpcShow() (interface{}, error, bool) {
 type deviceInfo struct {
 	PublicKey string `json:"public_key"`
 	Name      string `json:"name"`
+	Role      string `json:"role"`
 	AddedAt   string `json:"added_at"`
 	Current   bool   `json:"current"`
 }
@@ -143,6 +145,7 @@ func (h *RPCHandler) rpcDevices() (interface{}, error, bool) {
 		devices = append(devices, deviceInfo{
 			PublicKey: pub,
 			Name:      d.Name,
+			Role:      NormalizeDeviceRole(d.Role),
 			AddedAt:   d.AddedAt.UTC().Format("2006-01-02T15:04:05Z"),
 			Current:   pub == devicePub,
 		})
@@ -158,6 +161,7 @@ type deviceListItem struct {
 	ID         string   `json:"id"`
 	PubKey     string   `json:"pubkey"`
 	Name       string   `json:"name"`
+	Role       string   `json:"role"`
 	Alias      string   `json:"alias,omitempty"`
 	Joined     string   `json:"joined"`
 	Platform   string   `json:"platform,omitempty"`
@@ -197,6 +201,7 @@ func (h *RPCHandler) rpcDeviceList(ctx context.Context) (interface{}, error, boo
 			ID:         deviceIDFromPubKey(d.PublicKey),
 			PubKey:     pubHex,
 			Name:       d.Name,
+			Role:       NormalizeDeviceRole(d.Role),
 			Alias:      meta.Alias,
 			Joined:     d.AddedAt.UTC().Format("2006-01-02T15:04:05Z"),
 			Platform:   meta.Platform,
@@ -233,6 +238,7 @@ func (h *RPCHandler) rpcJoin(ctx context.Context, params json.RawMessage) (inter
 	}
 	var p struct {
 		Code string `json:"code"`
+		Role string `json:"role,omitempty"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err), true
@@ -240,7 +246,7 @@ func (h *RPCHandler) rpcJoin(ctx context.Context, params json.RawMessage) (inter
 	if strings.TrimSpace(p.Code) == "" {
 		return nil, fmt.Errorf("code required"), true
 	}
-	result, err := h.joinHandler(ctx, strings.TrimSpace(p.Code))
+	result, err := h.joinHandler(ctx, strings.TrimSpace(p.Code), strings.TrimSpace(p.Role))
 	if err != nil {
 		return nil, err, true
 	}

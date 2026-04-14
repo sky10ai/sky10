@@ -58,6 +58,7 @@ func idDevicesCmd() *cobra.Command {
 				Identity string `json:"identity"`
 				Devices  []struct {
 					Name    string `json:"name"`
+					Role    string `json:"role"`
 					AddedAt string `json:"added_at"`
 					Current bool   `json:"current"`
 				} `json:"devices"`
@@ -71,7 +72,7 @@ func idDevicesCmd() *cobra.Command {
 				if d.Current {
 					marker = "* "
 				}
-				fmt.Printf("%s%s (added %s)\n", marker, d.Name, d.AddedAt[:10])
+				fmt.Printf("%s%s [%s] (added %s)\n", marker, d.Name, d.Role, d.AddedAt[:10])
 			}
 			return nil
 		},

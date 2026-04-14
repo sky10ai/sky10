@@ -61,7 +61,7 @@ func ConnectViaInvite(ctx context.Context, h host.Host, invite *P2PInvite) (*pee
 // join. Blocks until the inviter responds (approved or denied).
 //
 // If targetPeer is empty, the first connected peer is used.
-func RequestP2PJoin(ctx context.Context, h host.Host, targetPeer peer.ID, invite *P2PInvite, devicePubKey, deviceName string) (*Response, error) {
+func RequestP2PJoin(ctx context.Context, h host.Host, targetPeer peer.ID, invite *P2PInvite, devicePubKey, deviceName, deviceRole string) (*Response, error) {
 	if targetPeer == "" {
 		peers := h.Network().Peers()
 		if len(peers) == 0 {
@@ -76,10 +76,16 @@ func RequestP2PJoin(ctx context.Context, h host.Host, targetPeer peer.ID, invite
 	}
 	defer s.Close()
 
+	role, err := NormalizeJoinDeviceRole(deviceRole)
+	if err != nil {
+		return nil, err
+	}
+
 	req := Request{
 		InviteID:     invite.InviteID,
 		DevicePubKey: devicePubKey,
 		DeviceName:   deviceName,
+		DeviceRole:   role,
 	}
 	params, _ := json.Marshal(req)
 

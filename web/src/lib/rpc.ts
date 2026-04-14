@@ -80,9 +80,9 @@ export const skyfs = {
 
 // -- skykv --
 export const skykv = {
-  list: (p?: { prefix?: string; namespace?: string }) =>
+  list: (p?: { prefix?: string; namespace?: string; include_internal?: boolean }) =>
     rpc<KVListResult>("skykv.list", p),
-  getAll: (p?: { prefix?: string; namespace?: string }) =>
+  getAll: (p?: { prefix?: string; namespace?: string; include_internal?: boolean }) =>
     rpc<KVGetAllResult>("skykv.getAll", p),
   get: (p: { key: string; namespace?: string }) =>
     rpc<KVGetResult>("skykv.get", p),

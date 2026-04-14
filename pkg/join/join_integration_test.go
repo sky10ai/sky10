@@ -65,7 +65,7 @@ func TestP2PJoinHandshake(t *testing.T) {
 	}
 
 	resp, err := RequestP2PJoin(ctx, joinerNode.Host(), inviterNode.PeerID(), invite,
-		joinerKey.Address(), "test-joiner")
+		joinerKey.Address(), "test-joiner", "")
 	if err != nil {
 		t.Fatalf("RequestP2PJoin: %v", err)
 	}
@@ -113,6 +113,68 @@ func TestP2PJoinHandshake(t *testing.T) {
 	}
 	if string(nsKey) != string(testNSKey) {
 		t.Error("namespace key mismatch")
+	}
+}
+
+func TestP2PJoinHandshakeSandboxRole(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	inviterBundle := generateBundle(t, "inviter")
+	inviterNode, err := link.New(inviterBundle, link.Config{Mode: link.Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go inviterNode.Run(ctx)
+	waitForHost(t, inviterNode)
+
+	joinHandler := NewHandler(inviterBundle, nil, nil)
+	inviterNode.Host().SetStreamHandler(Protocol, joinHandler.HandleStream)
+
+	joinerKey, _ := skykey.Generate()
+	joinerBundle := generateBundle(t, "joiner")
+	joinerBundle.Device = joinerKey
+	joinerNode, err := link.New(joinerBundle, link.Config{Mode: link.Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go joinerNode.Run(ctx)
+	waitForHost(t, joinerNode)
+
+	invite := &P2PInvite{
+		Address:    inviterBundle.Address(),
+		InviteID:   "test-invite-sandbox",
+		PeerID:     inviterNode.PeerID().String(),
+		Multiaddrs: link.HostMultiaddrs(inviterNode),
+	}
+
+	if _, err := ConnectViaInvite(ctx, joinerNode.Host(), invite); err != nil {
+		t.Logf("direct connect attempt: %v", err)
+	}
+
+	resp, err := RequestP2PJoin(ctx, joinerNode.Host(), inviterNode.PeerID(), invite,
+		joinerKey.Address(), "test-sandbox", id.DeviceRoleSandbox)
+	if err != nil {
+		t.Fatalf("RequestP2PJoin: %v", err)
+	}
+	if !resp.Approved {
+		t.Fatalf("expected approval, got error: %s", resp.Error)
+	}
+
+	var manifest id.DeviceManifest
+	if err := json.Unmarshal(resp.Manifest, &manifest); err != nil {
+		t.Fatalf("unmarshal manifest: %v", err)
+	}
+	var sandboxRole string
+	for _, device := range manifest.Devices {
+		if bytes.Equal(device.PublicKey, joinerKey.PublicKey) {
+			sandboxRole = id.NormalizeDeviceRole(device.Role)
+			break
+		}
+	}
+	if sandboxRole != id.DeviceRoleSandbox {
+		t.Fatalf("joined device role = %q, want %q", sandboxRole, id.DeviceRoleSandbox)
 	}
 }
 

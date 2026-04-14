@@ -54,6 +54,7 @@ type putParams struct {
 	Name             string   `json:"name"`
 	Kind             string   `json:"kind,omitempty"`
 	ContentType      string   `json:"content_type,omitempty"`
+	Scope            string   `json:"scope,omitempty"`
 	PayloadBase64    string   `json:"payload"`
 	RecipientDevices []string `json:"recipient_devices,omitempty"`
 	AllowedAgents    []string `json:"allowed_agents,omitempty"`
@@ -71,6 +72,9 @@ func (h *RPCHandler) rpcPut(ctx context.Context, params json.RawMessage) (interf
 	if p.PayloadBase64 == "" {
 		return nil, fmt.Errorf("payload is required")
 	}
+	if err := rejectPublicAgentPolicy(p.AllowedAgents, p.RequireApproval); err != nil {
+		return nil, err
+	}
 	payload, err := base64.StdEncoding.DecodeString(p.PayloadBase64)
 	if err != nil {
 		return nil, fmt.Errorf("payload must be base64: %w", err)
@@ -81,12 +85,9 @@ func (h *RPCHandler) rpcPut(ctx context.Context, params json.RawMessage) (interf
 		Name:               p.Name,
 		Kind:               p.Kind,
 		ContentType:        p.ContentType,
+		Scope:              p.Scope,
 		Payload:            payload,
 		RecipientDeviceIDs: p.RecipientDevices,
-		Policy: AccessPolicy{
-			AllowedAgents:   p.AllowedAgents,
-			RequireApproval: p.RequireApproval,
-		},
 	})
 	if err != nil {
 		return nil, err
@@ -108,6 +109,9 @@ func (h *RPCHandler) rpcGet(params json.RawMessage) (interface{}, error) {
 	if p.IDOrName == "" {
 		return nil, fmt.Errorf("id_or_name is required")
 	}
+	if p.RequesterType == RequesterAgent {
+		return nil, fmt.Errorf("agent requester mode is not part of secrets v1")
+	}
 
 	secret, err := h.store.Get(p.IDOrName, Requester{
 		Type: p.RequesterType,
@@ -122,12 +126,12 @@ func (h *RPCHandler) rpcGet(params json.RawMessage) (interface{}, error) {
 		"name":                 secret.Name,
 		"kind":                 secret.Kind,
 		"content_type":         secret.ContentType,
+		"scope":                secret.Scope,
 		"size":                 secret.Size,
 		"sha256":               secret.SHA256,
 		"created_at":           secret.CreatedAt,
 		"updated_at":           secret.UpdatedAt,
 		"recipient_device_ids": secret.RecipientDeviceIDs,
-		"policy":               secret.Policy,
 		"version_id":           secret.VersionID,
 		"payload":              base64.StdEncoding.EncodeToString(secret.Payload),
 	}, nil
@@ -138,9 +142,24 @@ func (h *RPCHandler) rpcList() (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	resultItems := make([]map[string]interface{}, 0, len(items))
+	for _, item := range items {
+		resultItems = append(resultItems, map[string]interface{}{
+			"id":                   item.ID,
+			"name":                 item.Name,
+			"kind":                 item.Kind,
+			"content_type":         item.ContentType,
+			"scope":                item.Scope,
+			"size":                 item.Size,
+			"sha256":               item.SHA256,
+			"created_at":           item.CreatedAt,
+			"updated_at":           item.UpdatedAt,
+			"recipient_device_ids": item.RecipientDeviceIDs,
+		})
+	}
 	return map[string]interface{}{
-		"items": items,
-		"count": len(items),
+		"items": resultItems,
+		"count": len(resultItems),
 	}, nil
 }
 
@@ -154,6 +173,7 @@ func (h *RPCHandler) rpcDevices() (interface{}, error) {
 
 type rewrapParams struct {
 	IDOrName         string   `json:"id_or_name"`
+	Scope            string   `json:"scope,omitempty"`
 	RecipientDevices []string `json:"recipient_devices,omitempty"`
 	AllowedAgents    []string `json:"allowed_agents,omitempty"`
 	RequireApproval  bool     `json:"require_approval,omitempty"`
@@ -167,13 +187,13 @@ func (h *RPCHandler) rpcRewrap(ctx context.Context, params json.RawMessage) (int
 	if p.IDOrName == "" {
 		return nil, fmt.Errorf("id_or_name is required")
 	}
+	if err := rejectPublicAgentPolicy(p.AllowedAgents, p.RequireApproval); err != nil {
+		return nil, err
+	}
 	summary, err := h.store.Rewrap(ctx, RewrapParams{
 		IDOrName:           p.IDOrName,
+		Scope:              p.Scope,
 		RecipientDeviceIDs: p.RecipientDevices,
-		Policy: AccessPolicy{
-			AllowedAgents:   p.AllowedAgents,
-			RequireApproval: p.RequireApproval,
-		},
 	})
 	if err != nil {
 		return nil, err
@@ -190,4 +210,11 @@ func (h *RPCHandler) rpcSync(ctx context.Context) (interface{}, error) {
 
 func (h *RPCHandler) rpcStatus() (interface{}, error) {
 	return h.store.Status()
+}
+
+func rejectPublicAgentPolicy(allowedAgents []string, requireApproval bool) error {
+	if len(allowedAgents) == 0 && !requireApproval {
+		return nil
+	}
+	return fmt.Errorf("agent policy is deferred; secrets v1 is device-scoped only")
 }

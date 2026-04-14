@@ -3,11 +3,13 @@ package secrets
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"sort"
 	"testing"
+	"time"
 
 	s3backend "github.com/sky10/sky10/pkg/adapter/s3"
 	"github.com/sky10/sky10/pkg/id"
@@ -30,6 +32,9 @@ func TestStorePutDefaultsAndGetByName(t *testing.T) {
 
 	if summary.Kind != KindBlob {
 		t.Fatalf("Kind = %q, want %q", summary.Kind, KindBlob)
+	}
+	if summary.Scope != ScopeCurrent {
+		t.Fatalf("Scope = %q, want %q", summary.Scope, ScopeCurrent)
 	}
 	if summary.ContentType != "application/octet-stream" {
 		t.Fatalf("ContentType = %q", summary.ContentType)
@@ -87,6 +92,116 @@ func TestStoreRoundTripDoesNotLeakPlaintext(t *testing.T) {
 	}
 }
 
+func TestStoreWritesInternalKeyPrefix(t *testing.T) {
+	t.Parallel()
+
+	bundle := newSingleBundle(t)
+	store := New(s3backend.NewMemory(), bundle, Config{DataDir: t.TempDir()}, nil)
+
+	if _, err := store.Put(context.Background(), PutParams{
+		Name:    "internal-prefix",
+		Payload: []byte("secret"),
+	}); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	if got := store.transport.List(headPrefix); len(got) != 1 {
+		t.Fatalf("headPrefix keys = %v, want 1 current head key", got)
+	}
+	if got := store.transport.List(legacyHeadPrefix); len(got) != 0 {
+		t.Fatalf("legacyHeadPrefix keys = %v, want none for new writes", got)
+	}
+	if got := store.transport.List(versionPrefix); len(got) == 0 {
+		t.Fatal("expected version records under current internal prefix")
+	}
+}
+
+func TestStoreReadsLegacyKeyLayout(t *testing.T) {
+	t.Parallel()
+
+	bundle := newSingleBundle(t)
+	store := New(s3backend.NewMemory(), bundle, Config{DataDir: t.TempDir()}, nil)
+	ctx := context.Background()
+
+	recipients, err := store.resolveRecipients(ScopeCurrent, nil)
+	if err != nil {
+		t.Fatalf("resolveRecipients: %v", err)
+	}
+	payload := []byte("legacy secret")
+	dataKey, err := skykey.GenerateSymmetricKey()
+	if err != nil {
+		t.Fatalf("GenerateSymmetricKey: %v", err)
+	}
+	ciphertext, err := skykey.Encrypt(payload, dataKey)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+
+	secretID := "legacy-secret-id"
+	versionID := "legacy-version-id"
+	now := time.Now().UTC()
+	versionPlain := versionPayload{
+		SecretID:    secretID,
+		VersionID:   versionID,
+		Kind:        KindBlob,
+		ContentType: "text/plain; charset=utf-8",
+		Size:        int64(len(payload)),
+		SHA256:      checksumHex(payload),
+		ChunkCount:  1,
+		CreatedAt:   now,
+	}
+	versionJSON, err := json.Marshal(versionPlain)
+	if err != nil {
+		t.Fatalf("Marshal version: %v", err)
+	}
+	versionValue, err := marshalSealedValue(versionJSON, dataKey, recipients)
+	if err != nil {
+		t.Fatalf("marshalSealedValue version: %v", err)
+	}
+
+	headPlain := headPayload{
+		SecretID:           secretID,
+		Name:               "legacy-name",
+		Kind:               KindBlob,
+		ContentType:        "text/plain; charset=utf-8",
+		LatestVersionID:    versionID,
+		Size:               int64(len(payload)),
+		SHA256:             checksumHex(payload),
+		CreatedAt:          now,
+		UpdatedAt:          now,
+		RecipientDeviceIDs: recipientIDs(recipients),
+	}
+	headJSON, err := json.Marshal(headPlain)
+	if err != nil {
+		t.Fatalf("Marshal head: %v", err)
+	}
+	headValue, err := marshalSealedValue(headJSON, dataKey, recipients)
+	if err != nil {
+		t.Fatalf("marshalSealedValue head: %v", err)
+	}
+
+	if err := store.transport.Set(ctx, legacyChunkKey(secretID, versionID, 0), ciphertext); err != nil {
+		t.Fatalf("Set legacy chunk: %v", err)
+	}
+	if err := store.transport.Set(ctx, legacyVersionMetaKey(secretID, versionID), versionValue); err != nil {
+		t.Fatalf("Set legacy version meta: %v", err)
+	}
+	if err := store.transport.Set(ctx, legacyHeadKey(secretID), headValue); err != nil {
+		t.Fatalf("Set legacy head: %v", err)
+	}
+
+	got, err := store.Get("legacy-name", Requester{Type: RequesterOwner})
+	if err != nil {
+		t.Fatalf("Get legacy secret: %v", err)
+	}
+	if got.Scope != ScopeCurrent {
+		t.Fatalf("Scope = %q, want %q", got.Scope, ScopeCurrent)
+	}
+	if !bytes.Equal(got.Payload, payload) {
+		t.Fatalf("payload mismatch")
+	}
+}
+
 func TestStoreRecipientFilteringAndRewrap(t *testing.T) {
 	t.Parallel()
 
@@ -108,6 +223,9 @@ func TestStoreRecipientFilteringAndRewrap(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("Put: %v", err)
+	}
+	if summary.Scope != ScopeExplicit {
+		t.Fatalf("Scope = %q, want %q", summary.Scope, ScopeExplicit)
 	}
 	if err := storeA.SyncOnce(ctx); err != nil {
 		t.Fatalf("A SyncOnce: %v", err)
@@ -192,6 +310,9 @@ func TestStorePutByNameCreatesNewVersionAndPreservesMetadata(t *testing.T) {
 	if second.Kind != first.Kind {
 		t.Fatalf("Kind changed: first=%q second=%q", first.Kind, second.Kind)
 	}
+	if second.Scope != first.Scope {
+		t.Fatalf("Scope changed: first=%q second=%q", first.Scope, second.Scope)
+	}
 	if second.ContentType != first.ContentType {
 		t.Fatalf("ContentType changed: first=%q second=%q", first.ContentType, second.ContentType)
 	}
@@ -270,7 +391,154 @@ func TestStoreAgentPolicyApprovalRequired(t *testing.T) {
 	}
 }
 
-func TestStorePutAllRecipientsAllowsOtherDeviceToDecrypt(t *testing.T) {
+func TestStoreTrustedScopeExcludesSandboxDevices(t *testing.T) {
+	t.Parallel()
+
+	bundleA, bundleB, bundleSandbox := newRoleSharedBundles(t)
+	backend := s3backend.NewMemory()
+	storeA := New(backend, bundleA, Config{DataDir: t.TempDir()}, nil)
+	storeB := New(backend, bundleB, Config{DataDir: t.TempDir()}, nil)
+	storeSandbox := New(backend, bundleSandbox, Config{DataDir: t.TempDir()}, nil)
+	ctx := context.Background()
+
+	registerKVDevice(t, backend, bundleA.DeviceID())
+	registerKVDevice(t, backend, bundleB.DeviceID())
+	registerKVDevice(t, backend, bundleSandbox.DeviceID())
+
+	summary, err := storeA.Put(ctx, PutParams{
+		Name:    "wallet-trusted",
+		Kind:    KindOWSBackup,
+		Scope:   ScopeTrusted,
+		Payload: []byte("shared backup"),
+	})
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if summary.Scope != ScopeTrusted {
+		t.Fatalf("Scope = %q, want %q", summary.Scope, ScopeTrusted)
+	}
+	if !sameStringSet(summary.RecipientDeviceIDs, []string{bundleA.DeviceID(), bundleB.DeviceID()}) {
+		t.Fatalf("RecipientDeviceIDs = %v", summary.RecipientDeviceIDs)
+	}
+
+	if err := storeA.SyncOnce(ctx); err != nil {
+		t.Fatalf("A SyncOnce: %v", err)
+	}
+	if err := storeB.SyncOnce(ctx); err != nil {
+		t.Fatalf("B SyncOnce: %v", err)
+	}
+	if err := storeSandbox.SyncOnce(ctx); err != nil {
+		t.Fatalf("sandbox SyncOnce: %v", err)
+	}
+
+	got, err := storeB.Get(summary.ID, Requester{Type: RequesterOwner})
+	if err != nil {
+		t.Fatalf("B Get: %v", err)
+	}
+	if !bytes.Equal(got.Payload, []byte("shared backup")) {
+		t.Fatalf("payload mismatch")
+	}
+
+	if _, err := storeSandbox.Get(summary.ID, Requester{Type: RequesterOwner}); !errors.Is(err, ErrAccessDenied) {
+		t.Fatalf("sandbox Get error = %v, want ErrAccessDenied", err)
+	}
+}
+
+func TestStoreReconcileTrustedScopeIncludesNewTrustedDevice(t *testing.T) {
+	t.Parallel()
+
+	identity, err := skykey.Generate()
+	if err != nil {
+		t.Fatalf("Generate identity: %v", err)
+	}
+	deviceA, err := skykey.Generate()
+	if err != nil {
+		t.Fatalf("Generate device A: %v", err)
+	}
+	deviceB, err := skykey.Generate()
+	if err != nil {
+		t.Fatalf("Generate device B: %v", err)
+	}
+
+	manifest := id.NewManifest(identity)
+	manifest.AddDevice(deviceA.PublicKey, "device-a")
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatalf("Sign manifest: %v", err)
+	}
+
+	bundleA, err := id.New(identity, deviceA, manifest)
+	if err != nil {
+		t.Fatalf("id.New A: %v", err)
+	}
+
+	backend := s3backend.NewMemory()
+	storeA := New(backend, bundleA, Config{DataDir: t.TempDir()}, nil)
+	ctx := context.Background()
+	registerKVDevice(t, backend, bundleA.DeviceID())
+
+	summary, err := storeA.Put(ctx, PutParams{
+		Name:    "wallet-before-join",
+		Scope:   ScopeTrusted,
+		Payload: []byte("preexisting trusted secret"),
+	})
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if !sameStringSet(summary.RecipientDeviceIDs, []string{bundleA.DeviceID()}) {
+		t.Fatalf("RecipientDeviceIDs = %v", summary.RecipientDeviceIDs)
+	}
+
+	manifest.AddDevice(deviceB.PublicKey, "device-b")
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatalf("Re-sign manifest: %v", err)
+	}
+	registerKVDevice(t, backend, "D-"+skykey.FromPublicKey(deviceB.PublicKey).ShortID())
+
+	bundleB, err := id.New(identity, deviceB, manifest)
+	if err != nil {
+		t.Fatalf("id.New B: %v", err)
+	}
+	storeB := New(backend, bundleB, Config{DataDir: t.TempDir()}, nil)
+
+	if err := storeA.SyncOnce(ctx); err != nil {
+		t.Fatalf("A SyncOnce before reconcile: %v", err)
+	}
+	if err := storeB.SyncOnce(ctx); err != nil {
+		t.Fatalf("B SyncOnce before reconcile: %v", err)
+	}
+
+	if _, err := storeB.Get(summary.ID, Requester{Type: RequesterOwner}); !errors.Is(err, ErrAccessDenied) {
+		t.Fatalf("B Get before reconcile error = %v, want ErrAccessDenied", err)
+	}
+
+	rewrapped, err := storeA.ReconcileTrustedScope(ctx)
+	if err != nil {
+		t.Fatalf("ReconcileTrustedScope: %v", err)
+	}
+	if rewrapped != 1 {
+		t.Fatalf("rewrapped = %d, want 1", rewrapped)
+	}
+
+	if err := storeA.SyncOnce(ctx); err != nil {
+		t.Fatalf("A SyncOnce: %v", err)
+	}
+	if err := storeB.SyncOnce(ctx); err != nil {
+		t.Fatalf("B SyncOnce: %v", err)
+	}
+
+	got, err := storeB.Get(summary.ID, Requester{Type: RequesterOwner})
+	if err != nil {
+		t.Fatalf("B Get after reconcile: %v", err)
+	}
+	if got.Scope != ScopeTrusted {
+		t.Fatalf("Scope = %q, want %q", got.Scope, ScopeTrusted)
+	}
+	if !bytes.Equal(got.Payload, []byte("preexisting trusted secret")) {
+		t.Fatalf("payload mismatch")
+	}
+}
+
+func TestStoreReconcileTrustedScopeExcludesRemovedTrustedDevice(t *testing.T) {
 	t.Parallel()
 
 	bundleA, bundleB := newSharedBundles(t)
@@ -283,16 +551,138 @@ func TestStorePutAllRecipientsAllowsOtherDeviceToDecrypt(t *testing.T) {
 	registerKVDevice(t, backend, bundleB.DeviceID())
 
 	summary, err := storeA.Put(ctx, PutParams{
-		Name:               "wallet-all",
-		Kind:               KindOWSBackup,
-		Payload:            []byte("shared backup"),
-		RecipientDeviceIDs: []string{"all"},
+		Name:    "wallet-remove-device",
+		Scope:   ScopeTrusted,
+		Payload: []byte("trusted secret"),
 	})
 	if err != nil {
 		t.Fatalf("Put: %v", err)
 	}
-	if !sameStringSet(summary.RecipientDeviceIDs, []string{bundleA.DeviceID(), bundleB.DeviceID()}) {
-		t.Fatalf("RecipientDeviceIDs = %v", summary.RecipientDeviceIDs)
+	if err := storeA.SyncOnce(ctx); err != nil {
+		t.Fatalf("A SyncOnce before removal: %v", err)
+	}
+	if err := storeB.SyncOnce(ctx); err != nil {
+		t.Fatalf("B SyncOnce before removal: %v", err)
+	}
+	if _, err := storeB.Get(summary.ID, Requester{Type: RequesterOwner}); err != nil {
+		t.Fatalf("B Get before removal: %v", err)
+	}
+
+	bundleA.Manifest.RemoveDevice(bundleB.Device.PublicKey)
+	if err := bundleA.Manifest.Sign(bundleA.Identity.PrivateKey); err != nil {
+		t.Fatalf("Re-sign manifest: %v", err)
+	}
+
+	rewrapped, err := storeA.ReconcileTrustedScope(ctx)
+	if err != nil {
+		t.Fatalf("ReconcileTrustedScope: %v", err)
+	}
+	if rewrapped != 1 {
+		t.Fatalf("rewrapped = %d, want 1", rewrapped)
+	}
+
+	if err := storeA.SyncOnce(ctx); err != nil {
+		t.Fatalf("A SyncOnce after removal: %v", err)
+	}
+	if err := storeB.SyncOnce(ctx); err != nil {
+		t.Fatalf("B SyncOnce after removal: %v", err)
+	}
+	if _, err := storeB.Get(summary.ID, Requester{Type: RequesterOwner}); !errors.Is(err, ErrAccessDenied) {
+		t.Fatalf("B Get after removal error = %v, want ErrAccessDenied", err)
+	}
+}
+
+func TestStoreReconcileTrustedScopeExcludesDowngradedDevice(t *testing.T) {
+	t.Parallel()
+
+	bundleA, bundleB := newSharedBundles(t)
+	backend := s3backend.NewMemory()
+	storeA := New(backend, bundleA, Config{DataDir: t.TempDir()}, nil)
+	storeB := New(backend, bundleB, Config{DataDir: t.TempDir()}, nil)
+	ctx := context.Background()
+
+	registerKVDevice(t, backend, bundleA.DeviceID())
+	registerKVDevice(t, backend, bundleB.DeviceID())
+
+	summary, err := storeA.Put(ctx, PutParams{
+		Name:    "wallet-downgrade-device",
+		Scope:   ScopeTrusted,
+		Payload: []byte("trusted secret"),
+	})
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := storeA.SyncOnce(ctx); err != nil {
+		t.Fatalf("A SyncOnce before downgrade: %v", err)
+	}
+	if err := storeB.SyncOnce(ctx); err != nil {
+		t.Fatalf("B SyncOnce before downgrade: %v", err)
+	}
+	if _, err := storeB.Get(summary.ID, Requester{Type: RequesterOwner}); err != nil {
+		t.Fatalf("B Get before downgrade: %v", err)
+	}
+
+	for i := range bundleA.Manifest.Devices {
+		if bytes.Equal(bundleA.Manifest.Devices[i].PublicKey, bundleB.Device.PublicKey) {
+			bundleA.Manifest.Devices[i].Role = id.DeviceRoleSandbox
+		}
+	}
+	if err := bundleA.Manifest.Sign(bundleA.Identity.PrivateKey); err != nil {
+		t.Fatalf("Re-sign manifest: %v", err)
+	}
+
+	rewrapped, err := storeA.ReconcileTrustedScope(ctx)
+	if err != nil {
+		t.Fatalf("ReconcileTrustedScope: %v", err)
+	}
+	if rewrapped != 1 {
+		t.Fatalf("rewrapped = %d, want 1", rewrapped)
+	}
+
+	if err := storeA.SyncOnce(ctx); err != nil {
+		t.Fatalf("A SyncOnce after downgrade: %v", err)
+	}
+	if err := storeB.SyncOnce(ctx); err != nil {
+		t.Fatalf("B SyncOnce after downgrade: %v", err)
+	}
+	if _, err := storeB.Get(summary.ID, Requester{Type: RequesterOwner}); !errors.Is(err, ErrAccessDenied) {
+		t.Fatalf("B Get after downgrade error = %v, want ErrAccessDenied", err)
+	}
+}
+
+func TestStoreReconcileTrustedScopeLeavesExplicitSecretPinned(t *testing.T) {
+	t.Parallel()
+
+	bundleA, bundleB := newSharedBundles(t)
+	backend := s3backend.NewMemory()
+	storeA := New(backend, bundleA, Config{DataDir: t.TempDir()}, nil)
+	storeB := New(backend, bundleB, Config{DataDir: t.TempDir()}, nil)
+	ctx := context.Background()
+
+	registerKVDevice(t, backend, bundleA.DeviceID())
+	registerKVDevice(t, backend, bundleB.DeviceID())
+
+	summary, err := storeA.Put(ctx, PutParams{
+		Name:               "wallet-explicit-pinned",
+		Scope:              ScopeExplicit,
+		Payload:            []byte("explicit secret"),
+		RecipientDeviceIDs: []string{bundleA.DeviceID(), bundleB.DeviceID()},
+	})
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	bundleA.Manifest.RemoveDevice(bundleB.Device.PublicKey)
+	if err := bundleA.Manifest.Sign(bundleA.Identity.PrivateKey); err != nil {
+		t.Fatalf("Re-sign manifest: %v", err)
+	}
+
+	rewrapped, err := storeA.ReconcileTrustedScope(ctx)
+	if err != nil {
+		t.Fatalf("ReconcileTrustedScope: %v", err)
+	}
+	if rewrapped != 0 {
+		t.Fatalf("rewrapped = %d, want 0", rewrapped)
 	}
 
 	if err := storeA.SyncOnce(ctx); err != nil {
@@ -304,10 +694,114 @@ func TestStorePutAllRecipientsAllowsOtherDeviceToDecrypt(t *testing.T) {
 
 	got, err := storeB.Get(summary.ID, Requester{Type: RequesterOwner})
 	if err != nil {
-		t.Fatalf("B Get: %v", err)
+		t.Fatalf("B Get after reconcile: %v", err)
 	}
-	if !bytes.Equal(got.Payload, []byte("shared backup")) {
+	if got.Scope != ScopeExplicit {
+		t.Fatalf("Scope = %q, want %q", got.Scope, ScopeExplicit)
+	}
+	if !bytes.Equal(got.Payload, []byte("explicit secret")) {
 		t.Fatalf("payload mismatch")
+	}
+}
+
+func TestStoreReconcileTrustedScopeLeavesCurrentSecretUnchanged(t *testing.T) {
+	t.Parallel()
+
+	identity, err := skykey.Generate()
+	if err != nil {
+		t.Fatalf("Generate identity: %v", err)
+	}
+	deviceA, err := skykey.Generate()
+	if err != nil {
+		t.Fatalf("Generate device A: %v", err)
+	}
+	deviceB, err := skykey.Generate()
+	if err != nil {
+		t.Fatalf("Generate device B: %v", err)
+	}
+
+	manifest := id.NewManifest(identity)
+	manifest.AddDevice(deviceA.PublicKey, "device-a")
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatalf("Sign manifest: %v", err)
+	}
+
+	bundleA, err := id.New(identity, deviceA, manifest)
+	if err != nil {
+		t.Fatalf("id.New A: %v", err)
+	}
+
+	backend := s3backend.NewMemory()
+	storeA := New(backend, bundleA, Config{DataDir: t.TempDir()}, nil)
+	ctx := context.Background()
+	registerKVDevice(t, backend, bundleA.DeviceID())
+
+	summary, err := storeA.Put(ctx, PutParams{
+		Name:    "wallet-current-only",
+		Payload: []byte("current secret"),
+	})
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if summary.Scope != ScopeCurrent {
+		t.Fatalf("Scope = %q, want %q", summary.Scope, ScopeCurrent)
+	}
+
+	manifest.AddDevice(deviceB.PublicKey, "device-b")
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatalf("Re-sign manifest: %v", err)
+	}
+	registerKVDevice(t, backend, "D-"+skykey.FromPublicKey(deviceB.PublicKey).ShortID())
+
+	rewrapped, err := storeA.ReconcileTrustedScope(ctx)
+	if err != nil {
+		t.Fatalf("ReconcileTrustedScope: %v", err)
+	}
+	if rewrapped != 0 {
+		t.Fatalf("rewrapped = %d, want 0", rewrapped)
+	}
+}
+
+func TestStoreExplicitScopeRequiresRecipients(t *testing.T) {
+	t.Parallel()
+
+	bundle := newSingleBundle(t)
+	store := New(s3backend.NewMemory(), bundle, Config{DataDir: t.TempDir()}, nil)
+
+	_, err := store.Put(context.Background(), PutParams{
+		Name:    "wallet-explicit-missing",
+		Scope:   ScopeExplicit,
+		Payload: []byte("secret"),
+	})
+	if err == nil {
+		t.Fatal("Put succeeded, want error")
+	}
+	if err.Error() != `scope "explicit" requires at least one recipient device` {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStoreLegacyAllAliasMapsToTrustedScope(t *testing.T) {
+	t.Parallel()
+
+	bundleA, bundleB, bundleSandbox := newRoleSharedBundles(t)
+	backend := s3backend.NewMemory()
+	storeA := New(backend, bundleA, Config{DataDir: t.TempDir()}, nil)
+
+	registerKVDevice(t, backend, bundleA.DeviceID())
+	registerKVDevice(t, backend, bundleB.DeviceID())
+	registerKVDevice(t, backend, bundleSandbox.DeviceID())
+
+	summary, err := storeA.Put(context.Background(), PutParams{
+		Name:               "wallet-all-legacy",
+		Payload:            []byte("shared backup"),
+		RecipientDeviceIDs: []string{"all"},
+	})
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if summary.Scope != ScopeTrusted {
+		t.Fatalf("Scope = %q, want %q", summary.Scope, ScopeTrusted)
 	}
 }
 
@@ -327,6 +821,69 @@ func TestStoreRejectsUnknownRecipientDevice(t *testing.T) {
 	}
 	if err.Error() != "unknown recipient device: D-missing" {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStoreDevicesExposeRolesAndDefaultTrusted(t *testing.T) {
+	t.Parallel()
+
+	identity, err := skykey.Generate()
+	if err != nil {
+		t.Fatalf("Generate identity: %v", err)
+	}
+	current, err := skykey.Generate()
+	if err != nil {
+		t.Fatalf("Generate current device: %v", err)
+	}
+	sandbox, err := skykey.Generate()
+	if err != nil {
+		t.Fatalf("Generate sandbox device: %v", err)
+	}
+
+	manifest := id.NewManifest(identity)
+	manifest.AddDevice(current.PublicKey, "current")
+	manifest.AddDeviceWithRole(sandbox.PublicKey, "sandbox", id.DeviceRoleSandbox)
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatalf("Sign manifest: %v", err)
+	}
+
+	bundle, err := id.New(identity, current, manifest)
+	if err != nil {
+		t.Fatalf("id.New: %v", err)
+	}
+
+	store := New(s3backend.NewMemory(), bundle, Config{DataDir: t.TempDir()}, nil)
+	devices := store.Devices()
+	if len(devices) != 2 {
+		t.Fatalf("Devices count = %d, want 2", len(devices))
+	}
+
+	byID := make(map[string]Device, len(devices))
+	for _, device := range devices {
+		byID[device.ID] = device
+	}
+
+	currentDevice, ok := byID[bundle.DeviceID()]
+	if !ok {
+		t.Fatalf("current device %s missing from Devices()", bundle.DeviceID())
+	}
+	if !currentDevice.Current {
+		t.Fatal("current device should be marked current")
+	}
+	if currentDevice.Role != id.DeviceRoleTrusted {
+		t.Fatalf("current device role = %q, want %q", currentDevice.Role, id.DeviceRoleTrusted)
+	}
+
+	sandboxID := "D-" + skykey.FromPublicKey(sandbox.PublicKey).ShortID()
+	sandboxDevice, ok := byID[sandboxID]
+	if !ok {
+		t.Fatalf("sandbox device %s missing from Devices()", sandboxID)
+	}
+	if sandboxDevice.Role != id.DeviceRoleSandbox {
+		t.Fatalf("sandbox device role = %q, want %q", sandboxDevice.Role, id.DeviceRoleSandbox)
+	}
+	if sandboxDevice.Current {
+		t.Fatal("sandbox device should not be current")
 	}
 }
 
@@ -385,6 +942,49 @@ func newSharedBundles(t *testing.T) (*id.Bundle, *id.Bundle) {
 		t.Fatalf("id.New B: %v", err)
 	}
 	return bundleA, bundleB
+}
+
+func newRoleSharedBundles(t *testing.T) (*id.Bundle, *id.Bundle, *id.Bundle) {
+	t.Helper()
+
+	identity, err := skykey.Generate()
+	if err != nil {
+		t.Fatalf("Generate identity: %v", err)
+	}
+	deviceA, err := skykey.Generate()
+	if err != nil {
+		t.Fatalf("Generate device A: %v", err)
+	}
+	deviceB, err := skykey.Generate()
+	if err != nil {
+		t.Fatalf("Generate device B: %v", err)
+	}
+	deviceSandbox, err := skykey.Generate()
+	if err != nil {
+		t.Fatalf("Generate sandbox device: %v", err)
+	}
+
+	manifest := id.NewManifest(identity)
+	manifest.AddDevice(deviceA.PublicKey, "device-a")
+	manifest.AddDevice(deviceB.PublicKey, "device-b")
+	manifest.AddDeviceWithRole(deviceSandbox.PublicKey, "device-sandbox", id.DeviceRoleSandbox)
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatalf("Sign manifest: %v", err)
+	}
+
+	bundleA, err := id.New(identity, deviceA, manifest)
+	if err != nil {
+		t.Fatalf("id.New A: %v", err)
+	}
+	bundleB, err := id.New(identity, deviceB, manifest)
+	if err != nil {
+		t.Fatalf("id.New B: %v", err)
+	}
+	bundleSandbox, err := id.New(identity, deviceSandbox, manifest)
+	if err != nil {
+		t.Fatalf("id.New sandbox: %v", err)
+	}
+	return bundleA, bundleB, bundleSandbox
 }
 
 func registerKVDevice(t *testing.T, backend *s3backend.MemoryBackend, deviceID string) {
