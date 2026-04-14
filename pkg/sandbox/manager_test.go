@@ -239,6 +239,9 @@ func TestBundledOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), `browser["ssrfPolicy"] = {"dangerouslyAllowPrivateNetwork": True}`) {
 		t.Fatalf("bundled user script missing relaxed browser SSRF policy: %q", string(body))
 	}
+	if !strings.Contains(string(body), `channels.setdefault("sky10", {})["healthMonitor"] = {"enabled": False}`) {
+		t.Fatalf("bundled user script missing sky10 health monitor disable: %q", string(body))
+	}
 }
 
 func TestBundledOpenClawDependencyScriptPersistsRouteMetrics(t *testing.T) {
@@ -277,6 +280,21 @@ func TestBundledOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(indexBody), `["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("bundled plugin index missing browser skill default: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `listAccountIds: () => [cfg.agentName]`) {
+		t.Fatalf("bundled plugin index missing stable account IDs: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `defaultAccountId: () => cfg.agentName`) {
+		t.Fatalf("bundled plugin index missing stable default account ID: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `isConfigured: () => true`) {
+		t.Fatalf("bundled plugin index missing configured account state: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `api.registerService({`) {
+		t.Fatalf("bundled plugin index missing bridge service registration: %q", string(indexBody))
+	}
+	if strings.Contains(string(indexBody), `startAccount: async`) {
+		t.Fatalf("bundled plugin index should not register a gateway account runtime: %q", string(indexBody))
 	}
 }
 

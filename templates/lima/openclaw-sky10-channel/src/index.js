@@ -1,9 +1,9 @@
 /**
  * OpenClaw sky10 channel plugin.
  *
- * This bundled Lima variant starts its sky10 runtime eagerly so the guest
- * auto-registers on the local sky10 daemon without requiring extra channel
- * activation inside OpenClaw.
+ * This bundled Lima variant auto-registers the guest on the local sky10
+ * daemon by running the bridge as a plugin service, while exposing a stable
+ * outbound channel account for direct sends.
  */
 
 import { Sky10Client } from "./sky10.js";
@@ -18,6 +18,10 @@ let shutdownRequested = false;
 const seenIds = new Map();
 const DEDUP_TTL_MS = 30_000;
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function makeLogger(api) {
   const base = api?.logger ?? console;
   return {
@@ -25,6 +29,10 @@ function makeLogger(api) {
     warn: (...args) => (base.warn ?? console.warn).call(base, ...args),
     error: (...args) => (base.error ?? console.error).call(base, ...args),
   };
+}
+
+function resolveAccount(cfg, accountId) {
+  return { accountId: accountId ?? cfg.agentName };
 }
 
 function resolveConfig(api) {
@@ -36,10 +44,6 @@ function resolveConfig(api) {
     gatewayUrl: c.gatewayUrl ?? "http://localhost:18789",
     gatewayToken: c.gatewayToken ?? "",
   };
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function stopRuntime() {
@@ -76,10 +80,19 @@ function startHeartbeat(log, cfg) {
   }, 25_000);
 }
 
-async function bootstrapRuntime(api, log, cfg) {
+function waitForAbort(signal) {
+  if (signal?.aborted) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    signal?.addEventListener("abort", resolve, { once: true });
+  });
+}
+
+async function bootstrapRuntime(log, cfg) {
   while (!shutdownRequested) {
     try {
-      await ensureRuntime(api, log, cfg);
+      await ensureRuntime(log, cfg);
       return;
     } catch (err) {
       log.warn(`sky10: runtime init failed: ${err?.message ?? err}`);
@@ -88,19 +101,17 @@ async function bootstrapRuntime(api, log, cfg) {
   }
 }
 
-async function ensureRuntime(api, log, cfg) {
+async function ensureRuntime(log, cfg) {
   if (shutdownRequested) {
     throw new Error("plugin is shutting down");
   }
   if (runtimeInitPromise) return runtimeInitPromise;
   runtimeInitPromise = (async () => {
     client ??= new Sky10Client(cfg.rpcUrl);
-    if (!agentId) {
-      await ensureRegistered(log, cfg);
-    }
+    await ensureRegistered(log, cfg);
     startHeartbeat(log, cfg);
     if (!sseConnection) {
-      startListener(api, log, cfg);
+      startListener(log, cfg);
     }
   })().catch((err) => {
     runtimeInitPromise = null;
@@ -116,6 +127,10 @@ export default function register(api) {
   log.info(`sky10: config = ${JSON.stringify(cfg)}`);
   client = new Sky10Client(cfg.rpcUrl);
 
+  if (api.registrationMode === "cli-metadata") {
+    return;
+  }
+
   try {
     api.registerChannel({ plugin: createChannel(api, cfg, log) });
     log.info("sky10: channel registered");
@@ -123,8 +138,26 @@ export default function register(api) {
     log.warn(`sky10: registerChannel failed: ${err?.message ?? err}`);
   }
 
-  shutdownRequested = false;
-  void bootstrapRuntime(api, log, cfg);
+  if (api.registrationMode !== "full") {
+    return;
+  }
+
+  try {
+    api.registerService({
+      id: "sky10-bridge",
+      start: async () => {
+        shutdownRequested = false;
+        await bootstrapRuntime(log, cfg);
+      },
+      stop: async () => {
+        shutdownRequested = true;
+        stopRuntime();
+      },
+    });
+    log.info("sky10: bridge service registered");
+  } catch (err) {
+    log.warn(`sky10: registerService failed: ${err?.message ?? err}`);
+  }
 }
 
 function createChannel(api, cfg, log) {
@@ -140,24 +173,23 @@ function createChannel(api, cfg, log) {
       chatTypes: ["direct"],
     },
     config: {
-      listAccountIds: () => [agentId ?? cfg.agentName],
-      resolveAccount: (_cfg, accountId) => ({ accountId: accountId ?? agentId ?? cfg.agentName }),
-    },
-    gateway: {
-      startAccount: async () => {
-        shutdownRequested = false;
-        await ensureRuntime(api, log, cfg);
-      },
-      stopAccount: async () => {
-        shutdownRequested = true;
-        stopRuntime();
-      },
+      listAccountIds: () => [cfg.agentName],
+      resolveAccount: (_cfg, accountId) => resolveAccount(cfg, accountId),
+      defaultAccountId: () => cfg.agentName,
+      isEnabled: () => true,
+      isConfigured: () => true,
+      describeAccount: (account) => ({
+        accountId: account.accountId,
+        name: account.accountId,
+        enabled: true,
+        configured: true,
+      }),
     },
     outbound: {
       deliveryMode: "direct",
       sendText: async (params) => {
         try {
-          await ensureRuntime(api, log, cfg);
+          await ensureRuntime(log, cfg);
           const result = await client.send(params.to, params.sessionId, params.text, params.to);
           return { ok: true, messageId: result?.id };
         } catch (err) {
@@ -275,7 +307,7 @@ function handleAgentMessage(log, cfg, data) {
   }
 }
 
-function startListener(_api, log, cfg) {
+function startListener(log, cfg) {
   const url = client.sseUrl();
   const controller = new AbortController();
   let closed = false;

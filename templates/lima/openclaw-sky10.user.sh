@@ -169,6 +169,9 @@ browser["headless"] = False
 browser["noSandbox"] = True
 browser["ssrfPolicy"] = {"dangerouslyAllowPrivateNetwork": True}
 
+channels = config.setdefault("channels", {})
+channels.setdefault("sky10", {})["healthMonitor"] = {"enabled": False}
+
 plugins = config.setdefault("plugins", {})
 load = plugins.setdefault("load", {})
 paths = load.get("paths")

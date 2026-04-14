@@ -141,6 +141,9 @@ func TestOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), `browser["ssrfPolicy"] = {"dangerouslyAllowPrivateNetwork": True}`) {
 		t.Fatalf("user script missing relaxed browser SSRF policy: %q", string(body))
 	}
+	if !strings.Contains(string(body), `channels.setdefault("sky10", {})["healthMonitor"] = {"enabled": False}`) {
+		t.Fatalf("user script missing sky10 health monitor disable: %q", string(body))
+	}
 }
 
 func TestOpenClawDependencyScriptPersistsRouteMetrics(t *testing.T) {
@@ -189,5 +192,20 @@ func TestOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(indexBody), `["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("plugin index missing browser skill default: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `listAccountIds: () => [cfg.agentName]`) {
+		t.Fatalf("plugin index missing stable account IDs: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `defaultAccountId: () => cfg.agentName`) {
+		t.Fatalf("plugin index missing stable default account ID: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `isConfigured: () => true`) {
+		t.Fatalf("plugin index missing configured account state: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `api.registerService({`) {
+		t.Fatalf("plugin index missing bridge service registration: %q", string(indexBody))
+	}
+	if strings.Contains(string(indexBody), `startAccount: async`) {
+		t.Fatalf("plugin index should not register a gateway account runtime: %q", string(indexBody))
 	}
 }
