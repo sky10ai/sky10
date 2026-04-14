@@ -132,4 +132,7 @@ func TestOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), "EnvironmentFile=-%h/.openclaw/.env") {
 		t.Fatalf("user script missing systemd env file import: %q", string(body))
 	}
+	if !strings.Contains(string(body), "bootstrap_local_cli_pairing") {
+		t.Fatalf("user script missing CLI pairing bootstrap: %q", string(body))
+	}
 }

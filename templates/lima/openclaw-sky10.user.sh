@@ -31,6 +31,39 @@ wait_for_openclaw_agent() {
   timeout 120s bash -lc "until curl -fsS http://127.0.0.1:9101/rpc -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"agent.list\",\"params\":{},\"id\":1}' | grep -F '\"name\":\"${OPENCLAW_AGENT_NAME}\"' >/dev/null; do sleep 2; done"
 }
 
+bootstrap_local_cli_pairing() {
+  local list_json pending_id
+
+  list_json="$(mktemp)"
+  openclaw devices list --json > "${list_json}" 2>/dev/null || true
+  pending_id="$(
+    python3 - "${list_json}" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+except Exception:
+    print("")
+    raise SystemExit(0)
+
+for item in data.get("pending", []):
+    if item.get("clientId") == "cli" and item.get("clientMode") == "cli":
+        print(item.get("requestId", ""))
+        break
+else:
+    print("")
+PY
+  )"
+  rm -f "${list_json}"
+
+  if [ -n "${pending_id}" ]; then
+    openclaw devices approve "${pending_id}" >/dev/null 2>&1 || true
+  fi
+}
+
 install_sky10() {
   local arch latest asset tmp
 
@@ -187,3 +220,4 @@ systemctl --user daemon-reload
 systemctl --user enable openclaw-gateway.service
 systemctl --user restart openclaw-gateway.service || systemctl --user start openclaw-gateway.service
 wait_for_openclaw_agent
+bootstrap_local_cli_pairing
