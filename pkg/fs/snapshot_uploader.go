@@ -56,6 +56,11 @@ func (u *SnapshotUploader) Poke() {
 // Run listens for pokes, debounces, and uploads. Blocks until ctx is cancelled.
 func (u *SnapshotUploader) Run(ctx context.Context) {
 	u.logger.Info("snapshot uploader started")
+	if u.backend == nil {
+		<-ctx.Done()
+		u.logger.Info("snapshot uploader stopped")
+		return
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -83,6 +88,9 @@ func (u *SnapshotUploader) Run(ctx context.Context) {
 
 // Upload serializes the current CRDT snapshot and uploads to S3.
 func (u *SnapshotUploader) Upload(ctx context.Context) error {
+	if u.backend == nil {
+		return nil
+	}
 	snap, err := u.localLog.Snapshot()
 	if err != nil {
 		return err

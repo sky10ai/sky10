@@ -21,6 +21,7 @@ import (
 
 // FSSyncProtocol is the libp2p protocol ID for FS snapshot anti-entropy.
 const FSSyncProtocol = protocol.ID("/sky10/fs-sync/1.0.0")
+const FSChunkProtocol = protocol.ID("/sky10/fs-chunk/1.0.0")
 
 const fsSyncExchangeTimeout = 5 * time.Second
 
@@ -38,6 +39,13 @@ type fsSyncMsg struct {
 	Error        string           `json:"error,omitempty"`         // explicit sync failure
 	ExpectedNSID string           `json:"expected_nsid,omitempty"` // local expected namespace ID
 	ObservedNSID string           `json:"observed_nsid,omitempty"` // remote/received namespace ID
+}
+
+type fsChunkMsg struct {
+	NSID  string `json:"nsid"`
+	Hash  string `json:"hash"`
+	Data  []byte `json:"data,omitempty"`
+	Error string `json:"error,omitempty"`
 }
 
 type fsSnapshotState struct {
@@ -160,6 +168,7 @@ func (s *P2PSync) RegisterProtocol() {
 		return
 	}
 	h.SetStreamHandler(FSSyncProtocol, s.handleStream)
+	h.SetStreamHandler(FSChunkProtocol, s.handleChunkStream)
 
 	s.mu.Lock()
 	s.registered = true
@@ -365,6 +374,107 @@ func (s *P2PSync) handleStream(stream network.Stream) {
 		s.logger.Warn("fs p2p: peer reported sync error", "peer", stream.Conn().RemotePeer(), "error", msg.Error)
 	default:
 		s.logger.Warn("fs p2p: unknown message type", "type", msg.Type)
+	}
+}
+
+// GetChunk requests a raw encrypted blob for a chunk from connected peers.
+func (s *P2PSync) GetChunk(ctx context.Context, nsID, chunkHash string) ([]byte, error) {
+	if s == nil || s.node == nil {
+		return nil, fmt.Errorf("p2p sync not configured")
+	}
+	peers := s.node.ConnectedPrivateNetworkPeers()
+	if len(peers) == 0 {
+		return nil, fmt.Errorf("no connected private-network peers")
+	}
+	for _, pid := range peers {
+		if pid == s.node.PeerID() {
+			continue
+		}
+		raw, err := s.requestChunk(ctx, pid, nsID, chunkHash)
+		if err == nil {
+			return raw, nil
+		}
+		s.logger.Debug("fs p2p chunk request failed", "peer", pid, "hash", chunkHash, "error", err)
+	}
+	return nil, fmt.Errorf("chunk %s not available from connected peers", chunkHash)
+}
+
+func (s *P2PSync) requestChunk(ctx context.Context, pid peer.ID, nsID, chunkHash string) ([]byte, error) {
+	h := s.node.Host()
+	if h == nil {
+		return nil, fmt.Errorf("host not running")
+	}
+
+	stream, err := h.NewStream(ctx, pid, FSChunkProtocol)
+	if err != nil {
+		return nil, fmt.Errorf("opening chunk stream: %w", err)
+	}
+	defer stream.Close()
+
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = stream.SetDeadline(deadline)
+	}
+
+	payload, err := json.Marshal(fsChunkMsg{NSID: nsID, Hash: chunkHash})
+	if err != nil {
+		return nil, err
+	}
+	if err := writeFSSyncMsg(stream, payload); err != nil {
+		return nil, fmt.Errorf("writing chunk request: %w", err)
+	}
+	if err := stream.CloseWrite(); err != nil {
+		return nil, fmt.Errorf("closing chunk request: %w", err)
+	}
+
+	respPayload, err := readFSSyncMsg(stream)
+	if err != nil {
+		return nil, fmt.Errorf("reading chunk response: %w", err)
+	}
+
+	var resp fsChunkMsg
+	if err := json.Unmarshal(respPayload, &resp); err != nil {
+		return nil, fmt.Errorf("decoding chunk response: %w", err)
+	}
+	if resp.Error != "" {
+		return nil, fmt.Errorf("%s", resp.Error)
+	}
+	if len(resp.Data) == 0 {
+		return nil, fmt.Errorf("empty chunk response")
+	}
+	return resp.Data, nil
+}
+
+func (s *P2PSync) handleChunkStream(stream network.Stream) {
+	defer stream.Close()
+	_ = stream.SetDeadline(time.Now().Add(fsSyncExchangeTimeout))
+
+	payload, err := readFSSyncMsg(stream)
+	if err != nil {
+		s.logger.Warn("fs p2p chunk: read failed", "error", err)
+		return
+	}
+
+	var msg fsChunkMsg
+	if err := json.Unmarshal(payload, &msg); err != nil {
+		s.logger.Warn("fs p2p chunk: unmarshal failed", "error", err)
+		return
+	}
+
+	raw, err := readLocalBlob(msg.NSID, msg.Hash)
+	resp := fsChunkMsg{NSID: msg.NSID, Hash: msg.Hash}
+	if err != nil {
+		resp.Error = fmt.Sprintf("chunk not available: %v", err)
+	} else {
+		resp.Data = raw
+	}
+
+	respPayload, err := json.Marshal(resp)
+	if err != nil {
+		s.logger.Warn("fs p2p chunk: marshal response failed", "error", err)
+		return
+	}
+	if err := writeFSSyncMsg(stream, respPayload); err != nil {
+		s.logger.Warn("fs p2p chunk: write response failed", "error", err)
 	}
 }
 

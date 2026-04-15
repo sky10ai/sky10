@@ -183,6 +183,9 @@ func (dm *DriveManager) StartDrive(id string, logger interface{ Info(string, ...
 	if drive.Namespace != "" {
 		driveStore.SetNamespace(drive.Namespace)
 	}
+	if dm.p2pSync != nil {
+		driveStore.SetPeerChunkFetcher(dm.p2pSync)
+	}
 
 	daemon, err := NewDaemonV2_5(driveStore, daemonCfg, dm.Logger)
 	if err != nil {

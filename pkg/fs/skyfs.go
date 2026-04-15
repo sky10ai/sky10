@@ -46,6 +46,11 @@ type Store struct {
 	packing      bool   // when true, small chunks are bundled into pack files
 	prevChecksum string // optional: informational prev_checksum for dedup
 	lastPut      *PutResult
+	peerChunks   peerChunkFetcher
+}
+
+type peerChunkFetcher interface {
+	GetChunk(ctx context.Context, nsID, chunkHash string) ([]byte, error)
 }
 
 // PutResult holds metadata from the last successful Put call.
@@ -66,6 +71,11 @@ func (s *Store) LastPutResult() *PutResult {
 // When set, blobs are stored at fs/{nsID}/blobs/... instead of blobs/...
 func (s *Store) SetNamespaceID(nsID string) {
 	s.nsID = nsID
+}
+
+// SetPeerChunkFetcher configures optional peer chunk fetching for non-S3 mode.
+func (s *Store) SetPeerChunkFetcher(fetcher peerChunkFetcher) {
+	s.peerChunks = fetcher
 }
 
 // blobKeyFor returns the S3 key for a chunk, respecting the namespace prefix.
@@ -224,9 +234,9 @@ func (s *Store) loadManifestFromKey(ctx context.Context, key string) (*Manifest,
 func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 	namespace := s.namespaceFor(path)
 
-	nsKey, err := s.getOrCreateNamespaceKey(ctx, namespace)
+	nsID, nsKey, err := s.resolveNamespaceState(ctx, namespace)
 	if err != nil {
-		return fmt.Errorf("namespace key for %q: %w", namespace, err)
+		return fmt.Errorf("namespace state for %q: %w", namespace, err)
 	}
 
 	s.prevChecksum = "" // consume prev_checksum (no longer written to S3 ops)
@@ -256,15 +266,22 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 			return fmt.Errorf("deriving file key: %w", err)
 		}
 
-		// Dedup check
-		_, headErr := s.backend.Head(ctx, s.blobKeyFor(chunk.Hash))
-		if headErr == nil {
-			chunkHashes = append(chunkHashes, chunk.Hash)
-			totalSize += int64(chunk.Length)
-			continue
-		}
-		if !errors.Is(headErr, adapter.ErrNotFound) {
-			return fmt.Errorf("checking chunk %s: %w", chunk.Hash[:12], headErr)
+		if s.backend == nil {
+			if localBlobExists(nsID, chunk.Hash) {
+				chunkHashes = append(chunkHashes, chunk.Hash)
+				totalSize += int64(chunk.Length)
+				continue
+			}
+		} else {
+			_, headErr := s.backend.Head(ctx, s.blobKeyFor(chunk.Hash))
+			if headErr == nil {
+				chunkHashes = append(chunkHashes, chunk.Hash)
+				totalSize += int64(chunk.Length)
+				continue
+			}
+			if !errors.Is(headErr, adapter.ErrNotFound) {
+				return fmt.Errorf("checking chunk %s: %w", chunk.Hash[:12], headErr)
+			}
 		}
 
 		compressed := CompressChunk(chunk.Data)
@@ -275,8 +292,11 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 
 		blob := PrependBlobHeader(encrypted)
 
-		// Use pack writer if enabled, otherwise store individually
-		if s.packing {
+		if s.backend == nil {
+			if err := writeLocalBlob(nsID, chunk.Hash, blob); err != nil {
+				return fmt.Errorf("caching chunk %s locally: %w", chunk.Hash[:12], err)
+			}
+		} else if s.packing {
 			packed, err := s.packWriter.Add(ctx, chunk.Hash, blob)
 			if err != nil {
 				return fmt.Errorf("packing chunk %s: %w", chunk.Hash[:12], err)
@@ -314,11 +334,11 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 
 // GetChunks downloads and decrypts a file using known chunk hashes and namespace.
 func (s *Store) GetChunks(ctx context.Context, chunks []string, namespace string, w io.Writer) error {
-	nsKey, err := s.getOrCreateNamespaceKey(ctx, namespace)
+	nsID, nsKey, err := s.resolveNamespaceState(ctx, namespace)
 	if err != nil {
-		return fmt.Errorf("namespace key for %q: %w", namespace, err)
+		return fmt.Errorf("namespace state for %q: %w", namespace, err)
 	}
-	return s.downloadChunks(ctx, chunks, nsKey, w)
+	return s.downloadChunks(ctx, nsID, chunks, nsKey, w)
 }
 
 // --- Deprecated stubs: kept so skipped tests compile. Remove when tests are rewritten. ---
@@ -352,11 +372,11 @@ func (s *Store) loadCurrentState(ctx context.Context) (*Manifest, error) {
 // Up to 3 chunks are fetched concurrently to overlap network I/O.
 // Each chunk read has a 30-second idle timeout — if the S3 connection
 // stalls, the reader is closed and the download fails (caller retries).
-func (s *Store) downloadChunks(ctx context.Context, chunks []string, nsKey []byte, w io.Writer) error {
+func (s *Store) downloadChunks(ctx context.Context, nsID string, chunks []string, nsKey []byte, w io.Writer) error {
 	if len(chunks) <= 1 {
 		// Single-chunk fast path — no goroutine overhead.
 		for i, hash := range chunks {
-			plain, err := s.fetchChunk(ctx, i, hash, nsKey)
+			plain, err := s.fetchChunk(ctx, nsID, i, hash, nsKey)
 			if err != nil {
 				return err
 			}
@@ -401,7 +421,7 @@ func (s *Store) downloadChunks(ctx context.Context, chunks []string, nsKey []byt
 			}
 			i, hash := i, hash
 			go func() {
-				plain, err := s.fetchChunk(ctx, i, hash, nsKey)
+				plain, err := s.fetchChunk(ctx, nsID, i, hash, nsKey)
 				slots[i] <- result{data: plain, err: err}
 				// Semaphore released by consumer, not here — keeps
 				// backpressure tight so at most `ahead` chunks are buffered.
@@ -430,34 +450,10 @@ func (s *Store) downloadChunks(ctx context.Context, chunks []string, nsKey []byt
 
 // fetchChunk downloads a single chunk from S3, decrypts, decompresses,
 // and verifies its content hash. Returns the plaintext bytes.
-func (s *Store) fetchChunk(ctx context.Context, index int, chunkHash string, nsKey []byte) ([]byte, error) {
-	var raw []byte
-
-	if loc, ok := s.packIndex.Entries[chunkHash]; ok {
-		rc, err := s.backend.GetRange(ctx, loc.Pack, loc.Offset, loc.Length)
-		if err != nil {
-			return nil, fmt.Errorf("reading packed chunk %d (%s): %w", index, chunkHash[:12], err)
-		}
-		tr := transfer.NewReader(rc, int64(loc.Length))
-		tr.SetIdleTimeout(30 * time.Second)
-		raw, err = io.ReadAll(tr)
-		rc.Close()
-		if err != nil {
-			return nil, fmt.Errorf("reading packed chunk %d: %w", index, err)
-		}
-	} else {
-		blobKey := s.blobKeyFor(chunkHash)
-		rc, err := s.backend.Get(ctx, blobKey)
-		if err != nil {
-			return nil, fmt.Errorf("downloading chunk %d (%s): %w", index, chunkHash[:12], err)
-		}
-		tr := transfer.NewReader(rc, -1)
-		tr.SetIdleTimeout(30 * time.Second)
-		raw, err = io.ReadAll(tr)
-		rc.Close()
-		if err != nil {
-			return nil, fmt.Errorf("reading chunk %d: %w", index, err)
-		}
+func (s *Store) fetchChunk(ctx context.Context, nsID string, index int, chunkHash string, nsKey []byte) ([]byte, error) {
+	raw, err := s.readRawChunkBlob(ctx, nsID, index, chunkHash)
+	if err != nil {
+		return nil, err
 	}
 
 	encrypted, _, err := StripBlobHeader(raw)
@@ -485,6 +481,56 @@ func (s *Store) fetchChunk(ctx context.Context, index int, chunkHash string, nsK
 	}
 
 	return plaintext, nil
+}
+
+func (s *Store) readRawChunkBlob(ctx context.Context, nsID string, index int, chunkHash string) ([]byte, error) {
+	if raw, err := readLocalBlob(nsID, chunkHash); err == nil {
+		return raw, nil
+	}
+
+	if s.backend != nil {
+		if loc, ok := s.packIndex.Entries[chunkHash]; ok {
+			rc, err := s.backend.GetRange(ctx, loc.Pack, loc.Offset, loc.Length)
+			if err != nil {
+				return nil, fmt.Errorf("reading packed chunk %d (%s): %w", index, chunkHash[:12], err)
+			}
+			tr := transfer.NewReader(rc, int64(loc.Length))
+			tr.SetIdleTimeout(30 * time.Second)
+			raw, err := io.ReadAll(tr)
+			rc.Close()
+			if err != nil {
+				return nil, fmt.Errorf("reading packed chunk %d: %w", index, err)
+			}
+			return raw, nil
+		}
+
+		blobKey := s.blobKeyFor(chunkHash)
+		rc, err := s.backend.Get(ctx, blobKey)
+		if err != nil {
+			return nil, fmt.Errorf("downloading chunk %d (%s): %w", index, chunkHash[:12], err)
+		}
+		tr := transfer.NewReader(rc, -1)
+		tr.SetIdleTimeout(30 * time.Second)
+		raw, err := io.ReadAll(tr)
+		rc.Close()
+		if err != nil {
+			return nil, fmt.Errorf("reading chunk %d: %w", index, err)
+		}
+		return raw, nil
+	}
+
+	if s.peerChunks != nil {
+		raw, err := s.peerChunks.GetChunk(ctx, nsID, chunkHash)
+		if err != nil {
+			return nil, fmt.Errorf("fetching peer chunk %d (%s): %w", index, chunkHash[:12], err)
+		}
+		if err := writeLocalBlob(nsID, chunkHash, raw); err != nil {
+			return nil, fmt.Errorf("caching peer chunk %d (%s): %w", index, chunkHash[:12], err)
+		}
+		return raw, nil
+	}
+
+	return nil, fmt.Errorf("chunk %d (%s): no local blob, backend, or peer source available", index, chunkHash[:12])
 }
 
 // EnablePacking turns on pack file bundling for small chunks.
@@ -555,6 +601,25 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 		return key, nil
 	}
 	s.mu.Unlock()
+
+	if s.backend == nil {
+		if cached, err := s.loadCachedNamespaceKey(namespace); err == nil {
+			s.mu.Lock()
+			s.nsKeys[namespace] = cached
+			s.mu.Unlock()
+			return cached, nil
+		}
+
+		nsKey, err := GenerateNamespaceKey()
+		if err != nil {
+			return nil, fmt.Errorf("generating namespace key: %w", err)
+		}
+		s.mu.Lock()
+		s.nsKeys[namespace] = nsKey
+		s.mu.Unlock()
+		s.cacheNamespaceKey(namespace, nsKey)
+		return nsKey, nil
+	}
 
 	// Slow path: S3 + disk I/O without holding the lock.
 	// Multiple goroutines may race here for the same namespace — that's fine,
@@ -645,6 +710,32 @@ func (s *Store) getOrCreateNamespaceKey(ctx context.Context, namespace string) (
 	s.mu.Unlock()
 	s.cacheNamespaceKey(namespace, nsKey)
 	return nsKey, nil
+}
+
+func (s *Store) resolveNamespaceState(ctx context.Context, namespace string) (string, []byte, error) {
+	nsKey, err := s.getOrCreateNamespaceKey(ctx, namespace)
+	if err != nil {
+		return "", nil, err
+	}
+
+	s.mu.Lock()
+	storeNSID := s.nsID
+	storeNamespace := s.namespace
+	s.mu.Unlock()
+
+	if storeNSID != "" && (storeNamespace == "" || storeNamespace == namespace) {
+		return storeNSID, nsKey, nil
+	}
+
+	nsID, err := loadCachedNSID(namespace)
+	if err != nil || nsID == "" {
+		nsID, err = resolveNSID(ctx, s.backend, namespace, nsKey)
+		if err != nil {
+			return "", nil, err
+		}
+		cacheNSID(namespace, nsID)
+	}
+	return nsID, nsKey, nil
 }
 
 // wrapKeyForAllDevices wraps a namespace key for every registered device

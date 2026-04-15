@@ -40,6 +40,10 @@ type nsidMeta struct {
 func resolveNSID(ctx context.Context, backend adapter.Backend, nsName string, nsKey []byte) (string, error) {
 	nsID := deriveNSID(nsKey, nsName)
 
+	if backend == nil {
+		return nsID, nil
+	}
+
 	// Write meta.enc if it doesn't exist (for new-device discovery)
 	metaKey := "keys/namespaces/" + nsKeyName(nsName) + ".meta.enc"
 	if _, err := backend.Head(ctx, metaKey); errors.Is(err, adapter.ErrNotFound) {

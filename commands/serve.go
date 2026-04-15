@@ -607,13 +607,14 @@ func ServeCmd() *cobra.Command {
 				// Register P2P join handler as soon as the host exists.
 				joinHandler := skyjoin.NewHandler(bundle, nil, logRuntime.Logger)
 				joinHandler.SetNSKeyProvider(func() []skyjoin.NSKey {
-					out := make([]skyjoin.NSKey, 0, 2)
+					out := make([]skyjoin.NSKey, 0, 4)
 					if ns, key := kvStore.NamespaceKey(); key != nil {
 						out = append(out, skyjoin.NSKey{Namespace: ns, Key: key})
 					}
 					if ns, key := secretsStore.Transport().NamespaceKey(); key != nil {
 						out = append(out, skyjoin.NSKey{Namespace: ns, Key: key})
 					}
+					out = append(out, fsHandler.NamespaceKeys(context.Background())...)
 					return out
 				})
 				joinHandler.SetOnBundleUpdated(func(updated *skyid.Bundle) error {
@@ -669,8 +670,8 @@ func ServeCmd() *cobra.Command {
 			go skyupdate.PeriodicCheck(ctx, Version, server.Emit)
 
 			server.OnServe(func() {
+				fsHandler.StartDrives()
 				if hasStorage {
-					fsHandler.StartDrives()
 					fsHandler.StartAutoApprove(ctx)
 				}
 				go sandboxManager.RunManagedReconnectLoop(ctx)

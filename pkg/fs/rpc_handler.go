@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sky10/sky10/pkg/fs/opslog"
+	"github.com/sky10/sky10/pkg/join"
 	"github.com/sky10/sky10/pkg/logging"
 	"github.com/sky10/sky10/pkg/rpc"
 )
@@ -76,6 +77,29 @@ func (s *FSHandler) SetPeerDevices(fn func() []DeviceInfo) {
 // SetP2PSync attaches the shared FS P2P sync manager for all drives.
 func (s *FSHandler) SetP2PSync(sync *P2PSync) {
 	s.driveManager.SetP2PSync(sync)
+}
+
+// NamespaceKeys returns the configured FS drive namespace keys for P2P join.
+func (s *FSHandler) NamespaceKeys(ctx context.Context) []join.NSKey {
+	drives := s.driveManager.ListDrives()
+	seen := make(map[string]bool)
+	out := make([]join.NSKey, 0, len(drives))
+	for _, drive := range drives {
+		if drive == nil || drive.Namespace == "" || seen[drive.Namespace] {
+			continue
+		}
+		key, err := s.store.getOrCreateNamespaceKey(ctx, drive.Namespace)
+		if err != nil {
+			s.logger.Warn("fs namespace key unavailable", "namespace", drive.Namespace, "error", err)
+			continue
+		}
+		out = append(out, join.NSKey{
+			Namespace: drive.Namespace,
+			Key:       key,
+		})
+		seen[drive.Namespace] = true
+	}
+	return out
 }
 
 // StartDrives auto-starts all enabled drives. Called from server.OnServe.

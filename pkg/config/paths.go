@@ -23,6 +23,7 @@ const (
 	drivesDirName  = "drives"
 	storesDirName  = "stores"
 	nsidsDirName   = "nsids"
+	objectsDirName = "objects"
 )
 
 func hasCustomRoot() bool {
@@ -111,6 +112,15 @@ func FSNSIDsDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, nsidsDirName), nil
+}
+
+// FSObjectsDir returns the local fs chunk/object cache directory.
+func FSObjectsDir() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, objectsDirName), nil
 }
 
 // RuntimeDir returns the directory for daemon sockets, logs, and PID files.

@@ -62,6 +62,11 @@ func NewSnapshotPoller(
 // Run polls on an interval until ctx is cancelled.
 func (p *SnapshotPoller) Run(ctx context.Context) {
 	p.logger.Info("snapshot poller started", "interval", p.interval)
+	if p.backend == nil {
+		<-ctx.Done()
+		p.logger.Info("snapshot poller stopped")
+		return
+	}
 
 	// Immediate first poll
 	p.pollOnce(ctx)
@@ -90,6 +95,9 @@ func (p *SnapshotPoller) Poke() {
 // pollOnce downloads remote device snapshots, diffs against baselines,
 // and merges changes into the local CRDT.
 func (p *SnapshotPoller) pollOnce(ctx context.Context) {
+	if p.backend == nil {
+		return
+	}
 	// List registered devices
 	deviceKeys, err := p.backend.List(ctx, "devices/")
 	if err != nil {

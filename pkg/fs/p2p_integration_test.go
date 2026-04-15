@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"bytes"
 	"context"
 	"path/filepath"
 	"testing"
@@ -133,6 +134,64 @@ func TestFSP2PSyncPropagatesDeleteTombstones(t *testing.T) {
 	}
 }
 
+func TestFSP2PChunkFetchWithoutBackend(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	nsKey, err := GenerateNamespaceKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nsID := deriveNSID(nsKey, "agents")
+
+	nodeA, syncA, bundleA, nodeB, syncB, bundleB := startSharedFSTestNodes(t, ctx, nsID, nsKey)
+	infoB := nodeB.Host().Peerstore().PeerInfo(nodeB.PeerID())
+	if err := nodeA.Host().Connect(ctx, infoB); err != nil {
+		t.Fatalf("connect A->B: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	storeA := New(nil, bundleA.Identity)
+	storeA.SetNamespace("agents")
+	storeA.nsID = nsID
+	storeA.nsKeys["agents"] = nsKey
+	if err := storeA.Put(ctx, "shared.txt", bytes.NewReader([]byte("hello from peer chunk"))); err != nil {
+		t.Fatalf("Put on A: %v", err)
+	}
+	put := storeA.LastPutResult()
+	if put == nil {
+		t.Fatal("missing put result on A")
+	}
+
+	storeB := New(nil, bundleB.Identity)
+	storeB.SetNamespace("agents")
+	storeB.nsID = nsID
+	storeB.nsKeys["agents"] = nsKey
+	storeB.SetPeerChunkFetcher(syncB)
+
+	var buf bytes.Buffer
+	if err := storeB.GetChunks(ctx, put.Chunks, "agents", &buf); err != nil {
+		t.Fatalf("GetChunks on B: %v", err)
+	}
+	if got := buf.String(); got != "hello from peer chunk" {
+		t.Fatalf("content = %q", got)
+	}
+
+	// Second read should hit the local cache populated by the peer fetch.
+	buf.Reset()
+	if err := storeB.GetChunks(ctx, put.Chunks, "agents", &buf); err != nil {
+		t.Fatalf("second GetChunks on B: %v", err)
+	}
+	if got := buf.String(); got != "hello from peer chunk" {
+		t.Fatalf("cached content = %q", got)
+	}
+
+	_ = syncA
+}
+
 func startSharedFSTestPair(t *testing.T, ctx context.Context, nsID string, nsKey []byte) (*link.Node, *P2PSync, *opslog.LocalOpsLog, *link.Node, *P2PSync, *opslog.LocalOpsLog) {
 	t.Helper()
 
@@ -168,6 +227,43 @@ func startSharedFSTestPair(t *testing.T, ctx context.Context, nsID string, nsKey
 	nodeA, syncA, logA := startFSTestNodeFromBundle(t, ctx, bundleA, nsID, nsKey)
 	nodeB, syncB, logB := startFSTestNodeFromBundle(t, ctx, bundleB, nsID, nsKey)
 	return nodeA, syncA, logA, nodeB, syncB, logB
+}
+
+func startSharedFSTestNodes(t *testing.T, ctx context.Context, nsID string, nsKey []byte) (*link.Node, *P2PSync, *id.Bundle, *link.Node, *P2PSync, *id.Bundle) {
+	t.Helper()
+
+	identity, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceA, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceB, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := id.NewManifest(identity)
+	manifest.AddDevice(deviceA.PublicKey, "nodeA")
+	manifest.AddDevice(deviceB.PublicKey, "nodeB")
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatal(err)
+	}
+
+	bundleA, err := id.New(identity, deviceA, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleB, err := id.New(identity, deviceB, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	nodeA, syncA, _ := startFSTestNodeFromBundle(t, ctx, bundleA, nsID, nsKey)
+	nodeB, syncB, _ := startFSTestNodeFromBundle(t, ctx, bundleB, nsID, nsKey)
+	return nodeA, syncA, bundleA, nodeB, syncB, bundleB
 }
 
 func startFSTestNodeFromBundle(t *testing.T, ctx context.Context, bundle *id.Bundle, nsID string, nsKey []byte) (*link.Node, *P2PSync, *opslog.LocalOpsLog) {
