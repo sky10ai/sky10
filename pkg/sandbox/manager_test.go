@@ -671,7 +671,9 @@ func TestPrepareHermesSharedDir(t *testing.T) {
 	t.Parallel()
 
 	sharedDir := t.TempDir()
-	if err := prepareHermesSharedDir(sharedDir); err != nil {
+	if err := prepareHermesSharedDir(sharedDir, map[string]string{
+		"ANTHROPIC_API_KEY": "anthropic-key",
+	}); err != nil {
 		t.Fatalf("prepareHermesSharedDir() error: %v", err)
 	}
 
@@ -683,8 +685,8 @@ func TestPrepareHermesSharedDir(t *testing.T) {
 	if !strings.Contains(text, "Optional provider keys for Hermes") {
 		t.Fatalf(".env = %q, want Hermes comment header", text)
 	}
-	if !strings.Contains(text, "OPENAI_API_KEY") {
-		t.Fatalf(".env = %q, want provider key examples", text)
+	if !strings.Contains(text, "ANTHROPIC_API_KEY=anthropic-key") {
+		t.Fatalf(".env = %q, want resolved anthropic key", text)
 	}
 }
 

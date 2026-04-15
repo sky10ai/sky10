@@ -24,12 +24,13 @@ ensure_shared_env() {
   if [ ! -f "${SHARED_DIR}/.env" ]; then
     cat > "${SHARED_DIR}/.env" <<'EOF'
 # Optional provider keys for Hermes inside Lima.
+# Host secrets named ANTHROPIC_API_KEY/anthropic, OPENAI_API_KEY/openai,
+# and OPENROUTER_API_KEY/openrouter merge in automatically when available.
 # Hermes reads ~/.hermes/.env, which is linked to this shared file.
-# Add the providers you plan to use, then start Hermes with `hermes-shared` inside the guest.
 
-# OPENAI_API_KEY=
-# ANTHROPIC_API_KEY=
-# OPENROUTER_API_KEY=
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+OPENROUTER_API_KEY=
 EOF
     chmod 600 "${SHARED_DIR}/.env"
   fi
@@ -72,9 +73,10 @@ hermes-shared
 
 ## Common setup
 
-1. Add provider keys to `/shared/.env`
-2. Run `hermes setup` or `hermes model` if you want to switch models/providers
-3. Keep project files in `/shared` so Hermes starts in the shared workspace
+1. Host-managed provider secrets merge into `/shared/.env` automatically when available
+2. Add or edit keys in `/shared/.env` directly if you need to override them
+3. Run `hermes model` if you want to switch models/providers
+4. Keep project files in `/shared` so Hermes starts in the shared workspace
 EOF
 }
 
@@ -93,6 +95,6 @@ if command -v hermes >/dev/null 2>&1; then
   hermes config set terminal.backend local || true
   hermes config set terminal.cwd /shared || true
   if [ -n "${HERMES_MODEL}" ]; then
-    hermes config set model.model "${HERMES_MODEL}" || true
+    hermes config set model "${HERMES_MODEL}" || true
   fi
 fi

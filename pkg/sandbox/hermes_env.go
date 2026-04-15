@@ -2,27 +2,35 @@ package sandbox
 
 import (
 	"bytes"
+	"context"
 	"strings"
 )
 
-func BuildHermesSharedEnv(existing []byte) []byte {
-	text := normalizeEnvFile(existing)
-	if strings.TrimSpace(text) == "" {
-		return []byte(strings.Join([]string{
-			"# Optional provider keys for Hermes inside Lima.",
-			"# Hermes reads ~/.hermes/.env, which is linked to this shared file.",
-			"# Add the providers you plan to use, then start Hermes with `hermes-shared` inside the guest.",
-			"",
-			"# OPENAI_API_KEY=",
-			"# ANTHROPIC_API_KEY=",
-			"# OPENROUTER_API_KEY=",
-			"",
-		}, "\n"))
-	}
-	if !strings.HasSuffix(text, "\n") {
-		text += "\n"
-	}
-	return []byte(text)
+var hermesProviderSecretSpecs = []providerSecretSpec{
+	{
+		envKey:     "ANTHROPIC_API_KEY",
+		candidates: []string{"ANTHROPIC_API_KEY", "anthropic", "anthropic-api-key"},
+	},
+	{
+		envKey:     "OPENAI_API_KEY",
+		candidates: []string{"OPENAI_API_KEY", "openai", "openai-api-key"},
+	},
+	{
+		envKey:     "OPENROUTER_API_KEY",
+		candidates: []string{"OPENROUTER_API_KEY", "openrouter", "openrouter-api-key"},
+	},
+}
+
+func ResolveHermesProviderEnv(ctx context.Context, lookup ProviderSecretLookup) (map[string]string, error) {
+	return resolveProviderEnv(ctx, lookup, hermesProviderSecretSpecs)
+}
+
+func BuildHermesSharedEnv(existing []byte, resolved map[string]string) []byte {
+	return buildSharedEnv(existing, resolved, hermesProviderSecretSpecs, []string{
+		"# Optional provider keys for Hermes inside Lima.",
+		"# Host secrets named ANTHROPIC_API_KEY/anthropic, OPENAI_API_KEY/openai, and OPENROUTER_API_KEY/openrouter merge in automatically when available.",
+		"# Hermes reads ~/.hermes/.env, which is linked to this shared file.",
+	})
 }
 
 func normalizeEnvFile(existing []byte) string {

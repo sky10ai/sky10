@@ -32,13 +32,17 @@ var openClawProviderSecretSpecs = []providerSecretSpec{
 var envAssignmentPattern = regexp.MustCompile(`^\s*([A-Za-z_][A-Za-z0-9_]*)=`)
 
 func ResolveOpenClawProviderEnv(ctx context.Context, lookup ProviderSecretLookup) (map[string]string, error) {
+	return resolveProviderEnv(ctx, lookup, openClawProviderSecretSpecs)
+}
+
+func resolveProviderEnv(ctx context.Context, lookup ProviderSecretLookup, specs []providerSecretSpec) (map[string]string, error) {
 	if lookup == nil {
 		return map[string]string{}, nil
 	}
 
-	values := make(map[string]string, len(openClawProviderSecretSpecs))
-	for _, spec := range openClawProviderSecretSpecs {
-		value, err := resolveOpenClawProviderEnvValue(ctx, lookup, spec.candidates)
+	values := make(map[string]string, len(specs))
+	for _, spec := range specs {
+		value, err := resolveProviderEnvValue(ctx, lookup, spec.candidates)
 		if err != nil {
 			return nil, fmt.Errorf("resolve %s: %w", spec.envKey, err)
 		}
@@ -49,7 +53,7 @@ func ResolveOpenClawProviderEnv(ctx context.Context, lookup ProviderSecretLookup
 	return values, nil
 }
 
-func resolveOpenClawProviderEnvValue(ctx context.Context, lookup ProviderSecretLookup, candidates []string) (string, error) {
+func resolveProviderEnvValue(ctx context.Context, lookup ProviderSecretLookup, candidates []string) (string, error) {
 	for _, candidate := range candidates {
 		payload, err := lookup(ctx, candidate)
 		if err == nil {
@@ -64,24 +68,27 @@ func resolveOpenClawProviderEnvValue(ctx context.Context, lookup ProviderSecretL
 }
 
 func BuildOpenClawSharedEnv(existing []byte, resolved map[string]string) []byte {
+	return buildSharedEnv(existing, resolved, openClawProviderSecretSpecs, []string{
+		"# Optional provider keys for OpenClaw inside Lima.",
+		"# Host secrets named OPENAI_API_KEY/openai and ANTHROPIC_API_KEY/anthropic merge in automatically when available.",
+	})
+}
+
+func buildSharedEnv(existing []byte, resolved map[string]string, specs []providerSecretSpec, header []string) []byte {
 	if len(resolved) == 0 {
 		resolved = map[string]string{}
 	}
 
 	if len(bytes.TrimSpace(existing)) == 0 {
-		lines := []string{
-			"# Optional provider keys for OpenClaw inside Lima.",
-			"# Host secrets named OPENAI_API_KEY/openai and ANTHROPIC_API_KEY/anthropic merge in automatically when available.",
-		}
-		for _, spec := range openClawProviderSecretSpecs {
+		lines := append([]string(nil), header...)
+		for _, spec := range specs {
 			lines = append(lines, formatEnvAssignment(spec.envKey, resolved[spec.envKey]))
 		}
 		lines = append(lines, "")
 		return []byte(strings.Join(lines, "\n"))
 	}
 
-	text := strings.ReplaceAll(string(existing), "\r\n", "\n")
-	text = strings.ReplaceAll(text, "\r", "\n")
+	text := normalizeEnvFile(existing)
 	lines := strings.Split(text, "\n")
 	seen := map[string]bool{}
 
@@ -91,7 +98,7 @@ func BuildOpenClawSharedEnv(existing []byte, resolved map[string]string) []byte 
 			continue
 		}
 		key := match[1]
-		if !isOpenClawProviderEnvKey(key) {
+		if !isProviderEnvKey(key, specs) {
 			continue
 		}
 		seen[key] = true
@@ -100,7 +107,7 @@ func BuildOpenClawSharedEnv(existing []byte, resolved map[string]string) []byte 
 		}
 	}
 
-	for _, spec := range openClawProviderSecretSpecs {
+	for _, spec := range specs {
 		if seen[spec.envKey] {
 			continue
 		}
@@ -115,8 +122,8 @@ func BuildOpenClawSharedEnv(existing []byte, resolved map[string]string) []byte 
 	return []byte(strings.Join(lines, "\n"))
 }
 
-func isOpenClawProviderEnvKey(key string) bool {
-	for _, spec := range openClawProviderSecretSpecs {
+func isProviderEnvKey(key string, specs []providerSecretSpec) bool {
+	for _, spec := range specs {
 		if spec.envKey == key {
 			return true
 		}

@@ -12,6 +12,9 @@ This flow uses the repo's Lima template at
 - a shared host directory at `~/sky10/sandboxes/<slug>`
 - shared provider env at `~/sky10/sandboxes/<slug>/.env`, linked into
   `~/.hermes/.env` inside the guest
+- automatic host-secret merge for `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+  and `OPENROUTER_API_KEY` when the sandbox is created through the
+  running `sky10` daemon
 - a `hermes-shared` helper that starts Hermes from `/shared`
 
 ## Prerequisites
@@ -68,8 +71,19 @@ Each Hermes sandbox gets a shared host directory at:
 ~/sky10/sandboxes/<slug>
 ```
 
-Add provider keys to the shared `.env` file before you expect Hermes to
-answer real requests:
+When the sandbox is created through the running `sky10` daemon, host
+secrets named `anthropic` or `ANTHROPIC_API_KEY` are merged into the
+shared `.env` automatically. The same applies to `openai` /
+`OPENAI_API_KEY` and `openrouter` / `OPENROUTER_API_KEY`.
+
+For example:
+
+```bash
+sky10 secrets put anthropic --from-env ANTHROPIC_API_KEY --kind api-key
+```
+
+You can still edit the shared `.env` file directly if you want to
+override or add keys manually:
 
 ```bash
 cat > ~/sky10/sandboxes/my-hermes/.env <<'EOF'
@@ -81,8 +95,6 @@ EOF
 Inside Hermes, adjust the model/provider with:
 
 ```bash
-hermes setup
-# or
 hermes model
 ```
 

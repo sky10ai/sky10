@@ -149,8 +149,14 @@ func sandboxCreateCmd() *cobra.Command {
 				return err
 			}
 			resolvedEnv := map[string]string{}
-			if template == sandboxTemplateOpenClaw {
+			switch template {
+			case sandboxTemplateOpenClaw:
 				resolvedEnv, err = resolveOpenClawProviderEnvFromDaemon(cmd.Context())
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not resolve host secrets for sandbox env: %v\n", err)
+				}
+			case sandboxTemplateHermes:
+				resolvedEnv, err = resolveHermesProviderEnvFromDaemon(cmd.Context())
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not resolve host secrets for sandbox env: %v\n", err)
 				}
@@ -587,7 +593,7 @@ func prepareLimaSharedDir(template, sharedDir string, hostsScript []byte, shared
 			return fmt.Errorf("writing shared env file %q: %w", envPath, err)
 		}
 	case sandboxTemplateHermes:
-		if err := os.WriteFile(envPath, skysandbox.BuildHermesSharedEnv(existingEnv), 0o600); err != nil {
+		if err := os.WriteFile(envPath, skysandbox.BuildHermesSharedEnv(existingEnv, resolvedEnv), 0o600); err != nil {
 			return fmt.Errorf("writing shared env file %q: %w", envPath, err)
 		}
 	}
@@ -709,7 +715,15 @@ func loadLimaSharedAssets(ctx context.Context, spec limaTemplateSpec) (map[strin
 }
 
 func resolveOpenClawProviderEnvFromDaemon(ctx context.Context) (map[string]string, error) {
-	return skysandbox.ResolveOpenClawProviderEnv(ctx, func(_ context.Context, idOrName string) ([]byte, error) {
+	return skysandbox.ResolveOpenClawProviderEnv(ctx, providerSecretLookupFromDaemon())
+}
+
+func resolveHermesProviderEnvFromDaemon(ctx context.Context) (map[string]string, error) {
+	return skysandbox.ResolveHermesProviderEnv(ctx, providerSecretLookupFromDaemon())
+}
+
+func providerSecretLookupFromDaemon() skysandbox.ProviderSecretLookup {
+	return func(_ context.Context, idOrName string) ([]byte, error) {
 		raw, err := rpcCall("secrets.get", map[string]string{"id_or_name": idOrName})
 		if err != nil {
 			switch {
@@ -733,7 +747,7 @@ func resolveOpenClawProviderEnvFromDaemon(ctx context.Context) (map[string]strin
 			return nil, fmt.Errorf("decoding secret %q: %w", idOrName, err)
 		}
 		return payload, nil
-	})
+	}
 }
 
 func lookupLimaInstanceIPv4(ctx context.Context, limactl, name string) (string, error) {

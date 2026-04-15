@@ -170,6 +170,7 @@ type Manager struct {
 	runCmd                   func(ctx context.Context, bin string, args []string, onLine func(stream, line string)) error
 	outputCmd                func(ctx context.Context, bin string, args []string) ([]byte, error)
 	resolveOpenClawSharedEnv func(context.Context) (map[string]string, error)
+	resolveHermesSharedEnv   func(context.Context) (map[string]string, error)
 	hostIdentity             func(context.Context) (string, error)
 	issueIdentityInvite      func(context.Context) (*IdentityInvite, error)
 	hostRPC                  func(context.Context, string, interface{}, interface{}) error
@@ -207,6 +208,10 @@ func NewManager(emit Emitter, logger *slog.Logger) (*Manager, error) {
 
 func (m *Manager) SetOpenClawSharedEnvResolver(fn func(context.Context) (map[string]string, error)) {
 	m.resolveOpenClawSharedEnv = fn
+}
+
+func (m *Manager) SetHermesSharedEnvResolver(fn func(context.Context) (map[string]string, error)) {
+	m.resolveHermesSharedEnv = fn
 }
 
 func (m *Manager) SetHostIdentityProvider(fn func(context.Context) (string, error)) {
@@ -899,7 +904,16 @@ func (m *Manager) materializeTemplate(ctx context.Context, rec Record) (string, 
 func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) error {
 	switch rec.Template {
 	case templateHermes:
-		return prepareHermesSharedDir(rec.SharedDir)
+		resolvedEnv := map[string]string{}
+		if m.resolveHermesSharedEnv != nil {
+			values, err := m.resolveHermesSharedEnv(ctx)
+			if err != nil {
+				m.logger.Warn("failed to resolve host secrets for sandbox env", "sandbox", rec.Slug, "error", err)
+			} else {
+				resolvedEnv = values
+			}
+		}
+		return prepareHermesSharedDir(rec.SharedDir, resolvedEnv)
 	case templateOpenClaw:
 	default:
 		if err := os.MkdirAll(rec.SharedDir, 0o755); err != nil {
@@ -1314,7 +1328,7 @@ func prepareOpenClawSharedDir(sharedDir string, hostsHelper []byte, pluginAssets
 	return nil
 }
 
-func prepareHermesSharedDir(sharedDir string) error {
+func prepareHermesSharedDir(sharedDir string, resolvedEnv map[string]string) error {
 	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
 		return fmt.Errorf("creating shared directory: %w", err)
 	}
@@ -1324,7 +1338,7 @@ func prepareHermesSharedDir(sharedDir string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("checking shared env file: %w", err)
 	}
-	if err := os.WriteFile(envPath, BuildHermesSharedEnv(existingEnv), 0o600); err != nil {
+	if err := os.WriteFile(envPath, BuildHermesSharedEnv(existingEnv, resolvedEnv), 0o600); err != nil {
 		return fmt.Errorf("writing shared env file: %w", err)
 	}
 

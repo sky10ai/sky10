@@ -128,7 +128,9 @@ func TestPrepareLimaSharedDirHermes(t *testing.T) {
 	t.Parallel()
 
 	sharedDir := t.TempDir()
-	if err := prepareLimaSharedDir(sandboxTemplateHermes, sharedDir, nil, nil, nil); err != nil {
+	if err := prepareLimaSharedDir(sandboxTemplateHermes, sharedDir, nil, nil, map[string]string{
+		"ANTHROPIC_API_KEY": "anthropic-key",
+	}); err != nil {
 		t.Fatalf("prepareLimaSharedDir(hermes) error: %v", err)
 	}
 
@@ -138,6 +140,9 @@ func TestPrepareLimaSharedDirHermes(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "Optional provider keys for Hermes") {
 		t.Fatalf(".env = %q, want Hermes header", string(data))
+	}
+	if !strings.Contains(string(data), "ANTHROPIC_API_KEY=anthropic-key") {
+		t.Fatalf(".env = %q, want resolved anthropic key", string(data))
 	}
 }
 
@@ -341,5 +346,11 @@ func TestHermesUserScriptInstallsHelper(t *testing.T) {
 	}
 	if !strings.Contains(script, "hermes config set terminal.cwd /shared") {
 		t.Fatalf("user script missing shared cwd config: %q", script)
+	}
+	if !strings.Contains(script, "hermes config set model \"${HERMES_MODEL}\"") {
+		t.Fatalf("user script missing upstream model config command: %q", script)
+	}
+	if !strings.Contains(script, "ANTHROPIC_API_KEY/anthropic") {
+		t.Fatalf("user script missing host-secret merge note: %q", script)
 	}
 }
