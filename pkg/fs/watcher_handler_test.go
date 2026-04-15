@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sky10/sky10/pkg/fs/opslog"
 )
@@ -64,6 +65,43 @@ func TestWatcherHandlerModify(t *testing.T) {
 	entries, _ := outbox.ReadAll()
 	if len(entries) != 2 {
 		t.Fatalf("outbox has %d, want 2", len(entries))
+	}
+}
+
+func TestWatcherHandlerSkipsUnstableRecentFile(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+
+	target := filepath.Join(localDir, "large.txt")
+	if err := os.WriteFile(target, []byte("still writing"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	handler := NewWatcherHandler(outbox, localLog, localDir, "Test", nil)
+	handler.stableWriteWindow = 2 * time.Second
+	handler.HandleEvents([]FileEvent{{Path: "large.txt", Type: FileCreated}})
+
+	if outbox.Len() != 0 {
+		t.Fatalf("outbox has %d entries, want 0 for unstable file", outbox.Len())
+	}
+
+	old := time.Now().Add(-3 * time.Second)
+	if err := os.Chtimes(target, old, old); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+	handler.HandleEvents([]FileEvent{{Path: "large.txt", Type: FileModified}})
+
+	entries, err := outbox.ReadAll()
+	if err != nil {
+		t.Fatalf("read outbox: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("outbox has %d entries, want 1 after file settles", len(entries))
 	}
 }
 

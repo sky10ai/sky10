@@ -14,13 +14,14 @@ import (
 // the outbox, and records ops in the local ops log. No S3, no channels
 // to other goroutines — just local disk operations.
 type WatcherHandler struct {
-	outbox     *SyncLog[OutboxEntry]
-	localLog   *opslog.LocalOpsLog
-	localDir   string
-	namespace  string
-	logger     *slog.Logger
-	pokeOutbox func()
-	onEvent    func(string, map[string]any)
+	outbox            *SyncLog[OutboxEntry]
+	localLog          *opslog.LocalOpsLog
+	localDir          string
+	namespace         string
+	logger            *slog.Logger
+	stableWriteWindow time.Duration
+	pokeOutbox        func()
+	onEvent           func(string, map[string]any)
 }
 
 // NewWatcherHandler creates a handler that bridges watcher events to the outbox.
@@ -52,9 +53,13 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 		switch e.Type {
 		case FileCreated, FileModified:
 			localPath := filepath.Join(h.localDir, filepath.FromSlash(e.Path))
-			cksum, err := fileChecksum(localPath)
+			cksum, stable, err := stableFileChecksum(localPath, h.stableWriteWindow)
 			if err != nil {
 				h.logger.Warn("watcher: checksum failed", "path", e.Path, "error", err)
+				continue
+			}
+			if !stable {
+				h.logger.Debug("watcher: file not stable yet", "path", e.Path, "window", h.stableWriteWindow.String())
 				continue
 			}
 

@@ -44,7 +44,7 @@ export function Sidebar() {
     live: UPDATE_REFRESH_EVENTS,
     refreshIntervalMs: 30_000,
   });
-  const pending = health?.outbox_pending ?? 0;
+  const pending = (health?.outbox_pending ?? 0) + (health?.transfer_pending ?? 0);
   const syncing = pending > 0;
   const versionInfo = parseVersionDetails(health?.version ?? "");
   const versionLabel = versionInfo.version || health?.version?.split(" ")[0] || "...";
@@ -91,7 +91,6 @@ export function Sidebar() {
               </button>
             </div>
           </div>
-
           {/* Navigation */}
           <nav className="space-y-1.5">
             {navItems.map((item) => {

@@ -22,6 +22,9 @@ type driveInfo struct {
 	Namespace string `json:"namespace"`
 	Enabled   bool   `json:"enabled"`
 	Running   bool   `json:"running"`
+	Outbox    int    `json:"outbox_pending,omitempty"`
+	Transfer  int    `json:"transfer_pending,omitempty"`
+	Staged    int    `json:"transfer_staged,omitempty"`
 }
 
 type driveIDParams struct {
@@ -86,6 +89,10 @@ func (s *FSHandler) rpcDriveList(_ context.Context) (interface{}, error) {
 		outbox := NewSyncLog[OutboxEntry](filepath.Join(dir, "outbox.jsonl"))
 		if entries, err := outbox.ReadAll(); err == nil {
 			entry["outbox_pending"] = len(entries)
+		}
+		if counts, err := summarizeTransferSessions(dir); err == nil {
+			entry["transfer_pending"] = counts.Pending
+			entry["transfer_staged"] = counts.Staged
 		}
 		result[i] = entry
 	}

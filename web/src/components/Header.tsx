@@ -127,7 +127,9 @@ export function Header() {
     refreshIntervalMs: 10_000,
   });
 
-  const pending = health?.outbox_pending ?? 0;
+  const queued = health?.outbox_pending ?? 0;
+  const transfers = health?.transfer_pending ?? 0;
+  const pending = queued + transfers;
   const isSyncing = pending > 0;
 
   return (
@@ -149,7 +151,7 @@ export function Header() {
       <div className="flex items-center gap-3">
         {isSyncing ? (
           <StatusBadge icon="sync" pulse tone="processing">
-            {pending} queued
+            {transfers > 0 ? `${pending} active` : `${queued} queued`}
           </StatusBadge>
         ) : (
           <StatusBadge pulse tone="live">

@@ -258,6 +258,8 @@ export interface HealthResult {
   drives: number;
   drives_running: number;
   outbox_pending: number;
+  transfer_pending: number;
+  transfer_staged: number;
   last_activity_ago: string;
   rpc_clients: number;
   rpc_subscribers: number;
@@ -273,6 +275,8 @@ export interface Drive {
   running: boolean;
   snapshot_files: number;
   outbox_pending: number;
+  transfer_pending: number;
+  transfer_staged: number;
 }
 
 export interface DriveListResult {
@@ -572,6 +576,7 @@ export interface SecretsStatus {
 export interface SyncActivityEntry {
   direction: string;
   op: string;
+  phase?: string;
   path: string;
   drive_id: string;
   drive_name: string;

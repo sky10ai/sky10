@@ -16,12 +16,13 @@ import (
 // DaemonConfig configures the sync daemon.
 type DaemonConfig struct {
 	SyncConfig
-	DriveID          string // drive ID for state persistence
-	DriveName        string // human-readable name for progress events
-	ManifestPath     string // override state path (for tests)
-	PollSeconds      int    // remote poll interval in seconds (default 30)
-	ScanSeconds      int    // local full-scan interval in seconds (default 60)
-	ReconcileSeconds int    // periodic reconcile interval in seconds (default 60)
+	DriveID           string        // drive ID for state persistence
+	DriveName         string        // human-readable name for progress events
+	ManifestPath      string        // override state path (for tests)
+	PollSeconds       int           // remote poll interval in seconds (default 30)
+	ScanSeconds       int           // local full-scan interval in seconds (default 60)
+	ReconcileSeconds  int           // periodic reconcile interval in seconds (default 60)
+	StableWriteWindow time.Duration // watcher/periodic scan settle window (default 2s)
 }
 
 // DaemonV2_5 is the sync daemon. Local ops log is the single source of
@@ -63,6 +64,12 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 	}
 	if config.ReconcileSeconds <= 0 {
 		config.ReconcileSeconds = 60
+	}
+	if config.StableWriteWindow == 0 {
+		config.StableWriteWindow = 2 * time.Second
+	}
+	if config.StableWriteWindow < 0 {
+		config.StableWriteWindow = 0
 	}
 	logger = componentLogger(logger)
 
@@ -108,6 +115,7 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 
 	// Watcher handler
 	watcherHandler := NewWatcherHandler(outbox, localLog, config.LocalRoot, ns, logger)
+	watcherHandler.stableWriteWindow = config.StableWriteWindow
 
 	// Outbox worker
 	outboxWorker := NewOutboxWorker(store, outbox, localLog, logger)
@@ -198,7 +206,7 @@ func (d *DaemonV2_5) localScanLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			d.logger.Debug("periodic local scan", "drive", d.config.DriveName)
-			d.seedStateFromDisk()
+			d.seedStateFromDiskWithStableWindow(d.config.StableWriteWindow)
 		}
 	}
 }
@@ -307,6 +315,10 @@ func (d *DaemonV2_5) resolveSnapshotKey(ctx context.Context) error {
 // and directly records new/modified/deleted files. No synthetic events —
 // appends directly to the local log and outbox.
 func (d *DaemonV2_5) seedStateFromDisk() {
+	d.seedStateFromDiskWithStableWindow(0)
+}
+
+func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duration) {
 	localFiles, localSymlinks, err := ScanDirectory(d.config.LocalRoot, d.config.IgnoreFunc)
 	if err != nil {
 		d.logger.Warn("seed: scan failed", "error", err)
@@ -360,6 +372,21 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 			localPath := filepath.Join(d.config.LocalRoot, filepath.FromSlash(path))
 			if _, err := os.Stat(localPath); err != nil {
 				continue
+			}
+			if stableWindow > 0 {
+				stableChecksum, stable, err := stableFileChecksum(localPath, stableWindow)
+				if err != nil {
+					d.logger.Warn("seed: stability check failed", "path", path, "error", err)
+					continue
+				}
+				if !stable {
+					d.logger.Debug("seed: file not stable yet", "path", path, "window", stableWindow.String())
+					continue
+				}
+				cksum = stableChecksum
+				if ok && fi.Checksum == cksum {
+					continue
+				}
 			}
 
 			if !ok {

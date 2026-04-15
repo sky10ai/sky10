@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
+	"time"
 )
 
 const (
@@ -25,8 +27,14 @@ type transferSession struct {
 	Phase      string `json:"phase"`
 	TempPath   string `json:"temp_path"`
 	TargetPath string `json:"target_path"`
+	UpdatedAt  int64  `json:"updated_at"`
 
 	path string `json:"-"`
+}
+
+type transferSessionCounts struct {
+	Pending int
+	Staged  int
 }
 
 func transferDir(baseDir string) string {
@@ -113,6 +121,11 @@ func loadTransferSession(path string) (*transferSession, error) {
 		return nil, fmt.Errorf("parsing transfer session: %w", err)
 	}
 	s.path = path
+	if s.UpdatedAt == 0 {
+		if info, err := os.Stat(path); err == nil {
+			s.UpdatedAt = info.ModTime().Unix()
+		}
+	}
 	return &s, nil
 }
 
@@ -123,6 +136,7 @@ func (s *transferSession) save() error {
 	if s.path == "" {
 		return fmt.Errorf("transfer session path is required")
 	}
+	s.UpdatedAt = time.Now().Unix()
 	if err := os.MkdirAll(filepath.Dir(s.path), 0700); err != nil {
 		return fmt.Errorf("creating sessions dir: %w", err)
 	}
@@ -195,6 +209,53 @@ func cleanupStagingDir(stagingDir string) (int, error) {
 		removed++
 	}
 	return removed, nil
+}
+
+func listTransferSessions(baseDir string) ([]*transferSession, error) {
+	sessionsDir := transferSessionsDir(baseDir)
+	if sessionsDir == "" {
+		return nil, nil
+	}
+	entries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("reading sessions dir: %w", err)
+	}
+	sessions := make([]*transferSession, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		session, err := loadTransferSession(filepath.Join(sessionsDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		sessions = append(sessions, session)
+	}
+	sort.Slice(sessions, func(i, j int) bool {
+		if sessions[i].UpdatedAt == sessions[j].UpdatedAt {
+			return sessions[i].TargetPath < sessions[j].TargetPath
+		}
+		return sessions[i].UpdatedAt > sessions[j].UpdatedAt
+	})
+	return sessions, nil
+}
+
+func summarizeTransferSessions(baseDir string) (transferSessionCounts, error) {
+	var counts transferSessionCounts
+	sessions, err := listTransferSessions(baseDir)
+	if err != nil {
+		return counts, err
+	}
+	for _, session := range sessions {
+		counts.Pending++
+		if session.Phase == transferPhaseStaged {
+			counts.Staged++
+		}
+	}
+	return counts, nil
 }
 
 func recoverTransferWorkspace(baseDir string, logger *slog.Logger) (transferRecoveryStats, error) {

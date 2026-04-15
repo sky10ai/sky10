@@ -12,7 +12,7 @@ export function DriveCard({
   onOpen: (drive: Drive) => void;
   onChanged?: () => void;
 }) {
-  const isSyncing = drive.outbox_pending > 0;
+  const isSyncing = drive.outbox_pending > 0 || drive.transfer_pending > 0;
   const [toggling, setToggling] = useState(false);
 
   const toggleDrive = async (event: React.MouseEvent) => {
@@ -76,6 +76,7 @@ export function DriveCard({
         <p className="mt-2 text-sm text-secondary">
           {drive.snapshot_files} file{drive.snapshot_files === 1 ? "" : "s"}
           {drive.outbox_pending > 0 ? ` • ${drive.outbox_pending} pending` : ""}
+          {drive.transfer_pending > 0 ? ` • ${drive.transfer_pending} transfer${drive.transfer_pending === 1 ? "" : "s"}` : ""}
         </p>
       </div>
 

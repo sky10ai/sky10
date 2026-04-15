@@ -3,6 +3,7 @@ package fs
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -13,6 +14,10 @@ import (
 	"github.com/sky10/sky10/pkg/fs/opslog"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
 )
+
+func shortSockPath(prefix string) string {
+	return filepath.Join(os.TempDir(), fmt.Sprintf("sky10-%s-%d.sock", prefix, time.Now().UnixNano()))
+}
 
 // newTestServer creates an rpc.Server with FSHandler registered for tests.
 func newTestServer(store *Store, sockPath, driveCfgPath string) *skyrpc.Server {
@@ -134,7 +139,8 @@ func TestSyncActivityRPC(t *testing.T) {
 	data, _ := json.MarshalIndent(drives, "", "  ")
 	os.WriteFile(driveCfgPath, data, 0600)
 
-	sockPath := filepath.Join(tmpDir, "test.sock")
+	sockPath := shortSockPath("activity")
+	defer os.Remove(sockPath)
 	server := newTestServer(store, sockPath, driveCfgPath)
 	go server.Serve(ctx)
 
@@ -183,6 +189,353 @@ func TestSyncActivityRPC(t *testing.T) {
 	// Pending should be an array (possibly empty)
 	if resp.Result.Pending == nil {
 		t.Error("expected pending array, got nil")
+	}
+}
+
+func TestSyncActivityRPCIncludesTransferSessions(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	driveCfgPath := filepath.Join(tmpDir, "drives.json")
+	localDir := filepath.Join(tmpDir, "sync-folder")
+	os.MkdirAll(localDir, 0755)
+
+	drives := []Drive{
+		{
+			ID:        "drive_activity_transfer",
+			Name:      "TransferDrive",
+			LocalPath: localDir,
+			Namespace: "actns",
+			Enabled:   false,
+		},
+	}
+	data, _ := json.MarshalIndent(drives, "", "  ")
+	os.WriteFile(driveCfgPath, data, 0600)
+
+	driveDir := driveDataDir("drive_activity_transfer")
+	if err := ensureTransferWorkspace(driveDir); err != nil {
+		t.Fatalf("ensure transfer workspace: %v", err)
+	}
+	tmpFile, tmpPath, err := createStagingTempFile(transferStagingDir(driveDir), "rpc-activity-*")
+	if err != nil {
+		t.Fatalf("create staging file: %v", err)
+	}
+	if _, err := tmpFile.WriteString("incoming"); err != nil {
+		t.Fatalf("write staging file: %v", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		t.Fatalf("close staging file: %v", err)
+	}
+	session, err := newTransferSession(
+		transferSessionsDir(driveDir),
+		"download",
+		tmpPath,
+		filepath.Join(localDir, "incoming.txt"),
+	)
+	if err != nil {
+		t.Fatalf("new transfer session: %v", err)
+	}
+	if err := session.markStaged(); err != nil {
+		t.Fatalf("mark staged: %v", err)
+	}
+
+	sockPath := shortSockPath("health")
+	defer os.Remove(sockPath)
+	server := newTestServer(store, sockPath, driveCfgPath)
+	go server.Serve(ctx)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer conn.Close()
+
+	req := `{"jsonrpc":"2.0","method":"skyfs.syncActivity","id":1}` + "\n"
+	conn.Write([]byte(req))
+
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	var resp struct {
+		Result struct {
+			Pending []struct {
+				Direction string `json:"direction"`
+				Op        string `json:"op"`
+				Phase     string `json:"phase"`
+				Path      string `json:"path"`
+				DriveName string `json:"drive_name"`
+			} `json:"pending"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(buf[:n], &resp); err != nil {
+		t.Fatalf("parse: %v (raw: %s)", err, string(buf[:n]))
+	}
+	if resp.Error != nil {
+		t.Fatalf("RPC error: %s", resp.Error.Message)
+	}
+
+	found := false
+	for _, entry := range resp.Result.Pending {
+		if entry.Op == "download" && entry.Phase == transferPhaseStaged && entry.Path == "incoming.txt" {
+			found = true
+			if entry.Direction != "down" {
+				t.Fatalf("direction = %q, want down", entry.Direction)
+			}
+			if entry.DriveName != "TransferDrive" {
+				t.Fatalf("drive_name = %q", entry.DriveName)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected download transfer session in pending activity, got %+v", resp.Result.Pending)
+	}
+}
+
+func TestHealthRPCIncludesTransferCounts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	driveCfgPath := filepath.Join(tmpDir, "drives.json")
+	localDir := filepath.Join(tmpDir, "sync-folder")
+	os.MkdirAll(localDir, 0755)
+
+	drives := []Drive{
+		{
+			ID:        "drive_health_transfer",
+			Name:      "HealthDrive",
+			LocalPath: localDir,
+			Namespace: "healthns",
+			Enabled:   false,
+		},
+	}
+	data, _ := json.MarshalIndent(drives, "", "  ")
+	os.WriteFile(driveCfgPath, data, 0600)
+
+	driveDir := driveDataDir("drive_health_transfer")
+	if err := ensureTransferWorkspace(driveDir); err != nil {
+		t.Fatalf("ensure transfer workspace: %v", err)
+	}
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(driveDir, "outbox.jsonl"))
+	if err := outbox.Append(NewOutboxPut("queued.txt", "abc", "healthns", filepath.Join(localDir, "queued.txt"))); err != nil {
+		t.Fatalf("append outbox: %v", err)
+	}
+	tmpFile, tmpPath, err := createStagingTempFile(transferStagingDir(driveDir), "rpc-health-*")
+	if err != nil {
+		t.Fatalf("create staging file: %v", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		t.Fatalf("close staging file: %v", err)
+	}
+	session, err := newTransferSession(
+		transferSessionsDir(driveDir),
+		"upload",
+		tmpPath,
+		filepath.Join(localDir, "profile.txt"),
+	)
+	if err != nil {
+		t.Fatalf("new transfer session: %v", err)
+	}
+	if err := session.markStaged(); err != nil {
+		t.Fatalf("mark staged: %v", err)
+	}
+
+	sockPath := shortSockPath("drivelist")
+	defer os.Remove(sockPath)
+	server := newTestServer(store, sockPath, driveCfgPath)
+	go server.Serve(ctx)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer conn.Close()
+
+	req := `{"jsonrpc":"2.0","method":"skyfs.health","id":1}` + "\n"
+	conn.Write([]byte(req))
+
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	var resp struct {
+		Result struct {
+			OutboxPending   int `json:"outbox_pending"`
+			TransferPending int `json:"transfer_pending"`
+			TransferStaged  int `json:"transfer_staged"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(buf[:n], &resp); err != nil {
+		t.Fatalf("parse: %v (raw: %s)", err, string(buf[:n]))
+	}
+	if resp.Error != nil {
+		t.Fatalf("RPC error: %s", resp.Error.Message)
+	}
+	if resp.Result.OutboxPending != 1 {
+		t.Fatalf("outbox_pending = %d, want 1", resp.Result.OutboxPending)
+	}
+	if resp.Result.TransferPending != 1 {
+		t.Fatalf("transfer_pending = %d, want 1", resp.Result.TransferPending)
+	}
+	if resp.Result.TransferStaged != 1 {
+		t.Fatalf("transfer_staged = %d, want 1", resp.Result.TransferStaged)
+	}
+}
+
+func TestDriveListIncludesTransferCounts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	driveCfgPath := filepath.Join(tmpDir, "drives.json")
+	localDir := filepath.Join(tmpDir, "sync-folder")
+	os.MkdirAll(localDir, 0755)
+
+	drives := []Drive{
+		{
+			ID:        "drive_list_transfer",
+			Name:      "ListDrive",
+			LocalPath: localDir,
+			Namespace: "listns",
+			Enabled:   false,
+		},
+	}
+	data, _ := json.MarshalIndent(drives, "", "  ")
+	os.WriteFile(driveCfgPath, data, 0600)
+
+	driveDir := driveDataDir("drive_list_transfer")
+	if err := ensureTransferWorkspace(driveDir); err != nil {
+		t.Fatalf("ensure transfer workspace: %v", err)
+	}
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(driveDir, "outbox.jsonl"))
+	if err := outbox.Append(NewOutboxPut("queued.txt", "abc", "listns", filepath.Join(localDir, "queued.txt"))); err != nil {
+		t.Fatalf("append outbox: %v", err)
+	}
+	tmpFile, tmpPath, err := createStagingTempFile(transferStagingDir(driveDir), "rpc-drive-list-*")
+	if err != nil {
+		t.Fatalf("create staging file: %v", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		t.Fatalf("close staging file: %v", err)
+	}
+	session, err := newTransferSession(
+		transferSessionsDir(driveDir),
+		"upload",
+		tmpPath,
+		filepath.Join(localDir, "profile.txt"),
+	)
+	if err != nil {
+		t.Fatalf("new transfer session: %v", err)
+	}
+	if err := session.markStaged(); err != nil {
+		t.Fatalf("mark staged: %v", err)
+	}
+
+	sockPath := shortSockPath("drivelist")
+	defer os.Remove(sockPath)
+	server := newTestServer(store, sockPath, driveCfgPath)
+	go server.Serve(ctx)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer conn.Close()
+
+	req := `{"jsonrpc":"2.0","method":"skyfs.driveList","id":1}` + "\n"
+	conn.Write([]byte(req))
+
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	var resp struct {
+		Result struct {
+			Drives []struct {
+				ID              string `json:"id"`
+				OutboxPending   int    `json:"outbox_pending"`
+				TransferPending int    `json:"transfer_pending"`
+				TransferStaged  int    `json:"transfer_staged"`
+			} `json:"drives"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(buf[:n], &resp); err != nil {
+		t.Fatalf("parse: %v (raw: %s)", err, string(buf[:n]))
+	}
+	if resp.Error != nil {
+		t.Fatalf("RPC error: %s", resp.Error.Message)
+	}
+	if len(resp.Result.Drives) != 1 {
+		t.Fatalf("expected 1 drive, got %d", len(resp.Result.Drives))
+	}
+	drive := resp.Result.Drives[0]
+	if drive.ID != "drive_list_transfer" {
+		t.Fatalf("drive id = %q", drive.ID)
+	}
+	if drive.OutboxPending != 1 {
+		t.Fatalf("outbox_pending = %d, want 1", drive.OutboxPending)
+	}
+	if drive.TransferPending != 1 {
+		t.Fatalf("transfer_pending = %d, want 1", drive.TransferPending)
+	}
+	if drive.TransferStaged != 1 {
+		t.Fatalf("transfer_staged = %d, want 1", drive.TransferStaged)
 	}
 }
 

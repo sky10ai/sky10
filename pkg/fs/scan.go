@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // ScanResult maps relative paths to their SHA3-256 checksums.
@@ -129,6 +130,44 @@ func fileChecksum(path string) (string, error) {
 	}
 
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func stableFileChecksum(path string, stableWindow time.Duration) (string, bool, error) {
+	infoBefore, err := os.Stat(path)
+	if err != nil {
+		return "", false, err
+	}
+	if stableWindow > 0 && !fileSettled(infoBefore, stableWindow, time.Now()) {
+		return "", false, nil
+	}
+
+	checksum, err := fileChecksum(path)
+	if err != nil {
+		return "", false, err
+	}
+
+	infoAfter, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	if infoBefore.Size() != infoAfter.Size() || !infoBefore.ModTime().Equal(infoAfter.ModTime()) {
+		return "", false, nil
+	}
+	if stableWindow > 0 && !fileSettled(infoAfter, stableWindow, time.Now()) {
+		return "", false, nil
+	}
+
+	return checksum, true, nil
+}
+
+func fileSettled(info os.FileInfo, stableWindow time.Duration, now time.Time) bool {
+	if info == nil || stableWindow <= 0 {
+		return true
+	}
+	return now.Sub(info.ModTime()) >= stableWindow
 }
 
 // symlinkChecksum computes SHA3-256 of a symlink's target path.

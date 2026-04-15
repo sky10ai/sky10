@@ -41,6 +41,19 @@ func runDaemon(ctx context.Context, cancel context.CancelFunc, daemon *DaemonV2_
 	}
 }
 
+func waitForDaemonStartup(t *testing.T, daemon *DaemonV2_5) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if daemon.store.nsID != "" && daemon.snapshotUploader.encKey != nil {
+			time.Sleep(300 * time.Millisecond)
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("daemon did not finish startup in time")
+}
+
 // Regression: seedStateFromDisk must queue new files for upload.
 // Bug: seed set state BEFORE sending events to the watcher handler,
 // so the handler saw matching checksums and skipped — files never
@@ -251,11 +264,12 @@ func TestDaemonV25PeriodicScanFindsMissedLocalFile(t *testing.T) {
 	os.MkdirAll(localDir, 0755)
 
 	cfg := DaemonConfig{
-		SyncConfig:       SyncConfig{LocalRoot: localDir},
-		DriveID:          "test_periodic_scan",
-		PollSeconds:      300,
-		ScanSeconds:      1,
-		ReconcileSeconds: 300,
+		SyncConfig:        SyncConfig{LocalRoot: localDir},
+		DriveID:           "test_periodic_scan",
+		PollSeconds:       300,
+		ScanSeconds:       1,
+		ReconcileSeconds:  300,
+		StableWriteWindow: 2 * time.Second,
 	}
 	daemon, err := NewDaemonV2_5(store, cfg, nil)
 	if err != nil {
@@ -264,6 +278,7 @@ func TestDaemonV25PeriodicScanFindsMissedLocalFile(t *testing.T) {
 
 	stop := runDaemon(ctx, cancel, daemon)
 	defer stop()
+	waitForDaemonStartup(t, daemon)
 
 	if err := daemon.watcher.Close(); err != nil {
 		t.Fatalf("close watcher: %v", err)
@@ -282,6 +297,65 @@ func TestDaemonV25PeriodicScanFindsMissedLocalFile(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatal("periodic scan did not queue missed local file")
+}
+
+func TestDaemonV25PeriodicScanWaitsForStableFile(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	cfg := DaemonConfig{
+		SyncConfig:        SyncConfig{LocalRoot: localDir},
+		DriveID:           "test_periodic_scan_stable",
+		PollSeconds:       300,
+		ScanSeconds:       1,
+		ReconcileSeconds:  300,
+		StableWriteWindow: 2 * time.Second,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatalf("creating daemon: %v", err)
+	}
+
+	stop := runDaemon(ctx, cancel, daemon)
+	defer stop()
+	waitForDaemonStartup(t, daemon)
+
+	if err := daemon.watcher.Close(); err != nil {
+		t.Fatalf("close watcher: %v", err)
+	}
+
+	target := filepath.Join(localDir, "settling.txt")
+	if err := os.WriteFile(target, []byte("wait for me"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	time.Sleep(1200 * time.Millisecond)
+	if _, ok := daemon.localLog.Lookup("settling.txt"); ok {
+		t.Fatal("periodic scan should not queue a file before it settles")
+	}
+
+	old := time.Now().Add(-3 * time.Second)
+	if err := os.Chtimes(target, old, old); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := daemon.localLog.Lookup("settling.txt"); ok {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("periodic scan did not queue settled file")
 }
 
 func TestDaemonV25PeriodicReconcileDownloadsRemoteWithoutPoke(t *testing.T) {

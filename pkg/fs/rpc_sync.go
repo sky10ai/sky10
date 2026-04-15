@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -21,6 +22,7 @@ type statusResult struct {
 type activityEntry struct {
 	Direction string `json:"direction"` // "up" or "down"
 	Op        string `json:"op"`        // "put" or "delete"
+	Phase     string `json:"phase,omitempty"`
 	Path      string `json:"path"`
 	DriveID   string `json:"drive_id"`
 	DriveName string `json:"drive_name"`
@@ -140,7 +142,40 @@ func (s *FSHandler) rpcSyncActivity(_ context.Context) (interface{}, error) {
 			}
 		}
 
+		sessions, err := listTransferSessions(dir)
+		if err != nil {
+			continue
+		}
+		for _, session := range sessions {
+			path := session.TargetPath
+			if rel, err := filepath.Rel(d.LocalPath, session.TargetPath); err == nil && rel != "." && rel != "" {
+				path = filepath.ToSlash(rel)
+			}
+			direction := "down"
+			if session.Kind == "upload" {
+				direction = "up"
+			}
+			pending = append(pending, activityEntry{
+				Direction: direction,
+				Op:        session.Kind,
+				Phase:     session.Phase,
+				Path:      path,
+				DriveID:   id,
+				DriveName: d.Name,
+				Timestamp: session.UpdatedAt,
+			})
+		}
 	}
+
+	sort.Slice(pending, func(i, j int) bool {
+		if pending[i].Timestamp == pending[j].Timestamp {
+			if pending[i].DriveName == pending[j].DriveName {
+				return pending[i].Path < pending[j].Path
+			}
+			return pending[i].DriveName < pending[j].DriveName
+		}
+		return pending[i].Timestamp > pending[j].Timestamp
+	})
 
 	return map[string]interface{}{"pending": pending}, nil
 }

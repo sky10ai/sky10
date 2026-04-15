@@ -337,11 +337,17 @@ func (s *FSHandler) rpcHealth(_ context.Context) (interface{}, error) {
 
 	// Outbox pending — no lock needed, just reading files
 	outboxTotal := 0
+	transferTotal := 0
+	transferStaged := 0
 	for _, id := range driveIDs {
 		dir := driveDataDir(id)
 		outbox := NewSyncLog[OutboxEntry](filepath.Join(dir, "outbox.jsonl"))
 		if entries, err := outbox.ReadAll(); err == nil {
 			outboxTotal += len(entries)
+		}
+		if counts, err := summarizeTransferSessions(dir); err == nil {
+			transferTotal += counts.Pending
+			transferStaged += counts.Staged
 		}
 	}
 
@@ -362,6 +368,8 @@ func (s *FSHandler) rpcHealth(_ context.Context) (interface{}, error) {
 		"drives":            driveCount,
 		"drives_running":    runningCount,
 		"outbox_pending":    outboxTotal,
+		"transfer_pending":  transferTotal,
+		"transfer_staged":   transferStaged,
 		"last_activity_ago": lastActivityAgo,
 		"rpc_clients":       clients,
 		"rpc_subscribers":   subscribers,

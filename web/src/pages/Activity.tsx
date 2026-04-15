@@ -35,6 +35,26 @@ function formatTime(d: Date) {
   });
 }
 
+function pendingPhaseLabel(entry: SyncActivityEntry) {
+  if (!entry.phase) {
+    return "Queued";
+  }
+  if (entry.phase === "writing") {
+    return entry.direction === "up" ? "Staging" : "Receiving";
+  }
+  if (entry.phase === "staged") {
+    return "Publishing";
+  }
+  return entry.phase;
+}
+
+function pendingIcon(entry: SyncActivityEntry): [string, string] {
+  if (entry.op === "put") {
+    return eventIcon(entry.direction === "up" ? "upload" : "download");
+  }
+  return eventIcon(entry.op);
+}
+
 export default function Activity() {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -90,7 +110,7 @@ export default function Activity() {
           </h3>
           <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-3 shadow-sm">
             {pending.map((entry, i) => {
-              const [icon, color] = eventIcon(entry.op);
+              const [icon, color] = pendingIcon(entry);
               return (
                 <div
                   key={`${entry.drive_id}-${entry.path}-${i}`}
@@ -100,6 +120,9 @@ export default function Activity() {
                   <span className="text-xs font-bold uppercase text-secondary">
                     {entry.direction === "up" ? "Upload" : "Download"}
                   </span>
+                  <StatusBadge tone={entry.phase ? "processing" : "neutral"}>
+                    {pendingPhaseLabel(entry)}
+                  </StatusBadge>
                   <span className="flex-1 truncate font-mono text-xs text-on-surface">
                     {entry.path}
                   </span>

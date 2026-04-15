@@ -28,22 +28,28 @@ export default function Drives() {
   });
 
   const drives = driveList?.drives ?? [];
-  const pending = health?.outbox_pending ?? 0;
+  const queued = health?.outbox_pending ?? 0;
+  const transfers = health?.transfer_pending ?? 0;
 
   return (
     <section className="mx-auto flex flex-1 w-full max-w-7xl flex-col gap-10 p-12">
       <PageHeader
         actions={
           <>
-            {pending > 0 ? (
+            {transfers > 0 && (
               <StatusBadge icon="sync" pulse tone="processing">
-                {pending} queued
+                {transfers} transfer{transfers === 1 ? "" : "s"}
               </StatusBadge>
-            ) : (
+            )}
+            {queued > 0 ? (
+              <StatusBadge icon="sync" pulse tone="processing">
+                {queued} queued
+              </StatusBadge>
+            ) : transfers === 0 ? (
               <StatusBadge pulse tone="live">
                 Live
               </StatusBadge>
-            )}
+            ) : null}
             {refreshing && (
               <StatusBadge icon="sync" tone="neutral">
                 Refreshing
