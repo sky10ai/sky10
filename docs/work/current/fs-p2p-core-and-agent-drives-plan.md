@@ -38,7 +38,7 @@ human-useful replication notes.
 
 - `Milestone 0`: complete
 - `Milestone 1`: complete
-- `Milestone 2`: in progress, with the core reliability work landed
+- `Milestone 2`: complete
 - `Milestone 3`: contract/design complete, product wiring still pending
 - `Milestone 4`: in progress
 - `Milestone 5`: in progress, but only the foundational slices are landed
@@ -48,8 +48,8 @@ human-useful replication notes.
 
 Current execution rule:
 
-- finish the remaining `Milestone 4` metadata-engine work before treating
-  `Milestone 5` or `Milestone 7` as the main focus
+- treat the remaining `Milestone 4` metadata-engine work as the main focus
+  before treating `Milestone 5` or `Milestone 7` as the main focus
 - keep `Milestone 3` as design-only until the peer-correct FS core is more
   complete
 
@@ -202,7 +202,7 @@ Likely repo touchpoints:
 Goal: make local change detection reliable without trusting watcher events
 alone.
 
-Status: in progress
+Status: complete
 
 Checklist:
 
@@ -212,7 +212,7 @@ Checklist:
       path.
 - [x] Add stable-write handling so large local writes are not uploaded too
       early.
-- [ ] Define scan cadence, jitter, and backoff behavior.
+- [x] Define scan cadence, jitter, and backoff behavior.
 - [x] Add tests for missed watcher events and long-running local writes.
 
 Done when:
@@ -469,11 +469,10 @@ Completed:
 
 Current mainline execution:
 
-3. Milestone 2 cleanup
-4. Milestone 4
-5. Milestone 5
-6. Milestone 6
-7. Milestone 7
+3. Milestone 4
+4. Milestone 5
+5. Milestone 6
+6. Milestone 7
 
 Deferred until the FS core is further along:
 

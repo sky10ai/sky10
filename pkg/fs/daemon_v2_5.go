@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -24,6 +25,14 @@ type DaemonConfig struct {
 	ReconcileSeconds  int           // periodic reconcile interval in seconds (default 60)
 	StableWriteWindow time.Duration // watcher/periodic scan settle window (default 2s)
 }
+
+const (
+	defaultPollIntervalSeconds      = 30
+	defaultScanIntervalSeconds      = 60
+	defaultReconcileIntervalSeconds = 60
+	localScanJitterDivisor          = 5
+	localScanBackoffMaxFactor       = 5
+)
 
 // DaemonV2_5 is the sync daemon. Local ops log is the single source of
 // truth. The reconciler applies remote changes by diffing the CRDT
@@ -59,13 +68,13 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 		return nil, fmt.Errorf("LocalRoot is required")
 	}
 	if config.PollSeconds <= 0 {
-		config.PollSeconds = 30
+		config.PollSeconds = defaultPollIntervalSeconds
 	}
 	if config.ScanSeconds <= 0 {
-		config.ScanSeconds = 60
+		config.ScanSeconds = defaultScanIntervalSeconds
 	}
 	if config.ReconcileSeconds <= 0 {
-		config.ReconcileSeconds = 60
+		config.ReconcileSeconds = defaultReconcileIntervalSeconds
 	}
 	if config.StableWriteWindow == 0 {
 		config.StableWriteWindow = 2 * time.Second
@@ -238,18 +247,52 @@ func (d *DaemonV2_5) prepareTransferWorkspace() {
 }
 
 func (d *DaemonV2_5) localScanLoop(ctx context.Context) {
-	ticker := time.NewTicker(time.Duration(d.config.ScanSeconds) * time.Second)
-	defer ticker.Stop()
+	timer := time.NewTimer(d.nextLocalScanDelay(0))
+	defer timer.Stop()
+	failures := 0
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			d.logger.Debug("periodic local scan", "drive", d.config.DriveName)
-			d.seedStateFromDiskWithStableWindow(d.config.StableWriteWindow)
+		case <-timer.C:
+			d.logger.Debug("periodic local scan", "drive", d.config.DriveName, "failures", failures)
+			if err := d.seedStateFromDiskWithStableWindow(d.config.StableWriteWindow); err != nil {
+				failures++
+				d.logger.Warn("periodic local scan failed", "drive", d.config.DriveName, "failures", failures, "error", err)
+			} else {
+				failures = 0
+			}
+			timer.Reset(d.nextLocalScanDelay(failures))
 		}
 	}
+}
+
+func (d *DaemonV2_5) nextLocalScanDelay(failures int) time.Duration {
+	base := time.Duration(d.config.ScanSeconds) * time.Second
+	if base <= 0 {
+		base = defaultScanIntervalSeconds * time.Second
+	}
+	if failures < 0 {
+		failures = 0
+	}
+	delay := base
+	maxDelay := base * localScanBackoffMaxFactor
+	for i := 0; i < failures; i++ {
+		delay *= 2
+		if delay >= maxDelay {
+			delay = maxDelay
+			break
+		}
+	}
+	jitterWindow := delay / localScanJitterDivisor
+	if jitterWindow <= 0 {
+		return delay
+	}
+	hasher := fnv.New64a()
+	_, _ = fmt.Fprintf(hasher, "%s:%d:%d", d.config.DriveID, d.config.ScanSeconds, failures)
+	jitter := time.Duration(hasher.Sum64() % uint64(jitterWindow))
+	return delay + jitter
 }
 
 func (d *DaemonV2_5) reconcileLoop(ctx context.Context) {
@@ -356,20 +399,20 @@ func (d *DaemonV2_5) resolveSnapshotKey(ctx context.Context) error {
 // and directly records new/modified/deleted files. No synthetic events —
 // appends directly to the local log and outbox.
 func (d *DaemonV2_5) seedStateFromDisk() {
-	d.seedStateFromDiskWithStableWindow(0)
+	_ = d.seedStateFromDiskWithStableWindow(0)
 }
 
-func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duration) {
+func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duration) error {
 	localFiles, localSymlinks, err := ScanDirectory(d.config.LocalRoot, d.config.IgnoreFunc)
 	if err != nil {
 		d.logger.Warn("seed: scan failed", "error", err)
-		return
+		return fmt.Errorf("scan directory: %w", err)
 	}
 
 	snap, err := d.localLog.Snapshot()
 	if err != nil {
 		d.logger.Warn("seed: snapshot failed", "error", err)
-		return
+		return fmt.Errorf("snapshot local log: %w", err)
 	}
 	knownFiles := snap.Files()
 	deletedFiles := snap.DeletedFiles()
@@ -484,6 +527,7 @@ func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duratio
 	if wrote {
 		d.outboxWorker.Poke()
 	}
+	return nil
 }
 
 // watcherLoop reads kqueue events, debounces, sends to handler.

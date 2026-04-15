@@ -299,6 +299,77 @@ func TestDaemonV25PeriodicScanFindsMissedLocalFile(t *testing.T) {
 	t.Fatal("periodic scan did not queue missed local file")
 }
 
+func TestDaemonV25NextLocalScanDelayUsesStableJitter(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	if err := os.MkdirAll(localDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	cfg := DaemonConfig{
+		SyncConfig:  SyncConfig{LocalRoot: localDir},
+		DriveID:     "scan-delay-stable",
+		PollSeconds: 300,
+		ScanSeconds: 10,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatalf("creating daemon: %v", err)
+	}
+
+	delayA := daemon.nextLocalScanDelay(0)
+	delayB := daemon.nextLocalScanDelay(0)
+	if delayA != delayB {
+		t.Fatalf("scan delay should use stable per-drive jitter, got %v and %v", delayA, delayB)
+	}
+	if delayA < 10*time.Second || delayA >= 12*time.Second {
+		t.Fatalf("scan delay = %v, want within [10s,12s)", delayA)
+	}
+}
+
+func TestDaemonV25NextLocalScanDelayBacksOffAndCaps(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	if err := os.MkdirAll(localDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	cfg := DaemonConfig{
+		SyncConfig:  SyncConfig{LocalRoot: localDir},
+		DriveID:     "scan-delay-backoff",
+		PollSeconds: 300,
+		ScanSeconds: 10,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatalf("creating daemon: %v", err)
+	}
+
+	baseDelay := daemon.nextLocalScanDelay(0)
+	backoffDelay := daemon.nextLocalScanDelay(1)
+	cappedDelay := daemon.nextLocalScanDelay(8)
+
+	if backoffDelay <= baseDelay {
+		t.Fatalf("backoff delay = %v, want > base delay %v", backoffDelay, baseDelay)
+	}
+	if backoffDelay < 20*time.Second || backoffDelay >= 24*time.Second {
+		t.Fatalf("backoff delay = %v, want within [20s,24s)", backoffDelay)
+	}
+	if cappedDelay < 50*time.Second || cappedDelay >= 60*time.Second {
+		t.Fatalf("capped delay = %v, want within [50s,60s)", cappedDelay)
+	}
+}
+
 func TestDaemonV25PeriodicScanWaitsForStableFile(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -356,6 +427,37 @@ func TestDaemonV25PeriodicScanWaitsForStableFile(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatal("periodic scan did not queue settled file")
+}
+
+func TestDaemonV25SeedStateFromDiskReportsScanError(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	if err := os.MkdirAll(localDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	cfg := DaemonConfig{
+		SyncConfig:  SyncConfig{LocalRoot: localDir},
+		DriveID:     "test_seed_scan_error",
+		PollSeconds: 300,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatalf("creating daemon: %v", err)
+	}
+
+	if err := os.RemoveAll(localDir); err != nil {
+		t.Fatalf("remove local root: %v", err)
+	}
+
+	if err := daemon.seedStateFromDiskWithStableWindow(time.Second); err == nil {
+		t.Fatal("expected seedStateFromDiskWithStableWindow to report scan error")
+	}
 }
 
 func TestDaemonV25PeriodicReconcileDownloadsRemoteWithoutPoke(t *testing.T) {
