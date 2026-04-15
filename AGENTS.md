@@ -121,6 +121,16 @@ should use this file directly.
   release binaries, create the GitHub release.
 - Build the web frontend before release binaries. The Go binary embeds
   `web/dist/`.
+- Release titles and notes should follow the `v0.47.0` pattern by
+  default unless the user explicitly wants a different style:
+  - title: `v<version> — <short summary>`
+  - body: one short lead paragraph summarizing the release in prose
+  - then a blank line
+  - then `Commits since \`v<previous>\`:` as a literal section label
+  - then flat commit bullets in the form
+    ``- [`abc1234`](https://github.com/sky10ai/sky10/commit/abc1234) subject``
+  - avoid ad hoc headings like `## What's Changed` unless the user asks
+    for them
 - `menu/` assets are built by GitHub Actions from the release tag. Do
   not hand-build or re-upload them unless the user explicitly asks.
 - If your agent can use Claude skills, use `/release <version>`.

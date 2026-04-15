@@ -74,8 +74,24 @@ binary.
 
 ## 3. Create the GitHub release
 
-Generate concise notes from commits since the previous tag. When listing
-commits, link each short hash to its GitHub commit URL.
+Generate concise notes from commits since the previous tag. By default,
+match the `v0.47.0` release format unless the user explicitly asks for
+something different.
+
+Default release-note shape:
+
+1. Title:
+   `v$VERSION — <short summary>`
+2. Body:
+   - one short opening paragraph summarizing the release in prose
+   - blank line
+   - literal section label:
+     `Commits since \`v<previous>\`:`
+   - flat commit bullets, one per line
+
+Do not default to ad hoc headings like `## What's Changed`.
+
+When listing commits, link each short hash to its GitHub commit URL.
 
 Example commit line:
 
