@@ -206,6 +206,33 @@ func TestOpenClawDependencyScriptPersistsRouteMetrics(t *testing.T) {
 	}
 }
 
+func TestOpenClawSystemScriptPinsOpenClawVersion(t *testing.T) {
+	t.Parallel()
+
+	dir, err := findLocalLimaTemplateDir()
+	if err != nil {
+		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(dir, agentLimaSystemScript))
+	if err != nil {
+		t.Fatalf("ReadFile(system script) error: %v", err)
+	}
+	script := string(body)
+	if !strings.Contains(script, `OPENCLAW_VERSION=2026.4.14`) {
+		t.Fatalf("system script missing pinned openclaw version: %q", script)
+	}
+	if !strings.Contains(script, `npm install -g "openclaw@${OPENCLAW_VERSION}"`) {
+		t.Fatalf("system script missing pinned openclaw install command: %q", script)
+	}
+	if !strings.Contains(script, `openclaw-system-v2`) {
+		t.Fatalf("system script missing bumped sentinel version: %q", script)
+	}
+	if strings.Contains(script, `openclaw@latest`) {
+		t.Fatalf("system script should not install latest openclaw: %q", script)
+	}
+}
+
 func TestOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	t.Parallel()
 

@@ -5,9 +5,10 @@ export HOME=/root
 export DEBIAN_FRONTEND=noninteractive
 
 STATE_DIR=/var/lib/openclaw-lima
-SENTINEL="${STATE_DIR}/openclaw-system-v1"
+SENTINEL="${STATE_DIR}/openclaw-system-v2"
 APT_FLAGS=(-o Acquire::ForceIPv4=true -o Acquire::Retries=3)
 ROUTE_OVERRIDE=/etc/netplan/99-openclaw-route-metrics.yaml
+OPENCLAW_VERSION=2026.4.14
 
 mkdir -p "${STATE_DIR}"
 mkdir -p /shared
@@ -68,7 +69,7 @@ if [ ! -f "${SENTINEL}" ]; then
   curl4 https://deb.nodesource.com/setup_22.x | bash -
   apt-get "${APT_FLAGS[@]}" install -y nodejs
 
-  npm install -g openclaw@latest
+  npm install -g "openclaw@${OPENCLAW_VERSION}"
 
   npx -y playwright install-deps chromium
   mkdir -p /opt/ms-playwright

@@ -300,6 +300,28 @@ func TestBundledOpenClawDependencyScriptPersistsRouteMetrics(t *testing.T) {
 	}
 }
 
+func TestBundledOpenClawSystemScriptPinsOpenClawVersion(t *testing.T) {
+	t.Parallel()
+
+	body, err := readBundledTemplateAsset(templateOpenClawSys)
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateOpenClawSys, err)
+	}
+	script := string(body)
+	if !strings.Contains(script, `OPENCLAW_VERSION=2026.4.14`) {
+		t.Fatalf("bundled system script missing pinned openclaw version: %q", script)
+	}
+	if !strings.Contains(script, `npm install -g "openclaw@${OPENCLAW_VERSION}"`) {
+		t.Fatalf("bundled system script missing pinned openclaw install command: %q", script)
+	}
+	if !strings.Contains(script, `openclaw-system-v2`) {
+		t.Fatalf("bundled system script missing bumped sentinel version: %q", script)
+	}
+	if strings.Contains(script, `openclaw@latest`) {
+		t.Fatalf("bundled system script should not install latest openclaw: %q", script)
+	}
+}
+
 func TestBundledOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	t.Parallel()
 
