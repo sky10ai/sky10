@@ -385,17 +385,7 @@ func TestDaemonV25PeriodicReconcileDownloadsRemoteWithoutPoke(t *testing.T) {
 
 	stop := runDaemon(ctx, cancel, daemon)
 	defer stop()
-
-	nsDeadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(nsDeadline) {
-		if daemon.store.nsID != "" {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if daemon.store.nsID == "" {
-		t.Fatal("daemon namespace ID not resolved in time")
-	}
+	waitForDaemonStartup(t, daemon)
 
 	if err := daemon.store.Put(ctx, "remote-only.txt", strings.NewReader("from periodic reconcile")); err != nil {
 		t.Fatalf("store.Put: %v", err)

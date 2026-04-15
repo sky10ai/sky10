@@ -26,9 +26,13 @@ func TestOutboxWorkerUpload(t *testing.T) {
 	// Create a local file
 	localFile := filepath.Join(tmpDir, "test.txt")
 	os.WriteFile(localFile, []byte("hello outbox"), 0644)
+	cksum, err := fileChecksum(localFile)
+	if err != nil {
+		t.Fatalf("fileChecksum: %v", err)
+	}
 
 	// Add to outbox
-	outbox.Append(NewOutboxPut("test.txt", "abc123", "Test", localFile))
+	outbox.Append(NewOutboxPut("test.txt", cksum, "Test", localFile))
 
 	// Run worker
 	worker := NewOutboxWorker(store, outbox, localLog, nil)
@@ -102,7 +106,11 @@ func TestOutboxWorkerCrashRecovery(t *testing.T) {
 	outbox1 := NewSyncLog[OutboxEntry](outboxPath)
 	localFile := filepath.Join(tmpDir, "survive.txt")
 	os.WriteFile(localFile, []byte("crash recovery"), 0644)
-	outbox1.Append(NewOutboxPut("survive.txt", "xxx", "Test", localFile))
+	cksum, err := fileChecksum(localFile)
+	if err != nil {
+		t.Fatalf("fileChecksum: %v", err)
+	}
+	outbox1.Append(NewOutboxPut("survive.txt", cksum, "Test", localFile))
 
 	// "Restart" — new worker, same outbox file
 	outbox2 := NewSyncLog[OutboxEntry](outboxPath)
@@ -235,5 +243,75 @@ func TestOutboxWorkerMissingFile(t *testing.T) {
 	// Should remove the entry (file is gone, nothing to upload)
 	if outbox.Len() != 0 {
 		t.Errorf("outbox has %d, want 0 (missing file should be removed)", outbox.Len())
+	}
+}
+
+func TestOutboxWorkerRefreshesStaleQueuedPut(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+
+	localFile := filepath.Join(tmpDir, "stale.txt")
+	if err := os.WriteFile(localFile, []byte("version one"), 0644); err != nil {
+		t.Fatalf("write v1: %v", err)
+	}
+	staleChecksum, err := fileChecksum(localFile)
+	if err != nil {
+		t.Fatalf("checksum v1: %v", err)
+	}
+	staleTimestamp := time.Now().Add(-10 * time.Second).Unix()
+	if err := outbox.Append(OutboxEntry{
+		Op:        OpPut,
+		Path:      "stale.txt",
+		Checksum:  staleChecksum,
+		Namespace: "Test",
+		LocalPath: localFile,
+		Timestamp: staleTimestamp,
+	}); err != nil {
+		t.Fatalf("append stale entry: %v", err)
+	}
+
+	if err := os.WriteFile(localFile, []byte("version two"), 0644); err != nil {
+		t.Fatalf("write v2: %v", err)
+	}
+	freshChecksum, err := fileChecksum(localFile)
+	if err != nil {
+		t.Fatalf("checksum v2: %v", err)
+	}
+
+	worker := NewOutboxWorker(store, outbox, localLog, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	go worker.Run(ctx)
+	worker.Poke()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if fi, ok := localLog.Lookup("stale.txt"); ok && fi.Checksum == freshChecksum {
+			if outbox.Len() != 0 {
+				t.Fatalf("outbox has %d entries, want 0 after refresh", outbox.Len())
+			}
+			if fi.Modified.Unix() <= staleTimestamp {
+				t.Fatalf("modified timestamp = %d, want > %d", fi.Modified.Unix(), staleTimestamp)
+			}
+			cancel()
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	cancel()
+
+	fi, ok := localLog.Lookup("stale.txt")
+	if !ok {
+		t.Fatal("stale.txt not found in local log after refresh")
+	}
+	if fi.Checksum != freshChecksum {
+		t.Fatalf("checksum = %q, want %q", fi.Checksum, freshChecksum)
+	}
+	if fi.Modified.Unix() <= staleTimestamp {
+		t.Fatalf("modified timestamp = %d, want > %d", fi.Modified.Unix(), staleTimestamp)
 	}
 }
