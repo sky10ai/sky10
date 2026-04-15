@@ -675,8 +675,7 @@ func TestManagerEnsureAdoptsRunningInstanceWithoutRecord(t *testing.T) {
 	rec, err := m.Ensure(context.Background(), CreateParams{
 		Name:     "openclaw-m6",
 		Provider: providerLima,
-		Template: templateOpenClaw,
-		Model:    "anthropic/claude-opus-4-6",
+		Template: templateUbuntu,
 	})
 	if err != nil {
 		t.Fatalf("Ensure() error: %v", err)
@@ -690,10 +689,6 @@ func TestManagerEnsureAdoptsRunningInstanceWithoutRecord(t *testing.T) {
 	if rec.IPAddress != "192.168.64.14" {
 		t.Fatalf("Ensure() ip address = %q, want 192.168.64.14", rec.IPAddress)
 	}
-	if rec.Model != "anthropic/claude-opus-4-6" {
-		t.Fatalf("Ensure() model = %q, want anthropic/claude-opus-4-6", rec.Model)
-	}
-
 	got, err := m.Get(context.Background(), "openclaw-m6")
 	if err != nil {
 		t.Fatalf("Get() error: %v", err)
