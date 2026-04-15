@@ -2,6 +2,7 @@
 
 | Date | Entry |
 |------|-------|
+| 15 | [Base Wallet Support](15-Base-Wallet-Support.md) — Base balances, explorer links, ETH/USDC sends, EIP-1559 tx building, fixture-backed regression coverage |
 | 14 | [OpenClaw Lima Sandboxes](14-OpenClaw-Lima-Sandboxes.md) — OpenClaw-on-Lima provisioning, guest-local `sky10`, host secret hydration, auto-join, reconnect sweep, plugin and browser hardening |
 | 14 | [Secrets V1](14-Secrets-V1.md) — device-scoped secrets, `current`/`trusted`/`explicit` sharing, CLI/RPC/web UI, bootstrap repair, delete |
 | 12 | [Private Network Robustness](12-Private-Network-Robustness.md) — Tailscale/headscale-informed transport hardening: unified health, convergence control, path memory, active Nostr coordination, managed live relay bootstrap, sticky home-relay selection, and remaining relay/productization work |
