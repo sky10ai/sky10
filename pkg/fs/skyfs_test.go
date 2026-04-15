@@ -233,6 +233,51 @@ func (f *failAfterNBackend) GetRange(ctx context.Context, key string, offset, le
 	return f.Backend.GetRange(ctx, key, offset, length)
 }
 
+type countingBackend struct {
+	adapter.Backend
+	getCalls      atomic.Int32
+	getRangeCalls atomic.Int32
+}
+
+func (c *countingBackend) Get(ctx context.Context, key string) (io.ReadCloser, error) {
+	c.getCalls.Add(1)
+	return c.Backend.Get(ctx, key)
+}
+
+func (c *countingBackend) GetRange(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	c.getRangeCalls.Add(1)
+	return c.Backend.GetRange(ctx, key, offset, length)
+}
+
+type stubPeerChunkFetcher struct {
+	raw   []byte
+	err   error
+	calls atomic.Int32
+}
+
+func (s *stubPeerChunkFetcher) GetChunk(ctx context.Context, nsID, chunkHash string) ([]byte, error) {
+	s.calls.Add(1)
+	if s.err != nil {
+		return nil, s.err
+	}
+	return append([]byte(nil), s.raw...), nil
+}
+
+func readBackendBlob(t *testing.T, backend adapter.Backend, key string) []byte {
+	t.Helper()
+	rc, err := backend.Get(context.Background(), key)
+	if err != nil {
+		t.Fatalf("Get %s: %v", key, err)
+	}
+	defer rc.Close()
+
+	raw, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("ReadAll %s: %v", key, err)
+	}
+	return raw
+}
+
 func TestDownloadChunksCancellation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -336,5 +381,103 @@ func TestDownloadChunksOrdering(t *testing.T) {
 				break
 			}
 		}
+	}
+}
+
+func TestStoreGetChunksPrefersPeerBeforeBackend(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	ctx := context.Background()
+	store, backend := newTestStore(t)
+
+	if err := store.Put(ctx, "shared.md", strings.NewReader("peer before s3")); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	res := store.LastPutResult()
+	if res == nil || len(res.Chunks) != 1 {
+		t.Fatal("expected single chunk from Put")
+	}
+
+	nsID, _, err := store.resolveNamespaceState(ctx, "default")
+	if err != nil {
+		t.Fatalf("resolveNamespaceState: %v", err)
+	}
+
+	raw := readBackendBlob(t, backend, store.blobKeyFor(res.Chunks[0]))
+	peer := &stubPeerChunkFetcher{raw: raw}
+	counted := &countingBackend{Backend: backend}
+	store.backend = counted
+	store.SetPeerChunkFetcher(peer)
+
+	var buf bytes.Buffer
+	if err := store.GetChunks(ctx, res.Chunks, "default", &buf); err != nil {
+		t.Fatalf("GetChunks: %v", err)
+	}
+	if got := buf.String(); got != "peer before s3" {
+		t.Fatalf("content = %q", got)
+	}
+	if got := peer.calls.Load(); got != 1 {
+		t.Fatalf("peer calls = %d, want 1", got)
+	}
+	if got := counted.getCalls.Load(); got != 0 {
+		t.Fatalf("backend Get calls = %d, want 0", got)
+	}
+	if got := counted.getRangeCalls.Load(); got != 0 {
+		t.Fatalf("backend GetRange calls = %d, want 0", got)
+	}
+	if !localBlobExists(nsID, res.Chunks[0]) {
+		t.Fatal("expected peer-fetched blob to be cached locally")
+	}
+}
+
+func TestStoreGetChunksFallsBackFromCorruptLocalCacheToBackend(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	ctx := context.Background()
+	store, backend := newTestStore(t)
+
+	if err := store.Put(ctx, "recover.md", strings.NewReader("repair local cache")); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	res := store.LastPutResult()
+	if res == nil || len(res.Chunks) != 1 {
+		t.Fatal("expected single chunk from Put")
+	}
+
+	nsID, _, err := store.resolveNamespaceState(ctx, "default")
+	if err != nil {
+		t.Fatalf("resolveNamespaceState: %v", err)
+	}
+
+	chunkHash := res.Chunks[0]
+	blobKey := store.blobKeyFor(chunkHash)
+	goodRaw := readBackendBlob(t, backend, blobKey)
+	if err := writeLocalBlob(nsID, chunkHash, []byte("corrupt")); err != nil {
+		t.Fatalf("writeLocalBlob corrupt: %v", err)
+	}
+
+	counted := &countingBackend{Backend: backend}
+	store.backend = counted
+	store.SetPeerChunkFetcher(nil)
+
+	var buf bytes.Buffer
+	if err := store.GetChunks(ctx, res.Chunks, "default", &buf); err != nil {
+		t.Fatalf("GetChunks: %v", err)
+	}
+	if got := buf.String(); got != "repair local cache" {
+		t.Fatalf("content = %q", got)
+	}
+	if got := counted.getCalls.Load(); got == 0 {
+		t.Fatal("expected backend Get to be used after corrupt local cache")
+	}
+
+	repairedRaw, err := readLocalBlob(nsID, chunkHash)
+	if err != nil {
+		t.Fatalf("readLocalBlob repaired: %v", err)
+	}
+	if !bytes.Equal(repairedRaw, goodRaw) {
+		t.Fatal("expected local cache to be refreshed with backend blob")
 	}
 }

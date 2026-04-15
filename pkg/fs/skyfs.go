@@ -53,6 +53,20 @@ type peerChunkFetcher interface {
 	GetChunk(ctx context.Context, nsID, chunkHash string) ([]byte, error)
 }
 
+type chunkSourceKind string
+
+const (
+	chunkSourceLocal  chunkSourceKind = "local"
+	chunkSourcePeer   chunkSourceKind = "peer"
+	chunkSourceS3Pack chunkSourceKind = "s3-pack"
+	chunkSourceS3Blob chunkSourceKind = "s3-blob"
+)
+
+type chunkSourcePlan struct {
+	kind           chunkSourceKind
+	cacheOnSuccess bool
+}
+
 // PutResult holds metadata from the last successful Put call.
 // Used by the outbox worker to confirm the upload in the local log.
 type PutResult struct {
@@ -448,14 +462,40 @@ func (s *Store) downloadChunks(ctx context.Context, nsID string, chunks []string
 	return nil
 }
 
-// fetchChunk downloads a single chunk from S3, decrypts, decompresses,
-// and verifies its content hash. Returns the plaintext bytes.
+// fetchChunk resolves a single chunk through the local cache, peers, and/or
+// backend, then decrypts, decompresses, and verifies its content hash.
 func (s *Store) fetchChunk(ctx context.Context, nsID string, index int, chunkHash string, nsKey []byte) ([]byte, error) {
-	raw, err := s.readRawChunkBlob(ctx, nsID, index, chunkHash)
-	if err != nil {
-		return nil, err
+	sources := s.planChunkSources(chunkHash)
+	if len(sources) == 0 {
+		return nil, fmt.Errorf("chunk %d (%s): no source available", index, chunkHash[:12])
 	}
 
+	var attempts []string
+	for _, source := range sources {
+		raw, err := s.readRawChunkSource(ctx, nsID, index, chunkHash, source)
+		if err != nil {
+			attempts = append(attempts, fmt.Sprintf("%s: %v", source.kind, err))
+			continue
+		}
+
+		plaintext, err := decodeChunkBlob(index, chunkHash, nsKey, raw)
+		if err != nil {
+			attempts = append(attempts, fmt.Sprintf("%s: %v", source.kind, err))
+			continue
+		}
+
+		if source.cacheOnSuccess {
+			if err := writeLocalBlob(nsID, chunkHash, raw); err != nil {
+				return nil, fmt.Errorf("caching %s chunk %d (%s): %w", source.kind, index, chunkHash[:12], err)
+			}
+		}
+		return plaintext, nil
+	}
+
+	return nil, fmt.Errorf("chunk %d (%s): %s", index, chunkHash[:12], strings.Join(attempts, "; "))
+}
+
+func decodeChunkBlob(index int, chunkHash string, nsKey, raw []byte) ([]byte, error) {
 	encrypted, _, err := StripBlobHeader(raw)
 	if err != nil {
 		return nil, fmt.Errorf("parsing chunk %d header: %w", index, err)
@@ -483,27 +523,63 @@ func (s *Store) fetchChunk(ctx context.Context, nsID string, index int, chunkHas
 	return plaintext, nil
 }
 
-func (s *Store) readRawChunkBlob(ctx context.Context, nsID string, index int, chunkHash string) ([]byte, error) {
-	if raw, err := readLocalBlob(nsID, chunkHash); err == nil {
-		return raw, nil
+func (s *Store) planChunkSources(chunkHash string) []chunkSourcePlan {
+	sources := []chunkSourcePlan{{kind: chunkSourceLocal}}
+	if s.peerChunks != nil {
+		sources = append(sources, chunkSourcePlan{kind: chunkSourcePeer, cacheOnSuccess: true})
 	}
-
 	if s.backend != nil {
 		if loc, ok := s.packIndex.Entries[chunkHash]; ok {
-			rc, err := s.backend.GetRange(ctx, loc.Pack, loc.Offset, loc.Length)
-			if err != nil {
-				return nil, fmt.Errorf("reading packed chunk %d (%s): %w", index, chunkHash[:12], err)
-			}
-			tr := transfer.NewReader(rc, int64(loc.Length))
-			tr.SetIdleTimeout(30 * time.Second)
-			raw, err := io.ReadAll(tr)
-			rc.Close()
-			if err != nil {
-				return nil, fmt.Errorf("reading packed chunk %d: %w", index, err)
-			}
-			return raw, nil
+			_ = loc
+			sources = append(sources, chunkSourcePlan{kind: chunkSourceS3Pack, cacheOnSuccess: true})
+		} else {
+			sources = append(sources, chunkSourcePlan{kind: chunkSourceS3Blob, cacheOnSuccess: true})
 		}
+	}
+	return sources
+}
 
+func (s *Store) readRawChunkSource(ctx context.Context, nsID string, index int, chunkHash string, source chunkSourcePlan) ([]byte, error) {
+	switch source.kind {
+	case chunkSourceLocal:
+		raw, err := readLocalBlob(nsID, chunkHash)
+		if err != nil {
+			return nil, err
+		}
+		return raw, nil
+	case chunkSourcePeer:
+		if s.peerChunks == nil {
+			return nil, fmt.Errorf("peer chunk fetcher not configured")
+		}
+		raw, err := s.peerChunks.GetChunk(ctx, nsID, chunkHash)
+		if err != nil {
+			return nil, fmt.Errorf("fetching peer chunk %d (%s): %w", index, chunkHash[:12], err)
+		}
+		return raw, nil
+	case chunkSourceS3Pack:
+		if s.backend == nil {
+			return nil, fmt.Errorf("storage backend not configured")
+		}
+		loc, ok := s.packIndex.Entries[chunkHash]
+		if !ok {
+			return nil, fmt.Errorf("packed chunk metadata not found")
+		}
+		rc, err := s.backend.GetRange(ctx, loc.Pack, loc.Offset, loc.Length)
+		if err != nil {
+			return nil, fmt.Errorf("reading packed chunk %d (%s): %w", index, chunkHash[:12], err)
+		}
+		tr := transfer.NewReader(rc, int64(loc.Length))
+		tr.SetIdleTimeout(30 * time.Second)
+		raw, err := io.ReadAll(tr)
+		rc.Close()
+		if err != nil {
+			return nil, fmt.Errorf("reading packed chunk %d: %w", index, err)
+		}
+		return raw, nil
+	case chunkSourceS3Blob:
+		if s.backend == nil {
+			return nil, fmt.Errorf("storage backend not configured")
+		}
 		blobKey := s.blobKeyFor(chunkHash)
 		rc, err := s.backend.Get(ctx, blobKey)
 		if err != nil {
@@ -517,20 +593,9 @@ func (s *Store) readRawChunkBlob(ctx context.Context, nsID string, index int, ch
 			return nil, fmt.Errorf("reading chunk %d: %w", index, err)
 		}
 		return raw, nil
+	default:
+		return nil, fmt.Errorf("unknown chunk source %q", source.kind)
 	}
-
-	if s.peerChunks != nil {
-		raw, err := s.peerChunks.GetChunk(ctx, nsID, chunkHash)
-		if err != nil {
-			return nil, fmt.Errorf("fetching peer chunk %d (%s): %w", index, chunkHash[:12], err)
-		}
-		if err := writeLocalBlob(nsID, chunkHash, raw); err != nil {
-			return nil, fmt.Errorf("caching peer chunk %d (%s): %w", index, chunkHash[:12], err)
-		}
-		return raw, nil
-	}
-
-	return nil, fmt.Errorf("chunk %d (%s): no local blob, backend, or peer source available", index, chunkHash[:12])
 }
 
 // EnablePacking turns on pack file bundling for small chunks.
