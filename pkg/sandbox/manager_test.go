@@ -84,6 +84,34 @@ func TestManagerCreateTransitionsToReady(t *testing.T) {
 	t.Fatalf("sandbox did not reach ready state, final status=%q", got.Status)
 }
 
+func TestManagerEnsureManagedApp_IgnoresManagedLimaInstall(t *testing.T) {
+	t.Setenv("PATH", "")
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	m.appStatus = func(id skyapps.ID) (*skyapps.Status, error) {
+		return &skyapps.Status{
+			Managed:    true,
+			ActivePath: "/Users/test/.sky10/bin/limactl",
+		}, nil
+	}
+
+	got, err := m.ensureManagedApp(context.Background(), skyapps.AppLima, true)
+	if err == nil {
+		t.Fatal("ensureManagedApp() error = nil, want PATH error")
+	}
+	if got != "" {
+		t.Fatalf("ensureManagedApp() path = %q, want empty", got)
+	}
+	if !strings.Contains(err.Error(), "not found on PATH") {
+		t.Fatalf("ensureManagedApp() error = %q, want PATH-specific error", err)
+	}
+}
+
 func TestManagerCreateSlugifiesDisplayName(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
 

@@ -17,6 +17,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	skyagent "github.com/sky10/sky10/pkg/agent"
 	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
+	skyapps "github.com/sky10/sky10/pkg/apps"
 	"github.com/sky10/sky10/pkg/config"
 	skyfs "github.com/sky10/sky10/pkg/fs"
 	skyid "github.com/sky10/sky10/pkg/id"
@@ -511,6 +512,8 @@ func ServeCmd() *cobra.Command {
 			}
 			// TODO: re-enable health checker once agents reliably heartbeat.
 			// go skyagent.NewHealthChecker(agentRegistry, server.Emit, nil).Run(ctx)
+
+			server.RegisterHandler(skyapps.NewRPCHandler(server.Emit))
 
 			// Wallet handler — opt-in, only active when ows is installed.
 			walletClient := skywallet.NewClient()

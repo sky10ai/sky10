@@ -841,6 +841,23 @@ func (m *Manager) requireRecord(name string) (*Record, error) {
 }
 
 func (m *Manager) ensureManagedApp(_ context.Context, id skyapps.ID, install bool) (string, error) {
+	if id == skyapps.AppLima {
+		if bin, err := exec.LookPath("limactl"); err == nil {
+			return bin, nil
+		}
+		status, err := m.appStatus(id)
+		if err != nil {
+			return "", err
+		}
+		if status.ActivePath != "" && !status.Managed {
+			return status.ActivePath, nil
+		}
+		if !install {
+			return "", nil
+		}
+		return "", fmt.Errorf("limactl not found on PATH; managed Lima installs are not used by sandbox flows yet")
+	}
+
 	status, err := m.appStatus(id)
 	if err != nil {
 		return "", err

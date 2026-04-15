@@ -190,6 +190,13 @@ export function sandboxTerminalURL(slug: string) {
   return `${protocol}//${window.location.host}/rpc/sandboxes/${encodeURIComponent(slug)}/terminal`;
 }
 
+// -- apps --
+export const apps = {
+  status: (p: { id: string }) => rpc<AppStatus>("apps.status", p),
+  install: (p: { id: string }) => rpc<{ id: string; status: string }>("apps.install", p),
+  checkUpdate: (p: { id: string }) => rpc<AppReleaseInfo>("apps.checkUpdate", p),
+};
+
 // -- system --
 export const system = {
   restart: () => rpc<{ status: string }>("system.restart"),
@@ -842,6 +849,28 @@ export interface SystemInstallUpdateResult {
   cli_staged: boolean;
   menu_staged: boolean;
   restarting: boolean;
+}
+
+// -- Managed app types --
+
+export interface AppStatus {
+  id: string;
+  name: string;
+  installed: boolean;
+  managed: boolean;
+  managed_path?: string;
+  active_path?: string;
+  version?: string;
+}
+
+export interface AppReleaseInfo {
+  id: string;
+  installed: boolean;
+  current?: string;
+  latest?: string;
+  available: boolean;
+  asset_url?: string;
+  extra_asset_urls?: string[];
 }
 
 // -- Wallet types --

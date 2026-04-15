@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	skyapps "github.com/sky10/sky10/pkg/apps"
 	"github.com/sky10/sky10/pkg/config"
 	skysandbox "github.com/sky10/sky10/pkg/sandbox"
 	"github.com/spf13/cobra"
@@ -73,11 +72,6 @@ type limaTemplateSpec struct {
 }
 
 var sandboxNameWordPattern = regexp.MustCompile(`[a-z0-9]+`)
-
-var (
-	sandboxManagedAppStatus  = skyapps.StatusFor
-	sandboxManagedAppUpgrade = skyapps.Upgrade
-)
 
 func sandboxCreateCmd() *cobra.Command {
 	var provider string
@@ -165,7 +159,7 @@ func sandboxCreateCmd() *cobra.Command {
 				return err
 			}
 
-			limactl, err := ensureManagedAppPath(cmd, skyapps.AppLima)
+			limactl, err := requireLimaOnPath()
 			if err != nil {
 				return err
 			}
@@ -773,26 +767,10 @@ func lookupLimaInstanceIPv4(ctx context.Context, limactl, name string) (string, 
 	return "", nil
 }
 
-func ensureManagedAppPath(cmd *cobra.Command, id skyapps.ID) (string, error) {
-	status, err := sandboxManagedAppStatus(id)
-	if err != nil {
-		return "", err
+func requireLimaOnPath() (string, error) {
+	limactl, err := exec.LookPath("limactl")
+	if err == nil {
+		return limactl, nil
 	}
-	if status.ActivePath != "" {
-		return status.ActivePath, nil
-	}
-
-	fmt.Fprintf(cmd.ErrOrStderr(), "Installing %s via sky10 app management...\n", id)
-	if _, err := sandboxManagedAppUpgrade(id, nil); err != nil {
-		return "", fmt.Errorf("installing %s: %w", id, err)
-	}
-
-	status, err = sandboxManagedAppStatus(id)
-	if err != nil {
-		return "", err
-	}
-	if status.ActivePath == "" {
-		return "", fmt.Errorf("%s installed but no active binary was found", id)
-	}
-	return status.ActivePath, nil
+	return "", fmt.Errorf("limactl not found on PATH; managed Lima installs are not used by sandbox flows yet")
 }
