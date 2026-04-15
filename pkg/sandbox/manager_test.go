@@ -787,6 +787,31 @@ func TestFinishReadyOpenClawJoinsGuestSky10Identity(t *testing.T) {
 		steps = append(steps, "issue-invite")
 		return &IdentityInvite{HostIdentity: "sky10-host", Code: "invite-code"}, nil
 	}
+	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
+		steps = append(steps, "host."+method)
+		switch method {
+		case "skylink.connect":
+			connectParams, ok := params.(map[string]string)
+			if !ok {
+				t.Fatalf("host connect params type = %T, want map[string]string", params)
+			}
+			if connectParams["address"] != "sky10-host" {
+				t.Fatalf("host connect address = %q, want sky10-host", connectParams["address"])
+			}
+			return nil
+		case "agent.list":
+			body, err := json.Marshal(map[string]interface{}{
+				"agents": []map[string]string{{"name": "openclaw-m6"}},
+			})
+			if err != nil {
+				t.Fatalf("marshal host agent list: %v", err)
+			}
+			return json.Unmarshal(body, out)
+		default:
+			t.Fatalf("unexpected host RPC method %q", method)
+			return nil
+		}
+	}
 
 	var joinParams map[string]string
 	m.guestRPC = func(ctx context.Context, address, method string, params interface{}, out interface{}) error {
@@ -840,6 +865,8 @@ func TestFinishReadyOpenClawJoinsGuestSky10Identity(t *testing.T) {
 		"identity.join",
 		"guest-health-2",
 		"agent-list",
+		"host.skylink.connect",
+		"host.agent.list",
 		"lookup-ip",
 	}
 	if strings.Join(steps, "\n") != strings.Join(want, "\n") {
@@ -901,6 +928,30 @@ func TestFinishReadyOpenClawSkipsJoinWhenGuestAlreadyJoined(t *testing.T) {
 	m.issueIdentityInvite = func(context.Context) (*IdentityInvite, error) {
 		t.Fatal("issueIdentityInvite should not be called when the guest already matches the host identity")
 		return nil, nil
+	}
+	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
+		switch method {
+		case "skylink.connect":
+			connectParams, ok := params.(map[string]string)
+			if !ok {
+				t.Fatalf("host connect params type = %T, want map[string]string", params)
+			}
+			if connectParams["address"] != "sky10-host" {
+				t.Fatalf("host connect address = %q, want sky10-host", connectParams["address"])
+			}
+			return nil
+		case "agent.list":
+			body, err := json.Marshal(map[string]interface{}{
+				"agents": []map[string]string{{"name": "openclaw-m6"}},
+			})
+			if err != nil {
+				t.Fatalf("marshal host agent list: %v", err)
+			}
+			return json.Unmarshal(body, out)
+		default:
+			t.Fatalf("unexpected host RPC method %q", method)
+			return nil
+		}
 	}
 	m.guestRPC = func(ctx context.Context, address, method string, params interface{}, out interface{}) error {
 		switch method {

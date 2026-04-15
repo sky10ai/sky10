@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -21,6 +22,7 @@ import (
 
 	skyapps "github.com/sky10/sky10/pkg/apps"
 	"github.com/sky10/sky10/pkg/config"
+	skyfs "github.com/sky10/sky10/pkg/fs"
 	skyid "github.com/sky10/sky10/pkg/id"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
 )
@@ -139,6 +141,7 @@ type Manager struct {
 	resolveOpenClawSharedEnv func(context.Context) (map[string]string, error)
 	hostIdentity             func(context.Context) (string, error)
 	issueIdentityInvite      func(context.Context) (*IdentityInvite, error)
+	hostRPC                  func(context.Context, string, interface{}, interface{}) error
 	guestRPC                 func(context.Context, string, string, interface{}, interface{}) error
 }
 
@@ -157,6 +160,7 @@ func NewManager(emit Emitter, logger *slog.Logger) (*Manager, error) {
 		appUpgr:   skyapps.Upgrade,
 		runCmd:    defaultRunCommand,
 		outputCmd: defaultOutputCommand,
+		hostRPC:   hostRPCCall,
 		guestRPC:  guestRPCCall,
 	}
 	if err := os.MkdirAll(m.rootDir, 0o755); err != nil {
@@ -571,10 +575,14 @@ func (m *Manager) finishReady(ctx context.Context, name, limactl string) error {
 		if err := waitForGuestSky10(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
 			return err
 		}
-		if err := m.ensureGuestJoinedHostIdentity(ctx, *rec, limactl); err != nil {
+		hostIdentity, err := m.ensureGuestJoinedHostIdentity(ctx, *rec, limactl)
+		if err != nil {
 			return err
 		}
 		if err := waitForGuestOpenClawAgent(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
+			return err
+		}
+		if err := m.ensureHostConnectedGuestAgent(ctx, *rec, hostIdentity); err != nil {
 			return err
 		}
 	}
@@ -704,29 +712,29 @@ func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) erro
 	return nil
 }
 
-func (m *Manager) ensureGuestJoinedHostIdentity(ctx context.Context, rec Record, limactl string) error {
+func (m *Manager) ensureGuestJoinedHostIdentity(ctx context.Context, rec Record, limactl string) (string, error) {
 	if m.hostIdentity == nil || m.issueIdentityInvite == nil {
-		return nil
+		return "", nil
 	}
 
 	hostIdentity, err := m.hostIdentity(ctx)
 	if err != nil {
-		return fmt.Errorf("resolving host identity for sandbox %q: %w", rec.Name, err)
+		return "", fmt.Errorf("resolving host identity for sandbox %q: %w", rec.Name, err)
 	}
 	hostIdentity = strings.TrimSpace(hostIdentity)
 	if hostIdentity == "" {
-		return fmt.Errorf("resolving host identity for sandbox %q: empty identity", rec.Name)
+		return "", fmt.Errorf("resolving host identity for sandbox %q: empty identity", rec.Name)
 	}
 
 	ipAddr, err := lookupLimaInstanceIPv4(ctx, m.outputCmd, limactl, rec.Slug)
 	if err != nil {
-		return fmt.Errorf("resolving guest IP for sandbox %q: %w", rec.Name, err)
+		return "", fmt.Errorf("resolving guest IP for sandbox %q: %w", rec.Name, err)
 	}
 	if strings.TrimSpace(ipAddr) == "" {
-		return fmt.Errorf("resolving guest IP for sandbox %q: guest IP unavailable", rec.Name)
+		return "", fmt.Errorf("resolving guest IP for sandbox %q: guest IP unavailable", rec.Name)
 	}
 	if err := m.updateIPAddress(rec.Slug, ipAddr); err != nil {
-		return err
+		return "", err
 	}
 
 	var guest struct {
@@ -734,26 +742,26 @@ func (m *Manager) ensureGuestJoinedHostIdentity(ctx context.Context, rec Record,
 		DeviceCount int    `json:"device_count"`
 	}
 	if err := m.guestRPC(ctx, ipAddr, "identity.show", nil, &guest); err != nil {
-		return fmt.Errorf("reading guest sky10 identity for sandbox %q: %w", rec.Name, err)
+		return "", fmt.Errorf("reading guest sky10 identity for sandbox %q: %w", rec.Name, err)
 	}
 	guestIdentity := strings.TrimSpace(guest.Address)
 	if strings.EqualFold(guestIdentity, hostIdentity) {
 		m.appendLog(rec.Slug, "stdout", "guest sky10 already joined to host identity")
-		return nil
+		return hostIdentity, nil
 	}
 	if guest.DeviceCount > 1 {
-		return fmt.Errorf("guest sky10 in sandbox %q is already linked to identity %q", rec.Name, guestIdentity)
+		return "", fmt.Errorf("guest sky10 in sandbox %q is already linked to identity %q", rec.Name, guestIdentity)
 	}
 
 	invite, err := m.issueIdentityInvite(ctx)
 	if err != nil {
-		return fmt.Errorf("creating host invite for sandbox %q: %w", rec.Name, err)
+		return "", fmt.Errorf("creating host invite for sandbox %q: %w", rec.Name, err)
 	}
 	if invite == nil {
-		return fmt.Errorf("creating host invite for sandbox %q: no invite returned", rec.Name)
+		return "", fmt.Errorf("creating host invite for sandbox %q: no invite returned", rec.Name)
 	}
 	if strings.TrimSpace(invite.Code) == "" {
-		return fmt.Errorf("creating host invite for sandbox %q: empty invite code", rec.Name)
+		return "", fmt.Errorf("creating host invite for sandbox %q: empty invite code", rec.Name)
 	}
 	m.appendLog(rec.Slug, "stdout", "joining guest sky10 to host identity")
 
@@ -762,13 +770,64 @@ func (m *Manager) ensureGuestJoinedHostIdentity(ctx context.Context, rec Record,
 		"role": skyid.DeviceRoleSandbox,
 	}
 	if err := m.guestRPC(ctx, ipAddr, "identity.join", params, nil); err != nil {
-		return fmt.Errorf("joining guest sky10 for sandbox %q: %w", rec.Name, err)
+		return "", fmt.Errorf("joining guest sky10 for sandbox %q: %w", rec.Name, err)
 	}
 	if err := waitForGuestSky10(ctx, m.outputCmd, limactl, rec.Slug, openClawReadyTimeout); err != nil {
-		return fmt.Errorf("waiting for guest sky10 after join: %w", err)
+		return "", fmt.Errorf("waiting for guest sky10 after join: %w", err)
 	}
 	m.appendLog(rec.Slug, "stdout", "guest sky10 joined host identity")
-	return nil
+	return hostIdentity, nil
+}
+
+func (m *Manager) ensureHostConnectedGuestAgent(ctx context.Context, rec Record, hostIdentity string) error {
+	if m.hostRPC == nil {
+		return nil
+	}
+	hostIdentity = strings.TrimSpace(hostIdentity)
+	if hostIdentity == "" {
+		return nil
+	}
+
+	type agentListResult struct {
+		Agents []struct {
+			Name string `json:"name"`
+		} `json:"agents"`
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, openClawReadyTimeout)
+	defer cancel()
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	var lastErr error
+	for {
+		if err := m.hostRPC(waitCtx, "skylink.connect", map[string]string{"address": hostIdentity}, nil); err != nil {
+			lastErr = fmt.Errorf("connecting host sky10 to guest identity %q: %w", hostIdentity, err)
+		} else {
+			var listed agentListResult
+			if err := m.hostRPC(waitCtx, "agent.list", nil, &listed); err != nil {
+				lastErr = fmt.Errorf("listing host agents after guest join: %w", err)
+			} else {
+				for _, agent := range listed.Agents {
+					if agent.Name == rec.Name || agent.Name == rec.Slug {
+						m.appendLog(rec.Slug, "stdout", "host sky10 connected to guest peer")
+						return nil
+					}
+				}
+				lastErr = fmt.Errorf("guest agent %q not yet visible on host", rec.Name)
+			}
+		}
+
+		select {
+		case <-waitCtx.Done():
+			if lastErr != nil {
+				return lastErr
+			}
+			return fmt.Errorf("timed out waiting for host sky10 to connect to sandbox %q", rec.Name)
+		case <-ticker.C:
+		}
+	}
 }
 
 func (m *Manager) limaInstanceExists(_ context.Context, _ string, name string) (bool, error) {
@@ -1497,6 +1556,51 @@ func guestRPCCall(ctx context.Context, address, method string, params interface{
 	}
 	if err := json.Unmarshal(rpcResp.Result, out); err != nil {
 		return fmt.Errorf("decode guest rpc %s result: %w", method, err)
+	}
+	return nil
+}
+
+func hostRPCCall(ctx context.Context, method string, params interface{}, out interface{}) error {
+	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", skyfs.DaemonSocketPath())
+	if err != nil {
+		return fmt.Errorf("dial host daemon for %s: %w", method, err)
+	}
+	defer conn.Close()
+
+	var rawParams json.RawMessage
+	if params != nil {
+		body, err := json.Marshal(params)
+		if err != nil {
+			return fmt.Errorf("marshal host rpc params for %s: %w", method, err)
+		}
+		rawParams = body
+	}
+
+	req := skyrpc.Request{
+		JSONRPC: "2.0",
+		Method:  method,
+		Params:  rawParams,
+		ID:      1,
+	}
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		return fmt.Errorf("send host rpc %s: %w", method, err)
+	}
+
+	var rpcResp struct {
+		Result json.RawMessage `json:"result,omitempty"`
+		Error  *skyrpc.Error   `json:"error,omitempty"`
+	}
+	if err := json.NewDecoder(conn).Decode(&rpcResp); err != nil {
+		return fmt.Errorf("decode host rpc %s response: %w", method, err)
+	}
+	if rpcResp.Error != nil {
+		return fmt.Errorf("%s", rpcResp.Error.Message)
+	}
+	if out == nil || len(rpcResp.Result) == 0 || bytes.Equal(rpcResp.Result, []byte("null")) {
+		return nil
+	}
+	if err := json.Unmarshal(rpcResp.Result, out); err != nil {
+		return fmt.Errorf("decode host rpc %s result: %w", method, err)
 	}
 	return nil
 }
