@@ -299,12 +299,20 @@ export default function Settings() {
     [firstWallet],
   );
   const {
-    data: walletBal,
-    mutate: mutateBalance,
-    pause: pauseBalance,
-    resume: resumeBalance,
+    data: solanaWalletBal,
+    mutate: mutateSolanaBalance,
+    pause: pauseSolanaBalance,
+    resume: resumeSolanaBalance,
   } = useRPC(
-    () => (firstWallet ? wallet.balance({ wallet: firstWallet }) : Promise.resolve(null)),
+    () => (firstWallet ? wallet.balance({ wallet: firstWallet, chain: "solana" }) : Promise.resolve(null)),
+    [firstWallet],
+    { refreshIntervalMs: 30_000 },
+  );
+  const {
+    data: baseWalletBal,
+    error: baseWalletBalError,
+  } = useRPC(
+    () => (firstWallet ? wallet.balance({ wallet: firstWallet, chain: "eip155:8453" }) : Promise.resolve(null)),
     [firstWallet],
     { refreshIntervalMs: 30_000 },
   );
@@ -776,7 +784,7 @@ export default function Settings() {
                     role="tab"
                     type="button"
                   >
-                    Solana Wallet
+                    Solana
                   </button>
                   <button
                     aria-controls="wallet-base-panel"
@@ -791,7 +799,7 @@ export default function Settings() {
                     role="tab"
                     type="button"
                   >
-                    Base Wallet
+                    Base
                   </button>
                 </div>
               </div>
@@ -816,17 +824,12 @@ export default function Settings() {
                     Balances
                   </label>
                   {(() => {
-                    const tokens = walletBal?.tokens && walletBal.tokens.length > 0
-                      ? walletBal.tokens
+                    const tokens = solanaWalletBal?.tokens && solanaWalletBal.tokens.length > 0
+                      ? solanaWalletBal.tokens
                       : [{ symbol: "SOL", balance: "0" }, { symbol: "USDC", balance: "0" }];
                     return (
                       <div className="space-y-2">
-                        {tokens.map((t) => (
-                          <div key={t.symbol} className="flex justify-between items-center bg-surface-container p-3 rounded-lg">
-                            <span className="text-sm font-medium">{t.symbol}</span>
-                            <span className="text-sm font-semibold font-mono">{t.balance}</span>
-                          </div>
-                        ))}
+                        <WalletBalanceList tokens={tokens} />
                       </div>
                     );
                   })()}
@@ -868,12 +871,12 @@ export default function Settings() {
                                 setFeeHint(`Balance minus ${result.fee} SOL gas`);
                                 setTimeout(() => setFeeHint(null), 3000);
                               } catch {
-                                const tok = walletBal?.tokens?.find((t) => t.symbol === "SOL");
+                                const tok = solanaWalletBal?.tokens?.find((t) => t.symbol === "SOL");
                                 const bal = parseFloat(tok?.balance ?? "0");
                                 if (bal > 0) setWithdrawAmount(String(Math.max(0, bal - 0.00001)));
                               }
                             } else {
-                              const tok = walletBal?.tokens?.find((t) => t.symbol === withdrawToken);
+                              const tok = solanaWalletBal?.tokens?.find((t) => t.symbol === withdrawToken);
                               setWithdrawAmount(tok?.balance ?? "0");
                             }
                           }}
@@ -912,7 +915,7 @@ export default function Settings() {
                           if (!firstWallet) return;
                           setWithdrawing(true);
                           setWithdrawError(null);
-                          pauseBalance();
+                          pauseSolanaBalance();
                           try {
                             const sentToken = withdrawToken;
                             const { fee: feeStr } = await wallet.maxTransfer({ wallet: firstWallet });
@@ -928,7 +931,7 @@ export default function Settings() {
                             setWithdrawSuccess(true);
                             setTimeout(() => setWithdrawSuccess(false), 4000);
                             const isSol = !sentToken || sentToken === "SOL";
-                            mutateBalance((prev) => {
+                            mutateSolanaBalance((prev) => {
                               if (!prev?.tokens) return prev;
                               const updated = prev.tokens.map((t) => {
                                 const decimals = t.symbol === "SOL" ? 9 : 6;
@@ -943,10 +946,10 @@ export default function Settings() {
                               });
                               return { ...prev, tokens: updated };
                             });
-                            setTimeout(resumeBalance, 15_000);
+                            setTimeout(resumeSolanaBalance, 15_000);
                           } catch (e: unknown) {
                             setWithdrawError(e instanceof Error ? e.message : "Transfer failed");
-                            resumeBalance();
+                            resumeSolanaBalance();
                           } finally {
                             setWithdrawing(false);
                           }
@@ -1009,21 +1012,32 @@ export default function Settings() {
                   </div>
                 )}
 
-                <div className="rounded-lg bg-surface-container p-4 space-y-2">
-                  <p className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
-                    Base Wallet
-                  </p>
-                  <p className="text-sm text-secondary">
-                    This view now uses the same tabbed wallet toggle as sandbox logs and terminal. Balance, funding, and send actions remain wired to the Solana flow for now.
-                  </p>
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
+                    Balances
+                  </label>
+                  {(() => {
+                    const tokens = baseWalletBal?.tokens && baseWalletBal.tokens.length > 0
+                      ? baseWalletBal.tokens
+                      : [{ symbol: "ETH", balance: "0" }, { symbol: "USDC", balance: "0" }];
+                    return (
+                      <div className="space-y-2">
+                        <WalletBalanceList tokens={tokens} />
+                      </div>
+                    );
+                  })()}
                 </div>
+
+                {baseWalletBalError && (
+                  <p className="text-xs text-error">{baseWalletBalError}</p>
+                )}
 
                 <div className="flex items-center justify-between pt-2">
                   {walletStatus.version && (
                     <p className="text-[10px] text-secondary">{walletStatus.version}</p>
                   )}
                   <p className="text-xs font-semibold text-secondary">
-                    Switch back to Solana for balances and transfers.
+                    Send and fund stay on Solana for now.
                   </p>
                 </div>
               </div>
@@ -1092,6 +1106,23 @@ export default function Settings() {
         </section>
       </div>
     </div>
+  );
+}
+
+function WalletBalanceList({
+  tokens,
+}: {
+  tokens: Array<{ symbol: string; balance: string }>;
+}) {
+  return (
+    <>
+      {tokens.map((t) => (
+        <div key={t.symbol} className="flex justify-between items-center bg-surface-container p-3 rounded-lg">
+          <span className="text-sm font-medium">{t.symbol}</span>
+          <span className="text-sm font-semibold font-mono">{t.balance}</span>
+        </div>
+      ))}
+    </>
   );
 }
 

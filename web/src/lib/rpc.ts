@@ -234,7 +234,7 @@ export const wallet = {
   create: (p: { name: string }) => rpc<WalletInfo>("wallet.create", p),
   list: () => rpc<WalletListResult>("wallet.list"),
   address: (p: { wallet: string; chain?: string }) => rpc<WalletAddress>("wallet.address", p),
-  balance: (p: { wallet: string }) => rpc<WalletBalance>("wallet.balance", p),
+  balance: (p: { wallet: string; chain?: string }) => rpc<WalletBalance>("wallet.balance", p),
   deposit: (p: { wallet: string }) => rpc<WalletDeposit>("wallet.deposit", p),
   transfer: (p: { wallet: string; to: string; amount: string; token?: string }) =>
     rpc<WalletTransfer>("wallet.transfer", p),

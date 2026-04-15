@@ -203,7 +203,11 @@ func (h *RPCHandler) rpcBalance(ctx context.Context, params json.RawMessage) (in
 	if p.Wallet == "" {
 		return nil, fmt.Errorf("wallet is required")
 	}
-	return h.client.Balance(ctx, p.Wallet)
+	chain := strings.TrimSpace(p.Chain)
+	if chain == "" {
+		chain = ChainSolana
+	}
+	return h.client.BalanceForChain(ctx, p.Wallet, chain)
 }
 
 type payParams struct {

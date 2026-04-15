@@ -324,16 +324,28 @@ func (c *Client) MaxTransfer(ctx context.Context, walletName string) (*MaxTransf
 }
 
 // Balance returns token balances for the wallet on Solana.
-// Queries the Solana RPC directly for native SOL and SPL token balances.
 func (c *Client) Balance(ctx context.Context, walletName string) (*BalanceResult, error) {
+	return c.BalanceForChain(ctx, walletName, ChainSolana)
+}
+
+// BalanceForChain returns token balances for the wallet on the requested chain.
+// Solana and Base use direct chain RPCs so native assets show up alongside USDC.
+func (c *Client) BalanceForChain(ctx context.Context, walletName, chain string) (*BalanceResult, error) {
 	if c == nil {
 		return nil, ErrNotInstalled
 	}
-	addr, err := c.Address(ctx, walletName)
+	addr, err := c.AddressForChain(ctx, walletName, chain)
 	if err != nil {
 		return nil, fmt.Errorf("getting address for balance: %w", err)
 	}
-	return solanaBalances(ctx, addr)
+	switch strings.ToLower(strings.TrimSpace(chain)) {
+	case "", ChainSolana:
+		return solanaBalances(ctx, addr)
+	case "base", ChainBase:
+		return baseBalances(ctx, addr)
+	default:
+		return nil, fmt.Errorf("unsupported balance chain: %s", chain)
+	}
 }
 
 // Pay makes an x402 payment to a URL using the given wallet.
