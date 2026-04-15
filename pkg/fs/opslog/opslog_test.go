@@ -604,6 +604,46 @@ func TestCRDTClockSurvivesCompaction(t *testing.T) {
 	}
 }
 
+func TestCRDTDeleteClockSurvivesCompactionBase(t *testing.T) {
+	t.Parallel()
+
+	base := buildSnapshot(nil, []Entry{
+		{Type: Delete, Path: "x.md", Timestamp: 200, Device: "dev-b", Seq: 1},
+	})
+
+	snap := buildSnapshot(base, []Entry{
+		{Type: Put, Path: "x.md", Checksum: "stale", Timestamp: 100, Device: "dev-a", Seq: 1},
+	})
+	if _, ok := snap.Lookup("x.md"); ok {
+		t.Fatal("x.md should remain deleted when base tombstone beats incoming put")
+	}
+	if !snap.DeletedFiles()["x.md"] {
+		t.Fatal("x.md tombstone missing after replay")
+	}
+}
+
+func TestCRDTDeleteDirClockSurvivesCompactionBase(t *testing.T) {
+	t.Parallel()
+
+	base := buildSnapshot(nil, []Entry{
+		{Type: DeleteDir, Path: "dir", Timestamp: 200, Device: "dev-b", Seq: 1},
+	})
+
+	snap := buildSnapshot(base, []Entry{
+		{Type: Put, Path: "dir/stale.txt", Checksum: "stale", Timestamp: 100, Device: "dev-a", Seq: 1},
+		{Type: CreateDir, Path: "dir", Timestamp: 150, Device: "dev-a", Seq: 2},
+	})
+	if _, ok := snap.Lookup("dir/stale.txt"); ok {
+		t.Fatal("dir/stale.txt should remain deleted when base delete_dir beats incoming put")
+	}
+	if _, ok := snap.Dirs()["dir"]; ok {
+		t.Fatal("dir should remain deleted when base delete_dir beats incoming create_dir")
+	}
+	if !snap.DeletedDirs()["dir"] {
+		t.Fatal("dir tombstone missing after replay")
+	}
+}
+
 // permutations returns all orderings of the given entries.
 func permutations(entries []Entry) [][]Entry {
 	if len(entries) <= 1 {

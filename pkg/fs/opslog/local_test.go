@@ -505,16 +505,65 @@ func TestLocalCompactAllDeleted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// File should be empty (or near-empty)
-	info, _ := os.Stat(path)
-	if info.Size() > 10 {
-		t.Errorf("compacted file should be tiny, got %d bytes", info.Size())
-	}
-
-	// Reload should work
+	// Reload should work and preserve the delete tombstone.
 	log2 := NewLocalOpsLog(path, "dev-a")
 	snap, _ := log2.Snapshot()
 	if snap.Len() != 0 {
 		t.Errorf("Len() = %d, want 0", snap.Len())
+	}
+	if !snap.DeletedFiles()["gone.md"] {
+		t.Fatal("gone.md tombstone should survive compaction")
+	}
+
+	// An older put arriving after compaction must not resurrect the file.
+	if err := log2.Append(Entry{
+		Type: Put, Path: "gone.md", Checksum: "stale", Chunks: []string{"c1"},
+		Device: "dev-b", Timestamp: 50, Seq: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	log2.InvalidateCache()
+	snap, _ = log2.Snapshot()
+	if _, ok := snap.Lookup("gone.md"); ok {
+		t.Fatal("gone.md should remain deleted after older post-compact put")
+	}
+}
+
+func TestLocalCompactPreservesDeleteDirTombstone(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ops.jsonl")
+	log := NewLocalOpsLog(path, "dev-a")
+
+	if err := log.Append(Entry{
+		Type: Put, Path: "dir/a.txt", Checksum: "h1", Chunks: []string{"c1"},
+		Device: "dev-a", Timestamp: 100, Seq: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := log.Append(Entry{
+		Type: DeleteDir, Path: "dir",
+		Device: "dev-b", Timestamp: 200, Seq: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := log.Compact(); err != nil {
+		t.Fatal(err)
+	}
+
+	log2 := NewLocalOpsLog(path, "dev-a")
+	if err := log2.Append(Entry{
+		Type: Put, Path: "dir/stale.txt", Checksum: "stale", Chunks: []string{"c2"},
+		Device: "dev-c", Timestamp: 150, Seq: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	log2.InvalidateCache()
+	snap, _ := log2.Snapshot()
+	if _, ok := snap.Lookup("dir/stale.txt"); ok {
+		t.Fatal("dir/stale.txt should remain deleted after older post-compact put")
+	}
+	if !snap.DeletedDirs()["dir"] {
+		t.Fatal("dir delete_dir tombstone should survive compaction")
 	}
 }

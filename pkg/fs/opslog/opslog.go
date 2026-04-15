@@ -135,14 +135,24 @@ type DirInfo struct {
 	Modified  time.Time `json:"modified"`
 }
 
+// TombstoneInfo preserves the delete clock for a path or directory
+// through snapshot save/load cycles and compaction.
+type TombstoneInfo struct {
+	Namespace string    `json:"namespace,omitempty"`
+	Device    string    `json:"device,omitempty"`
+	Seq       int       `json:"seq,omitempty"`
+	Modified  time.Time `json:"modified"`
+}
+
 // Snapshot is an immutable point-in-time view of the file tree.
 // It is produced by replaying log entries on top of an optional base.
 type Snapshot struct {
-	files   map[string]FileInfo
-	dirs    map[string]DirInfo // explicitly created directories
-	deleted map[string]bool    // paths with an explicit delete as last op
-	created time.Time
-	updated time.Time
+	files       map[string]FileInfo
+	dirs        map[string]DirInfo       // explicitly created directories
+	deleted     map[string]TombstoneInfo // paths with an explicit delete as last op
+	deletedDirs map[string]TombstoneInfo // directories with an explicit delete_dir tombstone
+	created     time.Time
+	updated     time.Time
 }
 
 // Lookup returns the FileInfo for path, or false if not present.
@@ -189,6 +199,34 @@ func (s *Snapshot) DeletedFiles() map[string]bool {
 	cp := make(map[string]bool, len(s.deleted))
 	for k := range s.deleted {
 		cp[k] = true
+	}
+	return cp
+}
+
+// Tombstones returns a copy of the file tombstone map. Safe to mutate.
+func (s *Snapshot) Tombstones() map[string]TombstoneInfo {
+	cp := make(map[string]TombstoneInfo, len(s.deleted))
+	for k, v := range s.deleted {
+		cp[k] = v
+	}
+	return cp
+}
+
+// DeletedDirs returns the set of directories that have an explicit
+// delete_dir tombstone as their last op.
+func (s *Snapshot) DeletedDirs() map[string]bool {
+	cp := make(map[string]bool, len(s.deletedDirs))
+	for k := range s.deletedDirs {
+		cp[k] = true
+	}
+	return cp
+}
+
+// DirTombstones returns a copy of the directory tombstone map. Safe to mutate.
+func (s *Snapshot) DirTombstones() map[string]TombstoneInfo {
+	cp := make(map[string]TombstoneInfo, len(s.deletedDirs))
+	for k, v := range s.deletedDirs {
+		cp[k] = v
 	}
 	return cp
 }
@@ -486,11 +524,13 @@ func (l *OpsLog) InvalidateCache() {
 // manifestJSON is the on-disk format for snapshots, kept compatible with
 // the existing fs.Manifest.
 type manifestJSON struct {
-	Version int                     `json:"version"`
-	Created time.Time               `json:"created"`
-	Updated time.Time               `json:"updated"`
-	Tree    map[string]fileInfoJSON `json:"tree"`
-	Dirs    map[string]dirInfoJSON  `json:"dirs,omitempty"`
+	Version     int                      `json:"version"`
+	Created     time.Time                `json:"created"`
+	Updated     time.Time                `json:"updated"`
+	Tree        map[string]fileInfoJSON  `json:"tree"`
+	Dirs        map[string]dirInfoJSON   `json:"dirs,omitempty"`
+	Deleted     map[string]tombstoneJSON `json:"deleted,omitempty"`
+	DeletedDirs map[string]tombstoneJSON `json:"deleted_dirs,omitempty"`
 }
 
 type dirInfoJSON struct {
@@ -509,6 +549,13 @@ type fileInfoJSON struct {
 	Device     string    `json:"device,omitempty"`
 	Seq        int       `json:"seq,omitempty"`
 	LinkTarget string    `json:"link_target,omitempty"`
+}
+
+type tombstoneJSON struct {
+	Namespace string    `json:"namespace,omitempty"`
+	Device    string    `json:"device,omitempty"`
+	Seq       int       `json:"seq,omitempty"`
+	Modified  time.Time `json:"modified"`
 }
 
 func (l *OpsLog) saveSnapshot(ctx context.Context, snap *Snapshot) error {
@@ -546,6 +593,28 @@ func (l *OpsLog) saveSnapshot(ctx context.Context, snap *Snapshot) error {
 				Device:    di.Device,
 				Seq:       di.Seq,
 				Modified:  di.Modified,
+			}
+		}
+	}
+	if len(snap.deleted) > 0 {
+		m.Deleted = make(map[string]tombstoneJSON, len(snap.deleted))
+		for path, tomb := range snap.deleted {
+			m.Deleted[path] = tombstoneJSON{
+				Namespace: tomb.Namespace,
+				Device:    tomb.Device,
+				Seq:       tomb.Seq,
+				Modified:  tomb.Modified,
+			}
+		}
+	}
+	if len(snap.deletedDirs) > 0 {
+		m.DeletedDirs = make(map[string]tombstoneJSON, len(snap.deletedDirs))
+		for path, tomb := range snap.deletedDirs {
+			m.DeletedDirs[path] = tombstoneJSON{
+				Namespace: tomb.Namespace,
+				Device:    tomb.Device,
+				Seq:       tomb.Seq,
+				Modified:  tomb.Modified,
 			}
 		}
 	}
@@ -603,10 +672,12 @@ func (l *OpsLog) LoadLatestSnapshot(ctx context.Context) (*Snapshot, int64, erro
 	}
 
 	snap := &Snapshot{
-		files:   make(map[string]FileInfo, len(m.Tree)),
-		dirs:    make(map[string]DirInfo, len(m.Dirs)),
-		created: m.Created,
-		updated: m.Updated,
+		files:       make(map[string]FileInfo, len(m.Tree)),
+		dirs:        make(map[string]DirInfo, len(m.Dirs)),
+		deleted:     make(map[string]TombstoneInfo, len(m.Deleted)),
+		deletedDirs: make(map[string]TombstoneInfo, len(m.DeletedDirs)),
+		created:     m.Created,
+		updated:     m.Updated,
 	}
 	for path, fi := range m.Tree {
 		snap.files[path] = FileInfo{
@@ -626,6 +697,22 @@ func (l *OpsLog) LoadLatestSnapshot(ctx context.Context) (*Snapshot, int64, erro
 			Device:    di.Device,
 			Seq:       di.Seq,
 			Modified:  di.Modified,
+		}
+	}
+	for path, tomb := range m.Deleted {
+		snap.deleted[path] = TombstoneInfo{
+			Namespace: tomb.Namespace,
+			Device:    tomb.Device,
+			Seq:       tomb.Seq,
+			Modified:  tomb.Modified,
+		}
+	}
+	for path, tomb := range m.DeletedDirs {
+		snap.deletedDirs[path] = TombstoneInfo{
+			Namespace: tomb.Namespace,
+			Device:    tomb.Device,
+			Seq:       tomb.Seq,
+			Modified:  tomb.Modified,
 		}
 	}
 
@@ -803,11 +890,12 @@ func readEntries(ctx context.Context, backend adapter.Backend, since int64, encK
 // cannot resurrect a file that was deleted with a higher clock.
 func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 	snap := &Snapshot{
-		files:   make(map[string]FileInfo),
-		dirs:    make(map[string]DirInfo),
-		deleted: make(map[string]bool),
-		created: time.Now().UTC(),
-		updated: time.Now().UTC(),
+		files:       make(map[string]FileInfo),
+		dirs:        make(map[string]DirInfo),
+		deleted:     make(map[string]TombstoneInfo),
+		deletedDirs: make(map[string]TombstoneInfo),
+		created:     time.Now().UTC(),
+		updated:     time.Now().UTC(),
 	}
 
 	// Per-path clock tracking. Entries (including deletes) must beat the
@@ -832,8 +920,17 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 			snap.dirs[k] = v
 			dirClocks[k] = clockTuple{ts: v.Modified.Unix(), device: v.Device, seq: v.Seq}
 		}
-		for k := range base.deleted {
-			snap.deleted[k] = true
+		for k, v := range base.deleted {
+			snap.deleted[k] = v
+			clocks[k] = tombstoneClock(v)
+		}
+		for k, v := range base.deletedDirs {
+			snap.deletedDirs[k] = v
+			tombClock := tombstoneClock(v)
+			dirTombstones[k] = tombClock
+			if prev, ok := dirClocks[k]; !ok || tombClock.beats(prev) {
+				dirClocks[k] = tombClock
+			}
 		}
 	}
 
@@ -866,7 +963,7 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 			}
 			clocks[e.Path] = ec
 			delete(snap.files, e.Path)
-			snap.deleted[e.Path] = true
+			snap.deleted[e.Path] = tombstoneInfoFromEntry(e)
 		case CreateDir:
 			if prev, ok := dirClocks[e.Path]; ok && !ec.beats(prev) {
 				continue
@@ -879,6 +976,7 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 				continue
 			}
 			dirClocks[e.Path] = ec
+			delete(snap.deletedDirs, e.Path)
 			snap.dirs[e.Path] = DirInfo{
 				Namespace: e.Namespace,
 				Device:    e.Device,
@@ -890,6 +988,7 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 			// are rejected unless they have a higher clock.
 			if prev, ok := dirTombstones[e.Path]; !ok || ec.beats(prev) {
 				dirTombstones[e.Path] = ec
+				snap.deletedDirs[e.Path] = tombstoneInfoFromEntry(e)
 			}
 			// Remove existing files under this directory.
 			prefix := e.Path + "/"
@@ -897,7 +996,7 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 				if strings.HasPrefix(path, prefix) {
 					if prev, ok := clocks[path]; !ok || ec.beats(prev) {
 						delete(snap.files, path)
-						snap.deleted[path] = true
+						snap.deleted[path] = tombstoneInfoFromEntry(e)
 						clocks[path] = ec
 					}
 				}
@@ -920,6 +1019,23 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 
 	snap.updated = time.Now().UTC()
 	return snap
+}
+
+func tombstoneInfoFromEntry(e Entry) TombstoneInfo {
+	return TombstoneInfo{
+		Namespace: e.Namespace,
+		Device:    e.Device,
+		Seq:       e.Seq,
+		Modified:  time.Unix(e.Timestamp, 0).UTC(),
+	}
+}
+
+func tombstoneClock(t TombstoneInfo) clockTuple {
+	return clockTuple{
+		ts:     t.Modified.Unix(),
+		device: t.Device,
+		seq:    t.Seq,
+	}
 }
 
 // coveredByDirTombstone returns true if path is under a directory that

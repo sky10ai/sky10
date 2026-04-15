@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 )
@@ -116,10 +117,9 @@ func (l *LocalOpsLog) DeviceID() string {
 	return l.deviceID
 }
 
-// Compact rewrites the ops.jsonl file with one synthetic put per file
-// in the current snapshot. All intermediate ops (superseded puts, deletes
-// for files that were re-created, etc.) are dropped. The snapshot is
-// unchanged after compaction.
+// Compact rewrites the ops.jsonl file with one synthetic entry per current
+// file, directory, and surviving tombstone. Intermediate superseded ops are
+// dropped, but the clocks needed to keep deletes authoritative are preserved.
 //
 // Uses atomic write (temp file + rename) so a crash mid-compaction
 // doesn't lose data.
@@ -141,7 +141,13 @@ func (l *LocalOpsLog) Compact() error {
 		return fmt.Errorf("creating compact file: %w", err)
 	}
 
-	for path, fi := range l.cache.files {
+	filePaths := make([]string, 0, len(l.cache.files))
+	for path := range l.cache.files {
+		filePaths = append(filePaths, path)
+	}
+	sort.Strings(filePaths)
+	for _, path := range filePaths {
+		fi := l.cache.files[path]
 		// Strip chunkless Puts — they are local tracking state ("upload
 		// pending") that should not persist through compaction. The
 		// integrity sweep will re-queue them from disk if needed.
@@ -178,7 +184,13 @@ func (l *LocalOpsLog) Compact() error {
 			return err
 		}
 	}
-	for path, di := range l.cache.dirs {
+	dirPaths := make([]string, 0, len(l.cache.dirs))
+	for path := range l.cache.dirs {
+		dirPaths = append(dirPaths, path)
+	}
+	sort.Strings(dirPaths)
+	for _, path := range dirPaths {
+		di := l.cache.dirs[path]
 		e := Entry{
 			Type:      CreateDir,
 			Path:      path,
@@ -186,6 +198,62 @@ func (l *LocalOpsLog) Compact() error {
 			Device:    di.Device,
 			Timestamp: di.Modified.Unix(),
 			Seq:       di.Seq,
+		}
+		data, err := json.Marshal(e)
+		if err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("marshaling entry: %w", err)
+		}
+		data = append(data, '\n')
+		if _, err := f.Write(data); err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return err
+		}
+	}
+	deletedPaths := make([]string, 0, len(l.cache.deleted))
+	for path := range l.cache.deleted {
+		deletedPaths = append(deletedPaths, path)
+	}
+	sort.Strings(deletedPaths)
+	for _, path := range deletedPaths {
+		tomb := l.cache.deleted[path]
+		e := Entry{
+			Type:      Delete,
+			Path:      path,
+			Namespace: tomb.Namespace,
+			Device:    tomb.Device,
+			Timestamp: tomb.Modified.Unix(),
+			Seq:       tomb.Seq,
+		}
+		data, err := json.Marshal(e)
+		if err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("marshaling entry: %w", err)
+		}
+		data = append(data, '\n')
+		if _, err := f.Write(data); err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return err
+		}
+	}
+	deletedDirPaths := make([]string, 0, len(l.cache.deletedDirs))
+	for path := range l.cache.deletedDirs {
+		deletedDirPaths = append(deletedDirPaths, path)
+	}
+	sort.Strings(deletedDirPaths)
+	for _, path := range deletedDirPaths {
+		tomb := l.cache.deletedDirs[path]
+		e := Entry{
+			Type:      DeleteDir,
+			Path:      path,
+			Namespace: tomb.Namespace,
+			Device:    tomb.Device,
+			Timestamp: tomb.Modified.Unix(),
+			Seq:       tomb.Seq,
 		}
 		data, err := json.Marshal(e)
 		if err != nil {
