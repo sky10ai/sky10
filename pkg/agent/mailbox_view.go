@@ -2,7 +2,6 @@ package agent
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
@@ -50,12 +49,7 @@ func (h *RPCHandler) mailboxViews() []mailboxView {
 	views := []mailboxView{h.defaultMailboxView().view}
 
 	agents := h.registry.List()
-	sort.Slice(agents, func(i, j int) bool {
-		if agents[i].Name == agents[j].Name {
-			return agents[i].ID < agents[j].ID
-		}
-		return agents[i].Name < agents[j].Name
-	})
+	sortAgentInfos(agents)
 	for _, info := range agents {
 		views = append(views, mailboxView{
 			ViewID: "agent:" + info.ID,

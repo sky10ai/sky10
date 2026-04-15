@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"sort"
 	"sync"
 	"testing"
@@ -230,6 +231,39 @@ func TestRouterListAggregation(t *testing.T) {
 	}
 	if !names["coder"] || !names["researcher"] {
 		t.Fatalf("expected coder and researcher, got %v", names)
+	}
+}
+
+func TestRouterListReturnsSortedAgents(t *testing.T) {
+	t.Parallel()
+
+	nodeA, nodeB := makeSharedTestNodes(t)
+	regA := NewRegistry("D-deviceAA", "hostA", nil)
+	if _, err := regA.Register(RegisterParams{Name: "zebra"}, "A-localZ0000000000"); err != nil {
+		t.Fatalf("register local: %v", err)
+	}
+
+	regB := NewRegistry("D-deviceBB", "hostB", nil)
+	if _, err := regB.Register(RegisterParams{Name: "alpha"}, "A-remoteA000000000"); err != nil {
+		t.Fatalf("register remote: %v", err)
+	}
+
+	RegisterLinkHandlers(nodeB, regB, nil, nil)
+
+	startNode(t, nodeA)
+	startNode(t, nodeB)
+	connectNodes(t, nodeA, nodeB)
+
+	routerA := NewRouter(regA, nodeA, nil, "D-deviceAA", nil)
+
+	agents := routerA.List(context.Background())
+	got := make([]string, len(agents))
+	for i, agent := range agents {
+		got[i] = agent.Name
+	}
+	want := []string{"alpha", "zebra"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("List() names = %v, want %v", got, want)
 	}
 }
 

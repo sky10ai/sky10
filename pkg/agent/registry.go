@@ -166,6 +166,7 @@ func (r *Registry) List() []AgentInfo {
 	for _, info := range r.agents {
 		out = append(out, *info)
 	}
+	sortAgentInfos(out)
 	return out
 }
 

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -39,6 +40,40 @@ func TestRegistryRegisterAndList(t *testing.T) {
 	}
 	if agents[0].Name != "coder" {
 		t.Errorf("Name = %s, want coder", agents[0].Name)
+	}
+}
+
+func TestRegistryListReturnsSortedAgents(t *testing.T) {
+	t.Parallel()
+	r := newTestRegistry()
+
+	cases := []struct {
+		name string
+		id   string
+	}{
+		{name: "zebra", id: "A-zebra0000000000"},
+		{name: "alpha", id: "A-alpha0000000000"},
+		{name: "middle", id: "A-middle000000000"},
+		{name: "bravo", id: "A-bravo0000000000"},
+		{name: "delta", id: "A-delta0000000000"},
+		{name: "charlie", id: "A-charlie00000000"},
+	}
+	for _, tc := range cases {
+		if _, err := r.Register(RegisterParams{Name: tc.name}, tc.id); err != nil {
+			t.Fatalf("Register(%q): %v", tc.name, err)
+		}
+	}
+
+	want := []string{"alpha", "bravo", "charlie", "delta", "middle", "zebra"}
+	for i := 0; i < 20; i++ {
+		agents := r.List()
+		got := make([]string, len(agents))
+		for j, agent := range agents {
+			got[j] = agent.Name
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("List() iteration %d names = %v, want %v", i, got, want)
+		}
 	}
 }
 

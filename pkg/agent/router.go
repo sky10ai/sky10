@@ -574,6 +574,7 @@ func (r *Router) List(ctx context.Context) []AgentInfo {
 		}
 	}
 
+	sortAgentInfos(all)
 	return all
 }
 
