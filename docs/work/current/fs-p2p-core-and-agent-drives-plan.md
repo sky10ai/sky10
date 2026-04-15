@@ -318,7 +318,7 @@ Checklist:
 - [x] Reuse the summary-first anti-entropy pattern proven in `pkg/kv/p2p.go`
       instead of inventing a fresh snapshot-broadcast loop.
 - [x] Add delta or summary-based anti-entropy for reconnects.
-- [ ] Add periodic bounded anti-entropy even without new writes.
+- [x] Add periodic bounded anti-entropy even without new writes.
 - [x] Persist peer sync state across restart.
 - [x] Make protocol registration/startup ordering deterministic so fresh joins
       do not miss FS metadata sync.

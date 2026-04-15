@@ -25,6 +25,7 @@ const FSChunkProtocol = protocol.ID("/sky10/fs-chunk/1.0.0")
 
 const fsSyncExchangeTimeout = 5 * time.Second
 const fsReconnectSyncMinInterval = 2 * time.Second
+const defaultFSAntiEntropyInterval = 30 * time.Second
 
 type fsP2PNode interface {
 	Host() host.Host
@@ -232,6 +233,7 @@ type P2PSync struct {
 	replicas        map[string]*p2pReplica
 	registered      bool
 	lastConnectPush map[peer.ID]time.Time
+	antiEntropyLoop bool
 }
 
 // NewP2PSync creates an FS P2P sync manager.
@@ -305,6 +307,39 @@ func (s *P2PSync) RegisterProtocol() {
 
 	s.logger.Info("fs p2p sync protocol registered")
 	go s.PushToAll(context.Background())
+}
+
+// StartAntiEntropy runs periodic bounded anti-entropy in the background so
+// peer convergence does not depend on reconnects or write-triggered pushes.
+func (s *P2PSync) StartAntiEntropy(ctx context.Context, interval time.Duration) {
+	if s == nil {
+		return
+	}
+	if interval <= 0 {
+		interval = defaultFSAntiEntropyInterval
+	}
+
+	s.mu.Lock()
+	if s.antiEntropyLoop {
+		s.mu.Unlock()
+		return
+	}
+	s.antiEntropyLoop = true
+	s.mu.Unlock()
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.logger.Debug("fs p2p anti-entropy tick")
+				s.PushToAll(ctx)
+			}
+		}
+	}()
 }
 
 // PushToAll runs a summary-first anti-entropy round with all connected peers.

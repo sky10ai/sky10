@@ -635,6 +635,7 @@ func ServeCmd() *cobra.Command {
 				// connect and immediately fail with "protocols not supported".
 				kvSync.RegisterProtocol()
 				fsSync.RegisterProtocol()
+				fsSync.StartAntiEntropy(ctx, 0)
 
 				addrs := link.HostMultiaddrs(linkNode)
 

@@ -171,6 +171,45 @@ func TestFSP2PSyncConnectTriggerReplicatesWithoutManualPush(t *testing.T) {
 	})
 }
 
+func TestFSP2PSyncPeriodicAntiEntropyReplicatesWithoutManualPush(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	nsKey, err := GenerateNamespaceKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nsID := deriveNSID(nsKey, "agents")
+
+	nodeA, syncA, logA, nodeB, _, logB := startSharedFSTestPair(t, ctx, nsID, nsKey)
+	syncA.StartAntiEntropy(ctx, 200*time.Millisecond)
+
+	infoB := nodeB.Host().Peerstore().PeerInfo(nodeB.PeerID())
+	if err := nodeA.Host().Connect(ctx, infoB); err != nil {
+		t.Fatalf("connect A->B: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	if err := logA.Append(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "periodic-only.txt",
+		Checksum:  "hp",
+		Chunks:    []string{"cp"},
+		Device:    "dev-a",
+		Timestamp: 175,
+		Seq:       1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForFS(t, 5*time.Second, func() bool {
+		snapB, _ := logB.Snapshot()
+		_, ok := snapB.Lookup("periodic-only.txt")
+		return ok
+	})
+}
+
 func TestFSP2PChunkFetchWithoutBackend(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
