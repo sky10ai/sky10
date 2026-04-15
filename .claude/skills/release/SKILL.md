@@ -28,6 +28,9 @@ VERSION="$ARGUMENTS"
 
 - Never modify a published release. If anything is wrong after
   publication, cut a new patch release.
+- Every release must include an empty release commit on the release
+  target commit before tagging, using:
+  `release: v$VERSION`
 - Tag before building. The Makefile derives `VERSION` from git tags.
 - Build the web frontend before building CLI release binaries. The Go
   binary embeds `web/dist/`.
@@ -37,7 +40,8 @@ VERSION="$ARGUMENTS"
 
 ## 1. Create the release commit, tag, and push
 
-Create an empty release commit so releases are obvious in `git log`:
+Create the required empty release commit so releases are obvious in
+`git log` and the tag always points at an explicit release record:
 
 ```bash
 git commit --allow-empty -m "release: v$VERSION"

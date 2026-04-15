@@ -117,6 +117,10 @@ should use this file directly.
 
 - Never mutate a published release. If a release is wrong, cut a new
   patch release.
+- Every release must include an empty release commit on the release
+  target commit before tagging, using the shape:
+  `release: v<version>`. Treat this as part of the standard release
+  record, not an optional convenience.
 - Build order for CLI release assets is tag, push tag, build web, build
   release binaries, create the GitHub release.
 - Build the web frontend before release binaries. The Go binary embeds
