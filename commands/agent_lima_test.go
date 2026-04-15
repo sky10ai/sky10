@@ -132,6 +132,15 @@ func TestOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), "EnvironmentFile=-%h/.openclaw/.env") {
 		t.Fatalf("user script missing systemd env file import: %q", string(body))
 	}
+	if !strings.Contains(string(body), `SKY10_INVITE_PATH="/shared/.sky10-join.json"`) {
+		t.Fatalf("user script missing shared invite path: %q", string(body))
+	}
+	if !strings.Contains(string(body), "sky10 join --role sandbox") {
+		t.Fatalf("user script missing pre-boot sky10 join: %q", string(body))
+	}
+	if !strings.Contains(string(body), `if [ -f "${UNIT_DIR}/sky10.service" ]; then`) {
+		t.Fatalf("user script missing existing-service join guard: %q", string(body))
+	}
 	if !strings.Contains(string(body), "cat > \"${UNIT_DIR}/sky10.service\" <<EOF") {
 		t.Fatalf("user script missing guest sky10 systemd unit: %q", string(body))
 	}

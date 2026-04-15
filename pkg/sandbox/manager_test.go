@@ -231,6 +231,15 @@ func TestBundledOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), "EnvironmentFile=-%h/.openclaw/.env") {
 		t.Fatalf("bundled user script missing systemd env file import: %q", string(body))
 	}
+	if !strings.Contains(string(body), `SKY10_INVITE_PATH="/shared/.sky10-join.json"`) {
+		t.Fatalf("bundled user script missing shared invite path: %q", string(body))
+	}
+	if !strings.Contains(string(body), "sky10 join --role sandbox") {
+		t.Fatalf("bundled user script missing pre-boot sky10 join: %q", string(body))
+	}
+	if !strings.Contains(string(body), `if [ -f "${UNIT_DIR}/sky10.service" ]; then`) {
+		t.Fatalf("bundled user script missing existing-service join guard: %q", string(body))
+	}
 	if !strings.Contains(string(body), "cat > \"${UNIT_DIR}/sky10.service\" <<EOF") {
 		t.Fatalf("bundled user script missing guest sky10 systemd unit: %q", string(body))
 	}
@@ -532,7 +541,7 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	}
 	if err := prepareOpenClawSharedDir(sharedDir, helper, pluginAssets, map[string]string{
 		"OPENAI_API_KEY": "openai-key",
-	}); err != nil {
+	}, &IdentityInvite{HostIdentity: "sky10-host", Code: "invite-code"}); err != nil {
 		t.Fatalf("prepareOpenClawSharedDir() error: %v", err)
 	}
 
@@ -564,6 +573,22 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	}
 	if string(pluginManifestData) != string(pluginAssets[templateOpenClawPluginManifest]) {
 		t.Fatalf("plugin manifest = %q, want %q", string(pluginManifestData), string(pluginAssets[templateOpenClawPluginManifest]))
+	}
+
+	invitePath := filepath.Join(sharedDir, templateOpenClawInviteFile)
+	inviteData, err := os.ReadFile(invitePath)
+	if err != nil {
+		t.Fatalf("ReadFile(join invite) error: %v", err)
+	}
+	var invite openClawJoinPayload
+	if err := json.Unmarshal(inviteData, &invite); err != nil {
+		t.Fatalf("json.Unmarshal(join invite) error: %v", err)
+	}
+	if invite.HostIdentity != "sky10-host" {
+		t.Fatalf("invite host identity = %q, want sky10-host", invite.HostIdentity)
+	}
+	if invite.Code != "invite-code" {
+		t.Fatalf("invite code = %q, want invite-code", invite.Code)
 	}
 }
 

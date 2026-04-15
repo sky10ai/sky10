@@ -42,6 +42,7 @@ const (
 	templateOpenClawPluginManifest = templateOpenClawPluginDir + "/openclaw.plugin.json"
 	templateOpenClawPluginIndex    = templateOpenClawPluginDir + "/src/index.js"
 	templateOpenClawPluginClient   = templateOpenClawPluginDir + "/src/sky10.js"
+	templateOpenClawInviteFile     = ".sky10-join.json"
 	templateRemoteBase             = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
 	logFileName                    = "boot.log"
 	templateNameToken              = "__SKY10_SANDBOX_NAME__"
@@ -125,6 +126,11 @@ type templateDefinition struct {
 type IdentityInvite struct {
 	HostIdentity string
 	Code         string
+}
+
+type openClawJoinPayload struct {
+	HostIdentity string `json:"host_identity"`
+	Code         string `json:"code"`
 }
 
 type Manager struct {
@@ -710,7 +716,16 @@ func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) erro
 			resolvedEnv = values
 		}
 	}
-	if err := prepareOpenClawSharedDir(rec.SharedDir, hostsHelper, pluginAssets, resolvedEnv); err != nil {
+	var invite *IdentityInvite
+	if m.issueIdentityInvite != nil {
+		value, err := m.issueIdentityInvite(ctx)
+		if err != nil {
+			m.logger.Warn("failed to issue host invite for sandbox bootstrap", "sandbox", rec.Slug, "error", err)
+		} else {
+			invite = value
+		}
+	}
+	if err := prepareOpenClawSharedDir(rec.SharedDir, hostsHelper, pluginAssets, resolvedEnv, invite); err != nil {
 		return err
 	}
 	return nil
@@ -995,7 +1010,7 @@ func sandboxTemplateDefinition(template string) (templateDefinition, error) {
 	}
 }
 
-func prepareOpenClawSharedDir(sharedDir string, hostsHelper []byte, pluginAssets map[string][]byte, resolvedEnv map[string]string) error {
+func prepareOpenClawSharedDir(sharedDir string, hostsHelper []byte, pluginAssets map[string][]byte, resolvedEnv map[string]string, invite *IdentityInvite) error {
 	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
 		return fmt.Errorf("creating shared directory: %w", err)
 	}
@@ -1007,6 +1022,21 @@ func prepareOpenClawSharedDir(sharedDir string, hostsHelper []byte, pluginAssets
 	}
 	if err := os.WriteFile(envPath, BuildOpenClawSharedEnv(existingEnv, resolvedEnv), 0o600); err != nil {
 		return fmt.Errorf("writing shared env file: %w", err)
+	}
+
+	if invite != nil && strings.TrimSpace(invite.Code) != "" {
+		payload := openClawJoinPayload{
+			HostIdentity: strings.TrimSpace(invite.HostIdentity),
+			Code:         strings.TrimSpace(invite.Code),
+		}
+		body, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("marshaling sandbox join payload: %w", err)
+		}
+		invitePath := filepath.Join(sharedDir, templateOpenClawInviteFile)
+		if err := os.WriteFile(invitePath, append(body, '\n'), 0o600); err != nil {
+			return fmt.Errorf("writing sandbox join payload: %w", err)
+		}
 	}
 
 	if len(hostsHelper) > 0 {

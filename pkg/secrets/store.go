@@ -570,10 +570,21 @@ func (s *Store) ensureNamespaceBootstrap(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	derivedKey, deriveErr := deriveP2PNamespaceKey(s.bundle.Identity, s.namespace)
 
 	switch {
 	case localErr == nil && ok:
 		if !bytes.Equal(localKey, bootstrapKey) {
+			if deriveErr == nil {
+				switch {
+				case bytes.Equal(localKey, derivedKey):
+					kv.CacheKeyLocally(s.namespace, s.deviceID, localKey)
+					return s.replaceBootstrapKey(ctx, localKey)
+				case bytes.Equal(bootstrapKey, derivedKey):
+					kv.CacheKeyLocally(s.namespace, s.deviceID, bootstrapKey)
+					return nil
+				}
+			}
 			return fmt.Errorf("cached namespace key for %q does not match bootstrap record", s.namespace)
 		}
 		return nil
@@ -583,12 +594,11 @@ func (s *Store) ensureNamespaceBootstrap(ctx context.Context) error {
 		kv.CacheKeyLocally(s.namespace, s.deviceID, bootstrapKey)
 		return nil
 	default:
-		key, err := deriveP2PNamespaceKey(s.bundle.Identity, s.namespace)
-		if err != nil {
-			return err
+		if deriveErr != nil {
+			return deriveErr
 		}
-		kv.CacheKeyLocally(s.namespace, s.deviceID, key)
-		return s.publishBootstrapKey(ctx, key)
+		kv.CacheKeyLocally(s.namespace, s.deviceID, derivedKey)
+		return s.publishBootstrapKey(ctx, derivedKey)
 	}
 }
 
@@ -627,6 +637,14 @@ func (s *Store) publishBootstrapKey(ctx context.Context, key []byte) error {
 		return nil
 	}
 
+	return s.storeBootstrapKey(ctx, key)
+}
+
+func (s *Store) replaceBootstrapKey(ctx context.Context, key []byte) error {
+	return s.storeBootstrapKey(ctx, key)
+}
+
+func (s *Store) storeBootstrapKey(ctx context.Context, key []byte) error {
 	record := namespaceBootstrapRecord{
 		Version:        1,
 		Namespace:      s.namespace,

@@ -3,6 +3,7 @@ package secrets
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"os"
@@ -12,8 +13,10 @@ import (
 	"time"
 
 	s3backend "github.com/sky10/sky10/pkg/adapter/s3"
+	"github.com/sky10/sky10/pkg/config"
 	"github.com/sky10/sky10/pkg/id"
 	skykey "github.com/sky10/sky10/pkg/key"
+	"github.com/sky10/sky10/pkg/kv"
 )
 
 func TestStorePutDefaultsAndGetByName(t *testing.T) {
@@ -89,6 +92,67 @@ func TestStoreRoundTripDoesNotLeakPlaintext(t *testing.T) {
 		if bytes.Contains(raw, needle) {
 			t.Fatalf("local KV log leaked plaintext %q", needle)
 		}
+	}
+}
+
+func TestEnsureNamespaceBootstrapRepairsStaleBootstrapFromCanonicalLocalKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+
+	bundle := newSingleBundle(t)
+	derivedKey, err := deriveP2PNamespaceKey(bundle.Identity, DefaultNamespace)
+	if err != nil {
+		t.Fatalf("deriveP2PNamespaceKey: %v", err)
+	}
+	kv.CacheKeyLocally(DefaultNamespace, bundle.DeviceID(), derivedKey)
+
+	bootstrapKV := kv.New(nil, bundle.Identity, kv.Config{
+		Namespace: "default",
+		DeviceID:  bundle.DeviceID(),
+		DataDir:   filepath.Join(home, "bootstrap"),
+	}, nil)
+	staleKey, err := skykey.GenerateSymmetricKey()
+	if err != nil {
+		t.Fatalf("GenerateSymmetricKey: %v", err)
+	}
+	record, err := json.Marshal(namespaceBootstrapRecord{
+		Version:        1,
+		Namespace:      DefaultNamespace,
+		Key:            base64.StdEncoding.EncodeToString(staleKey),
+		SourceDeviceID: "D-stale",
+		CreatedAt:      time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("Marshal bootstrap record: %v", err)
+	}
+	if err := bootstrapKV.Set(context.Background(), namespaceBootstrapKVKey(DefaultNamespace), record); err != nil {
+		t.Fatalf("bootstrapKV.Set: %v", err)
+	}
+
+	store := New(nil, bundle, Config{
+		DataDir:      filepath.Join(home, "secrets"),
+		BootstrapKV:  bootstrapKV,
+		Namespace:    DefaultNamespace,
+		PollInterval: time.Millisecond,
+	}, nil)
+
+	if err := store.ensureNamespaceBootstrap(context.Background()); err != nil {
+		t.Fatalf("ensureNamespaceBootstrap: %v", err)
+	}
+
+	raw, ok := bootstrapKV.Get(namespaceBootstrapKVKey(DefaultNamespace))
+	if !ok {
+		t.Fatal("bootstrap key missing after repair")
+	}
+	var repaired namespaceBootstrapRecord
+	if err := json.Unmarshal(raw, &repaired); err != nil {
+		t.Fatalf("json.Unmarshal repaired record: %v", err)
+	}
+	if repaired.Key != base64.StdEncoding.EncodeToString(derivedKey) {
+		t.Fatalf("repaired bootstrap key = %q, want canonical key", repaired.Key)
+	}
+	if repaired.SourceDeviceID != bundle.DeviceID() {
+		t.Fatalf("repaired source device = %q, want %q", repaired.SourceDeviceID, bundle.DeviceID())
 	}
 }
 

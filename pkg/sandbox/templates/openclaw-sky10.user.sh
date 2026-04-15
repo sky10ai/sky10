@@ -12,6 +12,7 @@ WORKSPACE_DIR="${OPENCLAW_DIR}/workspace"
 STATE_DIR="${OPENCLAW_DIR}/.openclaw-lima"
 SENTINEL="${STATE_DIR}/initialized-v2"
 UNIT_DIR="${HOME}/.config/systemd/user"
+SKY10_INVITE_PATH="/shared/.sky10-join.json"
 
 mkdir -p "${OPENCLAW_DIR}/agents/main/sessions"
 mkdir -p "${WORKSPACE_DIR}"
@@ -96,10 +97,53 @@ install_sky10() {
   rm -f "${tmp}"
 }
 
-ensure_guest_sky10() {
+ensure_guest_sky10_binary() {
   if ! command -v sky10 >/dev/null 2>&1; then
     install_sky10
   fi
+}
+
+ensure_guest_join() {
+  local invite_info host_identity invite_code
+
+  if [ -f "${UNIT_DIR}/sky10.service" ]; then
+    return 0
+  fi
+  if [ ! -f "${SKY10_INVITE_PATH}" ]; then
+    return 0
+  fi
+
+  ensure_guest_sky10_binary
+  mapfile -t invite_info < <(
+    python3 - "${SKY10_INVITE_PATH}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as fh:
+    payload = json.load(fh)
+
+print((payload.get("host_identity") or "").strip())
+print((payload.get("code") or "").strip())
+PY
+  )
+  host_identity="${invite_info[0]:-}"
+  invite_code="${invite_info[1]:-}"
+  if [ -z "${invite_code}" ]; then
+    echo >&2 "sky10 invite payload is missing a join code"
+    return 1
+  fi
+
+  sky10 join --role sandbox "${invite_code}"
+
+  if [ -n "${host_identity}" ]; then
+    echo "joined sky10 host identity ${host_identity}"
+  else
+    echo "joined sky10 host identity"
+  fi
+}
+
+ensure_guest_sky10() {
+  ensure_guest_sky10_binary
 
   if curl -fsS http://127.0.0.1:9101/health >/dev/null 2>&1; then
     return 0
@@ -140,6 +184,7 @@ if ! command -v chromium >/dev/null 2>&1; then
   exit 1
 fi
 
+ensure_guest_join
 ensure_guest_sky10
 
 if [ ! -d "${PLUGIN_DIR}" ]; then
