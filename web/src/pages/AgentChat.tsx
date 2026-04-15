@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router";
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Icon } from "../components/Icon";
 import { StatusBadge } from "../components/StatusBadge";
 import { AGENT_EVENT_TYPES, subscribe } from "../lib/events";
@@ -276,6 +277,7 @@ export default function AgentChat() {
               >
                 {msg.from === "agent" && msg.type !== "error" ? (
                   <Markdown
+                    remarkPlugins={[remarkGfm]}
                     components={{
                       p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
                       ul: ({ children }) => <ul className="list-disc ml-4 mb-2">{children}</ul>,
