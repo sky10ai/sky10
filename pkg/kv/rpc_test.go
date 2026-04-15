@@ -70,6 +70,22 @@ func TestRPCGetAllAndStatusHideInternalKeysByDefault(t *testing.T) {
 	}
 }
 
+func TestRPCSyncP2POnlyReturnsOK(t *testing.T) {
+	t.Parallel()
+
+	store := newRPCTestStore(t)
+	handler := NewRPCHandler(store)
+
+	result, err := handler.rpcSync(context.Background())
+	if err != nil {
+		t.Fatalf("rpcSync: %v", err)
+	}
+	resp := result.(map[string]string)
+	if resp["status"] != "ok" {
+		t.Fatalf("rpcSync status = %q, want ok", resp["status"])
+	}
+}
+
 func newRPCTestStore(t *testing.T) *Store {
 	t.Helper()
 

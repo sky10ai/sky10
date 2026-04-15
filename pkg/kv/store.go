@@ -272,6 +272,18 @@ func (s *Store) SyncOnce(ctx context.Context) error {
 		return err
 	}
 
+	// P2P-only mode has no poller/uploader backend. A sync request should still
+	// trigger an anti-entropy round instead of panicking on a nil backend.
+	if s.backend == nil {
+		s.mu.Lock()
+		p2p := s.p2pSync
+		s.mu.Unlock()
+		if p2p != nil {
+			p2p.PushToAll(ctx)
+		}
+		return nil
+	}
+
 	if s.poller == nil {
 		s.poller = NewPoller(s.backend, s.localLog, s.deviceID, s.nsID, s.nsKey, s.config.PollInterval, s.baselines, s.logger)
 	}

@@ -401,6 +401,11 @@ func (s *P2PSync) mergeSnapshotMessage(msg p2pSyncMsg, from peer.ID, useBaseline
 	if merged > 0 {
 		if store.uploader != nil {
 			store.uploader.Poke()
+		} else {
+			// In P2P-only mode there is no uploader/onUpload path to fan new
+			// state back out. Re-broadcast merged peer deltas so other connected
+			// peers converge too.
+			store.pokeSync(context.Background())
 		}
 	}
 	store.recordSyncSuccess(from.String())

@@ -217,6 +217,82 @@ func TestP2PSyncSingleInitiatorConvergesBothPeers(t *testing.T) {
 	})
 }
 
+func TestP2PSyncMergedPeerDeltaRebroadcastsToOtherPeers(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	nsKey, _ := skykey.GenerateSymmetricKey()
+
+	identity, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceHub, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceA, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceB, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := id.NewManifest(identity)
+	manifest.AddDevice(deviceHub.PublicKey, "hub")
+	manifest.AddDevice(deviceA.PublicKey, "nodeA")
+	manifest.AddDevice(deviceB.PublicKey, "nodeB")
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatal(err)
+	}
+
+	bundleHub, err := id.New(identity, deviceHub, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleA, err := id.New(identity, deviceA, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleB, err := id.New(identity, deviceB, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	nodeHub, storeHub, _ := startTestNodeFromBundle(t, ctx, bundleHub, nsKey)
+	nodeA, storeA, syncA := startTestNodeFromBundle(t, ctx, bundleA, nsKey)
+	nodeB, storeB, _ := startTestNodeFromBundle(t, ctx, bundleB, nsKey)
+
+	infoHub := nodeHub.Host().Peerstore().PeerInfo(nodeHub.PeerID())
+	if err := nodeA.Host().Connect(ctx, infoHub); err != nil {
+		t.Fatalf("connect A→hub: %v", err)
+	}
+	if err := nodeB.Host().Connect(ctx, infoHub); err != nil {
+		t.Fatalf("connect B→hub: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	if err := storeA.localLog.AppendLocal(Entry{Type: Set, Key: "fanout/mailbox-event", Value: []byte("delivered")}); err != nil {
+		t.Fatalf("append on A: %v", err)
+	}
+
+	// Only A initiates the sync. Hub must merge that delta and fan it back out
+	// to B in P2P-only mode.
+	syncA.PushToAll(ctx)
+
+	waitFor(t, 5*time.Second, func() bool {
+		val, ok := storeHub.Get("fanout/mailbox-event")
+		return ok && string(val) == "delivered"
+	})
+	waitFor(t, 5*time.Second, func() bool {
+		val, ok := storeB.Get("fanout/mailbox-event")
+		return ok && string(val) == "delivered"
+	})
+}
+
 func TestP2PSyncNamespaceMismatchSurfacesErrorStatus(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
