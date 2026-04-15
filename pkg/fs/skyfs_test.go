@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sky10/sky10/pkg/adapter"
 	s3adapter "github.com/sky10/sky10/pkg/adapter/s3"
@@ -479,5 +480,51 @@ func TestStoreGetChunksFallsBackFromCorruptLocalCacheToBackend(t *testing.T) {
 	}
 	if !bytes.Equal(repairedRaw, goodRaw) {
 		t.Fatal("expected local cache to be refreshed with backend blob")
+	}
+}
+
+func TestStoreDownloadChunksBoundsRemoteFetchConcurrency(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	ctx := context.Background()
+	store, backend := newTestStore(t)
+
+	data := make([]byte, 10*1024*1024)
+	for i := range data {
+		data[i] = byte(i % 251)
+	}
+	if err := store.Put(ctx, "bounded.bin", bytes.NewReader(data)); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	res := store.LastPutResult()
+	if res == nil || len(res.Chunks) < 3 {
+		t.Fatalf("expected multiple chunks from Put, got %#v", res)
+	}
+
+	gated := newGatedCountingBackend(backend)
+	store.backend = gated
+	store.chunkPrefetch = 8
+	store.remoteFetchSem = make(chan struct{}, 2)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- store.GetChunks(ctx, res.Chunks, "default", io.Discard)
+	}()
+
+	waitForBackendEntries(t, gated.entered, 2)
+	gated.release(len(res.Chunks) + 4)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("GetChunks: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for bounded GetChunks")
+	}
+
+	if got := gated.MaxInFlight(); got != 2 {
+		t.Fatalf("max concurrent remote fetches = %d, want 2", got)
 	}
 }

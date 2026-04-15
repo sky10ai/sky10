@@ -38,17 +38,19 @@ type Store struct {
 	clientID     string // e.g. "cli/0.4.1"
 	namespace    string // if set, all files use this namespace instead of path-derived
 
-	mu           sync.Mutex
-	nsKeys       map[string][]byte // cached namespace keys
-	nsID         string            // namespace ID for S3 path scoping (set by daemon)
-	packWriter   *PackWriter
-	packIndex    *PackIndex
-	packing      bool   // when true, small chunks are bundled into pack files
-	prevChecksum string // optional: informational prev_checksum for dedup
-	lastPut      *PutResult
-	peerChunks   peerChunkFetcher
-	onChunkRead  func(chunkSourceKind)
-	planner      *chunkSourcePlanner
+	mu             sync.Mutex
+	nsKeys         map[string][]byte // cached namespace keys
+	nsID           string            // namespace ID for S3 path scoping (set by daemon)
+	packWriter     *PackWriter
+	packIndex      *PackIndex
+	packing        bool   // when true, small chunks are bundled into pack files
+	prevChecksum   string // optional: informational prev_checksum for dedup
+	lastPut        *PutResult
+	peerChunks     peerChunkFetcher
+	onChunkRead    func(chunkSourceKind)
+	planner        *chunkSourcePlanner
+	chunkPrefetch  int
+	remoteFetchSem chan struct{}
 }
 
 type peerChunkFetcher interface {
@@ -62,6 +64,11 @@ const (
 	chunkSourcePeer   chunkSourceKind = "peer"
 	chunkSourceS3Pack chunkSourceKind = "s3-pack"
 	chunkSourceS3Blob chunkSourceKind = "s3-blob"
+)
+
+const (
+	defaultChunkPrefetchLimit    = 3
+	defaultRemoteChunkFetchLimit = 8
 )
 
 type chunkSourcePlan struct {
@@ -118,13 +125,15 @@ func (s *Store) SetPrevChecksum(checksum string) {
 func New(backend adapter.Backend, identity *DeviceKey) *Store {
 	idx := NewPackIndex()
 	return &Store{
-		backend:    backend,
-		identity:   identity,
-		deviceID:   stableDeviceID(identity),
-		nsKeys:     make(map[string][]byte),
-		packIndex:  idx,
-		packWriter: NewPackWriter(backend, identity, idx),
-		planner:    newChunkSourcePlanner(),
+		backend:        backend,
+		identity:       identity,
+		deviceID:       stableDeviceID(identity),
+		nsKeys:         make(map[string][]byte),
+		packIndex:      idx,
+		packWriter:     NewPackWriter(backend, identity, idx),
+		planner:        newChunkSourcePlanner(),
+		chunkPrefetch:  defaultChunkPrefetchLimit,
+		remoteFetchSem: make(chan struct{}, defaultRemoteChunkFetchLimit),
 	}
 }
 
@@ -132,13 +141,15 @@ func New(backend adapter.Backend, identity *DeviceKey) *Store {
 func NewWithDevice(backend adapter.Backend, identity *DeviceKey, deviceID string) *Store {
 	idx := NewPackIndex()
 	return &Store{
-		backend:    backend,
-		identity:   identity,
-		deviceID:   deviceID,
-		nsKeys:     make(map[string][]byte),
-		packIndex:  idx,
-		packWriter: NewPackWriter(backend, identity, idx),
-		planner:    newChunkSourcePlanner(),
+		backend:        backend,
+		identity:       identity,
+		deviceID:       deviceID,
+		nsKeys:         make(map[string][]byte),
+		packIndex:      idx,
+		packWriter:     NewPackWriter(backend, identity, idx),
+		planner:        newChunkSourcePlanner(),
+		chunkPrefetch:  defaultChunkPrefetchLimit,
+		remoteFetchSem: make(chan struct{}, defaultRemoteChunkFetchLimit),
 	}
 }
 
@@ -414,7 +425,13 @@ func (s *Store) downloadChunks(ctx context.Context, nsID string, chunks []string
 		return nil
 	}
 
-	const ahead = 3 // max chunks to prefetch
+	ahead := s.chunkPrefetch
+	if ahead <= 0 {
+		ahead = 1
+	}
+	if ahead > len(chunks) {
+		ahead = len(chunks)
+	}
 
 	type result struct {
 		data []byte
@@ -592,7 +609,9 @@ func (s *Store) readRawChunkSource(ctx context.Context, nsID string, index int, 
 		if s.peerChunks == nil {
 			return nil, fmt.Errorf("peer chunk fetcher not configured")
 		}
-		raw, err := s.peerChunks.GetChunk(ctx, nsID, chunkHash)
+		raw, err := s.withRemoteFetchPermit(ctx, func() ([]byte, error) {
+			return s.peerChunks.GetChunk(ctx, nsID, chunkHash)
+		})
 		if err != nil {
 			return nil, fmt.Errorf("fetching peer chunk %d (%s): %w", index, chunkHash[:12], err)
 		}
@@ -605,16 +624,19 @@ func (s *Store) readRawChunkSource(ctx context.Context, nsID string, index int, 
 		if !ok {
 			return nil, fmt.Errorf("packed chunk metadata not found")
 		}
-		rc, err := s.backend.GetRange(ctx, loc.Pack, loc.Offset, loc.Length)
+		raw, err := s.withRemoteFetchPermit(ctx, func() ([]byte, error) {
+			rc, err := s.backend.GetRange(ctx, loc.Pack, loc.Offset, loc.Length)
+			if err != nil {
+				return nil, err
+			}
+			tr := transfer.NewReader(rc, int64(loc.Length))
+			tr.SetIdleTimeout(30 * time.Second)
+			raw, err := io.ReadAll(tr)
+			rc.Close()
+			return raw, err
+		})
 		if err != nil {
 			return nil, fmt.Errorf("reading packed chunk %d (%s): %w", index, chunkHash[:12], err)
-		}
-		tr := transfer.NewReader(rc, int64(loc.Length))
-		tr.SetIdleTimeout(30 * time.Second)
-		raw, err := io.ReadAll(tr)
-		rc.Close()
-		if err != nil {
-			return nil, fmt.Errorf("reading packed chunk %d: %w", index, err)
 		}
 		return raw, nil
 	case chunkSourceS3Blob:
@@ -622,21 +644,40 @@ func (s *Store) readRawChunkSource(ctx context.Context, nsID string, index int, 
 			return nil, fmt.Errorf("storage backend not configured")
 		}
 		blobKey := s.blobKeyFor(chunkHash)
-		rc, err := s.backend.Get(ctx, blobKey)
+		raw, err := s.withRemoteFetchPermit(ctx, func() ([]byte, error) {
+			rc, err := s.backend.Get(ctx, blobKey)
+			if err != nil {
+				return nil, err
+			}
+			tr := transfer.NewReader(rc, -1)
+			tr.SetIdleTimeout(30 * time.Second)
+			raw, err := io.ReadAll(tr)
+			rc.Close()
+			return raw, err
+		})
 		if err != nil {
 			return nil, fmt.Errorf("downloading chunk %d (%s): %w", index, chunkHash[:12], err)
-		}
-		tr := transfer.NewReader(rc, -1)
-		tr.SetIdleTimeout(30 * time.Second)
-		raw, err := io.ReadAll(tr)
-		rc.Close()
-		if err != nil {
-			return nil, fmt.Errorf("reading chunk %d: %w", index, err)
 		}
 		return raw, nil
 	default:
 		return nil, fmt.Errorf("unknown chunk source %q", source.kind)
 	}
+}
+
+func (s *Store) withRemoteFetchPermit(ctx context.Context, fn func() ([]byte, error)) ([]byte, error) {
+	if fn == nil {
+		return nil, fmt.Errorf("remote fetch function not configured")
+	}
+	if s == nil || s.remoteFetchSem == nil {
+		return fn()
+	}
+	select {
+	case s.remoteFetchSem <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-s.remoteFetchSem }()
+	return fn()
 }
 
 // EnablePacking turns on pack file bundling for small chunks.

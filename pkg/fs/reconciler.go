@@ -25,31 +25,35 @@ import (
 // then deleted remotely, the snapshot shows nothing and no download
 // happens.
 type Reconciler struct {
-	store      *Store
-	localLog   *opslog.LocalOpsLog
-	outbox     *SyncLog[OutboxEntry]
-	localDir   string
-	stagingDir string
-	ignore     func(string) bool
-	logger     *slog.Logger
-	notify     chan struct{}
-	onEvent    func(string, map[string]any)
-	driveName  string
-	pokeOutbox func() // wake the outbox worker after sweep re-queues files
+	store                  *Store
+	localLog               *opslog.LocalOpsLog
+	outbox                 *SyncLog[OutboxEntry]
+	localDir               string
+	stagingDir             string
+	ignore                 func(string) bool
+	logger                 *slog.Logger
+	notify                 chan struct{}
+	onEvent                func(string, map[string]any)
+	driveName              string
+	pokeOutbox             func() // wake the outbox worker after sweep re-queues files
+	maxConcurrentDownloads int
 }
+
+const defaultReconcilerDownloadLimit = 4
 
 // NewReconciler creates a reconciler that applies remote changes locally.
 func NewReconciler(store *Store, localLog *opslog.LocalOpsLog, outbox *SyncLog[OutboxEntry], localDir string, ignore func(string) bool, logger *slog.Logger) *Reconciler {
 	logger = defaultLogger(logger)
 	return &Reconciler{
-		store:    store,
-		localLog: localLog,
-		outbox:   outbox,
-		localDir: localDir,
-		ignore:   ignore,
-		logger:   logger,
-		notify:   make(chan struct{}, 1),
-		onEvent:  func(string, map[string]any) {},
+		store:                  store,
+		localLog:               localLog,
+		outbox:                 outbox,
+		localDir:               localDir,
+		ignore:                 ignore,
+		logger:                 logger,
+		notify:                 make(chan struct{}, 1),
+		onEvent:                func(string, map[string]any) {},
+		maxConcurrentDownloads: defaultReconcilerDownloadLimit,
 	}
 }
 
@@ -183,8 +187,12 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 			"drive": r.driveName,
 			"total": total,
 		})
+		limit := r.maxConcurrentDownloads
+		if limit <= 0 {
+			limit = 1
+		}
 		var wg sync.WaitGroup
-		sem := make(chan struct{}, 4)
+		sem := make(chan struct{}, limit)
 		var dlCount, failCount atomic.Int32
 
 		for _, t := range targets {

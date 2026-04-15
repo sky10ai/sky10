@@ -200,6 +200,52 @@ func TestReconcilerReusesLocalFileChunksBeforeBackendFetch(t *testing.T) {
 	}
 }
 
+func TestReconcilerBoundsConcurrentFileDownloads(t *testing.T) {
+	t.Parallel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	if err := os.MkdirAll(localDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "different-device")
+	for i := 0; i < 6; i++ {
+		putAndLog(t, store, localLog, fmt.Sprintf("file-%d.txt", i), fmt.Sprintf("content-%d", i), i+1)
+	}
+
+	gated := newGatedCountingBackend(backend)
+	store.backend = gated
+	store.chunkPrefetch = 1
+	store.remoteFetchSem = make(chan struct{}, 16)
+
+	r := NewReconciler(store, localLog, NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl")), localDir, nil, nil)
+	r.maxConcurrentDownloads = 2
+
+	done := make(chan struct{})
+	go func() {
+		r.reconcile(context.Background())
+		close(done)
+	}()
+
+	waitForBackendEntries(t, gated.entered, 2)
+	gated.release(16)
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for bounded reconcile")
+	}
+
+	if got := gated.MaxInFlight(); got != 2 {
+		t.Fatalf("max concurrent file downloads = %d, want 2", got)
+	}
+}
+
 // Regression: empty files (size=0, chunks=0) were skipped by the
 // reconciler because the chunkless-put guard treated them as "upload
 // pending." An empty file's presence is state — it must be created.
