@@ -147,7 +147,7 @@ func (h *RPCHandler) rpcDevices() (interface{}, error, bool) {
 	devices := make([]deviceInfo, 0, len(h.bundle.Manifest.Devices))
 	devicePub := hex.EncodeToString(h.bundle.Device.PublicKey)
 
-	for _, d := range h.bundle.Manifest.Devices {
+	for _, d := range sortedDeviceEntries(h.bundle.Manifest.Devices, h.bundle.Device.PublicKey) {
 		pub := hex.EncodeToString(d.PublicKey)
 		devices = append(devices, deviceInfo{
 			PublicKey: pub,
@@ -199,9 +199,9 @@ func (h *RPCHandler) rpcDeviceList(ctx context.Context) (interface{}, error, boo
 	}
 
 	devices := make([]deviceListItem, 0, len(h.bundle.Manifest.Devices))
-	currentPub := h.bundle.DevicePubKeyHex()
+	currentPub := h.bundle.Device.PublicKey
 
-	for _, d := range h.bundle.Manifest.Devices {
+	for _, d := range sortedDeviceEntries(h.bundle.Manifest.Devices, currentPub) {
 		pubHex := hex.EncodeToString(d.PublicKey)
 		meta := metadataByKey[strings.ToLower(pubHex)]
 		devices = append(devices, deviceListItem{
@@ -217,7 +217,7 @@ func (h *RPCHandler) rpcDeviceList(ctx context.Context) (interface{}, error, boo
 			Version:    meta.Version,
 			LastSeen:   meta.LastSeen,
 			Multiaddrs: append([]string(nil), meta.Multiaddrs...),
-			Current:    strings.EqualFold(pubHex, currentPub),
+			Current:    bytes.Equal(d.PublicKey, currentPub),
 		})
 	}
 

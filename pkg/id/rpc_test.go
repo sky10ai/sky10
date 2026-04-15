@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
 
@@ -71,6 +72,51 @@ func TestRPCDeviceListUsesManifestAndMetadata(t *testing.T) {
 	}
 	if len(result.Devices[1].Multiaddrs) != 1 {
 		t.Fatalf("multiaddrs = %v, want 1 address", result.Devices[1].Multiaddrs)
+	}
+}
+
+func TestRPCDeviceListReturnsStableSortedDevices(t *testing.T) {
+	identity, _ := skykey.Generate()
+	current, _ := skykey.Generate()
+	alpha, _ := skykey.Generate()
+	beta, _ := skykey.Generate()
+
+	manifest := NewManifest(identity)
+	manifest.Devices = []DeviceEntry{
+		{PublicKey: beta.PublicKey, Name: "beta", AddedAt: time.Now().UTC()},
+		{PublicKey: alpha.PublicKey, Name: "alpha", AddedAt: time.Now().UTC()},
+		{PublicKey: current.PublicKey, Name: "zeta", AddedAt: time.Now().UTC()},
+	}
+	manifest.UpdatedAt = time.Now().UTC()
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatalf("sign manifest: %v", err)
+	}
+
+	bundle, err := New(identity, current, manifest)
+	if err != nil {
+		t.Fatalf("new bundle: %v", err)
+	}
+
+	handler := NewRPCHandler(bundle)
+	raw, err, handled := handler.Dispatch(context.Background(), "identity.deviceList", nil)
+	if err != nil {
+		t.Fatalf("dispatch error: %v", err)
+	}
+	if !handled {
+		t.Fatal("identity.deviceList was not handled")
+	}
+
+	result := raw.(deviceListResult)
+	got := make([]string, len(result.Devices))
+	for i, device := range result.Devices {
+		got[i] = device.Name
+	}
+	want := []string{"zeta", "alpha", "beta"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("deviceList order = %v, want %v", got, want)
+	}
+	if !result.Devices[0].Current {
+		t.Fatalf("first device should be current: %+v", result.Devices[0])
 	}
 }
 
@@ -252,5 +298,50 @@ func TestRPCDevicesFormatsTimestampsUTC(t *testing.T) {
 	}
 	if result.Devices[0].Role != DeviceRoleSandbox {
 		t.Fatalf("role = %q, want %q", result.Devices[0].Role, DeviceRoleSandbox)
+	}
+}
+
+func TestRPCDevicesReturnsStableSortedDevices(t *testing.T) {
+	identity, _ := skykey.Generate()
+	current, _ := skykey.Generate()
+	alpha, _ := skykey.Generate()
+	beta, _ := skykey.Generate()
+
+	manifest := NewManifest(identity)
+	manifest.Devices = []DeviceEntry{
+		{PublicKey: beta.PublicKey, Name: "beta", AddedAt: time.Now().UTC()},
+		{PublicKey: alpha.PublicKey, Name: "alpha", AddedAt: time.Now().UTC()},
+		{PublicKey: current.PublicKey, Name: "zeta", AddedAt: time.Now().UTC()},
+	}
+	manifest.UpdatedAt = time.Now().UTC()
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatalf("sign manifest: %v", err)
+	}
+
+	bundle, err := New(identity, current, manifest)
+	if err != nil {
+		t.Fatalf("new bundle: %v", err)
+	}
+
+	handler := NewRPCHandler(bundle)
+	raw, err, handled := handler.Dispatch(context.Background(), "identity.devices", nil)
+	if err != nil {
+		t.Fatalf("dispatch error: %v", err)
+	}
+	if !handled {
+		t.Fatal("identity.devices was not handled")
+	}
+
+	result := raw.(devicesResult)
+	got := make([]string, len(result.Devices))
+	for i, device := range result.Devices {
+		got[i] = device.Name
+	}
+	want := []string{"zeta", "alpha", "beta"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("devices order = %v, want %v", got, want)
+	}
+	if !result.Devices[0].Current {
+		t.Fatalf("first device should be current: %+v", result.Devices[0])
 	}
 }
