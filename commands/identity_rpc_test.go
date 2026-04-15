@@ -12,6 +12,26 @@ import (
 	"github.com/sky10/sky10/pkg/link"
 )
 
+func TestValidateJoinNamespaceKeysRequiresDefaultNamespace(t *testing.T) {
+	t.Parallel()
+
+	if err := validateJoinNamespaceKeys(nil); err == nil {
+		t.Fatal("validateJoinNamespaceKeys() error = nil, want missing default namespace")
+	}
+}
+
+func TestValidateJoinNamespaceKeysAllowsMissingSecretsNamespace(t *testing.T) {
+	t.Parallel()
+
+	keys := []skyjoin.WrappedNSKey{{
+		Namespace: "default",
+		Wrapped:   []byte("wrapped-key"),
+	}}
+	if err := validateJoinNamespaceKeys(keys); err != nil {
+		t.Fatalf("validateJoinNamespaceKeys() error = %v, want nil", err)
+	}
+}
+
 func TestPrivateNetworkDeviceMetadataUsesConnectedPrivatePeers(t *testing.T) {
 	t.Parallel()
 

@@ -20,7 +20,6 @@ import (
 	skykey "github.com/sky10/sky10/pkg/key"
 	"github.com/sky10/sky10/pkg/kv"
 	"github.com/sky10/sky10/pkg/link"
-	skysecrets "github.com/sky10/sky10/pkg/secrets"
 )
 
 func configureIdentityRPCHandler(
@@ -408,15 +407,9 @@ func hasNamespaceKey(keys []skyjoin.WrappedNSKey, namespace string) bool {
 	return false
 }
 
-func requiredJoinNamespaces() []string {
-	return []string{"default", skysecrets.DefaultNamespace}
-}
-
 func validateJoinNamespaceKeys(keys []skyjoin.WrappedNSKey) error {
-	for _, namespace := range requiredJoinNamespaces() {
-		if !hasNamespaceKey(keys, namespace) {
-			return fmt.Errorf("join response missing %s KV namespace key", namespace)
-		}
+	if !hasNamespaceKey(keys, "default") {
+		return fmt.Errorf("join response missing default KV namespace key")
 	}
 	return nil
 }
