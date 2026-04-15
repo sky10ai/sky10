@@ -169,6 +169,7 @@ func (h *RPCHandler) rpcList(ctx context.Context) (interface{}, error) {
 
 type walletParams struct {
 	Wallet string `json:"wallet"`
+	Chain  string `json:"chain,omitempty"`
 }
 
 func (h *RPCHandler) rpcAddress(ctx context.Context, params json.RawMessage) (interface{}, error) {
@@ -179,13 +180,17 @@ func (h *RPCHandler) rpcAddress(ctx context.Context, params json.RawMessage) (in
 	if p.Wallet == "" {
 		return nil, fmt.Errorf("wallet is required")
 	}
-	addr, err := h.client.Address(ctx, p.Wallet)
+	chain := strings.TrimSpace(p.Chain)
+	if chain == "" {
+		chain = ChainSolana
+	}
+	addr, err := h.client.AddressForChain(ctx, p.Wallet, chain)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]string{
 		"wallet":  p.Wallet,
-		"chain":   ChainSolana,
+		"chain":   chain,
 		"address": addr,
 	}, nil
 }

@@ -108,6 +108,20 @@ func TestParseSolanaAddress(t *testing.T) {
 	}
 }
 
+func TestParseBaseAddressFallsBackToEVMAddress(t *testing.T) {
+	t.Parallel()
+
+	input := "ID:      uuid1\nName:    default\n  eip155:1 (ethereum) → 0xabc123\n  solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp (solana) → 6fSWeC5P1icuiW2DfWHxz3rxjjpZXccsNYXJfXYkjaZ4"
+
+	addr, err := parseBaseAddress(input, "default")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if addr != "0xabc123" {
+		t.Errorf("got %q", addr)
+	}
+}
+
 func TestRPCHandler_UnknownMethod(t *testing.T) {
 	t.Parallel()
 	h := NewRPCHandler(nil, noopEmit)

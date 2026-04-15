@@ -30,6 +30,7 @@ const UPDATE_REFRESH_EVENTS = [
 ] as const;
 
 type UpdateAction = "idle" | "downloading" | "installing" | "restarting";
+type WalletTab = "solana" | "base";
 
 export default function Settings() {
   const { data: health } = useRPC(() => skyfs.health(), [], {
@@ -232,6 +233,7 @@ export default function Settings() {
     refreshIntervalMs: 30_000,
   });
 
+  const [activeWalletTab, setActiveWalletTab] = useState<WalletTab>("solana");
   const [copied, setCopied] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [withdrawTo, setWithdrawTo] = useState("");
@@ -285,8 +287,15 @@ export default function Settings() {
     [hasWallets],
   );
   const firstWallet = walletList?.wallets?.[0]?.name;
-  const { data: walletAddr } = useRPC(
-    () => (firstWallet ? wallet.address({ wallet: firstWallet }) : Promise.resolve(null)),
+  const { data: solanaWalletAddr } = useRPC(
+    () => (firstWallet ? wallet.address({ wallet: firstWallet, chain: "solana" }) : Promise.resolve(null)),
+    [firstWallet],
+  );
+  const {
+    data: baseWalletAddr,
+    error: baseWalletError,
+  } = useRPC(
+    () => (firstWallet ? wallet.address({ wallet: firstWallet, chain: "eip155:8453" }) : Promise.resolve(null)),
     [firstWallet],
   );
   const {
@@ -299,6 +308,19 @@ export default function Settings() {
     [firstWallet],
     { refreshIntervalMs: 30_000 },
   );
+
+  useEffect(() => {
+    if (activeWalletTab === "solana") return;
+    setShowWithdraw(false);
+    setWithdrawError(null);
+    setFeeHint(null);
+  }, [activeWalletTab]);
+
+  const handleCopyWalletAddress = useCallback((address: string) => {
+    navigator.clipboard.writeText(address);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, []);
 
   const legacyMode = stagedUpdate?.mode === "legacy";
   const updateReady = Boolean(legacyRestartTarget) || (stagedUpdate?.ready ?? false);
@@ -658,7 +680,7 @@ export default function Settings() {
                 <Icon name="download" className="text-tertiary text-2xl" />
               </div>
               <p className="text-sm text-secondary text-center">
-                Install the Open Wallet Standard to enable agent-to-agent payments on Solana.
+                Install the Open Wallet Standard to enable wallet access for Solana and Base.
               </p>
               <button
                 onClick={handleInstall}
@@ -732,206 +754,277 @@ export default function Settings() {
 
           {walletStatus?.installed && !installing && hasWallets && (
             <div className="space-y-4 flex-1">
-              {walletAddr?.address && (
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
-                    Solana Address
-                  </label>
-                  <div
-                    className="flex items-center gap-2 bg-surface-container p-3 rounded-lg group/addr cursor-pointer"
-                    onClick={() => {
-                      navigator.clipboard.writeText(walletAddr.address);
-                      setCopied(true);
-                      setTimeout(() => setCopied(false), 2000);
-                    }}
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
+                  Wallet View
+                </p>
+                <div
+                  aria-label="Wallet chain selector"
+                  className="inline-flex rounded-full bg-surface-container p-1"
+                  role="tablist"
+                >
+                  <button
+                    aria-controls="wallet-solana-panel"
+                    aria-selected={activeWalletTab === "solana"}
+                    className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+                      activeWalletTab === "solana"
+                        ? "bg-surface-container-lowest text-on-surface shadow-sm"
+                        : "text-secondary hover:text-on-surface"
+                    }`}
+                    id="wallet-solana-tab"
+                    onClick={() => setActiveWalletTab("solana")}
+                    role="tab"
+                    type="button"
                   >
-                    <code className="text-xs font-mono text-primary flex-1 truncate">
-                      {walletAddr.address}
-                    </code>
-                    {copied ? (
-                      <Icon name="check" className="text-primary text-sm" />
-                    ) : (
-                      <Icon name="content_copy" className="text-secondary group-hover/addr:text-primary transition-colors text-sm" />
-                    )}
-                  </div>
+                    Solana Wallet
+                  </button>
+                  <button
+                    aria-controls="wallet-base-panel"
+                    aria-selected={activeWalletTab === "base"}
+                    className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+                      activeWalletTab === "base"
+                        ? "bg-surface-container-lowest text-on-surface shadow-sm"
+                        : "text-secondary hover:text-on-surface"
+                    }`}
+                    id="wallet-base-tab"
+                    onClick={() => setActiveWalletTab("base")}
+                    role="tab"
+                    type="button"
+                  >
+                    Base Wallet
+                  </button>
                 </div>
-              )}
-
-              <div className="space-y-2">
-                <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
-                  Balances
-                </label>
-                {(() => {
-                  const tokens = walletBal?.tokens && walletBal.tokens.length > 0
-                    ? walletBal.tokens
-                    : [{ symbol: "SOL", balance: "0" }, { symbol: "USDC", balance: "0" }];
-                  return (
-                    <div className="space-y-2">
-                      {tokens.map((t) => (
-                        <div key={t.symbol} className="flex justify-between items-center bg-surface-container p-3 rounded-lg">
-                          <span className="text-sm font-medium">{t.symbol}</span>
-                          <span className="text-sm font-semibold font-mono">{t.balance}</span>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
               </div>
 
-              {withdrawSuccess && (
-                <p className="text-xs text-primary font-medium animate-pulse">
-                  Transfer sent successfully
-                </p>
-              )}
-
-              {showWithdraw && (
-                <div className="space-y-3 bg-surface-container p-4 rounded-lg">
-                  <input
-                    type="text"
-                    placeholder="Recipient address"
-                    value={withdrawTo}
-                    onChange={(e) => setWithdrawTo(e.target.value)}
-                    className="w-full bg-surface-container-high text-sm rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-primary font-mono"
+              <div
+                aria-labelledby="wallet-solana-tab"
+                className={`space-y-4 ${activeWalletTab === "solana" ? "" : "hidden"}`}
+                id="wallet-solana-panel"
+                role="tabpanel"
+              >
+                {solanaWalletAddr?.address && (
+                  <WalletAddressCard
+                    address={solanaWalletAddr.address}
+                    copied={copied}
+                    label="Solana Address"
+                    onCopy={handleCopyWalletAddress}
                   />
-                  <div className="flex gap-2 min-w-0">
-                    <div className="min-w-0 flex-1 relative">
-                      <input
-                        type="text"
-                        placeholder="Amount"
-                        value={withdrawAmount}
-                        onChange={(e) => setWithdrawAmount(e.target.value)}
-                        className="w-full bg-surface-container-high text-sm rounded-lg px-3 py-2 pr-12 outline-none focus:ring-1 focus:ring-primary font-mono"
-                      />
-                      <button
-                        type="button"
-                        onMouseDown={async (e) => {
-                          e.preventDefault();
-                          if (!firstWallet) return;
-                          if (withdrawToken === "SOL") {
-                            try {
-                              const result = await wallet.maxTransfer({ wallet: firstWallet });
-                              setWithdrawAmount(result.max);
-                              setFeeHint(`Balance minus ${result.fee} SOL gas`);
-                              setTimeout(() => setFeeHint(null), 3000);
-                            } catch {
-                              const tok = walletBal?.tokens?.find((t) => t.symbol === "SOL");
-                              const bal = parseFloat(tok?.balance ?? "0");
-                              if (bal > 0) setWithdrawAmount(String(Math.max(0, bal - 0.00001)));
+                )}
+
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
+                    Balances
+                  </label>
+                  {(() => {
+                    const tokens = walletBal?.tokens && walletBal.tokens.length > 0
+                      ? walletBal.tokens
+                      : [{ symbol: "SOL", balance: "0" }, { symbol: "USDC", balance: "0" }];
+                    return (
+                      <div className="space-y-2">
+                        {tokens.map((t) => (
+                          <div key={t.symbol} className="flex justify-between items-center bg-surface-container p-3 rounded-lg">
+                            <span className="text-sm font-medium">{t.symbol}</span>
+                            <span className="text-sm font-semibold font-mono">{t.balance}</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {withdrawSuccess && (
+                  <p className="text-xs text-primary font-medium animate-pulse">
+                    Transfer sent successfully
+                  </p>
+                )}
+
+                {showWithdraw && (
+                  <div className="space-y-3 bg-surface-container p-4 rounded-lg">
+                    <input
+                      type="text"
+                      placeholder="Recipient address"
+                      value={withdrawTo}
+                      onChange={(e) => setWithdrawTo(e.target.value)}
+                      className="w-full bg-surface-container-high text-sm rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-primary font-mono"
+                    />
+                    <div className="flex gap-2 min-w-0">
+                      <div className="min-w-0 flex-1 relative">
+                        <input
+                          type="text"
+                          placeholder="Amount"
+                          value={withdrawAmount}
+                          onChange={(e) => setWithdrawAmount(e.target.value)}
+                          className="w-full bg-surface-container-high text-sm rounded-lg px-3 py-2 pr-12 outline-none focus:ring-1 focus:ring-primary font-mono"
+                        />
+                        <button
+                          type="button"
+                          onMouseDown={async (e) => {
+                            e.preventDefault();
+                            if (!firstWallet) return;
+                            if (withdrawToken === "SOL") {
+                              try {
+                                const result = await wallet.maxTransfer({ wallet: firstWallet });
+                                setWithdrawAmount(result.max);
+                                setFeeHint(`Balance minus ${result.fee} SOL gas`);
+                                setTimeout(() => setFeeHint(null), 3000);
+                              } catch {
+                                const tok = walletBal?.tokens?.find((t) => t.symbol === "SOL");
+                                const bal = parseFloat(tok?.balance ?? "0");
+                                if (bal > 0) setWithdrawAmount(String(Math.max(0, bal - 0.00001)));
+                              }
+                            } else {
+                              const tok = walletBal?.tokens?.find((t) => t.symbol === withdrawToken);
+                              setWithdrawAmount(tok?.balance ?? "0");
                             }
-                          } else {
-                            const tok = walletBal?.tokens?.find((t) => t.symbol === withdrawToken);
-                            setWithdrawAmount(tok?.balance ?? "0");
+                          }}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-primary hover:text-primary/70 transition-colors z-10 px-1"
+                        >
+                          ALL
+                        </button>
+                      </div>
+                      <select
+                        value={withdrawToken}
+                        onChange={(e) => setWithdrawToken(e.target.value)}
+                        className="w-20 shrink-0 bg-surface-container-high text-sm rounded-lg px-2 py-2 outline-none focus:ring-1 focus:ring-primary"
+                      >
+                        <option value="SOL">SOL</option>
+                        <option value="USDC">USDC</option>
+                      </select>
+                    </div>
+                    {feeHint && (
+                      <p className="text-[10px] text-secondary animate-pulse">
+                        {feeHint}
+                      </p>
+                    )}
+                    {withdrawError && (
+                      <p className="text-xs text-error">{withdrawError}</p>
+                    )}
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        onClick={() => { setShowWithdraw(false); setWithdrawError(null); }}
+                        className="text-xs font-semibold text-secondary hover:text-on-surface px-3 py-1.5 rounded-full transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        disabled={withdrawing || !withdrawTo || !withdrawAmount}
+                        onClick={async () => {
+                          if (!firstWallet) return;
+                          setWithdrawing(true);
+                          setWithdrawError(null);
+                          pauseBalance();
+                          try {
+                            const sentToken = withdrawToken;
+                            const { fee: feeStr } = await wallet.maxTransfer({ wallet: firstWallet });
+                            await wallet.transfer({
+                              wallet: firstWallet,
+                              to: withdrawTo,
+                              amount: withdrawAmount,
+                              token: withdrawToken,
+                            });
+                            setShowWithdraw(false);
+                            setWithdrawTo("");
+                            setWithdrawAmount("");
+                            setWithdrawSuccess(true);
+                            setTimeout(() => setWithdrawSuccess(false), 4000);
+                            const isSol = !sentToken || sentToken === "SOL";
+                            mutateBalance((prev) => {
+                              if (!prev?.tokens) return prev;
+                              const updated = prev.tokens.map((t) => {
+                                const decimals = t.symbol === "SOL" ? 9 : 6;
+                                if (t.symbol === "SOL") {
+                                  const deduct = isSol ? withdrawAmount : feeStr;
+                                  return { ...t, balance: subDecimal(t.balance, deduct, decimals) };
+                                }
+                                if (!isSol && t.symbol === sentToken) {
+                                  return { ...t, balance: subDecimal(t.balance, withdrawAmount, decimals) };
+                                }
+                                return t;
+                              });
+                              return { ...prev, tokens: updated };
+                            });
+                            setTimeout(resumeBalance, 15_000);
+                          } catch (e: unknown) {
+                            setWithdrawError(e instanceof Error ? e.message : "Transfer failed");
+                            resumeBalance();
+                          } finally {
+                            setWithdrawing(false);
                           }
                         }}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-primary hover:text-primary/70 transition-colors z-10 px-1"
+                        className="text-xs font-semibold bg-primary text-on-primary px-4 py-1.5 rounded-full disabled:opacity-40 transition-all active:scale-95"
                       >
-                        ALL
+                        {withdrawing ? "Sending..." : "Send"}
                       </button>
                     </div>
-                    <select
-                      value={withdrawToken}
-                      onChange={(e) => setWithdrawToken(e.target.value)}
-                      className="w-20 shrink-0 bg-surface-container-high text-sm rounded-lg px-2 py-2 outline-none focus:ring-1 focus:ring-primary"
-                    >
-                      <option value="SOL">SOL</option>
-                      <option value="USDC">USDC</option>
-                    </select>
                   </div>
-                  {feeHint && (
-                    <p className="text-[10px] text-secondary animate-pulse">
-                      {feeHint}
-                    </p>
+                )}
+
+                <div className="flex items-center justify-between pt-2">
+                  {walletStatus.version && (
+                    <p className="text-[10px] text-secondary">{walletStatus.version}</p>
                   )}
-                  {withdrawError && (
-                    <p className="text-xs text-error">{withdrawError}</p>
-                  )}
-                  <div className="flex gap-2 justify-end">
+                  <div className="flex items-center gap-3">
                     <button
-                      onClick={() => { setShowWithdraw(false); setWithdrawError(null); }}
-                      className="text-xs font-semibold text-secondary hover:text-on-surface px-3 py-1.5 rounded-full transition-colors"
+                      onClick={() => setShowWithdraw(!showWithdraw)}
+                      className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors flex items-center gap-1"
                     >
-                      Cancel
+                      <Icon name="send" className="text-sm" />
+                      Send
                     </button>
                     <button
-                      disabled={withdrawing || !withdrawTo || !withdrawAmount}
                       onClick={async () => {
                         if (!firstWallet) return;
-                        setWithdrawing(true);
-                        setWithdrawError(null);
-                        pauseBalance();
                         try {
-                          const sentToken = withdrawToken;
-                          const { fee: feeStr } = await wallet.maxTransfer({ wallet: firstWallet });
-                          await wallet.transfer({
-                            wallet: firstWallet,
-                            to: withdrawTo,
-                            amount: withdrawAmount,
-                            token: withdrawToken,
-                          });
-                          setShowWithdraw(false);
-                          setWithdrawTo("");
-                          setWithdrawAmount("");
-                          setWithdrawSuccess(true);
-                          setTimeout(() => setWithdrawSuccess(false), 4000);
-                          const isSol = !sentToken || sentToken === "SOL";
-                          mutateBalance((prev) => {
-                            if (!prev?.tokens) return prev;
-                            const updated = prev.tokens.map((t) => {
-                              const decimals = t.symbol === "SOL" ? 9 : 6;
-                              if (t.symbol === "SOL") {
-                                const deduct = isSol ? withdrawAmount : feeStr;
-                                return { ...t, balance: subDecimal(t.balance, deduct, decimals) };
-                              }
-                              if (!isSol && t.symbol === sentToken) {
-                                return { ...t, balance: subDecimal(t.balance, withdrawAmount, decimals) };
-                              }
-                              return t;
-                            });
-                            return { ...prev, tokens: updated };
-                          });
-                          setTimeout(resumeBalance, 15_000);
-                        } catch (e: unknown) {
-                          setWithdrawError(e instanceof Error ? e.message : "Transfer failed");
-                          resumeBalance();
-                        } finally {
-                          setWithdrawing(false);
+                          const result = await wallet.deposit({ wallet: firstWallet });
+                          if (result.url) window.open(result.url, "_blank");
+                        } catch {
+                          // deposit may not return a URL on all platforms
                         }
                       }}
-                      className="text-xs font-semibold bg-primary text-on-primary px-4 py-1.5 rounded-full disabled:opacity-40 transition-all active:scale-95"
+                      className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors flex items-center gap-1"
                     >
-                      {withdrawing ? "Sending..." : "Send"}
+                      <Icon name="add" className="text-sm" />
+                      Fund
                     </button>
                   </div>
                 </div>
-              )}
+              </div>
 
-              <div className="flex items-center justify-between pt-2">
-                {walletStatus.version && (
-                  <p className="text-[10px] text-secondary">{walletStatus.version}</p>
+              <div
+                aria-labelledby="wallet-base-tab"
+                className={`space-y-4 ${activeWalletTab === "base" ? "" : "hidden"}`}
+                id="wallet-base-panel"
+                role="tabpanel"
+              >
+                {baseWalletAddr?.address ? (
+                  <WalletAddressCard
+                    address={baseWalletAddr.address}
+                    copied={copied}
+                    label="Base Address"
+                    onCopy={handleCopyWalletAddress}
+                  />
+                ) : (
+                  <div className="rounded-lg bg-surface-container p-4 text-sm text-secondary">
+                    {baseWalletError || "No Base address is available for this wallet yet."}
+                  </div>
                 )}
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setShowWithdraw(!showWithdraw)}
-                    className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors flex items-center gap-1"
-                  >
-                    <Icon name="send" className="text-sm" />
-                    Send
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (!firstWallet) return;
-                      try {
-                        const result = await wallet.deposit({ wallet: firstWallet });
-                        if (result.url) window.open(result.url, "_blank");
-                      } catch {
-                        // deposit may not return a URL on all platforms
-                      }
-                    }}
-                    className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors flex items-center gap-1"
-                  >
-                    <Icon name="add" className="text-sm" />
-                    Fund
-                  </button>
+
+                <div className="rounded-lg bg-surface-container p-4 space-y-2">
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
+                    Base Wallet
+                  </p>
+                  <p className="text-sm text-secondary">
+                    This view now uses the same tabbed wallet toggle as sandbox logs and terminal. Balance, funding, and send actions remain wired to the Solana flow for now.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  {walletStatus.version && (
+                    <p className="text-[10px] text-secondary">{walletStatus.version}</p>
+                  )}
+                  <p className="text-xs font-semibold text-secondary">
+                    Switch back to Solana for balances and transfers.
+                  </p>
                 </div>
               </div>
             </div>
@@ -997,6 +1090,39 @@ export default function Settings() {
             )}
           </div>
         </section>
+      </div>
+    </div>
+  );
+}
+
+function WalletAddressCard({
+  address,
+  copied,
+  label,
+  onCopy,
+}: {
+  address: string;
+  copied: boolean;
+  label: string;
+  onCopy: (address: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
+        {label}
+      </label>
+      <div
+        className="flex items-center gap-2 bg-surface-container p-3 rounded-lg group/addr cursor-pointer"
+        onClick={() => onCopy(address)}
+      >
+        <code className="text-xs font-mono text-primary flex-1 truncate">
+          {address}
+        </code>
+        {copied ? (
+          <Icon name="check" className="text-primary text-sm" />
+        ) : (
+          <Icon name="content_copy" className="text-secondary group-hover/addr:text-primary transition-colors text-sm" />
+        )}
       </div>
     </div>
   );

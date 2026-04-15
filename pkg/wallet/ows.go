@@ -15,8 +15,12 @@ import (
 	skyapps "github.com/sky10/sky10/pkg/apps"
 )
 
-// Solana CAIP-2 chain identifier used by OWS.
-const ChainSolana = "solana"
+const (
+	// Solana CAIP-2 chain identifier used by OWS.
+	ChainSolana = "solana"
+	// Base CAIP-2 chain identifier used by OWS for EVM wallets.
+	ChainBase = "eip155:8453"
+)
 
 // ErrNotInstalled is returned when the ows binary is not on PATH.
 var ErrNotInstalled = errors.New("ows is not installed — see https://openwallet.sh")
@@ -204,35 +208,94 @@ func parseWalletList(output string) []Wallet {
 
 // Address returns the Solana address for the given wallet.
 func (c *Client) Address(ctx context.Context, walletName string) (string, error) {
+	return c.AddressForChain(ctx, walletName, ChainSolana)
+}
+
+// AddressForChain returns the address for the given wallet and chain.
+func (c *Client) AddressForChain(ctx context.Context, walletName, chain string) (string, error) {
 	if c == nil {
 		return "", ErrNotInstalled
 	}
-	// wallet list shows all addresses; find the solana line for this wallet.
+	// wallet list shows all addresses; find the line for the requested chain.
 	out, err := c.run(ctx, "wallet", "list")
 	if err != nil {
 		return "", fmt.Errorf("getting address: %w", err)
 	}
-	return parseSolanaAddress(string(out), walletName)
+	return parseAddressForChain(string(out), walletName, chain)
 }
 
 // parseSolanaAddress extracts the Solana address from wallet list output.
 // Looks for a line containing "solana:" with "→" pointing to the address.
 func parseSolanaAddress(output, walletName string) (string, error) {
+	return parseAddressForChain(output, walletName, ChainSolana)
+}
+
+// parseBaseAddress extracts the Base address from wallet list output.
+// If OWS only lists a generic EVM address, it falls back to that value.
+func parseBaseAddress(output, walletName string) (string, error) {
+	return parseAddressForChain(output, walletName, ChainBase)
+}
+
+func parseAddressForChain(output, walletName, chain string) (string, error) {
 	inWallet := false
+	exactMatchers, fallbackMatchers, chainLabel := walletAddressMatchers(chain)
+	var fallbackAddress string
+
 	for _, line := range strings.Split(output, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "Name:") {
 			name := strings.TrimSpace(strings.TrimPrefix(trimmed, "Name:"))
 			inWallet = name == walletName
 		}
-		if inWallet && strings.Contains(trimmed, "solana:") && strings.Contains(trimmed, "→") {
-			parts := strings.SplitN(trimmed, "→", 2)
-			if len(parts) == 2 {
-				return strings.TrimSpace(parts[1]), nil
+		if !inWallet {
+			continue
+		}
+		if address, ok := walletAddressFromLine(trimmed, exactMatchers); ok {
+			return address, nil
+		}
+		if fallbackAddress == "" {
+			if address, ok := walletAddressFromLine(trimmed, fallbackMatchers); ok {
+				fallbackAddress = address
 			}
 		}
 	}
-	return "", fmt.Errorf("no Solana address found for wallet %q", walletName)
+	if fallbackAddress != "" {
+		return fallbackAddress, nil
+	}
+	return "", fmt.Errorf("no %s address found for wallet %q", chainLabel, walletName)
+}
+
+func walletAddressMatchers(chain string) (exact []string, fallback []string, label string) {
+	normalized := strings.ToLower(strings.TrimSpace(chain))
+	switch normalized {
+	case "", ChainSolana:
+		return []string{"solana:"}, nil, "Solana"
+	case "base", ChainBase:
+		// OWS may only list an EVM address once, usually under eip155:1.
+		return []string{ChainBase}, []string{"eip155:"}, "Base"
+	default:
+		if strings.HasPrefix(normalized, "eip155:") {
+			return []string{normalized}, []string{"eip155:"}, normalized
+		}
+		return []string{normalized}, nil, normalized
+	}
+}
+
+func walletAddressFromLine(line string, matchers []string) (string, bool) {
+	if len(matchers) == 0 || !strings.Contains(line, "→") {
+		return "", false
+	}
+	parts := strings.SplitN(line, "→", 2)
+	if len(parts) != 2 {
+		return "", false
+	}
+	left := strings.ToLower(strings.TrimSpace(parts[0]))
+	for _, matcher := range matchers {
+		if strings.Contains(left, strings.ToLower(matcher)) {
+			return strings.TrimSpace(parts[1]), true
+		}
+	}
+	return "", false
 }
 
 // MaxTransferResult holds the maximum sendable amount and fee.
