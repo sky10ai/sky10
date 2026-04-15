@@ -170,6 +170,52 @@ func TestRPCJoinParsesCode(t *testing.T) {
 	}
 }
 
+func TestRPCInviteParsesMode(t *testing.T) {
+	identity, _ := skykey.Generate()
+	current, _ := skykey.Generate()
+	manifest := NewManifest(identity)
+	manifest.AddDevice(current.PublicKey, "mac")
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatalf("sign manifest: %v", err)
+	}
+
+	bundle, err := New(identity, current, manifest)
+	if err != nil {
+		t.Fatalf("new bundle: %v", err)
+	}
+
+	handler := NewRPCHandler(bundle)
+
+	called := false
+	handler.SetInviteHandler(func(_ context.Context, options InviteOptions) (string, error) {
+		called = true
+		if options.Mode != InviteModeP2P {
+			t.Fatalf("mode = %q, want %q", options.Mode, InviteModeP2P)
+		}
+		return "invite-code", nil
+	})
+
+	params, _ := json.Marshal(map[string]string{"mode": InviteModeP2P})
+	raw, err, handled := handler.Dispatch(context.Background(), "identity.invite", params)
+	if err != nil {
+		t.Fatalf("dispatch error: %v", err)
+	}
+	if !handled {
+		t.Fatal("identity.invite was not handled")
+	}
+	if !called {
+		t.Fatal("invite handler was not called")
+	}
+
+	result, ok := raw.(map[string]string)
+	if !ok {
+		t.Fatalf("result type = %T, want map[string]string", raw)
+	}
+	if result["code"] != "invite-code" {
+		t.Fatalf("code = %q, want invite-code", result["code"])
+	}
+}
+
 func TestRPCDevicesFormatsTimestampsUTC(t *testing.T) {
 	identity, _ := skykey.Generate()
 	current, _ := skykey.Generate()

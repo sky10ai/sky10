@@ -79,7 +79,7 @@ func TestCreateIdentityInviteIncludesBootstrapHints(t *testing.T) {
 		"wss://relay.damus.io",
 		"wss://nos.lol",
 		"wss://relay.nostr.band",
-	})
+	}, skyid.InviteOptions{})
 	if err != nil {
 		t.Fatalf("createIdentityInvite: %v", err)
 	}
@@ -96,6 +96,15 @@ func TestCreateIdentityInviteIncludesBootstrapHints(t *testing.T) {
 	}
 	if len(invite.NostrRelays) != 2 {
 		t.Fatalf("invite relays = %v, want 2", invite.NostrRelays)
+	}
+}
+
+func TestCreateIdentityInviteRejectsUnknownMode(t *testing.T) {
+	t.Parallel()
+
+	bundleA, _ := testSharedBundles(t)
+	if _, err := createIdentityInvite(context.Background(), nil, bundleA, nil, nil, skyid.InviteOptions{Mode: "unknown"}); err == nil {
+		t.Fatal("createIdentityInvite() error = nil, want unsupported mode")
 	}
 }
 

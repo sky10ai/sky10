@@ -282,6 +282,19 @@ func ServeCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("creating sandbox manager: %w", err)
 			}
+			sandboxManager.SetHostIdentityProvider(func(context.Context) (string, error) {
+				return bundle.Address(), nil
+			})
+			sandboxManager.SetIdentityInviteIssuer(func(ctx context.Context) (*skysandbox.IdentityInvite, error) {
+				code, err := createIdentityInvite(ctx, backend, bundle, linkNode, relays, skyid.InviteOptions{Mode: skyid.InviteModeP2P})
+				if err != nil {
+					return nil, err
+				}
+				return &skysandbox.IdentityInvite{
+					HostIdentity: bundle.Address(),
+					Code:         code,
+				}, nil
+			})
 			sandboxManager.SetOpenClawSharedEnvResolver(func(ctx context.Context) (map[string]string, error) {
 				return skysandbox.ResolveOpenClawProviderEnv(ctx, func(ctx context.Context, idOrName string) ([]byte, error) {
 					secret, err := secretsStore.Get(idOrName, secrets.Requester{Type: secrets.RequesterOwner})

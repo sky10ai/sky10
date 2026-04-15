@@ -39,8 +39,8 @@ func configureIdentityRPCHandler(
 	handler.SetDeviceMetadataProvider(func(ctx context.Context) (map[string]skyid.DeviceMetadata, error) {
 		return privateNetworkDeviceMetadata(ctx, bundle, backend, linkNode)
 	})
-	handler.SetInviteHandler(func(ctx context.Context) (string, error) {
-		return createIdentityInvite(ctx, backend, bundle, linkNode, relays)
+	handler.SetInviteHandler(func(ctx context.Context, options skyid.InviteOptions) (string, error) {
+		return createIdentityInvite(ctx, backend, bundle, linkNode, relays, options)
 	})
 	handler.SetJoinHandler(func(ctx context.Context, code, role string) (interface{}, error) {
 		return joinIdentity(ctx, code, role, bundle, idStore, linkNode)
@@ -135,8 +135,15 @@ func privateNetworkDeviceMetadata(
 	return metadata, nil
 }
 
-func createIdentityInvite(ctx context.Context, backend adapter.Backend, bundle *skyid.Bundle, linkNode *link.Node, relays []string) (string, error) {
-	if backend == nil {
+func createIdentityInvite(ctx context.Context, backend adapter.Backend, bundle *skyid.Bundle, linkNode *link.Node, relays []string, options skyid.InviteOptions) (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(options.Mode))
+	switch mode {
+	case "", skyid.InviteModeP2P:
+	default:
+		return "", fmt.Errorf("unsupported invite mode %q", options.Mode)
+	}
+
+	if backend == nil || mode == skyid.InviteModeP2P {
 		if linkNode == nil {
 			return skyjoin.CreateP2PInvite(bundle.Identity.Address(), inviteRelays(relays))
 		}

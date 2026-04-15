@@ -13,6 +13,7 @@ import (
 
 	skyapps "github.com/sky10/sky10/pkg/apps"
 	"github.com/sky10/sky10/pkg/config"
+	skyid "github.com/sky10/sky10/pkg/id"
 )
 
 func TestManagerCreateTransitionsToReady(t *testing.T) {
@@ -722,6 +723,197 @@ func TestWaitForGuestOpenClawAgent(t *testing.T) {
 	}
 	if attempts != 4 {
 		t.Fatalf("waitForGuestOpenClawAgent() attempts = %d, want 4", attempts)
+	}
+}
+
+func TestFinishReadyOpenClawJoinsGuestSky10Identity(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["openclaw-m6"] = Record{
+		Name:      "openclaw-m6",
+		Slug:      "openclaw-m6",
+		Provider:  providerLima,
+		Template:  templateOpenClaw,
+		Status:    "starting",
+		SharedDir: filepath.Join(t.TempDir(), "shared"),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	var steps []string
+	guestSky10Checks := 0
+	m.outputCmd = func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		if len(args) >= 6 && args[0] == "shell" {
+			script := args[len(args)-1]
+			switch {
+			case strings.Contains(script, openClawReadyURL):
+				steps = append(steps, "gateway-health")
+				return []byte("ok"), nil
+			case strings.Contains(script, guestSky10ReadyURL):
+				guestSky10Checks++
+				steps = append(steps, fmt.Sprintf("guest-health-%d", guestSky10Checks))
+				return []byte("ok"), nil
+			case strings.Contains(script, `"method":"agent.list"`):
+				steps = append(steps, "agent-list")
+				return []byte("ok"), nil
+			case strings.Contains(script, "ip -4 addr show dev lima0"):
+				steps = append(steps, "lookup-ip")
+				return []byte("192.168.64.14\n"), nil
+			}
+		}
+		return nil, fmt.Errorf("unexpected outputCmd args: %v", args)
+	}
+
+	m.hostIdentity = func(context.Context) (string, error) {
+		steps = append(steps, "host-identity")
+		return "sky10-host", nil
+	}
+	m.issueIdentityInvite = func(context.Context) (*IdentityInvite, error) {
+		steps = append(steps, "issue-invite")
+		return &IdentityInvite{HostIdentity: "sky10-host", Code: "invite-code"}, nil
+	}
+
+	var joinParams map[string]string
+	m.guestRPC = func(ctx context.Context, address, method string, params interface{}, out interface{}) error {
+		steps = append(steps, method)
+		if address != "192.168.64.14" {
+			t.Fatalf("guest RPC address = %q, want 192.168.64.14", address)
+		}
+		switch method {
+		case "identity.show":
+			ptr := out.(*struct {
+				Address     string `json:"address"`
+				DeviceCount int    `json:"device_count"`
+			})
+			ptr.Address = "guest-solo"
+			ptr.DeviceCount = 1
+			return nil
+		case "identity.join":
+			var ok bool
+			joinParams, ok = params.(map[string]string)
+			if !ok {
+				t.Fatalf("join params type = %T, want map[string]string", params)
+			}
+			return nil
+		default:
+			t.Fatalf("unexpected guest RPC method %q", method)
+			return nil
+		}
+	}
+
+	if err := m.finishReady(context.Background(), "openclaw-m6", "/tmp/fake/limactl"); err != nil {
+		t.Fatalf("finishReady() error: %v", err)
+	}
+
+	if guestSky10Checks != 2 {
+		t.Fatalf("guest sky10 health checks = %d, want 2", guestSky10Checks)
+	}
+	if joinParams["code"] != "invite-code" {
+		t.Fatalf("join code = %q, want invite-code", joinParams["code"])
+	}
+	if joinParams["role"] != skyid.DeviceRoleSandbox {
+		t.Fatalf("join role = %q, want %q", joinParams["role"], skyid.DeviceRoleSandbox)
+	}
+
+	want := []string{
+		"gateway-health",
+		"guest-health-1",
+		"host-identity",
+		"lookup-ip",
+		"identity.show",
+		"issue-invite",
+		"identity.join",
+		"guest-health-2",
+		"agent-list",
+		"lookup-ip",
+	}
+	if strings.Join(steps, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("steps = %v, want %v", steps, want)
+	}
+
+	got, err := m.Get(context.Background(), "openclaw-m6")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if got.Status != "ready" {
+		t.Fatalf("status = %q, want ready", got.Status)
+	}
+	if got.IPAddress != "192.168.64.14" {
+		t.Fatalf("ip address = %q, want 192.168.64.14", got.IPAddress)
+	}
+}
+
+func TestFinishReadyOpenClawSkipsJoinWhenGuestAlreadyJoined(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["openclaw-m6"] = Record{
+		Name:      "openclaw-m6",
+		Slug:      "openclaw-m6",
+		Provider:  providerLima,
+		Template:  templateOpenClaw,
+		Status:    "starting",
+		SharedDir: filepath.Join(t.TempDir(), "shared"),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	m.outputCmd = func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		if len(args) >= 6 && args[0] == "shell" {
+			script := args[len(args)-1]
+			switch {
+			case strings.Contains(script, openClawReadyURL):
+				return []byte("ok"), nil
+			case strings.Contains(script, guestSky10ReadyURL):
+				return []byte("ok"), nil
+			case strings.Contains(script, `"method":"agent.list"`):
+				return []byte("ok"), nil
+			case strings.Contains(script, "ip -4 addr show dev lima0"):
+				return []byte("192.168.64.14\n"), nil
+			}
+		}
+		return nil, fmt.Errorf("unexpected outputCmd args: %v", args)
+	}
+
+	m.hostIdentity = func(context.Context) (string, error) {
+		return "sky10-host", nil
+	}
+	m.issueIdentityInvite = func(context.Context) (*IdentityInvite, error) {
+		t.Fatal("issueIdentityInvite should not be called when the guest already matches the host identity")
+		return nil, nil
+	}
+	m.guestRPC = func(ctx context.Context, address, method string, params interface{}, out interface{}) error {
+		switch method {
+		case "identity.show":
+			ptr := out.(*struct {
+				Address     string `json:"address"`
+				DeviceCount int    `json:"device_count"`
+			})
+			ptr.Address = "sky10-host"
+			ptr.DeviceCount = 2
+			return nil
+		case "identity.join":
+			t.Fatal("identity.join should not be called when the guest already matches the host identity")
+			return nil
+		default:
+			t.Fatalf("unexpected guest RPC method %q", method)
+			return nil
+		}
+	}
+
+	if err := m.finishReady(context.Background(), "openclaw-m6", "/tmp/fake/limactl"); err != nil {
+		t.Fatalf("finishReady() error: %v", err)
 	}
 }
 

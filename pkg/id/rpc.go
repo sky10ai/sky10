@@ -1,6 +1,7 @@
 package id
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
@@ -10,6 +11,8 @@ import (
 
 	skykey "github.com/sky10/sky10/pkg/key"
 )
+
+const InviteModeP2P = "p2p"
 
 // RPCHandler dispatches identity.* RPC methods.
 type RPCHandler struct {
@@ -42,8 +45,12 @@ type DeviceMetadata struct {
 // hex. It should return best-effort data and can safely return partial results.
 type DeviceMetadataProvider func(context.Context) (map[string]DeviceMetadata, error)
 
+type InviteOptions struct {
+	Mode string `json:"mode,omitempty"`
+}
+
 // InviteHandler generates an invite code for this identity.
-type InviteHandler func(context.Context) (string, error)
+type InviteHandler func(context.Context, InviteOptions) (string, error)
 
 // JoinHandler joins another identity/private network using an invite code and
 // optional device role.
@@ -95,7 +102,7 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 	case "identity.deviceList":
 		return h.rpcDeviceList(ctx)
 	case "identity.invite":
-		return h.rpcInvite(ctx)
+		return h.rpcInvite(ctx, params)
 	case "identity.join":
 		return h.rpcJoin(ctx, params)
 	case "identity.approve":
@@ -221,11 +228,17 @@ func (h *RPCHandler) rpcDeviceList(ctx context.Context) (interface{}, error, boo
 	}, nil, true
 }
 
-func (h *RPCHandler) rpcInvite(ctx context.Context) (interface{}, error, bool) {
+func (h *RPCHandler) rpcInvite(ctx context.Context, params json.RawMessage) (interface{}, error, bool) {
 	if h.inviteHandler == nil {
 		return nil, fmt.Errorf("identity.invite not available"), true
 	}
-	code, err := h.inviteHandler(ctx)
+	var p InviteOptions
+	if trimmed := bytes.TrimSpace(params); len(trimmed) > 0 && !bytes.Equal(trimmed, []byte("null")) {
+		if err := json.Unmarshal(trimmed, &p); err != nil {
+			return nil, fmt.Errorf("invalid params: %w", err), true
+		}
+	}
+	code, err := h.inviteHandler(ctx, p)
 	if err != nil {
 		return nil, err, true
 	}
