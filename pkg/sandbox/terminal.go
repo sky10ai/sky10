@@ -170,6 +170,9 @@ func (m *Manager) terminalCommand(ctx context.Context, rec *Record) ([]string, e
 		if err != nil {
 			return nil, err
 		}
+		if rec.Template == templateHermes {
+			return []string{limactl, "shell", rec.Slug, "--", "bash", "-lc", "hermes-shared"}, nil
+		}
 		return []string{limactl, "shell", rec.Slug}, nil
 	default:
 		return nil, fmt.Errorf("terminal access is not supported for provider %q", rec.Provider)

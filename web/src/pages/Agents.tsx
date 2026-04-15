@@ -22,7 +22,7 @@ export default function Agents() {
           <Icon name="smart_toy" className="text-5xl text-secondary" />
           <h1 className="text-2xl font-bold text-on-surface">No Agents</h1>
           <p className="text-secondary">
-            Connect an AI agent to your sky10 network, or spin up OpenClaw in an isolated Lima VM first.
+            Connect an AI agent to your sky10 network, or spin up OpenClaw or Hermes in an isolated Lima VM first.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
             <button

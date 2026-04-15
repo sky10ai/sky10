@@ -75,7 +75,10 @@ export default function Sandboxes() {
       setDraftName(nextSandboxName(templateConfig.id));
       refetchList({ background: true });
       startTransition(() => {
-        navigate(`/settings/sandboxes/${encodeURIComponent(created.slug)}`);
+        const detailPath = templateConfig.id === "hermes"
+          ? `/settings/sandboxes/${encodeURIComponent(created.slug)}?panel=terminal`
+          : `/settings/sandboxes/${encodeURIComponent(created.slug)}`;
+        navigate(detailPath);
       });
     } catch (error: unknown) {
       setActionError(error instanceof Error ? error.message : "Create failed");
@@ -204,7 +207,7 @@ export default function Sandboxes() {
               ) : templateConfig.id === "hermes" ? (
                 <>
                   <p>
-                    The Hermes template installs Hermes Agent inside the guest, links the shared <code>/shared/.env</code> file into <code>~/.hermes/.env</code>, and adds a <code>hermes-shared</code> helper that launches the TUI from the shared workspace.
+                    The Hermes template installs Hermes Agent inside the guest, links the shared <code>/shared/.env</code> file into <code>~/.hermes/.env</code>, and launches the embedded sandbox terminal straight into the Hermes TUI.
                   </p>
                   <p>
                     This first cut is intentionally local-only: it gives you a working Hermes runtime in the sandbox terminal without wiring Hermes into sky10 message routing yet.

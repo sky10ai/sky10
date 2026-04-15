@@ -1550,7 +1550,7 @@ func (m *Manager) load() error {
 			rec.SharedDir = dir
 			changed = true
 		}
-		if shell := fmt.Sprintf("limactl shell %s", rec.Slug); rec.Shell != shell {
+		if shell := defaultShellCommand(rec.Slug, rec.Template); rec.Shell != shell {
 			rec.Shell = shell
 			changed = true
 		}

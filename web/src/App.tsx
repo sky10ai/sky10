@@ -8,6 +8,7 @@ import InviteDevice from "./pages/InviteDevice";
 import Agents from "./pages/Agents";
 import AgentChat from "./pages/AgentChat";
 import AgentConnect from "./pages/AgentConnect";
+import AgentCreate from "./pages/AgentCreate";
 import Mailbox from "./pages/Mailbox";
 import Network from "./pages/Network";
 import Sandboxes from "./pages/Sandboxes";
@@ -42,7 +43,7 @@ export default function App() {
           <Route index element={<HomeRedirect />} />
           <Route path="getting-started" element={<GettingStarted />} />
           <Route path="agents" element={<Agents />} />
-          <Route path="agents/create" element={<Navigate replace to="/settings/sandboxes?template=openclaw" />} />
+          <Route path="agents/create" element={<AgentCreate />} />
           <Route path="agents/connect" element={<AgentConnect />} />
           <Route path="agents/:agentId" element={<AgentChat />} />
           <Route path="drives" element={<Drives />} />

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { SandboxTerminal } from "../components/SandboxTerminal";
 import { Icon } from "../components/Icon";
 import { PageHeader } from "../components/PageHeader";
@@ -21,10 +21,14 @@ import { timeAgo, useRPC } from "../lib/useRPC";
 export default function SandboxDetail() {
   const navigate = useNavigate();
   const params = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const slug = decodeURIComponent(params.slug ?? params.name ?? "");
+  const requestedPanel = useMemo<"logs" | "terminal">(() => (
+    searchParams.get("panel") === "terminal" ? "terminal" : "logs"
+  ), [searchParams]);
   const [logs, setLogs] = useState<SandboxLogEntry[]>([]);
-  const [activePanel, setActivePanel] = useState<"logs" | "terminal">("logs");
-  const [hasOpenedTerminal, setHasOpenedTerminal] = useState(false);
+  const [activePanel, setActivePanel] = useState<"logs" | "terminal">(requestedPanel);
+  const [hasOpenedTerminal, setHasOpenedTerminal] = useState(requestedPanel === "terminal");
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
@@ -56,6 +60,27 @@ export default function SandboxDetail() {
     if (!selected?.slug || selected.slug === slug) return;
     navigate(`/settings/sandboxes/${encodeURIComponent(selected.slug)}`, { replace: true });
   }, [navigate, selected?.slug, slug]);
+
+  useEffect(() => {
+    setActivePanel(requestedPanel);
+    if (requestedPanel === "terminal") {
+      setHasOpenedTerminal(true);
+    }
+  }, [requestedPanel]);
+
+  const switchPanel = useCallback((nextPanel: "logs" | "terminal") => {
+    setActivePanel(nextPanel);
+    if (nextPanel === "terminal") {
+      setHasOpenedTerminal(true);
+    }
+    const nextParams = new URLSearchParams(searchParams);
+    if (nextPanel === "terminal") {
+      nextParams.set("panel", "terminal");
+    } else {
+      nextParams.delete("panel");
+    }
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const loadLogs = useCallback(async () => {
     if (!slug) {
@@ -324,7 +349,7 @@ export default function SandboxDetail() {
                     : "text-secondary hover:text-on-surface"
                 }`}
                 id="sandbox-logs-tab"
-                onClick={() => setActivePanel("logs")}
+                onClick={() => switchPanel("logs")}
                 role="tab"
                 type="button"
               >
@@ -339,10 +364,7 @@ export default function SandboxDetail() {
                     : "text-secondary hover:text-on-surface"
                 }`}
                 id="sandbox-terminal-tab"
-                onClick={() => {
-                  setHasOpenedTerminal(true);
-                  setActivePanel("terminal");
-                }}
+                onClick={() => switchPanel("terminal")}
                 role="tab"
                 type="button"
               >
