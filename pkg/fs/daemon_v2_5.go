@@ -173,17 +173,18 @@ func (d *DaemonV2_5) emitEvent(event string, data map[string]any) {
 }
 
 func (d *DaemonV2_5) prepareTransferWorkspace() {
-	if err := ensureTransferWorkspace(d.driveDir); err != nil {
+	stats, err := recoverTransferWorkspace(d.driveDir, d.logger)
+	if err != nil {
 		d.logger.Warn("transfer workspace setup failed", "error", err)
 		return
 	}
-	removed, err := cleanupStagingDir(transferStagingDir(d.driveDir))
-	if err != nil {
-		d.logger.Warn("stale staging cleanup failed", "error", err)
-		return
-	}
-	if removed > 0 {
-		d.logger.Info("stale staging cleaned", "removed", removed, "drive", d.config.DriveName)
+	if stats.Republished > 0 || stats.CleanedSessions > 0 || stats.CleanedStaging > 0 {
+		d.logger.Info("transfer workspace recovered",
+			"republished", stats.Republished,
+			"cleaned_sessions", stats.CleanedSessions,
+			"cleaned_staging", stats.CleanedStaging,
+			"drive", d.config.DriveName,
+		)
 	}
 }
 

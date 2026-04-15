@@ -183,6 +183,60 @@ func TestDaemonV25SyncOnceCleansStaleStagingFiles(t *testing.T) {
 	}
 }
 
+func TestDaemonV25SyncOnceRepublishesStagedTransferFile(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	cfg := DaemonConfig{
+		SyncConfig:  SyncConfig{LocalRoot: localDir},
+		DriveID:     "test_transfer_republish",
+		PollSeconds: 300,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatalf("creating daemon: %v", err)
+	}
+
+	tmpFile, tmpPath, err := createStagingTempFile(transferStagingDir(daemon.driveDir), "recover-*")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	if _, err := tmpFile.WriteString("publish me"); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
+
+	targetPath := filepath.Join(localDir, "republished.txt")
+	session, err := newTransferSession(transferSessionsDir(daemon.driveDir), "download", tmpPath, targetPath)
+	if err != nil {
+		t.Fatalf("new transfer session: %v", err)
+	}
+	if err := session.markStaged(); err != nil {
+		t.Fatalf("mark staged: %v", err)
+	}
+
+	daemon.SyncOnce(context.Background())
+
+	data, err := os.ReadFile(targetPath)
+	if err != nil {
+		t.Fatalf("read target: %v", err)
+	}
+	if string(data) != "publish me" {
+		t.Fatalf("content = %q", string(data))
+	}
+	if _, err := os.Stat(session.path); !os.IsNotExist(err) {
+		t.Fatalf("session path should be removed after republish, stat err=%v", err)
+	}
+}
+
 func TestDaemonV25PeriodicScanFindsMissedLocalFile(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -258,10 +312,21 @@ func TestDaemonV25PeriodicReconcileDownloadsRemoteWithoutPoke(t *testing.T) {
 	stop := runDaemon(ctx, cancel, daemon)
 	defer stop()
 
-	if err := store.Put(ctx, "remote-only.txt", strings.NewReader("from periodic reconcile")); err != nil {
+	nsDeadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(nsDeadline) {
+		if daemon.store.nsID != "" {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if daemon.store.nsID == "" {
+		t.Fatal("daemon namespace ID not resolved in time")
+	}
+
+	if err := daemon.store.Put(ctx, "remote-only.txt", strings.NewReader("from periodic reconcile")); err != nil {
 		t.Fatalf("store.Put: %v", err)
 	}
-	res := store.LastPutResult()
+	res := daemon.store.LastPutResult()
 	if res == nil {
 		t.Fatal("LastPutResult nil")
 	}

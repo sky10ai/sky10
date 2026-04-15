@@ -327,6 +327,13 @@ func (r *Reconciler) downloadFile(ctx context.Context, path string, fi opslog.Fi
 		r.logger.Warn("reconcile: create temp failed", "path", path, "error", err)
 		return false
 	}
+	session, err := newTransferSession(transferSessionsDirFromStaging(r.effectiveStagingDir()), "download", tmpPath, localPath)
+	if err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		r.logger.Warn("reconcile: create transfer session failed", "path", path, "error", err)
+		return false
+	}
 
 	// No wall-clock timeout — each chunk has its own 30s idle/stall
 	// detection via transfer.Reader in downloadChunks. As long as bytes
@@ -335,15 +342,29 @@ func (r *Reconciler) downloadFile(ctx context.Context, path string, fi opslog.Fi
 	if dlErr != nil {
 		tmpFile.Close()
 		os.Remove(tmpPath)
+		session.remove()
 		r.logger.Warn("reconcile: download failed", "path", path, "error", dlErr)
 		return false
 	}
-	tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		session.remove()
+		r.logger.Warn("reconcile: close temp failed", "path", path, "error", err)
+		return false
+	}
+	if err := session.markStaged(); err != nil {
+		os.Remove(tmpPath)
+		session.remove()
+		r.logger.Warn("reconcile: mark staged failed", "path", path, "error", err)
+		return false
+	}
 
 	if err := publishStagedFile(tmpPath, localPath); err != nil {
 		r.logger.Warn("reconcile: publish failed", "path", path, "error", err)
-		os.Remove(tmpPath)
 		return false
+	}
+	if err := session.remove(); err != nil {
+		r.logger.Warn("reconcile: remove transfer session failed", "path", path, "error", err)
 	}
 
 	r.logger.Info("reconcile: downloaded", "path", path)

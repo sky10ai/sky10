@@ -106,6 +106,13 @@ func TestReconcilerDownloadUsesConfiguredStagingDir(t *testing.T) {
 	if len(entries) != 0 {
 		t.Fatalf("staging dir should be empty after publish, found %d entries", len(entries))
 	}
+	sessionEntries, err := os.ReadDir(transferSessionsDirFromStaging(stagingDir))
+	if err != nil {
+		t.Fatalf("read sessions dir: %v", err)
+	}
+	if len(sessionEntries) != 0 {
+		t.Fatalf("sessions dir should be empty after publish, found %d entries", len(sessionEntries))
+	}
 }
 
 // Regression: empty files (size=0, chunks=0) were skipped by the

@@ -73,4 +73,12 @@ func TestHandleUploadStagesThenPublishes(t *testing.T) {
 	if len(entries) != 0 {
 		t.Fatalf("staging dir should be empty after publish, found %d entries", len(entries))
 	}
+
+	sessionEntries, err := os.ReadDir(transferSessionsDir(driveDataDir(drive.ID)))
+	if err != nil {
+		t.Fatalf("read sessions dir: %v", err)
+	}
+	if len(sessionEntries) != 0 {
+		t.Fatalf("sessions dir should be empty after publish, found %d entries", len(sessionEntries))
+	}
 }

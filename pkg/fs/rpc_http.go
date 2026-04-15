@@ -57,23 +57,40 @@ func (s *FSHandler) HandleUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "creating staging file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	session, err := newTransferSession(transferSessionsDir(driveDataDir(drive.ID)), "upload", tmpPath, target)
+	if err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		http.Error(w, "creating transfer session: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	n, err := io.Copy(tmpFile, file)
 	if err != nil {
 		tmpFile.Close()
 		os.Remove(tmpPath)
+		session.remove()
 		http.Error(w, "writing file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if err := tmpFile.Close(); err != nil {
 		os.Remove(tmpPath)
+		session.remove()
 		http.Error(w, "closing upload temp file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := publishStagedFile(tmpPath, target); err != nil {
+	if err := session.markStaged(); err != nil {
 		os.Remove(tmpPath)
+		session.remove()
+		http.Error(w, "marking upload staged: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := publishStagedFile(tmpPath, target); err != nil {
 		http.Error(w, "publishing upload: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if err := session.remove(); err != nil {
+		s.logger.Warn("upload transfer session cleanup failed", "drive", driveName, "path", filePath, "error", err)
 	}
 
 	s.server.Emit("file.changed", map[string]string{
