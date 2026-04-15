@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -156,5 +157,27 @@ func TestNostrDiscoveryApplyMembershipRecordOnlyAdvancesOnNewerRevision(t *testi
 	}
 	if !discovery.applyMembershipRecord(current) {
 		t.Fatal("expected newer membership record to advance cache")
+	}
+}
+
+func TestNostrSubscriptionRelayLabelStaysShortAndStable(t *testing.T) {
+	t.Parallel()
+
+	label := "mailbox:sky10q44gdywv9g54xedu8nt6mz9qph3v2ncxlljc3ns8428x7cyjhtl6qvkj9zf"
+	got := nostrSubscriptionRelayLabel(label)
+	if got == "" {
+		t.Fatal("expected non-empty relay label")
+	}
+	if len(got) > maxNostrSubscriptionRelayLabelLen {
+		t.Fatalf("relay label length = %d, want <= %d", len(got), maxNostrSubscriptionRelayLabelLen)
+	}
+	if strings.Contains(got, ":") {
+		t.Fatalf("relay label %q should not include ':'", got)
+	}
+	if got != nostrSubscriptionRelayLabel(label) {
+		t.Fatal("expected stable relay label")
+	}
+	if got == nostrSubscriptionRelayLabel("sky10-private:sky10q44gdywv9g54xedu8nt6mz9qph3v2ncxlljc3ns8428x7cyjhtl6qvkj9z0") {
+		t.Fatal("expected distinct relay labels for distinct subscriptions")
 	}
 }

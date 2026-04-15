@@ -2,18 +2,22 @@ package link
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/nbd-wtf/go-nostr"
 )
 
 const (
-	nostrSubscriptionConnectTimeout = 10 * time.Second
-	nostrSubscriptionPruneAfter     = time.Hour
-	nostrSubscriptionMaxSeen        = 4096
+	nostrSubscriptionConnectTimeout   = 10 * time.Second
+	nostrSubscriptionPruneAfter       = time.Hour
+	nostrSubscriptionMaxSeen          = 4096
+	maxNostrSubscriptionRelayLabelLen = 32
 )
 
 type nostrEventHandler func(relay string, event *nostr.Event) error
@@ -34,6 +38,7 @@ func RunNostrSubscription(
 	}
 
 	logger = defaultLogger(logger)
+	relayLabel := nostrSubscriptionRelayLabel(label)
 	dedupe := newNostrEventDeduper()
 	var wg sync.WaitGroup
 	for _, relayURL := range relays {
@@ -41,7 +46,7 @@ func RunNostrSubscription(
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			runNostrRelaySubscription(ctx, relayURL, tracker, logger, label, filters, dedupe, handler)
+			runNostrRelaySubscription(ctx, relayURL, tracker, logger, label, relayLabel, filters, dedupe, handler)
 		}()
 	}
 	<-ctx.Done()
@@ -55,6 +60,7 @@ func runNostrRelaySubscription(
 	tracker *NostrRelayTracker,
 	logger *slog.Logger,
 	label string,
+	relayLabel string,
 	filters nostr.Filters,
 	dedupe *nostrEventDeduper,
 	handler nostrEventHandler,
@@ -80,7 +86,7 @@ func runNostrRelaySubscription(
 			continue
 		}
 
-		sub, err := relay.Subscribe(ctx, filters, nostr.WithLabel(label), nostr.WithCheckDuplicate(dedupe.Check))
+		sub, err := relay.Subscribe(ctx, filters, nostr.WithLabel(relayLabel), nostr.WithCheckDuplicate(dedupe.Check))
 		if err != nil {
 			recordNostrRelay(tracker, relayURL, 0, err)
 			recordNostrSubscriptionDisconnect(tracker, label, relayURL, err)
@@ -153,6 +159,42 @@ func consumeNostrSubscription(
 			return ctx.Err() == nil
 		}
 	}
+}
+
+func nostrSubscriptionRelayLabel(label string) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		label = "subscription"
+	}
+
+	sum := sha256.Sum256([]byte(label))
+	prefix := nostrSubscriptionRelayPrefix(label)
+	relayLabel := fmt.Sprintf("s10-%s-%x", prefix, sum[:8])
+	if len(relayLabel) > maxNostrSubscriptionRelayLabelLen {
+		return relayLabel[:maxNostrSubscriptionRelayLabelLen]
+	}
+	return relayLabel
+}
+
+func nostrSubscriptionRelayPrefix(label string) string {
+	if idx := strings.IndexAny(label, ":="); idx >= 0 {
+		label = label[:idx]
+	}
+
+	var builder strings.Builder
+	builder.Grow(8)
+	for _, r := range strings.ToLower(label) {
+		if builder.Len() >= 8 {
+			break
+		}
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			builder.WriteRune(r)
+		}
+	}
+	if builder.Len() == 0 {
+		return "sub"
+	}
+	return builder.String()
 }
 
 func waitNostrSubscriptionRetry(ctx context.Context, attempt int) bool {
