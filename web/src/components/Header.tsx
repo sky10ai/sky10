@@ -29,7 +29,7 @@ function getRouteMeta(pathname: string) {
     };
   }
 
-  if (pathname.startsWith("/kv")) {
+  if (pathname.startsWith("/settings/kv") || pathname.startsWith("/kv")) {
     return {
       description: "Inspect replicated key-value entries and edit them live.",
       title: "Key-Value Store",
@@ -50,7 +50,14 @@ function getRouteMeta(pathname: string) {
     };
   }
 
-  if (pathname.startsWith("/network")) {
+  if (pathname.startsWith("/settings/mailbox") || pathname.startsWith("/mailbox")) {
+    return {
+      description: "Inspect durable mailbox state, queues, and per-principal delivery history.",
+      title: "Mailbox",
+    };
+  }
+
+  if (pathname.startsWith("/settings/network") || pathname.startsWith("/network")) {
     return {
       description: "Watch network topology, peers, and link status update in place.",
       title: "Network",
@@ -82,6 +89,13 @@ function getRouteMeta(pathname: string) {
     return {
       description: "Store and rewrap synced secrets without exposing them as raw KV entries.",
       title: "Secrets",
+    };
+  }
+
+  if (pathname.startsWith("/settings/activity") || pathname.startsWith("/activity")) {
+    return {
+      description: "Track recent sync work, pending transfers, and storage activity.",
+      title: "Activity",
     };
   }
 

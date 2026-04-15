@@ -124,7 +124,7 @@ export default function GettingStarted() {
           </button>
 
           <button
-            onClick={() => navigate("/network")}
+            onClick={() => navigate("/settings/network")}
             className="w-full flex items-center gap-4 p-4 rounded-xl bg-surface-container hover:bg-surface-container-high transition-colors text-on-surface"
           >
             <Icon name="hub" className="text-2xl text-secondary" />

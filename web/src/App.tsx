@@ -41,21 +41,25 @@ export default function App() {
         <Route element={<Layout />}>
           <Route index element={<HomeRedirect />} />
           <Route path="getting-started" element={<GettingStarted />} />
-          <Route path="devices" element={<Devices />} />
-          <Route path="devices/invite" element={<InviteDevice />} />
           <Route path="agents" element={<Agents />} />
           <Route path="agents/create" element={<Navigate replace to="/settings/sandboxes?template=openclaw" />} />
           <Route path="agents/connect" element={<AgentConnect />} />
           <Route path="agents/:agentId" element={<AgentChat />} />
-          <Route path="mailbox" element={<Mailbox />} />
-          <Route path="sandboxes" element={<Navigate replace to="/settings/sandboxes" />} />
-          <Route path="sandboxes/:name" element={<SandboxLegacyRedirect />} />
-          <Route path="network" element={<Network />} />
-          <Route path="kv" element={<KVStore />} />
           <Route path="drives" element={<Drives />} />
           <Route path="drives/:name/*" element={<FileBrowser />} />
           <Route path="bucket/*" element={<Bucket />} />
-          <Route path="activity" element={<Activity />} />
+          <Route path="devices" element={<Devices />} />
+          <Route path="devices/invite" element={<InviteDevice />} />
+          <Route path="mailbox" element={<Navigate replace to="/settings/mailbox" />} />
+          <Route path="sandboxes" element={<Navigate replace to="/settings/sandboxes" />} />
+          <Route path="sandboxes/:name" element={<SandboxLegacyRedirect />} />
+          <Route path="network" element={<Navigate replace to="/settings/network" />} />
+          <Route path="kv" element={<Navigate replace to="/settings/kv" />} />
+          <Route path="activity" element={<Navigate replace to="/settings/activity" />} />
+          <Route path="settings/mailbox" element={<Mailbox />} />
+          <Route path="settings/network" element={<Network />} />
+          <Route path="settings/kv" element={<KVStore />} />
+          <Route path="settings/activity" element={<Activity />} />
           <Route path="settings/apps" element={<SettingsApps />} />
           <Route path="settings/secrets" element={<SettingsSecrets />} />
           <Route path="settings/sandboxes" element={<Sandboxes />} />

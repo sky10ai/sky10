@@ -57,6 +57,33 @@ function walletExplorerHref(chain: WalletTab, address: string) {
     : `https://basescan.org/address/${encodeURIComponent(address)}`;
 }
 
+const settingsTools = [
+  {
+    description: "Inspect durable queues, approvals, retries, and delivery history.",
+    icon: "inbox",
+    label: "Mailbox",
+    to: "/settings/mailbox",
+  },
+  {
+    description: "Watch peers, relays, mailbox delivery health, and network events.",
+    icon: "hub",
+    label: "Network",
+    to: "/settings/network",
+  },
+  {
+    description: "Inspect replicated keys and edit the live distributed key-value store.",
+    icon: "database",
+    label: "Key-Value",
+    to: "/settings/kv",
+  },
+  {
+    description: "Track pending sync work and recent storage activity across drives.",
+    icon: "monitor_heart",
+    label: "Activity",
+    to: "/settings/activity",
+  },
+] as const;
+
 export default function Settings() {
   const { data: health } = useRPC(() => skyfs.health(), [], {
     live: STORAGE_EVENT_TYPES,
@@ -485,6 +512,47 @@ export default function Settings() {
           </div>
         </Link>
       </div>
+
+      <section className="space-y-4">
+        <div className="space-y-1">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
+            Operational Views
+          </p>
+          <h3 className="text-xl font-semibold text-on-surface">
+            Open runtime dashboards from Settings
+          </h3>
+          <p className="max-w-2xl text-sm text-secondary">
+            Mailbox, networking, KV inspection, and sync activity now live under the settings area instead of the primary sidebar.
+          </p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {settingsTools.map((tool) => (
+            <Link
+              key={tool.to}
+              className="group rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
+              to={tool.to}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-2">
+                  <h4 className="text-lg font-semibold text-on-surface">
+                    {tool.label}
+                  </h4>
+                  <p className="text-sm text-secondary">
+                    {tool.description}
+                  </p>
+                </div>
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-surface-container text-primary transition-colors group-hover:bg-primary/10">
+                  <Icon className="text-xl" name={tool.icon} />
+                </div>
+              </div>
+              <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary transition-colors group-hover:text-on-surface">
+                Open {tool.label}
+                <Icon className="text-base" name="arrow_forward" />
+              </div>
+            </Link>
+          ))}
+        </div>
+      </section>
 
       <div className="grid grid-cols-12 gap-6">
         <section className="col-span-12 lg:col-span-7 bg-surface-container-lowest rounded-xl p-8 flex flex-col justify-between group hover:shadow-xl transition-all duration-500 border border-transparent">
