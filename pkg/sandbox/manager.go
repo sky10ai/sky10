@@ -169,6 +169,8 @@ type Manager struct {
 	issueIdentityInvite      func(context.Context) (*IdentityInvite, error)
 	hostRPC                  func(context.Context, string, interface{}, interface{}) error
 	guestRPC                 func(context.Context, string, string, interface{}, interface{}) error
+	reconnectInterval        time.Duration
+	reconnectSweepTimeout    time.Duration
 }
 
 func NewManager(emit Emitter, logger *slog.Logger) (*Manager, error) {
@@ -278,6 +280,39 @@ func (m *Manager) ReconnectRunningOpenClawSandboxes(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (m *Manager) RunManagedReconnectLoop(ctx context.Context) {
+	interval := m.reconnectInterval
+	if interval <= 0 {
+		interval = 15 * time.Second
+	}
+	sweepTimeout := m.reconnectSweepTimeout
+	if sweepTimeout <= 0 {
+		sweepTimeout = 45 * time.Second
+	}
+
+	runSweep := func() {
+		sweepCtx, cancel := context.WithTimeout(ctx, sweepTimeout)
+		defer cancel()
+		if err := m.ReconnectRunningOpenClawSandboxes(sweepCtx); err != nil && sweepCtx.Err() == nil {
+			m.logger.Warn("sandbox reconnect sweep failed", "error", err)
+		}
+	}
+
+	runSweep()
+
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			runSweep()
+			timer.Reset(interval)
+		}
+	}
 }
 
 func (m *Manager) waitForGuestIdentityMatch(ctx context.Context, rec Record, hostIdentity string) error {

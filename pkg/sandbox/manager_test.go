@@ -1230,6 +1230,127 @@ func TestReconnectRunningOpenClawSandboxes(t *testing.T) {
 	}
 }
 
+func TestRunManagedReconnectLoopRetriesAfterLaterGuestRecovery(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["openclaw-m8"] = Record{
+		Name:      "openclaw-m8",
+		Slug:      "openclaw-m8",
+		Provider:  providerLima,
+		Template:  templateOpenClaw,
+		Status:    "ready",
+		VMStatus:  "Running",
+		IPAddress: "192.168.64.17",
+		SharedDir: filepath.Join(t.TempDir(), "openclaw-m8"),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	m.reconnectSweepTimeout = 20 * time.Millisecond
+	m.reconnectInterval = 10 * time.Millisecond
+
+	m.appStatus = func(id skyapps.ID) (*skyapps.Status, error) {
+		return &skyapps.Status{ActivePath: "/tmp/fake/" + string(id)}, nil
+	}
+	m.outputCmd = func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		switch {
+		case len(args) >= 2 && args[0] == "list" && args[1] == "--json":
+			return []byte(`{"name":"openclaw-m8","status":"Running"}` + "\n"), nil
+		default:
+			return nil, fmt.Errorf("unexpected outputCmd args: %v", args)
+		}
+	}
+	m.hostIdentity = func(context.Context) (string, error) {
+		return "sky10-host", nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var (
+		identityCalls int
+		connectCalls  int
+	)
+	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
+		switch method {
+		case "skylink.connectPeer":
+			connectCalls++
+			return nil
+		case "agent.list":
+			agents := []map[string]string{}
+			if connectCalls > 0 {
+				agents = append(agents, map[string]string{"name": "openclaw-m8"})
+				cancel()
+			}
+			body, err := json.Marshal(map[string]interface{}{"agents": agents})
+			if err != nil {
+				t.Fatalf("marshal host agent list: %v", err)
+			}
+			return json.Unmarshal(body, out)
+		default:
+			t.Fatalf("unexpected host RPC method %q", method)
+			return nil
+		}
+	}
+	m.guestRPC = func(ctx context.Context, address, method string, params interface{}, out interface{}) error {
+		if address != "192.168.64.17" {
+			t.Fatalf("guest RPC address = %q, want 192.168.64.17", address)
+		}
+		switch method {
+		case "identity.show":
+			identityCalls++
+			if identityCalls == 1 {
+				return fmt.Errorf("guest not ready yet")
+			}
+			body, err := json.Marshal(map[string]interface{}{"address": "sky10-host"})
+			if err != nil {
+				t.Fatalf("marshal guest identity show: %v", err)
+			}
+			return json.Unmarshal(body, out)
+		case "skylink.status":
+			body, err := json.Marshal(map[string]interface{}{
+				"peer_id": "12D3KooWguest",
+				"addrs": []string{
+					"/ip4/127.0.0.1/tcp/4101",
+					"/ip4/192.168.5.15/tcp/4101",
+					"/ip4/192.168.64.17/tcp/4101",
+				},
+			})
+			if err != nil {
+				t.Fatalf("marshal guest skylink status: %v", err)
+			}
+			return json.Unmarshal(body, out)
+		default:
+			t.Fatalf("unexpected guest RPC method %q", method)
+			return nil
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		m.RunManagedReconnectLoop(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("managed reconnect loop did not stop after successful retry")
+	}
+
+	if identityCalls < 2 {
+		t.Fatalf("identity.show calls = %d, want at least 2", identityCalls)
+	}
+	if connectCalls != 1 {
+		t.Fatalf("connectPeer calls = %d, want 1", connectCalls)
+	}
+}
+
 func TestReconnectGuestUsesSandboxIPAddress(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
 

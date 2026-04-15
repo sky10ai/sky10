@@ -640,13 +640,7 @@ func ServeCmd() *cobra.Command {
 					fsHandler.StartDrives()
 					fsHandler.StartAutoApprove(ctx)
 				}
-				go func() {
-					reconnectCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
-					defer cancel()
-					if err := sandboxManager.ReconnectRunningOpenClawSandboxes(reconnectCtx); err != nil && reconnectCtx.Err() == nil {
-						logger.Warn("sandbox reconnect sweep failed", "error", err)
-					}
-				}()
+				go sandboxManager.RunManagedReconnectLoop(ctx)
 			})
 
 			fmt.Println(sockPath)
