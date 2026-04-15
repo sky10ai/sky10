@@ -7,15 +7,31 @@ import { formatBytes, useRPC, truncAddr } from "../lib/useRPC";
 
 /** Subtract two decimal strings using BigInt to avoid float precision issues. */
 function subDecimal(balance: string, amount: string, decimals: number): string {
+  const scale = 10n ** BigInt(decimals);
   const toUnits = (s: string): bigint => {
     const [whole = "0", frac = ""] = s.split(".");
     const padded = frac.padEnd(decimals, "0").slice(0, decimals);
-    return BigInt(whole) * BigInt(10 ** decimals) + BigInt(padded);
+    return BigInt(whole || "0") * scale + BigInt(padded || "0");
   };
   const result = toUnits(balance) - toUnits(amount);
   if (result <= 0n) return "0";
-  const w = result / BigInt(10 ** decimals);
-  const f = result % BigInt(10 ** decimals);
+  const w = result / scale;
+  const f = result % scale;
+  if (f === 0n) return w.toString();
+  const fs = f.toString().padStart(decimals, "0").replace(/0+$/, "");
+  return `${w}.${fs}`;
+}
+
+function addDecimal(a: string, b: string, decimals: number): string {
+  const scale = 10n ** BigInt(decimals);
+  const toUnits = (s: string): bigint => {
+    const [whole = "0", frac = ""] = s.split(".");
+    const padded = frac.padEnd(decimals, "0").slice(0, decimals);
+    return BigInt(whole || "0") * scale + BigInt(padded || "0");
+  };
+  const result = toUnits(a) + toUnits(b);
+  const w = result / scale;
+  const f = result % scale;
   if (f === 0n) return w.toString();
   const fs = f.toString().padStart(decimals, "0").replace(/0+$/, "");
   return `${w}.${fs}`;
@@ -31,6 +47,15 @@ const UPDATE_REFRESH_EVENTS = [
 
 type UpdateAction = "idle" | "downloading" | "installing" | "restarting";
 type WalletTab = "solana" | "base";
+
+const SOLANA_CHAIN = "solana";
+const BASE_CHAIN = "eip155:8453";
+
+function walletExplorerHref(chain: WalletTab, address: string) {
+  return chain === "solana"
+    ? `https://explorer.solana.com/address/${encodeURIComponent(address)}`
+    : `https://basescan.org/address/${encodeURIComponent(address)}`;
+}
 
 export default function Settings() {
   const { data: health } = useRPC(() => skyfs.health(), [], {
@@ -234,7 +259,7 @@ export default function Settings() {
   });
 
   const [activeWalletTab, setActiveWalletTab] = useState<WalletTab>("solana");
-  const [copied, setCopied] = useState(false);
+  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [withdrawTo, setWithdrawTo] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
@@ -288,14 +313,14 @@ export default function Settings() {
   );
   const firstWallet = walletList?.wallets?.[0]?.name;
   const { data: solanaWalletAddr } = useRPC(
-    () => (firstWallet ? wallet.address({ wallet: firstWallet, chain: "solana" }) : Promise.resolve(null)),
+    () => (firstWallet ? wallet.address({ wallet: firstWallet, chain: SOLANA_CHAIN }) : Promise.resolve(null)),
     [firstWallet],
   );
   const {
     data: baseWalletAddr,
     error: baseWalletError,
   } = useRPC(
-    () => (firstWallet ? wallet.address({ wallet: firstWallet, chain: "eip155:8453" }) : Promise.resolve(null)),
+    () => (firstWallet ? wallet.address({ wallet: firstWallet, chain: BASE_CHAIN }) : Promise.resolve(null)),
     [firstWallet],
   );
   const {
@@ -304,30 +329,35 @@ export default function Settings() {
     pause: pauseSolanaBalance,
     resume: resumeSolanaBalance,
   } = useRPC(
-    () => (firstWallet ? wallet.balance({ wallet: firstWallet, chain: "solana" }) : Promise.resolve(null)),
+    () => (firstWallet ? wallet.balance({ wallet: firstWallet, chain: SOLANA_CHAIN }) : Promise.resolve(null)),
     [firstWallet],
     { refreshIntervalMs: 30_000 },
   );
   const {
     data: baseWalletBal,
     error: baseWalletBalError,
+    mutate: mutateBaseBalance,
+    pause: pauseBaseBalance,
+    resume: resumeBaseBalance,
   } = useRPC(
-    () => (firstWallet ? wallet.balance({ wallet: firstWallet, chain: "eip155:8453" }) : Promise.resolve(null)),
+    () => (firstWallet ? wallet.balance({ wallet: firstWallet, chain: BASE_CHAIN }) : Promise.resolve(null)),
     [firstWallet],
     { refreshIntervalMs: 30_000 },
   );
 
   useEffect(() => {
-    if (activeWalletTab === "solana") return;
     setShowWithdraw(false);
+    setWithdrawTo("");
+    setWithdrawAmount("");
     setWithdrawError(null);
     setFeeHint(null);
+    setWithdrawToken(activeWalletTab === "solana" ? "SOL" : "ETH");
   }, [activeWalletTab]);
 
   const handleCopyWalletAddress = useCallback((address: string) => {
     navigator.clipboard.writeText(address);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedAddress(address);
+    setTimeout(() => setCopiedAddress((current) => (current === address ? null : current)), 2000);
   }, []);
 
   const legacyMode = stagedUpdate?.mode === "legacy";
@@ -813,7 +843,8 @@ export default function Settings() {
                 {solanaWalletAddr?.address && (
                   <WalletAddressCard
                     address={solanaWalletAddr.address}
-                    copied={copied}
+                    copied={copiedAddress === solanaWalletAddr.address}
+                    explorerHref={walletExplorerHref("solana", solanaWalletAddr.address)}
                     label="Solana Address"
                     onCopy={handleCopyWalletAddress}
                   />
@@ -841,7 +872,7 @@ export default function Settings() {
                   </p>
                 )}
 
-                {showWithdraw && (
+                {activeWalletTab === "solana" && showWithdraw && (
                   <div className="space-y-3 bg-surface-container p-4 rounded-lg">
                     <input
                       type="text"
@@ -866,7 +897,7 @@ export default function Settings() {
                             if (!firstWallet) return;
                             if (withdrawToken === "SOL") {
                               try {
-                                const result = await wallet.maxTransfer({ wallet: firstWallet });
+                                const result = await wallet.maxTransfer({ wallet: firstWallet, chain: SOLANA_CHAIN });
                                 setWithdrawAmount(result.max);
                                 setFeeHint(`Balance minus ${result.fee} SOL gas`);
                                 setTimeout(() => setFeeHint(null), 3000);
@@ -918,9 +949,10 @@ export default function Settings() {
                           pauseSolanaBalance();
                           try {
                             const sentToken = withdrawToken;
-                            const { fee: feeStr } = await wallet.maxTransfer({ wallet: firstWallet });
+                            const { fee: feeStr } = await wallet.maxTransfer({ wallet: firstWallet, chain: SOLANA_CHAIN });
                             await wallet.transfer({
                               wallet: firstWallet,
+                              chain: SOLANA_CHAIN,
                               to: withdrawTo,
                               amount: withdrawAmount,
                               token: withdrawToken,
@@ -936,7 +968,9 @@ export default function Settings() {
                               const updated = prev.tokens.map((t) => {
                                 const decimals = t.symbol === "SOL" ? 9 : 6;
                                 if (t.symbol === "SOL") {
-                                  const deduct = isSol ? withdrawAmount : feeStr;
+                                  const deduct = isSol
+                                    ? addDecimal(withdrawAmount, feeStr, decimals)
+                                    : feeStr;
                                   return { ...t, balance: subDecimal(t.balance, deduct, decimals) };
                                 }
                                 if (!isSol && t.symbol === sentToken) {
@@ -978,7 +1012,7 @@ export default function Settings() {
                       onClick={async () => {
                         if (!firstWallet) return;
                         try {
-                          const result = await wallet.deposit({ wallet: firstWallet });
+                          const result = await wallet.deposit({ wallet: firstWallet, chain: SOLANA_CHAIN });
                           if (result.url) window.open(result.url, "_blank");
                         } catch {
                           // deposit may not return a URL on all platforms
@@ -1002,7 +1036,8 @@ export default function Settings() {
                 {baseWalletAddr?.address ? (
                   <WalletAddressCard
                     address={baseWalletAddr.address}
-                    copied={copied}
+                    copied={copiedAddress === baseWalletAddr.address}
+                    explorerHref={walletExplorerHref("base", baseWalletAddr.address)}
                     label="Base Address"
                     onCopy={handleCopyWalletAddress}
                   />
@@ -1032,13 +1067,163 @@ export default function Settings() {
                   <p className="text-xs text-error">{baseWalletBalError}</p>
                 )}
 
+                {withdrawSuccess && (
+                  <p className="text-xs text-primary font-medium animate-pulse">
+                    Transfer sent successfully
+                  </p>
+                )}
+
+                {activeWalletTab === "base" && showWithdraw && (
+                  <div className="space-y-3 bg-surface-container p-4 rounded-lg">
+                    <input
+                      type="text"
+                      placeholder="Recipient address"
+                      value={withdrawTo}
+                      onChange={(e) => setWithdrawTo(e.target.value)}
+                      className="w-full bg-surface-container-high text-sm rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-primary font-mono"
+                    />
+                    <div className="flex gap-2 min-w-0">
+                      <div className="min-w-0 flex-1 relative">
+                        <input
+                          type="text"
+                          placeholder="Amount"
+                          value={withdrawAmount}
+                          onChange={(e) => setWithdrawAmount(e.target.value)}
+                          className="w-full bg-surface-container-high text-sm rounded-lg px-3 py-2 pr-12 outline-none focus:ring-1 focus:ring-primary font-mono"
+                        />
+                        <button
+                          type="button"
+                          onMouseDown={async (e) => {
+                            e.preventDefault();
+                            if (!firstWallet) return;
+                            if (withdrawToken === "ETH") {
+                              try {
+                                const result = await wallet.maxTransfer({ wallet: firstWallet, chain: BASE_CHAIN });
+                                setWithdrawAmount(result.max);
+                                setFeeHint(`Balance minus ${result.fee} ETH gas`);
+                                setTimeout(() => setFeeHint(null), 3000);
+                              } catch {
+                                const tok = baseWalletBal?.tokens?.find((t) => t.symbol === "ETH");
+                                setWithdrawAmount(tok?.balance ?? "0");
+                              }
+                            } else {
+                              const tok = baseWalletBal?.tokens?.find((t) => t.symbol === withdrawToken);
+                              setWithdrawAmount(tok?.balance ?? "0");
+                            }
+                          }}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-primary hover:text-primary/70 transition-colors z-10 px-1"
+                        >
+                          ALL
+                        </button>
+                      </div>
+                      <select
+                        value={withdrawToken}
+                        onChange={(e) => setWithdrawToken(e.target.value)}
+                        className="w-20 shrink-0 bg-surface-container-high text-sm rounded-lg px-2 py-2 outline-none focus:ring-1 focus:ring-primary"
+                      >
+                        <option value="ETH">ETH</option>
+                        <option value="USDC">USDC</option>
+                      </select>
+                    </div>
+                    {feeHint && (
+                      <p className="text-[10px] text-secondary animate-pulse">
+                        {feeHint}
+                      </p>
+                    )}
+                    {withdrawError && (
+                      <p className="text-xs text-error">{withdrawError}</p>
+                    )}
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        onClick={() => { setShowWithdraw(false); setWithdrawError(null); }}
+                        className="text-xs font-semibold text-secondary hover:text-on-surface px-3 py-1.5 rounded-full transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        disabled={withdrawing || !withdrawTo || !withdrawAmount}
+                        onClick={async () => {
+                          if (!firstWallet) return;
+                          setWithdrawing(true);
+                          setWithdrawError(null);
+                          pauseBaseBalance();
+                          try {
+                            const sentToken = withdrawToken;
+                            const { fee: feeStr } = await wallet.maxTransfer({ wallet: firstWallet, chain: BASE_CHAIN });
+                            await wallet.transfer({
+                              wallet: firstWallet,
+                              chain: BASE_CHAIN,
+                              to: withdrawTo,
+                              amount: withdrawAmount,
+                              token: withdrawToken,
+                            });
+                            setShowWithdraw(false);
+                            setWithdrawTo("");
+                            setWithdrawAmount("");
+                            setWithdrawSuccess(true);
+                            setTimeout(() => setWithdrawSuccess(false), 4000);
+                            const isEth = !sentToken || sentToken === "ETH";
+                            mutateBaseBalance((prev) => {
+                              if (!prev?.tokens) return prev;
+                              const updated = prev.tokens.map((t) => {
+                                const decimals = t.symbol === "ETH" ? 18 : 6;
+                                if (t.symbol === "ETH") {
+                                  const deduct = isEth
+                                    ? addDecimal(withdrawAmount, feeStr, decimals)
+                                    : feeStr;
+                                  return { ...t, balance: subDecimal(t.balance, deduct, decimals) };
+                                }
+                                if (!isEth && t.symbol === sentToken) {
+                                  return { ...t, balance: subDecimal(t.balance, withdrawAmount, decimals) };
+                                }
+                                return t;
+                              });
+                              return { ...prev, tokens: updated };
+                            });
+                            setTimeout(resumeBaseBalance, 15_000);
+                          } catch (e: unknown) {
+                            setWithdrawError(e instanceof Error ? e.message : "Transfer failed");
+                            resumeBaseBalance();
+                          } finally {
+                            setWithdrawing(false);
+                          }
+                        }}
+                        className="text-xs font-semibold bg-primary text-on-primary px-4 py-1.5 rounded-full disabled:opacity-40 transition-all active:scale-95"
+                      >
+                        {withdrawing ? "Sending..." : "Send"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between pt-2">
                   {walletStatus.version && (
                     <p className="text-[10px] text-secondary">{walletStatus.version}</p>
                   )}
-                  <p className="text-xs font-semibold text-secondary">
-                    Send and fund stay on Solana for now.
-                  </p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setShowWithdraw(!showWithdraw)}
+                      className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors flex items-center gap-1"
+                    >
+                      <Icon name="send" className="text-sm" />
+                      Send
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!firstWallet) return;
+                        try {
+                          const result = await wallet.deposit({ wallet: firstWallet, chain: BASE_CHAIN });
+                          if (result.url) window.open(result.url, "_blank");
+                        } catch {
+                          // deposit may not return a URL on all platforms
+                        }
+                      }}
+                      className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors flex items-center gap-1"
+                    >
+                      <Icon name="add" className="text-sm" />
+                      Fund
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1129,11 +1314,13 @@ function WalletBalanceList({
 function WalletAddressCard({
   address,
   copied,
+  explorerHref,
   label,
   onCopy,
 }: {
   address: string;
   copied: boolean;
+  explorerHref: string;
   label: string;
   onCopy: (address: string) => void;
 }) {
@@ -1143,17 +1330,32 @@ function WalletAddressCard({
         {label}
       </label>
       <div
-        className="flex items-center gap-2 bg-surface-container p-3 rounded-lg group/addr cursor-pointer"
-        onClick={() => onCopy(address)}
+        className="flex items-center gap-2 bg-surface-container p-3 rounded-lg"
       >
         <code className="text-xs font-mono text-primary flex-1 truncate">
           {address}
         </code>
-        {copied ? (
-          <Icon name="check" className="text-primary text-sm" />
-        ) : (
-          <Icon name="content_copy" className="text-secondary group-hover/addr:text-primary transition-colors text-sm" />
-        )}
+        <a
+          href={explorerHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-secondary transition-colors hover:text-primary"
+          title="Open in block explorer"
+        >
+          <Icon name="link" className="text-sm" />
+        </a>
+        <button
+          type="button"
+          onClick={() => onCopy(address)}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-secondary transition-colors hover:text-primary"
+          title="Copy address"
+        >
+          {copied ? (
+            <Icon name="check" className="text-primary text-sm" />
+          ) : (
+            <Icon name="content_copy" className="text-sm" />
+          )}
+        </button>
       </div>
     </div>
   );

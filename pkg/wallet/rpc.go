@@ -237,11 +237,16 @@ func (h *RPCHandler) rpcDeposit(ctx context.Context, params json.RawMessage) (in
 	if p.Wallet == "" {
 		return nil, fmt.Errorf("wallet is required")
 	}
-	return h.client.Deposit(ctx, p.Wallet)
+	chain := strings.TrimSpace(p.Chain)
+	if chain == "" {
+		chain = ChainSolana
+	}
+	return h.client.DepositForChain(ctx, p.Wallet, chain)
 }
 
 type transferParams struct {
 	Wallet string `json:"wallet"`
+	Chain  string `json:"chain,omitempty"`
 	To     string `json:"to"`
 	Amount string `json:"amount"`
 	Token  string `json:"token,omitempty"`
@@ -261,7 +266,11 @@ func (h *RPCHandler) rpcTransfer(ctx context.Context, params json.RawMessage) (i
 	if p.Amount == "" {
 		return nil, fmt.Errorf("amount is required")
 	}
-	return h.client.Transfer(ctx, p.Wallet, p.To, p.Amount, p.Token)
+	chain := strings.TrimSpace(p.Chain)
+	if chain == "" {
+		chain = ChainSolana
+	}
+	return h.client.TransferForChain(ctx, p.Wallet, chain, p.To, p.Amount, p.Token)
 }
 
 func (h *RPCHandler) rpcMaxTransfer(ctx context.Context, params json.RawMessage) (interface{}, error) {
@@ -272,5 +281,9 @@ func (h *RPCHandler) rpcMaxTransfer(ctx context.Context, params json.RawMessage)
 	if p.Wallet == "" {
 		return nil, fmt.Errorf("wallet is required")
 	}
-	return h.client.MaxTransfer(ctx, p.Wallet)
+	chain := strings.TrimSpace(p.Chain)
+	if chain == "" {
+		chain = ChainSolana
+	}
+	return h.client.MaxTransferForChain(ctx, p.Wallet, chain)
 }

@@ -23,7 +23,13 @@ func TestClient_NilReturnsErrNotInstalled(t *testing.T) {
 		{"Balance", func() (err error) { _, err = c.Balance(ctx, "test"); return }},
 		{"Pay", func() (err error) { _, err = c.Pay(ctx, "test", "https://example.com"); return }},
 		{"Deposit", func() (err error) { _, err = c.Deposit(ctx, "test"); return }},
+		{"DepositForChain", func() (err error) { _, err = c.DepositForChain(ctx, "test", ChainBase); return }},
 		{"Transfer", func() (err error) { _, err = c.Transfer(ctx, "test", "addr", "1.0", "SOL"); return }},
+		{"TransferForChain", func() (err error) {
+			_, err = c.TransferForChain(ctx, "test", ChainBase, "0x1111111111111111111111111111111111111111", "1.0", "ETH")
+			return
+		}},
+		{"MaxTransferForChain", func() (err error) { _, err = c.MaxTransferForChain(ctx, "test", ChainBase); return }},
 	}
 
 	for _, tt := range tests {
@@ -32,6 +38,31 @@ func TestClient_NilReturnsErrNotInstalled(t *testing.T) {
 			err := tt.fn()
 			if err != ErrNotInstalled {
 				t.Errorf("got %v, want ErrNotInstalled", err)
+			}
+		})
+	}
+}
+
+func TestOWSChainArg(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "default solana", input: "", want: ChainSolana},
+		{name: "solana", input: ChainSolana, want: ChainSolana},
+		{name: "base caip", input: ChainBase, want: "base"},
+		{name: "base alias", input: "base", want: "base"},
+		{name: "passthrough", input: "eip155:1", want: "eip155:1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := owsChainArg(tt.input); got != tt.want {
+				t.Fatalf("owsChainArg(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}

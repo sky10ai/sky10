@@ -1,6 +1,7 @@
 // Package wallet wraps the Open Wallet Standard (OWS) CLI for
-// agent-to-agent payments on Solana. The ows binary is optional;
-// all methods return ErrNotInstalled when it is missing.
+// agent-to-agent payments on supported chains like Solana and Base.
+// The ows binary is optional; all methods return ErrNotInstalled when
+// it is missing.
 package wallet
 
 import (
@@ -50,6 +51,17 @@ func findClient() *Client {
 
 // Available reports whether the ows binary was found.
 func (c *Client) Available() bool { return c != nil }
+
+func owsChainArg(chain string) string {
+	switch strings.ToLower(strings.TrimSpace(chain)) {
+	case "", ChainSolana:
+		return ChainSolana
+	case "base", ChainBase:
+		return "base"
+	default:
+		return strings.TrimSpace(chain)
+	}
+}
 
 // Wallet describes a wallet returned by the ows CLI.
 type Wallet struct {
@@ -304,23 +316,37 @@ type MaxTransferResult struct {
 	Fee string `json:"fee"`
 }
 
-// MaxTransfer returns the maximum SOL that can be sent, accounting for fees.
+// MaxTransfer returns the maximum native amount that can be sent on Solana,
+// accounting for fees.
 func (c *Client) MaxTransfer(ctx context.Context, walletName string) (*MaxTransferResult, error) {
+	return c.MaxTransferForChain(ctx, walletName, ChainSolana)
+}
+
+// MaxTransferForChain returns the maximum native amount that can be sent on the requested chain,
+// accounting for estimated network fees.
+func (c *Client) MaxTransferForChain(ctx context.Context, walletName, chain string) (*MaxTransferResult, error) {
 	if c == nil {
 		return nil, ErrNotInstalled
 	}
-	addr, err := c.Address(ctx, walletName)
+	addr, err := c.AddressForChain(ctx, walletName, chain)
 	if err != nil {
 		return nil, err
 	}
-	max, fee, err := maxSOLTransfer(ctx, addr)
-	if err != nil {
-		return nil, err
+	switch strings.ToLower(strings.TrimSpace(chain)) {
+	case "", ChainSolana:
+		max, fee, err := maxSOLTransfer(ctx, addr)
+		if err != nil {
+			return nil, err
+		}
+		return &MaxTransferResult{
+			Max: formatLamports(max),
+			Fee: formatLamports(fee),
+		}, nil
+	case "base", ChainBase:
+		return baseMaxTransfer(ctx, addr)
+	default:
+		return nil, fmt.Errorf("unsupported max transfer chain: %s", chain)
 	}
-	return &MaxTransferResult{
-		Max: formatLamports(max),
-		Fee: formatLamports(fee),
-	}, nil
 }
 
 // Balance returns token balances for the wallet on Solana.
@@ -370,33 +396,60 @@ type DepositResult struct {
 
 // Deposit initiates a fiat-to-crypto on-ramp for the given wallet on Solana.
 func (c *Client) Deposit(ctx context.Context, walletName string) (*DepositResult, error) {
+	return c.DepositForChain(ctx, walletName, ChainSolana)
+}
+
+// DepositForChain initiates a fiat-to-crypto on-ramp for the given wallet on the requested chain.
+func (c *Client) DepositForChain(ctx context.Context, walletName, chain string) (*DepositResult, error) {
 	if c == nil {
 		return nil, ErrNotInstalled
 	}
-	out, err := c.run(ctx, "fund", "deposit", "--wallet", walletName, "--chain", ChainSolana)
-	if err != nil {
-		return nil, fmt.Errorf("deposit for wallet %q: %w", walletName, err)
+	normalizedChain := strings.TrimSpace(chain)
+	if normalizedChain == "" {
+		normalizedChain = ChainSolana
 	}
-	result := &DepositResult{Chain: ChainSolana, Status: string(out)}
+	out, err := c.run(ctx, "fund", "deposit", "--wallet", walletName, "--chain", owsChainArg(normalizedChain))
+	if err != nil {
+		return nil, fmt.Errorf("deposit for wallet %q on %s: %w", walletName, normalizedChain, err)
+	}
+	result := &DepositResult{Chain: normalizedChain, Status: string(out)}
 	// Look for a URL in the output.
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://") {
-			result.URL = line
+		if idx := strings.Index(line, "https://"); idx >= 0 {
+			result.URL = line[idx:]
+			break
+		}
+		if idx := strings.Index(line, "http://"); idx >= 0 {
+			result.URL = line[idx:]
 			break
 		}
 	}
 	return result, nil
 }
 
-// Transfer sends SOL or SPL tokens from the wallet to a Solana address.
-// It builds the appropriate transaction, then uses `ows sign send-tx`
-// to sign and broadcast it.
+// Transfer sends a supported token on Solana.
 func (c *Client) Transfer(ctx context.Context, walletName, to, amount, token string) (*PayResult, error) {
+	return c.TransferForChain(ctx, walletName, ChainSolana, to, amount, token)
+}
+
+// TransferForChain sends a supported token on the requested chain.
+func (c *Client) TransferForChain(ctx context.Context, walletName, chain, to, amount, token string) (*PayResult, error) {
 	if c == nil {
 		return nil, ErrNotInstalled
 	}
 
+	switch strings.ToLower(strings.TrimSpace(chain)) {
+	case "", ChainSolana:
+		return c.transferSolana(ctx, walletName, to, amount, token)
+	case "base", ChainBase:
+		return c.transferBase(ctx, walletName, to, amount, token)
+	default:
+		return nil, fmt.Errorf("unsupported transfer chain: %s", chain)
+	}
+}
+
+func (c *Client) transferSolana(ctx context.Context, walletName, to, amount, token string) (*PayResult, error) {
 	from, err := c.Address(ctx, walletName)
 	if err != nil {
 		return nil, fmt.Errorf("getting sender address: %w", err)
@@ -437,10 +490,12 @@ func (c *Client) Transfer(ctx context.Context, walletName, to, amount, token str
 		return nil, fmt.Errorf("transfer to %s: %w", to, err)
 	}
 
-	return &PayResult{
+	result := &PayResult{
 		Status: string(out),
 		Amount: amount,
-	}, nil
+	}
+	parseBroadcastResult(out, result)
+	return result, nil
 }
 
 // run executes the ows CLI with the given arguments.

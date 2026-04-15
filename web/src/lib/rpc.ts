@@ -235,10 +235,10 @@ export const wallet = {
   list: () => rpc<WalletListResult>("wallet.list"),
   address: (p: { wallet: string; chain?: string }) => rpc<WalletAddress>("wallet.address", p),
   balance: (p: { wallet: string; chain?: string }) => rpc<WalletBalance>("wallet.balance", p),
-  deposit: (p: { wallet: string }) => rpc<WalletDeposit>("wallet.deposit", p),
-  transfer: (p: { wallet: string; to: string; amount: string; token?: string }) =>
+  deposit: (p: { wallet: string; chain?: string }) => rpc<WalletDeposit>("wallet.deposit", p),
+  transfer: (p: { wallet: string; chain?: string; to: string; amount: string; token?: string }) =>
     rpc<WalletTransfer>("wallet.transfer", p),
-  maxTransfer: (p: { wallet: string }) =>
+  maxTransfer: (p: { wallet: string; chain?: string }) =>
     rpc<{ max: string; fee: string }>("wallet.maxTransfer", p),
 };
 

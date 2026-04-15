@@ -119,14 +119,11 @@ func evmGetERC20Balance(ctx context.Context, address, contract string) (*big.Int
 }
 
 func encodeERC20BalanceOf(address string) (string, error) {
-	trimmed := strings.TrimPrefix(strings.TrimSpace(address), "0x")
-	if len(trimmed) != 40 {
-		return "", fmt.Errorf("invalid evm address %q", address)
+	decoded, err := decodeEVMAddress(address)
+	if err != nil {
+		return "", err
 	}
-	if _, err := hex.DecodeString(trimmed); err != nil {
-		return "", fmt.Errorf("decoding evm address %q: %w", address, err)
-	}
-	return "0x70a08231" + strings.Repeat("0", 24) + strings.ToLower(trimmed), nil
+	return "0x70a08231" + strings.Repeat("0", 24) + hex.EncodeToString(decoded), nil
 }
 
 func formatEVMUnits(value *big.Int, decimals int) string {
