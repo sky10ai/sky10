@@ -1,6 +1,6 @@
 ---
 created: 2026-04-14
-updated: 2026-04-14
+updated: 2026-04-15
 model: gpt-5.4
 ---
 
@@ -33,6 +33,25 @@ human-useful replication notes.
 - Watchers are hints; periodic scans and bounded anti-entropy are required.
 - Agent personality/state files are durable synced content, not special RPC
   metadata disguised as files.
+
+## Milestone Status Snapshot
+
+- `Milestone 0`: complete
+- `Milestone 1`: complete
+- `Milestone 2`: in progress, with the core reliability work landed
+- `Milestone 3`: contract/design complete, product wiring still pending
+- `Milestone 4`: in progress
+- `Milestone 5`: in progress, but only the foundational slices are landed
+- `Milestone 6`: in progress
+- `Milestone 7`: in progress, mostly on observability rather than the full
+  reliability matrix
+
+Current execution rule:
+
+- finish the remaining `Milestone 4` metadata-engine work before treating
+  `Milestone 5` or `Milestone 7` as the main focus
+- keep `Milestone 3` as design-only until the peer-correct FS core is more
+  complete
 
 ## Existing Work To Leverage
 
@@ -141,32 +160,34 @@ Done when:
 
 Goal: separate transfer mechanics from the watched working tree.
 
+Status: complete
+
 Reference draft:
 
 - [`fs-hidden-transfer-workspace.md`](./fs-hidden-transfer-workspace.md)
 
 Checklist:
 
-- [ ] Create a per-drive hidden transfer area outside the watched root.
-- [ ] Add `staging/` for in-progress downloads and promotions.
-- [ ] Add `objects/` for verified retained content or chunk data.
-- [ ] Add `sessions/` or equivalent resumable transfer metadata.
-- [ ] Keep transfer control state separate from bulk payload storage, following
+- [x] Create a per-drive hidden transfer area outside the watched root.
+- [x] Add `staging/` for in-progress downloads and promotions.
+- [x] Add `objects/` for verified retained content or chunk data.
+- [x] Add `sessions/` or equivalent resumable transfer metadata.
+- [x] Keep transfer control state separate from bulk payload storage, following
       the mailbox layering pattern.
-- [ ] Update remote download paths to assemble and verify in hidden storage
+- [x] Update remote download paths to assemble and verify in hidden storage
       first.
-- [ ] Publish into the working tree only via atomic rename or equivalent
+- [x] Publish into the working tree only via atomic rename or equivalent
       promotion.
-- [ ] Apply the "persist first, publish second" rule to remote file materialization.
-- [ ] Ensure watcher logic ignores all internal staging/object paths.
-- [ ] Define crash recovery and cleanup for stale transfer state.
+- [x] Apply the "persist first, publish second" rule to remote file materialization.
+- [x] Ensure watcher logic ignores all internal staging/object paths.
+- [x] Define crash recovery and cleanup for stale transfer state.
 
 Done when:
 
-- [ ] Remote downloads never create partial visible files.
-- [ ] Watcher events from our own transfer workspace are no longer part of
+- [x] Remote downloads never create partial visible files.
+- [x] Watcher events from our own transfer workspace are no longer part of
       normal sync behavior.
-- [ ] Interrupted downloads leave recoverable state instead of ambiguous files.
+- [x] Interrupted downloads leave recoverable state instead of ambiguous files.
 
 Likely repo touchpoints:
 
@@ -181,21 +202,23 @@ Likely repo touchpoints:
 Goal: make local change detection reliable without trusting watcher events
 alone.
 
+Status: in progress
+
 Checklist:
 
-- [ ] Add periodic full scan alongside the watcher.
-- [ ] Add a periodic reconcile tick so missed pokes self-heal.
-- [ ] Route watcher-detected and scan-detected changes through one mutation
+- [x] Add periodic full scan alongside the watcher.
+- [x] Add a periodic reconcile tick so missed pokes self-heal.
+- [x] Route watcher-detected and scan-detected changes through one mutation
       path.
-- [ ] Add stable-write handling so large local writes are not uploaded too
+- [x] Add stable-write handling so large local writes are not uploaded too
       early.
 - [ ] Define scan cadence, jitter, and backoff behavior.
-- [ ] Add tests for missed watcher events and long-running local writes.
+- [x] Add tests for missed watcher events and long-running local writes.
 
 Done when:
 
-- [ ] Missed watcher events no longer require restart to recover.
-- [ ] Local write churn does not produce unstable sync state.
+- [x] Missed watcher events no longer require restart to recover.
+- [x] Local write churn does not produce unstable sync state.
 
 Likely repo touchpoints:
 
@@ -210,6 +233,8 @@ Likely repo touchpoints:
 
 Goal: ship the first durable personality-sharing drive on the current engine
 while deeper FS work continues.
+
+Status: design complete, implementation pending
 
 Reference draft:
 
@@ -236,12 +261,22 @@ Checklist:
 - [x] Ensure the `Agents` drive uses the same durable FS semantics as ordinary
       synced content rather than special-casing agent personality files.
 
+Implementation follow-up checklist:
+
+- [ ] Create/provision an `Agents` drive through normal drive flows.
+- [ ] Seed a new agent folder with `soul.md`, `memory.md`, `sky10.md`,
+      `notes/`, and `attachments/`.
+- [ ] Wire runtime-side agent/profile creation to the `Agents` drive contract.
+- [ ] Add UI affordances for recognizing and opening the `Agents` drive.
+- [ ] Add tests for initial folder seeding and cross-machine recreation inputs.
+
 Done when:
 
 - [x] A user can point to one agent folder and understand how that folder is
       meant to recreate the agent elsewhere.
 - [x] `sky10.md` is specific enough to be operationally useful, not just a
       prose note.
+- [ ] A user can create and sync an actual `Agents` drive in the product.
 
 Likely repo touchpoints:
 
@@ -270,28 +305,32 @@ Initial `sky10.md` contract to define during this milestone:
 Goal: make non-S3 sync first-class through durable peer-native metadata
 exchange.
 
+Status: in progress
+
 Checklist:
 
 - [ ] Add a durable per-drive metadata DB for local state and remote-per-peer
       state.
-- [ ] Persist explicit tombstones instead of relying on absence.
+- [x] Persist explicit tombstones instead of relying on absence.
 - [ ] Add stronger conflict metadata than timestamp-first LWW, reusing the
       causal direction established in KV hardening.
-- [ ] Add an FS libp2p metadata protocol for full sync on first contact.
-- [ ] Reuse the summary-first anti-entropy pattern proven in `pkg/kv/p2p.go`
+- [x] Add an FS libp2p metadata protocol for full sync on first contact.
+- [x] Reuse the summary-first anti-entropy pattern proven in `pkg/kv/p2p.go`
       instead of inventing a fresh snapshot-broadcast loop.
-- [ ] Add delta or summary-based anti-entropy for reconnects.
+- [x] Add delta or summary-based anti-entropy for reconnects.
 - [ ] Add periodic bounded anti-entropy even without new writes.
-- [ ] Persist peer sync state across restart.
-- [ ] Make protocol registration/startup ordering deterministic so fresh joins
+- [x] Persist peer sync state across restart.
+- [x] Make protocol registration/startup ordering deterministic so fresh joins
       do not miss FS metadata sync.
 - [ ] Add tests for long-offline catch-up and delete propagation without S3.
+- [x] Add tests for delete propagation without S3.
+- [x] Add reconnect-triggered anti-entropy without requiring a manual push.
 
 Done when:
 
 - [ ] Two peers can converge correctly after long offline periods with no S3.
-- [ ] Delete intent survives reconnects without depending on a lucky baseline.
-- [ ] Fresh private-network join can start FS metadata sync without requiring a
+- [x] Delete intent survives reconnects without depending on a lucky baseline.
+- [x] Fresh private-network join can start FS metadata sync without requiring a
       second reconnect or restart.
 
 Likely repo touchpoints:
@@ -309,24 +348,31 @@ Likely repo touchpoints:
 Goal: fetch data from the best available source instead of hardwiring one
 remote path.
 
+Status: in progress
+
 Checklist:
 
 - [ ] Build one planner that can fetch from local cache, local file reuse,
       peers, and S3.
-- [ ] Prefer local reuse before peer or S3 fetch when safe.
+- [x] Prefer local cache before peer or S3 fetch when safe.
+- [ ] Prefer local file reuse before peer or S3 fetch when safe.
 - [ ] Add bounded concurrency and backpressure for file and chunk pulls.
-- [ ] Add verified block or chunk fetch with retry and source fallback.
-- [ ] Ensure peers can serve verified data from hidden local storage.
-- [ ] Keep peer transfer as the fast/live path and S3 as the durable/bootstrap
+- [x] Add verified block or chunk fetch with retry and source fallback.
+- [x] Ensure peers can serve verified data from hidden local storage.
+- [x] Keep peer transfer as the fast/live path and S3 as the durable/bootstrap
       path without changing file semantics.
-- [ ] Ensure S3 slots in as an optional source, not a different engine.
+- [x] Ensure S3 slots in as an optional source, not a different engine.
+- [x] Surface read-source activity and last-source selection at drive/activity
+      level.
 - [ ] Surface per-file transfer progress and active source selection.
+- [ ] Add source-health scoring, retry backoff, and degraded-source policy.
 
 Done when:
 
 - [ ] The same file can be satisfied from peers in P2P-only mode and from S3
       when peers are absent, with no semantic change.
 - [ ] Existing local content reuse reduces unnecessary downloads.
+- [x] Existing local cache reuse reduces unnecessary downloads.
 
 Likely repo touchpoints:
 
@@ -341,13 +387,15 @@ Likely repo touchpoints:
 Goal: preserve and harden the recent S3 durability work without making it the
 definition of correctness.
 
+Status: in progress
+
 Checklist:
 
-- [ ] Keep upload-then-record behavior when S3 is enabled.
-- [ ] Preserve one FS model above multiple backends, following the mailbox
+- [x] Keep upload-then-record behavior when S3 is enabled.
+- [x] Preserve one FS model above multiple backends, following the mailbox
       layering rule.
-- [ ] Treat S3 as durable replica, bootstrap source, and optional blob source.
-- [ ] Ensure peer-native sync works unchanged when S3 is disabled.
+- [x] Treat S3 as durable replica, bootstrap source, and optional blob source.
+- [x] Ensure peer-native sync works unchanged when S3 is disabled.
 - [ ] Ensure cold-start or peer-absent recovery can leverage S3 when present.
 - [ ] Define S3-specific retry, validation, and health surfaces separately
       from peer health.
@@ -355,9 +403,9 @@ Checklist:
 
 Done when:
 
-- [ ] Enabling S3 improves durability and availability but does not alter
+- [x] Enabling S3 improves durability and availability but does not alter
       merge semantics.
-- [ ] Disabling S3 does not downgrade the engine into a second-class mode.
+- [x] Disabling S3 does not downgrade the engine into a second-class mode.
 
 Likely repo touchpoints:
 
@@ -371,31 +419,33 @@ Likely repo touchpoints:
 
 Goal: make the system explainable and verifiably reliable.
 
+Status: in progress
+
 Checklist:
 
-- [ ] Add per-drive health surfaces for watcher, scan, anti-entropy, peers,
+- [x] Add per-drive health surfaces for watcher, scan, anti-entropy, peers,
       staging, and S3.
 - [ ] Reuse KV-style sync health expectations: readiness, peer count, last
       successful anti-entropy, and loud failure surfaces.
-- [ ] Add clear user-visible transfer phases: scanning, uploading,
+- [x] Add clear user-visible transfer phases: scanning, uploading,
       downloading, reconciling, retrying, conflict, degraded.
-- [ ] Reuse mailbox-style lifecycle visibility for transfer sessions and stuck
+- [x] Reuse mailbox-style lifecycle visibility for transfer sessions and stuck
       work: attempted, in-progress, failed, retrying, delivered/published.
 - [ ] Make conflict-copy behavior explicit and testable.
 - [ ] Review Windows, case-sensitivity, and path-normalization edge cases.
-- [ ] Add end-to-end coverage for P2P-only two-device sync.
+- [x] Add end-to-end coverage for P2P-only two-device sync.
 - [ ] Add end-to-end coverage for P2P-only offline catch-up.
-- [ ] Add end-to-end coverage for P2P-only delete propagation.
+- [x] Add end-to-end coverage for P2P-only delete propagation.
 - [ ] Add end-to-end coverage for conflict copy behavior.
-- [ ] Add end-to-end coverage for restart during download.
-- [ ] Add end-to-end coverage for restart during publish.
+- [x] Add end-to-end coverage for restart during download.
+- [x] Add end-to-end coverage for restart during publish.
 - [ ] Add end-to-end coverage for peer unavailable, S3 available.
 - [ ] Add end-to-end coverage for peer available, S3 unavailable.
 - [ ] Add end-to-end coverage for hybrid peer+S3 recovery.
 
 Done when:
 
-- [ ] A user can tell why a drive is behind or degraded without reading raw
+- [x] A user can tell why a drive is behind or degraded without reading raw
       logs.
 - [ ] Reliability claims are backed by repeatable tests instead of manual
       confidence.
@@ -412,14 +462,22 @@ Likely repo touchpoints:
 
 ## Recommended Order
 
+Completed:
+
 1. Milestone 0
 2. Milestone 1
-3. Milestone 2
-4. Milestone 3
-5. Milestone 4
-6. Milestone 5
-7. Milestone 6
-8. Milestone 7
+
+Current mainline execution:
+
+3. Milestone 2 cleanup
+4. Milestone 4
+5. Milestone 5
+6. Milestone 6
+7. Milestone 7
+
+Deferred until the FS core is further along:
+
+8. Milestone 3 product wiring
 
 ## Notes
 
@@ -444,3 +502,16 @@ rewrite, the first slices should be:
    watcher correctness improves immediately for both peer and S3 sources.
 4. Move peer metadata anti-entropy and the unified pull planner separately so
    metadata correctness and transfer efficiency can be tested in isolation.
+
+## Current Focus
+
+To stay aligned with this plan, the next coding focus should remain:
+
+1. finish the remaining `Milestone 4` work: durable metadata DB,
+   stronger-than-LWW conflict metadata, and periodic bounded anti-entropy
+2. continue `Milestone 5` only where it directly supports the `Milestone 4`
+   engine
+3. treat additional `Milestone 7` observability as secondary to the remaining
+   metadata-engine work
+4. keep `Milestone 3` in design/docs mode until the peer-correct core is more
+   complete
