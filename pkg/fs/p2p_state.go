@@ -11,17 +11,22 @@ import (
 const fsPeerSyncStateFile = "p2p-sync-state.json"
 
 type fsPeerSyncState struct {
-	LastAttemptAt   time.Time `json:"last_attempt_at,omitempty"`
-	LastSuccessAt   time.Time `json:"last_success_at,omitempty"`
-	LastErrorAt     time.Time `json:"last_error_at,omitempty"`
-	LastError       string    `json:"last_error,omitempty"`
-	LastLocalDigest string    `json:"last_local_digest,omitempty"`
-	LastPeerDigest  string    `json:"last_peer_digest,omitempty"`
+	LastAttemptAt    time.Time        `json:"last_attempt_at,omitempty"`
+	LastSuccessAt    time.Time        `json:"last_success_at,omitempty"`
+	LastErrorAt      time.Time        `json:"last_error_at,omitempty"`
+	LastError        string           `json:"last_error,omitempty"`
+	LastLocalDigest  string           `json:"last_local_digest,omitempty"`
+	LastPeerDigest   string           `json:"last_peer_digest,omitempty"`
+	LastLocalSummary *fsSnapshotState `json:"last_local_summary,omitempty"`
+	LastPeerSummary  *fsSnapshotState `json:"last_peer_summary,omitempty"`
+	LastSummaryAt    time.Time        `json:"last_summary_at,omitempty"`
 }
 
 type fsReplicaSyncState struct {
-	NSID  string                     `json:"nsid,omitempty"`
-	Peers map[string]fsPeerSyncState `json:"peers,omitempty"`
+	NSID         string                     `json:"nsid,omitempty"`
+	LocalSummary *fsSnapshotState           `json:"local_summary,omitempty"`
+	LocalStateAt time.Time                  `json:"local_state_at,omitempty"`
+	Peers        map[string]fsPeerSyncState `json:"peers,omitempty"`
 }
 
 func fsPeerSyncStatePath(dir string) string {
@@ -88,7 +93,20 @@ func cloneFSPeerSyncState(state fsReplicaSyncState) fsReplicaSyncState {
 		NSID:  state.NSID,
 		Peers: make(map[string]fsPeerSyncState, len(state.Peers)),
 	}
+	if state.LocalSummary != nil {
+		summary := *state.LocalSummary
+		cloned.LocalSummary = &summary
+	}
+	cloned.LocalStateAt = state.LocalStateAt
 	for peerID, peerState := range state.Peers {
+		if peerState.LastLocalSummary != nil {
+			summary := *peerState.LastLocalSummary
+			peerState.LastLocalSummary = &summary
+		}
+		if peerState.LastPeerSummary != nil {
+			summary := *peerState.LastPeerSummary
+			peerState.LastPeerSummary = &summary
+		}
 		cloned.Peers[peerID] = peerState
 	}
 	return cloned

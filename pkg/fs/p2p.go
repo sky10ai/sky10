@@ -26,6 +26,7 @@ const FSChunkProtocol = protocol.ID("/sky10/fs-chunk/1.0.0")
 const fsSyncExchangeTimeout = 5 * time.Second
 const fsReconnectSyncMinInterval = 2 * time.Second
 const defaultFSAntiEntropyInterval = 30 * time.Second
+const fsPeriodicSyncBatchSize = 1
 
 type fsP2PNode interface {
 	Host() host.Host
@@ -79,6 +80,23 @@ type p2pReplica struct {
 	nsID      string
 	nsKey     []byte
 	syncState fsReplicaSyncState
+}
+
+func cloneFSSnapshotState(summary fsSnapshotState) *fsSnapshotState {
+	cloned := summary
+	return &cloned
+}
+
+func sameFSSnapshotState(a, b *fsSnapshotState) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Digest == b.Digest &&
+		a.Files == b.Files &&
+		a.Dirs == b.Dirs &&
+		a.Tombstones == b.Tombstones &&
+		a.DirTombstones == b.DirTombstones &&
+		a.UpdatedUnix == b.UpdatedUnix
 }
 
 func (r *p2pReplica) state(ctx context.Context) (string, []byte, error) {
@@ -137,89 +155,210 @@ func (r *p2pReplica) persistResolvedNSID(nsID string) error {
 	if r == nil || r.stateDir == "" || nsID == "" {
 		return nil
 	}
-	r.mu.Lock()
-	r.syncState.NSID = nsID
-	state := cloneFSPeerSyncState(r.syncState)
-	dir := r.stateDir
-	r.mu.Unlock()
-	return saveFSPeerSyncState(dir, state)
+	return r.updateSyncState(func(state *fsReplicaSyncState) bool {
+		if state.NSID == nsID {
+			return false
+		}
+		state.NSID = nsID
+		return true
+	})
 }
 
-func (r *p2pReplica) recordSyncAttempt(peerID, localDigest string) error {
-	if r == nil || r.stateDir == "" || peerID == "" {
+func (r *p2pReplica) updateSyncState(update func(*fsReplicaSyncState) bool) error {
+	if r == nil || r.stateDir == "" || update == nil {
 		return nil
 	}
 	r.mu.Lock()
-	if r.syncState.Peers == nil {
-		r.syncState.Peers = make(map[string]fsPeerSyncState)
+	if update(&r.syncState) {
+		state := cloneFSPeerSyncState(r.syncState)
+		dir := r.stateDir
+		r.mu.Unlock()
+		return saveFSPeerSyncState(dir, state)
 	}
-	peerState := r.syncState.Peers[peerID]
-	peerState.LastAttemptAt = time.Now().UTC()
-	peerState.LastLocalDigest = localDigest
-	r.syncState.Peers[peerID] = peerState
-	if r.nsID != "" {
-		r.syncState.NSID = r.nsID
-	}
-	state := cloneFSPeerSyncState(r.syncState)
-	dir := r.stateDir
 	r.mu.Unlock()
-	return saveFSPeerSyncState(dir, state)
+	return nil
 }
 
-func (r *p2pReplica) recordSyncSuccess(peerID, localDigest, peerDigest string) error {
+func (r *p2pReplica) syncStateSnapshot() fsReplicaSyncState {
+	if r == nil {
+		return fsReplicaSyncState{}
+	}
+	r.mu.Lock()
+	state := cloneFSPeerSyncState(r.syncState)
+	r.mu.Unlock()
+	return state
+}
+
+func (r *p2pReplica) recordLocalSummary(summary fsSnapshotState) error {
+	if r == nil || r.stateDir == "" {
+		return nil
+	}
+	now := time.Now().UTC()
+	return r.updateSyncState(func(state *fsReplicaSyncState) bool {
+		changed := false
+		if r.nsID != "" && state.NSID != r.nsID {
+			state.NSID = r.nsID
+			changed = true
+		}
+		next := cloneFSSnapshotState(summary)
+		if !sameFSSnapshotState(state.LocalSummary, next) {
+			state.LocalSummary = next
+			changed = true
+		}
+		if changed || state.LocalStateAt.IsZero() {
+			state.LocalStateAt = now
+			changed = true
+		}
+		return changed
+	})
+}
+
+func (r *p2pReplica) recordSyncAttempt(peerID string, localSummary fsSnapshotState) error {
 	if r == nil || r.stateDir == "" || peerID == "" {
 		return nil
 	}
 	now := time.Now().UTC()
-	r.mu.Lock()
-	if r.syncState.Peers == nil {
-		r.syncState.Peers = make(map[string]fsPeerSyncState)
-	}
-	peerState := r.syncState.Peers[peerID]
-	peerState.LastAttemptAt = now
-	peerState.LastSuccessAt = now
-	peerState.LastErrorAt = time.Time{}
-	peerState.LastError = ""
-	if localDigest != "" {
-		peerState.LastLocalDigest = localDigest
-	}
-	if peerDigest != "" {
-		peerState.LastPeerDigest = peerDigest
-	}
-	r.syncState.Peers[peerID] = peerState
-	if r.nsID != "" {
-		r.syncState.NSID = r.nsID
-	}
-	state := cloneFSPeerSyncState(r.syncState)
-	dir := r.stateDir
-	r.mu.Unlock()
-	return saveFSPeerSyncState(dir, state)
+	return r.updateSyncState(func(state *fsReplicaSyncState) bool {
+		if state.Peers == nil {
+			state.Peers = make(map[string]fsPeerSyncState)
+		}
+		if r.nsID != "" && state.NSID != r.nsID {
+			state.NSID = r.nsID
+		}
+		if !sameFSSnapshotState(state.LocalSummary, cloneFSSnapshotState(localSummary)) {
+			state.LocalSummary = cloneFSSnapshotState(localSummary)
+			state.LocalStateAt = now
+		}
+		peerState := state.Peers[peerID]
+		peerState.LastAttemptAt = now
+		peerState.LastLocalDigest = localSummary.Digest
+		peerState.LastLocalSummary = cloneFSSnapshotState(localSummary)
+		state.Peers[peerID] = peerState
+		return true
+	})
 }
 
-func (r *p2pReplica) recordSyncError(peerID, localDigest string, err error) error {
+func (r *p2pReplica) recordPeerSummary(peerID string, peerSummary fsSnapshotState) error {
+	if r == nil || r.stateDir == "" || peerID == "" {
+		return nil
+	}
+	now := time.Now().UTC()
+	return r.updateSyncState(func(state *fsReplicaSyncState) bool {
+		if state.Peers == nil {
+			state.Peers = make(map[string]fsPeerSyncState)
+		}
+		peerState := state.Peers[peerID]
+		next := cloneFSSnapshotState(peerSummary)
+		changed := false
+		if !sameFSSnapshotState(peerState.LastPeerSummary, next) {
+			peerState.LastPeerSummary = next
+			changed = true
+		}
+		if peerState.LastPeerDigest != peerSummary.Digest {
+			peerState.LastPeerDigest = peerSummary.Digest
+			changed = true
+		}
+		if changed || peerState.LastSummaryAt.IsZero() {
+			peerState.LastSummaryAt = now
+			changed = true
+		}
+		state.Peers[peerID] = peerState
+		return changed
+	})
+}
+
+func (r *p2pReplica) recordSyncSuccess(peerID string, localSummary, peerSummary fsSnapshotState) error {
+	if r == nil || r.stateDir == "" || peerID == "" {
+		return nil
+	}
+	now := time.Now().UTC()
+	return r.updateSyncState(func(state *fsReplicaSyncState) bool {
+		if state.Peers == nil {
+			state.Peers = make(map[string]fsPeerSyncState)
+		}
+		changed := false
+		if r.nsID != "" && state.NSID != r.nsID {
+			state.NSID = r.nsID
+			changed = true
+		}
+		local := cloneFSSnapshotState(localSummary)
+		if !sameFSSnapshotState(state.LocalSummary, local) {
+			state.LocalSummary = local
+			changed = true
+		}
+		if changed || state.LocalStateAt.IsZero() {
+			state.LocalStateAt = now
+			changed = true
+		}
+		peerState := state.Peers[peerID]
+		peerState.LastAttemptAt = now
+		peerState.LastSuccessAt = now
+		peerState.LastErrorAt = time.Time{}
+		peerState.LastError = ""
+		peerState.LastLocalDigest = localSummary.Digest
+		peerState.LastLocalSummary = cloneFSSnapshotState(localSummary)
+		peerState.LastPeerDigest = peerSummary.Digest
+		peerState.LastPeerSummary = cloneFSSnapshotState(peerSummary)
+		peerState.LastSummaryAt = now
+		state.Peers[peerID] = peerState
+		return true
+	})
+}
+
+func (r *p2pReplica) recordSyncError(peerID string, localSummary *fsSnapshotState, err error) error {
 	if r == nil || r.stateDir == "" || peerID == "" || err == nil {
 		return nil
 	}
 	now := time.Now().UTC()
-	r.mu.Lock()
-	if r.syncState.Peers == nil {
-		r.syncState.Peers = make(map[string]fsPeerSyncState)
+	return r.updateSyncState(func(state *fsReplicaSyncState) bool {
+		if state.Peers == nil {
+			state.Peers = make(map[string]fsPeerSyncState)
+		}
+		if r.nsID != "" && state.NSID != r.nsID {
+			state.NSID = r.nsID
+		}
+		if localSummary != nil {
+			next := cloneFSSnapshotState(*localSummary)
+			if !sameFSSnapshotState(state.LocalSummary, next) {
+				state.LocalSummary = next
+				state.LocalStateAt = now
+			}
+		}
+		peerState := state.Peers[peerID]
+		peerState.LastAttemptAt = now
+		peerState.LastErrorAt = now
+		peerState.LastError = err.Error()
+		if localSummary != nil {
+			peerState.LastLocalDigest = localSummary.Digest
+			peerState.LastLocalSummary = cloneFSSnapshotState(*localSummary)
+		}
+		state.Peers[peerID] = peerState
+		return true
+	})
+}
+
+func (r *p2pReplica) shouldSyncPeer(peerID string, localSummary fsSnapshotState, now time.Time, staleAfter time.Duration) (bool, time.Time) {
+	if r == nil || peerID == "" {
+		return false, time.Time{}
 	}
-	peerState := r.syncState.Peers[peerID]
-	peerState.LastAttemptAt = now
-	peerState.LastErrorAt = now
-	peerState.LastError = err.Error()
-	if localDigest != "" {
-		peerState.LastLocalDigest = localDigest
+	state := r.syncStateSnapshot()
+	peerState, ok := state.Peers[peerID]
+	if !ok {
+		return true, time.Time{}
 	}
-	r.syncState.Peers[peerID] = peerState
-	if r.nsID != "" {
-		r.syncState.NSID = r.nsID
+	if peerState.LastSuccessAt.IsZero() {
+		return true, time.Time{}
 	}
-	state := cloneFSPeerSyncState(r.syncState)
-	dir := r.stateDir
-	r.mu.Unlock()
-	return saveFSPeerSyncState(dir, state)
+	if peerState.LastErrorAt.After(peerState.LastSuccessAt) {
+		return true, peerState.LastAttemptAt
+	}
+	if !sameFSSnapshotState(peerState.LastLocalSummary, cloneFSSnapshotState(localSummary)) {
+		return true, peerState.LastAttemptAt
+	}
+	if staleAfter > 0 && now.Sub(peerState.LastSuccessAt) >= staleAfter {
+		return true, peerState.LastSuccessAt
+	}
+	return false, peerState.LastSuccessAt
 }
 
 // P2PSync handles full-snapshot FS anti-entropy over libp2p streams.
@@ -336,7 +475,7 @@ func (s *P2PSync) StartAntiEntropy(ctx context.Context, interval time.Duration) 
 				return
 			case <-ticker.C:
 				s.logger.Debug("fs p2p anti-entropy tick")
-				s.PushToAll(ctx)
+				s.pushDue(ctx, fsPeriodicSyncBatchSize, interval)
 			}
 		}
 	}()
@@ -356,6 +495,79 @@ func (s *P2PSync) PushToAll(ctx context.Context) {
 	s.logger.Info("fs p2p push: broadcasting", "peers", len(peers), "replicas", len(replicas))
 	for _, pid := range peers {
 		s.pushToPeer(ctx, pid, replicas)
+	}
+}
+
+type fsSyncTarget struct {
+	peer     peer.ID
+	replica  *p2pReplica
+	lastSync time.Time
+}
+
+func (s *P2PSync) pushDue(ctx context.Context, limit int, staleAfter time.Duration) {
+	if s == nil || s.node == nil {
+		return
+	}
+	if limit <= 0 {
+		limit = 1
+	}
+	peers := s.node.ConnectedPrivateNetworkPeers()
+	replicas := s.registeredReplicas()
+	if len(peers) == 0 || len(replicas) == 0 {
+		return
+	}
+
+	now := time.Now().UTC()
+	targets := make([]fsSyncTarget, 0, len(peers)*len(replicas))
+	for _, replica := range replicas {
+		_, summary, _, _, err := s.loadReplicaSnapshot(ctx, replica)
+		if err != nil {
+			s.logger.Warn("fs p2p anti-entropy: snapshot failed", "replica", replica.id, "error", err)
+			continue
+		}
+		if err := replica.recordLocalSummary(summary); err != nil {
+			s.logger.Warn("fs p2p anti-entropy: persist local summary failed", "replica", replica.id, "error", err)
+		}
+		for _, pid := range peers {
+			if pid == s.node.PeerID() {
+				continue
+			}
+			if due, lastSync := replica.shouldSyncPeer(pid.String(), summary, now, staleAfter); due {
+				targets = append(targets, fsSyncTarget{
+					peer:     pid,
+					replica:  replica,
+					lastSync: lastSync,
+				})
+			}
+		}
+	}
+	if len(targets) == 0 {
+		return
+	}
+	sort.Slice(targets, func(i, j int) bool {
+		if targets[i].lastSync.Equal(targets[j].lastSync) {
+			if targets[i].peer == targets[j].peer {
+				return targets[i].replica.id < targets[j].replica.id
+			}
+			return targets[i].peer.String() < targets[j].peer.String()
+		}
+		if targets[i].lastSync.IsZero() {
+			return true
+		}
+		if targets[j].lastSync.IsZero() {
+			return false
+		}
+		return targets[i].lastSync.Before(targets[j].lastSync)
+	})
+	if len(targets) > limit {
+		targets = targets[:limit]
+	}
+	for _, target := range targets {
+		go func(target fsSyncTarget) {
+			boundedCtx, cancel := boundedFSSyncContext(ctx)
+			defer cancel()
+			s.syncWithPeer(boundedCtx, target.peer, target.replica)
+		}(target)
 	}
 }
 
@@ -408,13 +620,16 @@ func (s *P2PSync) syncWithPeer(ctx context.Context, pid peer.ID, replica *p2pRep
 		s.logger.Warn("fs p2p push: snapshot failed", "peer", pid, "replica", replica.id, "error", err)
 		return
 	}
-	if err := replica.recordSyncAttempt(pid.String(), summary.Digest); err != nil {
+	if err := replica.recordLocalSummary(summary); err != nil {
+		s.logger.Warn("fs p2p push: persist local summary failed", "peer", pid, "replica", replica.id, "error", err)
+	}
+	if err := replica.recordSyncAttempt(pid.String(), summary); err != nil {
 		s.logger.Warn("fs p2p push: persist attempt failed", "peer", pid, "replica", replica.id, "error", err)
 	}
 
 	response, err := s.requestSummary(ctx, pid, nsID, summary)
 	if err != nil {
-		if stateErr := replica.recordSyncError(pid.String(), summary.Digest, err); stateErr != nil {
+		if stateErr := replica.recordSyncError(pid.String(), &summary, err); stateErr != nil {
 			s.logger.Warn("fs p2p push: persist error failed", "peer", pid, "replica", replica.id, "error", stateErr)
 		}
 		if response != nil && response.ExpectedNSID != "" {
@@ -431,6 +646,11 @@ func (s *P2PSync) syncWithPeer(ctx context.Context, pid peer.ID, replica *p2pRep
 	}
 
 	if response != nil {
+		if response.Summary != nil {
+			if err := replica.recordPeerSummary(pid.String(), *response.Summary); err != nil {
+				s.logger.Warn("fs p2p push: persist peer summary failed", "peer", pid, "replica", replica.id, "error", err)
+			}
+		}
 		if merged, err := s.mergeSnapshotMessage(*response, pid); err != nil {
 			s.logger.Warn("fs p2p push: merge response failed", "peer", pid, "replica", replica.id, "error", err)
 		} else if merged > 0 {
@@ -445,14 +665,14 @@ func (s *P2PSync) syncWithPeer(ctx context.Context, pid peer.ID, replica *p2pRep
 
 	latest, latestSummary, _, _, err := s.loadReplicaSnapshot(ctx, replica)
 	if err != nil {
-		if stateErr := replica.recordSyncError(pid.String(), summary.Digest, err); stateErr != nil {
+		if stateErr := replica.recordSyncError(pid.String(), &summary, err); stateErr != nil {
 			s.logger.Warn("fs p2p push: persist refresh error failed", "peer", pid, "replica", replica.id, "error", stateErr)
 		}
 		s.logger.Warn("fs p2p push: snapshot refresh failed", "peer", pid, "replica", replica.id, "error", err)
 		return
 	}
 	if latestSummary.Digest == response.Summary.Digest {
-		if err := replica.recordSyncSuccess(pid.String(), latestSummary.Digest, response.Summary.Digest); err != nil {
+		if err := replica.recordSyncSuccess(pid.String(), latestSummary, *response.Summary); err != nil {
 			s.logger.Warn("fs p2p push: persist success failed", "peer", pid, "replica", replica.id, "error", err)
 		}
 		return
@@ -461,13 +681,13 @@ func (s *P2PSync) syncWithPeer(ctx context.Context, pid peer.ID, replica *p2pRep
 	// If our local state changed after merging the peer response, send the
 	// full snapshot back so both peers converge in one round.
 	if err := s.sendSnapshotMessage(ctx, pid, nsID, nsKey, latest); err != nil {
-		if stateErr := replica.recordSyncError(pid.String(), latestSummary.Digest, err); stateErr != nil {
+		if stateErr := replica.recordSyncError(pid.String(), &latestSummary, err); stateErr != nil {
 			s.logger.Warn("fs p2p push: persist send error failed", "peer", pid, "replica", replica.id, "error", stateErr)
 		}
 		s.logger.Warn("fs p2p push: send snapshot failed", "peer", pid, "replica", replica.id, "error", err)
 		return
 	}
-	if err := replica.recordSyncSuccess(pid.String(), latestSummary.Digest, response.Summary.Digest); err != nil {
+	if err := replica.recordSyncSuccess(pid.String(), latestSummary, *response.Summary); err != nil {
 		s.logger.Warn("fs p2p push: persist success failed", "peer", pid, "replica", replica.id, "error", err)
 	}
 	s.logger.Info("fs p2p push: sent snapshot", "peer", pid, "replica", replica.id, "files", latest.Len())
@@ -709,10 +929,18 @@ func (s *P2PSync) handleSummary(stream network.Stream, msg fsSyncMsg) {
 		s.logger.Warn("fs p2p: snapshot load failed", "replica", replica.id, "error", err)
 		return
 	}
+	if err := replica.recordLocalSummary(localSummary); err != nil {
+		s.logger.Warn("fs p2p: persist local summary failed", "peer", from, "replica", replica.id, "error", err)
+	}
 	if !exact || msg.NSID != nsID {
 		s.writeErrorResponse(stream, fmt.Sprintf("namespace mismatch: got %s want %s", msg.NSID, nsID), nsID, msg.NSID)
 		s.logger.Warn("fs p2p: namespace mismatch", "got", msg.NSID, "want", nsID)
 		return
+	}
+	if msg.Summary != nil {
+		if err := replica.recordPeerSummary(from.String(), *msg.Summary); err != nil {
+			s.logger.Warn("fs p2p: persist peer summary failed", "peer", from, "replica", replica.id, "error", err)
+		}
 	}
 
 	resp := fsSyncMsg{
@@ -737,16 +965,16 @@ func (s *P2PSync) handleSummary(stream network.Stream, msg fsSyncMsg) {
 	}
 	if err := writeFSSyncMsg(stream, payload); err != nil {
 		s.logger.Warn("fs p2p: write summary response failed", "error", err)
-		if stateErr := replica.recordSyncError(from.String(), localSummary.Digest, err); stateErr != nil {
+		if stateErr := replica.recordSyncError(from.String(), &localSummary, err); stateErr != nil {
 			s.logger.Warn("fs p2p: persist response error failed", "peer", from, "replica", replica.id, "error", stateErr)
 		}
 		return
 	}
-	peerDigest := ""
+	peerSummary := fsSnapshotState{}
 	if msg.Summary != nil {
-		peerDigest = msg.Summary.Digest
+		peerSummary = *msg.Summary
 	}
-	if err := replica.recordSyncSuccess(from.String(), localSummary.Digest, peerDigest); err != nil {
+	if err := replica.recordSyncSuccess(from.String(), localSummary, peerSummary); err != nil {
 		s.logger.Warn("fs p2p: persist response success failed", "peer", from, "replica", replica.id, "error", err)
 	}
 }
@@ -775,7 +1003,7 @@ func (s *P2PSync) mergeSnapshotMessage(msg fsSyncMsg, from peer.ID) (int, error)
 
 	merged, err := mergePeerSnapshot(replica.localLog, remote)
 	if err != nil {
-		if stateErr := replica.recordSyncError(from.String(), "", err); stateErr != nil {
+		if stateErr := replica.recordSyncError(from.String(), nil, err); stateErr != nil {
 			s.logger.Warn("fs p2p: persist merge error failed", "peer", from, "replica", replica.id, "error", stateErr)
 		}
 		return 0, err
@@ -783,16 +1011,24 @@ func (s *P2PSync) mergeSnapshotMessage(msg fsSyncMsg, from peer.ID) (int, error)
 	if merged > 0 && replica.onChange != nil {
 		replica.onChange()
 	}
-	localDigest := ""
+	localSummary := fsSnapshotState{}
 	if snap, summary, _, _, err := s.loadReplicaSnapshot(context.Background(), replica); err == nil {
 		_ = snap
-		localDigest = summary.Digest
+		localSummary = summary
+		if err := replica.recordLocalSummary(summary); err != nil {
+			s.logger.Warn("fs p2p: persist local summary failed", "peer", from, "replica", replica.id, "error", err)
+		}
 	}
-	peerDigest := ""
 	if msg.Summary != nil {
-		peerDigest = msg.Summary.Digest
+		if err := replica.recordPeerSummary(from.String(), *msg.Summary); err != nil {
+			s.logger.Warn("fs p2p: persist peer summary failed", "peer", from, "replica", replica.id, "error", err)
+		}
 	}
-	if err := replica.recordSyncSuccess(from.String(), localDigest, peerDigest); err != nil {
+	peerSummary := fsSnapshotState{}
+	if msg.Summary != nil {
+		peerSummary = *msg.Summary
+	}
+	if err := replica.recordSyncSuccess(from.String(), localSummary, peerSummary); err != nil {
 		s.logger.Warn("fs p2p: persist merge success failed", "peer", from, "replica", replica.id, "error", err)
 	}
 	return merged, nil
@@ -810,6 +1046,9 @@ func (s *P2PSync) loadReplicaSnapshot(ctx context.Context, replica *p2pReplica) 
 	summary, err := summarizeFSSnapshot(snap)
 	if err != nil {
 		return nil, fsSnapshotState{}, "", nil, err
+	}
+	if err := replica.recordLocalSummary(summary); err != nil {
+		s.logger.Warn("fs p2p: persist local summary failed", "replica", replica.id, "error", err)
 	}
 	return snap, summary, nsID, nsKey, nil
 }
