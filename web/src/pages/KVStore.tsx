@@ -3,6 +3,12 @@ import { KeyEditorPane } from "../components/kv/KeyEditorPane";
 import { KeyListPane } from "../components/kv/KeyListPane";
 import { NamespaceBar } from "../components/kv/NamespaceBar";
 import { KV_EVENT_TYPES } from "../lib/events";
+import {
+  buildKVBrowseQuery,
+  isInternalKVKey,
+  matchesKVBrowseView,
+  normalizeKVBrowsePrefix,
+} from "../lib/kvBrowse";
 import { skykv } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
@@ -14,6 +20,13 @@ export default function KVStore() {
   const [showNew, setShowNew] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [showSystemValues, setShowSystemValues] = useState(false);
+  const [systemPrefix, setSystemPrefix] = useState("");
+
+  const normalizedSystemPrefix = normalizeKVBrowsePrefix(systemPrefix);
+  const browseQuery = buildKVBrowseQuery(showSystemValues, normalizedSystemPrefix);
+  const systemFilterActive =
+    showSystemValues && normalizedSystemPrefix.length > 0;
 
   const {
     data: allData,
@@ -22,7 +35,7 @@ export default function KVStore() {
     mutate,
     refreshing,
     refetch,
-  } = useRPC(() => skykv.getAll(), [], {
+  } = useRPC(() => skykv.getAll(browseQuery), [showSystemValues, normalizedSystemPrefix], {
     live: KV_EVENT_TYPES,
     refreshIntervalMs: 10_000,
   });
@@ -37,6 +50,7 @@ export default function KVStore() {
   });
 
   const entries = allData?.entries ?? {};
+  const displayedKeyCount = allData?.count ?? kvStatus?.keys ?? 0;
   const combinedRefreshing = refreshing || statusRefreshing;
   const showSyncWarning = kvStatus && kvStatus.sync_state !== "ok";
 
@@ -65,6 +79,12 @@ export default function KVStore() {
       setIsDirty(false);
     },
     [entries]
+  );
+
+  const keyMatchesCurrentView = useCallback(
+    (key: string) =>
+      matchesKVBrowseView(key, showSystemValues, normalizedSystemPrefix),
+    [normalizedSystemPrefix, showSystemValues]
   );
 
   const saveValue = useCallback(async () => {
@@ -101,6 +121,7 @@ export default function KVStore() {
   const deleteKeyByName = useCallback(async (keyToDelete: string) => {
     const deletedKey = keyToDelete;
     const hadKey = Object.prototype.hasOwnProperty.call(entries, deletedKey);
+    const visibleKey = hadKey && !isInternalKVKey(deletedKey);
 
     setActionError(null);
     setSelectedKey(null);
@@ -124,7 +145,7 @@ export default function KVStore() {
       previous
         ? {
             ...previous,
-            keys: Math.max(0, previous.keys - (hadKey ? 1 : 0)),
+            keys: Math.max(0, previous.keys - (visibleKey ? 1 : 0)),
           }
         : previous
     );
@@ -150,9 +171,13 @@ export default function KVStore() {
     if (!key) return;
 
     const existed = Object.prototype.hasOwnProperty.call(entries, key);
+    const visibleInCurrentView = keyMatchesCurrentView(key);
+    const optimisticStatusCountDelta =
+      !systemFilterActive && !isInternalKVKey(key) && !existed ? 1 : 0;
+
     setActionError(null);
     setShowNew(false);
-    setSelectedKey(key);
+    setSelectedKey(visibleInCurrentView ? key : null);
     setEditValue(newValue);
     setIsDirty(false);
 
@@ -160,11 +185,13 @@ export default function KVStore() {
       if (!previous) return previous;
       return {
         ...previous,
-        count: previous.count + (existed ? 0 : 1),
-        entries: {
-          ...previous.entries,
-          [key]: newValue,
-        },
+        count: previous.count + (visibleInCurrentView && !existed ? 1 : 0),
+        entries: visibleInCurrentView
+          ? {
+              ...previous.entries,
+              [key]: newValue,
+            }
+          : previous.entries,
       };
     });
 
@@ -172,7 +199,7 @@ export default function KVStore() {
       previous
         ? {
             ...previous,
-            keys: previous.keys + (existed ? 0 : 1),
+            keys: previous.keys + optimisticStatusCountDelta,
           }
         : previous
     );
@@ -195,15 +222,19 @@ export default function KVStore() {
     mutateStatus,
     newKey,
     newValue,
+    keyMatchesCurrentView,
     refetch,
     refetchStatus,
+    systemFilterActive,
   ]);
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <NamespaceBar
-        keyCount={kvStatus?.keys ?? 0}
+        countLabel={systemFilterActive ? "matching" : showSystemValues ? "shown" : "keys"}
+        keyCount={displayedKeyCount}
         namespace={kvStatus?.namespace ?? "default"}
+        onChangeSystemPrefix={setSystemPrefix}
         onCreate={() => {
           setShowNew(true);
           setActionError(null);
@@ -212,7 +243,12 @@ export default function KVStore() {
           setNewValue("");
           setIsDirty(false);
         }}
+        onToggleSystemValues={() => {
+          setShowSystemValues((previous) => !previous);
+        }}
         refreshing={combinedRefreshing}
+        showSystemValues={showSystemValues}
+        systemPrefix={systemPrefix}
       />
 
       {error && (
@@ -236,6 +272,12 @@ export default function KVStore() {
 
       <div className="flex flex-1 overflow-hidden">
         <KeyListPane
+          emptyDescription={
+            systemFilterActive
+              ? `No keys matched the prefix "${normalizedSystemPrefix}".`
+              : "Create a key to start populating this replicated namespace."
+          }
+          emptyTitle={systemFilterActive ? "No matching keys" : "No keys yet"}
           entries={entries}
           loading={loading}
           onDelete={deleteKeyByName}

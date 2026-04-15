@@ -12,12 +12,16 @@ function isJSONValue(value: string) {
 }
 
 export function KeyListPane({
+  emptyDescription = "Create a key to start populating this replicated namespace.",
+  emptyTitle = "No keys yet",
   entries,
   loading,
   onSelect,
   onDelete,
   selectedKey,
 }: {
+  emptyDescription?: string;
+  emptyTitle?: string;
   entries: Record<string, string>;
   loading: boolean;
   onSelect: (key: string) => void;
@@ -69,9 +73,9 @@ export function KeyListPane({
 
         {!loading && keys.length === 0 && (
           <EmptyState
-            description="Create a key to start populating this replicated namespace."
+            description={emptyDescription}
             icon="vpn_key"
-            title="No keys yet"
+            title={emptyTitle}
           />
         )}
 
