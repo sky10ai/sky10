@@ -30,14 +30,14 @@ export default function Agents() {
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary rounded-xl text-sm font-medium hover:shadow-lg transition-shadow"
             >
               <Icon name="deployed_code" className="text-base" />
-              Create OpenClaw
+              Create...
             </button>
             <button
               onClick={() => navigate("/agents/connect")}
               className="inline-flex items-center gap-2 px-5 py-2.5 border border-outline-variant/20 text-on-surface rounded-xl text-sm font-medium hover:bg-surface-container transition-colors"
             >
               <Icon name="add" className="text-base" />
-              Connect Agent
+              Connect Existing...
             </button>
           </div>
         </div>
@@ -73,14 +73,14 @@ export default function Agents() {
             className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary shadow-lg transition-all active:scale-95"
           >
             <Icon name="deployed_code" className="text-base" />
-            Create OpenClaw
+            Create...
           </button>
           <button
             onClick={() => navigate("/agents/connect")}
             className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-5 py-2.5 text-sm font-semibold text-on-surface transition-colors hover:bg-surface-container"
           >
             <Icon name="add" className="text-base" />
-            Connect Agent
+            Connect Existing...
           </button>
         </div>
       </div>
@@ -167,7 +167,7 @@ export default function Agents() {
             className="text-primary text-sm font-medium hover:underline flex items-center gap-1"
           >
             <Icon name="add" className="text-base" />
-            Connect Agent
+            Connect Existing...
           </button>
         </div>
         <p className="text-secondary text-sm">
