@@ -357,11 +357,15 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 
 // GetChunks downloads and decrypts a file using known chunk hashes and namespace.
 func (s *Store) GetChunks(ctx context.Context, chunks []string, namespace string, w io.Writer) error {
+	return s.getChunksWithReuse(ctx, chunks, namespace, w, nil)
+}
+
+func (s *Store) getChunksWithReuse(ctx context.Context, chunks []string, namespace string, w io.Writer, reuse chunkReuseProvider) error {
 	nsID, nsKey, err := s.resolveNamespaceState(ctx, namespace)
 	if err != nil {
 		return fmt.Errorf("namespace state for %q: %w", namespace, err)
 	}
-	return s.downloadChunks(ctx, nsID, chunks, nsKey, w)
+	return s.downloadChunks(ctx, nsID, chunks, nsKey, w, reuse)
 }
 
 // --- Deprecated stubs: kept so skipped tests compile. Remove when tests are rewritten. ---
@@ -395,11 +399,11 @@ func (s *Store) loadCurrentState(ctx context.Context) (*Manifest, error) {
 // Up to 3 chunks are fetched concurrently to overlap network I/O.
 // Each chunk read has a 30-second idle timeout — if the S3 connection
 // stalls, the reader is closed and the download fails (caller retries).
-func (s *Store) downloadChunks(ctx context.Context, nsID string, chunks []string, nsKey []byte, w io.Writer) error {
+func (s *Store) downloadChunks(ctx context.Context, nsID string, chunks []string, nsKey []byte, w io.Writer, reuse chunkReuseProvider) error {
 	if len(chunks) <= 1 {
 		// Single-chunk fast path — no goroutine overhead.
 		for i, hash := range chunks {
-			plain, err := s.fetchChunk(ctx, nsID, i, hash, nsKey)
+			plain, err := s.fetchChunk(ctx, nsID, i, hash, nsKey, reuse)
 			if err != nil {
 				return err
 			}
@@ -444,7 +448,7 @@ func (s *Store) downloadChunks(ctx context.Context, nsID string, chunks []string
 			}
 			i, hash := i, hash
 			go func() {
-				plain, err := s.fetchChunk(ctx, nsID, i, hash, nsKey)
+				plain, err := s.fetchChunk(ctx, nsID, i, hash, nsKey, reuse)
 				slots[i] <- result{data: plain, err: err}
 				// Semaphore released by consumer, not here — keeps
 				// backpressure tight so at most `ahead` chunks are buffered.
@@ -473,7 +477,20 @@ func (s *Store) downloadChunks(ctx context.Context, nsID string, chunks []string
 
 // fetchChunk resolves a single chunk through the local cache, peers, and/or
 // backend, then decrypts, decompresses, and verifies its content hash.
-func (s *Store) fetchChunk(ctx context.Context, nsID string, index int, chunkHash string, nsKey []byte) ([]byte, error) {
+func (s *Store) fetchChunk(ctx context.Context, nsID string, index int, chunkHash string, nsKey []byte, reuse chunkReuseProvider) ([]byte, error) {
+	if reuse != nil {
+		plaintext, ok, err := reuse.LookupChunk(chunkHash)
+		if err != nil {
+			return nil, fmt.Errorf("local reuse chunk %d (%s): %w", index, chunkHash[:12], err)
+		}
+		if ok {
+			if s.onChunkRead != nil {
+				s.onChunkRead(chunkSourceLocal)
+			}
+			return plaintext, nil
+		}
+	}
+
 	sources := s.planChunkSources(chunkHash)
 	if len(sources) == 0 {
 		return nil, fmt.Errorf("chunk %d (%s): no source available", index, chunkHash[:12])

@@ -357,7 +357,7 @@ Checklist:
 - [ ] Build one planner that can fetch from local cache, local file reuse,
       peers, and S3.
 - [x] Prefer local cache before peer or S3 fetch when safe.
-- [ ] Prefer local file reuse before peer or S3 fetch when safe.
+- [x] Prefer local file reuse before peer or S3 fetch when safe.
 - [ ] Add bounded concurrency and backpressure for file and chunk pulls.
 - [x] Add verified block or chunk fetch with retry and source fallback.
 - [x] Ensure peers can serve verified data from hidden local storage.

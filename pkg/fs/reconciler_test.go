@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha3"
 	"encoding/hex"
@@ -115,6 +116,90 @@ func TestReconcilerDownloadUsesConfiguredStagingDir(t *testing.T) {
 	}
 }
 
+func TestReconcilerReusesLocalFileChunksBeforeBackendFetch(t *testing.T) {
+	t.Parallel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	if err := os.MkdirAll(localDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	base := make([]byte, 5*1024*1024)
+	for i := range base {
+		base[i] = byte(i % 251)
+	}
+	appended := bytes.Repeat([]byte("z"), 1024*1024)
+	remoteContent := append(append([]byte(nil), base...), appended...)
+
+	if err := os.WriteFile(filepath.Join(localDir, "shared.bin"), base, 0644); err != nil {
+		t.Fatalf("WriteFile local base: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := store.Put(ctx, "shared.bin", bytes.NewReader(remoteContent)); err != nil {
+		t.Fatalf("store.Put(shared.bin): %v", err)
+	}
+	res := store.LastPutResult()
+	if res == nil {
+		t.Fatal("store.LastPutResult() nil after Put(shared.bin)")
+	}
+
+	baseHashes := chunkHashesForTest(t, base)
+	overlap := 0
+	for _, hash := range res.Chunks {
+		if _, ok := baseHashes[hash]; ok {
+			overlap++
+		}
+	}
+	if overlap == 0 {
+		t.Fatal("expected local file to share at least one chunk with remote content")
+	}
+	if overlap >= len(res.Chunks) {
+		t.Fatalf("expected partial overlap, got overlap=%d total=%d", overlap, len(res.Chunks))
+	}
+
+	counted := &countingBackend{Backend: backend}
+	store.backend = counted
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "different-device")
+	if err := localLog.Append(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "shared.bin",
+		Chunks:    res.Chunks,
+		Checksum:  res.Checksum,
+		Size:      res.Size,
+		Namespace: NamespaceFromPath("shared.bin"),
+		Device:    "remote-device",
+		Timestamp: 1001,
+		Seq:       1,
+	}); err != nil {
+		t.Fatalf("localLog.Append(shared.bin): %v", err)
+	}
+
+	r := NewReconciler(store, localLog, NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl")), localDir, nil, nil)
+	r.reconcile(ctx)
+
+	data, err := os.ReadFile(filepath.Join(localDir, "shared.bin"))
+	if err != nil {
+		t.Fatalf("file not downloaded: %v", err)
+	}
+	if !bytes.Equal(data, remoteContent) {
+		t.Fatal("downloaded file content mismatch")
+	}
+
+	if got, want := int(counted.getCalls.Load()), len(res.Chunks)-overlap; got != want {
+		t.Fatalf("backend Get calls = %d, want %d with local chunk reuse", got, want)
+	}
+	if got := counted.getRangeCalls.Load(); got != 0 {
+		t.Fatalf("backend GetRange calls = %d, want 0", got)
+	}
+}
+
 // Regression: empty files (size=0, chunks=0) were skipped by the
 // reconciler because the chunkless-put guard treated them as "upload
 // pending." An empty file's presence is state — it must be created.
@@ -156,6 +241,23 @@ func TestReconcilerCreatesEmptyFile(t *testing.T) {
 	if info.Size() != 0 {
 		t.Errorf("size = %d, want 0", info.Size())
 	}
+}
+
+func chunkHashesForTest(t *testing.T, data []byte) map[string]struct{} {
+	t.Helper()
+	chunker := NewChunker(bytes.NewReader(data))
+	hashes := make(map[string]struct{})
+	for {
+		chunk, err := chunker.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("chunker.Next(): %v", err)
+		}
+		hashes[chunk.Hash] = struct{}{}
+	}
+	return hashes
 }
 
 func TestReconcilerDelete(t *testing.T) {

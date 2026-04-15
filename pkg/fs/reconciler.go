@@ -334,11 +334,18 @@ func (r *Reconciler) downloadFile(ctx context.Context, path string, fi opslog.Fi
 		r.logger.Warn("reconcile: create transfer session failed", "path", path, "error", err)
 		return false
 	}
+	reuse, err := newLocalFileChunkReuse(localPath, fi.Chunks)
+	if err != nil {
+		r.logger.Warn("reconcile: local file reuse unavailable", "path", path, "error", err)
+	}
+	if reuse != nil {
+		defer reuse.Close()
+	}
 
 	// No wall-clock timeout — each chunk has its own 30s idle/stall
 	// detection via transfer.Reader in downloadChunks. As long as bytes
 	// are flowing, the download runs forever.
-	dlErr := r.store.GetChunks(ctx, fi.Chunks, fi.Namespace, tmpFile)
+	dlErr := r.store.getChunksWithReuse(ctx, fi.Chunks, fi.Namespace, tmpFile, reuse)
 	if dlErr != nil {
 		tmpFile.Close()
 		os.Remove(tmpPath)
