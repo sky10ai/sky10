@@ -40,7 +40,7 @@ human-useful replication notes.
 - `Milestone 1`: complete
 - `Milestone 2`: complete
 - `Milestone 3`: contract/design complete, product wiring still pending
-- `Milestone 4`: in progress
+- `Milestone 4`: complete
 - `Milestone 5`: in progress, but only the foundational slices are landed
 - `Milestone 6`: in progress
 - `Milestone 7`: in progress, mostly on observability rather than the full
@@ -48,8 +48,10 @@ human-useful replication notes.
 
 Current execution rule:
 
-- treat the remaining `Milestone 4` metadata-engine work as the main focus
-  before treating `Milestone 5` or `Milestone 7` as the main focus
+- treat `Milestone 5` as the main engineering focus now that the
+  `Milestone 4` metadata-engine baseline is complete
+- treat `Milestone 6` and `Milestone 7` as secondary to finishing the pull
+  planner and source-selection policy work
 - keep `Milestone 3` as design-only until the peer-correct FS core is more
   complete
 
@@ -305,7 +307,7 @@ Initial `sky10.md` contract to define during this milestone:
 Goal: make non-S3 sync first-class through durable peer-native metadata
 exchange.
 
-Status: in progress
+Status: complete
 
 Checklist:
 
@@ -322,13 +324,13 @@ Checklist:
 - [x] Persist peer sync state across restart.
 - [x] Make protocol registration/startup ordering deterministic so fresh joins
       do not miss FS metadata sync.
-- [ ] Add tests for long-offline catch-up and delete propagation without S3.
+- [x] Add tests for long-offline catch-up and delete propagation without S3.
 - [x] Add tests for delete propagation without S3.
 - [x] Add reconnect-triggered anti-entropy without requiring a manual push.
 
 Done when:
 
-- [ ] Two peers can converge correctly after long offline periods with no S3.
+- [x] Two peers can converge correctly after long offline periods with no S3.
 - [x] Delete intent survives reconnects without depending on a lucky baseline.
 - [x] Fresh private-network join can start FS metadata sync without requiring a
       second reconnect or restart.
@@ -504,12 +506,13 @@ rewrite, the first slices should be:
 
 ## Current Focus
 
-To stay aligned with this plan, the next coding focus should remain:
+To stay aligned with this plan, the next coding focus should now be:
 
-1. finish the remaining `Milestone 4` work: long-offline catch-up coverage
-2. continue `Milestone 5` only where it directly supports the `Milestone 4`
-   engine
+1. finish the remaining `Milestone 5` work: source-planner policy, bounded
+   concurrency, and degraded-source behavior
+2. continue `Milestone 6` only where it directly supports the pull planner and
+   durable optional-S3 layering
 3. treat additional `Milestone 7` observability as secondary to the remaining
-   metadata-engine work
+   pull-planner work
 4. keep `Milestone 3` in design/docs mode until the peer-correct core is more
    complete
