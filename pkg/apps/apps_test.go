@@ -29,6 +29,53 @@ func TestManagedPath_UsesRootDir(t *testing.T) {
 	}
 }
 
+func TestStatusFor_MissingManagedBinaryWritesAudit(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+	t.Setenv("PATH", "")
+
+	if err := writeCurrentMetadata(AppOWS, "v1.2.4"); err != nil {
+		t.Fatalf("writeCurrentMetadata() error: %v", err)
+	}
+
+	status, err := StatusFor(AppOWS)
+	if err != nil {
+		t.Fatalf("StatusFor() error: %v", err)
+	}
+	if status.Installed {
+		t.Fatal("expected installed=false")
+	}
+	if status.Managed {
+		t.Fatal("expected managed=false")
+	}
+
+	events := readManagedAppAuditEvents(t)
+	if len(events) != 1 {
+		t.Fatalf("audit events = %d, want 1", len(events))
+	}
+	wantInstalled, err := versionBinaryPath(registry[AppOWS], "v1.2.4")
+	if err != nil {
+		t.Fatalf("versionBinaryPath() error: %v", err)
+	}
+	if events[0].Event != "state_drift_detected" {
+		t.Fatalf("event = %q, want state_drift_detected", events[0].Event)
+	}
+	if events[0].App != AppOWS {
+		t.Fatalf("app = %q, want %q", events[0].App, AppOWS)
+	}
+	if events[0].MissingPath != wantInstalled {
+		t.Fatalf("missing path = %q, want %q", events[0].MissingPath, wantInstalled)
+	}
+	if events[0].CurrentVersion != "v1.2.4" {
+		t.Fatalf("current version = %q, want %q", events[0].CurrentVersion, "v1.2.4")
+	}
+	if got, err := readCurrentMetadata(AppOWS); err != nil {
+		t.Fatalf("readCurrentMetadata() error: %v", err)
+	} else if got != "" {
+		t.Fatalf("current metadata = %q, want empty", got)
+	}
+}
+
 func TestStatusFor_NotInstalled(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
 	t.Setenv("PATH", "")
@@ -460,6 +507,109 @@ func TestUninstall_RemovesManagedBinary(t *testing.T) {
 	} else if got != "" {
 		t.Fatalf("current metadata = %q, want empty", got)
 	}
+}
+
+func TestUninstallWithAudit_WritesAuditLog(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+
+	s := registry[AppOWS]
+	installedPath, err := versionBinaryPath(s, "v1.2.4")
+	if err != nil {
+		t.Fatalf("versionBinaryPath() error: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(installedPath), 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(installedPath, []byte("test"), 0755); err != nil {
+		t.Fatalf("write binary: %v", err)
+	}
+	if err := writeCurrentMetadata(AppOWS, "v1.2.4"); err != nil {
+		t.Fatalf("writeCurrentMetadata() error: %v", err)
+	}
+	stablePath, err := ManagedPath(AppOWS)
+	if err != nil {
+		t.Fatalf("ManagedPath() error: %v", err)
+	}
+	if err := ensureActiveBinary(installedPath, stablePath, true); err != nil {
+		t.Fatalf("ensureActiveBinary() error: %v", err)
+	}
+
+	result, err := UninstallWithAudit(AppOWS, UninstallAuditInfo{
+		Source:    "wallet.rpc",
+		Method:    "wallet.uninstall",
+		Transport: "http",
+		Remote:    "127.0.0.1:9101",
+	})
+	if err != nil {
+		t.Fatalf("UninstallWithAudit() error: %v", err)
+	}
+	if !result.Removed {
+		t.Fatal("expected removed=true")
+	}
+
+	events := readManagedAppAuditEvents(t)
+	if len(events) != 2 {
+		t.Fatalf("audit events = %d, want 2", len(events))
+	}
+	if events[0].Event != "uninstall_requested" {
+		t.Fatalf("first event = %q, want uninstall_requested", events[0].Event)
+	}
+	if events[1].Event != "uninstall_completed" {
+		t.Fatalf("second event = %q, want uninstall_completed", events[1].Event)
+	}
+	for i, event := range events {
+		if event.Source != "wallet.rpc" {
+			t.Fatalf("event %d source = %q, want wallet.rpc", i, event.Source)
+		}
+		if event.Method != "wallet.uninstall" {
+			t.Fatalf("event %d method = %q, want wallet.uninstall", i, event.Method)
+		}
+		if event.Transport != "http" {
+			t.Fatalf("event %d transport = %q, want http", i, event.Transport)
+		}
+		if event.Remote != "127.0.0.1:9101" {
+			t.Fatalf("event %d remote = %q, want 127.0.0.1:9101", i, event.Remote)
+		}
+		if event.Process.PID != os.Getpid() {
+			t.Fatalf("event %d pid = %d, want %d", i, event.Process.PID, os.Getpid())
+		}
+		if len(event.Process.Argv) == 0 {
+			t.Fatalf("event %d argv should not be empty", i)
+		}
+	}
+	if events[1].Path != installedPath {
+		t.Fatalf("completed path = %q, want %q", events[1].Path, installedPath)
+	}
+	if events[1].Removed == nil || !*events[1].Removed {
+		t.Fatal("completed event should report removed=true")
+	}
+}
+
+func readManagedAppAuditEvents(t *testing.T) []managedAppAuditEvent {
+	t.Helper()
+
+	path, err := managedAppAuditLogPath()
+	if err != nil {
+		t.Fatalf("managedAppAuditLogPath() error: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading audit log: %v", err)
+	}
+	lines := bytes.Split(bytes.TrimSpace(data), []byte("\n"))
+	events := make([]managedAppAuditEvent, 0, len(lines))
+	for _, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+		var event managedAppAuditEvent
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatalf("unmarshal audit event %q: %v", string(line), err)
+		}
+		events = append(events, event)
+	}
+	return events
 }
 
 func tarGzFixture(t *testing.T, files map[string]string) []byte {

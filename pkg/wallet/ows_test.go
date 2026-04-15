@@ -3,7 +3,12 @@ package wallet
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/sky10/sky10/pkg/config"
+	skyrpc "github.com/sky10/sky10/pkg/rpc"
 )
 
 func noopEmit(string, interface{}) {}
@@ -302,6 +307,100 @@ func TestRPCHandler_CheckUpdateDispatch(t *testing.T) {
 	if !handled {
 		t.Error("wallet.checkUpdate should be handled")
 	}
+}
+
+func TestRPCHandler_UninstallWritesCallerAudit(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+	t.Setenv("PATH", "")
+
+	installedPath := filepath.Join(home, "apps", "ows", "versions", "v1.2.4", "ows")
+	if err := os.MkdirAll(filepath.Dir(installedPath), 0755); err != nil {
+		t.Fatalf("mkdir installed path: %v", err)
+	}
+	if err := os.WriteFile(installedPath, []byte("test"), 0755); err != nil {
+		t.Fatalf("write installed path: %v", err)
+	}
+
+	metaPath := filepath.Join(home, "apps", "ows", "current.json")
+	if err := os.MkdirAll(filepath.Dir(metaPath), 0755); err != nil {
+		t.Fatalf("mkdir metadata path: %v", err)
+	}
+	if err := os.WriteFile(metaPath, []byte(`{"current":"v1.2.4"}`), 0644); err != nil {
+		t.Fatalf("write metadata path: %v", err)
+	}
+
+	h := NewRPCHandler(nil, noopEmit)
+	if _, err := h.rpcUninstall(skyrpc.WithCallerInfo(context.Background(), "http", "127.0.0.1:9101")); err != nil {
+		t.Fatalf("rpcUninstall() error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, "logs", "managed-app-audit.jsonl"))
+	if err != nil {
+		t.Fatalf("reading audit log: %v", err)
+	}
+	lines := bytesSplitLines(data)
+	if len(lines) != 2 {
+		t.Fatalf("audit lines = %d, want 2", len(lines))
+	}
+	for i, line := range lines {
+		var event struct {
+			Event     string `json:"event"`
+			Source    string `json:"source"`
+			Method    string `json:"method"`
+			Transport string `json:"transport"`
+			Remote    string `json:"remote"`
+		}
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatalf("unmarshal audit line %d: %v", i, err)
+		}
+		if event.Source != "wallet.rpc" {
+			t.Fatalf("line %d source = %q, want wallet.rpc", i, event.Source)
+		}
+		if event.Method != "wallet.uninstall" {
+			t.Fatalf("line %d method = %q, want wallet.uninstall", i, event.Method)
+		}
+		if event.Transport != "http" {
+			t.Fatalf("line %d transport = %q, want http", i, event.Transport)
+		}
+		if event.Remote != "127.0.0.1:9101" {
+			t.Fatalf("line %d remote = %q, want 127.0.0.1:9101", i, event.Remote)
+		}
+	}
+}
+
+func bytesSplitLines(data []byte) [][]byte {
+	data = bytesTrimSpace(data)
+	if len(data) == 0 {
+		return nil
+	}
+	var lines [][]byte
+	start := 0
+	for i, b := range data {
+		if b != '\n' {
+			continue
+		}
+		if i > start {
+			lines = append(lines, append([]byte(nil), data[start:i]...))
+		}
+		start = i + 1
+	}
+	if start < len(data) {
+		lines = append(lines, append([]byte(nil), data[start:]...))
+	}
+	return lines
+}
+
+func bytesTrimSpace(data []byte) []byte {
+	start := 0
+	for start < len(data) && (data[start] == ' ' || data[start] == '\n' || data[start] == '\r' || data[start] == '\t') {
+		start++
+	}
+	end := len(data)
+	for end > start && (data[end-1] == ' ' || data[end-1] == '\n' || data[end-1] == '\r' || data[end-1] == '\t') {
+		end--
+	}
+	return data[start:end]
 }
 
 // Solana-specific tests (balances, tx building, signing) are in solana_test.go.

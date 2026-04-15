@@ -14,6 +14,9 @@ type ReleaseInfo = skyapps.ReleaseInfo
 // UninstallResult describes the outcome of removing the managed OWS binary.
 type UninstallResult = skyapps.UninstallResult
 
+// UninstallAuditInfo carries durable caller metadata for managed OWS removal.
+type UninstallAuditInfo = skyapps.UninstallAuditInfo
+
 // BinDir returns the directory containing stable managed app entrypoints (~/.sky10/bin/).
 func BinDir() (string, error) {
 	return skyapps.BinDir()
@@ -39,6 +42,11 @@ func Install(info *ReleaseInfo, onProgress ProgressFunc) error {
 // Uninstall removes the active managed OWS binary and its stable entrypoint.
 func Uninstall() (*UninstallResult, error) {
 	return skyapps.Uninstall(skyapps.AppOWS)
+}
+
+// UninstallWithAudit removes the active managed OWS binary and records caller metadata.
+func UninstallWithAudit(info UninstallAuditInfo) (*UninstallResult, error) {
+	return skyapps.UninstallWithAudit(skyapps.AppOWS, info)
 }
 
 // InstalledVersion returns the version of the active OWS binary,

@@ -136,7 +136,15 @@ func (h *RPCHandler) rpcUninstall(ctx context.Context) (interface{}, error) {
 	requestAttrs := callerLogAttrs(ctx)
 	h.logger.Info("wallet uninstall requested", requestAttrs...)
 
-	result, err := Uninstall()
+	auditInfo := UninstallAuditInfo{
+		Source: "wallet.rpc",
+		Method: "wallet.uninstall",
+	}
+	if info, ok := skyrpc.CallerInfoFromContext(ctx); ok {
+		auditInfo.Transport = info.Transport
+		auditInfo.Remote = info.Remote
+	}
+	result, err := UninstallWithAudit(auditInfo)
 	if err != nil {
 		h.logger.Warn("wallet uninstall failed", appendAttrs(requestAttrs, "error", err)...)
 		return nil, err

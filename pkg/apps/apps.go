@@ -401,6 +401,12 @@ func Upgrade(id ID, onProgress ProgressFunc) (*ReleaseInfo, error) {
 
 // Uninstall removes the active managed binary for an app.
 func Uninstall(id ID) (*UninstallResult, error) {
+	return UninstallWithAudit(id, UninstallAuditInfo{})
+}
+
+// UninstallWithAudit removes the active managed binary for an app and records
+// durable caller metadata for later attribution.
+func UninstallWithAudit(id ID, audit UninstallAuditInfo) (*UninstallResult, error) {
 	state, err := ensureManagedState(id)
 	if err != nil {
 		return nil, err
@@ -412,6 +418,17 @@ func Uninstall(id ID) (*UninstallResult, error) {
 		"installed_path", state.InstalledPath,
 		"current_version", state.Current,
 	)
+	appendManagedAppAudit(logger, managedAppAuditEvent{
+		Event:          "uninstall_requested",
+		App:            id,
+		Source:         audit.Source,
+		Method:         audit.Method,
+		Transport:      audit.Transport,
+		Remote:         audit.Remote,
+		StablePath:     state.StablePath,
+		InstalledPath:  state.InstalledPath,
+		CurrentVersion: state.Current,
+	})
 	removed := false
 	resultPath := state.InstalledPath
 	if resultPath == "" {
@@ -422,6 +439,19 @@ func Uninstall(id ID) (*UninstallResult, error) {
 		if err := os.Remove(state.StablePath); err == nil {
 			removed = true
 		} else if err != nil && !os.IsNotExist(err) {
+			appendManagedAppAudit(logger, managedAppAuditEvent{
+				Event:          "uninstall_failed",
+				App:            id,
+				Source:         audit.Source,
+				Method:         audit.Method,
+				Transport:      audit.Transport,
+				Remote:         audit.Remote,
+				StablePath:     state.StablePath,
+				InstalledPath:  state.InstalledPath,
+				CurrentVersion: state.Current,
+				Path:           state.StablePath,
+				Error:          fmt.Sprintf("removing managed entrypoint: %v", err),
+			})
 			return nil, fmt.Errorf("removing managed entrypoint: %w", err)
 		}
 	}
@@ -429,11 +459,37 @@ func Uninstall(id ID) (*UninstallResult, error) {
 		if err := os.Remove(state.InstalledPath); err == nil {
 			removed = true
 		} else if err != nil && !os.IsNotExist(err) {
+			appendManagedAppAudit(logger, managedAppAuditEvent{
+				Event:          "uninstall_failed",
+				App:            id,
+				Source:         audit.Source,
+				Method:         audit.Method,
+				Transport:      audit.Transport,
+				Remote:         audit.Remote,
+				StablePath:     state.StablePath,
+				InstalledPath:  state.InstalledPath,
+				CurrentVersion: state.Current,
+				Path:           state.InstalledPath,
+				Error:          fmt.Sprintf("removing managed binary: %v", err),
+			})
 			return nil, fmt.Errorf("removing managed binary: %w", err)
 		}
 		_ = os.Remove(filepath.Dir(state.InstalledPath))
 	}
 	if err := removeCurrentMetadata(id); err != nil {
+		appendManagedAppAudit(logger, managedAppAuditEvent{
+			Event:          "uninstall_failed",
+			App:            id,
+			Source:         audit.Source,
+			Method:         audit.Method,
+			Transport:      audit.Transport,
+			Remote:         audit.Remote,
+			StablePath:     state.StablePath,
+			InstalledPath:  state.InstalledPath,
+			CurrentVersion: state.Current,
+			Path:           resultPath,
+			Error:          err.Error(),
+		})
 		return nil, err
 	}
 	result := &UninstallResult{ID: id, Path: resultPath, Removed: removed}
@@ -445,6 +501,19 @@ func Uninstall(id ID) (*UninstallResult, error) {
 		"installed_path", state.InstalledPath,
 		"current_version", state.Current,
 	)
+	appendManagedAppAudit(logger, managedAppAuditEvent{
+		Event:          "uninstall_completed",
+		App:            id,
+		Source:         audit.Source,
+		Method:         audit.Method,
+		Transport:      audit.Transport,
+		Remote:         audit.Remote,
+		StablePath:     state.StablePath,
+		InstalledPath:  state.InstalledPath,
+		CurrentVersion: state.Current,
+		Path:           result.Path,
+		Removed:        &result.Removed,
+	})
 	return result, nil
 }
 
@@ -528,6 +597,16 @@ func ensureManagedState(id ID) (*managedState, error) {
 			}
 			return state, nil
 		}
+		logger := logging.WithComponent(slog.Default(), "apps")
+		appendManagedAppAudit(logger, managedAppAuditEvent{
+			Event:          "state_drift_detected",
+			App:            id,
+			StablePath:     stablePath,
+			InstalledPath:  installedPath,
+			CurrentVersion: current,
+			MissingPath:    installedPath,
+			Error:          "managed version missing from disk before uninstall",
+		})
 		if err := removeCurrentMetadata(id); err != nil {
 			return nil, err
 		}
