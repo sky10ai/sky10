@@ -190,6 +190,85 @@ func (m *Manager) SetIdentityInviteIssuer(fn func(context.Context) (*IdentityInv
 	m.issueIdentityInvite = fn
 }
 
+func (m *Manager) ReconnectRunningOpenClawSandboxes(ctx context.Context) error {
+	if m.hostIdentity == nil || m.hostRPC == nil || m.guestRPC == nil {
+		return nil
+	}
+	if err := m.refreshRuntime(ctx); err != nil {
+		return err
+	}
+
+	limactl, err := m.ensureManagedApp(ctx, skyapps.AppLima, false)
+	if err != nil {
+		return err
+	}
+	if limactl == "" {
+		return nil
+	}
+
+	hostIdentity, err := m.hostIdentity(ctx)
+	if err != nil {
+		return err
+	}
+	hostIdentity = strings.TrimSpace(hostIdentity)
+	if hostIdentity == "" {
+		return nil
+	}
+
+	m.mu.Lock()
+	items := make([]Record, 0, len(m.records))
+	for _, rec := range m.records {
+		if rec.Template != templateOpenClaw {
+			continue
+		}
+		if rec.VMStatus != "Running" {
+			continue
+		}
+		items = append(items, rec)
+	}
+	m.mu.Unlock()
+
+	for _, rec := range items {
+		if rec.IPAddress == "" {
+			ipAddr, err := lookupLimaInstanceIPv4(ctx, m.outputCmd, limactl, rec.Slug)
+			if err != nil {
+				m.logger.Warn("sandbox reconnect skipped: guest IP lookup failed", "sandbox", rec.Slug, "error", err)
+				continue
+			}
+			if strings.TrimSpace(ipAddr) == "" {
+				m.logger.Warn("sandbox reconnect skipped: guest IP unavailable", "sandbox", rec.Slug)
+				continue
+			}
+			rec.IPAddress = strings.TrimSpace(ipAddr)
+			if err := m.updateIPAddress(rec.Slug, rec.IPAddress); err != nil {
+				return err
+			}
+		}
+
+		var guest struct {
+			Address string `json:"address"`
+		}
+		if err := m.guestRPC(ctx, rec.IPAddress, "identity.show", nil, &guest); err != nil {
+			m.logger.Warn("sandbox reconnect skipped: guest identity lookup failed", "sandbox", rec.Slug, "ip_address", rec.IPAddress, "error", err)
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(guest.Address), hostIdentity) {
+			m.logger.Warn("sandbox reconnect skipped: guest identity does not match host", "sandbox", rec.Slug, "guest_identity", strings.TrimSpace(guest.Address), "host_identity", hostIdentity)
+			continue
+		}
+
+		reconnectCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err := m.ensureHostConnectedGuestAgent(reconnectCtx, rec, hostIdentity)
+		cancel()
+		if err != nil {
+			m.logger.Warn("sandbox reconnect failed", "sandbox", rec.Slug, "error", err)
+			continue
+		}
+	}
+
+	return nil
+}
+
 func (m *Manager) List(ctx context.Context) (*ListResult, error) {
 	if err := m.refreshRuntime(ctx); err != nil {
 		m.logger.Debug("sandbox runtime refresh failed", "error", err)

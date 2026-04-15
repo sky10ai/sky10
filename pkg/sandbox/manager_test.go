@@ -1028,6 +1028,156 @@ func TestFinishReadyOpenClawSkipsJoinWhenGuestAlreadyJoined(t *testing.T) {
 	}
 }
 
+func TestReconnectRunningOpenClawSandboxes(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["openclaw-m8"] = Record{
+		Name:      "openclaw-m8",
+		Slug:      "openclaw-m8",
+		Provider:  providerLima,
+		Template:  templateOpenClaw,
+		Status:    "ready",
+		VMStatus:  "Running",
+		SharedDir: filepath.Join(t.TempDir(), "openclaw-m8"),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	m.records["ubuntu-devbox"] = Record{
+		Name:      "ubuntu-devbox",
+		Slug:      "ubuntu-devbox",
+		Provider:  providerLima,
+		Template:  templateUbuntu,
+		Status:    "ready",
+		VMStatus:  "Running",
+		SharedDir: filepath.Join(t.TempDir(), "ubuntu-devbox"),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	m.records["openclaw-stopped"] = Record{
+		Name:      "openclaw-stopped",
+		Slug:      "openclaw-stopped",
+		Provider:  providerLima,
+		Template:  templateOpenClaw,
+		Status:    "stopped",
+		VMStatus:  "Stopped",
+		SharedDir: filepath.Join(t.TempDir(), "openclaw-stopped"),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	var steps []string
+	m.appStatus = func(id skyapps.ID) (*skyapps.Status, error) {
+		return &skyapps.Status{ActivePath: "/tmp/fake/" + string(id)}, nil
+	}
+	m.outputCmd = func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		switch {
+		case len(args) >= 2 && args[0] == "list" && args[1] == "--json":
+			return []byte(
+				`{"name":"openclaw-m8","status":"Running"}` + "\n" +
+					`{"name":"ubuntu-devbox","status":"Running"}` + "\n" +
+					`{"name":"openclaw-stopped","status":"Stopped"}` + "\n",
+			), nil
+		case len(args) >= 2 && args[0] == "shell":
+			steps = append(steps, "lookup-ip")
+			return []byte("192.168.64.17\n"), nil
+		default:
+			return nil, fmt.Errorf("unexpected outputCmd args: %v", args)
+		}
+	}
+	m.hostIdentity = func(context.Context) (string, error) {
+		steps = append(steps, "host-identity")
+		return "sky10-host", nil
+	}
+	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
+		steps = append(steps, "host."+method)
+		switch method {
+		case "skylink.connectPeer":
+			connectParams, ok := params.(map[string]interface{})
+			if !ok {
+				t.Fatalf("host connect params type = %T, want map[string]interface{}", params)
+			}
+			if connectParams["peer_id"] != "12D3KooWguest" {
+				t.Fatalf("host connect peer_id = %v, want 12D3KooWguest", connectParams["peer_id"])
+			}
+			multiaddrs, ok := connectParams["multiaddrs"].([]string)
+			if !ok {
+				t.Fatalf("host connect multiaddrs type = %T, want []string", connectParams["multiaddrs"])
+			}
+			if len(multiaddrs) != 1 || multiaddrs[0] != "/ip4/192.168.64.17/tcp/4101" {
+				t.Fatalf("host connect multiaddrs = %v, want [/ip4/192.168.64.17/tcp/4101]", multiaddrs)
+			}
+			return nil
+		case "agent.list":
+			body, err := json.Marshal(map[string]interface{}{
+				"agents": []map[string]string{{"name": "openclaw-m8"}},
+			})
+			if err != nil {
+				t.Fatalf("marshal host agent list: %v", err)
+			}
+			return json.Unmarshal(body, out)
+		default:
+			t.Fatalf("unexpected host RPC method %q", method)
+			return nil
+		}
+	}
+	m.guestRPC = func(ctx context.Context, address, method string, params interface{}, out interface{}) error {
+		steps = append(steps, method)
+		if address != "192.168.64.17" {
+			t.Fatalf("guest RPC address = %q, want 192.168.64.17", address)
+		}
+		switch method {
+		case "identity.show":
+			body, err := json.Marshal(map[string]interface{}{"address": "sky10-host"})
+			if err != nil {
+				t.Fatalf("marshal guest identity show: %v", err)
+			}
+			return json.Unmarshal(body, out)
+		case "skylink.status":
+			body, err := json.Marshal(map[string]interface{}{
+				"peer_id": "12D3KooWguest",
+				"addrs":   []string{"/ip4/192.168.64.17/tcp/4101"},
+			})
+			if err != nil {
+				t.Fatalf("marshal guest skylink status: %v", err)
+			}
+			return json.Unmarshal(body, out)
+		default:
+			t.Fatalf("unexpected guest RPC method %q", method)
+			return nil
+		}
+	}
+
+	if err := m.ReconnectRunningOpenClawSandboxes(context.Background()); err != nil {
+		t.Fatalf("ReconnectRunningOpenClawSandboxes() error: %v", err)
+	}
+
+	want := []string{
+		"host-identity",
+		"lookup-ip",
+		"identity.show",
+		"skylink.status",
+		"host.skylink.connectPeer",
+		"host.agent.list",
+	}
+	if strings.Join(steps, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("steps = %v, want %v", steps, want)
+	}
+
+	got, err := m.Get(context.Background(), "openclaw-m8")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if got.IPAddress != "192.168.64.17" {
+		t.Fatalf("ip address = %q, want 192.168.64.17", got.IPAddress)
+	}
+}
+
 func TestLimaInstanceDirPathUsesHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
