@@ -131,6 +131,26 @@ type IdentityInvite struct {
 type openClawJoinPayload struct {
 	HostIdentity string `json:"host_identity"`
 	Code         string `json:"code"`
+	HostRPCURL   string `json:"host_rpc_url,omitempty"`
+	SandboxSlug  string `json:"sandbox_slug,omitempty"`
+}
+
+type ReconnectGuestParams struct {
+	Slug       string   `json:"slug"`
+	IPAddress  string   `json:"ip_address,omitempty"`
+	PeerID     string   `json:"peer_id"`
+	Multiaddrs []string `json:"multiaddrs"`
+}
+
+type ReconnectGuestResult struct {
+	Connected bool   `json:"connected"`
+	Slug      string `json:"slug"`
+	IPAddress string `json:"ip_address,omitempty"`
+}
+
+type guestSkylinkStatus struct {
+	PeerID string   `json:"peer_id"`
+	Addrs  []string `json:"addrs"`
 }
 
 type Manager struct {
@@ -245,20 +265,11 @@ func (m *Manager) ReconnectRunningOpenClawSandboxes(ctx context.Context) error {
 			}
 		}
 
-		var guest struct {
-			Address string `json:"address"`
-		}
-		if err := m.guestRPC(ctx, rec.IPAddress, "identity.show", nil, &guest); err != nil {
-			m.logger.Warn("sandbox reconnect skipped: guest identity lookup failed", "sandbox", rec.Slug, "ip_address", rec.IPAddress, "error", err)
-			continue
-		}
-		if !strings.EqualFold(strings.TrimSpace(guest.Address), hostIdentity) {
-			m.logger.Warn("sandbox reconnect skipped: guest identity does not match host", "sandbox", rec.Slug, "guest_identity", strings.TrimSpace(guest.Address), "host_identity", hostIdentity)
-			continue
-		}
-
 		reconnectCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		err := m.ensureHostConnectedGuestAgent(reconnectCtx, rec, hostIdentity)
+		err := m.waitForGuestIdentityMatch(reconnectCtx, rec, hostIdentity)
+		if err == nil {
+			err = m.ensureHostConnectedGuestAgent(reconnectCtx, rec, hostIdentity)
+		}
 		cancel()
 		if err != nil {
 			m.logger.Warn("sandbox reconnect failed", "sandbox", rec.Slug, "error", err)
@@ -267,6 +278,76 @@ func (m *Manager) ReconnectRunningOpenClawSandboxes(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (m *Manager) waitForGuestIdentityMatch(ctx context.Context, rec Record, hostIdentity string) error {
+	if m.guestRPC == nil {
+		return nil
+	}
+	hostIdentity = strings.TrimSpace(hostIdentity)
+	if hostIdentity == "" {
+		return nil
+	}
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	var lastErr error
+	for {
+		var guest struct {
+			Address string `json:"address"`
+		}
+		if err := m.guestRPC(ctx, rec.IPAddress, "identity.show", nil, &guest); err != nil {
+			lastErr = fmt.Errorf("reading guest identity for sandbox %q: %w", rec.Name, err)
+		} else {
+			guestIdentity := strings.TrimSpace(guest.Address)
+			if strings.EqualFold(guestIdentity, hostIdentity) {
+				return nil
+			}
+			return fmt.Errorf("guest identity %q for sandbox %q does not match host %q", guestIdentity, rec.Name, hostIdentity)
+		}
+
+		select {
+		case <-ctx.Done():
+			if lastErr != nil {
+				return lastErr
+			}
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (m *Manager) ReconnectGuest(ctx context.Context, params ReconnectGuestParams) (*ReconnectGuestResult, error) {
+	rec, err := m.requireRecord(params.Slug)
+	if err != nil {
+		return nil, err
+	}
+
+	ipAddr := strings.TrimSpace(params.IPAddress)
+	if ipAddr != "" && ipAddr != rec.IPAddress {
+		if err := m.updateIPAddress(rec.Slug, ipAddr); err != nil {
+			return nil, err
+		}
+		rec, err = m.requireRecord(rec.Slug)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	guest := guestSkylinkStatus{
+		PeerID: strings.TrimSpace(params.PeerID),
+		Addrs:  append([]string(nil), params.Multiaddrs...),
+	}
+	if err := m.connectHostToGuestPeer(ctx, *rec, guest); err != nil {
+		return nil, err
+	}
+	m.appendLog(rec.Slug, "stdout", "guest sky10 requested host reconnect")
+	return &ReconnectGuestResult{
+		Connected: true,
+		Slug:      rec.Slug,
+		IPAddress: rec.IPAddress,
+	}, nil
 }
 
 func (m *Manager) List(ctx context.Context) (*ListResult, error) {
@@ -804,7 +885,16 @@ func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) erro
 			invite = value
 		}
 	}
-	if err := prepareOpenClawSharedDir(rec.SharedDir, hostsHelper, pluginAssets, resolvedEnv, invite); err != nil {
+	hostRPCURL := ""
+	if m.hostRPC != nil {
+		value, err := m.guestReachableHostRPCURL(ctx)
+		if err != nil {
+			m.logger.Warn("failed to resolve host http rpc url for sandbox bootstrap", "sandbox", rec.Slug, "error", err)
+		} else {
+			hostRPCURL = value
+		}
+	}
+	if err := prepareOpenClawSharedDir(rec.SharedDir, hostsHelper, pluginAssets, resolvedEnv, invite, rec.Slug, hostRPCURL); err != nil {
 		return err
 	}
 	return nil
@@ -886,16 +976,6 @@ func (m *Manager) ensureHostConnectedGuestAgent(ctx context.Context, rec Record,
 		return nil
 	}
 
-	type agentListResult struct {
-		Agents []struct {
-			Name string `json:"name"`
-		} `json:"agents"`
-	}
-	type skylinkStatusResult struct {
-		PeerID string   `json:"peer_id"`
-		Addrs  []string `json:"addrs"`
-	}
-
 	waitCtx, cancel := context.WithTimeout(ctx, openClawReadyTimeout)
 	defer cancel()
 
@@ -906,16 +986,12 @@ func (m *Manager) ensureHostConnectedGuestAgent(ctx context.Context, rec Record,
 	for {
 		attemptedDirect := false
 		if m.guestRPC != nil && strings.TrimSpace(rec.IPAddress) != "" {
-			var guest skylinkStatusResult
+			var guest guestSkylinkStatus
 			if err := m.guestRPC(waitCtx, rec.IPAddress, "skylink.status", nil, &guest); err != nil {
 				lastErr = fmt.Errorf("reading guest skylink status for sandbox %q: %w", rec.Name, err)
 			} else if strings.TrimSpace(guest.PeerID) != "" && len(guest.Addrs) > 0 {
 				attemptedDirect = true
-				params := map[string]interface{}{
-					"peer_id":    strings.TrimSpace(guest.PeerID),
-					"multiaddrs": append([]string(nil), guest.Addrs...),
-				}
-				if err := m.hostRPC(waitCtx, "skylink.connectPeer", params, nil); err != nil {
+				if err := m.connectHostToGuestPeer(waitCtx, rec, guest); err != nil {
 					lastErr = fmt.Errorf("connecting host sky10 directly to guest peer %q: %w", guest.PeerID, err)
 				}
 			}
@@ -926,17 +1002,11 @@ func (m *Manager) ensureHostConnectedGuestAgent(ctx context.Context, rec Record,
 			}
 		}
 
-		var listed agentListResult
-		if err := m.hostRPC(waitCtx, "agent.list", nil, &listed); err != nil {
-			lastErr = fmt.Errorf("listing host agents after guest join: %w", err)
+		if err := m.waitForHostAgentVisible(waitCtx, rec); err != nil {
+			lastErr = err
 		} else {
-			for _, agent := range listed.Agents {
-				if agent.Name == rec.Name || agent.Name == rec.Slug {
-					m.appendLog(rec.Slug, "stdout", "host sky10 connected to guest peer")
-					return nil
-				}
-			}
-			lastErr = fmt.Errorf("guest agent %q not yet visible on host", rec.Name)
+			m.appendLog(rec.Slug, "stdout", "host sky10 connected to guest peer")
+			return nil
 		}
 
 		select {
@@ -948,6 +1018,44 @@ func (m *Manager) ensureHostConnectedGuestAgent(ctx context.Context, rec Record,
 		case <-ticker.C:
 		}
 	}
+}
+
+func (m *Manager) connectHostToGuestPeer(ctx context.Context, rec Record, guest guestSkylinkStatus) error {
+	if m.hostRPC == nil {
+		return nil
+	}
+	peerID := strings.TrimSpace(guest.PeerID)
+	if peerID == "" {
+		return fmt.Errorf("guest peer id is required")
+	}
+	multiaddrs := filterGuestMultiaddrsForIPAddress(guest.Addrs, rec.IPAddress)
+	if len(multiaddrs) == 0 {
+		return fmt.Errorf("no guest multiaddrs match sandbox ip %q", rec.IPAddress)
+	}
+	params := map[string]interface{}{
+		"peer_id":    peerID,
+		"multiaddrs": multiaddrs,
+	}
+	return m.hostRPC(ctx, "skylink.connectPeer", params, nil)
+}
+
+func (m *Manager) waitForHostAgentVisible(ctx context.Context, rec Record) error {
+	type agentListResult struct {
+		Agents []struct {
+			Name string `json:"name"`
+		} `json:"agents"`
+	}
+
+	var listed agentListResult
+	if err := m.hostRPC(ctx, "agent.list", nil, &listed); err != nil {
+		return fmt.Errorf("listing host agents after guest join: %w", err)
+	}
+	for _, agent := range listed.Agents {
+		if agent.Name == rec.Name || agent.Name == rec.Slug {
+			return nil
+		}
+	}
+	return fmt.Errorf("guest agent %q not yet visible on host", rec.Name)
 }
 
 func (m *Manager) limaInstanceExists(_ context.Context, _ string, name string) (bool, error) {
@@ -1089,7 +1197,7 @@ func sandboxTemplateDefinition(template string) (templateDefinition, error) {
 	}
 }
 
-func prepareOpenClawSharedDir(sharedDir string, hostsHelper []byte, pluginAssets map[string][]byte, resolvedEnv map[string]string, invite *IdentityInvite) error {
+func prepareOpenClawSharedDir(sharedDir string, hostsHelper []byte, pluginAssets map[string][]byte, resolvedEnv map[string]string, invite *IdentityInvite, sandboxSlug, hostRPCURL string) error {
 	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
 		return fmt.Errorf("creating shared directory: %w", err)
 	}
@@ -1107,6 +1215,8 @@ func prepareOpenClawSharedDir(sharedDir string, hostsHelper []byte, pluginAssets
 		payload := openClawJoinPayload{
 			HostIdentity: strings.TrimSpace(invite.HostIdentity),
 			Code:         strings.TrimSpace(invite.Code),
+			HostRPCURL:   strings.TrimSpace(hostRPCURL),
+			SandboxSlug:  strings.TrimSpace(sandboxSlug),
 		}
 		body, err := json.Marshal(payload)
 		if err != nil {
@@ -1746,6 +1856,56 @@ func guestSky10RPCURL(address string) string {
 		return strings.TrimRight(base, "/") + "/rpc"
 	}
 	return fmt.Sprintf("http://%s:9101/rpc", base)
+}
+
+func (m *Manager) guestReachableHostRPCURL(ctx context.Context) (string, error) {
+	var health struct {
+		HTTPAddr string `json:"http_addr"`
+	}
+	if err := m.hostRPC(ctx, "skyfs.health", nil, &health); err != nil {
+		return "", fmt.Errorf("reading host http address: %w", err)
+	}
+	port := httpPortFromAddr(strings.TrimSpace(health.HTTPAddr))
+	if port == "" {
+		return "", fmt.Errorf("host http address is empty")
+	}
+	return fmt.Sprintf("http://host.lima.internal:%s/rpc", port), nil
+}
+
+func httpPortFromAddr(addr string) string {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return ""
+	}
+	if strings.HasPrefix(addr, ":") {
+		return strings.TrimPrefix(addr, ":")
+	}
+	if host, port, err := net.SplitHostPort(addr); err == nil {
+		if host == "" || port == "" {
+			return ""
+		}
+		return port
+	}
+	if i := strings.LastIndex(addr, ":"); i >= 0 && i < len(addr)-1 {
+		return addr[i+1:]
+	}
+	return ""
+}
+
+func filterGuestMultiaddrsForIPAddress(addrs []string, ipAddr string) []string {
+	ipAddr = strings.TrimSpace(ipAddr)
+	if ipAddr == "" {
+		return nil
+	}
+	needle := "/ip4/" + ipAddr + "/"
+	filtered := make([]string, 0, len(addrs))
+	for _, addr := range addrs {
+		addr = strings.TrimSpace(addr)
+		if strings.Contains(addr, needle) {
+			filtered = append(filtered, addr)
+		}
+	}
+	return filtered
 }
 
 func defaultRunCommand(ctx context.Context, bin string, args []string, onLine func(stream, line string)) error {

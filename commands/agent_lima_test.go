@@ -144,8 +144,20 @@ func TestOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), "cat > \"${UNIT_DIR}/sky10.service\" <<EOF") {
 		t.Fatalf("user script missing guest sky10 systemd unit: %q", string(body))
 	}
+	if !strings.Contains(string(body), "ExecStartPost=%h/.bin/sky10-managed-reconnect") {
+		t.Fatalf("user script missing guest sky10 reconnect hook: %q", string(body))
+	}
 	if !strings.Contains(string(body), "systemctl --user enable sky10.service") {
 		t.Fatalf("user script missing guest sky10 systemd enable: %q", string(body))
+	}
+	if !strings.Contains(string(body), "install_guest_reconnect_helper") {
+		t.Fatalf("user script missing guest reconnect helper install: %q", string(body))
+	}
+	if !strings.Contains(string(body), `"method": "sandbox.reconnectGuest"`) {
+		t.Fatalf("user script missing sandbox reconnect guest callback: %q", string(body))
+	}
+	if !strings.Contains(string(body), `payload.get("host_rpc_url")`) {
+		t.Fatalf("user script missing host rpc url parsing: %q", string(body))
 	}
 	if strings.Contains(string(body), "nohup sky10 serve") {
 		t.Fatalf("user script should not rely on nohup sky10 serve fallback: %q", string(body))

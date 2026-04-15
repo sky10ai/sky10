@@ -243,8 +243,20 @@ func TestBundledOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), "cat > \"${UNIT_DIR}/sky10.service\" <<EOF") {
 		t.Fatalf("bundled user script missing guest sky10 systemd unit: %q", string(body))
 	}
+	if !strings.Contains(string(body), "ExecStartPost=%h/.bin/sky10-managed-reconnect") {
+		t.Fatalf("bundled user script missing guest sky10 reconnect hook: %q", string(body))
+	}
 	if !strings.Contains(string(body), "systemctl --user enable sky10.service") {
 		t.Fatalf("bundled user script missing guest sky10 systemd enable: %q", string(body))
+	}
+	if !strings.Contains(string(body), "install_guest_reconnect_helper") {
+		t.Fatalf("bundled user script missing guest reconnect helper install: %q", string(body))
+	}
+	if !strings.Contains(string(body), `"method": "sandbox.reconnectGuest"`) {
+		t.Fatalf("bundled user script missing sandbox reconnect guest callback: %q", string(body))
+	}
+	if !strings.Contains(string(body), `payload.get("host_rpc_url")`) {
+		t.Fatalf("bundled user script missing host rpc url parsing: %q", string(body))
 	}
 	if strings.Contains(string(body), "nohup sky10 serve") {
 		t.Fatalf("bundled user script should not rely on nohup sky10 serve fallback: %q", string(body))
@@ -547,7 +559,7 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	}
 	if err := prepareOpenClawSharedDir(sharedDir, helper, pluginAssets, map[string]string{
 		"OPENAI_API_KEY": "openai-key",
-	}, &IdentityInvite{HostIdentity: "sky10-host", Code: "invite-code"}); err != nil {
+	}, &IdentityInvite{HostIdentity: "sky10-host", Code: "invite-code"}, "openclaw-m8", "http://host.lima.internal:9101/rpc"); err != nil {
 		t.Fatalf("prepareOpenClawSharedDir() error: %v", err)
 	}
 
@@ -595,6 +607,12 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	}
 	if invite.Code != "invite-code" {
 		t.Fatalf("invite code = %q, want invite-code", invite.Code)
+	}
+	if invite.HostRPCURL != "http://host.lima.internal:9101/rpc" {
+		t.Fatalf("invite host rpc url = %q, want http://host.lima.internal:9101/rpc", invite.HostRPCURL)
+	}
+	if invite.SandboxSlug != "openclaw-m8" {
+		t.Fatalf("invite sandbox slug = %q, want openclaw-m8", invite.SandboxSlug)
 	}
 }
 
@@ -871,7 +889,11 @@ func TestFinishReadyOpenClawJoinsGuestSky10Identity(t *testing.T) {
 		case "skylink.status":
 			body, err := json.Marshal(map[string]interface{}{
 				"peer_id": "12D3KooWguest",
-				"addrs":   []string{"/ip4/192.168.64.14/tcp/4101"},
+				"addrs": []string{
+					"/ip4/127.0.0.1/tcp/4101",
+					"/ip4/192.168.5.15/tcp/4101",
+					"/ip4/192.168.64.14/tcp/4101",
+				},
 			})
 			if err != nil {
 				t.Fatalf("marshal guest skylink status: %v", err)
@@ -1009,7 +1031,11 @@ func TestFinishReadyOpenClawSkipsJoinWhenGuestAlreadyJoined(t *testing.T) {
 		case "skylink.status":
 			body, err := json.Marshal(map[string]interface{}{
 				"peer_id": "12D3KooWguest",
-				"addrs":   []string{"/ip4/192.168.64.14/tcp/4101"},
+				"addrs": []string{
+					"/ip4/127.0.0.1/tcp/4101",
+					"/ip4/192.168.5.15/tcp/4101",
+					"/ip4/192.168.64.14/tcp/4101",
+				},
 			})
 			if err != nil {
 				t.Fatalf("marshal guest skylink status: %v", err)
@@ -1142,7 +1168,10 @@ func TestReconnectRunningOpenClawSandboxes(t *testing.T) {
 		case "skylink.status":
 			body, err := json.Marshal(map[string]interface{}{
 				"peer_id": "12D3KooWguest",
-				"addrs":   []string{"/ip4/192.168.64.17/tcp/4101"},
+				"addrs": []string{
+					"/ip4/127.0.0.1/tcp/4101",
+					"/ip4/192.168.5.15/tcp/4101",
+					"/ip4/192.168.64.17/tcp/4101"},
 			})
 			if err != nil {
 				t.Fatalf("marshal guest skylink status: %v", err)
@@ -1176,6 +1205,92 @@ func TestReconnectRunningOpenClawSandboxes(t *testing.T) {
 	}
 	if got.IPAddress != "192.168.64.17" {
 		t.Fatalf("ip address = %q, want 192.168.64.17", got.IPAddress)
+	}
+}
+
+func TestReconnectGuestUsesSandboxIPAddress(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["openclaw-m8"] = Record{
+		Name:      "openclaw-m8",
+		Slug:      "openclaw-m8",
+		Provider:  providerLima,
+		Template:  templateOpenClaw,
+		Status:    "ready",
+		VMStatus:  "Running",
+		SharedDir: filepath.Join(t.TempDir(), "openclaw-m8"),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	var gotPeerID string
+	var gotAddrs []string
+	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
+		if method != "skylink.connectPeer" {
+			t.Fatalf("unexpected host RPC method %q", method)
+		}
+		connectParams, ok := params.(map[string]interface{})
+		if !ok {
+			t.Fatalf("host connect params type = %T, want map[string]interface{}", params)
+		}
+		gotPeerID, _ = connectParams["peer_id"].(string)
+		gotAddrs, _ = connectParams["multiaddrs"].([]string)
+		return nil
+	}
+
+	result, err := m.ReconnectGuest(context.Background(), ReconnectGuestParams{
+		Slug:      "openclaw-m8",
+		IPAddress: "192.168.64.17",
+		PeerID:    "12D3KooWguest",
+		Multiaddrs: []string{
+			"/ip4/127.0.0.1/tcp/4101",
+			"/ip4/192.168.5.15/tcp/4101",
+			"/ip4/192.168.64.17/tcp/4101",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ReconnectGuest() error: %v", err)
+	}
+	if !result.Connected {
+		t.Fatal("ReconnectGuest() connected = false, want true")
+	}
+	if gotPeerID != "12D3KooWguest" {
+		t.Fatalf("peer id = %q, want 12D3KooWguest", gotPeerID)
+	}
+	if len(gotAddrs) != 1 || gotAddrs[0] != "/ip4/192.168.64.17/tcp/4101" {
+		t.Fatalf("multiaddrs = %v, want [/ip4/192.168.64.17/tcp/4101]", gotAddrs)
+	}
+
+	got, err := m.Get(context.Background(), "openclaw-m8")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if got.IPAddress != "192.168.64.17" {
+		t.Fatalf("ip address = %q, want 192.168.64.17", got.IPAddress)
+	}
+}
+
+func TestFilterGuestMultiaddrsForIPAddress(t *testing.T) {
+	t.Parallel()
+
+	got := filterGuestMultiaddrsForIPAddress([]string{
+		"/ip4/127.0.0.1/tcp/4101",
+		"/ip4/192.168.5.15/tcp/4101",
+		"/ip4/192.168.64.17/tcp/4101",
+		"/ip4/192.168.64.17/udp/4401/quic-v1",
+	}, "192.168.64.17")
+	want := []string{
+		"/ip4/192.168.64.17/tcp/4101",
+		"/ip4/192.168.64.17/udp/4401/quic-v1",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("filterGuestMultiaddrsForIPAddress() = %v, want %v", got, want)
 	}
 }
 

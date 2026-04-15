@@ -13,6 +13,7 @@ STATE_DIR="${OPENCLAW_DIR}/.openclaw-lima"
 SENTINEL="${STATE_DIR}/initialized-v2"
 UNIT_DIR="${HOME}/.config/systemd/user"
 SKY10_INVITE_PATH="/shared/.sky10-join.json"
+SKY10_RECONNECT_HELPER="${HOME}/.bin/sky10-managed-reconnect"
 
 mkdir -p "${OPENCLAW_DIR}/agents/main/sessions"
 mkdir -p "${WORKSPACE_DIR}"
@@ -103,6 +104,77 @@ ensure_guest_sky10_binary() {
   fi
 }
 
+install_guest_reconnect_helper() {
+  cat > "${SKY10_RECONNECT_HELPER}" <<'EOF'
+#!/bin/bash
+set -u
+
+JOIN_PATH="/shared/.sky10-join.json"
+LOCAL_RPC="http://127.0.0.1:9101/rpc"
+
+if [ ! -f "${JOIN_PATH}" ]; then
+  exit 0
+fi
+
+mapfile -t join_info < <(
+  python3 - "${JOIN_PATH}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as fh:
+    payload = json.load(fh)
+
+print((payload.get("host_rpc_url") or "").strip())
+print((payload.get("sandbox_slug") or "").strip())
+PY
+)
+host_rpc_url="${join_info[0]:-}"
+sandbox_slug="${join_info[1]:-}"
+
+if [ -z "${host_rpc_url}" ] || [ -z "${sandbox_slug}" ]; then
+  exit 0
+fi
+
+guest_ip="$(ip -4 addr show dev lima0 | awk '/inet / {sub(/\/.*/, "", $2); print $2; exit}')"
+
+for _ in $(seq 1 20); do
+  payload="$(
+    curl -fsS "${LOCAL_RPC}" -H 'Content-Type: application/json' \
+      -d '{"jsonrpc":"2.0","method":"skylink.status","params":{},"id":1}' \
+      | python3 - "${sandbox_slug}" "${guest_ip}" <<'PY'
+import json
+import sys
+
+slug = sys.argv[1]
+guest_ip = sys.argv[2]
+resp = json.load(sys.stdin)
+result = resp.get("result") or {}
+peer_id = (result.get("peer_id") or "").strip()
+addrs = result.get("addrs") or []
+if not peer_id or not addrs:
+    raise SystemExit(1)
+
+print(json.dumps({
+    "jsonrpc": "2.0",
+    "method": "sandbox.reconnectGuest",
+    "params": {
+        "slug": slug,
+        "ip_address": guest_ip,
+        "peer_id": peer_id,
+        "multiaddrs": addrs,
+    },
+    "id": 1,
+}))
+PY
+  )" && curl -fsS "${host_rpc_url}" -H 'Content-Type: application/json' -d "${payload}" >/dev/null 2>&1 && exit 0
+  sleep 2
+done
+
+exit 0
+EOF
+  chmod 755 "${SKY10_RECONNECT_HELPER}"
+}
+
 ensure_guest_join() {
   local invite_info host_identity invite_code
 
@@ -144,6 +216,7 @@ PY
 
 ensure_guest_sky10() {
   ensure_guest_sky10_binary
+  install_guest_reconnect_helper
 
   if curl -fsS http://127.0.0.1:9101/health >/dev/null 2>&1; then
     return 0
@@ -157,6 +230,7 @@ Wants=network-online.target
 
 [Service]
 ExecStart=/usr/bin/env sky10 serve
+ExecStartPost=%h/.bin/sky10-managed-reconnect
 Restart=always
 RestartSec=2
 WorkingDirectory=${HOME}
