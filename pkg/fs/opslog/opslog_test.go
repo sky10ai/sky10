@@ -558,6 +558,48 @@ func TestCRDTPutBeatsOlderDelete(t *testing.T) {
 	}
 }
 
+func TestCRDTCausalSuccessorBeatsHigherTimestamp(t *testing.T) {
+	t.Parallel()
+
+	ancestor := Entry{Type: Put, Path: "x.md", Checksum: "base", Timestamp: 200, Device: "dev-b", Seq: 1}
+	successor := Entry{Type: Put, Path: "x.md", Checksum: "next", PrevChecksum: "base", Timestamp: 100, Device: "dev-a", Seq: 1}
+
+	for i, order := range [][]Entry{{ancestor, successor}, {successor, ancestor}} {
+		snap := buildSnapshot(nil, order)
+		fi, ok := snap.Lookup("x.md")
+		if !ok {
+			t.Fatalf("order %d: x.md missing", i)
+		}
+		if fi.Checksum != "next" {
+			t.Errorf("order %d: checksum = %q, want next", i, fi.Checksum)
+		}
+		if fi.PrevChecksum != "base" {
+			t.Errorf("order %d: prev_checksum = %q, want base", i, fi.PrevChecksum)
+		}
+	}
+}
+
+func TestCRDTCausalDeleteBeatsHigherTimestamp(t *testing.T) {
+	t.Parallel()
+
+	put := Entry{Type: Put, Path: "x.md", Checksum: "base", Timestamp: 200, Device: "dev-b", Seq: 1}
+	del := Entry{Type: Delete, Path: "x.md", PrevChecksum: "base", Timestamp: 100, Device: "dev-a", Seq: 1}
+
+	for i, order := range [][]Entry{{put, del}, {del, put}} {
+		snap := buildSnapshot(nil, order)
+		if _, ok := snap.Lookup("x.md"); ok {
+			t.Fatalf("order %d: x.md should be deleted", i)
+		}
+		tomb, ok := snap.Tombstones()["x.md"]
+		if !ok {
+			t.Fatalf("order %d: x.md tombstone missing", i)
+		}
+		if tomb.PrevChecksum != "base" {
+			t.Errorf("order %d: tomb prev_checksum = %q, want base", i, tomb.PrevChecksum)
+		}
+	}
+}
+
 func TestCRDTSameTimestampTiebreak(t *testing.T) {
 	t.Parallel()
 

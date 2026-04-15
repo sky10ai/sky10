@@ -160,16 +160,17 @@ func (l *LocalOpsLog) Compact() error {
 			entryType = Symlink
 		}
 		e := Entry{
-			Type:       entryType,
-			Path:       path,
-			Chunks:     fi.Chunks,
-			Size:       fi.Size,
-			Checksum:   fi.Checksum,
-			LinkTarget: fi.LinkTarget,
-			Namespace:  fi.Namespace,
-			Device:     fi.Device,
-			Timestamp:  fi.Modified.Unix(),
-			Seq:        fi.Seq,
+			Type:         entryType,
+			Path:         path,
+			Chunks:       fi.Chunks,
+			Size:         fi.Size,
+			Checksum:     fi.Checksum,
+			PrevChecksum: fi.PrevChecksum,
+			LinkTarget:   fi.LinkTarget,
+			Namespace:    fi.Namespace,
+			Device:       fi.Device,
+			Timestamp:    fi.Modified.Unix(),
+			Seq:          fi.Seq,
 		}
 		data, err := json.Marshal(e)
 		if err != nil {
@@ -220,12 +221,13 @@ func (l *LocalOpsLog) Compact() error {
 	for _, path := range deletedPaths {
 		tomb := l.cache.deleted[path]
 		e := Entry{
-			Type:      Delete,
-			Path:      path,
-			Namespace: tomb.Namespace,
-			Device:    tomb.Device,
-			Timestamp: tomb.Modified.Unix(),
-			Seq:       tomb.Seq,
+			Type:         Delete,
+			Path:         path,
+			Namespace:    tomb.Namespace,
+			Device:       tomb.Device,
+			Timestamp:    tomb.Modified.Unix(),
+			Seq:          tomb.Seq,
+			PrevChecksum: tomb.PrevChecksum,
 		}
 		data, err := json.Marshal(e)
 		if err != nil {
@@ -248,12 +250,13 @@ func (l *LocalOpsLog) Compact() error {
 	for _, path := range deletedDirPaths {
 		tomb := l.cache.deletedDirs[path]
 		e := Entry{
-			Type:      DeleteDir,
-			Path:      path,
-			Namespace: tomb.Namespace,
-			Device:    tomb.Device,
-			Timestamp: tomb.Modified.Unix(),
-			Seq:       tomb.Seq,
+			Type:         DeleteDir,
+			Path:         path,
+			Namespace:    tomb.Namespace,
+			Device:       tomb.Device,
+			Timestamp:    tomb.Modified.Unix(),
+			Seq:          tomb.Seq,
+			PrevChecksum: tomb.PrevChecksum,
 		}
 		data, err := json.Marshal(e)
 		if err != nil {

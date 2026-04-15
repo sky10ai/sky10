@@ -1102,15 +1102,16 @@ func (s *P2PSync) writeErrorResponse(stream network.Stream, message, expectedNSI
 
 func summarizeFSSnapshot(snap *opslog.Snapshot) (fsSnapshotState, error) {
 	type summaryFile struct {
-		Path       string   `json:"path"`
-		Chunks     []string `json:"chunks,omitempty"`
-		Size       int64    `json:"size"`
-		Modified   int64    `json:"modified"`
-		Checksum   string   `json:"checksum"`
-		Namespace  string   `json:"namespace"`
-		Device     string   `json:"device,omitempty"`
-		Seq        int      `json:"seq,omitempty"`
-		LinkTarget string   `json:"link_target,omitempty"`
+		Path         string   `json:"path"`
+		Chunks       []string `json:"chunks,omitempty"`
+		Size         int64    `json:"size"`
+		Modified     int64    `json:"modified"`
+		Checksum     string   `json:"checksum"`
+		PrevChecksum string   `json:"prev_checksum,omitempty"`
+		Namespace    string   `json:"namespace"`
+		Device       string   `json:"device,omitempty"`
+		Seq          int      `json:"seq,omitempty"`
+		LinkTarget   string   `json:"link_target,omitempty"`
 	}
 	type summaryDir struct {
 		Path      string `json:"path"`
@@ -1120,11 +1121,12 @@ func summarizeFSSnapshot(snap *opslog.Snapshot) (fsSnapshotState, error) {
 		Modified  int64  `json:"modified"`
 	}
 	type summaryTomb struct {
-		Path      string `json:"path"`
-		Namespace string `json:"namespace,omitempty"`
-		Device    string `json:"device,omitempty"`
-		Seq       int    `json:"seq,omitempty"`
-		Modified  int64  `json:"modified"`
+		Path         string `json:"path"`
+		Namespace    string `json:"namespace,omitempty"`
+		Device       string `json:"device,omitempty"`
+		Seq          int    `json:"seq,omitempty"`
+		Modified     int64  `json:"modified"`
+		PrevChecksum string `json:"prev_checksum,omitempty"`
 	}
 	type canonicalSnapshot struct {
 		Files         []summaryFile `json:"files"`
@@ -1170,15 +1172,16 @@ func summarizeFSSnapshot(snap *opslog.Snapshot) (fsSnapshotState, error) {
 	for _, path := range filePaths {
 		fi := filesMap[path]
 		canonical.Files = append(canonical.Files, summaryFile{
-			Path:       path,
-			Chunks:     append([]string(nil), fi.Chunks...),
-			Size:       fi.Size,
-			Modified:   fi.Modified.Unix(),
-			Checksum:   fi.Checksum,
-			Namespace:  fi.Namespace,
-			Device:     fi.Device,
-			Seq:        fi.Seq,
-			LinkTarget: fi.LinkTarget,
+			Path:         path,
+			Chunks:       append([]string(nil), fi.Chunks...),
+			Size:         fi.Size,
+			Modified:     fi.Modified.Unix(),
+			Checksum:     fi.Checksum,
+			PrevChecksum: fi.PrevChecksum,
+			Namespace:    fi.Namespace,
+			Device:       fi.Device,
+			Seq:          fi.Seq,
+			LinkTarget:   fi.LinkTarget,
 		})
 	}
 	for _, path := range dirPaths {
@@ -1194,21 +1197,23 @@ func summarizeFSSnapshot(snap *opslog.Snapshot) (fsSnapshotState, error) {
 	for _, path := range tombPaths {
 		tomb := tombsMap[path]
 		canonical.Tombstones = append(canonical.Tombstones, summaryTomb{
-			Path:      path,
-			Namespace: tomb.Namespace,
-			Device:    tomb.Device,
-			Seq:       tomb.Seq,
-			Modified:  tomb.Modified.Unix(),
+			Path:         path,
+			Namespace:    tomb.Namespace,
+			Device:       tomb.Device,
+			Seq:          tomb.Seq,
+			Modified:     tomb.Modified.Unix(),
+			PrevChecksum: tomb.PrevChecksum,
 		})
 	}
 	for _, path := range dirTombPaths {
 		tomb := dirTombsMap[path]
 		canonical.DirTombstones = append(canonical.DirTombstones, summaryTomb{
-			Path:      path,
-			Namespace: tomb.Namespace,
-			Device:    tomb.Device,
-			Seq:       tomb.Seq,
-			Modified:  tomb.Modified.Unix(),
+			Path:         path,
+			Namespace:    tomb.Namespace,
+			Device:       tomb.Device,
+			Seq:          tomb.Seq,
+			Modified:     tomb.Modified.Unix(),
+			PrevChecksum: tomb.PrevChecksum,
 		})
 	}
 
@@ -1308,12 +1313,13 @@ func mergePeerSnapshot(localLog *opslog.LocalOpsLog, remote *opslog.Snapshot) (i
 			continue
 		}
 		if err := localLog.Append(opslog.Entry{
-			Type:      opslog.Delete,
-			Path:      path,
-			Namespace: tomb.Namespace,
-			Device:    tomb.Device,
-			Timestamp: tomb.Modified.Unix(),
-			Seq:       tomb.Seq,
+			Type:         opslog.Delete,
+			Path:         path,
+			Namespace:    tomb.Namespace,
+			Device:       tomb.Device,
+			Timestamp:    tomb.Modified.Unix(),
+			Seq:          tomb.Seq,
+			PrevChecksum: tomb.PrevChecksum,
 		}); err != nil {
 			return merged, err
 		}
@@ -1360,16 +1366,17 @@ func mergePeerSnapshot(localLog *opslog.LocalOpsLog, remote *opslog.Snapshot) (i
 			entryType = opslog.Symlink
 		}
 		if err := localLog.Append(opslog.Entry{
-			Type:       entryType,
-			Path:       path,
-			Chunks:     append([]string(nil), fi.Chunks...),
-			Size:       fi.Size,
-			Checksum:   fi.Checksum,
-			Namespace:  fi.Namespace,
-			LinkTarget: fi.LinkTarget,
-			Device:     fi.Device,
-			Timestamp:  fi.Modified.Unix(),
-			Seq:        fi.Seq,
+			Type:         entryType,
+			Path:         path,
+			Chunks:       append([]string(nil), fi.Chunks...),
+			Size:         fi.Size,
+			Checksum:     fi.Checksum,
+			PrevChecksum: fi.PrevChecksum,
+			Namespace:    fi.Namespace,
+			LinkTarget:   fi.LinkTarget,
+			Device:       fi.Device,
+			Timestamp:    fi.Modified.Unix(),
+			Seq:          fi.Seq,
 		}); err != nil {
 			return merged, err
 		}
@@ -1407,13 +1414,28 @@ func clockFromTombstone(tomb opslog.TombstoneInfo) lwwClock {
 	return lwwClock{ts: tomb.Modified.Unix(), device: tomb.Device, seq: tomb.Seq}
 }
 
+func fileDescendsFile(candidate, current opslog.FileInfo) bool {
+	return candidate.PrevChecksum != "" && current.Checksum != "" && candidate.PrevChecksum == current.Checksum
+}
+
+func tombstoneDescendsFile(tomb opslog.TombstoneInfo, current opslog.FileInfo) bool {
+	return tomb.PrevChecksum != "" && current.Checksum != "" && tomb.PrevChecksum == current.Checksum
+}
+
 func shouldApplyRemoteFile(path string, remote opslog.FileInfo, localFiles map[string]opslog.FileInfo, localTombs, localDirTombs map[string]opslog.TombstoneInfo) bool {
 	remoteClock := clockFromFileInfo(remote)
-	if local, ok := localFiles[path]; ok && !remoteClock.beats(clockFromFileInfo(local)) {
-		return false
+	if local, ok := localFiles[path]; ok {
+		if fileDescendsFile(local, remote) {
+			return false
+		}
+		if !fileDescendsFile(remote, local) && !remoteClock.beats(clockFromFileInfo(local)) {
+			return false
+		}
 	}
-	if local, ok := localTombs[path]; ok && !remoteClock.beats(clockFromTombstone(local)) {
-		return false
+	if local, ok := localTombs[path]; ok {
+		if !remoteClock.beats(clockFromTombstone(local)) {
+			return false
+		}
 	}
 	if local, ok := coveringDirTombstone(path, localDirTombs); ok && !remoteClock.beats(clockFromTombstone(local)) {
 		return false
@@ -1423,8 +1445,10 @@ func shouldApplyRemoteFile(path string, remote opslog.FileInfo, localFiles map[s
 
 func shouldApplyRemoteTombstone(path string, remote opslog.TombstoneInfo, localFiles map[string]opslog.FileInfo, localTombs, localDirTombs map[string]opslog.TombstoneInfo) bool {
 	remoteClock := clockFromTombstone(remote)
-	if local, ok := localFiles[path]; ok && !remoteClock.beats(clockFromFileInfo(local)) {
-		return false
+	if local, ok := localFiles[path]; ok {
+		if !tombstoneDescendsFile(remote, local) && !remoteClock.beats(clockFromFileInfo(local)) {
+			return false
+		}
 	}
 	if local, ok := localTombs[path]; ok && !remoteClock.beats(clockFromTombstone(local)) {
 		return false

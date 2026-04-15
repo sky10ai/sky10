@@ -211,17 +211,22 @@ func (p *SnapshotPoller) diffAndMerge(remote, baseline *opslog.Snapshot) int {
 		}
 
 		// Merge into local CRDT via LWW (the CRDT resolves the winner)
+		prevChecksum := remotefi.PrevChecksum
+		if prevChecksum == "" && inBaseline {
+			prevChecksum = basefi.Checksum
+		}
 		if err := p.localLog.Append(opslog.Entry{
-			Type:       opslog.Put,
-			Path:       path,
-			Chunks:     remotefi.Chunks,
-			Size:       remotefi.Size,
-			Checksum:   remotefi.Checksum,
-			Namespace:  remotefi.Namespace,
-			LinkTarget: remotefi.LinkTarget,
-			Device:     remotefi.Device,
-			Timestamp:  remotefi.Modified.Unix(),
-			Seq:        remotefi.Seq,
+			Type:         opslog.Put,
+			Path:         path,
+			Chunks:       remotefi.Chunks,
+			Size:         remotefi.Size,
+			Checksum:     remotefi.Checksum,
+			PrevChecksum: prevChecksum,
+			Namespace:    remotefi.Namespace,
+			LinkTarget:   remotefi.LinkTarget,
+			Device:       remotefi.Device,
+			Timestamp:    remotefi.Modified.Unix(),
+			Seq:          remotefi.Seq,
 		}); err != nil {
 			p.logger.Warn("poll: merge failed", "path", path, "error", err)
 			continue
@@ -241,12 +246,13 @@ func (p *SnapshotPoller) diffAndMerge(remote, baseline *opslog.Snapshot) int {
 					deleteTS = basefi.Modified.Unix() + 1
 				}
 				if err := p.localLog.Append(opslog.Entry{
-					Type:      opslog.Delete,
-					Path:      path,
-					Namespace: basefi.Namespace,
-					Device:    basefi.Device,
-					Timestamp: deleteTS,
-					Seq:       basefi.Seq + 1,
+					Type:         opslog.Delete,
+					Path:         path,
+					Namespace:    basefi.Namespace,
+					Device:       basefi.Device,
+					Timestamp:    deleteTS,
+					Seq:          basefi.Seq + 1,
+					PrevChecksum: basefi.Checksum,
 				}); err != nil {
 					p.logger.Warn("poll: delete merge failed", "path", path, "error", err)
 					continue

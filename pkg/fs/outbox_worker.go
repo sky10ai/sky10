@@ -178,8 +178,10 @@ func (w *OutboxWorker) uploadFile(ctx context.Context, entry OutboxEntry) outbox
 	w.logger.Info("outbox: uploading", "path", entry.Path)
 
 	// Set prev checksum from local log — avoids loadCurrentState (88+ S3 GETs)
+	prevChecksum := ""
 	if prev, ok := w.localLog.Lookup(entry.Path); ok {
 		w.store.SetPrevChecksum(prev.Checksum)
+		prevChecksum = prev.Checksum
 	}
 	if err := w.store.Put(ctx, entry.Path, f); err != nil {
 		w.logger.Warn("outbox upload failed", "path", entry.Path, "error", err)
@@ -203,13 +205,14 @@ func (w *OutboxWorker) uploadFile(ctx context.Context, entry OutboxEntry) outbox
 		return outboxProcessRetry
 	}
 	w.localLog.AppendLocal(opslog.Entry{
-		Type:      opslog.Put,
-		Path:      entry.Path,
-		Chunks:    result.Chunks,
-		Size:      result.Size,
-		Checksum:  result.Checksum,
-		Namespace: entry.Namespace,
-		Timestamp: entry.Timestamp,
+		Type:         opslog.Put,
+		Path:         entry.Path,
+		Chunks:       result.Chunks,
+		Size:         result.Size,
+		Checksum:     result.Checksum,
+		PrevChecksum: prevChecksum,
+		Namespace:    entry.Namespace,
+		Timestamp:    entry.Timestamp,
 	})
 
 	w.logger.Info("outbox: uploaded", "path", entry.Path)
@@ -224,9 +227,10 @@ func (w *OutboxWorker) recordDeleteForMissingFile(entry OutboxEntry) outboxProce
 	// reappears, and the blob never gets uploaded.
 	w.logger.Warn("outbox upload: file gone, recording delete", "path", entry.Path)
 	w.localLog.AppendLocal(opslog.Entry{
-		Type:      opslog.Delete,
-		Path:      entry.Path,
-		Namespace: entry.Namespace,
+		Type:         opslog.Delete,
+		Path:         entry.Path,
+		Namespace:    entry.Namespace,
+		PrevChecksum: entry.Checksum,
 	})
 	return outboxProcessApplied
 }
@@ -282,13 +286,18 @@ func (w *OutboxWorker) writeDeleteDirOp(ctx context.Context, entry OutboxEntry) 
 
 // writeSymlinkOp records a symlink in the local log.
 func (w *OutboxWorker) writeSymlinkOp(ctx context.Context, entry OutboxEntry) bool {
+	prevChecksum := ""
+	if prev, ok := w.localLog.Lookup(entry.Path); ok {
+		prevChecksum = prev.Checksum
+	}
 	if err := w.localLog.AppendLocal(opslog.Entry{
-		Type:       opslog.Symlink,
-		Path:       entry.Path,
-		Checksum:   entry.Checksum,
-		LinkTarget: entry.LinkTarget,
-		Namespace:  entry.Namespace,
-		Timestamp:  entry.Timestamp,
+		Type:         opslog.Symlink,
+		Path:         entry.Path,
+		Checksum:     entry.Checksum,
+		PrevChecksum: prevChecksum,
+		LinkTarget:   entry.LinkTarget,
+		Namespace:    entry.Namespace,
+		Timestamp:    entry.Timestamp,
 	}); err != nil {
 		w.logger.Warn("outbox symlink: write failed", "path", entry.Path, "error", err)
 		return false
@@ -300,11 +309,18 @@ func (w *OutboxWorker) writeSymlinkOp(ctx context.Context, entry OutboxEntry) bo
 
 // writeDeleteOp records a delete in the local log.
 func (w *OutboxWorker) writeDeleteOp(ctx context.Context, entry OutboxEntry) bool {
+	prevChecksum := entry.Checksum
+	if prevChecksum == "" {
+		if prev, ok := w.localLog.Lookup(entry.Path); ok {
+			prevChecksum = prev.Checksum
+		}
+	}
 	if err := w.localLog.AppendLocal(opslog.Entry{
-		Type:      opslog.Delete,
-		Path:      entry.Path,
-		Namespace: entry.Namespace,
-		Timestamp: entry.Timestamp,
+		Type:         opslog.Delete,
+		Path:         entry.Path,
+		Namespace:    entry.Namespace,
+		PrevChecksum: prevChecksum,
+		Timestamp:    entry.Timestamp,
 	}); err != nil {
 		w.logger.Warn("outbox delete: write failed", "path", entry.Path, "error", err)
 		return false

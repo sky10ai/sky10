@@ -73,14 +73,15 @@ func (e *Entry) entryKey() string {
 // When LinkTarget is non-empty, this entry represents a symlink — Chunks
 // will be nil and the target path is stored instead of content.
 type FileInfo struct {
-	Chunks     []string  `json:"chunks"`
-	Size       int64     `json:"size"`
-	Modified   time.Time `json:"modified"`
-	Checksum   string    `json:"checksum"`
-	Namespace  string    `json:"namespace"`
-	Device     string    `json:"device,omitempty"`
-	Seq        int       `json:"seq,omitempty"`
-	LinkTarget string    `json:"link_target,omitempty"`
+	Chunks       []string  `json:"chunks"`
+	Size         int64     `json:"size"`
+	Modified     time.Time `json:"modified"`
+	Checksum     string    `json:"checksum"`
+	PrevChecksum string    `json:"prev_checksum,omitempty"`
+	Namespace    string    `json:"namespace"`
+	Device       string    `json:"device,omitempty"`
+	Seq          int       `json:"seq,omitempty"`
+	LinkTarget   string    `json:"link_target,omitempty"`
 }
 
 // clockTuple is the comparison key for LWW-Register-Map conflict resolution.
@@ -126,6 +127,18 @@ func ClockTuple(fi FileInfo) Clock {
 	return Clock{Ts: fi.Modified.Unix(), Device: fi.Device, Seq: fi.Seq}
 }
 
+func entryDescendsFile(e Entry, fi FileInfo) bool {
+	return e.PrevChecksum != "" && fi.Checksum != "" && e.PrevChecksum == fi.Checksum
+}
+
+func fileDescendsEntry(fi FileInfo, e Entry) bool {
+	return fi.PrevChecksum != "" && e.Checksum != "" && fi.PrevChecksum == e.Checksum
+}
+
+func tombstoneDescendsEntry(t TombstoneInfo, e Entry) bool {
+	return t.PrevChecksum != "" && e.Checksum != "" && t.PrevChecksum == e.Checksum
+}
+
 // DirInfo describes an explicitly created directory.
 // Device and Seq preserve the LWW clock through snapshot save/load cycles.
 type DirInfo struct {
@@ -138,10 +151,11 @@ type DirInfo struct {
 // TombstoneInfo preserves the delete clock for a path or directory
 // through snapshot save/load cycles and compaction.
 type TombstoneInfo struct {
-	Namespace string    `json:"namespace,omitempty"`
-	Device    string    `json:"device,omitempty"`
-	Seq       int       `json:"seq,omitempty"`
-	Modified  time.Time `json:"modified"`
+	Namespace    string    `json:"namespace,omitempty"`
+	Device       string    `json:"device,omitempty"`
+	Seq          int       `json:"seq,omitempty"`
+	Modified     time.Time `json:"modified"`
+	PrevChecksum string    `json:"prev_checksum,omitempty"`
 }
 
 // Snapshot is an immutable point-in-time view of the file tree.
@@ -541,21 +555,23 @@ type dirInfoJSON struct {
 }
 
 type fileInfoJSON struct {
-	Chunks     []string  `json:"chunks"`
-	Size       int64     `json:"size"`
-	Modified   time.Time `json:"modified"`
-	Checksum   string    `json:"checksum"`
-	Namespace  string    `json:"namespace"`
-	Device     string    `json:"device,omitempty"`
-	Seq        int       `json:"seq,omitempty"`
-	LinkTarget string    `json:"link_target,omitempty"`
+	Chunks       []string  `json:"chunks"`
+	Size         int64     `json:"size"`
+	Modified     time.Time `json:"modified"`
+	Checksum     string    `json:"checksum"`
+	PrevChecksum string    `json:"prev_checksum,omitempty"`
+	Namespace    string    `json:"namespace"`
+	Device       string    `json:"device,omitempty"`
+	Seq          int       `json:"seq,omitempty"`
+	LinkTarget   string    `json:"link_target,omitempty"`
 }
 
 type tombstoneJSON struct {
-	Namespace string    `json:"namespace,omitempty"`
-	Device    string    `json:"device,omitempty"`
-	Seq       int       `json:"seq,omitempty"`
-	Modified  time.Time `json:"modified"`
+	Namespace    string    `json:"namespace,omitempty"`
+	Device       string    `json:"device,omitempty"`
+	Seq          int       `json:"seq,omitempty"`
+	Modified     time.Time `json:"modified"`
+	PrevChecksum string    `json:"prev_checksum,omitempty"`
 }
 
 func (l *OpsLog) saveSnapshot(ctx context.Context, snap *Snapshot) error {
@@ -575,14 +591,15 @@ func (l *OpsLog) saveSnapshot(ctx context.Context, snap *Snapshot) error {
 			continue
 		}
 		m.Tree[path] = fileInfoJSON{
-			Chunks:     fi.Chunks,
-			Size:       fi.Size,
-			Modified:   fi.Modified,
-			Checksum:   fi.Checksum,
-			Namespace:  fi.Namespace,
-			Device:     fi.Device,
-			Seq:        fi.Seq,
-			LinkTarget: fi.LinkTarget,
+			Chunks:       fi.Chunks,
+			Size:         fi.Size,
+			Modified:     fi.Modified,
+			Checksum:     fi.Checksum,
+			PrevChecksum: fi.PrevChecksum,
+			Namespace:    fi.Namespace,
+			Device:       fi.Device,
+			Seq:          fi.Seq,
+			LinkTarget:   fi.LinkTarget,
 		}
 	}
 	if len(snap.dirs) > 0 {
@@ -600,10 +617,11 @@ func (l *OpsLog) saveSnapshot(ctx context.Context, snap *Snapshot) error {
 		m.Deleted = make(map[string]tombstoneJSON, len(snap.deleted))
 		for path, tomb := range snap.deleted {
 			m.Deleted[path] = tombstoneJSON{
-				Namespace: tomb.Namespace,
-				Device:    tomb.Device,
-				Seq:       tomb.Seq,
-				Modified:  tomb.Modified,
+				Namespace:    tomb.Namespace,
+				Device:       tomb.Device,
+				Seq:          tomb.Seq,
+				Modified:     tomb.Modified,
+				PrevChecksum: tomb.PrevChecksum,
 			}
 		}
 	}
@@ -611,10 +629,11 @@ func (l *OpsLog) saveSnapshot(ctx context.Context, snap *Snapshot) error {
 		m.DeletedDirs = make(map[string]tombstoneJSON, len(snap.deletedDirs))
 		for path, tomb := range snap.deletedDirs {
 			m.DeletedDirs[path] = tombstoneJSON{
-				Namespace: tomb.Namespace,
-				Device:    tomb.Device,
-				Seq:       tomb.Seq,
-				Modified:  tomb.Modified,
+				Namespace:    tomb.Namespace,
+				Device:       tomb.Device,
+				Seq:          tomb.Seq,
+				Modified:     tomb.Modified,
+				PrevChecksum: tomb.PrevChecksum,
 			}
 		}
 	}
@@ -681,14 +700,15 @@ func (l *OpsLog) LoadLatestSnapshot(ctx context.Context) (*Snapshot, int64, erro
 	}
 	for path, fi := range m.Tree {
 		snap.files[path] = FileInfo{
-			Chunks:     fi.Chunks,
-			Size:       fi.Size,
-			Modified:   fi.Modified,
-			Checksum:   fi.Checksum,
-			Namespace:  fi.Namespace,
-			Device:     fi.Device,
-			Seq:        fi.Seq,
-			LinkTarget: fi.LinkTarget,
+			Chunks:       fi.Chunks,
+			Size:         fi.Size,
+			Modified:     fi.Modified,
+			Checksum:     fi.Checksum,
+			PrevChecksum: fi.PrevChecksum,
+			Namespace:    fi.Namespace,
+			Device:       fi.Device,
+			Seq:          fi.Seq,
+			LinkTarget:   fi.LinkTarget,
 		}
 	}
 	for path, di := range m.Dirs {
@@ -701,18 +721,20 @@ func (l *OpsLog) LoadLatestSnapshot(ctx context.Context) (*Snapshot, int64, erro
 	}
 	for path, tomb := range m.Deleted {
 		snap.deleted[path] = TombstoneInfo{
-			Namespace: tomb.Namespace,
-			Device:    tomb.Device,
-			Seq:       tomb.Seq,
-			Modified:  tomb.Modified,
+			Namespace:    tomb.Namespace,
+			Device:       tomb.Device,
+			Seq:          tomb.Seq,
+			Modified:     tomb.Modified,
+			PrevChecksum: tomb.PrevChecksum,
 		}
 	}
 	for path, tomb := range m.DeletedDirs {
 		snap.deletedDirs[path] = TombstoneInfo{
-			Namespace: tomb.Namespace,
-			Device:    tomb.Device,
-			Seq:       tomb.Seq,
-			Modified:  tomb.Modified,
+			Namespace:    tomb.Namespace,
+			Device:       tomb.Device,
+			Seq:          tomb.Seq,
+			Modified:     tomb.Modified,
+			PrevChecksum: tomb.PrevChecksum,
 		}
 	}
 
@@ -879,12 +901,12 @@ func readEntries(ctx context.Context, backend adapter.Backend, since int64, encK
 
 // --- State materialization (LWW-Register-Map CRDT) ---
 
-// buildSnapshot materializes a file tree from a base snapshot and entries
-// using LWW-Register-Map CRDT semantics. Each path is an independent
-// last-writer-wins register keyed by (timestamp, device, seq). The entry
-// with the highest clock wins, regardless of processing order. This makes
-// buildSnapshot commutative: any permutation of entries produces the same
-// result.
+// buildSnapshot materializes a file tree from a base snapshot and entries.
+// For file paths, a direct causal successor (prev_checksum matches the
+// current checksum) beats its ancestor even if wall-clock ordering disagrees.
+// When no causal relation is known, the path falls back to LWW using
+// (timestamp, device, seq). This keeps the CRDT deterministic while reducing
+// reliance on raw timestamps for sequential edits.
 //
 // Deletes are tracked as tombstones in the clock map so an older put
 // cannot resurrect a file that was deleted with a higher clock.
@@ -939,7 +961,23 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 
 		switch e.Type {
 		case Put, Symlink:
-			if prev, ok := clocks[e.Path]; ok && !ec.beats(prev) {
+			if local, ok := snap.files[e.Path]; ok {
+				if fileDescendsEntry(local, e) {
+					continue
+				}
+				if !entryDescendsFile(e, local) {
+					if prev, ok := clocks[e.Path]; ok && !ec.beats(prev) {
+						continue
+					}
+				}
+			} else if tomb, ok := snap.deleted[e.Path]; ok {
+				if tombstoneDescendsEntry(tomb, e) {
+					continue
+				}
+				if prev, ok := clocks[e.Path]; ok && !ec.beats(prev) {
+					continue
+				}
+			} else if prev, ok := clocks[e.Path]; ok && !ec.beats(prev) {
 				continue
 			}
 			if coveredByDirTombstone(e.Path, ec, dirTombstones) {
@@ -948,17 +986,24 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 			clocks[e.Path] = ec
 			delete(snap.deleted, e.Path) // re-created file is no longer deleted
 			snap.files[e.Path] = FileInfo{
-				Chunks:     e.Chunks,
-				Size:       e.Size,
-				Modified:   time.Unix(e.Timestamp, 0).UTC(),
-				Checksum:   e.Checksum,
-				Namespace:  e.Namespace,
-				Device:     e.Device,
-				Seq:        e.Seq,
-				LinkTarget: e.LinkTarget,
+				Chunks:       e.Chunks,
+				Size:         e.Size,
+				Modified:     time.Unix(e.Timestamp, 0).UTC(),
+				Checksum:     e.Checksum,
+				PrevChecksum: e.PrevChecksum,
+				Namespace:    e.Namespace,
+				Device:       e.Device,
+				Seq:          e.Seq,
+				LinkTarget:   e.LinkTarget,
 			}
 		case Delete:
-			if prev, ok := clocks[e.Path]; ok && !ec.beats(prev) {
+			if local, ok := snap.files[e.Path]; ok {
+				if !entryDescendsFile(e, local) {
+					if prev, ok := clocks[e.Path]; ok && !ec.beats(prev) {
+						continue
+					}
+				}
+			} else if prev, ok := clocks[e.Path]; ok && !ec.beats(prev) {
 				continue
 			}
 			clocks[e.Path] = ec
@@ -1023,10 +1068,11 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 
 func tombstoneInfoFromEntry(e Entry) TombstoneInfo {
 	return TombstoneInfo{
-		Namespace: e.Namespace,
-		Device:    e.Device,
-		Seq:       e.Seq,
-		Modified:  time.Unix(e.Timestamp, 0).UTC(),
+		Namespace:    e.Namespace,
+		Device:       e.Device,
+		Seq:          e.Seq,
+		Modified:     time.Unix(e.Timestamp, 0).UTC(),
+		PrevChecksum: e.PrevChecksum,
 	}
 }
 

@@ -148,3 +148,121 @@ func TestMergePeerSnapshotPreservesDeleteDirAuthority(t *testing.T) {
 		t.Fatal("dir tombstone should be present after merge")
 	}
 }
+
+func TestMergePeerSnapshotAppliesCausalSuccessorDespiteOlderTimestamp(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	localLog := opslog.NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), "dev-a")
+	remoteLog := opslog.NewLocalOpsLog(filepath.Join(dir, "remote.jsonl"), "dev-b")
+
+	if err := localLog.Append(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "doc.txt",
+		Checksum:  "base",
+		Chunks:    []string{"c1"},
+		Device:    "dev-a",
+		Timestamp: 200,
+		Seq:       1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := remoteLog.Append(opslog.Entry{
+		Type:         opslog.Put,
+		Path:         "doc.txt",
+		Checksum:     "next",
+		PrevChecksum: "base",
+		Chunks:       []string{"c2"},
+		Device:       "dev-b",
+		Timestamp:    100,
+		Seq:          1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	remoteSnap, err := remoteLog.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	merged, err := mergePeerSnapshot(localLog, remoteSnap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged != 1 {
+		t.Fatalf("merge = %d, want 1", merged)
+	}
+
+	localSnap, err := localLog.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fi, ok := localSnap.Lookup("doc.txt")
+	if !ok {
+		t.Fatal("doc.txt missing after merge")
+	}
+	if fi.Checksum != "next" {
+		t.Fatalf("checksum = %q, want next", fi.Checksum)
+	}
+	if fi.PrevChecksum != "base" {
+		t.Fatalf("prev_checksum = %q, want base", fi.PrevChecksum)
+	}
+}
+
+func TestMergePeerSnapshotAppliesCausalDeleteDespiteOlderTimestamp(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	localLog := opslog.NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), "dev-a")
+	remoteLog := opslog.NewLocalOpsLog(filepath.Join(dir, "remote.jsonl"), "dev-b")
+
+	if err := localLog.Append(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "doc.txt",
+		Checksum:  "base",
+		Chunks:    []string{"c1"},
+		Device:    "dev-a",
+		Timestamp: 200,
+		Seq:       1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := remoteLog.Append(opslog.Entry{
+		Type:         opslog.Delete,
+		Path:         "doc.txt",
+		PrevChecksum: "base",
+		Device:       "dev-b",
+		Timestamp:    100,
+		Seq:          1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	remoteSnap, err := remoteLog.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	merged, err := mergePeerSnapshot(localLog, remoteSnap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged != 1 {
+		t.Fatalf("merge = %d, want 1", merged)
+	}
+
+	localSnap, err := localLog.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := localSnap.Lookup("doc.txt"); ok {
+		t.Fatal("doc.txt should be deleted after merge")
+	}
+	tomb, ok := localSnap.Tombstones()["doc.txt"]
+	if !ok {
+		t.Fatal("doc.txt tombstone missing after merge")
+	}
+	if tomb.PrevChecksum != "base" {
+		t.Fatalf("tomb prev_checksum = %q, want base", tomb.PrevChecksum)
+	}
+}

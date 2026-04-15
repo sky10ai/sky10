@@ -312,7 +312,7 @@ Checklist:
 - [x] Add a durable per-drive metadata DB for local state and remote-per-peer
       state.
 - [x] Persist explicit tombstones instead of relying on absence.
-- [ ] Add stronger conflict metadata than timestamp-first LWW, reusing the
+- [x] Add stronger conflict metadata than timestamp-first LWW, reusing the
       causal direction established in KV hardening.
 - [x] Add an FS libp2p metadata protocol for full sync on first contact.
 - [x] Reuse the summary-first anti-entropy pattern proven in `pkg/kv/p2p.go`
@@ -506,8 +506,7 @@ rewrite, the first slices should be:
 
 To stay aligned with this plan, the next coding focus should remain:
 
-1. finish the remaining `Milestone 4` work: stronger-than-LWW conflict
-   metadata and long-offline catch-up coverage
+1. finish the remaining `Milestone 4` work: long-offline catch-up coverage
 2. continue `Milestone 5` only where it directly supports the `Milestone 4`
    engine
 3. treat additional `Milestone 7` observability as secondary to the remaining

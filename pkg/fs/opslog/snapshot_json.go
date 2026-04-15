@@ -28,14 +28,15 @@ func MarshalSnapshot(snap *Snapshot) ([]byte, error) {
 			continue
 		}
 		m.Tree[path] = fileInfoJSON{
-			Chunks:     fi.Chunks,
-			Size:       fi.Size,
-			Modified:   fi.Modified,
-			Checksum:   fi.Checksum,
-			Namespace:  fi.Namespace,
-			Device:     fi.Device,
-			Seq:        fi.Seq,
-			LinkTarget: fi.LinkTarget,
+			Chunks:       fi.Chunks,
+			Size:         fi.Size,
+			Modified:     fi.Modified,
+			Checksum:     fi.Checksum,
+			PrevChecksum: fi.PrevChecksum,
+			Namespace:    fi.Namespace,
+			Device:       fi.Device,
+			Seq:          fi.Seq,
+			LinkTarget:   fi.LinkTarget,
 		}
 	}
 
@@ -74,14 +75,15 @@ func MarshalPeerSnapshot(snap *Snapshot) ([]byte, error) {
 			continue
 		}
 		m.Tree[path] = fileInfoJSON{
-			Chunks:     fi.Chunks,
-			Size:       fi.Size,
-			Modified:   fi.Modified,
-			Checksum:   fi.Checksum,
-			Namespace:  fi.Namespace,
-			Device:     fi.Device,
-			Seq:        fi.Seq,
-			LinkTarget: fi.LinkTarget,
+			Chunks:       fi.Chunks,
+			Size:         fi.Size,
+			Modified:     fi.Modified,
+			Checksum:     fi.Checksum,
+			PrevChecksum: fi.PrevChecksum,
+			Namespace:    fi.Namespace,
+			Device:       fi.Device,
+			Seq:          fi.Seq,
+			LinkTarget:   fi.LinkTarget,
 		}
 	}
 
@@ -100,10 +102,11 @@ func MarshalPeerSnapshot(snap *Snapshot) ([]byte, error) {
 		m.Deleted = make(map[string]tombstoneJSON, len(snap.deleted))
 		for path, tomb := range snap.deleted {
 			m.Deleted[path] = tombstoneJSON{
-				Namespace: tomb.Namespace,
-				Device:    tomb.Device,
-				Seq:       tomb.Seq,
-				Modified:  tomb.Modified,
+				Namespace:    tomb.Namespace,
+				Device:       tomb.Device,
+				Seq:          tomb.Seq,
+				Modified:     tomb.Modified,
+				PrevChecksum: tomb.PrevChecksum,
 			}
 		}
 	}
@@ -111,10 +114,11 @@ func MarshalPeerSnapshot(snap *Snapshot) ([]byte, error) {
 		m.DeletedDirs = make(map[string]tombstoneJSON, len(snap.deletedDirs))
 		for path, tomb := range snap.deletedDirs {
 			m.DeletedDirs[path] = tombstoneJSON{
-				Namespace: tomb.Namespace,
-				Device:    tomb.Device,
-				Seq:       tomb.Seq,
-				Modified:  tomb.Modified,
+				Namespace:    tomb.Namespace,
+				Device:       tomb.Device,
+				Seq:          tomb.Seq,
+				Modified:     tomb.Modified,
+				PrevChecksum: tomb.PrevChecksum,
 			}
 		}
 	}
@@ -140,14 +144,15 @@ func UnmarshalSnapshot(data []byte) (*Snapshot, error) {
 
 	for path, fi := range m.Tree {
 		snap.files[path] = FileInfo{
-			Chunks:     fi.Chunks,
-			Size:       fi.Size,
-			Modified:   fi.Modified,
-			Checksum:   fi.Checksum,
-			Namespace:  fi.Namespace,
-			Device:     fi.Device,
-			Seq:        fi.Seq,
-			LinkTarget: fi.LinkTarget,
+			Chunks:       fi.Chunks,
+			Size:         fi.Size,
+			Modified:     fi.Modified,
+			Checksum:     fi.Checksum,
+			PrevChecksum: fi.PrevChecksum,
+			Namespace:    fi.Namespace,
+			Device:       fi.Device,
+			Seq:          fi.Seq,
+			LinkTarget:   fi.LinkTarget,
 		}
 	}
 
@@ -182,14 +187,15 @@ func UnmarshalPeerSnapshot(data []byte) (*Snapshot, error) {
 
 	for path, fi := range m.Tree {
 		snap.files[path] = FileInfo{
-			Chunks:     fi.Chunks,
-			Size:       fi.Size,
-			Modified:   fi.Modified,
-			Checksum:   fi.Checksum,
-			Namespace:  fi.Namespace,
-			Device:     fi.Device,
-			Seq:        fi.Seq,
-			LinkTarget: fi.LinkTarget,
+			Chunks:       fi.Chunks,
+			Size:         fi.Size,
+			Modified:     fi.Modified,
+			Checksum:     fi.Checksum,
+			PrevChecksum: fi.PrevChecksum,
+			Namespace:    fi.Namespace,
+			Device:       fi.Device,
+			Seq:          fi.Seq,
+			LinkTarget:   fi.LinkTarget,
 		}
 	}
 	for path, di := range m.Dirs {
@@ -202,18 +208,20 @@ func UnmarshalPeerSnapshot(data []byte) (*Snapshot, error) {
 	}
 	for path, tomb := range m.Deleted {
 		snap.deleted[path] = TombstoneInfo{
-			Namespace: tomb.Namespace,
-			Device:    tomb.Device,
-			Seq:       tomb.Seq,
-			Modified:  tomb.Modified,
+			Namespace:    tomb.Namespace,
+			Device:       tomb.Device,
+			Seq:          tomb.Seq,
+			Modified:     tomb.Modified,
+			PrevChecksum: tomb.PrevChecksum,
 		}
 	}
 	for path, tomb := range m.DeletedDirs {
 		snap.deletedDirs[path] = TombstoneInfo{
-			Namespace: tomb.Namespace,
-			Device:    tomb.Device,
-			Seq:       tomb.Seq,
-			Modified:  tomb.Modified,
+			Namespace:    tomb.Namespace,
+			Device:       tomb.Device,
+			Seq:          tomb.Seq,
+			Modified:     tomb.Modified,
+			PrevChecksum: tomb.PrevChecksum,
 		}
 	}
 
