@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"sync"
+	"time"
 )
 
 // Drive represents a named sync folder mapped to a remote namespace.
@@ -23,7 +24,7 @@ type Drive struct {
 type DriveManager struct {
 	store          *Store
 	drives         map[string]*Drive
-	daemons        map[string]context.CancelFunc
+	daemons        map[string]*driveRuntime
 	pollSeconds    int
 	mu             sync.RWMutex
 	muHolder       string // debug: last write-lock caller
@@ -31,6 +32,12 @@ type DriveManager struct {
 	Logger         *slog.Logger                 // shared logger (with log buffer)
 	OnActivity     func()                       // called when any drive does sync I/O
 	OnStateChanged func(string, map[string]any) // called when manifest changes
+	p2pSync        *P2PSync
+}
+
+type driveRuntime struct {
+	cancel    context.CancelFunc
+	replicaID string
 }
 
 // wLock acquires write lock and records the caller for debugging.
@@ -55,12 +62,19 @@ func NewDriveManager(store *Store, cfgPath string) *DriveManager {
 	dm := &DriveManager{
 		store:       store,
 		drives:      make(map[string]*Drive),
-		daemons:     make(map[string]context.CancelFunc),
+		daemons:     make(map[string]*driveRuntime),
 		pollSeconds: 30,
 		cfgPath:     cfgPath,
 	}
 	dm.load()
 	return dm
+}
+
+// SetP2PSync attaches the shared FS P2P sync manager used by all drives.
+func (dm *DriveManager) SetP2PSync(sync *P2PSync) {
+	dm.wLock("SetP2PSync")
+	dm.p2pSync = sync
+	dm.wUnlock()
 }
 
 // CreateDrive adds a new drive. Creates the local directory if needed.
@@ -92,8 +106,11 @@ func (dm *DriveManager) RemoveDrive(id string) error {
 	dm.wLock("RemoveDrive")
 	defer dm.wUnlock()
 
-	if cancel, ok := dm.daemons[id]; ok {
-		cancel()
+	if runtime, ok := dm.daemons[id]; ok {
+		if dm.p2pSync != nil && runtime.replicaID != "" {
+			dm.p2pSync.RemoveReplica(runtime.replicaID)
+		}
+		runtime.cancel()
 		delete(dm.daemons, id)
 	}
 	delete(dm.drives, id)
@@ -133,8 +150,11 @@ func (dm *DriveManager) StartDrive(id string, logger interface{ Info(string, ...
 	}
 
 	// Stop if already running
-	if cancel, running := dm.daemons[id]; running {
-		cancel()
+	if runtime, running := dm.daemons[id]; running {
+		if dm.p2pSync != nil && runtime.replicaID != "" {
+			dm.p2pSync.RemoveReplica(runtime.replicaID)
+		}
+		runtime.cancel()
 	}
 	dm.wUnlock()
 
@@ -173,14 +193,32 @@ func (dm *DriveManager) StartDrive(id string, logger interface{ Info(string, ...
 		daemon.onEvent = dm.OnStateChanged
 	}
 
+	replicaID := ""
+	if dm.p2pSync != nil {
+		replicaID = fmt.Sprintf("%s:%d", id, time.Now().UnixNano())
+		dm.p2pSync.AddReplica(daemon.peerReplica(replicaID))
+		daemon.peerSyncPoke = func() {
+			dm.p2pSync.PushToAll(context.Background())
+		}
+	}
+
+	runtime := &driveRuntime{
+		cancel:    cancel,
+		replicaID: replicaID,
+	}
 	dm.wLock("StartDrive:register")
-	dm.daemons[id] = cancel
+	dm.daemons[id] = runtime
 	dm.wUnlock()
 
 	go func() {
 		defer func() {
+			if dm.p2pSync != nil && runtime.replicaID != "" {
+				dm.p2pSync.RemoveReplica(runtime.replicaID)
+			}
 			dm.wLock("StartDrive:cleanup")
-			delete(dm.daemons, id)
+			if current, ok := dm.daemons[id]; ok && current == runtime {
+				delete(dm.daemons, id)
+			}
 			dm.wUnlock()
 		}()
 		daemon.Run(ctx)
@@ -194,8 +232,11 @@ func (dm *DriveManager) StopDrive(id string) {
 	dm.wLock("StopDrive")
 	defer dm.wUnlock()
 
-	if cancel, ok := dm.daemons[id]; ok {
-		cancel()
+	if runtime, ok := dm.daemons[id]; ok {
+		if dm.p2pSync != nil && runtime.replicaID != "" {
+			dm.p2pSync.RemoveReplica(runtime.replicaID)
+		}
+		runtime.cancel()
 		delete(dm.daemons, id)
 	}
 }
@@ -205,8 +246,11 @@ func (dm *DriveManager) StopAll() {
 	dm.wLock("StopAll")
 	defer dm.wUnlock()
 
-	for id, cancel := range dm.daemons {
-		cancel()
+	for id, runtime := range dm.daemons {
+		if dm.p2pSync != nil && runtime.replicaID != "" {
+			dm.p2pSync.RemoveReplica(runtime.replicaID)
+		}
+		runtime.cancel()
 		delete(dm.daemons, id)
 	}
 }

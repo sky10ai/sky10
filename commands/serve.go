@@ -279,6 +279,7 @@ func ServeCmd() *cobra.Command {
 			))
 			var triggerPrivateNetwork func(reason, detail string)
 			var kvSync *kv.P2PSync
+			var fsSync *skyfs.P2PSync
 			var agentRouter *skyagent.Router
 			identityRPC := skyid.NewRPCHandler(bundle)
 			server.RegisterHandler(identityRPC)
@@ -418,6 +419,9 @@ func ServeCmd() *cobra.Command {
 					}
 					if kvSync != nil {
 						go kvSync.PushToAll(context.Background())
+					}
+					if fsSync != nil {
+						go fsSync.PushToAll(context.Background())
 					}
 					if agentRouter != nil {
 						go agentRouter.DrainOutbox(context.Background(), "")
@@ -571,6 +575,8 @@ func ServeCmd() *cobra.Command {
 			kvSync.AddStore(secretsStore.Transport())
 			kvStore.SetP2PSync(kvSync)
 			secretsStore.SetP2PSync(kvSync)
+			fsSync = skyfs.NewP2PSync(linkNode, logRuntime.Logger)
+			fsHandler.SetP2PSync(fsSync)
 
 			linkRunErr := make(chan error, 1)
 			go func() {
@@ -627,6 +633,7 @@ func ServeCmd() *cobra.Command {
 				// on slow discovery/publish paths. Otherwise a freshly joined peer can
 				// connect and immediately fail with "protocols not supported".
 				kvSync.RegisterProtocol()
+				fsSync.RegisterProtocol()
 
 				addrs := link.HostMultiaddrs(linkNode)
 

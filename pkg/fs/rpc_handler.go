@@ -73,6 +73,11 @@ func (s *FSHandler) SetPeerDevices(fn func() []DeviceInfo) {
 	s.peerDevices = fn
 }
 
+// SetP2PSync attaches the shared FS P2P sync manager for all drives.
+func (s *FSHandler) SetP2PSync(sync *P2PSync) {
+	s.driveManager.SetP2PSync(sync)
+}
+
 // StartDrives auto-starts all enabled drives. Called from server.OnServe.
 func (s *FSHandler) StartDrives() {
 	s.driveManager.StartAll(s.logger)

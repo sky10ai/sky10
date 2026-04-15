@@ -49,6 +49,7 @@ type DaemonV2_5 struct {
 	driveDir         string
 	logger           *slog.Logger
 	onEvent          func(string, map[string]any)
+	peerSyncPoke     func()
 }
 
 // NewDaemonV2_5 creates the sync daemon.
@@ -157,6 +158,7 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 		driveDir:         driveDir,
 		logger:           logger,
 		onEvent:          func(string, map[string]any) {},
+		peerSyncPoke:     func() {},
 	}
 
 	// Wire event callbacks and drive name
@@ -177,6 +179,34 @@ func (d *DaemonV2_5) emitEvent(event string, data map[string]any) {
 	// Poke snapshot uploader when local state changes.
 	if event == "state.changed" && d.snapshotUploader != nil {
 		d.snapshotUploader.Poke()
+		d.peerSyncPoke()
+	}
+}
+
+func (d *DaemonV2_5) peerNamespaceState(ctx context.Context) (string, []byte, error) {
+	if d.store.nsID != "" && d.snapshotUploader != nil && len(d.snapshotUploader.encKey) > 0 {
+		return d.store.nsID, append([]byte(nil), d.snapshotUploader.encKey...), nil
+	}
+	if err := d.resolveSnapshotKey(ctx); err != nil {
+		return "", nil, err
+	}
+	if d.store.nsID == "" || d.snapshotUploader == nil || len(d.snapshotUploader.encKey) == 0 {
+		return "", nil, fmt.Errorf("peer namespace state not resolved")
+	}
+	return d.store.nsID, append([]byte(nil), d.snapshotUploader.encKey...), nil
+}
+
+func (d *DaemonV2_5) peerReplica(id string) P2PSyncReplica {
+	return P2PSyncReplica{
+		ID:       id,
+		LocalLog: d.localLog,
+		Resolve:  d.peerNamespaceState,
+		OnChange: func() {
+			d.reconciler.Poke()
+			if d.snapshotUploader != nil {
+				d.snapshotUploader.Poke()
+			}
+		},
 	}
 }
 
