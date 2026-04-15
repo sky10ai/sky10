@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync/atomic"
+
+	"github.com/sky10/sky10/pkg/logging"
+	skyrpc "github.com/sky10/sky10/pkg/rpc"
 )
 
 // RPCHandler dispatches wallet.* RPC methods. All methods return a
@@ -14,13 +18,18 @@ type RPCHandler struct {
 	client     *Client
 	emit       Emitter
 	installing atomic.Bool
+	logger     *slog.Logger
 }
 
 // NewRPCHandler creates an RPC handler for wallet operations.
 // A nil client is allowed; methods will return ErrNotInstalled.
 // Pass emit to receive install/update progress events.
 func NewRPCHandler(client *Client, emit Emitter) *RPCHandler {
-	return &RPCHandler{client: client, emit: emit}
+	return &RPCHandler{
+		client: client,
+		emit:   emit,
+		logger: logging.WithComponent(slog.Default(), "wallet"),
+	}
 }
 
 // Dispatch implements rpc.Handler.
@@ -38,7 +47,7 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 	case "wallet.install":
 		result, err = h.rpcInstall()
 	case "wallet.uninstall":
-		result, err = h.rpcUninstall()
+		result, err = h.rpcUninstall(ctx)
 	case "wallet.checkUpdate":
 		result, err = h.rpcCheckUpdate()
 	case "wallet.create":
@@ -118,22 +127,54 @@ func (h *RPCHandler) rpcInstall() (interface{}, error) {
 	return map[string]string{"status": "installing"}, nil
 }
 
-func (h *RPCHandler) rpcUninstall() (interface{}, error) {
+func (h *RPCHandler) rpcUninstall(ctx context.Context) (interface{}, error) {
 	if !h.installing.CompareAndSwap(false, true) {
 		return nil, fmt.Errorf("install already in progress")
 	}
 	defer h.installing.Store(false)
 
+	requestAttrs := callerLogAttrs(ctx)
+	h.logger.Info("wallet uninstall requested", requestAttrs...)
+
 	result, err := Uninstall()
 	if err != nil {
+		h.logger.Warn("wallet uninstall failed", appendAttrs(requestAttrs, "error", err)...)
 		return nil, err
 	}
 
 	// Refresh client after removing the managed binary. This may still
 	// resolve to a PATH-installed OWS binary, which is fine.
 	h.client = NewClient()
+	h.logger.Info("wallet uninstall completed", appendAttrs(
+		requestAttrs,
+		"app", result.ID,
+		"path", result.Path,
+		"removed", result.Removed,
+	)...)
 
 	return result, nil
+}
+
+func callerLogAttrs(ctx context.Context) []any {
+	info, ok := skyrpc.CallerInfoFromContext(ctx)
+	if !ok {
+		return nil
+	}
+	attrs := []any{"transport", info.Transport}
+	if info.Remote != "" {
+		attrs = append(attrs, "remote", info.Remote)
+	}
+	return attrs
+}
+
+func appendAttrs(base []any, extra ...any) []any {
+	if len(extra) == 0 {
+		return append([]any(nil), base...)
+	}
+	attrs := make([]any, 0, len(base)+len(extra))
+	attrs = append(attrs, base...)
+	attrs = append(attrs, extra...)
+	return attrs
 }
 
 func (h *RPCHandler) rpcCheckUpdate() (interface{}, error) {

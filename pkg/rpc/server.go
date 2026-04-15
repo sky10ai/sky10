@@ -240,8 +240,9 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 			}
 		}
 
+		requestCtx := WithCallerInfo(ctx, "unix", conn.RemoteAddr().String())
 		start := time.Now()
-		resp := s.dispatch(ctx, &req)
+		resp := s.dispatch(requestCtx, &req)
 		ms := time.Since(start).Milliseconds()
 		if resp.Error != nil {
 			s.logger.Warn("rpc", "method", req.Method, "ms", ms, "error", resp.Error.Message)

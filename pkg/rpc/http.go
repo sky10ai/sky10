@@ -97,7 +97,8 @@ func (s *Server) handleHTTPRPC(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	resp := s.dispatch(r.Context(), &req)
+	ctx := WithCallerInfo(r.Context(), "http", r.RemoteAddr)
+	resp := s.dispatch(ctx, &req)
 	ms := time.Since(start).Milliseconds()
 	if resp.Error != nil {
 		s.logger.Warn("http-rpc", "method", req.Method, "ms", ms, "error", resp.Error.Message)

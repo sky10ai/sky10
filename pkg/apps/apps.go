@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/sky10/sky10/pkg/config"
+	"github.com/sky10/sky10/pkg/logging"
 )
 
 // ID identifies a managed helper app.
@@ -403,6 +405,13 @@ func Uninstall(id ID) (*UninstallResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	logger := logging.WithComponent(slog.Default(), "apps")
+	logger.Info("managed app uninstall requested",
+		"app", id,
+		"stable_path", state.StablePath,
+		"installed_path", state.InstalledPath,
+		"current_version", state.Current,
+	)
 	removed := false
 	resultPath := state.InstalledPath
 	if resultPath == "" {
@@ -427,7 +436,16 @@ func Uninstall(id ID) (*UninstallResult, error) {
 	if err := removeCurrentMetadata(id); err != nil {
 		return nil, err
 	}
-	return &UninstallResult{ID: id, Path: resultPath, Removed: removed}, nil
+	result := &UninstallResult{ID: id, Path: resultPath, Removed: removed}
+	logger.Info("managed app uninstall completed",
+		"app", id,
+		"path", result.Path,
+		"removed", result.Removed,
+		"stable_path", state.StablePath,
+		"installed_path", state.InstalledPath,
+		"current_version", state.Current,
+	)
+	return result, nil
 }
 
 func lookupSpec(id ID) (spec, error) {
