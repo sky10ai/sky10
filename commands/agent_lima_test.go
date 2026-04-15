@@ -156,6 +156,15 @@ func TestOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), `"skills": ["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("user script missing browser skill registration: %q", string(body))
 	}
+	if !strings.Contains(string(body), `sky10_channel["defaultAccount"] = "default"`) {
+		t.Fatalf("user script missing sky10 default account config: %q", string(body))
+	}
+	if !strings.Contains(string(body), `sky10_channel["healthMonitor"] = {"enabled": False}`) {
+		t.Fatalf("user script missing sky10 health monitor config: %q", string(body))
+	}
+	if !strings.Contains(string(body), `sky10_accounts["default"] = {`) {
+		t.Fatalf("user script missing sky10 default account entry: %q", string(body))
+	}
 	if !strings.Contains(string(body), `browser["ssrfPolicy"] = {"dangerouslyAllowPrivateNetwork": True}`) {
 		t.Fatalf("user script missing relaxed browser SSRF policy: %q", string(body))
 	}
@@ -200,8 +209,8 @@ func TestOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	if !strings.Contains(string(manifestBody), `["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("plugin manifest missing browser skill default: %q", string(manifestBody))
 	}
-	if strings.Contains(string(manifestBody), `"channels"`) {
-		t.Fatalf("plugin manifest should not declare channel registration: %q", string(manifestBody))
+	if !strings.Contains(string(manifestBody), `"channels"`) || !strings.Contains(string(manifestBody), `"sky10"`) {
+		t.Fatalf("plugin manifest missing sky10 channel declaration: %q", string(manifestBody))
 	}
 
 	indexBody, err := os.ReadFile(filepath.Join(dir, agentLimaPluginIndex))
@@ -211,25 +220,22 @@ func TestOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	if !strings.Contains(string(indexBody), `["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("plugin index missing browser skill default: %q", string(indexBody))
 	}
-	if !strings.Contains(string(indexBody), `api.registerService({`) {
-		t.Fatalf("plugin index missing bridge service registration: %q", string(indexBody))
+	if !strings.Contains(string(indexBody), `createChatChannelPlugin`) {
+		t.Fatalf("plugin index missing OpenClaw chat channel registration: %q", string(indexBody))
 	}
-	if !strings.Contains(string(indexBody), `serviceRegistered: false`) {
-		t.Fatalf("plugin index missing service registration guard state: %q", string(indexBody))
+	if !strings.Contains(string(indexBody), `dispatchInboundDirectDmWithRuntime`) {
+		t.Fatalf("plugin index missing native direct-DM dispatch: %q", string(indexBody))
 	}
-	if !strings.Contains(string(indexBody), `if (state.serviceRegistered)`) {
-		t.Fatalf("plugin index missing duplicate service registration guard: %q", string(indexBody))
+	if !strings.Contains(string(indexBody), `api.registerChannel({ plugin: sky10ChannelPlugin })`) {
+		t.Fatalf("plugin index missing channel registration: %q", string(indexBody))
 	}
 	if !strings.Contains(string(indexBody), `fs.openSync(claimPathFor(msgId), "wx")`) {
 		t.Fatalf("plugin index missing cross-process claim guard: %q", string(indexBody))
 	}
-	if !strings.Contains(string(indexBody), `process.title`) || !strings.Contains(string(indexBody), `openclaw-gateway`) {
-		t.Fatalf("plugin index missing gateway-only process guard: %q", string(indexBody))
-	}
 	if !strings.Contains(string(indexBody), `Symbol.for("sky10.openclaw.bridge")`) {
 		t.Fatalf("plugin index missing global bridge singleton: %q", string(indexBody))
 	}
-	if strings.Contains(string(indexBody), `api.registerChannel({`) {
-		t.Fatalf("plugin index should not register an OpenClaw channel runtime: %q", string(indexBody))
+	if strings.Contains(string(indexBody), `/v1/responses`) {
+		t.Fatalf("plugin index should not self-call the gateway responses API: %q", string(indexBody))
 	}
 }

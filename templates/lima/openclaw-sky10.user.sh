@@ -251,6 +251,19 @@ entries["sky10"] = {
     },
 }
 
+channels = config.setdefault("channels", {})
+sky10_channel = channels.setdefault("sky10", {})
+sky10_channel["enabled"] = True
+sky10_channel["defaultAccount"] = "default"
+sky10_channel["healthMonitor"] = {"enabled": False}
+sky10_accounts = sky10_channel.setdefault("accounts", {})
+sky10_accounts["default"] = {
+    "enabled": True,
+    "rpcUrl": "http://localhost:9101",
+    "agentName": os.environ["OPENCLAW_AGENT_NAME"],
+    "skills": ["code", "shell", "browser", "web-search", "file-ops"],
+}
+
 config_path.write_text(json.dumps(config, indent=2) + "\n")
 PY
 

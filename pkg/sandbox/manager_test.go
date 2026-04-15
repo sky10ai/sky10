@@ -255,6 +255,15 @@ func TestBundledOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), `"skills": ["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("bundled user script missing browser skill registration: %q", string(body))
 	}
+	if !strings.Contains(string(body), `sky10_channel["defaultAccount"] = "default"`) {
+		t.Fatalf("bundled user script missing sky10 default account config: %q", string(body))
+	}
+	if !strings.Contains(string(body), `sky10_channel["healthMonitor"] = {"enabled": False}`) {
+		t.Fatalf("bundled user script missing sky10 health monitor config: %q", string(body))
+	}
+	if !strings.Contains(string(body), `sky10_accounts["default"] = {`) {
+		t.Fatalf("bundled user script missing sky10 default account entry: %q", string(body))
+	}
 	if !strings.Contains(string(body), `browser["ssrfPolicy"] = {"dangerouslyAllowPrivateNetwork": True}`) {
 		t.Fatalf("bundled user script missing relaxed browser SSRF policy: %q", string(body))
 	}
@@ -289,8 +298,8 @@ func TestBundledOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	if !strings.Contains(string(manifestBody), `["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("bundled plugin manifest missing browser skill default: %q", string(manifestBody))
 	}
-	if strings.Contains(string(manifestBody), `"channels"`) {
-		t.Fatalf("bundled plugin manifest should not declare channel registration: %q", string(manifestBody))
+	if !strings.Contains(string(manifestBody), `"channels"`) || !strings.Contains(string(manifestBody), `"sky10"`) {
+		t.Fatalf("bundled plugin manifest missing sky10 channel declaration: %q", string(manifestBody))
 	}
 
 	indexBody, err := readBundledTemplateAsset(filepath.Join(templateOpenClawPluginDir, "src", "index.js"))
@@ -300,26 +309,23 @@ func TestBundledOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	if !strings.Contains(string(indexBody), `["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("bundled plugin index missing browser skill default: %q", string(indexBody))
 	}
-	if !strings.Contains(string(indexBody), `api.registerService({`) {
-		t.Fatalf("bundled plugin index missing bridge service registration: %q", string(indexBody))
+	if !strings.Contains(string(indexBody), `createChatChannelPlugin`) {
+		t.Fatalf("bundled plugin index missing OpenClaw chat channel registration: %q", string(indexBody))
 	}
-	if !strings.Contains(string(indexBody), `serviceRegistered: false`) {
-		t.Fatalf("bundled plugin index missing service registration guard state: %q", string(indexBody))
+	if !strings.Contains(string(indexBody), `dispatchInboundDirectDmWithRuntime`) {
+		t.Fatalf("bundled plugin index missing native direct-DM dispatch: %q", string(indexBody))
 	}
-	if !strings.Contains(string(indexBody), `if (state.serviceRegistered)`) {
-		t.Fatalf("bundled plugin index missing duplicate service registration guard: %q", string(indexBody))
+	if !strings.Contains(string(indexBody), `api.registerChannel({ plugin: sky10ChannelPlugin })`) {
+		t.Fatalf("bundled plugin index missing channel registration: %q", string(indexBody))
 	}
 	if !strings.Contains(string(indexBody), `fs.openSync(claimPathFor(msgId), "wx")`) {
 		t.Fatalf("bundled plugin index missing cross-process claim guard: %q", string(indexBody))
 	}
-	if !strings.Contains(string(indexBody), `process.title`) || !strings.Contains(string(indexBody), `openclaw-gateway`) {
-		t.Fatalf("bundled plugin index missing gateway-only process guard: %q", string(indexBody))
-	}
 	if !strings.Contains(string(indexBody), `Symbol.for("sky10.openclaw.bridge")`) {
 		t.Fatalf("bundled plugin index missing global bridge singleton: %q", string(indexBody))
 	}
-	if strings.Contains(string(indexBody), `api.registerChannel({`) {
-		t.Fatalf("bundled plugin index should not register an OpenClaw channel runtime: %q", string(indexBody))
+	if strings.Contains(string(indexBody), `/v1/responses`) {
+		t.Fatalf("bundled plugin index should not self-call the gateway responses API: %q", string(indexBody))
 	}
 }
 

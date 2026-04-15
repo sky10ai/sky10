@@ -1,21 +1,70 @@
 /**
  * OpenClaw sky10 channel plugin.
  *
- * This bundled Lima variant auto-registers the guest on the local sky10
- * daemon by running the bridge as a plugin service, while exposing a stable
- * outbound channel account for direct sends.
+ * This bundled Lima variant registers the guest on the local sky10 daemon and
+ * dispatches inbound messages through OpenClaw's native direct-DM runtime so
+ * browser and tool behavior matches normal channel-driven sessions.
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { createChatChannelPlugin } from "/usr/lib/node_modules/openclaw/dist/plugin-sdk/core.js";
+import { dispatchInboundDirectDmWithRuntime } from "/usr/lib/node_modules/openclaw/dist/plugin-sdk/direct-dm.js";
+
 import { Sky10Client } from "./sky10.js";
 
+const CHANNEL_ID = "sky10";
+const CHANNEL_LABEL = "Sky10";
+const DEFAULT_ACCOUNT_ID = "default";
+const DEFAULT_SKILLS = ["code", "shell", "browser", "web-search", "file-ops"];
 const GLOBAL_STATE_KEY = Symbol.for("sky10.openclaw.bridge");
 const DEDUP_TTL_MS = 30_000;
 const CLAIM_PRUNE_INTERVAL_MS = 60_000;
 const CLAIM_DIR = path.join(os.homedir(), ".openclaw", ".sky10-bridge-seen");
+const SKY10_ACCOUNT_PROPERTIES = {
+  enabled: { type: "boolean" },
+  rpcUrl: { type: "string" },
+  agentName: { type: "string" },
+  skills: {
+    type: "array",
+    items: { type: "string" },
+  },
+  gatewayToken: { type: "string" },
+};
+const SKY10_CHANNEL_CONFIG_SCHEMA = {
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      enabled: { type: "boolean" },
+      rpcUrl: { type: "string" },
+      agentName: { type: "string" },
+      skills: {
+        type: "array",
+        items: { type: "string" },
+      },
+      gatewayToken: { type: "string" },
+      defaultAccount: { type: "string" },
+      healthMonitor: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          enabled: { type: "boolean" },
+        },
+      },
+      accounts: {
+        type: "object",
+        additionalProperties: {
+          type: "object",
+          additionalProperties: false,
+          properties: SKY10_ACCOUNT_PROPERTIES,
+        },
+      },
+    },
+  },
+};
 
 function getBridgeState() {
   const globalScope = globalThis;
@@ -23,12 +72,7 @@ function getBridgeState() {
     globalScope[GLOBAL_STATE_KEY] = {
       client: null,
       agentId: null,
-      heartbeatTimer: null,
-      sseConnection: null,
-      serviceRegistered: false,
-      runtimeInitPromise: null,
-      shutdownRequested: false,
-      serviceRefs: 0,
+      pluginRuntime: null,
       lastClaimPruneAt: 0,
       seenIds: new Map(),
     };
@@ -38,15 +82,6 @@ function getBridgeState() {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function isGatewayProcess() {
-  const title = String(process.title ?? "").toLowerCase();
-  if (title.startsWith("openclaw-gateway")) {
-    return true;
-  }
-  const argv0 = path.basename(process.argv0 ?? process.argv?.[0] ?? "").toLowerCase();
-  return argv0.startsWith("openclaw-gateway");
 }
 
 function claimPathFor(msgId) {
@@ -109,55 +144,64 @@ function makeLogger(api) {
   };
 }
 
-function resolveConfig(api) {
-  const c = api?.pluginConfig ?? api?.config?.sky10 ?? api?.config ?? {};
+function normalizeAccountId(accountId) {
+  return typeof accountId === "string" && accountId.trim() ? accountId.trim() : DEFAULT_ACCOUNT_ID;
+}
+
+function normalizeSkills(skills) {
+  if (!Array.isArray(skills)) {
+    return [...DEFAULT_SKILLS];
+  }
+  const normalized = skills.map((value) => String(value).trim()).filter(Boolean);
+  return normalized.length > 0 ? normalized : [...DEFAULT_SKILLS];
+}
+
+function resolveSky10ChannelSection(cfg) {
+  const section = cfg?.channels?.[CHANNEL_ID];
+  return section && typeof section === "object" ? section : {};
+}
+
+function resolveMergedAccountConfig(cfg, accountId) {
+  const section = resolveSky10ChannelSection(cfg);
+  const resolvedAccountId = normalizeAccountId(accountId);
+  const { accounts, defaultAccount, healthMonitor, ...base } = section;
+  const accountOverrides = accounts && typeof accounts === "object" ? accounts[resolvedAccountId] ?? {} : {};
+  return { ...base, ...accountOverrides };
+}
+
+function listSky10AccountIds(cfg) {
+  const section = resolveSky10ChannelSection(cfg);
+  const configured = section.accounts && typeof section.accounts === "object"
+    ? Object.keys(section.accounts).filter(Boolean)
+    : [];
+  return [...new Set([resolveDefaultSky10AccountId(cfg), ...configured])];
+}
+
+function resolveDefaultSky10AccountId(cfg) {
+  const section = resolveSky10ChannelSection(cfg);
+  return normalizeAccountId(section.defaultAccount);
+}
+
+function resolveSky10Account({ cfg, accountId }) {
+  const section = resolveSky10ChannelSection(cfg);
+  const resolvedAccountId = normalizeAccountId(accountId);
+  const merged = resolveMergedAccountConfig(cfg, resolvedAccountId);
+  const rpcUrl = typeof merged.rpcUrl === "string" && merged.rpcUrl.trim()
+    ? merged.rpcUrl.trim()
+    : "http://localhost:9101";
+  const agentName = typeof merged.agentName === "string" && merged.agentName.trim()
+    ? merged.agentName.trim()
+    : "openclaw";
   return {
-    rpcUrl: c.rpcUrl ?? "http://localhost:9101",
-    agentName: c.agentName ?? "openclaw",
-    skills: c.skills ?? ["code", "shell", "browser", "web-search", "file-ops"],
-    gatewayUrl: c.gatewayUrl ?? "http://localhost:18789",
-    gatewayToken: c.gatewayToken ?? "",
+    accountId: resolvedAccountId,
+    name: agentName,
+    enabled: section.enabled !== false && merged.enabled !== false,
+    configured: Boolean(rpcUrl),
+    rpcUrl,
+    agentName,
+    skills: normalizeSkills(merged.skills),
+    gatewayToken: typeof merged.gatewayToken === "string" ? merged.gatewayToken.trim() : "",
   };
-}
-
-function stopRuntime() {
-  const state = getBridgeState();
-  if (state.heartbeatTimer) {
-    clearInterval(state.heartbeatTimer);
-    state.heartbeatTimer = null;
-  }
-  if (state.sseConnection) {
-    state.sseConnection.close();
-    state.sseConnection = null;
-  }
-  state.runtimeInitPromise = null;
-}
-
-async function ensureRegistered(log, cfg) {
-  const state = getBridgeState();
-  const reg = await state.client.register(cfg.agentName, cfg.skills);
-  state.agentId = reg.agent_id;
-  log.info(`sky10: registered as ${state.agentId} (${cfg.agentName})`);
-}
-
-function startHeartbeat(log, cfg) {
-  const state = getBridgeState();
-  if (state.heartbeatTimer) return;
-  state.heartbeatTimer = setInterval(async () => {
-    try {
-      if (!state.agentId) {
-        return;
-      }
-      await state.client.heartbeat(state.agentId);
-    } catch {
-      log.warn("sky10: heartbeat failed, re-registering");
-      try {
-        await ensureRegistered(log, cfg);
-      } catch (err) {
-        log.warn(`sky10: re-register failed: ${err?.message ?? err}`);
-      }
-    }
-  }, 25_000);
 }
 
 function waitForAbort(signal) {
@@ -169,139 +213,113 @@ function waitForAbort(signal) {
   });
 }
 
-async function bootstrapRuntime(log, cfg) {
-  const state = getBridgeState();
-  while (!state.shutdownRequested) {
-    try {
-      await ensureRuntime(log, cfg);
-      return;
-    } catch (err) {
-      log.warn(`sky10: runtime init failed: ${err?.message ?? err}`);
-      await sleep(5_000);
-    }
-  }
+function resolveMessageId(msg) {
+  return msg.id || `${msg.session_id}:${msg.from}:${msg.timestamp ?? ""}`;
 }
 
-async function ensureRuntime(log, cfg) {
-  const state = getBridgeState();
-  if (state.shutdownRequested) {
-    throw new Error("plugin is shutting down");
+function resolveMessageTimestamp(msg) {
+  if (typeof msg.timestamp === "number" && Number.isFinite(msg.timestamp)) {
+    return msg.timestamp < 1_000_000_000_000 ? msg.timestamp * 1000 : msg.timestamp;
   }
-  if (state.runtimeInitPromise) return state.runtimeInitPromise;
-  state.runtimeInitPromise = (async () => {
-    state.client ??= new Sky10Client(cfg.rpcUrl);
-    await ensureRegistered(log, cfg);
-    startHeartbeat(log, cfg);
-    if (!state.sseConnection) {
-      startListener(log, cfg);
+  if (typeof msg.timestamp === "string") {
+    const parsed = Date.parse(msg.timestamp);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
     }
-  })().catch((err) => {
-    state.runtimeInitPromise = null;
-    throw err;
+  }
+  return Date.now();
+}
+
+function resolveSessionPeerId(msg) {
+  return `${msg.from}:${msg.session_id || "main"}`;
+}
+
+async function ensureRegistered(log, account, setStatus) {
+  const state = getBridgeState();
+  state.client ??= new Sky10Client(account.rpcUrl);
+  const reg = await state.client.register(account.agentName, account.skills);
+  state.agentId = reg.agent_id;
+  setStatus({
+    accountId: account.accountId,
+    agentId: state.agentId,
+    enabled: account.enabled,
+    configured: account.configured,
+    running: true,
+    rpcUrl: account.rpcUrl,
   });
-  return state.runtimeInitPromise;
+  log.info(`sky10: registered as ${state.agentId} (${account.agentName})`);
 }
 
-export default function register(api) {
-  const log = makeLogger(api);
-
-  if (api.registrationMode === "cli-metadata") {
-    return;
-  }
-
-  if (api.registrationMode !== "full") {
-    return;
-  }
-
-  if (!isGatewayProcess()) {
-    return;
-  }
-
-  const cfg = resolveConfig(api);
-  const state = getBridgeState();
-
-  log.info(`sky10: config = ${JSON.stringify(cfg)}`);
-  state.client = new Sky10Client(cfg.rpcUrl);
-
-  if (state.serviceRegistered) {
-    log.info("sky10: bridge service already registered");
-    return;
-  }
-
-  try {
-    api.registerService({
-      id: "sky10-bridge",
-      start: async () => {
-        state.serviceRefs += 1;
-        state.shutdownRequested = false;
-        await bootstrapRuntime(log, cfg);
-      },
-      stop: async () => {
-        state.serviceRefs = Math.max(0, state.serviceRefs - 1);
-        if (state.serviceRefs === 0) {
-          state.shutdownRequested = true;
-          stopRuntime();
-        }
-      },
-    });
-    state.serviceRegistered = true;
-    log.info("sky10: bridge service registered");
-  } catch (err) {
-    log.warn(`sky10: registerService failed: ${err?.message ?? err}`);
-  }
-}
-
-async function dispatchInbound(log, cfg, msg, text) {
-  log.info(`sky10: dispatching via gateway API ${cfg.gatewayUrl}/v1/responses`);
-  try {
-    const headers = { "Content-Type": "application/json" };
-    if (cfg.gatewayToken) {
-      headers.Authorization = `Bearer ${cfg.gatewayToken}`;
-    }
-
-    let res = await fetch(`${cfg.gatewayUrl}/v1/responses`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        model: "openclaw",
-        input: text,
-        user: `sky10:${msg.from}:${msg.session_id}`,
-      }),
-    });
-
-    if (res.status === 404) {
-      res = await fetch(`${cfg.gatewayUrl}/v1/chat/completions`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          model: "openclaw",
-          messages: [{ role: "user", content: text }],
-          user: `sky10:${msg.from}:${msg.session_id}`,
-        }),
-      });
-    }
-
-    if (!res.ok) {
-      const body = await res.text();
-      log.error(`sky10: gateway API ${res.status}: ${body.substring(0, 200)}`);
-      return;
-    }
-
-    const data = await res.json();
-    const reply = data.output_text
-      ?? data.output?.[0]?.content?.[0]?.text
-      ?? data.choices?.[0]?.message?.content;
-    if (!reply) {
-      log.warn(`sky10: empty reply from gateway API — keys: ${Object.keys(data).join(", ")}`);
-      return;
-    }
-
+function startHeartbeat(log, account, setStatus, abortSignal) {
+  const tick = async () => {
     const state = getBridgeState();
-    await state.client.send(msg.from, msg.session_id, reply, msg.from);
-    log.info("sky10: reply sent");
-  } catch (err) {
-    log.error(`sky10: gateway API dispatch failed: ${err?.message ?? err}`);
+    if (!state.agentId) {
+      return;
+    }
+    try {
+      await state.client.heartbeat(state.agentId);
+    } catch (err) {
+      log.warn(`sky10: heartbeat failed, re-registering: ${err?.message ?? err}`);
+      await ensureRegistered(log, account, setStatus);
+    }
+  };
+
+  const timer = setInterval(() => {
+    if (abortSignal?.aborted) {
+      return;
+    }
+    void tick().catch((err) => {
+      log.warn(`sky10: heartbeat tick failed: ${err?.message ?? err}`);
+    });
+  }, 25_000);
+
+  return () => clearInterval(timer);
+}
+
+async function dispatchInbound(log, ctx, account, msg, text) {
+  const state = getBridgeState();
+  const runtime = state.pluginRuntime;
+  if (!runtime?.channel) {
+    throw new Error("sky10 runtime not initialized");
   }
+
+  await dispatchInboundDirectDmWithRuntime({
+    cfg: ctx.cfg,
+    runtime,
+    channel: CHANNEL_ID,
+    channelLabel: CHANNEL_LABEL,
+    accountId: account.accountId,
+    peer: {
+      kind: "direct",
+      id: resolveSessionPeerId(msg),
+    },
+    senderId: msg.from,
+    senderAddress: `sky10:${msg.from}`,
+    recipientAddress: `sky10:${state.agentId ?? account.agentName}`,
+    conversationLabel: `${msg.from} (${msg.session_id || "main"})`,
+    rawBody: text,
+    messageId: resolveMessageId(msg),
+    timestamp: resolveMessageTimestamp(msg),
+    commandAuthorized: true,
+    deliver: async (payload) => {
+      const outboundText = payload && typeof payload === "object" && "text" in payload ? payload.text ?? "" : "";
+      if (!outboundText.trim()) {
+        return;
+      }
+      await state.client.send(msg.from, msg.session_id, outboundText, msg.from);
+      log.info("sky10: reply sent");
+    },
+    onRecordError: (err) => {
+      log.error(`sky10: failed recording inbound session: ${err?.message ?? err}`);
+    },
+    onDispatchError: (err, info) => {
+      log.error(`sky10: ${info.kind} reply failed: ${err?.message ?? err}`);
+    },
+    extraContext: {
+      Sky10SessionId: msg.session_id,
+      Sky10SenderId: msg.from,
+    },
+  });
 }
 
 function drainSSEBuffer(buffer, onEvent) {
@@ -331,44 +349,39 @@ function drainSSEBuffer(buffer, onEvent) {
   return buffer;
 }
 
-function handleAgentMessage(log, cfg, data) {
+function handleAgentMessage(log, ctx, account, data) {
   try {
     const state = getBridgeState();
     const parsed = JSON.parse(data);
     const msg = parsed.data ?? parsed;
 
-    if (msg.to !== state.agentId && msg.to !== cfg.agentName) {
+    if (msg.to !== state.agentId && msg.to !== account.agentName) {
       return;
     }
 
-    const msgId = msg.id || `${msg.session_id}:${msg.from}:${msg.timestamp ?? ""}`;
+    const msgId = resolveMessageId(msg);
     if (!claimMessage(msgId)) {
       return;
     }
 
     const text = msg.content?.text ?? JSON.stringify(msg.content ?? {});
-    void dispatchInbound(log, cfg, msg, text);
+    void dispatchInbound(log, ctx, account, msg, text).catch((err) => {
+      log.error(`sky10: inbound dispatch failed: ${err?.message ?? err}`);
+    });
   } catch (err) {
     log.error(`sky10: SSE parse error: ${err?.message ?? err}`);
   }
 }
 
-function startListener(log, cfg) {
+function startListener(log, ctx, account) {
   const state = getBridgeState();
   const url = state.client.sseUrl();
   const controller = new AbortController();
   let closed = false;
 
-  state.sseConnection = {
-    close() {
-      closed = true;
-      controller.abort();
-    },
-  };
-
   void (async () => {
     const decoder = new TextDecoder();
-    while (!closed && !state.shutdownRequested) {
+    while (!closed && !ctx.abortSignal.aborted) {
       try {
         const response = await fetch(url, {
           headers: {
@@ -387,32 +400,112 @@ function startListener(log, cfg) {
         log.info(`sky10: SSE connected to ${url}`);
         let buffer = "";
         const reader = response.body.getReader();
-        while (!closed && !state.shutdownRequested) {
+        while (!closed && !ctx.abortSignal.aborted) {
           const { value, done } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
           buffer = drainSSEBuffer(buffer, (eventName, data) => {
             if (eventName === "agent.message") {
-              handleAgentMessage(log, cfg, data);
+              handleAgentMessage(log, ctx, account, data);
             }
           });
         }
         reader.releaseLock?.();
       } catch (err) {
-        if (closed || controller.signal.aborted || state.shutdownRequested) {
+        if (closed || controller.signal.aborted || ctx.abortSignal.aborted) {
           return;
         }
         log.warn(`sky10: SSE connection lost: ${err?.message ?? err}; reconnecting in 5s`);
       }
 
-      if (closed || controller.signal.aborted || state.shutdownRequested) {
+      if (closed || controller.signal.aborted || ctx.abortSignal.aborted) {
         return;
       }
       await sleep(5_000);
     }
   })().catch((err) => {
-    if (!closed && !controller.signal.aborted && !state.shutdownRequested) {
+    if (!closed && !controller.signal.aborted && !ctx.abortSignal.aborted) {
       log.error(`sky10: SSE loop crashed: ${err?.message ?? err}`);
     }
   });
+
+  return () => {
+    closed = true;
+    controller.abort();
+  };
+}
+
+async function startSky10GatewayAccount(ctx) {
+  const log = ctx.log ?? console;
+  const account = ctx.account;
+  const state = getBridgeState();
+
+  if (!account.configured) {
+    throw new Error(`sky10 channel is not configured for account "${account.accountId}"`);
+  }
+  if (!state.pluginRuntime?.channel) {
+    throw new Error("sky10 channel runtime is not initialized");
+  }
+
+  state.client = new Sky10Client(account.rpcUrl);
+  await ensureRegistered(log, account, ctx.setStatus);
+
+  const stopHeartbeat = startHeartbeat(log, account, ctx.setStatus, ctx.abortSignal);
+  const stopListener = startListener(log, ctx, account);
+
+  try {
+    await waitForAbort(ctx.abortSignal);
+  } finally {
+    stopListener();
+    stopHeartbeat();
+    ctx.setStatus({
+      accountId: account.accountId,
+      running: false,
+    });
+  }
+}
+
+const sky10ChannelPlugin = createChatChannelPlugin({
+  base: {
+    id: CHANNEL_ID,
+    meta: {
+      id: CHANNEL_ID,
+      label: CHANNEL_LABEL,
+      selectionLabel: CHANNEL_LABEL,
+      docsPath: "/channels/sky10",
+      docsLabel: "sky10",
+      blurb: "Direct sandbox bridge to the local sky10 daemon.",
+      order: 999,
+    },
+    capabilities: {
+      chatTypes: ["direct"],
+    },
+    reload: {
+      configPrefixes: ["channels.sky10", "plugins.entries.sky10"],
+    },
+    configSchema: SKY10_CHANNEL_CONFIG_SCHEMA,
+    setup: {
+      applyAccountConfig: ({ cfg }) => cfg,
+    },
+    config: {
+      listAccountIds: (cfg) => listSky10AccountIds(cfg),
+      resolveAccount: (cfg, accountId) => resolveSky10Account({ cfg, accountId }),
+      defaultAccountId: (cfg) => resolveDefaultSky10AccountId(cfg),
+      isConfigured: (account) => account.configured,
+    },
+    gateway: {
+      startAccount: async (ctx) => {
+        await startSky10GatewayAccount(ctx);
+      },
+    },
+  },
+});
+
+export default function register(api) {
+  if (api.registrationMode === "cli-metadata") {
+    return;
+  }
+
+  getBridgeState().pluginRuntime = api.runtime ?? getBridgeState().pluginRuntime;
+  api.registerChannel({ plugin: sky10ChannelPlugin });
 }
