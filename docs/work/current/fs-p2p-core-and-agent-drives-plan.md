@@ -367,7 +367,7 @@ Checklist:
 - [x] Surface read-source activity and last-source selection at drive/activity
       level.
 - [ ] Surface per-file transfer progress and active source selection.
-- [ ] Add source-health scoring, retry backoff, and degraded-source policy.
+- [x] Add source-health scoring, retry backoff, and degraded-source policy.
 
 Done when:
 

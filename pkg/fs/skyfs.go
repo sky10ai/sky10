@@ -48,6 +48,7 @@ type Store struct {
 	lastPut      *PutResult
 	peerChunks   peerChunkFetcher
 	onChunkRead  func(chunkSourceKind)
+	planner      *chunkSourcePlanner
 }
 
 type peerChunkFetcher interface {
@@ -123,6 +124,7 @@ func New(backend adapter.Backend, identity *DeviceKey) *Store {
 		nsKeys:     make(map[string][]byte),
 		packIndex:  idx,
 		packWriter: NewPackWriter(backend, identity, idx),
+		planner:    newChunkSourcePlanner(),
 	}
 }
 
@@ -136,6 +138,7 @@ func NewWithDevice(backend adapter.Backend, identity *DeviceKey, deviceID string
 		nsKeys:     make(map[string][]byte),
 		packIndex:  idx,
 		packWriter: NewPackWriter(backend, identity, idx),
+		planner:    newChunkSourcePlanner(),
 	}
 }
 
@@ -480,14 +483,23 @@ func (s *Store) fetchChunk(ctx context.Context, nsID string, index int, chunkHas
 	for _, source := range sources {
 		raw, err := s.readRawChunkSource(ctx, nsID, index, chunkHash, source)
 		if err != nil {
+			if s.planner != nil {
+				s.planner.recordFailure(source.kind, err)
+			}
 			attempts = append(attempts, fmt.Sprintf("%s: %v", source.kind, err))
 			continue
 		}
 
 		plaintext, err := decodeChunkBlob(index, chunkHash, nsKey, raw)
 		if err != nil {
+			if s.planner != nil {
+				s.planner.recordFailure(source.kind, err)
+			}
 			attempts = append(attempts, fmt.Sprintf("%s: %v", source.kind, err))
 			continue
+		}
+		if s.planner != nil {
+			s.planner.recordSuccess(source.kind)
 		}
 
 		if source.cacheOnSuccess {
@@ -544,6 +556,9 @@ func (s *Store) planChunkSources(chunkHash string) []chunkSourcePlan {
 		} else {
 			sources = append(sources, chunkSourcePlan{kind: chunkSourceS3Blob, cacheOnSuccess: true})
 		}
+	}
+	if s.planner != nil {
+		return s.planner.prioritize(sources)
 	}
 	return sources
 }
