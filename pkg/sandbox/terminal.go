@@ -22,6 +22,19 @@ type terminalMessage struct {
 	Rows uint16 `json:"rows,omitempty"`
 }
 
+func terminalOriginPatterns() []string {
+	return []string{
+		"localhost",
+		"localhost:*",
+		"127.0.0.1",
+		"127.0.0.1:*",
+		"[::1]",
+		"[::1]:*",
+		"*.localhost",
+		"*.localhost:*",
+	}
+}
+
 func (m *Manager) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 	slug := strings.TrimSpace(r.PathValue("slug"))
 	if slug == "" {
@@ -46,7 +59,7 @@ func (m *Manager) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		OriginPatterns: []string{"localhost:*", "127.0.0.1:*", "[::1]:*"},
+		OriginPatterns: terminalOriginPatterns(),
 	})
 	if err != nil {
 		return
