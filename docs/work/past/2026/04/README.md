@@ -2,6 +2,8 @@
 
 | Date | Entry |
 |------|-------|
+| 14 | [OpenClaw Lima Sandboxes](14-OpenClaw-Lima-Sandboxes.md) — OpenClaw-on-Lima provisioning, guest-local `sky10`, host secret hydration, auto-join, reconnect sweep, plugin and browser hardening |
+| 14 | [Secrets V1](14-Secrets-V1.md) — device-scoped secrets, `current`/`trusted`/`explicit` sharing, CLI/RPC/web UI, bootstrap repair, delete |
 | 12 | [Private Network Robustness](12-Private-Network-Robustness.md) — Tailscale/headscale-informed transport hardening: unified health, convergence control, path memory, active Nostr coordination, managed live relay bootstrap, sticky home-relay selection, and remaining relay/productization work |
 | 11 | [Mailbox](11-Mailbox.md) — durable mailbox architecture, private-network and sky10-network backends, queue/lease semantics, payment and approval workflows, principal-scoped UI, and debug/repair tooling |
 | 08 | [Managed Apps Foundation](08-Managed-Apps-Foundation.md) — `pkg/apps`, hidden `/settings/apps`, `sky10 apps` CLI, versioned helper-binary installs under `~/.sky10/apps/` |
