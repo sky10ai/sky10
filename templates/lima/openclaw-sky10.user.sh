@@ -105,10 +105,27 @@ ensure_guest_sky10() {
     return 0
   fi
 
-  sky10 daemon install || true
-  if ! curl -fsS http://127.0.0.1:9101/health >/dev/null 2>&1; then
-    nohup sky10 serve > "${STATE_DIR}/sky10-serve.log" 2>&1 &
-  fi
+  cat > "${UNIT_DIR}/sky10.service" <<EOF
+[Unit]
+Description=sky10 Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/env sky10 serve
+Restart=always
+RestartSec=2
+WorkingDirectory=${HOME}
+Environment=HOME=${HOME}
+Environment=PATH=${HOME}/.bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target
+EOF
+
+  systemctl --user daemon-reload
+  systemctl --user enable sky10.service
+  systemctl --user restart sky10.service || systemctl --user start sky10.service
 
   wait_for_sky10
 }

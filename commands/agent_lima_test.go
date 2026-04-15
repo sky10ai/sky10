@@ -132,6 +132,15 @@ func TestOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), "EnvironmentFile=-%h/.openclaw/.env") {
 		t.Fatalf("user script missing systemd env file import: %q", string(body))
 	}
+	if !strings.Contains(string(body), "cat > \"${UNIT_DIR}/sky10.service\" <<EOF") {
+		t.Fatalf("user script missing guest sky10 systemd unit: %q", string(body))
+	}
+	if !strings.Contains(string(body), "systemctl --user enable sky10.service") {
+		t.Fatalf("user script missing guest sky10 systemd enable: %q", string(body))
+	}
+	if strings.Contains(string(body), "nohup sky10 serve") {
+		t.Fatalf("user script should not rely on nohup sky10 serve fallback: %q", string(body))
+	}
 	if !strings.Contains(string(body), "bootstrap_local_cli_pairing") {
 		t.Fatalf("user script missing CLI pairing bootstrap: %q", string(body))
 	}
