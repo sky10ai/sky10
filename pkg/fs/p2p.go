@@ -24,6 +24,7 @@ const FSSyncProtocol = protocol.ID("/sky10/fs-sync/1.0.0")
 const FSChunkProtocol = protocol.ID("/sky10/fs-chunk/1.0.0")
 
 const fsSyncExchangeTimeout = 5 * time.Second
+const fsReconnectSyncMinInterval = 2 * time.Second
 
 type fsP2PNode interface {
 	Host() host.Host
@@ -63,6 +64,7 @@ type P2PSyncReplica struct {
 	LocalLog *opslog.LocalOpsLog
 	Resolve  func(context.Context) (string, []byte, error)
 	OnChange func()
+	StateDir string
 }
 
 type p2pReplica struct {
@@ -70,10 +72,12 @@ type p2pReplica struct {
 	localLog *opslog.LocalOpsLog
 	resolve  func(context.Context) (string, []byte, error)
 	onChange func()
+	stateDir string
 
-	mu    sync.Mutex
-	nsID  string
-	nsKey []byte
+	mu        sync.Mutex
+	nsID      string
+	nsKey     []byte
+	syncState fsReplicaSyncState
 }
 
 func (r *p2pReplica) state(ctx context.Context) (string, []byte, error) {
@@ -103,7 +107,118 @@ func (r *p2pReplica) state(ctx context.Context) (string, []byte, error) {
 	r.nsID = nsID
 	r.nsKey = append([]byte(nil), nsKey...)
 	r.mu.Unlock()
+	_ = r.persistResolvedNSID(nsID)
 	return nsID, append([]byte(nil), nsKey...), nil
+}
+
+func newP2PReplica(replica P2PSyncReplica) (*p2pReplica, error) {
+	r := &p2pReplica{
+		id:       replica.ID,
+		localLog: replica.LocalLog,
+		resolve:  replica.Resolve,
+		onChange: replica.OnChange,
+		stateDir: replica.StateDir,
+	}
+	if replica.StateDir != "" {
+		state, err := loadFSPeerSyncState(replica.StateDir)
+		if err != nil {
+			return nil, err
+		}
+		r.syncState = state
+	}
+	if r.syncState.Peers == nil {
+		r.syncState.Peers = make(map[string]fsPeerSyncState)
+	}
+	return r, nil
+}
+
+func (r *p2pReplica) persistResolvedNSID(nsID string) error {
+	if r == nil || r.stateDir == "" || nsID == "" {
+		return nil
+	}
+	r.mu.Lock()
+	r.syncState.NSID = nsID
+	state := cloneFSPeerSyncState(r.syncState)
+	dir := r.stateDir
+	r.mu.Unlock()
+	return saveFSPeerSyncState(dir, state)
+}
+
+func (r *p2pReplica) recordSyncAttempt(peerID, localDigest string) error {
+	if r == nil || r.stateDir == "" || peerID == "" {
+		return nil
+	}
+	r.mu.Lock()
+	if r.syncState.Peers == nil {
+		r.syncState.Peers = make(map[string]fsPeerSyncState)
+	}
+	peerState := r.syncState.Peers[peerID]
+	peerState.LastAttemptAt = time.Now().UTC()
+	peerState.LastLocalDigest = localDigest
+	r.syncState.Peers[peerID] = peerState
+	if r.nsID != "" {
+		r.syncState.NSID = r.nsID
+	}
+	state := cloneFSPeerSyncState(r.syncState)
+	dir := r.stateDir
+	r.mu.Unlock()
+	return saveFSPeerSyncState(dir, state)
+}
+
+func (r *p2pReplica) recordSyncSuccess(peerID, localDigest, peerDigest string) error {
+	if r == nil || r.stateDir == "" || peerID == "" {
+		return nil
+	}
+	now := time.Now().UTC()
+	r.mu.Lock()
+	if r.syncState.Peers == nil {
+		r.syncState.Peers = make(map[string]fsPeerSyncState)
+	}
+	peerState := r.syncState.Peers[peerID]
+	peerState.LastAttemptAt = now
+	peerState.LastSuccessAt = now
+	peerState.LastErrorAt = time.Time{}
+	peerState.LastError = ""
+	if localDigest != "" {
+		peerState.LastLocalDigest = localDigest
+	}
+	if peerDigest != "" {
+		peerState.LastPeerDigest = peerDigest
+	}
+	r.syncState.Peers[peerID] = peerState
+	if r.nsID != "" {
+		r.syncState.NSID = r.nsID
+	}
+	state := cloneFSPeerSyncState(r.syncState)
+	dir := r.stateDir
+	r.mu.Unlock()
+	return saveFSPeerSyncState(dir, state)
+}
+
+func (r *p2pReplica) recordSyncError(peerID, localDigest string, err error) error {
+	if r == nil || r.stateDir == "" || peerID == "" || err == nil {
+		return nil
+	}
+	now := time.Now().UTC()
+	r.mu.Lock()
+	if r.syncState.Peers == nil {
+		r.syncState.Peers = make(map[string]fsPeerSyncState)
+	}
+	peerState := r.syncState.Peers[peerID]
+	peerState.LastAttemptAt = now
+	peerState.LastErrorAt = now
+	peerState.LastError = err.Error()
+	if localDigest != "" {
+		peerState.LastLocalDigest = localDigest
+	}
+	r.syncState.Peers[peerID] = peerState
+	if r.nsID != "" {
+		r.syncState.NSID = r.nsID
+	}
+	state := cloneFSPeerSyncState(r.syncState)
+	dir := r.stateDir
+	r.mu.Unlock()
+	return saveFSPeerSyncState(dir, state)
 }
 
 // P2PSync handles full-snapshot FS anti-entropy over libp2p streams.
@@ -113,17 +228,19 @@ type P2PSync struct {
 	node   fsP2PNode
 	logger *slog.Logger
 
-	mu         sync.Mutex
-	replicas   map[string]*p2pReplica
-	registered bool
+	mu              sync.Mutex
+	replicas        map[string]*p2pReplica
+	registered      bool
+	lastConnectPush map[peer.ID]time.Time
 }
 
 // NewP2PSync creates an FS P2P sync manager.
 func NewP2PSync(node fsP2PNode, logger *slog.Logger) *P2PSync {
 	return &P2PSync{
-		node:     node,
-		logger:   componentLogger(logger),
-		replicas: make(map[string]*p2pReplica),
+		node:            node,
+		logger:          componentLogger(logger),
+		replicas:        make(map[string]*p2pReplica),
+		lastConnectPush: make(map[peer.ID]time.Time),
 	}
 }
 
@@ -133,13 +250,20 @@ func (s *P2PSync) AddReplica(replica P2PSyncReplica) {
 		return
 	}
 
-	s.mu.Lock()
-	s.replicas[replica.ID] = &p2pReplica{
-		id:       replica.ID,
-		localLog: replica.LocalLog,
-		resolve:  replica.Resolve,
-		onChange: replica.OnChange,
+	wrapped, err := newP2PReplica(replica)
+	if err != nil {
+		s.logger.Warn("fs p2p: load replica sync state failed", "replica", replica.ID, "error", err)
+		wrapped = &p2pReplica{
+			id:       replica.ID,
+			localLog: replica.LocalLog,
+			resolve:  replica.Resolve,
+			onChange: replica.OnChange,
+			stateDir: replica.StateDir,
+		}
 	}
+
+	s.mu.Lock()
+	s.replicas[replica.ID] = wrapped
 	registered := s.registered
 	s.mu.Unlock()
 
@@ -169,6 +293,11 @@ func (s *P2PSync) RegisterProtocol() {
 	}
 	h.SetStreamHandler(FSSyncProtocol, s.handleStream)
 	h.SetStreamHandler(FSChunkProtocol, s.handleChunkStream)
+	h.Network().Notify(&network.NotifyBundle{
+		ConnectedF: func(_ network.Network, conn network.Conn) {
+			s.handlePeerConnect(conn.RemotePeer())
+		},
+	})
 
 	s.mu.Lock()
 	s.registered = true
@@ -191,17 +320,51 @@ func (s *P2PSync) PushToAll(ctx context.Context) {
 
 	s.logger.Info("fs p2p push: broadcasting", "peers", len(peers), "replicas", len(replicas))
 	for _, pid := range peers {
-		if pid == s.node.PeerID() {
-			continue
-		}
-		for _, replica := range replicas {
-			go func(pid peer.ID, replica *p2pReplica) {
-				boundedCtx, cancel := boundedFSSyncContext(ctx)
-				defer cancel()
-				s.syncWithPeer(boundedCtx, pid, replica)
-			}(pid, replica)
+		s.pushToPeer(ctx, pid, replicas)
+	}
+}
+
+func (s *P2PSync) pushToPeer(ctx context.Context, pid peer.ID, replicas []*p2pReplica) {
+	if pid == s.node.PeerID() {
+		return
+	}
+	if replicas == nil {
+		replicas = s.registeredReplicas()
+	}
+	for _, replica := range replicas {
+		go func(pid peer.ID, replica *p2pReplica) {
+			boundedCtx, cancel := boundedFSSyncContext(ctx)
+			defer cancel()
+			s.syncWithPeer(boundedCtx, pid, replica)
+		}(pid, replica)
+	}
+}
+
+func (s *P2PSync) handlePeerConnect(pid peer.ID) {
+	if s == nil || s.node == nil || pid == "" || pid == s.node.PeerID() {
+		return
+	}
+	now := time.Now()
+	s.mu.Lock()
+	last := s.lastConnectPush[pid]
+	if !last.IsZero() && now.Sub(last) < fsReconnectSyncMinInterval {
+		s.mu.Unlock()
+		return
+	}
+	s.lastConnectPush[pid] = now
+	replicas := make([]*p2pReplica, 0, len(s.replicas))
+	for _, replica := range s.replicas {
+		if replica != nil {
+			replicas = append(replicas, replica)
 		}
 	}
+	s.mu.Unlock()
+
+	if len(replicas) == 0 {
+		return
+	}
+	s.logger.Info("fs p2p: peer connected, scheduling anti-entropy", "peer", pid, "replicas", len(replicas))
+	s.pushToPeer(context.Background(), pid, replicas)
 }
 
 func (s *P2PSync) syncWithPeer(ctx context.Context, pid peer.ID, replica *p2pReplica) {
@@ -210,9 +373,15 @@ func (s *P2PSync) syncWithPeer(ctx context.Context, pid peer.ID, replica *p2pRep
 		s.logger.Warn("fs p2p push: snapshot failed", "peer", pid, "replica", replica.id, "error", err)
 		return
 	}
+	if err := replica.recordSyncAttempt(pid.String(), summary.Digest); err != nil {
+		s.logger.Warn("fs p2p push: persist attempt failed", "peer", pid, "replica", replica.id, "error", err)
+	}
 
 	response, err := s.requestSummary(ctx, pid, nsID, summary)
 	if err != nil {
+		if stateErr := replica.recordSyncError(pid.String(), summary.Digest, err); stateErr != nil {
+			s.logger.Warn("fs p2p push: persist error failed", "peer", pid, "replica", replica.id, "error", stateErr)
+		}
 		if response != nil && response.ExpectedNSID != "" {
 			s.logger.Warn("fs p2p push: namespace mismatch",
 				"peer", pid,
@@ -241,18 +410,30 @@ func (s *P2PSync) syncWithPeer(ctx context.Context, pid peer.ID, replica *p2pRep
 
 	latest, latestSummary, _, _, err := s.loadReplicaSnapshot(ctx, replica)
 	if err != nil {
+		if stateErr := replica.recordSyncError(pid.String(), summary.Digest, err); stateErr != nil {
+			s.logger.Warn("fs p2p push: persist refresh error failed", "peer", pid, "replica", replica.id, "error", stateErr)
+		}
 		s.logger.Warn("fs p2p push: snapshot refresh failed", "peer", pid, "replica", replica.id, "error", err)
 		return
 	}
 	if latestSummary.Digest == response.Summary.Digest {
+		if err := replica.recordSyncSuccess(pid.String(), latestSummary.Digest, response.Summary.Digest); err != nil {
+			s.logger.Warn("fs p2p push: persist success failed", "peer", pid, "replica", replica.id, "error", err)
+		}
 		return
 	}
 
 	// If our local state changed after merging the peer response, send the
 	// full snapshot back so both peers converge in one round.
 	if err := s.sendSnapshotMessage(ctx, pid, nsID, nsKey, latest); err != nil {
+		if stateErr := replica.recordSyncError(pid.String(), latestSummary.Digest, err); stateErr != nil {
+			s.logger.Warn("fs p2p push: persist send error failed", "peer", pid, "replica", replica.id, "error", stateErr)
+		}
 		s.logger.Warn("fs p2p push: send snapshot failed", "peer", pid, "replica", replica.id, "error", err)
 		return
+	}
+	if err := replica.recordSyncSuccess(pid.String(), latestSummary.Digest, response.Summary.Digest); err != nil {
+		s.logger.Warn("fs p2p push: persist success failed", "peer", pid, "replica", replica.id, "error", err)
 	}
 	s.logger.Info("fs p2p push: sent snapshot", "peer", pid, "replica", replica.id, "files", latest.Len())
 	_ = snap
@@ -479,6 +660,7 @@ func (s *P2PSync) handleChunkStream(stream network.Stream) {
 }
 
 func (s *P2PSync) handleSummary(stream network.Stream, msg fsSyncMsg) {
+	from := stream.Conn().RemotePeer()
 	replica, exact := s.replicaForNSID(context.Background(), msg.NSID)
 	if replica == nil {
 		s.writeErrorResponse(stream, "unknown namespace", "", msg.NSID)
@@ -520,6 +702,17 @@ func (s *P2PSync) handleSummary(stream network.Stream, msg fsSyncMsg) {
 	}
 	if err := writeFSSyncMsg(stream, payload); err != nil {
 		s.logger.Warn("fs p2p: write summary response failed", "error", err)
+		if stateErr := replica.recordSyncError(from.String(), localSummary.Digest, err); stateErr != nil {
+			s.logger.Warn("fs p2p: persist response error failed", "peer", from, "replica", replica.id, "error", stateErr)
+		}
+		return
+	}
+	peerDigest := ""
+	if msg.Summary != nil {
+		peerDigest = msg.Summary.Digest
+	}
+	if err := replica.recordSyncSuccess(from.String(), localSummary.Digest, peerDigest); err != nil {
+		s.logger.Warn("fs p2p: persist response success failed", "peer", from, "replica", replica.id, "error", err)
 	}
 }
 
@@ -547,10 +740,25 @@ func (s *P2PSync) mergeSnapshotMessage(msg fsSyncMsg, from peer.ID) (int, error)
 
 	merged, err := mergePeerSnapshot(replica.localLog, remote)
 	if err != nil {
+		if stateErr := replica.recordSyncError(from.String(), "", err); stateErr != nil {
+			s.logger.Warn("fs p2p: persist merge error failed", "peer", from, "replica", replica.id, "error", stateErr)
+		}
 		return 0, err
 	}
 	if merged > 0 && replica.onChange != nil {
 		replica.onChange()
+	}
+	localDigest := ""
+	if snap, summary, _, _, err := s.loadReplicaSnapshot(context.Background(), replica); err == nil {
+		_ = snap
+		localDigest = summary.Digest
+	}
+	peerDigest := ""
+	if msg.Summary != nil {
+		peerDigest = msg.Summary.Digest
+	}
+	if err := replica.recordSyncSuccess(from.String(), localDigest, peerDigest); err != nil {
+		s.logger.Warn("fs p2p: persist merge success failed", "peer", from, "replica", replica.id, "error", err)
 	}
 	return merged, nil
 }

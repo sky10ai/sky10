@@ -201,6 +201,7 @@ func (d *DaemonV2_5) peerReplica(id string) P2PSyncReplica {
 		ID:       id,
 		LocalLog: d.localLog,
 		Resolve:  d.peerNamespaceState,
+		StateDir: d.driveDir,
 		OnChange: func() {
 			d.reconciler.Poke()
 			if d.snapshotUploader != nil {

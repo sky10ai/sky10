@@ -134,6 +134,43 @@ func TestFSP2PSyncPropagatesDeleteTombstones(t *testing.T) {
 	}
 }
 
+func TestFSP2PSyncConnectTriggerReplicatesWithoutManualPush(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	nsKey, err := GenerateNamespaceKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nsID := deriveNSID(nsKey, "agents")
+
+	nodeA, _, logA, nodeB, _, logB := startSharedFSTestPair(t, ctx, nsID, nsKey)
+
+	if err := logA.Append(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "connect-only.txt",
+		Checksum:  "hc",
+		Chunks:    []string{"cc"},
+		Device:    "dev-a",
+		Timestamp: 150,
+		Seq:       1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	infoB := nodeB.Host().Peerstore().PeerInfo(nodeB.PeerID())
+	if err := nodeA.Host().Connect(ctx, infoB); err != nil {
+		t.Fatalf("connect A->B: %v", err)
+	}
+
+	waitForFS(t, 5*time.Second, func() bool {
+		snapB, _ := logB.Snapshot()
+		_, ok := snapB.Lookup("connect-only.txt")
+		return ok
+	})
+}
+
 func TestFSP2PChunkFetchWithoutBackend(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -290,6 +327,7 @@ func startFSTestNodeFromBundle(t *testing.T, ctx context.Context, bundle *id.Bun
 	sync.AddReplica(P2PSyncReplica{
 		ID:       "drive",
 		LocalLog: localLog,
+		StateDir: filepath.Dir(logPath),
 		Resolve: func(context.Context) (string, []byte, error) {
 			return nsID, append([]byte(nil), nsKey...), nil
 		},
