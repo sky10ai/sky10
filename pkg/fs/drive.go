@@ -38,6 +38,7 @@ type DriveManager struct {
 type driveRuntime struct {
 	cancel    context.CancelFunc
 	replicaID string
+	daemon    *DaemonV2_5
 }
 
 // wLock acquires write lock and records the caller for debugging.
@@ -208,6 +209,7 @@ func (dm *DriveManager) StartDrive(id string, logger interface{ Info(string, ...
 	runtime := &driveRuntime{
 		cancel:    cancel,
 		replicaID: replicaID,
+		daemon:    daemon,
 	}
 	dm.wLock("StartDrive:register")
 	dm.daemons[id] = runtime
@@ -264,6 +266,30 @@ func (dm *DriveManager) IsRunning(id string) bool {
 	defer dm.mu.RUnlock()
 	_, ok := dm.daemons[id]
 	return ok
+}
+
+func (dm *DriveManager) readSourceSnapshot(id string) readSourceStatsSnapshot {
+	dm.mu.RLock()
+	defer dm.mu.RUnlock()
+	runtime, ok := dm.daemons[id]
+	if !ok || runtime == nil || runtime.daemon == nil {
+		return readSourceStatsSnapshot{}
+	}
+	return runtime.daemon.readSourceSnapshot()
+}
+
+func (dm *DriveManager) readSourceSnapshots() map[string]readSourceStatsSnapshot {
+	dm.mu.RLock()
+	defer dm.mu.RUnlock()
+
+	out := make(map[string]readSourceStatsSnapshot, len(dm.daemons))
+	for id, runtime := range dm.daemons {
+		if runtime == nil || runtime.daemon == nil {
+			continue
+		}
+		out[id] = runtime.daemon.readSourceSnapshot()
+	}
+	return out
 }
 
 // StartAll starts all enabled drives.

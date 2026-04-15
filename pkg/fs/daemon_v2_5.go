@@ -50,6 +50,7 @@ type DaemonV2_5 struct {
 	logger           *slog.Logger
 	onEvent          func(string, map[string]any)
 	peerSyncPoke     func()
+	readSources      *readSourceStats
 }
 
 // NewDaemonV2_5 creates the sync daemon.
@@ -159,7 +160,9 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 		logger:           logger,
 		onEvent:          func(string, map[string]any) {},
 		peerSyncPoke:     func() {},
+		readSources:      newReadSourceStats(),
 	}
+	store.SetChunkReadRecorder(d.readSources.Record)
 
 	// Wire event callbacks and drive name
 	watcherHandler.onEvent = d.emitEvent
@@ -172,6 +175,13 @@ func NewDaemonV2_5(store *Store, config DaemonConfig, logger *slog.Logger) (*Dae
 	snapshotPoller.driveName = config.DriveName
 
 	return d, nil
+}
+
+func (d *DaemonV2_5) readSourceSnapshot() readSourceStatsSnapshot {
+	if d == nil || d.readSources == nil {
+		return readSourceStatsSnapshot{}
+	}
+	return d.readSources.Snapshot()
 }
 
 func (d *DaemonV2_5) emitEvent(event string, data map[string]any) {

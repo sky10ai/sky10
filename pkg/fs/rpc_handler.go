@@ -368,6 +368,9 @@ func (s *FSHandler) rpcHealth(_ context.Context) (interface{}, error) {
 	outboxTotal := 0
 	transferTotal := 0
 	transferStaged := 0
+	readLocalTotal := 0
+	readPeerTotal := 0
+	readS3Total := 0
 	for _, id := range driveIDs {
 		dir := driveDataDir(id)
 		outbox := NewSyncLog[OutboxEntry](filepath.Join(dir, "outbox.jsonl"))
@@ -378,6 +381,10 @@ func (s *FSHandler) rpcHealth(_ context.Context) (interface{}, error) {
 			transferTotal += counts.Pending
 			transferStaged += counts.Staged
 		}
+		readStats := s.driveManager.readSourceSnapshot(id)
+		readLocalTotal += readStats.LocalHits
+		readPeerTotal += readStats.PeerHits
+		readS3Total += readStats.S3Hits
 	}
 
 	subscribers := s.server.SubscriberCount()
@@ -399,6 +406,9 @@ func (s *FSHandler) rpcHealth(_ context.Context) (interface{}, error) {
 		"outbox_pending":    outboxTotal,
 		"transfer_pending":  transferTotal,
 		"transfer_staged":   transferStaged,
+		"read_local_hits":   readLocalTotal,
+		"read_peer_hits":    readPeerTotal,
+		"read_s3_hits":      readS3Total,
 		"last_activity_ago": lastActivityAgo,
 		"rpc_clients":       clients,
 		"rpc_subscribers":   subscribers,

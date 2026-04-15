@@ -29,6 +29,16 @@ type activityEntry struct {
 	Timestamp int64  `json:"ts"`
 }
 
+type readSourceEntry struct {
+	DriveID    string `json:"drive_id"`
+	DriveName  string `json:"drive_name"`
+	LocalHits  int    `json:"read_local_hits"`
+	PeerHits   int    `json:"read_peer_hits"`
+	S3Hits     int    `json:"read_s3_hits"`
+	LastSource string `json:"last_read_source,omitempty"`
+	LastAt     int64  `json:"last_read_at,omitempty"`
+}
+
 func (s *FSHandler) rpcSyncStart(_ context.Context, params json.RawMessage) (interface{}, error) {
 	var p syncStartParams
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -123,6 +133,8 @@ func (s *FSHandler) rpcSyncActivity(_ context.Context) (interface{}, error) {
 	s.driveManager.mu.RUnlock()
 
 	pending := make([]activityEntry, 0)
+	readSources := make([]readSourceEntry, 0)
+	sourceStats := s.driveManager.readSourceSnapshots()
 
 	for id, d := range drives {
 		dir := driveDataDir(id)
@@ -165,6 +177,18 @@ func (s *FSHandler) rpcSyncActivity(_ context.Context) (interface{}, error) {
 				Timestamp: session.UpdatedAt,
 			})
 		}
+
+		if stats, ok := sourceStats[id]; ok && (stats.TotalHits() > 0 || stats.LastAt > 0) {
+			readSources = append(readSources, readSourceEntry{
+				DriveID:    id,
+				DriveName:  d.Name,
+				LocalHits:  stats.LocalHits,
+				PeerHits:   stats.PeerHits,
+				S3Hits:     stats.S3Hits,
+				LastSource: stats.LastSource,
+				LastAt:     stats.LastAt,
+			})
+		}
 	}
 
 	sort.Slice(pending, func(i, j int) bool {
@@ -177,5 +201,15 @@ func (s *FSHandler) rpcSyncActivity(_ context.Context) (interface{}, error) {
 		return pending[i].Timestamp > pending[j].Timestamp
 	})
 
-	return map[string]interface{}{"pending": pending}, nil
+	sort.Slice(readSources, func(i, j int) bool {
+		if readSources[i].LastAt == readSources[j].LastAt {
+			return readSources[i].DriveName < readSources[j].DriveName
+		}
+		return readSources[i].LastAt > readSources[j].LastAt
+	})
+
+	return map[string]interface{}{
+		"pending": pending,
+		"reads":   readSources,
+	}, nil
 }

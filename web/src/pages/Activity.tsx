@@ -3,7 +3,11 @@ import { Icon } from "../components/Icon";
 import { PageHeader } from "../components/PageHeader";
 import { StatusBadge } from "../components/StatusBadge";
 import { STORAGE_EVENT_TYPES, subscribe } from "../lib/events";
-import { skyfs, type SyncActivityEntry } from "../lib/rpc";
+import {
+  skyfs,
+  type SyncActivityEntry,
+  type SyncReadSourceEntry,
+} from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
 interface ActivityEvent {
@@ -55,6 +59,20 @@ function pendingIcon(entry: SyncActivityEntry): [string, string] {
   return eventIcon(entry.op);
 }
 
+function readSourceTone(source?: string) {
+  if (source === "peer") return "processing";
+  if (source === "s3") return "neutral";
+  if (source === "local") return "live";
+  return "neutral";
+}
+
+function readSourceLabel(source?: string) {
+  if (source === "peer") return "Peer";
+  if (source === "s3") return "S3";
+  if (source === "local") return "Cache";
+  return "Unknown";
+}
+
 export default function Activity() {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -88,6 +106,7 @@ export default function Activity() {
   }, [events.length]);
 
   const pending: SyncActivityEntry[] = activity?.pending ?? [];
+  const reads: SyncReadSourceEntry[] = activity?.reads ?? [];
 
   return (
     <section className="mx-auto flex flex-1 w-full max-w-7xl flex-col gap-8 p-12">
@@ -130,6 +149,39 @@ export default function Activity() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {reads.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-secondary">
+            Read Sources
+          </h3>
+          <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-3 shadow-sm">
+            {reads.map((entry) => (
+              <div
+                key={entry.drive_id}
+                className="flex items-center gap-4 px-4 py-3 text-sm"
+              >
+                <Icon className="text-lg text-secondary" name="source_environment" />
+                <span className="w-24 truncate text-xs font-bold uppercase text-secondary">
+                  {entry.drive_name}
+                </span>
+                <StatusBadge tone={readSourceTone(entry.last_read_source)}>
+                  {readSourceLabel(entry.last_read_source)}
+                </StatusBadge>
+                <span className="text-xs text-on-surface-variant">
+                  Cache {entry.read_local_hits}
+                </span>
+                <span className="text-xs text-on-surface-variant">
+                  Peer {entry.read_peer_hits}
+                </span>
+                <span className="text-xs text-on-surface-variant">
+                  S3 {entry.read_s3_hits}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       )}

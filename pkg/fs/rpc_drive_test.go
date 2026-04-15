@@ -19,15 +19,36 @@ func shortSockPath(prefix string) string {
 	return filepath.Join(os.TempDir(), fmt.Sprintf("sky10-%s-%d.sock", prefix, time.Now().UnixNano()))
 }
 
-// newTestServer creates an rpc.Server with FSHandler registered for tests.
-func newTestServer(store *Store, sockPath, driveCfgPath string) *skyrpc.Server {
+// newTestServerWithHandler creates an rpc.Server with FSHandler registered for tests.
+func newTestServerWithHandler(store *Store, sockPath, driveCfgPath string) (*skyrpc.Server, *FSHandler) {
 	server := skyrpc.NewServer(sockPath, "test", nil)
 	handler := NewFSHandler(store, server, driveCfgPath, nil, nil)
 	server.RegisterHandler(handler)
 	server.OnServe(func() {
 		handler.StartDrives()
 	})
+	return server, handler
+}
+
+// newTestServer creates an rpc.Server with FSHandler registered for tests.
+func newTestServer(store *Store, sockPath, driveCfgPath string) *skyrpc.Server {
+	server, _ := newTestServerWithHandler(store, sockPath, driveCfgPath)
 	return server
+}
+
+func installReadSourceRuntime(handler *FSHandler, driveID string, sources ...chunkSourceKind) {
+	stats := newReadSourceStats()
+	for _, source := range sources {
+		stats.Record(source)
+	}
+
+	handler.driveManager.wLock("test:installReadSourceRuntime")
+	handler.driveManager.daemons[driveID] = &driveRuntime{
+		daemon: &DaemonV2_5{
+			readSources: stats,
+		},
+	}
+	handler.driveManager.wUnlock()
 }
 
 // Enabled drives must auto-start when the RPC server starts.
@@ -311,6 +332,94 @@ func TestSyncActivityRPCIncludesTransferSessions(t *testing.T) {
 	}
 }
 
+func TestSyncActivityRPCIncludesReadSources(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	driveCfgPath := filepath.Join(tmpDir, "drives.json")
+	localDir := filepath.Join(tmpDir, "sync-folder")
+	os.MkdirAll(localDir, 0755)
+
+	drives := []Drive{{
+		ID:        "drive_activity_reads",
+		Name:      "ReadDrive",
+		LocalPath: localDir,
+		Namespace: "readns",
+		Enabled:   false,
+	}}
+	data, _ := json.MarshalIndent(drives, "", "  ")
+	os.WriteFile(driveCfgPath, data, 0600)
+
+	sockPath := shortSockPath("activity-reads")
+	defer os.Remove(sockPath)
+	server, handler := newTestServerWithHandler(store, sockPath, driveCfgPath)
+	installReadSourceRuntime(handler, "drive_activity_reads", chunkSourceLocal, chunkSourcePeer, chunkSourceS3Blob)
+	go server.Serve(ctx)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer conn.Close()
+
+	req := `{"jsonrpc":"2.0","method":"skyfs.syncActivity","id":1}` + "\n"
+	conn.Write([]byte(req))
+
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	var resp struct {
+		Result struct {
+			Reads []struct {
+				DriveID        string `json:"drive_id"`
+				ReadLocalHits  int    `json:"read_local_hits"`
+				ReadPeerHits   int    `json:"read_peer_hits"`
+				ReadS3Hits     int    `json:"read_s3_hits"`
+				LastReadSource string `json:"last_read_source"`
+			} `json:"reads"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(buf[:n], &resp); err != nil {
+		t.Fatalf("parse: %v (raw: %s)", err, string(buf[:n]))
+	}
+	if resp.Error != nil {
+		t.Fatalf("RPC error: %s", resp.Error.Message)
+	}
+	if len(resp.Result.Reads) != 1 {
+		t.Fatalf("expected 1 read source entry, got %d", len(resp.Result.Reads))
+	}
+	read := resp.Result.Reads[0]
+	if read.DriveID != "drive_activity_reads" {
+		t.Fatalf("drive_id = %q", read.DriveID)
+	}
+	if read.ReadLocalHits != 1 || read.ReadPeerHits != 1 || read.ReadS3Hits != 1 {
+		t.Fatalf("unexpected read counts: %+v", read)
+	}
+	if read.LastReadSource != "s3" {
+		t.Fatalf("last_read_source = %q, want s3", read.LastReadSource)
+	}
+}
+
 func TestHealthRPCIncludesTransferCounts(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -417,6 +526,86 @@ func TestHealthRPCIncludesTransferCounts(t *testing.T) {
 	}
 	if resp.Result.TransferStaged != 1 {
 		t.Fatalf("transfer_staged = %d, want 1", resp.Result.TransferStaged)
+	}
+}
+
+func TestHealthRPCIncludesReadSourceCounts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	driveCfgPath := filepath.Join(tmpDir, "drives.json")
+	localDir := filepath.Join(tmpDir, "sync-folder")
+	os.MkdirAll(localDir, 0755)
+
+	drives := []Drive{{
+		ID:        "drive_health_reads",
+		Name:      "HealthReadDrive",
+		LocalPath: localDir,
+		Namespace: "healthreads",
+		Enabled:   false,
+	}}
+	data, _ := json.MarshalIndent(drives, "", "  ")
+	os.WriteFile(driveCfgPath, data, 0600)
+
+	sockPath := shortSockPath("health-reads")
+	defer os.Remove(sockPath)
+	server, handler := newTestServerWithHandler(store, sockPath, driveCfgPath)
+	installReadSourceRuntime(handler, "drive_health_reads", chunkSourceLocal, chunkSourcePeer, chunkSourceS3Blob, chunkSourceS3Pack)
+	go server.Serve(ctx)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer conn.Close()
+
+	req := `{"jsonrpc":"2.0","method":"skyfs.health","id":1}` + "\n"
+	conn.Write([]byte(req))
+
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	var resp struct {
+		Result struct {
+			ReadLocalHits int `json:"read_local_hits"`
+			ReadPeerHits  int `json:"read_peer_hits"`
+			ReadS3Hits    int `json:"read_s3_hits"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(buf[:n], &resp); err != nil {
+		t.Fatalf("parse: %v (raw: %s)", err, string(buf[:n]))
+	}
+	if resp.Error != nil {
+		t.Fatalf("RPC error: %s", resp.Error.Message)
+	}
+	if resp.Result.ReadLocalHits != 1 {
+		t.Fatalf("read_local_hits = %d, want 1", resp.Result.ReadLocalHits)
+	}
+	if resp.Result.ReadPeerHits != 1 {
+		t.Fatalf("read_peer_hits = %d, want 1", resp.Result.ReadPeerHits)
+	}
+	if resp.Result.ReadS3Hits != 2 {
+		t.Fatalf("read_s3_hits = %d, want 2", resp.Result.ReadS3Hits)
 	}
 }
 
@@ -536,6 +725,94 @@ func TestDriveListIncludesTransferCounts(t *testing.T) {
 	}
 	if drive.TransferStaged != 1 {
 		t.Fatalf("transfer_staged = %d, want 1", drive.TransferStaged)
+	}
+}
+
+func TestDriveListIncludesReadSourceCounts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	driveCfgPath := filepath.Join(tmpDir, "drives.json")
+	localDir := filepath.Join(tmpDir, "sync-folder")
+	os.MkdirAll(localDir, 0755)
+
+	drives := []Drive{{
+		ID:        "drive_list_reads",
+		Name:      "ListReadDrive",
+		LocalPath: localDir,
+		Namespace: "listreads",
+		Enabled:   false,
+	}}
+	data, _ := json.MarshalIndent(drives, "", "  ")
+	os.WriteFile(driveCfgPath, data, 0600)
+
+	sockPath := shortSockPath("drivelist-reads")
+	defer os.Remove(sockPath)
+	server, handler := newTestServerWithHandler(store, sockPath, driveCfgPath)
+	installReadSourceRuntime(handler, "drive_list_reads", chunkSourcePeer, chunkSourceLocal)
+	go server.Serve(ctx)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer conn.Close()
+
+	req := `{"jsonrpc":"2.0","method":"skyfs.driveList","id":1}` + "\n"
+	conn.Write([]byte(req))
+
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	var resp struct {
+		Result struct {
+			Drives []struct {
+				ID             string `json:"id"`
+				ReadLocalHits  int    `json:"read_local_hits"`
+				ReadPeerHits   int    `json:"read_peer_hits"`
+				ReadS3Hits     int    `json:"read_s3_hits"`
+				LastReadSource string `json:"last_read_source"`
+			} `json:"drives"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(buf[:n], &resp); err != nil {
+		t.Fatalf("parse: %v (raw: %s)", err, string(buf[:n]))
+	}
+	if resp.Error != nil {
+		t.Fatalf("RPC error: %s", resp.Error.Message)
+	}
+	if len(resp.Result.Drives) != 1 {
+		t.Fatalf("expected 1 drive, got %d", len(resp.Result.Drives))
+	}
+	drive := resp.Result.Drives[0]
+	if drive.ID != "drive_list_reads" {
+		t.Fatalf("drive id = %q", drive.ID)
+	}
+	if drive.ReadLocalHits != 1 || drive.ReadPeerHits != 1 || drive.ReadS3Hits != 0 {
+		t.Fatalf("unexpected read counts: %+v", drive)
+	}
+	if drive.LastReadSource != "local" {
+		t.Fatalf("last_read_source = %q, want local", drive.LastReadSource)
 	}
 }
 

@@ -260,6 +260,9 @@ export interface HealthResult {
   outbox_pending: number;
   transfer_pending: number;
   transfer_staged: number;
+  read_local_hits: number;
+  read_peer_hits: number;
+  read_s3_hits: number;
   last_activity_ago: string;
   rpc_clients: number;
   rpc_subscribers: number;
@@ -277,6 +280,11 @@ export interface Drive {
   outbox_pending: number;
   transfer_pending: number;
   transfer_staged: number;
+  read_local_hits: number;
+  read_peer_hits: number;
+  read_s3_hits: number;
+  last_read_source?: string;
+  last_read_at?: number;
 }
 
 export interface DriveListResult {
@@ -583,8 +591,19 @@ export interface SyncActivityEntry {
   ts: number;
 }
 
+export interface SyncReadSourceEntry {
+  drive_id: string;
+  drive_name: string;
+  read_local_hits: number;
+  read_peer_hits: number;
+  read_s3_hits: number;
+  last_read_source?: string;
+  last_read_at?: number;
+}
+
 export interface SyncActivityResult {
   pending: SyncActivityEntry[];
+  reads: SyncReadSourceEntry[];
 }
 
 export interface AgentInfo {

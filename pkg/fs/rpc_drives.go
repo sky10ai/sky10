@@ -16,15 +16,20 @@ type driveCreateParams struct {
 }
 
 type driveInfo struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	LocalPath string `json:"local_path"`
-	Namespace string `json:"namespace"`
-	Enabled   bool   `json:"enabled"`
-	Running   bool   `json:"running"`
-	Outbox    int    `json:"outbox_pending,omitempty"`
-	Transfer  int    `json:"transfer_pending,omitempty"`
-	Staged    int    `json:"transfer_staged,omitempty"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	LocalPath  string `json:"local_path"`
+	Namespace  string `json:"namespace"`
+	Enabled    bool   `json:"enabled"`
+	Running    bool   `json:"running"`
+	Outbox     int    `json:"outbox_pending,omitempty"`
+	Transfer   int    `json:"transfer_pending,omitempty"`
+	Staged     int    `json:"transfer_staged,omitempty"`
+	ReadLocal  int    `json:"read_local_hits,omitempty"`
+	ReadPeer   int    `json:"read_peer_hits,omitempty"`
+	ReadS3     int    `json:"read_s3_hits,omitempty"`
+	LastRead   string `json:"last_read_source,omitempty"`
+	LastReadAt int64  `json:"last_read_at,omitempty"`
 }
 
 type driveIDParams struct {
@@ -93,6 +98,14 @@ func (s *FSHandler) rpcDriveList(_ context.Context) (interface{}, error) {
 		if counts, err := summarizeTransferSessions(dir); err == nil {
 			entry["transfer_pending"] = counts.Pending
 			entry["transfer_staged"] = counts.Staged
+		}
+		readStats := s.driveManager.readSourceSnapshot(d.ID)
+		entry["read_local_hits"] = readStats.LocalHits
+		entry["read_peer_hits"] = readStats.PeerHits
+		entry["read_s3_hits"] = readStats.S3Hits
+		if readStats.LastSource != "" {
+			entry["last_read_source"] = readStats.LastSource
+			entry["last_read_at"] = readStats.LastAt
 		}
 		result[i] = entry
 	}

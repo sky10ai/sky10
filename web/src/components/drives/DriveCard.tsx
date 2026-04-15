@@ -13,6 +13,10 @@ export function DriveCard({
   onChanged?: () => void;
 }) {
   const isSyncing = drive.outbox_pending > 0 || drive.transfer_pending > 0;
+  const totalReads =
+    (drive.read_local_hits ?? 0) +
+    (drive.read_peer_hits ?? 0) +
+    (drive.read_s3_hits ?? 0);
   const [toggling, setToggling] = useState(false);
 
   const toggleDrive = async (event: React.MouseEvent) => {
@@ -78,6 +82,13 @@ export function DriveCard({
           {drive.outbox_pending > 0 ? ` • ${drive.outbox_pending} pending` : ""}
           {drive.transfer_pending > 0 ? ` • ${drive.transfer_pending} transfer${drive.transfer_pending === 1 ? "" : "s"}` : ""}
         </p>
+        {totalReads > 0 && (
+          <p className="mt-2 text-xs text-outline">
+            Reads: cache {drive.read_local_hits} • peer {drive.read_peer_hits} • s3{" "}
+            {drive.read_s3_hits}
+            {drive.last_read_source ? ` • last ${drive.last_read_source}` : ""}
+          </p>
+        )}
       </div>
 
       <div className="mt-8 border-t border-outline-variant/10 pt-4">

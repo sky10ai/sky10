@@ -47,6 +47,7 @@ type Store struct {
 	prevChecksum string // optional: informational prev_checksum for dedup
 	lastPut      *PutResult
 	peerChunks   peerChunkFetcher
+	onChunkRead  func(chunkSourceKind)
 }
 
 type peerChunkFetcher interface {
@@ -90,6 +91,11 @@ func (s *Store) SetNamespaceID(nsID string) {
 // SetPeerChunkFetcher configures optional peer chunk fetching for non-S3 mode.
 func (s *Store) SetPeerChunkFetcher(fetcher peerChunkFetcher) {
 	s.peerChunks = fetcher
+}
+
+// SetChunkReadRecorder configures an optional callback for successful chunk reads.
+func (s *Store) SetChunkReadRecorder(fn func(kind chunkSourceKind)) {
+	s.onChunkRead = fn
 }
 
 // blobKeyFor returns the S3 key for a chunk, respecting the namespace prefix.
@@ -488,6 +494,9 @@ func (s *Store) fetchChunk(ctx context.Context, nsID string, index int, chunkHas
 			if err := writeLocalBlob(nsID, chunkHash, raw); err != nil {
 				return nil, fmt.Errorf("caching %s chunk %d (%s): %w", source.kind, index, chunkHash[:12], err)
 			}
+		}
+		if s.onChunkRead != nil {
+			s.onChunkRead(source.kind)
 		}
 		return plaintext, nil
 	}
