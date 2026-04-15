@@ -634,6 +634,37 @@ func addrInfoFromMultiaddrStrings(addrs []string) (*peer.AddrInfo, error) {
 	return info, nil
 }
 
+func addrInfoFromPeerIDAndMultiaddrs(peerID string, addrs []string) (*peer.AddrInfo, error) {
+	id, err := peer.Decode(strings.TrimSpace(peerID))
+	if err != nil {
+		return nil, fmt.Errorf("parsing peer id: %w", err)
+	}
+
+	info := &peer.AddrInfo{ID: id}
+	for _, addr := range canonicalMultiaddrs(addrs) {
+		multiaddr, err := ma.NewMultiaddr(addr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid multiaddr %q: %w", addr, err)
+		}
+		if value, err := multiaddr.ValueForProtocol(ma.P_P2P); err == nil && value != "" {
+			next, err := peer.AddrInfoFromP2pAddr(multiaddr)
+			if err != nil {
+				return nil, err
+			}
+			if next.ID != id {
+				return nil, fmt.Errorf("multiaddr peer ID mismatch")
+			}
+			info.Addrs = append(info.Addrs, next.Addrs...)
+			continue
+		}
+		info.Addrs = append(info.Addrs, multiaddr)
+	}
+	if len(info.Addrs) == 0 {
+		return nil, fmt.Errorf("no multiaddrs")
+	}
+	return info, nil
+}
+
 func parseP2PMultiaddr(addr string) (ma.Multiaddr, error) {
 	return ma.NewMultiaddr(addr)
 }

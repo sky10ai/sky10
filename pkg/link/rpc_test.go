@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 )
@@ -211,6 +212,54 @@ func TestRPCPeers(t *testing.T) {
 	if peers.Count != 0 {
 		t.Fatalf("expected 0 peers, got %d", peers.Count)
 	}
+}
+
+func TestRPCConnectPeerUsesDirectPeerHints(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	nodeA := generateTestNode(t)
+	nodeB := generateTestNode(t)
+	startTestNode(t, nodeA)
+	startTestNode(t, nodeB)
+
+	h := NewRPCHandler(nodeB, NewResolver(nodeB))
+	addrs := make([]string, 0, len(nodeA.Host().Addrs()))
+	for _, addr := range nodeA.Host().Addrs() {
+		addrs = append(addrs, addr.String())
+	}
+
+	params, _ := json.Marshal(connectPeerParams{
+		PeerID:     nodeA.PeerID().String(),
+		Multiaddrs: addrs,
+	})
+	result, err, handled := h.Dispatch(ctx, "skylink.connectPeer", params)
+	if !handled {
+		t.Fatal("should handle skylink.connectPeer")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, _ := json.Marshal(result)
+	var response map[string]bool
+	if err := json.Unmarshal(data, &response); err != nil {
+		t.Fatal(err)
+	}
+	if !response["connected"] {
+		t.Fatal("expected connected response")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if nodeB.Host().Network().Connectedness(nodeA.PeerID()) == network.Connected {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("peer %s not connected", nodeA.PeerID())
 }
 
 func TestRPCNetcheck(t *testing.T) {

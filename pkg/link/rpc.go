@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/libp2p/go-libp2p/core/network"
 )
 
 // RPCHandler dispatches skylink.* RPC methods.
@@ -98,6 +100,8 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		return h.rpcPeers()
 	case "skylink.connect":
 		return h.rpcConnect(ctx, params)
+	case "skylink.connectPeer":
+		return h.rpcConnectPeer(ctx, params)
 	case "skylink.call":
 		return h.rpcCall(ctx, params)
 	case "skylink.resolve":
@@ -192,6 +196,11 @@ type connectParams struct {
 	Address string `json:"address"`
 }
 
+type connectPeerParams struct {
+	PeerID     string   `json:"peer_id"`
+	Multiaddrs []string `json:"multiaddrs"`
+}
+
 func (h *RPCHandler) rpcConnect(ctx context.Context, params json.RawMessage) (interface{}, error, bool) {
 	var p connectParams
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -208,6 +217,48 @@ func (h *RPCHandler) rpcConnect(ctx context.Context, params json.RawMessage) (in
 	}
 	if h.healthTracker != nil {
 		h.healthTracker.RecordConnect(p.Address, nil)
+	}
+	return map[string]bool{"connected": true}, nil, true
+}
+
+func (h *RPCHandler) rpcConnectPeer(ctx context.Context, params json.RawMessage) (interface{}, error, bool) {
+	var p connectPeerParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err), true
+	}
+	if h.node == nil || h.node.Host() == nil {
+		return nil, fmt.Errorf("node not running"), true
+	}
+
+	info, err := addrInfoFromPeerIDAndMultiaddrs(p.PeerID, p.Multiaddrs)
+	if err != nil {
+		return nil, err, true
+	}
+	if h.node.Host().Network().Connectedness(info.ID) == network.Connected {
+		if h.healthTracker != nil {
+			h.healthTracker.RecordConnect(p.PeerID, nil)
+		}
+		return map[string]bool{"connected": true}, nil, true
+	}
+
+	if h.resolver != nil {
+		hint := PathHint{}
+		if h.resolver.paths != nil {
+			hint = h.resolver.paths.Snapshot(info.ID)
+		}
+		info, _ = h.resolver.prioritizeAddrInfo(ctx, info, hint)
+		err = h.resolver.connectResolvedPeer(ctx, &ResolvedPeer{
+			Info:   info,
+			Source: "rpc_direct",
+		})
+	} else {
+		err = h.node.Host().Connect(ctx, *info)
+	}
+	if h.healthTracker != nil {
+		h.healthTracker.RecordConnect(p.PeerID, err)
+	}
+	if err != nil {
+		return nil, err, true
 	}
 	return map[string]bool{"connected": true}, nil, true
 }

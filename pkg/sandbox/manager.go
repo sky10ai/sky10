@@ -582,7 +582,11 @@ func (m *Manager) finishReady(ctx context.Context, name, limactl string) error {
 		if err := waitForGuestOpenClawAgent(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
 			return err
 		}
-		if err := m.ensureHostConnectedGuestAgent(ctx, *rec, hostIdentity); err != nil {
+		updatedRec, err := m.requireRecord(name)
+		if err != nil {
+			return err
+		}
+		if err := m.ensureHostConnectedGuestAgent(ctx, *updatedRec, hostIdentity); err != nil {
 			return err
 		}
 	}
@@ -793,6 +797,10 @@ func (m *Manager) ensureHostConnectedGuestAgent(ctx context.Context, rec Record,
 			Name string `json:"name"`
 		} `json:"agents"`
 	}
+	type skylinkStatusResult struct {
+		PeerID string   `json:"peer_id"`
+		Addrs  []string `json:"addrs"`
+	}
 
 	waitCtx, cancel := context.WithTimeout(ctx, openClawReadyTimeout)
 	defer cancel()
@@ -802,21 +810,39 @@ func (m *Manager) ensureHostConnectedGuestAgent(ctx context.Context, rec Record,
 
 	var lastErr error
 	for {
-		if err := m.hostRPC(waitCtx, "skylink.connect", map[string]string{"address": hostIdentity}, nil); err != nil {
-			lastErr = fmt.Errorf("connecting host sky10 to guest identity %q: %w", hostIdentity, err)
-		} else {
-			var listed agentListResult
-			if err := m.hostRPC(waitCtx, "agent.list", nil, &listed); err != nil {
-				lastErr = fmt.Errorf("listing host agents after guest join: %w", err)
-			} else {
-				for _, agent := range listed.Agents {
-					if agent.Name == rec.Name || agent.Name == rec.Slug {
-						m.appendLog(rec.Slug, "stdout", "host sky10 connected to guest peer")
-						return nil
-					}
+		attemptedDirect := false
+		if m.guestRPC != nil && strings.TrimSpace(rec.IPAddress) != "" {
+			var guest skylinkStatusResult
+			if err := m.guestRPC(waitCtx, rec.IPAddress, "skylink.status", nil, &guest); err != nil {
+				lastErr = fmt.Errorf("reading guest skylink status for sandbox %q: %w", rec.Name, err)
+			} else if strings.TrimSpace(guest.PeerID) != "" && len(guest.Addrs) > 0 {
+				attemptedDirect = true
+				params := map[string]interface{}{
+					"peer_id":    strings.TrimSpace(guest.PeerID),
+					"multiaddrs": append([]string(nil), guest.Addrs...),
 				}
-				lastErr = fmt.Errorf("guest agent %q not yet visible on host", rec.Name)
+				if err := m.hostRPC(waitCtx, "skylink.connectPeer", params, nil); err != nil {
+					lastErr = fmt.Errorf("connecting host sky10 directly to guest peer %q: %w", guest.PeerID, err)
+				}
 			}
+		}
+		if !attemptedDirect {
+			if err := m.hostRPC(waitCtx, "skylink.connect", map[string]string{"address": hostIdentity}, nil); err != nil {
+				lastErr = fmt.Errorf("connecting host sky10 to guest identity %q: %w", hostIdentity, err)
+			}
+		}
+
+		var listed agentListResult
+		if err := m.hostRPC(waitCtx, "agent.list", nil, &listed); err != nil {
+			lastErr = fmt.Errorf("listing host agents after guest join: %w", err)
+		} else {
+			for _, agent := range listed.Agents {
+				if agent.Name == rec.Name || agent.Name == rec.Slug {
+					m.appendLog(rec.Slug, "stdout", "host sky10 connected to guest peer")
+					return nil
+				}
+			}
+			lastErr = fmt.Errorf("guest agent %q not yet visible on host", rec.Name)
 		}
 
 		select {

@@ -790,13 +790,20 @@ func TestFinishReadyOpenClawJoinsGuestSky10Identity(t *testing.T) {
 	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
 		steps = append(steps, "host."+method)
 		switch method {
-		case "skylink.connect":
-			connectParams, ok := params.(map[string]string)
+		case "skylink.connectPeer":
+			connectParams, ok := params.(map[string]interface{})
 			if !ok {
-				t.Fatalf("host connect params type = %T, want map[string]string", params)
+				t.Fatalf("host connect params type = %T, want map[string]interface{}", params)
 			}
-			if connectParams["address"] != "sky10-host" {
-				t.Fatalf("host connect address = %q, want sky10-host", connectParams["address"])
+			if connectParams["peer_id"] != "12D3KooWguest" {
+				t.Fatalf("host connect peer_id = %v, want 12D3KooWguest", connectParams["peer_id"])
+			}
+			multiaddrs, ok := connectParams["multiaddrs"].([]string)
+			if !ok {
+				t.Fatalf("host connect multiaddrs type = %T, want []string", connectParams["multiaddrs"])
+			}
+			if len(multiaddrs) != 1 || multiaddrs[0] != "/ip4/192.168.64.14/tcp/4101" {
+				t.Fatalf("host connect multiaddrs = %v, want [/ip4/192.168.64.14/tcp/4101]", multiaddrs)
 			}
 			return nil
 		case "agent.list":
@@ -835,6 +842,15 @@ func TestFinishReadyOpenClawJoinsGuestSky10Identity(t *testing.T) {
 				t.Fatalf("join params type = %T, want map[string]string", params)
 			}
 			return nil
+		case "skylink.status":
+			body, err := json.Marshal(map[string]interface{}{
+				"peer_id": "12D3KooWguest",
+				"addrs":   []string{"/ip4/192.168.64.14/tcp/4101"},
+			})
+			if err != nil {
+				t.Fatalf("marshal guest skylink status: %v", err)
+			}
+			return json.Unmarshal(body, out)
 		default:
 			t.Fatalf("unexpected guest RPC method %q", method)
 			return nil
@@ -865,7 +881,8 @@ func TestFinishReadyOpenClawJoinsGuestSky10Identity(t *testing.T) {
 		"identity.join",
 		"guest-health-2",
 		"agent-list",
-		"host.skylink.connect",
+		"skylink.status",
+		"host.skylink.connectPeer",
 		"host.agent.list",
 		"lookup-ip",
 	}
@@ -931,13 +948,13 @@ func TestFinishReadyOpenClawSkipsJoinWhenGuestAlreadyJoined(t *testing.T) {
 	}
 	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
 		switch method {
-		case "skylink.connect":
-			connectParams, ok := params.(map[string]string)
+		case "skylink.connectPeer":
+			connectParams, ok := params.(map[string]interface{})
 			if !ok {
-				t.Fatalf("host connect params type = %T, want map[string]string", params)
+				t.Fatalf("host connect params type = %T, want map[string]interface{}", params)
 			}
-			if connectParams["address"] != "sky10-host" {
-				t.Fatalf("host connect address = %q, want sky10-host", connectParams["address"])
+			if connectParams["peer_id"] != "12D3KooWguest" {
+				t.Fatalf("host connect peer_id = %v, want 12D3KooWguest", connectParams["peer_id"])
 			}
 			return nil
 		case "agent.list":
@@ -963,6 +980,15 @@ func TestFinishReadyOpenClawSkipsJoinWhenGuestAlreadyJoined(t *testing.T) {
 			ptr.Address = "sky10-host"
 			ptr.DeviceCount = 2
 			return nil
+		case "skylink.status":
+			body, err := json.Marshal(map[string]interface{}{
+				"peer_id": "12D3KooWguest",
+				"addrs":   []string{"/ip4/192.168.64.14/tcp/4101"},
+			})
+			if err != nil {
+				t.Fatalf("marshal guest skylink status: %v", err)
+			}
+			return json.Unmarshal(body, out)
 		case "identity.join":
 			t.Fatal("identity.join should not be called when the guest already matches the host identity")
 			return nil
