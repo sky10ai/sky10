@@ -189,3 +189,5 @@ if command -v hermes >/dev/null 2>&1; then
     hermes config set model "${HERMES_MODEL}" || true
   fi
 fi
+
+link_hermes_env

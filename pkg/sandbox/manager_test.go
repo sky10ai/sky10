@@ -708,6 +708,9 @@ func TestBundledHermesUserScriptKeepsSharedEnv(t *testing.T) {
 	if !strings.Contains(script, `ln -sfn "${SHARED_DIR}/.env" "${HERMES_HOME}/.env"`) {
 		t.Fatalf("bundled Hermes user script missing shared env symlink: %q", script)
 	}
+	if got := strings.Count(script, "link_hermes_env"); got < 3 {
+		t.Fatalf("bundled Hermes user script should relink shared env after Hermes config writes, count=%d: %q", got, script)
+	}
 	if strings.Contains(script, `cp "${HERMES_HOME}/.env" "${SHARED_DIR}/.env"`) {
 		t.Fatalf("bundled Hermes user script should not clobber shared env with guest env: %q", script)
 	}
