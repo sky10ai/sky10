@@ -45,6 +45,8 @@ Tracking all work needed to run sky10 on Windows.
 
 - [ ] Audit daemon log paths in `commands/daemon_darwin.go` and `commands/daemon_linux.go` templates (these are platform-gated, so fine as-is — just verify)
 - [ ] Verify `RuntimeDir()` works correctly on Windows (`%TEMP%\sky10`)
+- [ ] Land the FS-specific normalization and case-collision work from
+      [`../current/fs-windows-normalization-plan.md`](../current/fs-windows-normalization-plan.md)
 
 ## 5. Build and release
 

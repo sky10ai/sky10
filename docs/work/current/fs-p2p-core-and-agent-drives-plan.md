@@ -422,6 +422,10 @@ Goal: make the system explainable and verifiably reliable.
 
 Status: in progress
 
+Reference draft:
+
+- [`fs-windows-normalization-plan.md`](./fs-windows-normalization-plan.md)
+
 Checklist:
 
 - [x] Add per-drive health surfaces for watcher, scan, anti-entropy, peers,
@@ -509,7 +513,9 @@ To stay aligned with this plan, the next coding focus should now be:
 
 1. move to `Milestone 7`: broader reliability surfacing, degraded-state
    explainability, and the remaining matrix work
-2. treat follow-on observability as support for reliability claims rather than
+2. treat [`fs-windows-normalization-plan.md`](./fs-windows-normalization-plan.md)
+   as the concrete execution plan for the remaining Windows/path edge work
+3. treat follow-on observability as support for reliability claims rather than
    a separate side track
-3. keep `Milestone 3` in design/docs mode until the peer-correct core and
+4. keep `Milestone 3` in design/docs mode until the peer-correct core and
    optional-S3 layering are stronger
