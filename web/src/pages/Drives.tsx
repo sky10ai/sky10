@@ -30,12 +30,24 @@ export default function Drives() {
   const drives = driveList?.drives ?? [];
   const queued = health?.outbox_pending ?? 0;
   const transfers = health?.transfer_pending ?? 0;
+  const waiting = health?.sync_waiting_drives ?? 0;
+  const degraded = health?.sync_error_drives ?? 0;
 
   return (
     <section className="mx-auto flex flex-1 w-full max-w-7xl flex-col gap-10 p-12">
       <PageHeader
         actions={
           <>
+            {degraded > 0 && (
+              <StatusBadge icon="error" tone="danger">
+                {degraded} degraded
+              </StatusBadge>
+            )}
+            {waiting > 0 && (
+              <StatusBadge icon="schedule" tone="neutral">
+                {waiting} waiting
+              </StatusBadge>
+            )}
             {transfers > 0 && (
               <StatusBadge icon="sync" pulse tone="processing">
                 {transfers} transfer{transfers === 1 ? "" : "s"}

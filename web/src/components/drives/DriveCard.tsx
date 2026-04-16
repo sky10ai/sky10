@@ -3,6 +3,21 @@ import { type Drive, skyfs } from "../../lib/rpc";
 import { Icon } from "../Icon";
 import { StatusBadge } from "../StatusBadge";
 
+function syncTone(state?: string) {
+  if (state === "error") return "danger";
+  if (state === "waiting") return "neutral";
+  if (state === "ok") return "live";
+  return "neutral";
+}
+
+function syncLabel(state?: string) {
+  if (state === "error") return "Degraded";
+  if (state === "waiting") return "Waiting";
+  if (state === "ok") return "Ready";
+  if (state === "stopped") return "Stopped";
+  return "Unknown";
+}
+
 export function DriveCard({
   drive,
   onOpen,
@@ -21,6 +36,16 @@ export function DriveCard({
     drive.peer_source_health?.degraded ? "Peer retrying" : "",
     drive.s3_source_health?.degraded ? "S3 retrying" : "",
   ].filter(Boolean);
+  const syncSummary =
+    drive.sync_state === "error"
+      ? drive.sync_message || drive.last_sync_error || "FS sync degraded"
+      : drive.sync_state === "waiting"
+        ? drive.sync_message || "Waiting for anti-entropy"
+        : drive.last_sync_peer
+          ? `Anti-entropy ok with ${drive.last_sync_peer}`
+          : drive.peer_count && drive.peer_count > 0
+            ? `${drive.peer_count} peer${drive.peer_count === 1 ? "" : "s"} connected`
+            : "";
   const [toggling, setToggling] = useState(false);
 
   const toggleDrive = async (event: React.MouseEvent) => {
@@ -97,6 +122,12 @@ export function DriveCard({
           <p className="mt-2 text-xs text-error">
             Source health: {sourceWarnings.join(" • ")}
           </p>
+        )}
+        {drive.running && drive.sync_state && (
+          <div className="mt-3 flex items-center gap-2">
+            <StatusBadge tone={syncTone(drive.sync_state)}>{syncLabel(drive.sync_state)}</StatusBadge>
+            {syncSummary && <span className="text-xs text-outline">{syncSummary}</span>}
+          </div>
         )}
       </div>
 

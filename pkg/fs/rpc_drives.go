@@ -16,22 +16,30 @@ type driveCreateParams struct {
 }
 
 type driveInfo struct {
-	ID         string                    `json:"id"`
-	Name       string                    `json:"name"`
-	LocalPath  string                    `json:"local_path"`
-	Namespace  string                    `json:"namespace"`
-	Enabled    bool                      `json:"enabled"`
-	Running    bool                      `json:"running"`
-	Outbox     int                       `json:"outbox_pending,omitempty"`
-	Transfer   int                       `json:"transfer_pending,omitempty"`
-	Staged     int                       `json:"transfer_staged,omitempty"`
-	ReadLocal  int                       `json:"read_local_hits,omitempty"`
-	ReadPeer   int                       `json:"read_peer_hits,omitempty"`
-	ReadS3     int                       `json:"read_s3_hits,omitempty"`
-	LastRead   string                    `json:"last_read_source,omitempty"`
-	LastReadAt int64                     `json:"last_read_at,omitempty"`
-	PeerHealth chunkSourceHealthSnapshot `json:"peer_source_health"`
-	S3Health   chunkSourceHealthSnapshot `json:"s3_source_health"`
+	ID              string                    `json:"id"`
+	Name            string                    `json:"name"`
+	LocalPath       string                    `json:"local_path"`
+	Namespace       string                    `json:"namespace"`
+	Enabled         bool                      `json:"enabled"`
+	Running         bool                      `json:"running"`
+	Outbox          int                       `json:"outbox_pending,omitempty"`
+	Transfer        int                       `json:"transfer_pending,omitempty"`
+	Staged          int                       `json:"transfer_staged,omitempty"`
+	ReadLocal       int                       `json:"read_local_hits,omitempty"`
+	ReadPeer        int                       `json:"read_peer_hits,omitempty"`
+	ReadS3          int                       `json:"read_s3_hits,omitempty"`
+	LastRead        string                    `json:"last_read_source,omitempty"`
+	LastReadAt      int64                     `json:"last_read_at,omitempty"`
+	PeerHealth      chunkSourceHealthSnapshot `json:"peer_source_health"`
+	S3Health        chunkSourceHealthSnapshot `json:"s3_source_health"`
+	SyncReady       bool                      `json:"sync_ready,omitempty"`
+	PeerCount       int                       `json:"peer_count,omitempty"`
+	SyncState       string                    `json:"sync_state,omitempty"`
+	SyncMsg         string                    `json:"sync_message,omitempty"`
+	LastSyncOK      int64                     `json:"last_sync_ok,omitempty"`
+	LastSyncPeer    string                    `json:"last_sync_peer,omitempty"`
+	LastSyncError   string                    `json:"last_sync_error,omitempty"`
+	LastSyncErrorAt int64                     `json:"last_sync_error_at,omitempty"`
 }
 
 type driveIDParams struct {
@@ -108,6 +116,21 @@ func (s *FSHandler) rpcDriveList(_ context.Context) (interface{}, error) {
 		sourceHealth := s.driveManager.sourceHealthSnapshot(d.ID)
 		entry["peer_source_health"] = sourceHealth.Peer
 		entry["s3_source_health"] = sourceHealth.S3
+		syncHealth := s.driveManager.syncHealthSnapshot(d.ID)
+		entry["sync_ready"] = syncHealth.Ready
+		entry["peer_count"] = syncHealth.PeerCount
+		entry["sync_state"] = syncHealth.SyncState
+		if syncHealth.SyncMessage != "" {
+			entry["sync_message"] = syncHealth.SyncMessage
+		}
+		if syncHealth.LastSyncOK > 0 {
+			entry["last_sync_ok"] = syncHealth.LastSyncOK
+			entry["last_sync_peer"] = syncHealth.LastSyncPeer
+		}
+		if syncHealth.LastSyncError != "" {
+			entry["last_sync_error"] = syncHealth.LastSyncError
+			entry["last_sync_error_at"] = syncHealth.LastSyncErrorAt
+		}
 		if readStats.LastSource != "" {
 			entry["last_read_source"] = readStats.LastSource
 			entry["last_read_at"] = readStats.LastAt

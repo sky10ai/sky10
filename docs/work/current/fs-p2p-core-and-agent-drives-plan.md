@@ -426,7 +426,7 @@ Checklist:
 
 - [x] Add per-drive health surfaces for watcher, scan, anti-entropy, peers,
       staging, and S3.
-- [ ] Reuse KV-style sync health expectations: readiness, peer count, last
+- [x] Reuse KV-style sync health expectations: readiness, peer count, last
       successful anti-entropy, and loud failure surfaces.
 - [x] Add clear user-visible transfer phases: scanning, uploading,
       downloading, reconciling, retrying, conflict, degraded.

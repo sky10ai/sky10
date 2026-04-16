@@ -11,6 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/sky10/sky10/pkg/adapter"
 	s3adapter "github.com/sky10/sky10/pkg/adapter/s3"
 	"github.com/sky10/sky10/pkg/fs/opslog"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
@@ -58,8 +61,52 @@ func installReadSourceRuntimeWithStore(handler *FSHandler, driveID string, confi
 		daemon: &DaemonV2_5{
 			readSources: stats,
 			store:       store,
+			driveDir:    driveDataDir(driveID),
 		},
 	}
+	handler.driveManager.wUnlock()
+}
+
+type stubFSP2PNode struct {
+	peers []peer.ID
+}
+
+func (n *stubFSP2PNode) Host() host.Host { return nil }
+func (n *stubFSP2PNode) PeerID() peer.ID { return "" }
+func (n *stubFSP2PNode) ConnectedPrivateNetworkPeers() []peer.ID {
+	return append([]peer.ID(nil), n.peers...)
+}
+
+func installSyncHealthRuntime(t *testing.T, handler *FSHandler, driveID, nsID string, backend adapter.Backend, peerIDs []string, state fsReplicaSyncState) {
+	t.Helper()
+
+	driveDir := driveDataDir(driveID)
+	if err := saveFSPeerSyncState(driveDir, state); err != nil {
+		t.Fatalf("save fs peer sync state: %v", err)
+	}
+
+	id, _ := GenerateDeviceKey()
+	var store *Store
+	if backend != nil {
+		store = New(backend, id)
+	} else {
+		store = New(nil, id)
+	}
+	store.SetNamespaceID(nsID)
+
+	peers := make([]peer.ID, 0, len(peerIDs))
+	for _, pid := range peerIDs {
+		peers = append(peers, peer.ID(pid))
+	}
+
+	handler.driveManager.wLock("test:installSyncHealthRuntime")
+	handler.driveManager.daemons[driveID] = &driveRuntime{
+		daemon: &DaemonV2_5{
+			store:    store,
+			driveDir: driveDir,
+		},
+	}
+	handler.driveManager.p2pSync = &P2PSync{node: &stubFSP2PNode{peers: peers}}
 	handler.driveManager.wUnlock()
 }
 
@@ -682,6 +729,111 @@ func TestHealthRPCIncludesReadSourceCounts(t *testing.T) {
 	}
 }
 
+func TestHealthRPCIncludesFSSyncHealthCounts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	driveCfgPath := filepath.Join(tmpDir, "drives.json")
+
+	now := time.Unix(2200, 0).UTC()
+	drives := []Drive{
+		{ID: "drive_sync_ok", Name: "SyncOK", LocalPath: filepath.Join(tmpDir, "ok"), Namespace: "syncok", Enabled: false},
+		{ID: "drive_sync_wait", Name: "SyncWait", LocalPath: filepath.Join(tmpDir, "wait"), Namespace: "syncwait", Enabled: false},
+		{ID: "drive_sync_err", Name: "SyncErr", LocalPath: filepath.Join(tmpDir, "err"), Namespace: "syncerr", Enabled: false},
+	}
+	for _, drive := range drives {
+		if err := os.MkdirAll(drive.LocalPath, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", drive.LocalPath, err)
+		}
+	}
+	data, _ := json.MarshalIndent(drives, "", "  ")
+	os.WriteFile(driveCfgPath, data, 0600)
+
+	sockPath := shortSockPath("health-sync")
+	defer os.Remove(sockPath)
+	server, handler := newTestServerWithHandler(store, sockPath, driveCfgPath)
+	installSyncHealthRuntime(t, handler, "drive_sync_ok", "syncok", nil, []string{"peer-a"}, fsReplicaSyncState{
+		NSID: "syncok",
+		Peers: map[string]fsPeerSyncState{
+			"peer-a": {LastSuccessAt: now.Add(-2 * time.Minute)},
+		},
+	})
+	installSyncHealthRuntime(t, handler, "drive_sync_wait", "syncwait", nil, []string{"peer-a"}, fsReplicaSyncState{
+		NSID:  "syncwait",
+		Peers: map[string]fsPeerSyncState{},
+	})
+	installSyncHealthRuntime(t, handler, "drive_sync_err", "syncerr", nil, []string{"peer-a"}, fsReplicaSyncState{
+		NSID: "syncerr",
+		Peers: map[string]fsPeerSyncState{
+			"peer-a": {
+				LastSuccessAt: now.Add(-3 * time.Minute),
+				LastErrorAt:   now.Add(-1 * time.Minute),
+				LastError:     "anti-entropy failed",
+			},
+		},
+	})
+	go server.Serve(ctx)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer conn.Close()
+
+	req := `{"jsonrpc":"2.0","method":"skyfs.health","id":1}` + "\n"
+	conn.Write([]byte(req))
+
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	var resp struct {
+		Result struct {
+			FSPeerCount     int `json:"fs_peer_count"`
+			SyncReadyDrives int `json:"sync_ready_drives"`
+			SyncWaiting     int `json:"sync_waiting_drives"`
+			SyncErrors      int `json:"sync_error_drives"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(buf[:n], &resp); err != nil {
+		t.Fatalf("parse: %v (raw: %s)", err, string(buf[:n]))
+	}
+	if resp.Error != nil {
+		t.Fatalf("RPC error: %s", resp.Error.Message)
+	}
+	if resp.Result.FSPeerCount != 1 {
+		t.Fatalf("fs_peer_count = %d, want 1", resp.Result.FSPeerCount)
+	}
+	if resp.Result.SyncReadyDrives != 3 {
+		t.Fatalf("sync_ready_drives = %d, want 3", resp.Result.SyncReadyDrives)
+	}
+	if resp.Result.SyncWaiting != 1 {
+		t.Fatalf("sync_waiting_drives = %d, want 1", resp.Result.SyncWaiting)
+	}
+	if resp.Result.SyncErrors != 1 {
+		t.Fatalf("sync_error_drives = %d, want 1", resp.Result.SyncErrors)
+	}
+}
+
 func TestDriveListIncludesTransferCounts(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -909,6 +1061,114 @@ func TestDriveListIncludesReadSourceCounts(t *testing.T) {
 	}
 	if drive.S3Health.LastError != "s3 timed out" {
 		t.Fatalf("s3_source_health.last_error = %q, want %q", drive.S3Health.LastError, "s3 timed out")
+	}
+}
+
+func TestDriveListIncludesFSSyncHealth(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	driveCfgPath := filepath.Join(tmpDir, "drives.json")
+	localDir := filepath.Join(tmpDir, "sync-folder")
+	os.MkdirAll(localDir, 0755)
+
+	drives := []Drive{{
+		ID:        "drive_list_sync",
+		Name:      "ListSyncDrive",
+		LocalPath: localDir,
+		Namespace: "listsync",
+		Enabled:   false,
+	}}
+	data, _ := json.MarshalIndent(drives, "", "  ")
+	os.WriteFile(driveCfgPath, data, 0600)
+
+	now := time.Unix(2300, 0).UTC()
+	sockPath := shortSockPath("drivelist-sync")
+	defer os.Remove(sockPath)
+	server, handler := newTestServerWithHandler(store, sockPath, driveCfgPath)
+	installSyncHealthRuntime(t, handler, "drive_list_sync", "listsync", nil, []string{"peer-a", "peer-b"}, fsReplicaSyncState{
+		NSID: "listsync",
+		Peers: map[string]fsPeerSyncState{
+			"peer-b": {
+				LastSuccessAt: now.Add(-1 * time.Minute),
+			},
+		},
+	})
+	go server.Serve(ctx)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer conn.Close()
+
+	req := `{"jsonrpc":"2.0","method":"skyfs.driveList","id":1}` + "\n"
+	conn.Write([]byte(req))
+
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	var resp struct {
+		Result struct {
+			Drives []struct {
+				ID              string `json:"id"`
+				SyncReady       bool   `json:"sync_ready"`
+				PeerCount       int    `json:"peer_count"`
+				SyncState       string `json:"sync_state"`
+				LastSyncOK      int64  `json:"last_sync_ok"`
+				LastSyncPeer    string `json:"last_sync_peer"`
+				LastSyncError   string `json:"last_sync_error"`
+				LastSyncErrorAt int64  `json:"last_sync_error_at"`
+			} `json:"drives"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(buf[:n], &resp); err != nil {
+		t.Fatalf("parse: %v (raw: %s)", err, string(buf[:n]))
+	}
+	if resp.Error != nil {
+		t.Fatalf("RPC error: %s", resp.Error.Message)
+	}
+	if len(resp.Result.Drives) != 1 {
+		t.Fatalf("expected 1 drive, got %d", len(resp.Result.Drives))
+	}
+	drive := resp.Result.Drives[0]
+	if drive.ID != "drive_list_sync" {
+		t.Fatalf("drive id = %q", drive.ID)
+	}
+	if !drive.SyncReady {
+		t.Fatal("sync_ready = false, want true")
+	}
+	if drive.PeerCount != 2 {
+		t.Fatalf("peer_count = %d, want 2", drive.PeerCount)
+	}
+	if drive.SyncState != "ok" {
+		t.Fatalf("sync_state = %q, want ok", drive.SyncState)
+	}
+	if drive.LastSyncOK == 0 || drive.LastSyncPeer != "peer-b" {
+		t.Fatalf("unexpected last sync info: %+v", drive)
+	}
+	if drive.LastSyncError != "" || drive.LastSyncErrorAt != 0 {
+		t.Fatalf("unexpected sync error info: %+v", drive)
 	}
 }
 

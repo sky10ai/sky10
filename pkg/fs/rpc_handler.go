@@ -376,6 +376,9 @@ func (s *FSHandler) rpcHealth(_ context.Context) (interface{}, error) {
 	s3DegradedTotal := 0
 	peerFailureTotal := 0
 	s3FailureTotal := 0
+	syncReadyTotal := 0
+	syncWaitingTotal := 0
+	syncErrorTotal := 0
 	for _, id := range driveIDs {
 		dir := driveDataDir(id)
 		outbox := NewSyncLog[OutboxEntry](filepath.Join(dir, "outbox.jsonl"))
@@ -399,6 +402,16 @@ func (s *FSHandler) rpcHealth(_ context.Context) (interface{}, error) {
 		}
 		peerFailureTotal += sourceHealth.Peer.ConsecutiveFailures
 		s3FailureTotal += sourceHealth.S3.ConsecutiveFailures
+		syncHealth := s.driveManager.syncHealthSnapshot(id)
+		if syncHealth.Ready {
+			syncReadyTotal++
+		}
+		switch syncHealth.SyncState {
+		case "waiting":
+			syncWaitingTotal++
+		case "error":
+			syncErrorTotal++
+		}
 	}
 
 	subscribers := s.server.SubscriberCount()
@@ -423,6 +436,10 @@ func (s *FSHandler) rpcHealth(_ context.Context) (interface{}, error) {
 		"read_local_hits":      readLocalTotal,
 		"read_peer_hits":       readPeerTotal,
 		"read_s3_hits":         readS3Total,
+		"fs_peer_count":        s.driveManager.peerCount(),
+		"sync_ready_drives":    syncReadyTotal,
+		"sync_waiting_drives":  syncWaitingTotal,
+		"sync_error_drives":    syncErrorTotal,
 		"peer_degraded_drives": peerDegradedTotal,
 		"s3_degraded_drives":   s3DegradedTotal,
 		"peer_source_failures": peerFailureTotal,
