@@ -32,6 +32,7 @@ export default function Drives() {
   const transfers = health?.transfer_pending ?? 0;
   const waiting = health?.sync_waiting_drives ?? 0;
   const degraded = health?.sync_error_drives ?? 0;
+  const pathIssues = health?.path_issue_drives ?? 0;
   const conflicts = health?.conflict_drives ?? 0;
 
   return (
@@ -42,6 +43,11 @@ export default function Drives() {
             {degraded > 0 && (
               <StatusBadge icon="error" tone="danger">
                 {degraded} degraded
+              </StatusBadge>
+            )}
+            {pathIssues > 0 && (
+              <StatusBadge icon="warning" tone="danger">
+                {pathIssues} path issue{pathIssues === 1 ? "" : "s"}
               </StatusBadge>
             )}
             {conflicts > 0 && (

@@ -746,7 +746,7 @@ func TestReconcilerDoesNotRecreateDirDeletedDuringReconcile(t *testing.T) {
 	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
 	// Call createDirectories with the STALE dirs — simulates the race
 	// where reconcile() took the snapshot before the delete_dir.
-	r.createDirectories(staleDirs)
+	r.createDirectories(staleDirs, nil)
 
 	// mydir should NOT have been created on disk
 	if _, err := os.Stat(filepath.Join(localDir, "mydir")); err == nil {

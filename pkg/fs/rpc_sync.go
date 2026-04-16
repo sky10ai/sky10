@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/sky10/sky10/pkg/fs/opslog"
@@ -51,6 +52,14 @@ type conflictEntry struct {
 	DriveName string `json:"drive_name"`
 	Path      string `json:"path"`
 	Timestamp int64  `json:"ts,omitempty"`
+}
+
+type pathIssueEntry struct {
+	DriveID   string              `json:"drive_id"`
+	DriveName string              `json:"drive_name"`
+	Kind      pathPolicyIssueKind `json:"kind"`
+	Paths     []string            `json:"paths"`
+	Reason    string              `json:"reason"`
 }
 
 func (s *FSHandler) rpcSyncStart(_ context.Context, params json.RawMessage) (interface{}, error) {
@@ -149,6 +158,7 @@ func (s *FSHandler) rpcSyncActivity(_ context.Context) (interface{}, error) {
 	pending := make([]activityEntry, 0)
 	readSources := make([]readSourceEntry, 0)
 	conflicts := make([]conflictEntry, 0)
+	pathIssues := make([]pathIssueEntry, 0)
 	sourceStats := s.driveManager.readSourceSnapshots()
 
 	for id, d := range drives {
@@ -223,6 +233,15 @@ func (s *FSHandler) rpcSyncActivity(_ context.Context) (interface{}, error) {
 					Timestamp: fi.Modified.Unix(),
 				})
 			}
+			for _, issue := range activeSnapshotPathIssues(snap) {
+				pathIssues = append(pathIssues, pathIssueEntry{
+					DriveID:   id,
+					DriveName: d.Name,
+					Kind:      issue.Kind,
+					Paths:     append([]string(nil), issue.Paths...),
+					Reason:    issue.Reason,
+				})
+			}
 		}
 	}
 
@@ -253,9 +272,20 @@ func (s *FSHandler) rpcSyncActivity(_ context.Context) (interface{}, error) {
 		return conflicts[i].Timestamp > conflicts[j].Timestamp
 	})
 
+	sort.Slice(pathIssues, func(i, j int) bool {
+		if pathIssues[i].DriveName != pathIssues[j].DriveName {
+			return pathIssues[i].DriveName < pathIssues[j].DriveName
+		}
+		if pathIssues[i].Kind != pathIssues[j].Kind {
+			return pathIssues[i].Kind < pathIssues[j].Kind
+		}
+		return strings.Join(pathIssues[i].Paths, "\x00") < strings.Join(pathIssues[j].Paths, "\x00")
+	})
+
 	return map[string]interface{}{
-		"pending":   pending,
-		"reads":     readSources,
-		"conflicts": conflicts,
+		"pending":     pending,
+		"reads":       readSources,
+		"conflicts":   conflicts,
+		"path_issues": pathIssues,
 	}, nil
 }

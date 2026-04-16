@@ -267,6 +267,8 @@ export interface HealthResult {
   sync_ready_drives: number;
   sync_waiting_drives: number;
   sync_error_drives: number;
+  path_issue_drives: number;
+  path_issue_count: number;
   conflict_drives: number;
   conflict_files: number;
   peer_degraded_drives: number;
@@ -310,6 +312,8 @@ export interface Drive {
   peer_count?: number;
   sync_state?: string;
   sync_message?: string;
+  path_issue_count?: number;
+  path_issue_message?: string;
   last_sync_ok?: number;
   last_sync_peer?: string;
   last_sync_error?: string;
@@ -643,10 +647,19 @@ export interface SyncConflictEntry {
   ts?: number;
 }
 
+export interface SyncPathIssueEntry {
+  drive_id: string;
+  drive_name: string;
+  kind: string;
+  paths: string[];
+  reason: string;
+}
+
 export interface SyncActivityResult {
   pending: SyncActivityEntry[];
   reads: SyncReadSourceEntry[];
   conflicts: SyncConflictEntry[];
+  path_issues: SyncPathIssueEntry[];
 }
 
 export interface AgentInfo {

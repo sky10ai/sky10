@@ -161,14 +161,14 @@ Checklist:
 
 - [x] Add a Windows path-segment validator.
 - [x] Validate per segment rather than only at the full path string.
-- [ ] Surface invalid-path issues through health/activity APIs.
-- [ ] Decide whether invalid paths are omitted from materialization or block
+- [x] Surface invalid-path issues through health/activity APIs.
+- [x] Decide whether invalid paths are omitted from materialization or block
       the whole drive from "healthy" state.
 
 Done when:
 
-- [ ] A Windows node reports illegal remote names deterministically.
-- [ ] Invalid names no longer depend on accidental OS behavior at write time.
+- [x] A Windows node reports illegal remote names deterministically.
+- [x] Invalid names no longer depend on accidental OS behavior at write time.
 
 ## Workstream 3: Case-fold collision handling
 
@@ -184,17 +184,17 @@ case-insensitive local filesystem.
 
 Checklist:
 
-- [ ] Define a Windows collision key for logical paths.
-- [ ] Detect collisions before materialization.
-- [ ] Surface the collision as explicit degraded/conflict state.
-- [ ] Add conflict entries to activity/health surfaces.
+- [x] Define a Windows collision key for logical paths.
+- [x] Detect collisions before materialization.
+- [x] Surface the collision as explicit degraded/conflict state.
+- [x] Add conflict entries to activity/health surfaces.
 - [ ] Decide whether collisions should also block local watcher ingestion from
       creating ambiguous entries on Windows.
 
 Done when:
 
-- [ ] Windows nodes do not silently overwrite one colliding path with another.
-- [ ] The user can see which logical paths collided.
+- [x] Windows nodes do not silently overwrite one colliding path with another.
+- [x] The user can see which logical paths collided.
 
 ## Workstream 4: Ingress hardening
 
@@ -245,15 +245,15 @@ reading raw logs.
 
 Checklist:
 
-- [ ] Add health counters for invalid-path and case-collision issues.
-- [ ] Surface those issues in `skyfs.health`, `skyfs.driveList`, and
+- [x] Add health counters for invalid-path and case-collision issues.
+- [x] Surface those issues in `skyfs.health`, `skyfs.driveList`, and
       `skyfs.syncActivity`.
-- [ ] Show the offending logical path plus a short reason in the UI.
-- [ ] Distinguish ordinary transfer degradation from path-policy degradation.
+- [x] Show the offending logical path plus a short reason in the UI.
+- [x] Distinguish ordinary transfer degradation from path-policy degradation.
 
 Done when:
 
-- [ ] A Windows user can tell whether sync is blocked by naming issues versus
+- [x] A Windows user can tell whether sync is blocked by naming issues versus
       peer/S3/network issues.
 
 ## Workstream 7: Test matrix
@@ -262,11 +262,11 @@ This work should be driven by tests before broad code changes.
 
 ### Fast tests
 
-- [ ] Unit tests for logical path normalization.
-- [ ] Unit tests for local path materialization guards.
-- [ ] Unit tests for Windows reserved names.
-- [ ] Unit tests for trailing-dot and trailing-space rejection.
-- [ ] Unit tests for case-collision detection.
+- [x] Unit tests for logical path normalization.
+- [x] Unit tests for local path materialization guards.
+- [x] Unit tests for Windows reserved names.
+- [x] Unit tests for trailing-dot and trailing-space rejection.
+- [x] Unit tests for case-collision detection.
 
 ### Platform-aware tests
 

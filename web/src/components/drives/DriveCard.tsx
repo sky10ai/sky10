@@ -37,6 +37,7 @@ export function DriveCard({
     drive.s3_source_health?.degraded ? "S3 retrying" : "",
   ].filter(Boolean);
   const conflictFiles = drive.conflict_files ?? 0;
+  const pathIssueCount = drive.path_issue_count ?? 0;
   const syncSummary =
     drive.sync_state === "error"
       ? drive.sync_message || drive.last_sync_error || "FS sync degraded"
@@ -131,6 +132,16 @@ export function DriveCard({
             </StatusBadge>
             <span className="text-xs text-outline">
               Conflict copies are present in this drive.
+            </span>
+          </div>
+        )}
+        {pathIssueCount > 0 && (
+          <div className="mt-3 flex items-center gap-2">
+            <StatusBadge tone="danger">
+              {pathIssueCount} path issue{pathIssueCount === 1 ? "" : "s"}
+            </StatusBadge>
+            <span className="text-xs text-outline">
+              {drive.path_issue_message || "Windows naming policy is blocking materialization."}
             </span>
           </div>
         )}

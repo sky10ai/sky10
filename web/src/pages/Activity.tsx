@@ -7,6 +7,7 @@ import {
   skyfs,
   type SyncActivityEntry,
   type SyncConflictEntry,
+  type SyncPathIssueEntry,
   type SyncReadSourceEntry,
 } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
@@ -146,6 +147,7 @@ export default function Activity() {
   const pending: SyncActivityEntry[] = activity?.pending ?? [];
   const reads: SyncReadSourceEntry[] = activity?.reads ?? [];
   const conflicts: SyncConflictEntry[] = activity?.conflicts ?? [];
+  const pathIssues: SyncPathIssueEntry[] = activity?.path_issues ?? [];
 
   return (
     <section className="mx-auto flex flex-1 w-full max-w-7xl flex-col gap-8 p-12">
@@ -260,6 +262,34 @@ export default function Activity() {
                 <span className="flex-1 truncate font-mono text-xs text-on-surface">
                   {entry.path}
                 </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {pathIssues.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-secondary">
+            Path Issues
+          </h3>
+          <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-3 shadow-sm">
+            {pathIssues.map((entry) => (
+              <div
+                key={`${entry.drive_id}-${entry.kind}-${entry.paths.join("|")}`}
+                className="flex items-center gap-4 px-4 py-3 text-sm"
+              >
+                <Icon className="text-lg text-error" name="warning" />
+                <span className="w-24 truncate text-xs font-bold uppercase text-secondary">
+                  {entry.drive_name}
+                </span>
+                <StatusBadge tone="danger">
+                  {entry.kind === "windows_case_collision" ? "Case collision" : "Invalid path"}
+                </StatusBadge>
+                <span className="flex-1 truncate font-mono text-xs text-on-surface">
+                  {entry.paths.join(" • ")}
+                </span>
+                <span className="text-xs text-on-surface-variant">{entry.reason}</span>
               </div>
             ))}
           </div>

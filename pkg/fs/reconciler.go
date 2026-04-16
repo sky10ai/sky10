@@ -102,6 +102,7 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 
 	snapshotFiles := snap.Files()
 	snapshotDirs := snap.Dirs()
+	pathIssues := activeSnapshotPathIssues(snap)
 	localFiles, localSymlinks, err := ScanDirectory(r.localDir, r.ignore)
 	if err != nil {
 		r.logger.Warn("reconcile: scan failed", "error", err)
@@ -109,6 +110,11 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 	}
 
 	r.logger.Info("reconcile: start", "snapshot_files", len(snapshotFiles), "local_files", len(localFiles), "snapshot_dirs", len(snapshotDirs))
+	if len(pathIssues) > 0 {
+		for _, issue := range pathIssues {
+			r.logger.Warn("reconcile: path policy issue", "kind", issue.Kind, "paths", strings.Join(issue.Paths, ", "), "reason", issue.Reason)
+		}
+	}
 
 	active := false
 	failed := 0
@@ -141,6 +147,10 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 	var symlinkTargets []dlTarget
 	pending := 0
 	for path, fi := range snapshotFiles {
+		if pathIssueBlocksPath(path, pathIssues) {
+			skipped++
+			continue
+		}
 		if pendingDeletes[path] {
 			skipped++
 			continue
@@ -235,6 +245,9 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		if pathIssueBlocksPath(path, pathIssues) {
+			continue
+		}
 		if deletedPaths[path] {
 			r.deleteFile(path)
 			deleted++
@@ -243,13 +256,13 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 	}
 
 	// Create directories from snapshot's dirs set (from create_dir ops).
-	if r.createDirectories(snapshotDirs) {
+	if r.createDirectories(snapshotDirs, pathIssues) {
 		active = true
 	}
 
 	// Directories on disk with no files/dirs in snapshot → remove.
 	// Driven by delete_dir ops propagated through the CRDT.
-	if r.reconcileDirectories(snapshotFiles, snapshotDirs) {
+	if r.reconcileDirectories(snapshotFiles, snapshotDirs, pathIssues) {
 		active = true
 	}
 
@@ -291,8 +304,16 @@ func (r *Reconciler) effectiveStagingDir() string {
 	return filepath.Join(os.TempDir(), "sky10", "reconcile")
 }
 
+func (r *Reconciler) localPath(path string) (string, error) {
+	return LogicalPathToLocal(r.localDir, path)
+}
+
 func (r *Reconciler) downloadFile(ctx context.Context, path string, fi opslog.FileInfo) bool {
-	localPath := filepath.Join(r.localDir, filepath.FromSlash(path))
+	localPath, err := r.localPath(path)
+	if err != nil {
+		r.logger.Warn("reconcile: invalid local path", "path", path, "error", err)
+		return false
+	}
 
 	// Don't download empty remote files over non-empty local files
 	emptyHash := "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a"
@@ -418,7 +439,11 @@ func (r *Reconciler) createSymlink(path, target, localTarget string) bool {
 		return false // already correct
 	}
 
-	localPath := filepath.Join(r.localDir, filepath.FromSlash(path))
+	localPath, err := r.localPath(path)
+	if err != nil {
+		r.logger.Warn("reconcile: invalid symlink path", "path", path, "error", err)
+		return false
+	}
 	dir := filepath.Dir(localPath)
 	os.MkdirAll(dir, 0755)
 
@@ -434,7 +459,11 @@ func (r *Reconciler) createSymlink(path, target, localTarget string) bool {
 }
 
 func (r *Reconciler) deleteFile(path string) {
-	localPath := filepath.Join(r.localDir, filepath.FromSlash(path))
+	localPath, err := r.localPath(path)
+	if err != nil {
+		r.logger.Warn("reconcile: invalid delete path", "path", path, "error", err)
+		return
+	}
 	os.Remove(localPath)
 	r.logger.Info("reconcile: deleted", "path", path)
 }
@@ -457,9 +486,12 @@ func (r *Reconciler) underPendingDeleteDir(path string, prefixes []string) bool 
 // have been appended by the watcher since reconciliation started, and
 // creating the dir would trigger a watcher create_dir that poisons the
 // CRDT (later create beats earlier delete → directory keeps coming back).
-func (r *Reconciler) createDirectories(snapshotDirs map[string]opslog.DirInfo) bool {
+func (r *Reconciler) createDirectories(snapshotDirs map[string]opslog.DirInfo, pathIssues []pathPolicyIssue) bool {
 	created := false
 	for dir := range snapshotDirs {
+		if pathIssueBlocksPath(dir, pathIssues) {
+			continue
+		}
 		// Guard against stale snapshot: re-check that the dir is still
 		// in the current snapshot before creating it on disk.
 		currentSnap, _ := r.localLog.Snapshot()
@@ -468,7 +500,11 @@ func (r *Reconciler) createDirectories(snapshotDirs map[string]opslog.DirInfo) b
 				continue
 			}
 		}
-		localPath := filepath.Join(r.localDir, filepath.FromSlash(dir))
+		localPath, err := r.localPath(dir)
+		if err != nil {
+			r.logger.Warn("reconcile: invalid directory path", "path", dir, "error", err)
+			continue
+		}
 		if _, err := os.Stat(localPath); os.IsNotExist(err) {
 			os.MkdirAll(localPath, 0755)
 			r.logger.Info("reconcile: created dir", "path", dir)
@@ -480,7 +516,7 @@ func (r *Reconciler) createDirectories(snapshotDirs map[string]opslog.DirInfo) b
 
 // reconcileDirectories removes directories that have no files or explicit
 // dir entries in the snapshot. Returns true if any directories were removed.
-func (r *Reconciler) reconcileDirectories(snapshotFiles map[string]opslog.FileInfo, snapshotDirs map[string]opslog.DirInfo) bool {
+func (r *Reconciler) reconcileDirectories(snapshotFiles map[string]opslog.FileInfo, snapshotDirs map[string]opslog.DirInfo, pathIssues []pathPolicyIssue) bool {
 	// Build set of directory paths that should exist:
 	// 1. Directories implied by files
 	// 2. Explicitly created directories (from create_dir ops)
@@ -525,8 +561,10 @@ func (r *Reconciler) reconcileDirectories(snapshotFiles map[string]opslog.FileIn
 		if err != nil || !d.IsDir() || path == r.localDir {
 			return nil
 		}
-		rel, _ := filepath.Rel(r.localDir, path)
-		rel = filepath.ToSlash(rel)
+		rel, err := LocalPathToLogical(r.localDir, path)
+		if err != nil {
+			return filepath.SkipDir
+		}
 		if r.ignore != nil && r.ignore(rel) {
 			return filepath.SkipDir
 		}
@@ -547,7 +585,14 @@ func (r *Reconciler) reconcileDirectories(snapshotFiles map[string]opslog.FileIn
 
 	removed := false
 	for _, dir := range stale {
-		localPath := filepath.Join(r.localDir, filepath.FromSlash(dir))
+		if pathIssueBlocksPath(dir, pathIssues) {
+			continue
+		}
+		localPath, err := r.localPath(dir)
+		if err != nil {
+			r.logger.Warn("reconcile: invalid stale dir path", "path", dir, "error", err)
+			continue
+		}
 		// RemoveAll is the nuclear option — it deletes the directory and
 		// everything inside it. This is necessary because macOS Finder
 		// creates .DS_Store files in every directory it touches. These

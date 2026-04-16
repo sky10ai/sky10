@@ -10,6 +10,8 @@ type fsSyncHealthSnapshot struct {
 	PeerCount       int    `json:"peer_count"`
 	SyncState       string `json:"sync_state,omitempty"`
 	SyncMessage     string `json:"sync_message,omitempty"`
+	PathIssueCount  int    `json:"path_issue_count,omitempty"`
+	PathIssueMsg    string `json:"path_issue_message,omitempty"`
 	LastSyncOK      int64  `json:"last_sync_ok,omitempty"`
 	LastSyncPeer    string `json:"last_sync_peer,omitempty"`
 	LastSyncError   string `json:"last_sync_error,omitempty"`
@@ -56,10 +58,15 @@ func (dm *DriveManager) syncHealthSnapshot(id string) fsSyncHealthSnapshot {
 		}
 	}
 
+	issues := dm.pathPolicyIssuesSnapshot(id)
+	issueCount, issueMsg := summarizePathPolicyIssues(issues)
+
 	lastOK, lastOKPeer, lastErrAt, lastErrPeer, lastErr := summarizeFSSyncState(state)
 
 	snap := fsSyncHealthSnapshot{
-		PeerCount: peerCount,
+		PeerCount:      peerCount,
+		PathIssueCount: issueCount,
+		PathIssueMsg:   issueMsg,
 	}
 	if !lastOK.IsZero() {
 		snap.LastSyncOK = lastOK.Unix()
@@ -90,6 +97,13 @@ func (dm *DriveManager) syncHealthSnapshot(id string) fsSyncHealthSnapshot {
 	peerOptional := runtime.daemon.store != nil && runtime.daemon.store.backend != nil
 
 	switch {
+	case issueCount > 0:
+		snap.SyncState = "error"
+		if issueMsg != "" {
+			snap.SyncMessage = issueMsg
+		} else {
+			snap.SyncMessage = "Windows path issues prevent local materialization"
+		}
 	case !lastErrAt.IsZero() && lastErrAt.After(lastOK):
 		snap.SyncState = "error"
 		if snap.LastSyncError != "" {

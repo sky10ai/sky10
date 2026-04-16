@@ -387,6 +387,8 @@ func (s *FSHandler) rpcHealth(_ context.Context) (interface{}, error) {
 	syncReadyTotal := 0
 	syncWaitingTotal := 0
 	syncErrorTotal := 0
+	pathIssueDrivesTotal := 0
+	pathIssueTotal := 0
 	conflictDrivesTotal := 0
 	conflictFilesTotal := 0
 	for _, id := range driveIDs {
@@ -424,6 +426,10 @@ func (s *FSHandler) rpcHealth(_ context.Context) (interface{}, error) {
 		if syncHealth.Ready {
 			syncReadyTotal++
 		}
+		if syncHealth.PathIssueCount > 0 {
+			pathIssueDrivesTotal++
+			pathIssueTotal += syncHealth.PathIssueCount
+		}
 		switch syncHealth.SyncState {
 		case "waiting":
 			syncWaitingTotal++
@@ -458,6 +464,8 @@ func (s *FSHandler) rpcHealth(_ context.Context) (interface{}, error) {
 		"sync_ready_drives":    syncReadyTotal,
 		"sync_waiting_drives":  syncWaitingTotal,
 		"sync_error_drives":    syncErrorTotal,
+		"path_issue_drives":    pathIssueDrivesTotal,
+		"path_issue_count":     pathIssueTotal,
 		"conflict_drives":      conflictDrivesTotal,
 		"conflict_files":       conflictFilesTotal,
 		"peer_degraded_drives": peerDegradedTotal,

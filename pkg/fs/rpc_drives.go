@@ -36,6 +36,8 @@ type driveInfo struct {
 	PeerCount       int                       `json:"peer_count,omitempty"`
 	SyncState       string                    `json:"sync_state,omitempty"`
 	SyncMsg         string                    `json:"sync_message,omitempty"`
+	PathIssueCount  int                       `json:"path_issue_count,omitempty"`
+	PathIssueMsg    string                    `json:"path_issue_message,omitempty"`
 	LastSyncOK      int64                     `json:"last_sync_ok,omitempty"`
 	LastSyncPeer    string                    `json:"last_sync_peer,omitempty"`
 	LastSyncError   string                    `json:"last_sync_error,omitempty"`
@@ -122,6 +124,10 @@ func (s *FSHandler) rpcDriveList(_ context.Context) (interface{}, error) {
 		entry["sync_ready"] = syncHealth.Ready
 		entry["peer_count"] = syncHealth.PeerCount
 		entry["sync_state"] = syncHealth.SyncState
+		entry["path_issue_count"] = syncHealth.PathIssueCount
+		if syncHealth.PathIssueMsg != "" {
+			entry["path_issue_message"] = syncHealth.PathIssueMsg
+		}
 		if syncHealth.SyncMessage != "" {
 			entry["sync_message"] = syncHealth.SyncMessage
 		}

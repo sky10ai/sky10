@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/sky10/sky10/pkg/fs/opslog"
 )
 
 // Drive represents a named sync folder mapped to a remote namespace.
@@ -300,6 +303,16 @@ func (dm *DriveManager) sourceHealthSnapshot(id string) chunkSourceHealthSnapsho
 		return chunkSourceHealthSnapshots{}
 	}
 	return runtime.daemon.sourceHealthSnapshot()
+}
+
+func (dm *DriveManager) pathPolicyIssuesSnapshot(id string) []pathPolicyIssue {
+	dir := driveDataDir(id)
+	localLog := opslog.NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), dm.store.deviceID)
+	snap, err := localLog.Snapshot()
+	if err != nil {
+		return nil
+	}
+	return activeSnapshotPathIssues(snap)
 }
 
 // StartAll starts all enabled drives.
