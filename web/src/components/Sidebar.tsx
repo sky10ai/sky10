@@ -51,7 +51,7 @@ export function Sidebar() {
   const commitLabel = versionInfo.commit || "";
   const hasUpdateHighlight = Boolean(stagedUpdate?.ready) || Boolean(updateInfo?.available);
   const versionButtonClassName = hasUpdateHighlight
-    ? "mt-1 inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[10px] text-emerald-900 shadow-[0_0_0_1px_rgba(16,185,129,0.08),0_10px_24px_-18px_rgba(16,185,129,0.9)] transition-colors hover:border-emerald-500/55 hover:bg-emerald-500/14 dark:text-emerald-100"
+    ? "version-pill-attention mt-1 inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[10px] text-emerald-900 shadow-[0_0_0_1px_rgba(16,185,129,0.08),0_10px_24px_-18px_rgba(16,185,129,0.9)] transition-colors hover:border-emerald-500/55 hover:bg-emerald-500/14 dark:text-emerald-100"
     : "mt-1 inline-flex items-center gap-2 rounded-full border border-outline-variant/20 bg-surface-container-lowest px-2.5 py-1 text-[10px] text-secondary transition-colors hover:border-primary/20 hover:text-on-surface";
 
   return (
@@ -77,7 +77,7 @@ export function Sidebar() {
                 {hasUpdateHighlight && (
                   <span
                     aria-hidden="true"
-                    className="pointer-events-none absolute left-1/2 top-1/2 h-5 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-400/20 blur-md"
+                    className="version-pill-core-glow pointer-events-none absolute left-1/2 top-1/2 h-5 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-400/20 blur-md"
                   />
                 )}
                 <span className="relative font-semibold tracking-[0.18em]">

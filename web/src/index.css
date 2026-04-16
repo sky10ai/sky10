@@ -27,6 +27,58 @@
     background: linear-gradient(135deg, #0058bc 0%, #0070eb 100%);
   }
 
+  @media (prefers-reduced-motion: no-preference) {
+    .version-pill-attention {
+      animation: version-pill-attention 1.8s ease-out 1;
+    }
+
+    .version-pill-core-glow {
+      animation: version-pill-core-glow 1.8s ease-out 1;
+    }
+  }
+
+  @keyframes version-pill-attention {
+    0% {
+      box-shadow:
+        0 0 0 1px rgba(16, 185, 129, 0.08),
+        0 10px 24px -18px rgba(16, 185, 129, 0.9);
+    }
+    24% {
+      box-shadow:
+        0 0 0 1px rgba(16, 185, 129, 0.18),
+        0 0 0 5px rgba(16, 185, 129, 0.09),
+        0 0 34px -10px rgba(16, 185, 129, 0.9),
+        0 12px 30px -14px rgba(16, 185, 129, 0.8);
+    }
+    52% {
+      box-shadow:
+        0 0 0 1px rgba(16, 185, 129, 0.2),
+        0 0 0 9px rgba(16, 185, 129, 0.05),
+        0 0 42px -12px rgba(16, 185, 129, 0.78),
+        0 14px 32px -15px rgba(16, 185, 129, 0.72);
+    }
+    100% {
+      box-shadow:
+        0 0 0 1px rgba(16, 185, 129, 0.08),
+        0 10px 24px -18px rgba(16, 185, 129, 0.9);
+    }
+  }
+
+  @keyframes version-pill-core-glow {
+    0% {
+      opacity: 0;
+    }
+    28% {
+      opacity: 0.85;
+    }
+    56% {
+      opacity: 0.45;
+    }
+    100% {
+      opacity: 0.2;
+    }
+  }
+
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
