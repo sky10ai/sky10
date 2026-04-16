@@ -35,14 +35,14 @@ func resolvedManagedLiveRelays(cfg *config.Config, override []string) []string {
 	return nil
 }
 
-func validateManagedLiveRelayConfig(managedRelays []string, resolvedRelayPeers []peer.AddrInfo, allowMissing bool) error {
-	if len(managedRelays) > 0 || allowMissing {
-		return nil
+func managedLiveRelayWarning(managedRelays []string, resolvedRelayPeers []peer.AddrInfo) string {
+	if len(managedRelays) > 0 {
+		return ""
 	}
 	if len(resolvedRelayPeers) > 0 {
-		return fmt.Errorf("network mode requires at least one managed live relay via --link-relay or config.json link_relays; cached relay bootstrap entries are not enough")
+		return "starting without managed live relays; using cached relay bootstrap only"
 	}
-	return fmt.Errorf("network mode requires at least one managed live relay via --link-relay or config.json link_relays; use --allow-no-link-relay only for dev/test or when you intentionally accept direct-only transport")
+	return "starting without managed live relays; direct transport has no degraded-but-live relay fallback"
 }
 
 func resolvedLinkConfig(cfg *config.Config, listenAddrs, bootstrapAddrs, relayAddrs []string, noDefaultBootstrap bool, relayCachePath string) (link.Config, link.RelayBootstrapSnapshot, error) {

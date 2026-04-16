@@ -92,11 +92,6 @@ func startProcessNodeEnv(t *testing.T, env []string, bin, name, home string, ext
 		"--no-default-bootstrap",
 		"--link-listen", "/ip4/127.0.0.1/tcp/0",
 	}
-	if !hasServeFlag(extraServeArgs, "--allow-no-link-relay") && !hasServeFlag(extraServeArgs, "--link-relay") {
-		// Hermetic integration tests intentionally run direct-only unless they
-		// opt into a managed relay tier.
-		args = append(args, "--allow-no-link-relay")
-	}
 	args = append(args, extraServeArgs...)
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = append(os.Environ(), env...)
@@ -123,15 +118,6 @@ func startProcessNodeEnv(t *testing.T, env []string, bin, name, home string, ext
 
 	waitForNodeReady(t, bin, home, logPath)
 	return node
-}
-
-func hasServeFlag(args []string, flag string) bool {
-	for _, arg := range args {
-		if arg == flag {
-			return true
-		}
-	}
-	return false
 }
 
 func startCLICommand(t *testing.T, env []string, bin, home string, args ...string) *runningCLI {
