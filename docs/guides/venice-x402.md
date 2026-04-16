@@ -15,10 +15,12 @@ x402 without teaching either client how to:
 When the daemon is configured, it exposes:
 
 ```text
-http://127.0.0.1:9101/venice/v1
+http://127.0.0.1:9101/v1
 ```
 
-Requests under that prefix are forwarded to `https://api.venice.ai/api/v1/...`.
+That path is intentionally provider-neutral. Right now it forwards to
+`https://api.venice.ai/api/v1/...`, but clients do not need to encode
+"Venice" into their base URL.
 
 For each upstream request the proxy:
 
@@ -87,7 +89,7 @@ Point Hermes at the local proxy as a custom OpenAI-compatible endpoint:
 ```yaml
 model:
   provider: custom
-  base_url: http://127.0.0.1:9101/venice/v1
+  base_url: http://127.0.0.1:9101/v1
   api_key: sky10-local
   default: venice-uncensored
 ```
@@ -105,7 +107,7 @@ Point a custom provider at the same base URL:
     "mode": "merge",
     "providers": {
       "venice-x402": {
-        "baseUrl": "http://127.0.0.1:9101/venice/v1",
+        "baseUrl": "http://127.0.0.1:9101/v1",
         "api": "openai-completions",
         "models": [
           {
@@ -136,7 +138,7 @@ Hermes/OpenClaw can use:
 There is also a local helper for manual crediting:
 
 ```bash
-curl -s http://127.0.0.1:9101/venice/v1/x402/top-up \
+curl -s http://127.0.0.1:9101/v1/x402/top-up \
   -H 'Content-Type: application/json' \
   -d '{"amountUsd":"10"}'
 ```

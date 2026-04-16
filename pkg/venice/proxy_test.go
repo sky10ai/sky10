@@ -117,7 +117,7 @@ func TestProxyChatAutoTopUpAndRetry(t *testing.T) {
 	wallet := &fakeWallet{address: "0x9999999999999999999999999999999999999999"}
 	proxy := newTestProxy(t, wallet, upstream.URL)
 
-	req := httptest.NewRequest(http.MethodPost, "/venice/v1/chat/completions", strings.NewReader(`{"model":"llama-3.3-70b","messages":[{"role":"user","content":"ping"}]}`))
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"llama-3.3-70b","messages":[{"role":"user","content":"ping"}]}`))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -178,7 +178,7 @@ func TestProxyModelsPassThrough(t *testing.T) {
 	wallet := &fakeWallet{address: "0x9999999999999999999999999999999999999999"}
 	proxy := newTestProxy(t, wallet, upstream.URL)
 
-	req := httptest.NewRequest(http.MethodGet, "/venice/v1/models", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	rr := httptest.NewRecorder()
 
 	proxy.HandleAPI(rr, req)

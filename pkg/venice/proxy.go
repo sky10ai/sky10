@@ -125,7 +125,7 @@ func NewProxy(cfg Config, wallet WalletSigner, logger *slog.Logger) (*Proxy, err
 		cfg.TopUpUSD = defaultTopUpUSD
 	}
 	if cfg.PathPrefix == "" {
-		cfg.PathPrefix = "/venice/v1"
+		cfg.PathPrefix = "/v1"
 	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 3 * time.Minute
@@ -200,7 +200,7 @@ func (p *Proxy) HandleAPI(w http.ResponseWriter, r *http.Request) {
 
 func (p *Proxy) handleManualTopUp(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeJSONError(w, http.StatusMethodNotAllowed, "use POST for /venice/v1/x402/top-up")
+		writeJSONError(w, http.StatusMethodNotAllowed, fmt.Sprintf("use POST for %s/x402/top-up", p.pathPrefix))
 		return
 	}
 
