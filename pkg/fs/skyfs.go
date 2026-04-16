@@ -76,6 +76,8 @@ type chunkSourcePlan struct {
 	cacheOnSuccess bool
 }
 
+type chunkProgressFn func(kind chunkSourceKind, bytesDone int64)
+
 // PutResult holds metadata from the last successful Put call.
 // Used by the outbox worker to confirm the upload in the local log.
 type PutResult struct {
@@ -372,11 +374,22 @@ func (s *Store) GetChunks(ctx context.Context, chunks []string, namespace string
 }
 
 func (s *Store) getChunksWithReuse(ctx context.Context, chunks []string, namespace string, w io.Writer, reuse chunkReuseProvider) error {
+	return s.getChunksWithReuseAndProgress(ctx, chunks, namespace, w, reuse, nil)
+}
+
+func (s *Store) getChunksWithReuseAndProgress(
+	ctx context.Context,
+	chunks []string,
+	namespace string,
+	w io.Writer,
+	reuse chunkReuseProvider,
+	progress chunkProgressFn,
+) error {
 	nsID, nsKey, err := s.resolveNamespaceState(ctx, namespace)
 	if err != nil {
 		return fmt.Errorf("namespace state for %q: %w", namespace, err)
 	}
-	return s.downloadChunks(ctx, nsID, chunks, nsKey, w, reuse)
+	return s.downloadChunks(ctx, nsID, chunks, nsKey, w, reuse, progress)
 }
 
 // --- Deprecated stubs: kept so skipped tests compile. Remove when tests are rewritten. ---
@@ -410,16 +423,29 @@ func (s *Store) loadCurrentState(ctx context.Context) (*Manifest, error) {
 // Up to 3 chunks are fetched concurrently to overlap network I/O.
 // Each chunk read has a 30-second idle timeout — if the S3 connection
 // stalls, the reader is closed and the download fails (caller retries).
-func (s *Store) downloadChunks(ctx context.Context, nsID string, chunks []string, nsKey []byte, w io.Writer, reuse chunkReuseProvider) error {
+func (s *Store) downloadChunks(
+	ctx context.Context,
+	nsID string,
+	chunks []string,
+	nsKey []byte,
+	w io.Writer,
+	reuse chunkReuseProvider,
+	progress chunkProgressFn,
+) error {
 	if len(chunks) <= 1 {
 		// Single-chunk fast path — no goroutine overhead.
+		var bytesDone int64
 		for i, hash := range chunks {
-			plain, err := s.fetchChunk(ctx, nsID, i, hash, nsKey, reuse)
+			plain, source, err := s.fetchChunk(ctx, nsID, i, hash, nsKey, reuse)
 			if err != nil {
 				return err
 			}
 			if _, err := w.Write(plain); err != nil {
 				return fmt.Errorf("writing chunk %d: %w", i, err)
+			}
+			bytesDone += int64(len(plain))
+			if progress != nil {
+				progress(source, bytesDone)
 			}
 		}
 		return nil
@@ -434,8 +460,9 @@ func (s *Store) downloadChunks(ctx context.Context, nsID string, chunks []string
 	}
 
 	type result struct {
-		data []byte
-		err  error
+		data   []byte
+		source chunkSourceKind
+		err    error
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -465,8 +492,8 @@ func (s *Store) downloadChunks(ctx context.Context, nsID string, chunks []string
 			}
 			i, hash := i, hash
 			go func() {
-				plain, err := s.fetchChunk(ctx, nsID, i, hash, nsKey, reuse)
-				slots[i] <- result{data: plain, err: err}
+				plain, source, err := s.fetchChunk(ctx, nsID, i, hash, nsKey, reuse)
+				slots[i] <- result{data: plain, source: source, err: err}
 				// Semaphore released by consumer, not here — keeps
 				// backpressure tight so at most `ahead` chunks are buffered.
 			}()
@@ -474,6 +501,7 @@ func (s *Store) downloadChunks(ctx context.Context, nsID string, chunks []string
 	}()
 
 	// Consume results in order and write to output.
+	var bytesDone int64
 	for i := range chunks {
 		select {
 		case r := <-slots[i]:
@@ -483,6 +511,10 @@ func (s *Store) downloadChunks(ctx context.Context, nsID string, chunks []string
 			}
 			if _, err := w.Write(r.data); err != nil {
 				return fmt.Errorf("writing chunk %d: %w", i, err)
+			}
+			bytesDone += int64(len(r.data))
+			if progress != nil {
+				progress(r.source, bytesDone)
 			}
 		case <-ctx.Done():
 			return ctx.Err()
@@ -494,23 +526,30 @@ func (s *Store) downloadChunks(ctx context.Context, nsID string, chunks []string
 
 // fetchChunk resolves a single chunk through the local cache, peers, and/or
 // backend, then decrypts, decompresses, and verifies its content hash.
-func (s *Store) fetchChunk(ctx context.Context, nsID string, index int, chunkHash string, nsKey []byte, reuse chunkReuseProvider) ([]byte, error) {
+func (s *Store) fetchChunk(
+	ctx context.Context,
+	nsID string,
+	index int,
+	chunkHash string,
+	nsKey []byte,
+	reuse chunkReuseProvider,
+) ([]byte, chunkSourceKind, error) {
 	if reuse != nil {
 		plaintext, ok, err := reuse.LookupChunk(chunkHash)
 		if err != nil {
-			return nil, fmt.Errorf("local reuse chunk %d (%s): %w", index, chunkHash[:12], err)
+			return nil, "", fmt.Errorf("local reuse chunk %d (%s): %w", index, chunkHash[:12], err)
 		}
 		if ok {
 			if s.onChunkRead != nil {
 				s.onChunkRead(chunkSourceLocal)
 			}
-			return plaintext, nil
+			return plaintext, chunkSourceLocal, nil
 		}
 	}
 
 	sources := s.planChunkSources(chunkHash)
 	if len(sources) == 0 {
-		return nil, fmt.Errorf("chunk %d (%s): no source available", index, chunkHash[:12])
+		return nil, "", fmt.Errorf("chunk %d (%s): no source available", index, chunkHash[:12])
 	}
 
 	var attempts []string
@@ -538,16 +577,16 @@ func (s *Store) fetchChunk(ctx context.Context, nsID string, index int, chunkHas
 
 		if source.cacheOnSuccess {
 			if err := writeLocalBlob(nsID, chunkHash, raw); err != nil {
-				return nil, fmt.Errorf("caching %s chunk %d (%s): %w", source.kind, index, chunkHash[:12], err)
+				return nil, "", fmt.Errorf("caching %s chunk %d (%s): %w", source.kind, index, chunkHash[:12], err)
 			}
 		}
 		if s.onChunkRead != nil {
 			s.onChunkRead(source.kind)
 		}
-		return plaintext, nil
+		return plaintext, source.kind, nil
 	}
 
-	return nil, fmt.Errorf("chunk %d (%s): %s", index, chunkHash[:12], strings.Join(attempts, "; "))
+	return nil, "", fmt.Errorf("chunk %d (%s): %s", index, chunkHash[:12], strings.Join(attempts, "; "))
 }
 
 func decodeChunkBlob(index int, chunkHash string, nsKey, raw []byte) ([]byte, error) {

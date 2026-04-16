@@ -23,11 +23,14 @@ type transferRecoveryStats struct {
 }
 
 type transferSession struct {
-	Kind       string `json:"kind"`
-	Phase      string `json:"phase"`
-	TempPath   string `json:"temp_path"`
-	TargetPath string `json:"target_path"`
-	UpdatedAt  int64  `json:"updated_at"`
+	Kind         string `json:"kind"`
+	Phase        string `json:"phase"`
+	TempPath     string `json:"temp_path"`
+	TargetPath   string `json:"target_path"`
+	BytesDone    int64  `json:"bytes_done,omitempty"`
+	BytesTotal   int64  `json:"bytes_total,omitempty"`
+	ActiveSource string `json:"active_source,omitempty"`
+	UpdatedAt    int64  `json:"updated_at"`
 
 	path string `json:"-"`
 }
@@ -164,6 +167,32 @@ func (s *transferSession) save() error {
 
 func (s *transferSession) markStaged() error {
 	s.Phase = transferPhaseStaged
+	if s.BytesTotal > 0 && s.BytesDone < s.BytesTotal {
+		s.BytesDone = s.BytesTotal
+	}
+	return s.save()
+}
+
+func (s *transferSession) updateProgress(done, total int64, activeSource string) error {
+	if s == nil {
+		return fmt.Errorf("transfer session is nil")
+	}
+	changed := false
+	if done >= 0 && s.BytesDone != done {
+		s.BytesDone = done
+		changed = true
+	}
+	if total >= 0 && s.BytesTotal != total {
+		s.BytesTotal = total
+		changed = true
+	}
+	if activeSource != "" && s.ActiveSource != activeSource {
+		s.ActiveSource = activeSource
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
 	return s.save()
 }
 

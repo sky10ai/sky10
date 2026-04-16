@@ -262,6 +262,9 @@ func TestSyncActivityRPCIncludesTransferSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new transfer session: %v", err)
 	}
+	if err := session.updateProgress(7, 10, "peer"); err != nil {
+		t.Fatalf("update progress: %v", err)
+	}
 	if err := session.markStaged(); err != nil {
 		t.Fatalf("mark staged: %v", err)
 	}
@@ -297,11 +300,14 @@ func TestSyncActivityRPCIncludesTransferSessions(t *testing.T) {
 	var resp struct {
 		Result struct {
 			Pending []struct {
-				Direction string `json:"direction"`
-				Op        string `json:"op"`
-				Phase     string `json:"phase"`
-				Path      string `json:"path"`
-				DriveName string `json:"drive_name"`
+				Direction    string `json:"direction"`
+				Op           string `json:"op"`
+				Phase        string `json:"phase"`
+				Path         string `json:"path"`
+				DriveName    string `json:"drive_name"`
+				BytesDone    int64  `json:"bytes_done"`
+				BytesTotal   int64  `json:"bytes_total"`
+				ActiveSource string `json:"active_source"`
 			} `json:"pending"`
 		} `json:"result"`
 		Error *struct {
@@ -324,6 +330,15 @@ func TestSyncActivityRPCIncludesTransferSessions(t *testing.T) {
 			}
 			if entry.DriveName != "TransferDrive" {
 				t.Fatalf("drive_name = %q", entry.DriveName)
+			}
+			if entry.BytesDone != 10 {
+				t.Fatalf("bytes_done = %d, want 10", entry.BytesDone)
+			}
+			if entry.BytesTotal != 10 {
+				t.Fatalf("bytes_total = %d, want 10", entry.BytesTotal)
+			}
+			if entry.ActiveSource != "peer" {
+				t.Fatalf("active_source = %q, want peer", entry.ActiveSource)
 			}
 		}
 	}

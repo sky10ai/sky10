@@ -366,7 +366,7 @@ Checklist:
 - [x] Ensure S3 slots in as an optional source, not a different engine.
 - [x] Surface read-source activity and last-source selection at drive/activity
       level.
-- [ ] Surface per-file transfer progress and active source selection.
+- [x] Surface per-file transfer progress and active source selection.
 - [x] Add source-health scoring, retry backoff, and degraded-source policy.
 
 Done when:

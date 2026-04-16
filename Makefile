@@ -35,7 +35,7 @@ endif
 MENU_SOURCE_DATE_EPOCH := $(shell git log -1 --format=%ct 2>/dev/null || echo 0)
 MENU_RUSTFLAGS := --remap-path-prefix=$(CURDIR)=/workspace $(MENU_LINK_RUSTFLAGS)
 
-.PHONY: all build build-go build-web build-menu web-dev test test-skyfs test-skyfs-cli test-skyfs-cli-v check vet fmt verify clean install reproduce reproduce-menu platforms checksums
+.PHONY: all build build-go build-web build-menu web-dev test test-skyfs test-skyfs-cli test-skyfs-cli-v test-skyfs-p2p-integration check vet fmt verify clean install reproduce reproduce-menu platforms checksums
 
 # --- Default ---
 
@@ -72,6 +72,7 @@ build-go:
 #   make test-skyfs               run all skyfs tests
 #   make test-skyfs-cli           Go library + CLI tests
 #   make test-skyfs-cli-v         Go tests verbose
+#   make test-skyfs-p2p-integration  tagged FS p2p integration tests
 
 test: test-skyfs
 
@@ -83,6 +84,10 @@ test-skyfs-cli:
 
 test-skyfs-cli-v:
 	go test ./... -v -count=1
+
+test-skyfs-p2p-integration:
+	@echo "=== test-skyfs-p2p-integration (Go, tagged) ==="
+	go test ./pkg/fs -tags=integration,skyfs_p2p -run 'TestFSP2P' -v -count=1
 
 # --- Lint ---
 

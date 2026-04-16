@@ -588,6 +588,9 @@ export interface SyncActivityEntry {
   path: string;
   drive_id: string;
   drive_name: string;
+  bytes_done?: number;
+  bytes_total?: number;
+  active_source?: string;
   ts: number;
 }
 

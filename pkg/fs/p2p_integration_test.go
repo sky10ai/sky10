@@ -1,3 +1,5 @@
+//go:build integration && skyfs_p2p
+
 package fs
 
 import (

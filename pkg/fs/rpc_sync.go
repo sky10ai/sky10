@@ -20,13 +20,16 @@ type statusResult struct {
 }
 
 type activityEntry struct {
-	Direction string `json:"direction"` // "up" or "down"
-	Op        string `json:"op"`        // "put" or "delete"
-	Phase     string `json:"phase,omitempty"`
-	Path      string `json:"path"`
-	DriveID   string `json:"drive_id"`
-	DriveName string `json:"drive_name"`
-	Timestamp int64  `json:"ts"`
+	Direction    string `json:"direction"` // "up" or "down"
+	Op           string `json:"op"`        // "put" or "delete"
+	Phase        string `json:"phase,omitempty"`
+	Path         string `json:"path"`
+	DriveID      string `json:"drive_id"`
+	DriveName    string `json:"drive_name"`
+	BytesDone    int64  `json:"bytes_done,omitempty"`
+	BytesTotal   int64  `json:"bytes_total,omitempty"`
+	ActiveSource string `json:"active_source,omitempty"`
+	Timestamp    int64  `json:"ts"`
 }
 
 type readSourceEntry struct {
@@ -168,13 +171,16 @@ func (s *FSHandler) rpcSyncActivity(_ context.Context) (interface{}, error) {
 				direction = "up"
 			}
 			pending = append(pending, activityEntry{
-				Direction: direction,
-				Op:        session.Kind,
-				Phase:     session.Phase,
-				Path:      path,
-				DriveID:   id,
-				DriveName: d.Name,
-				Timestamp: session.UpdatedAt,
+				Direction:    direction,
+				Op:           session.Kind,
+				Phase:        session.Phase,
+				Path:         path,
+				DriveID:      id,
+				DriveName:    d.Name,
+				BytesDone:    session.BytesDone,
+				BytesTotal:   session.BytesTotal,
+				ActiveSource: session.ActiveSource,
+				Timestamp:    session.UpdatedAt,
 			})
 		}
 

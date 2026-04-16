@@ -73,6 +73,29 @@ function readSourceLabel(source?: string) {
   return "Unknown";
 }
 
+function transferSourceLabel(source?: string) {
+  if (source === "peer") return "Peer";
+  if (source === "s3") return "S3";
+  if (source === "local") return "Local";
+  return "Unknown";
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function transferProgressLabel(entry: SyncActivityEntry) {
+  if (!entry.bytes_total || entry.bytes_total <= 0) {
+    return null;
+  }
+  const done = Math.min(entry.bytes_done ?? 0, entry.bytes_total);
+  const pct = Math.round((done / entry.bytes_total) * 100);
+  return `${pct}% · ${formatBytes(done)} / ${formatBytes(entry.bytes_total)}`;
+}
+
 export default function Activity() {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -130,6 +153,7 @@ export default function Activity() {
           <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-3 shadow-sm">
             {pending.map((entry, i) => {
               const [icon, color] = pendingIcon(entry);
+              const progress = transferProgressLabel(entry);
               return (
                 <div
                   key={`${entry.drive_id}-${entry.path}-${i}`}
@@ -142,9 +166,19 @@ export default function Activity() {
                   <StatusBadge tone={entry.phase ? "processing" : "neutral"}>
                     {pendingPhaseLabel(entry)}
                   </StatusBadge>
+                  {entry.active_source && (
+                    <StatusBadge tone={readSourceTone(entry.active_source)}>
+                      {transferSourceLabel(entry.active_source)}
+                    </StatusBadge>
+                  )}
                   <span className="flex-1 truncate font-mono text-xs text-on-surface">
                     {entry.path}
                   </span>
+                  {progress && (
+                    <span className="text-xs text-on-surface-variant">
+                      {progress}
+                    </span>
+                  )}
                   <span className="text-xs text-outline">{entry.drive_name}</span>
                 </div>
               );
