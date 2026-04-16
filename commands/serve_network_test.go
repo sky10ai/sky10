@@ -125,6 +125,67 @@ func TestResolvedLinkConfig(t *testing.T) {
 	})
 }
 
+func TestResolvedManagedLiveRelays(t *testing.T) {
+	t.Run("override wins", func(t *testing.T) {
+		got := resolvedManagedLiveRelays(&config.Config{LinkRelays: []string{"cfg-relay"}}, []string{" cli-relay ", "cli-relay"})
+		want := []string{"cli-relay"}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("managed relays = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("config fallback", func(t *testing.T) {
+		got := resolvedManagedLiveRelays(&config.Config{LinkRelays: []string{" relay-a ", "relay-a", "relay-b"}}, nil)
+		want := []string{"relay-a", "relay-b"}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("managed relays = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("none", func(t *testing.T) {
+		got := resolvedManagedLiveRelays(&config.Config{}, nil)
+		if len(got) != 0 {
+			t.Fatalf("managed relays = %v, want none", got)
+		}
+	})
+}
+
+func TestValidateManagedLiveRelayConfig(t *testing.T) {
+	relayPeer := *mustPeerInfo("/ip4/127.0.0.1/tcp/4101/p2p/12D3KooWQJ9m1x5v6Lq3J1s4mP4h9j9bpt5yN4B8pJxWf1dP6W8M")
+
+	t.Run("configured relays pass", func(t *testing.T) {
+		if err := validateManagedLiveRelayConfig([]string{"/ip4/127.0.0.1/tcp/4101/p2p/12D3KooWQJ9m1x5v6Lq3J1s4mP4h9j9bpt5yN4B8pJxWf1dP6W8M"}, []peer.AddrInfo{relayPeer}, false); err != nil {
+			t.Fatalf("validateManagedLiveRelayConfig: %v", err)
+		}
+	})
+
+	t.Run("cached only errors", func(t *testing.T) {
+		err := validateManagedLiveRelayConfig(nil, []peer.AddrInfo{relayPeer}, false)
+		if err == nil {
+			t.Fatal("expected cached-only relay set to fail validation")
+		}
+		if got := err.Error(); got != "network mode requires at least one managed live relay via --link-relay or config.json link_relays; cached relay bootstrap entries are not enough" {
+			t.Fatalf("error = %q", got)
+		}
+	})
+
+	t.Run("missing relays errors", func(t *testing.T) {
+		err := validateManagedLiveRelayConfig(nil, nil, false)
+		if err == nil {
+			t.Fatal("expected missing relays to fail validation")
+		}
+		if got := err.Error(); got != "network mode requires at least one managed live relay via --link-relay or config.json link_relays; use --allow-no-link-relay only for dev/test or when you intentionally accept direct-only transport" {
+			t.Fatalf("error = %q", got)
+		}
+	})
+
+	t.Run("allow missing passes", func(t *testing.T) {
+		if err := validateManagedLiveRelayConfig(nil, nil, true); err != nil {
+			t.Fatalf("validateManagedLiveRelayConfig allow missing: %v", err)
+		}
+	})
+}
+
 func mustPeerInfo(raw string) *peer.AddrInfo {
 	addr, err := ma.NewMultiaddr(raw)
 	if err != nil {

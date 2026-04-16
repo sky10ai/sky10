@@ -24,6 +24,27 @@ func resolvedRelays(cfg *config.Config, override []string, noDefault bool) []str
 	return append([]string(nil), config.DefaultNostrRelays...)
 }
 
+func resolvedManagedLiveRelays(cfg *config.Config, override []string) []string {
+	relays := cleanStrings(override)
+	if len(relays) > 0 {
+		return relays
+	}
+	if cfg != nil {
+		return cleanStrings(cfg.LiveRelays())
+	}
+	return nil
+}
+
+func validateManagedLiveRelayConfig(managedRelays []string, resolvedRelayPeers []peer.AddrInfo, allowMissing bool) error {
+	if len(managedRelays) > 0 || allowMissing {
+		return nil
+	}
+	if len(resolvedRelayPeers) > 0 {
+		return fmt.Errorf("network mode requires at least one managed live relay via --link-relay or config.json link_relays; cached relay bootstrap entries are not enough")
+	}
+	return fmt.Errorf("network mode requires at least one managed live relay via --link-relay or config.json link_relays; use --allow-no-link-relay only for dev/test or when you intentionally accept direct-only transport")
+}
+
 func resolvedLinkConfig(cfg *config.Config, listenAddrs, bootstrapAddrs, relayAddrs []string, noDefaultBootstrap bool, relayCachePath string) (link.Config, link.RelayBootstrapSnapshot, error) {
 	linkCfg := link.Config{Mode: link.Network}
 
@@ -42,10 +63,7 @@ func resolvedLinkConfig(cfg *config.Config, listenAddrs, bootstrapAddrs, relayAd
 		linkCfg.BootstrapPeers = []peer.AddrInfo{}
 	}
 
-	configuredRelays := cleanStrings(relayAddrs)
-	if len(configuredRelays) == 0 && cfg != nil {
-		configuredRelays = cleanStrings(cfg.LiveRelays())
-	}
+	configuredRelays := resolvedManagedLiveRelays(cfg, relayAddrs)
 
 	cachedRelays, snapshot, err := link.LoadRelayBootstrapPeers(relayCachePath)
 	if err != nil {

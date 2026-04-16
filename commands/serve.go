@@ -38,6 +38,7 @@ func ServeCmd() *cobra.Command {
 	var linkListenAddrs []string
 	var linkBootstrapPeers []string
 	var linkRelayPeers []string
+	var allowNoLinkRelay bool
 	var noDefaultBootstrap bool
 	var relayOverrides []string
 	var noDefaultRelays bool
@@ -95,10 +96,21 @@ func ServeCmd() *cobra.Command {
 				return err
 			}
 			relays := resolvedRelays(cfg, relayOverrides, noDefaultRelays)
+			managedLiveRelays := resolvedManagedLiveRelays(cfg, linkRelayPeers)
 			nostrRelayTracker := link.NewNostrRelayTracker(relays)
 			linkCfg, relayBootstrapSnapshot, err := resolvedLinkConfig(cfg, linkListenAddrs, linkBootstrapPeers, linkRelayPeers, noDefaultBootstrap, relayBootstrapPath)
 			if err != nil {
 				return err
+			}
+			if err := validateManagedLiveRelayConfig(managedLiveRelays, linkCfg.RelayPeers, allowNoLinkRelay); err != nil {
+				return err
+			}
+			if len(managedLiveRelays) == 0 {
+				if len(linkCfg.RelayPeers) > 0 {
+					logger.Warn("starting without managed live relays; using cached relay bootstrap only", "cached_peers", len(linkCfg.RelayPeers))
+				} else {
+					logger.Warn("starting without managed live relays; direct transport has no degraded-but-live relay fallback")
+				}
 			}
 			if len(linkCfg.RelayPeers) > 0 {
 				if err := link.SaveRelayBootstrapState(relayBootstrapPath, linkCfg.RelayPeers, relayBootstrapSnapshot); err != nil {
@@ -681,6 +693,7 @@ func ServeCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&linkListenAddrs, "link-listen", nil, "Additional libp2p listen addresses")
 	cmd.Flags().StringSliceVar(&linkBootstrapPeers, "link-bootstrap", nil, "Bootstrap peer multiaddrs for libp2p discovery")
 	cmd.Flags().StringSliceVar(&linkRelayPeers, "link-relay", nil, "Static libp2p relay multiaddrs for live skylink fallback")
+	cmd.Flags().BoolVar(&allowNoLinkRelay, "allow-no-link-relay", false, "Allow startup without configured static libp2p relays for live fallback (dev/test only)")
 	cmd.Flags().BoolVar(&noDefaultBootstrap, "no-default-bootstrap", false, "Disable default public libp2p bootstrap peers")
 	cmd.Flags().StringSliceVar(&relayOverrides, "nostr-relay", nil, "Nostr relay URLs for private-network discovery")
 	cmd.Flags().BoolVar(&noDefaultRelays, "no-default-relays", false, "Disable default public Nostr relays")
