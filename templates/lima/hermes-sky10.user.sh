@@ -36,12 +36,103 @@ EOF
   fi
 }
 
+shared_env_has_value() {
+  local key="$1"
+  awk -F= -v key="$key" '
+    index($0, key "=") == 1 {
+      value = substr($0, index($0, "=") + 1)
+      if (length(value) > 0) {
+        found = 1
+      }
+    }
+    END {
+      exit found ? 0 : 1
+    }
+  ' "${SHARED_DIR}/.env"
+}
+
+set_shared_env_value() {
+  local key="$1"
+  local value="$2"
+  local tmp
+
+  tmp="$(mktemp "${SHARED_DIR}/.env.tmp.XXXXXX")"
+  awk -v key="$key" -v value="$value" '
+    BEGIN { replaced = 0 }
+    index($0, key "=") == 1 {
+      if (!replaced) {
+        print key "=" value
+        replaced = 1
+      }
+      next
+    }
+    { print }
+    END {
+      if (!replaced) {
+        print key "=" value
+      }
+    }
+  ' "${SHARED_DIR}/.env" > "${tmp}"
+  chmod 600 "${tmp}"
+  mv "${tmp}" "${SHARED_DIR}/.env"
+}
+
+guest_env_line_is_example_default() {
+  local line="$1"
+  local example_env="${HERMES_HOME}/hermes-agent/.env.example"
+
+  if [ ! -f "${example_env}" ]; then
+    return 1
+  fi
+
+  grep -Fx -- "${line}" "${example_env}" >/dev/null 2>&1
+}
+
+merge_guest_env_into_shared() {
+  local guest_env="${HERMES_HOME}/.env"
+
+  if [ ! -f "${guest_env}" ] || [ -L "${guest_env}" ]; then
+    return 0
+  fi
+
+  while IFS= read -r line || [ -n "${line}" ]; do
+    local key
+    local value
+
+    case "${line}" in
+      ""|\#*)
+        continue
+        ;;
+    esac
+
+    if [[ "${line}" != *=* ]]; then
+      continue
+    fi
+
+    key="${line%%=*}"
+    value="${line#*=}"
+
+    if [ -z "${key}" ] || [ -z "${value}" ]; then
+      continue
+    fi
+
+    if guest_env_line_is_example_default "${line}"; then
+      continue
+    fi
+
+    if shared_env_has_value "${key}"; then
+      continue
+    fi
+
+    set_shared_env_value "${key}" "${value}"
+  done < "${guest_env}"
+}
+
 link_hermes_env() {
   mkdir -p "${HERMES_HOME}"
 
   if [ -f "${HERMES_HOME}/.env" ] && [ ! -L "${HERMES_HOME}/.env" ]; then
-    cp "${HERMES_HOME}/.env" "${SHARED_DIR}/.env"
-    chmod 600 "${SHARED_DIR}/.env"
+    merge_guest_env_into_shared
     rm -f "${HERMES_HOME}/.env"
   fi
 

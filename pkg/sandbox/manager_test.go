@@ -690,6 +690,29 @@ func TestPrepareHermesSharedDir(t *testing.T) {
 	}
 }
 
+func TestBundledHermesUserScriptKeepsSharedEnv(t *testing.T) {
+	t.Parallel()
+
+	body, err := readBundledTemplateAsset(templateHermesUser)
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateHermesUser, err)
+	}
+
+	script := string(body)
+	if !strings.Contains(script, "merge_guest_env_into_shared") {
+		t.Fatalf("bundled Hermes user script missing guest-env merge helper: %q", script)
+	}
+	if !strings.Contains(script, ".env.example") {
+		t.Fatalf("bundled Hermes user script missing example env comparison: %q", script)
+	}
+	if !strings.Contains(script, `ln -sfn "${SHARED_DIR}/.env" "${HERMES_HOME}/.env"`) {
+		t.Fatalf("bundled Hermes user script missing shared env symlink: %q", script)
+	}
+	if strings.Contains(script, `cp "${HERMES_HOME}/.env" "${SHARED_DIR}/.env"`) {
+		t.Fatalf("bundled Hermes user script should not clobber shared env with guest env: %q", script)
+	}
+}
+
 func TestBuildStartArgsOpenClaw(t *testing.T) {
 	t.Parallel()
 

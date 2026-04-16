@@ -353,4 +353,16 @@ func TestHermesUserScriptInstallsHelper(t *testing.T) {
 	if !strings.Contains(script, "ANTHROPIC_API_KEY/anthropic") {
 		t.Fatalf("user script missing host-secret merge note: %q", script)
 	}
+	if !strings.Contains(script, "merge_guest_env_into_shared") {
+		t.Fatalf("user script missing guest-env merge helper: %q", script)
+	}
+	if !strings.Contains(script, ".env.example") {
+		t.Fatalf("user script missing Hermes example env comparison: %q", script)
+	}
+	if !strings.Contains(script, `ln -sfn "${SHARED_DIR}/.env" "${HERMES_HOME}/.env"`) {
+		t.Fatalf("user script missing shared env symlink: %q", script)
+	}
+	if strings.Contains(script, `cp "${HERMES_HOME}/.env" "${SHARED_DIR}/.env"`) {
+		t.Fatalf("user script should not clobber shared env with guest env: %q", script)
+	}
 }
