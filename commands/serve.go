@@ -25,12 +25,12 @@ import (
 	skyjoin "github.com/sky10/sky10/pkg/join"
 	"github.com/sky10/sky10/pkg/kv"
 	"github.com/sky10/sky10/pkg/link"
+	llmvenice "github.com/sky10/sky10/pkg/llm/venice"
 	"github.com/sky10/sky10/pkg/logging"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
 	skysandbox "github.com/sky10/sky10/pkg/sandbox"
 	"github.com/sky10/sky10/pkg/secrets"
 	skyupdate "github.com/sky10/sky10/pkg/update"
-	skyvenice "github.com/sky10/sky10/pkg/venice"
 	skywallet "github.com/sky10/sky10/pkg/wallet"
 	"github.com/spf13/cobra"
 )
@@ -553,7 +553,7 @@ func ServeCmd() *cobra.Command {
 				logger.Info("wallet: OWS detected, enabling wallet RPC")
 			}
 			server.RegisterHandler(skywallet.NewRPCHandler(walletClient, server.Emit))
-			veniceProxy, err := skyvenice.NewProxy(skyvenice.Config{
+			veniceProxy, err := llmvenice.NewProxy(llmvenice.Config{
 				APIURL:   os.Getenv("SKY10_VENICE_API_URL"),
 				Wallet:   os.Getenv("SKY10_VENICE_WALLET"),
 				TopUpUSD: os.Getenv("SKY10_VENICE_TOP_UP_USD"),
