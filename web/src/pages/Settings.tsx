@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Icon } from "../components/Icon";
 import { STORAGE_EVENT_TYPES, WALLET_EVENT_TYPES, subscribe } from "../lib/events";
-import { identity, skyfs, skylink, system, wallet } from "../lib/rpc";
-import { formatBytes, useRPC, truncAddr } from "../lib/useRPC";
+import { identity, skylink, wallet } from "../lib/rpc";
+import { useRPC, truncAddr } from "../lib/useRPC";
 
 /** Subtract two decimal strings using BigInt to avoid float precision issues. */
 function subDecimal(balance: string, amount: string, decimals: number): string {
@@ -37,15 +37,6 @@ function addDecimal(a: string, b: string, decimals: number): string {
   return `${w}.${fs}`;
 }
 
-const UPDATE_REFRESH_EVENTS = [
-  "update:available",
-  "update:download:complete",
-  "update:download:error",
-  "update:install:complete",
-  "update:install:error",
-] as const;
-
-type UpdateAction = "idle" | "downloading" | "installing" | "restarting";
 type WalletTab = "solana" | "base";
 
 const SOLANA_CHAIN = "solana";
@@ -85,10 +76,6 @@ const settingsTools = [
 ] as const;
 
 export default function Settings() {
-  const { data: health } = useRPC(() => skyfs.health(), [], {
-    live: STORAGE_EVENT_TYPES,
-    refreshIntervalMs: 10_000,
-  });
   const { data: linkStatus } = useRPC(() => skylink.status(), [], {
     refreshIntervalMs: 10_000,
   });
@@ -106,175 +93,6 @@ export default function Settings() {
   const thisDevice = (deviceData?.devices ?? []).find(
     (d) => d.id === deviceData?.this_device,
   );
-
-  const version = health?.version ?? "";
-  const versionParts = version.match(
-    /^(v[\d.]+(?:-\w+)?)\s+\((\w+)\)\s+built\s+(.+)$/,
-  );
-
-  const {
-    data: updateInfo,
-    error: updateCheckError,
-    refetch: refetchUpdateInfo,
-  } = useRPC(() => system.update.check(), [], {
-    live: UPDATE_REFRESH_EVENTS,
-  });
-  const {
-    data: stagedUpdate,
-    refetch: refetchStagedUpdate,
-  } = useRPC(() => system.update.status(), [], {
-    live: UPDATE_REFRESH_EVENTS,
-    refreshIntervalMs: 30_000,
-  });
-
-  const [updateAction, setUpdateAction] = useState<UpdateAction>("idle");
-  const [updateProgress, setUpdateProgress] = useState<{
-    downloaded: number;
-    total: number;
-  } | null>(null);
-  const [updateError, setUpdateError] = useState<string | null>(null);
-  const [legacyRestartTarget, setLegacyRestartTarget] = useState<string | null>(null);
-
-  const refreshUpdateState = useCallback(() => {
-    refetchUpdateInfo({ background: true });
-    refetchStagedUpdate({ background: true });
-  }, [refetchStagedUpdate, refetchUpdateInfo]);
-
-  useEffect(() => {
-    return subscribe((event, data) => {
-      if (event === "update:download:progress" || event === "update:progress") {
-        const progress = data as { downloaded: number; total: number };
-        setUpdateAction("downloading");
-        setUpdateProgress(progress);
-        return;
-      }
-      if (event === "update:complete") {
-        const payload = data as { updated?: string };
-        setUpdateAction("idle");
-        setUpdateProgress(null);
-        setUpdateError(null);
-        setLegacyRestartTarget(payload.updated ?? updateInfo?.latest ?? null);
-        refreshUpdateState();
-        return;
-      }
-      if (event === "update:error") {
-        const payload = data as { message: string };
-        setUpdateAction("idle");
-        setUpdateProgress(null);
-        setUpdateError(payload.message);
-        refreshUpdateState();
-        return;
-      }
-      if (event === "update:download:complete") {
-        setUpdateAction("idle");
-        setUpdateProgress(null);
-        setUpdateError(null);
-        setLegacyRestartTarget(null);
-        refreshUpdateState();
-        return;
-      }
-      if (event === "update:download:error") {
-        const payload = data as { message: string };
-        setUpdateAction("idle");
-        setUpdateProgress(null);
-        setUpdateError(payload.message);
-        setLegacyRestartTarget(null);
-        refreshUpdateState();
-        return;
-      }
-      if (event === "update:install:error") {
-        const payload = data as { message: string };
-        setUpdateAction("idle");
-        setUpdateError(payload.message);
-        refreshUpdateState();
-      }
-    });
-  }, [refreshUpdateState, updateInfo?.latest]);
-
-  const waitForUpdatedUI = useCallback(async (targetVersion: string) => {
-    const deadline = Date.now() + 30_000;
-
-    while (Date.now() < deadline) {
-      try {
-        const response = await fetch("/health", { cache: "no-store" });
-        if (response.ok) {
-          const body = (await response.json()) as { version?: string };
-          if (body.version?.includes(targetVersion)) {
-            window.location.reload();
-            return true;
-          }
-        }
-      } catch {
-        // Restart window in progress.
-      }
-
-      await new Promise((resolve) => window.setTimeout(resolve, 1000));
-    }
-
-    return false;
-  }, []);
-
-  const handleDownloadUpdate = useCallback(async () => {
-    setUpdateAction("downloading");
-    setUpdateError(null);
-    setUpdateProgress(null);
-    setLegacyRestartTarget(null);
-    try {
-      if (stagedUpdate?.mode === "legacy") {
-        await system.update.run();
-        return;
-      }
-      await system.update.download();
-    } catch (e: unknown) {
-      setUpdateAction("idle");
-      setUpdateError(
-        e instanceof Error ? e.message : "Download failed",
-      );
-    }
-  }, [stagedUpdate?.mode]);
-
-  const handleInstallUpdate = useCallback(async () => {
-    if (legacyRestartTarget) {
-      setUpdateAction("restarting");
-      setUpdateError(null);
-      try {
-        await system.restart();
-        const restarted = await waitForUpdatedUI(legacyRestartTarget);
-        if (!restarted) {
-          setUpdateAction("idle");
-          setUpdateError(
-            "Update installed. The daemon restart is taking longer than expected.",
-          );
-        }
-      } catch (e: unknown) {
-        setUpdateAction("idle");
-        setUpdateError(e instanceof Error ? e.message : "Restart failed");
-      }
-      return;
-    }
-
-    setUpdateAction("installing");
-    setUpdateError(null);
-    try {
-      const result = await system.update.install();
-      refreshUpdateState();
-      if (result.restarting) {
-        setUpdateAction("restarting");
-        const restarted = await waitForUpdatedUI(result.latest);
-        if (!restarted) {
-          setUpdateAction("idle");
-          setUpdateError(
-            "Update installed. The daemon restart is taking longer than expected.",
-          );
-        }
-        return;
-      }
-      setUpdateAction("idle");
-    } catch (e: unknown) {
-      setUpdateAction("idle");
-      setUpdateError(e instanceof Error ? e.message : "Install failed");
-    }
-  }, [legacyRestartTarget, refreshUpdateState, waitForUpdatedUI]);
 
   const {
     data: walletStatus,
@@ -386,40 +204,6 @@ export default function Settings() {
     setCopiedAddress(address);
     setTimeout(() => setCopiedAddress((current) => (current === address ? null : current)), 2000);
   }, []);
-
-  const legacyMode = stagedUpdate?.mode === "legacy";
-  const updateReady = Boolean(legacyRestartTarget) || (stagedUpdate?.ready ?? false);
-  const updateAvailable = !updateReady && Boolean(updateInfo?.available);
-  const updateTargetVersion = legacyRestartTarget ?? stagedUpdate?.latest ?? updateInfo?.latest ?? "";
-  const updateNeedsRestart = Boolean(legacyRestartTarget) || (updateReady
-    ? stagedUpdate?.cli_staged ?? false
-    : updateInfo?.cli_available ?? false);
-  const updateBusy = updateAction !== "idle";
-
-  let updateMessage = "No update available right now.";
-  if (updateAction === "downloading") {
-    updateMessage = updateTargetVersion
-      ? `Downloading ${updateTargetVersion}...`
-      : "Downloading the latest update...";
-  } else if (updateAction === "installing") {
-    updateMessage = updateTargetVersion
-      ? `Installing ${updateTargetVersion}...`
-      : "Installing the staged update...";
-  } else if (updateAction === "restarting") {
-    updateMessage = "Restarting sky10. This page will refresh automatically.";
-  } else if (legacyRestartTarget) {
-    updateMessage = `${legacyRestartTarget} is installed. Restart to switch this UI to the new version.`;
-  } else if (updateReady && updateTargetVersion) {
-    updateMessage = updateNeedsRestart
-      ? `${updateTargetVersion} is ready. Install it in place and restart this UI.`
-      : `${updateTargetVersion} is ready to install.`;
-  } else if (updateAvailable && updateTargetVersion) {
-    updateMessage = legacyMode
-      ? `${updateTargetVersion} is available. Update now, then restart when it finishes.`
-      : `${updateTargetVersion} is available. Download it now and install when you're ready.`;
-  } else if (updateCheckError) {
-    updateMessage = "Update check is unavailable right now.";
-  }
 
   return (
     <div className="p-12 max-w-6xl mx-auto space-y-12">
@@ -555,7 +339,7 @@ export default function Settings() {
       </section>
 
       <div className="grid grid-cols-12 gap-6">
-        <section className="col-span-12 lg:col-span-7 bg-surface-container-lowest rounded-xl p-8 flex flex-col justify-between group hover:shadow-xl transition-all duration-500 border border-transparent">
+        <section className="col-span-12 lg:col-span-8 bg-surface-container-lowest rounded-xl p-8 flex flex-col justify-between group hover:shadow-xl transition-all duration-500 border border-transparent">
           <div className="space-y-6">
             <div className="flex justify-between items-start">
               <div className="space-y-1">
@@ -614,113 +398,6 @@ export default function Settings() {
                   </p>
                 </div>
               </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="col-span-12 lg:col-span-5 bg-surface-container-high rounded-xl p-8 flex flex-col justify-between border border-transparent">
-          <div className="space-y-6">
-            <div className="space-y-1">
-              <h3 className="text-xl font-semibold flex items-center gap-2">
-                <Icon name="info" className="text-secondary" />
-                About
-              </h3>
-              <p className="text-sm text-secondary">
-                System core information.
-              </p>
-            </div>
-            <div className="space-y-4">
-              <div className="flex justify-between border-b border-outline-variant/10 pb-3">
-                <span className="text-sm text-secondary">Version</span>
-                <span className="text-sm font-semibold">
-                  {versionParts?.[1] ?? version}
-                </span>
-              </div>
-              <div className="flex justify-between border-b border-outline-variant/10 pb-3">
-                <span className="text-sm text-secondary">Commit</span>
-                <span className="text-xs font-mono bg-surface-container-lowest px-2 py-0.5 rounded">
-                  {versionParts?.[2] ?? ""}
-                </span>
-              </div>
-              <div className="flex justify-between border-b border-outline-variant/10 pb-3">
-                <span className="text-sm text-secondary">Build Date</span>
-                <span className="text-sm">
-                  {versionParts?.[3]?.split("T")[0] ?? ""}
-                </span>
-              </div>
-              <div className="flex justify-between border-b border-outline-variant/10 pb-3">
-                <span className="text-sm text-secondary">Uptime</span>
-                <span className="text-sm font-semibold">
-                  {health?.uptime ?? "..."}
-                </span>
-              </div>
-              <div className="flex justify-between border-b border-outline-variant/10 pb-3">
-                <span className="text-sm text-secondary">RPC Clients</span>
-                <span className="text-sm font-semibold">
-                  {health?.rpc_clients ?? 0}
-                </span>
-              </div>
-            </div>
-            <div className="rounded-xl bg-surface-container-lowest border border-outline-variant/10 p-4 space-y-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="space-y-1">
-                  <p className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
-                    Software Update
-                  </p>
-                  <p className="text-sm text-on-surface">{updateMessage}</p>
-                </div>
-                {updateTargetVersion && (
-                  <span className="shrink-0 bg-primary/10 text-primary px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest">
-                    {updateTargetVersion}
-                  </span>
-                )}
-              </div>
-
-              {updateAction === "downloading" && (
-                <div className="space-y-2">
-                  <div className="w-full bg-surface-container rounded-full h-2 overflow-hidden">
-                    <div
-                      className="h-full bg-primary rounded-full transition-all duration-300"
-                      style={{
-                        width: updateProgress && updateProgress.total > 0
-                          ? `${Math.round((updateProgress.downloaded / updateProgress.total) * 100)}%`
-                          : "18%",
-                      }}
-                    />
-                  </div>
-                  {updateProgress && updateProgress.total > 0 && (
-                    <p className="text-[10px] text-secondary">
-                      {formatBytes(updateProgress.downloaded)}
-                      {" / "}
-                      {formatBytes(updateProgress.total)}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {(updateError || (!updateReady && !updateAvailable && updateCheckError)) && (
-                <p className="text-xs text-error">
-                  {updateError ?? updateCheckError}
-                </p>
-              )}
-
-              {(updateReady || updateAvailable || updateBusy) && (
-                <button
-                  onClick={updateReady ? handleInstallUpdate : handleDownloadUpdate}
-                  disabled={updateBusy}
-                  className="inline-flex items-center gap-2 bg-primary text-on-primary px-4 py-2.5 rounded-full text-sm font-semibold shadow-lg hover:shadow-xl transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  {updateBusy && (
-                    <Icon name="progress_activity" className="text-base animate-spin" />
-                  )}
-                  {updateAction === "downloading" && "Downloading..."}
-                  {updateAction === "installing" && "Installing..."}
-                  {updateAction === "restarting" && "Restarting..."}
-                  {!updateBusy && legacyRestartTarget && "Restart now"}
-                  {!updateBusy && !legacyRestartTarget && updateReady && (updateNeedsRestart ? "Install and restart" : "Install update")}
-                  {!updateBusy && updateAvailable && (legacyMode ? "Update now" : "Download update")}
-                </button>
-              )}
             </div>
           </div>
         </section>
