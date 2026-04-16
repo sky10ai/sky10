@@ -16,6 +16,13 @@ import {
 } from "../lib/rpc";
 import { useRPC, truncAddr } from "../lib/useRPC";
 
+type NetworkStatusSummary = {
+  tone: string;
+  badge: string;
+  title: string;
+  detail: string;
+};
+
 function transportTone(health?: LinkNetworkHealth) {
   if (!health) return "bg-surface-container text-secondary";
   if (health.transport_degraded_reason) {
@@ -56,9 +63,110 @@ function coordinationTone(health?: LinkNetworkHealth) {
 }
 
 function coordinationLabel(health?: LinkNetworkHealth) {
-  if (!health?.nostr?.configured_relays) return "Not configured";
-  if (health.coordination_degraded_reason) return "Degraded";
-  return "Healthy";
+  if (!health?.nostr?.configured_relays) return "Not used";
+  switch (health.coordination_degraded_reason) {
+    case "nostr_subscription_down":
+      return "Down";
+    case "nostr_publish_quorum":
+    case "nostr_subscription_quorum":
+      return "Partial";
+    default:
+      return "Healthy";
+  }
+}
+
+function describeTransportReason(reason?: string) {
+  switch (reason) {
+    case "udp_unreachable":
+      return "UDP is blocked or unreachable, so direct QUIC is unavailable.";
+    case "udp_mapping_varies":
+      return "UDP NAT mapping varies by server, so direct QUIC is unreliable.";
+    default:
+      return reason ? `Transport issue: ${reason}` : "Live transport is healthy.";
+  }
+}
+
+function describeDeliveryReason(reason?: string) {
+  switch (reason) {
+    case "mailbox_failures_pending":
+      return "Durable mailbox delivery has pending failures that need attention.";
+    case "mailbox_handoff_pending":
+      return "Durable mailbox handoff is active while receipts catch up.";
+    case "mailbox_queue_pending":
+      return "Durable mailbox delivery is queued for later retry.";
+    default:
+      return reason ? `Delivery issue: ${reason}` : "Mailbox delivery is clear.";
+  }
+}
+
+function describeCoordinationReason(reason?: string) {
+  switch (reason) {
+    case "nostr_publish_quorum":
+      return "Nostr multi-relay publish is below quorum.";
+    case "nostr_subscription_down":
+      return "One or more live Nostr coordination subscriptions are down.";
+    case "nostr_subscription_quorum":
+      return "One or more live Nostr coordination subscriptions are only partially connected.";
+    default:
+      return reason ? `Coordination issue: ${reason}` : "Coordination is healthy.";
+  }
+}
+
+function healthIssueLines(health?: LinkNetworkHealth) {
+  if (!health) return [];
+  const lines: string[] = [];
+  if (health.transport_degraded_reason) {
+    lines.push(`Transport: ${describeTransportReason(health.transport_degraded_reason)}`);
+  }
+  if (health.delivery_degraded_reason) {
+    lines.push(`Delivery: ${describeDeliveryReason(health.delivery_degraded_reason)}`);
+  }
+  if (health.coordination_degraded_reason) {
+    lines.push(`Coordination: ${describeCoordinationReason(health.coordination_degraded_reason)}`);
+  }
+  return lines;
+}
+
+function networkStatusSummary(health?: LinkNetworkHealth): NetworkStatusSummary | null {
+  if (!health) return null;
+  if (health.transport_degraded_reason) {
+    return {
+      tone: "bg-amber-500/10 text-amber-800 border-amber-700/15",
+      badge: "Transport",
+      title: "Live transport is degraded.",
+      detail: describeTransportReason(health.transport_degraded_reason),
+    };
+  }
+  if (health.delivery_degraded_reason && health.coordination_degraded_reason) {
+    return {
+      tone: "bg-amber-500/10 text-amber-800 border-amber-700/15",
+      badge: "Live OK",
+      title: "Live transport is healthy.",
+      detail: `${describeDeliveryReason(health.delivery_degraded_reason)} ${describeCoordinationReason(health.coordination_degraded_reason)}`,
+    };
+  }
+  if (health.delivery_degraded_reason) {
+    return {
+      tone: "bg-amber-500/10 text-amber-800 border-amber-700/15",
+      badge: "Live OK",
+      title: "Live transport is healthy.",
+      detail: describeDeliveryReason(health.delivery_degraded_reason),
+    };
+  }
+  if (health.coordination_degraded_reason) {
+    return {
+      tone: "bg-amber-500/10 text-amber-800 border-amber-700/15",
+      badge: "Live OK",
+      title: "Live transport is healthy.",
+      detail: describeCoordinationReason(health.coordination_degraded_reason),
+    };
+  }
+  return {
+    tone: "bg-emerald-500/10 text-emerald-800 border-emerald-700/15",
+    badge: "Healthy",
+    title: "Live transport and coordination are healthy.",
+    detail: "Direct or relay-backed skylink delivery is available and coordination is in sync.",
+  };
 }
 
 function liveRelayTone(liveRelay?: LinkLiveRelayHealth) {
@@ -120,9 +228,9 @@ function relayTone(relay: LinkRelayHealth) {
 }
 
 function relayLabel(relay: LinkRelayHealth) {
-  if (relay.failures > 0 && relay.successes === 0) return "Failing";
-  if (relay.failures > relay.successes) return "Degraded";
-  if (relay.successes > 0) return "Healthy";
+  if (relay.failures > 0 && relay.successes === 0) return "Down";
+  if (relay.failures > relay.successes) return "Partial";
+  if (relay.successes > 0) return "Live";
   return "Idle";
 }
 
@@ -158,6 +266,8 @@ export default function Network() {
   const recentEvents = networkHealth?.events ?? [];
   const relayHealth = networkHealth?.relays ?? [];
   const coordinationSubscriptions = networkHealth?.nostr?.subscriptions ?? [];
+  const statusSummary = networkStatusSummary(networkHealth);
+  const issueLines = healthIssueLines(networkHealth);
 
   const deviceByPeerID = new Map<string, Device>();
   for (const d of deviceData?.devices ?? []) {
@@ -177,7 +287,7 @@ export default function Network() {
             Network Dashboard
           </h2>
           <p className="text-secondary text-lg">
-            Live transport health, fallback delivery state, and recent convergence events.
+            Live transport, durable fallback, and Nostr coordination are shown separately.
           </p>
         </div>
         <div className="flex flex-wrap gap-4">
@@ -280,6 +390,19 @@ export default function Network() {
       {connectError && (
         <div className="rounded-lg bg-error-container/20 p-3 text-sm text-error">
           {connectError}
+        </div>
+      )}
+      {statusSummary && (
+        <div className={`rounded-xl border px-5 py-4 ${statusSummary.tone}`}>
+          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="text-sm font-semibold">{statusSummary.title}</div>
+              <div className="mt-1 text-sm opacity-90">{statusSummary.detail}</div>
+            </div>
+            <span className="inline-flex w-fit rounded-full bg-white/50 px-2 py-1 text-[10px] font-bold uppercase tracking-widest">
+              {statusSummary.badge}
+            </span>
+          </div>
         </div>
       )}
 
@@ -457,17 +580,11 @@ export default function Network() {
                   </div>
                 </div>
               </div>
-              {(networkHealth.transport_degraded_reason || networkHealth.delivery_degraded_reason || networkHealth.coordination_degraded_reason) && (
+              {issueLines.length > 0 && (
                 <div className="rounded-lg bg-surface-container-low p-3 text-xs text-secondary">
-                  {networkHealth.transport_degraded_reason && (
-                    <div>Transport: {networkHealth.transport_degraded_reason}</div>
-                  )}
-                  {networkHealth.delivery_degraded_reason && (
-                    <div>Delivery: {networkHealth.delivery_degraded_reason}</div>
-                  )}
-                  {networkHealth.coordination_degraded_reason && (
-                    <div>Coordination: {networkHealth.coordination_degraded_reason}</div>
-                  )}
+                  {issueLines.map((line) => (
+                    <div key={line}>{line}</div>
+                  ))}
                 </div>
               )}
             </div>
@@ -535,7 +652,7 @@ export default function Network() {
           {relayHealth.length > 0 && (
             <div className="bg-surface-container-lowest rounded-xl p-6 border border-outline-variant/10 shadow-sm space-y-4">
               <h4 className="text-sm font-bold text-on-surface uppercase tracking-widest">
-                Nostr Relays
+                Nostr Coordination
               </h4>
               <div className="space-y-3">
                 {relayHealth.map((relay) => (
