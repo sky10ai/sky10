@@ -32,6 +32,14 @@ function themeButtonIcon(preference: ThemePreference) {
   return themeOptions.find((option) => option.value === preference)?.icon ?? "brightness_auto";
 }
 
+function themeButtonTitle(preference: ThemePreference, resolvedTheme: "light" | "dark") {
+  if (preference === "system") {
+    return `Theme follows your system appearance. Current appearance: ${resolvedTheme}. Click to choose System, Light, or Dark.`;
+  }
+
+  return `Theme is locked to ${preference}. Click to switch themes or return to System.`;
+}
+
 export function ThemeControl() {
   const { preference, resolvedTheme, setPreference } = useTheme();
   const [open, setOpen] = useState(false);
@@ -63,17 +71,15 @@ export function ThemeControl() {
   return (
     <div className="relative" ref={containerRef}>
       <button
+        aria-label={themeButtonTitle(preference, resolvedTheme)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 bg-surface-container-high px-3 py-2 text-xs font-medium text-on-surface transition-colors hover:border-primary/20 hover:bg-surface-container-highest"
+        className="inline-flex items-center gap-1 rounded-full border border-outline-variant/20 bg-surface-container-high px-3 py-2 text-xs font-medium text-on-surface transition-colors hover:border-primary/20 hover:bg-surface-container-highest"
         onClick={() => setOpen((current) => !current)}
-        title={`Theme: ${preference} (${resolvedTheme})`}
+        title={themeButtonTitle(preference, resolvedTheme)}
         type="button"
       >
         <Icon className="text-base text-primary" name={themeButtonIcon(preference)} />
-        <span className="hidden sm:inline">
-          {preference === "system" ? "System" : resolvedTheme === "dark" ? "Dark" : "Light"}
-        </span>
         <Icon className={`text-sm text-outline transition-transform ${open ? "rotate-180" : ""}`} name="expand_more" />
       </button>
 
