@@ -903,6 +903,47 @@ func TestSeedPreExistingLog(t *testing.T) {
 	}
 }
 
+func TestSeedSkipsWindowsCaseCollisionAgainstSnapshot(t *testing.T) {
+	withWindowsPathPolicy(t, true)
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	if err := os.MkdirAll(filepath.Join(localDir, "docs"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "docs", "readme.md"), []byte("local"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := DaemonConfig{
+		SyncConfig:  SyncConfig{LocalRoot: localDir},
+		DriveID:     "test_seed_windows_case_collision",
+		PollSeconds: 300,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	daemon.localLog.AppendLocal(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "Docs/Readme.md",
+		Checksum:  "remote",
+		Namespace: "default",
+	})
+
+	daemon.seedStateFromDisk()
+
+	if daemon.outbox.Len() != 0 {
+		t.Fatalf("outbox has %d entries, want 0 for Windows case collision", daemon.outbox.Len())
+	}
+}
+
 // Seed detects local modifications (different checksum).
 func TestSeedLocalModification(t *testing.T) {
 	backend := s3adapter.NewMemory()

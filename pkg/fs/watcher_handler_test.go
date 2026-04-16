@@ -144,6 +144,88 @@ func TestWatcherHandlerSkipsInvalidLogicalPath(t *testing.T) {
 	}
 }
 
+func TestWatcherHandlerSkipsWindowsCaseCollisionAgainstSnapshot(t *testing.T) {
+	t.Parallel()
+	withWindowsPathPolicy(t, true)
+
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	if err := os.MkdirAll(filepath.Join(localDir, "docs"), 0755); err != nil {
+		t.Fatalf("mkdir docs: %v", err)
+	}
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+	localLog.AppendLocal(opslog.Entry{Type: opslog.Put, Path: "Docs/Readme.md", Checksum: "remote", Namespace: "Test"})
+
+	if err := os.WriteFile(filepath.Join(localDir, "docs", "readme.md"), []byte("local"), 0644); err != nil {
+		t.Fatalf("write local file: %v", err)
+	}
+
+	handler := NewWatcherHandler(outbox, localLog, localDir, "Test", nil)
+	handler.HandleEvents([]FileEvent{{Path: "docs/readme.md", Type: FileCreated}})
+
+	if outbox.Len() != 0 {
+		t.Fatalf("outbox has %d entries, want 0 for Windows case collision", outbox.Len())
+	}
+}
+
+func TestWatcherHandlerSkipsWindowsCaseCollisionAgainstPendingOutbox(t *testing.T) {
+	t.Parallel()
+	withWindowsPathPolicy(t, true)
+
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	if err := os.MkdirAll(filepath.Join(localDir, "docs"), 0755); err != nil {
+		t.Fatalf("mkdir docs: %v", err)
+	}
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+	if err := outbox.Append(NewOutboxPut("Docs/Readme.md", "aaa", "Test", filepath.Join(localDir, "Docs", "Readme.md"))); err != nil {
+		t.Fatalf("append outbox: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(localDir, "docs", "readme.md"), []byte("local"), 0644); err != nil {
+		t.Fatalf("write local file: %v", err)
+	}
+
+	handler := NewWatcherHandler(outbox, localLog, localDir, "Test", nil)
+	handler.HandleEvents([]FileEvent{{Path: "docs/readme.md", Type: FileCreated}})
+
+	entries, err := outbox.ReadAll()
+	if err != nil {
+		t.Fatalf("read outbox: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("outbox has %d entries, want 1 existing entry only", len(entries))
+	}
+}
+
+func TestWatcherHandlerSkipsWindowsCaseCollisionWithinBatch(t *testing.T) {
+	t.Parallel()
+	withWindowsPathPolicy(t, true)
+
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	if err := os.MkdirAll(localDir, 0755); err != nil {
+		t.Fatalf("mkdir sync: %v", err)
+	}
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+
+	handler := NewWatcherHandler(outbox, localLog, localDir, "Test", nil)
+	handler.HandleEvents([]FileEvent{
+		{Path: "Docs", Type: DirCreated},
+		{Path: "docs", Type: DirCreated},
+	})
+
+	if outbox.Len() != 0 {
+		t.Fatalf("outbox has %d entries, want 0 for colliding batch paths", outbox.Len())
+	}
+}
+
 func TestWatcherHandlerDelete(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()

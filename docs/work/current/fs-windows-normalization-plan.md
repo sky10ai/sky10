@@ -188,7 +188,7 @@ Checklist:
 - [x] Detect collisions before materialization.
 - [x] Surface the collision as explicit degraded/conflict state.
 - [x] Add conflict entries to activity/health surfaces.
-- [ ] Decide whether collisions should also block local watcher ingestion from
+- [x] Decide whether collisions should also block local watcher ingestion from
       creating ambiguous entries on Windows.
 
 Done when:

@@ -421,6 +421,23 @@ func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duratio
 		d.logger.Warn("seed: snapshot failed", "error", err)
 		return fmt.Errorf("snapshot local log: %w", err)
 	}
+	emptyDirs := ScanEmptyDirectories(d.config.LocalRoot, d.config.IgnoreFunc)
+	var pathIssues map[string]pathPolicyIssue
+	if windowsPathPolicyEnabled {
+		entries, err := d.outbox.ReadAll()
+		if err != nil {
+			d.logger.Warn("seed: outbox read failed for path policy", "error", err)
+		} else {
+			candidatePaths := make([]string, 0, len(localFiles))
+			for path := range localFiles {
+				candidatePaths = append(candidatePaths, path)
+			}
+			for _, dir := range emptyDirs {
+				candidatePaths = append(candidatePaths, dir)
+			}
+			pathIssues = activeWindowsPathIssueIndex(snap, outboxEntryPaths(entries), candidatePaths)
+		}
+	}
 	knownFiles := snap.Files()
 	deletedFiles := snap.DeletedFiles()
 	d.logger.Info("seed", "local_files", len(localFiles), "known_files", len(knownFiles), "deleted_files", len(deletedFiles))
@@ -438,6 +455,15 @@ func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duratio
 	// blob upload succeeds.
 	for path, cksum := range localFiles {
 		if deletedFiles[path] {
+			continue
+		}
+		if issue, ok := pathIssues[path]; ok {
+			d.logger.Warn("seed: skip Windows path issue",
+				"path", path,
+				"kind", issue.Kind,
+				"reason", issue.Reason,
+				"paths", issue.Paths,
+			)
 			continue
 		}
 		fi, ok := knownFiles[path]
@@ -521,8 +547,16 @@ func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duratio
 
 	// Empty directories on disk not in snapshot → outbox only.
 	knownDirs := snap.Dirs()
-	emptyDirs := ScanEmptyDirectories(d.config.LocalRoot, d.config.IgnoreFunc)
 	for _, dir := range emptyDirs {
+		if issue, ok := pathIssues[dir]; ok {
+			d.logger.Warn("seed: skip empty dir for Windows path issue",
+				"path", dir,
+				"kind", issue.Kind,
+				"reason", issue.Reason,
+				"paths", issue.Paths,
+			)
+			continue
+		}
 		if _, ok := knownDirs[dir]; !ok {
 			d.logger.Info("seed: new dir", "path", dir)
 			d.outbox.Append(OutboxEntry{

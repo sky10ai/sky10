@@ -42,6 +42,28 @@ func NewWatcherHandler(outbox *SyncLog[OutboxEntry], localLog *opslog.LocalOpsLo
 func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 	seen := make(map[string]bool)
 	wrote := false
+	var pathIssues map[string]pathPolicyIssue
+	if windowsPathPolicyEnabled {
+		snap, err := h.localLog.Snapshot()
+		if err != nil {
+			h.logger.Warn("watcher: snapshot failed for path policy", "error", err)
+		} else {
+			entries, err := h.outbox.ReadAll()
+			if err != nil {
+				h.logger.Warn("watcher: outbox read failed for path policy", "error", err)
+			} else {
+				candidatePaths := make([]string, 0, len(events))
+				for _, e := range events {
+					path, err := canonicalLogicalPath(e.Path)
+					if err != nil {
+						continue
+					}
+					candidatePaths = append(candidatePaths, path)
+				}
+				pathIssues = activeWindowsPathIssueIndex(snap, outboxEntryPaths(entries), candidatePaths)
+			}
+		}
+	}
 
 	for _, e := range events {
 		logicalPath, err := canonicalLogicalPath(e.Path)
@@ -58,6 +80,15 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 
 		if isConflictCopyPath(e.Path) && e.Type != FileDeleted {
 			h.logger.Debug("watcher: skip conflict artifact", "path", e.Path, "type", e.Type)
+			continue
+		}
+		if issue, ok := pathIssues[e.Path]; ok {
+			h.logger.Warn("watcher: skip Windows path issue",
+				"path", e.Path,
+				"kind", issue.Kind,
+				"reason", issue.Reason,
+				"paths", issue.Paths,
+			)
 			continue
 		}
 
@@ -211,6 +242,22 @@ func (h *WatcherHandler) HandleDirectoryTrash(dirPath string) {
 	if err != nil {
 		h.logger.Warn("watcher: snapshot failed for directory trash", "error", err)
 		return
+	}
+	if windowsPathPolicyEnabled {
+		entries, err := h.outbox.ReadAll()
+		if err != nil {
+			h.logger.Warn("watcher: outbox read failed for directory trash path policy", "error", err)
+			return
+		}
+		if issue, ok := activeWindowsPathIssueIndex(snap, outboxEntryPaths(entries), []string{dirPath})[dirPath]; ok {
+			h.logger.Warn("watcher: skip directory trash for Windows path issue",
+				"path", dirPath,
+				"kind", issue.Kind,
+				"reason", issue.Reason,
+				"paths", issue.Paths,
+			)
+			return
+		}
 	}
 
 	// Check that tracked files or dirs exist under this prefix,

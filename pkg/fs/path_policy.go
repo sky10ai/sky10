@@ -107,6 +107,29 @@ func activeSnapshotPathIssues(snap *opslog.Snapshot) []pathPolicyIssue {
 	return detectWindowsSnapshotPathIssues(snap)
 }
 
+func activeWindowsPathIssueIndex(snap *opslog.Snapshot, pendingPaths, candidatePaths []string) map[string]pathPolicyIssue {
+	if !windowsPathPolicyEnabled {
+		return nil
+	}
+
+	paths := snapshotLogicalPaths(snap)
+	paths = append(paths, pendingPaths...)
+	paths = append(paths, candidatePaths...)
+
+	issues := detectWindowsPathIssues(paths)
+	if len(issues) == 0 {
+		return nil
+	}
+
+	index := make(map[string]pathPolicyIssue, len(issues))
+	for _, issue := range issues {
+		for _, path := range issue.Paths {
+			index[path] = issue
+		}
+	}
+	return index
+}
+
 func summarizePathPolicyIssues(issues []pathPolicyIssue) (int, string) {
 	if len(issues) == 0 {
 		return 0, ""
@@ -134,4 +157,33 @@ func pathIssueBlocksPath(path string, issues []pathPolicyIssue) bool {
 
 func windowsCaseFoldKey(path string) string {
 	return strings.ToLower(path)
+}
+
+func snapshotLogicalPaths(snap *opslog.Snapshot) []string {
+	if snap == nil {
+		return nil
+	}
+
+	paths := make([]string, 0, len(snap.Files())+len(snap.Dirs()))
+	for path := range snap.Files() {
+		paths = append(paths, path)
+	}
+	for path := range snap.Dirs() {
+		paths = append(paths, path)
+	}
+	return paths
+}
+
+func outboxEntryPaths(entries []OutboxEntry) []string {
+	if len(entries) == 0 {
+		return nil
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Path == "" {
+			continue
+		}
+		paths = append(paths, entry.Path)
+	}
+	return paths
 }
