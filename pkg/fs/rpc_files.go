@@ -56,6 +56,10 @@ func (s *FSHandler) rpcPut(ctx context.Context, params json.RawMessage) (interfa
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
+	logicalPath, err := NormalizeLogicalPath(p.Path)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path: %w", err)
+	}
 
 	f, err := os.Open(p.LocalPath)
 	if err != nil {
@@ -68,11 +72,11 @@ func (s *FSHandler) rpcPut(ctx context.Context, params json.RawMessage) (interfa
 		return nil, fmt.Errorf("stat %s: %w", p.LocalPath, err)
 	}
 
-	if err := s.store.Put(ctx, p.Path, f); err != nil {
+	if err := s.store.Put(ctx, logicalPath, f); err != nil {
 		return nil, err
 	}
 
-	s.server.Emit("file.changed", map[string]string{"path": p.Path, "type": "put"})
+	s.server.Emit("file.changed", map[string]string{"path": logicalPath, "type": "put"})
 	return putResult{Size: info.Size()}, nil
 }
 
@@ -114,16 +118,21 @@ func (s *FSHandler) rpcRemove(_ context.Context, params json.RawMessage) (interf
 		return nil, fmt.Errorf("drive %q not found", p.Drive)
 	}
 
-	target := filepath.Join(drive.LocalPath, filepath.Clean(p.Path))
-	if !filepath.HasPrefix(target, drive.LocalPath) {
-		return nil, fmt.Errorf("path escapes drive root")
+	logicalPath, err := NormalizeLogicalPath(p.Path)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path: %w", err)
+	}
+
+	target, err := LogicalPathToLocal(drive.LocalPath, logicalPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path: %w", err)
 	}
 
 	if err := os.RemoveAll(target); err != nil {
-		return nil, fmt.Errorf("removing %s: %w", p.Path, err)
+		return nil, fmt.Errorf("removing %s: %w", logicalPath, err)
 	}
 
-	s.server.Emit("file.changed", map[string]string{"drive": p.Drive, "path": p.Path, "type": "delete"})
+	s.server.Emit("file.changed", map[string]string{"drive": p.Drive, "path": logicalPath, "type": "delete"})
 	return map[string]string{"status": "ok"}, nil
 }
 
@@ -141,16 +150,21 @@ func (s *FSHandler) rpcMkdir(_ context.Context, params json.RawMessage) (interfa
 		return nil, fmt.Errorf("drive %q not found", p.Drive)
 	}
 
-	target := filepath.Join(drive.LocalPath, filepath.Clean(p.Path))
-	if !filepath.HasPrefix(target, drive.LocalPath) {
-		return nil, fmt.Errorf("path escapes drive root")
+	logicalPath, err := NormalizeLogicalPath(p.Path)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path: %w", err)
+	}
+
+	target, err := LogicalPathToLocal(drive.LocalPath, logicalPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path: %w", err)
 	}
 
 	if err := os.MkdirAll(target, 0755); err != nil {
-		return nil, fmt.Errorf("creating directory %s: %w", p.Path, err)
+		return nil, fmt.Errorf("creating directory %s: %w", logicalPath, err)
 	}
 
-	s.server.Emit("file.changed", map[string]string{"drive": p.Drive, "path": p.Path, "type": "mkdir"})
+	s.server.Emit("file.changed", map[string]string{"drive": p.Drive, "path": logicalPath, "type": "mkdir"})
 	return map[string]string{"status": "ok"}, nil
 }
 
@@ -178,8 +192,12 @@ func (s *FSHandler) rpcVersions(ctx context.Context, params json.RawMessage) (in
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
+	logicalPath, err := NormalizeLogicalPath(p.Path)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path: %w", err)
+	}
 
-	versions, err := ListVersions(ctx, s.store, p.Path)
+	versions, err := ListVersions(ctx, s.store, logicalPath)
 	if err != nil {
 		return nil, err
 	}

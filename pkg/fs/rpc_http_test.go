@@ -82,3 +82,94 @@ func TestHandleUploadStagesThenPublishes(t *testing.T) {
 		t.Fatalf("sessions dir should be empty after publish, found %d entries", len(sessionEntries))
 	}
 }
+
+func TestHandleUploadNormalizesBackslashPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	id, _ := GenerateDeviceKey()
+	store := New(s3adapter.NewMemory(), id)
+	server := skyrpc.NewServer(filepath.Join(tmpDir, "test.sock"), "test", nil)
+	handler := NewFSHandler(store, server, filepath.Join(tmpDir, "drives.json"), nil, nil)
+
+	localDir := filepath.Join(tmpDir, "sync")
+	drive, err := handler.driveManager.CreateDrive("Uploads", localDir, "uploads")
+	if err != nil {
+		t.Fatalf("create drive: %v", err)
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "hello.txt")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := part.Write([]byte("hello via http")); err != nil {
+		t.Fatalf("write form file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/upload?drive="+url.QueryEscape(drive.ID)+"&path="+url.QueryEscape(`docs\hello.txt`),
+		&body,
+	)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	rec := httptest.NewRecorder()
+	handler.HandleUpload(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	target := filepath.Join(localDir, "docs", "hello.txt")
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("expected normalized upload target %q: %v", target, err)
+	}
+}
+
+func TestHandleUploadRejectsEscapingPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	id, _ := GenerateDeviceKey()
+	store := New(s3adapter.NewMemory(), id)
+	server := skyrpc.NewServer(filepath.Join(tmpDir, "test.sock"), "test", nil)
+	handler := NewFSHandler(store, server, filepath.Join(tmpDir, "drives.json"), nil, nil)
+
+	localDir := filepath.Join(tmpDir, "sync")
+	drive, err := handler.driveManager.CreateDrive("Uploads", localDir, "uploads")
+	if err != nil {
+		t.Fatalf("create drive: %v", err)
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "hello.txt")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := part.Write([]byte("hello via http")); err != nil {
+		t.Fatalf("write form file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/upload?drive="+url.QueryEscape(drive.ID)+"&path="+url.QueryEscape(`..\escape.txt`),
+		&body,
+	)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	rec := httptest.NewRecorder()
+	handler.HandleUpload(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}

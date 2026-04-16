@@ -111,11 +111,10 @@ func (w *Watcher) loop() {
 }
 
 func (w *Watcher) handleEvent(event fsnotify.Event) {
-	rel, err := filepath.Rel(w.root, event.Name)
+	rel, err := LocalPathToLogical(w.root, event.Name)
 	if err != nil {
 		return
 	}
-	rel = filepath.ToSlash(rel)
 
 	if w.ignore != nil && w.ignore(rel) {
 		return
@@ -141,8 +140,10 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 				if err != nil || d.IsDir() {
 					return nil
 				}
-				childRel, _ := filepath.Rel(w.root, path)
-				childRel = filepath.ToSlash(childRel)
+				childRel, err := LocalPathToLogical(w.root, path)
+				if err != nil {
+					return nil
+				}
 				if w.ignore != nil && w.ignore(childRel) {
 					return nil
 				}
@@ -176,7 +177,11 @@ func (w *Watcher) flushPending() {
 		}
 
 		eventType := FileModified
-		fullPath := filepath.Join(w.root, filepath.FromSlash(path))
+		fullPath, err := LogicalPathToLocal(w.root, path)
+		if err != nil {
+			delete(w.pending, path)
+			continue
+		}
 		fi, err := os.Lstat(fullPath)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -213,8 +218,11 @@ func (w *Watcher) addRecursive(root string) error {
 			return nil
 		}
 		if path != root && w.ignore != nil {
-			rel, _ := filepath.Rel(root, path)
-			if w.ignore(filepath.ToSlash(rel)) {
+			rel, err := LocalPathToLogical(w.root, path)
+			if err != nil {
+				return filepath.SkipDir
+			}
+			if w.ignore(rel) {
 				return filepath.SkipDir
 			}
 		}

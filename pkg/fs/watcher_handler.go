@@ -3,7 +3,6 @@ package fs
 import (
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -45,6 +44,13 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 	wrote := false
 
 	for _, e := range events {
+		logicalPath, err := canonicalLogicalPath(e.Path)
+		if err != nil {
+			h.logger.Warn("watcher: invalid logical path", "path", e.Path, "error", err)
+			continue
+		}
+		e.Path = logicalPath
+
 		if seen[e.Path] {
 			continue
 		}
@@ -57,7 +63,11 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 
 		switch e.Type {
 		case FileCreated, FileModified:
-			localPath := filepath.Join(h.localDir, filepath.FromSlash(e.Path))
+			localPath, err := LogicalPathToLocal(h.localDir, e.Path)
+			if err != nil {
+				h.logger.Warn("watcher: invalid local path", "path", e.Path, "error", err)
+				continue
+			}
 			cksum, stable, err := stableFileChecksum(localPath, h.stableWriteWindow)
 			if err != nil {
 				h.logger.Warn("watcher: checksum failed", "path", e.Path, "error", err)
@@ -124,7 +134,11 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 			wrote = true
 
 		case SymlinkCreated:
-			localPath := filepath.Join(h.localDir, filepath.FromSlash(e.Path))
+			localPath, err := LogicalPathToLocal(h.localDir, e.Path)
+			if err != nil {
+				h.logger.Warn("watcher: invalid symlink path", "path", e.Path, "error", err)
+				continue
+			}
 			target, err := os.Readlink(localPath)
 			if err != nil {
 				h.logger.Warn("watcher: readlink failed", "path", e.Path, "error", err)
@@ -186,6 +200,13 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 // directory disappears. kqueue fires one event for the directory, not
 // per-file. The CRDT's buildSnapshot handles the prefix delete.
 func (h *WatcherHandler) HandleDirectoryTrash(dirPath string) {
+	canonicalDir, err := canonicalLogicalPath(dirPath)
+	if err != nil {
+		h.logger.Warn("watcher: invalid directory trash path", "path", dirPath, "error", err)
+		return
+	}
+	dirPath = canonicalDir
+
 	snap, err := h.localLog.Snapshot()
 	if err != nil {
 		h.logger.Warn("watcher: snapshot failed for directory trash", "error", err)

@@ -275,6 +275,11 @@ func (s *Store) loadManifestFromKey(ctx context.Context, key string) (*Manifest,
 // It streams through the data chunk by chunk, never holding more than
 // one chunk (max 4MB) in memory.
 func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
+	canonicalPath, err := NormalizeLogicalPath(path)
+	if err != nil {
+		return fmt.Errorf("invalid path: %w", err)
+	}
+	path = canonicalPath
 	namespace := s.namespaceFor(path)
 
 	nsID, nsKey, err := s.resolveNamespaceState(ctx, namespace)

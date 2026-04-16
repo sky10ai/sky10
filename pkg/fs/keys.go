@@ -15,6 +15,7 @@ import (
 //	"financial/reports/q4.pdf" → "financial"
 //	"notes.md" → "default"
 func NamespaceFromPath(path string) string {
+	path = strings.ReplaceAll(path, `\`, "/")
 	path = strings.TrimPrefix(path, "/")
 	if i := strings.IndexByte(path, '/'); i > 0 {
 		return path[:i]

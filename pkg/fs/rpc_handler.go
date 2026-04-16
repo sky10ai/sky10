@@ -275,12 +275,17 @@ func (s *FSHandler) rpcList(_ context.Context, params json.RawMessage) (interfac
 			if p.Prefix != "" && (len(path) < len(p.Prefix) || path[:len(p.Prefix)] != p.Prefix) {
 				continue
 			}
-			localPath := filepath.Join(drive.LocalPath, filepath.FromSlash(path))
+			localPath, err := LogicalPathToLocal(drive.LocalPath, path)
+			if err != nil {
+				localPath = ""
+			}
 			var size int64
 			var mod string
-			if info, err := os.Stat(localPath); err == nil {
-				size = info.Size()
-				mod = info.ModTime().UTC().Format("2006-01-02T15:04:05Z")
+			if localPath != "" {
+				if info, err := os.Stat(localPath); err == nil {
+					size = info.Size()
+					mod = info.ModTime().UTC().Format("2006-01-02T15:04:05Z")
+				}
 			}
 			files = append(files, fileInfo{
 				Path:      path,
@@ -331,7 +336,10 @@ func (s *FSHandler) rpcInfo(_ context.Context) (interface{}, error) {
 		snapFiles := snap.Files()
 		info.FileCount += len(snapFiles)
 		for path := range snapFiles {
-			localPath := filepath.Join(drive.LocalPath, filepath.FromSlash(path))
+			localPath, err := LogicalPathToLocal(drive.LocalPath, path)
+			if err != nil {
+				continue
+			}
 			if fi, err := os.Stat(localPath); err == nil {
 				info.TotalSize += fi.Size()
 			}

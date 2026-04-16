@@ -127,6 +127,23 @@ func TestWatcherHandlerSkipsConflictCopyCreate(t *testing.T) {
 	}
 }
 
+func TestWatcherHandlerSkipsInvalidLogicalPath(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+
+	handler := NewWatcherHandler(outbox, localLog, localDir, "Test", nil)
+	handler.HandleEvents([]FileEvent{{Path: `folder\name.txt`, Type: FileCreated}})
+
+	if outbox.Len() != 0 {
+		t.Fatalf("outbox has %d entries, want 0 for invalid logical path", outbox.Len())
+	}
+}
+
 func TestWatcherHandlerDelete(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()

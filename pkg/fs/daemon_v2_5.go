@@ -460,7 +460,11 @@ func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duratio
 				continue
 			}
 
-			localPath := filepath.Join(d.config.LocalRoot, filepath.FromSlash(path))
+			localPath, err := LogicalPathToLocal(d.config.LocalRoot, path)
+			if err != nil {
+				d.logger.Warn("seed: invalid logical path", "path", path, "error", err)
+				continue
+			}
 			if _, err := os.Stat(localPath); err != nil {
 				continue
 			}

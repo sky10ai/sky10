@@ -17,6 +17,7 @@ func TestNamespaceFromPath(t *testing.T) {
 		{"notes.md", "default"},
 		{"contacts/alice.vcf", "contacts"},
 		{"/journal/entry.md", "journal"},
+		{`journal\entry.md`, "journal"},
 		{"a/b/c/d/e.txt", "a"},
 		{"single", "default"},
 	}

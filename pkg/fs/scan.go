@@ -33,11 +33,13 @@ func ScanDirectory(root string, ignore func(string) bool) (ScanResult, map[strin
 			return nil
 		}
 
-		rel, err := filepath.Rel(root, path)
+		rel, err := LocalPathToLogical(root, path)
 		if err != nil {
-			return fmt.Errorf("computing relative path: %w", err)
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
-		rel = filepath.ToSlash(rel)
 
 		if ignore != nil && ignore(rel) {
 			if d.IsDir() {
@@ -92,8 +94,10 @@ func ScanEmptyDirectories(root string, ignore func(string) bool) []string {
 		if err != nil || !d.IsDir() || path == root {
 			return nil
 		}
-		rel, _ := filepath.Rel(root, path)
-		rel = filepath.ToSlash(rel)
+		rel, err := LocalPathToLogical(root, path)
+		if err != nil {
+			return filepath.SkipDir
+		}
 		if ignore != nil && ignore(rel) {
 			return filepath.SkipDir
 		}

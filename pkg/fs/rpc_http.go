@@ -5,7 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
+	pathpkg "path"
 )
 
 // HandleUpload handles multipart file uploads to a drive.
@@ -30,9 +30,14 @@ func (s *FSHandler) HandleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target := filepath.Join(drive.LocalPath, filepath.Clean(filePath))
-	if !filepath.HasPrefix(target, drive.LocalPath) {
-		http.Error(w, "path escapes drive root", http.StatusBadRequest)
+	logicalPath, err := NormalizeLogicalPath(filePath)
+	if err != nil {
+		http.Error(w, "invalid path: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	target, err := LogicalPathToLocal(drive.LocalPath, logicalPath)
+	if err != nil {
+		http.Error(w, "invalid path: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -90,13 +95,13 @@ func (s *FSHandler) HandleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := session.remove(); err != nil {
-		s.logger.Warn("upload transfer session cleanup failed", "drive", driveName, "path", filePath, "error", err)
+		s.logger.Warn("upload transfer session cleanup failed", "drive", driveName, "path", logicalPath, "error", err)
 	}
 
 	s.server.Emit("file.changed", map[string]string{
-		"drive": driveName, "path": filePath, "type": "put",
+		"drive": driveName, "path": logicalPath, "type": "put",
 	})
-	s.logger.Info("file uploaded via HTTP", "drive", driveName, "path", filePath, "size", n)
+	s.logger.Info("file uploaded via HTTP", "drive", driveName, "path", logicalPath, "size", n)
 
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, `{"status":"ok","size":%d}`, n)
@@ -123,9 +128,14 @@ func (s *FSHandler) HandleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target := filepath.Join(drive.LocalPath, filepath.Clean(filePath))
-	if !filepath.HasPrefix(target, drive.LocalPath) {
-		http.Error(w, "path escapes drive root", http.StatusBadRequest)
+	logicalPath, err := NormalizeLogicalPath(filePath)
+	if err != nil {
+		http.Error(w, "invalid path: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	target, err := LogicalPathToLocal(drive.LocalPath, logicalPath)
+	if err != nil {
+		http.Error(w, "invalid path: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -139,7 +149,7 @@ func (s *FSHandler) HandleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filename := filepath.Base(filePath)
+	filename := pathpkg.Base(logicalPath)
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	http.ServeFile(w, r, target)
 }

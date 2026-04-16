@@ -132,9 +132,9 @@ defines the only supported conversions:
 
 Checklist:
 
-- [ ] Add a single canonical logical-path normalizer.
-- [ ] Add one local-to-logical conversion helper.
-- [ ] Add one logical-to-local conversion helper.
+- [x] Add a single canonical logical-path normalizer.
+- [x] Add one local-to-logical conversion helper.
+- [x] Add one logical-to-local conversion helper.
 - [ ] Remove ad hoc path normalization logic from ingress points.
 - [ ] Ensure all FS metadata producers normalize before writing state.
 
@@ -159,8 +159,8 @@ Minimum blocked cases:
 
 Checklist:
 
-- [ ] Add a Windows path-segment validator.
-- [ ] Validate per segment rather than only at the full path string.
+- [x] Add a Windows path-segment validator.
+- [x] Validate per segment rather than only at the full path string.
 - [ ] Surface invalid-path issues through health/activity APIs.
 - [ ] Decide whether invalid paths are omitted from materialization or block
       the whole drive from "healthy" state.
@@ -202,13 +202,13 @@ Replace ad hoc path acceptance at all FS entry points.
 
 Checklist:
 
-- [ ] Normalize RPC-upload paths in `pkg/fs/rpc_http.go`.
-- [ ] Normalize RPC file-operation paths in `pkg/fs/rpc_files.go`.
-- [ ] Normalize RPC materialization and inspection paths in
+- [x] Normalize RPC-upload paths in `pkg/fs/rpc_http.go`.
+- [x] Normalize RPC file-operation paths in `pkg/fs/rpc_files.go`.
+- [x] Normalize RPC materialization and inspection paths in
       `pkg/fs/rpc_handler.go`.
-- [ ] Normalize watcher-produced paths consistently in
+- [x] Normalize watcher-produced paths consistently in
       `pkg/fs/watcher.go` and `pkg/fs/watcher_handler.go`.
-- [ ] Normalize scan-produced paths consistently in `pkg/fs/scan.go`.
+- [x] Normalize scan-produced paths consistently in `pkg/fs/scan.go`.
 - [ ] Ensure reconciler and transfer-session code only consume canonical
       logical paths.
 
