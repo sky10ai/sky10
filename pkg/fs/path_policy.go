@@ -14,9 +14,11 @@ var windowsPathPolicyEnabled = runtime.GOOS == "windows"
 type pathPolicyIssueKind string
 
 const (
-	pathPolicyIssueWindowsInvalid  pathPolicyIssueKind = "windows_invalid_path"
-	pathPolicyIssueCaseCollision   pathPolicyIssueKind = "windows_case_collision"
-	pathPolicyIssueReasonCollision                     = "paths collide on Windows case-insensitive filesystem"
+	pathPolicyIssueWindowsInvalid                  pathPolicyIssueKind = "windows_invalid_path"
+	pathPolicyIssueCaseCollision                   pathPolicyIssueKind = "windows_case_collision"
+	pathPolicyIssueWindowsSymlinkUnsupported       pathPolicyIssueKind = "windows_symlink_unsupported"
+	pathPolicyIssueReasonCollision                                     = "paths collide on Windows case-insensitive filesystem"
+	pathPolicyIssueReasonWindowsSymlinkUnsupported                     = "Windows symbolic links are unavailable on this machine"
 )
 
 type pathPolicyIssue struct {
@@ -74,14 +76,7 @@ func detectWindowsPathIssues(paths []string) []pathPolicyIssue {
 		})
 	}
 
-	sort.Slice(issues, func(i, j int) bool {
-		if issues[i].Kind != issues[j].Kind {
-			return issues[i].Kind < issues[j].Kind
-		}
-		left := strings.Join(issues[i].Paths, "\x00")
-		right := strings.Join(issues[j].Paths, "\x00")
-		return left < right
-	})
+	sortPathPolicyIssues(issues)
 
 	return issues
 }
@@ -104,7 +99,12 @@ func activeSnapshotPathIssues(snap *opslog.Snapshot) []pathPolicyIssue {
 	if !windowsPathPolicyEnabled {
 		return nil
 	}
-	return detectWindowsSnapshotPathIssues(snap)
+	issues := detectWindowsSnapshotPathIssues(snap)
+	if issue := unsupportedWindowsSymlinkIssue(snap); issue != nil {
+		issues = append(issues, *issue)
+		sortPathPolicyIssues(issues)
+	}
+	return issues
 }
 
 func activeWindowsPathIssueIndex(snap *opslog.Snapshot, pendingPaths, candidatePaths []string) map[string]pathPolicyIssue {

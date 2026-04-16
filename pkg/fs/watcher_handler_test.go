@@ -145,7 +145,6 @@ func TestWatcherHandlerSkipsInvalidLogicalPath(t *testing.T) {
 }
 
 func TestWatcherHandlerSkipsWindowsCaseCollisionAgainstSnapshot(t *testing.T) {
-	t.Parallel()
 	withWindowsPathPolicy(t, true)
 
 	tmpDir := t.TempDir()
@@ -171,7 +170,6 @@ func TestWatcherHandlerSkipsWindowsCaseCollisionAgainstSnapshot(t *testing.T) {
 }
 
 func TestWatcherHandlerSkipsWindowsCaseCollisionAgainstPendingOutbox(t *testing.T) {
-	t.Parallel()
 	withWindowsPathPolicy(t, true)
 
 	tmpDir := t.TempDir()
@@ -203,7 +201,6 @@ func TestWatcherHandlerSkipsWindowsCaseCollisionAgainstPendingOutbox(t *testing.
 }
 
 func TestWatcherHandlerSkipsWindowsCaseCollisionWithinBatch(t *testing.T) {
-	t.Parallel()
 	withWindowsPathPolicy(t, true)
 
 	tmpDir := t.TempDir()

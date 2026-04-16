@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/signal"
 	"runtime"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -23,19 +21,6 @@ func DumpGoroutines(logger *slog.Logger) {
 	logger.Warn("=== GOROUTINE DUMP ===", "goroutines", runtime.NumGoroutine())
 	fmt.Fprintf(os.Stderr, "\n=== GOROUTINE DUMP %s (%d goroutines) ===\n%s\n=== END DUMP ===\n\n",
 		time.Now().Format(time.RFC3339), runtime.NumGoroutine(), stack)
-}
-
-// HandleDumpSignal listens for SIGUSR1 and dumps all goroutine stacks.
-// Call this once from the daemon startup.
-func HandleDumpSignal(logger *slog.Logger) {
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGUSR1)
-	go func() {
-		for range ch {
-			logger.Info("received SIGUSR1, dumping goroutines")
-			DumpGoroutines(logger)
-		}
-	}()
 }
 
 // Watchdog monitors worker goroutines and auto-dumps if any appear stuck.

@@ -114,10 +114,12 @@ from Unix.
 For the first Windows-ready FS pass, we should likely:
 
 - keep symlink metadata in the logical model
-- disable Windows symlink materialization by default, or gate it on an
-  explicit capability check
+- use real Windows symlinks, not junction rewrites
+- gate Windows materialization on an explicit capability check
 - surface unsupported symlink entries as degraded sync state instead of
   failing silently
+- infer directory-vs-file symlink creation when Windows needs an explicit
+  target kind
 
 ## Workstream 1: Path API
 
@@ -225,18 +227,18 @@ effect.
 
 Checklist:
 
-- [ ] Document the Windows symlink capability policy.
-- [ ] Add runtime capability detection for symlink creation where needed.
+- [x] Document the Windows symlink capability policy.
+- [x] Add runtime capability detection for symlink creation where needed.
 - [ ] Decide whether Windows should materialize safe relative symlinks only.
-- [ ] Decide whether Windows should materialize all supported symlinks when
+- [x] Decide whether Windows should materialize all supported symlinks when
       capability exists.
-- [ ] Decide whether Windows should instead treat symlinks as unsupported in
-      v1 and surface them as degraded.
+- [x] When capability is unavailable, treat symlinks as unsupported and
+      surface them as degraded.
 - [ ] Add Windows-aware tests or skips for symlink cases.
 
 Done when:
 
-- [ ] Windows behavior for synced symlinks is intentional and documented.
+- [x] Windows behavior for synced symlinks is intentional and documented.
 
 ## Workstream 6: Health and UX
 

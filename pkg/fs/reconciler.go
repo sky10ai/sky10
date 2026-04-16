@@ -181,7 +181,8 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		if ctx.Err() != nil {
 			break
 		}
-		if r.createSymlink(t.path, t.fi.LinkTarget, localSymlinks[t.path]) {
+		targetKind := inferSymlinkTargetKind(r.localDir, t.path, t.fi.LinkTarget, snapshotFiles, snapshotDirs)
+		if r.createSymlink(t.path, t.fi.LinkTarget, localSymlinks[t.path], targetKind) {
 			downloaded++
 			active = true
 		} else {
@@ -434,7 +435,7 @@ func checksumMatch(contentHash string, fi opslog.FileInfo) bool {
 
 // createSymlink creates or updates a symlink on disk. Returns true on success.
 // localTarget is the current local symlink target (empty if not a symlink).
-func (r *Reconciler) createSymlink(path, target, localTarget string) bool {
+func (r *Reconciler) createSymlink(path, target, localTarget string, targetKind symlinkTargetKind) bool {
 	if localTarget == target {
 		return false // already correct
 	}
@@ -450,11 +451,11 @@ func (r *Reconciler) createSymlink(path, target, localTarget string) bool {
 	// Remove whatever is at the path (regular file, wrong symlink, etc.)
 	os.Remove(localPath)
 
-	if err := os.Symlink(target, localPath); err != nil {
-		r.logger.Warn("reconcile: symlink failed", "path", path, "target", target, "error", err)
+	if err := symlinkCreator(target, localPath, targetKind); err != nil {
+		r.logger.Warn("reconcile: symlink failed", "path", path, "target", target, "target_kind", string(targetKind), "error", err)
 		return false
 	}
-	r.logger.Info("reconcile: symlink", "path", path, "target", target)
+	r.logger.Info("reconcile: symlink", "path", path, "target", target, "target_kind", string(targetKind))
 	return true
 }
 
