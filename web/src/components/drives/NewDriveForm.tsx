@@ -80,7 +80,7 @@ export function NewDriveForm({
           Cancel
         </button>
         <button
-          className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-primary/20 transition-colors hover:bg-primary/90 disabled:opacity-50"
+          className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-on-primary shadow-lg shadow-primary/20 transition-colors hover:bg-primary/90 disabled:opacity-50"
           disabled={creating || !name.trim() || !path.trim()}
           type="submit"
         >

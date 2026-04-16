@@ -80,7 +80,7 @@ export default function Drives() {
               </StatusBadge>
             )}
             <button
-              className="flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-primary/20 transition-colors hover:bg-primary/90"
+              className="flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-lg shadow-primary/20 transition-colors hover:bg-primary/90"
               onClick={() => setShowNewDrive(true)}
               type="button"
             >
@@ -129,7 +129,7 @@ export default function Drives() {
         <EmptyState
           action={
             <button
-              className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-primary/20"
+              className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-on-primary shadow-lg shadow-primary/20"
               onClick={() => setShowNewDrive(true)}
               type="button"
             >

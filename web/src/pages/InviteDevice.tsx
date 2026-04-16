@@ -75,7 +75,7 @@ export default function InviteDevice() {
 
         <div className="grid grid-cols-12 gap-6">
           {/* Step 1: Generate invite code */}
-          <div className="col-span-12 lg:col-span-8 bg-surface-container-lowest p-10 rounded-xl shadow-[0_20px_40px_rgba(26,28,29,0.04)] relative overflow-hidden group">
+          <div className="group relative col-span-12 overflow-hidden rounded-xl border border-outline-variant/10 bg-surface-container-lowest p-10 shadow-sm lg:col-span-8">
             <div className="relative z-10">
               <div className="flex items-center gap-3 mb-8">
                 <span className="w-8 h-8 rounded-full bg-primary-fixed text-primary flex items-center justify-center font-bold text-sm">
@@ -115,7 +115,7 @@ export default function InviteDevice() {
                 <button
                   onClick={generateInvite}
                   disabled={loading}
-                  className="lithic-gradient text-white py-4 px-8 rounded-full font-semibold shadow-lg shadow-primary/20 flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
+                  className="lithic-gradient flex items-center justify-center gap-2 rounded-full px-8 py-4 font-semibold text-on-primary shadow-lg shadow-primary/20 active:scale-95 disabled:opacity-50"
                 >
                   {loading ? (
                     <Icon name="sync" className="animate-spin" />
@@ -131,7 +131,7 @@ export default function InviteDevice() {
 
           {/* Step 2: Status */}
           <div className="col-span-12 lg:col-span-4 flex flex-col">
-            <div className="bg-surface-container-low p-10 rounded-xl flex-1 flex flex-col justify-center items-center text-center relative overflow-hidden">
+            <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden rounded-xl border border-outline-variant/10 bg-surface-container-low p-10 text-center">
               {joined ? (
                 <>
                   <div className="mb-6">
@@ -146,7 +146,7 @@ export default function InviteDevice() {
                   </p>
                   <button
                     onClick={() => navigate("/devices")}
-                    className="lithic-gradient text-white py-3 px-6 rounded-full font-semibold text-sm"
+                    className="lithic-gradient rounded-full px-6 py-3 text-sm font-semibold text-on-primary"
                   >
                     View Devices
                   </button>

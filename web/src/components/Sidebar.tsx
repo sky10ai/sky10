@@ -56,7 +56,7 @@ export function Sidebar() {
 
   return (
     <>
-      <aside className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col bg-surface-container-low font-body tracking-tight antialiased dark:bg-[#1a1c1d]">
+      <aside className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col bg-surface-container-low font-body tracking-tight antialiased">
         <div className="px-6 py-8">
           {/* Brand */}
           <div className="mb-10 flex items-center gap-2">
@@ -64,9 +64,7 @@ export function Sidebar() {
               <Icon name="cloud" filled className="text-lg" />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tighter text-on-surface dark:text-surface">
-                sky10
-              </h1>
+              <h1 className="text-xl font-bold tracking-tighter text-on-surface">sky10</h1>
               <button
                 aria-label="Open build details"
                 className={`relative overflow-hidden ${versionButtonClassName}`}
@@ -107,8 +105,8 @@ export function Sidebar() {
                   className={() =>
                     `flex items-center gap-3 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
                       isActive
-                        ? "bg-surface-container-lowest text-[#007AFF] shadow-sm dark:bg-[#2a2c2e]"
-                        : "text-[#71717a] hover:bg-surface-container-high dark:text-[#a1a1aa] dark:hover:bg-[#2a2c2e]"
+                        ? "bg-surface-container-lowest text-primary shadow-sm"
+                        : "text-secondary hover:bg-surface-container-high hover:text-on-surface"
                     }`
                   }
                 >

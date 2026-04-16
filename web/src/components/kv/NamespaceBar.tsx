@@ -62,7 +62,7 @@ export function NamespaceBar({
             </StatusBadge>
           )}
           <button
-            className="flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-primary/15"
+            className="flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-on-primary shadow-lg shadow-primary/15"
             onClick={onCreate}
             type="button"
           >

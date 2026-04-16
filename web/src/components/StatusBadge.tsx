@@ -4,11 +4,11 @@ import { Icon } from "./Icon";
 type StatusTone = "danger" | "live" | "neutral" | "processing" | "success";
 
 const toneClasses: Record<StatusTone, string> = {
-  danger: "bg-error-container/50 text-error",
-  live: "bg-emerald-50 text-emerald-700",
+  danger: "bg-error-container/40 text-on-error-container",
+  live: "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200",
   neutral: "bg-surface-container-high text-secondary",
   processing: "bg-primary/10 text-primary",
-  success: "bg-primary-fixed/60 text-on-primary-fixed-variant",
+  success: "bg-primary-fixed/40 text-on-primary-fixed-variant dark:bg-primary/20 dark:text-primary-fixed",
 };
 
 interface StatusBadgeProps {

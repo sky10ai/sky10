@@ -7,7 +7,7 @@ export function Layout() {
   return (
     <>
       <Sidebar />
-      <main className="ml-64 min-h-screen flex flex-col">
+      <main className="ml-64 flex min-h-screen flex-col bg-surface text-on-surface">
         <Header />
         <Outlet />
       </main>

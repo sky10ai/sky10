@@ -403,7 +403,7 @@ export default function Settings() {
         </section>
 
         {linkStatus && (
-          <section className="col-span-12 lg:col-span-4 bg-primary text-white rounded-xl p-8 flex flex-col gap-8 relative overflow-hidden">
+          <section className="col-span-12 lg:col-span-4 bg-primary text-on-primary rounded-xl p-8 flex flex-col gap-8 relative overflow-hidden">
             <div className="relative z-10 space-y-2">
               <h3 className="text-xl font-bold flex items-center gap-2">
                 <Icon name="wifi_tethering" />
@@ -415,12 +415,12 @@ export default function Settings() {
             </div>
             <div className="relative z-10 flex bg-on-primary-fixed-variant/40 p-1 rounded-full" title="Mode is set at daemon startup via sky10 serve flags">
               <div
-                className={`flex-1 py-2 text-xs font-bold rounded-full text-center ${linkStatus.mode === "private" ? "bg-white text-primary" : "text-primary-fixed-dim"}`}
+                className={`flex-1 py-2 text-xs font-bold rounded-full text-center ${linkStatus.mode === "private" ? "bg-on-primary text-primary" : "text-primary-fixed-dim"}`}
               >
                 Private
               </div>
               <div
-                className={`flex-1 py-2 text-xs font-bold rounded-full text-center ${linkStatus.mode === "network" ? "bg-white text-primary" : "text-primary-fixed-dim"}`}
+                className={`flex-1 py-2 text-xs font-bold rounded-full text-center ${linkStatus.mode === "network" ? "bg-on-primary text-primary" : "text-primary-fixed-dim"}`}
               >
                 Network
               </div>
@@ -436,7 +436,7 @@ export default function Settings() {
                 <p className="text-[10px] uppercase tracking-wider font-bold opacity-70">
                   Listen Addresses
                 </p>
-                <div className="bg-white/10 rounded p-2 font-mono text-[10px] space-y-1">
+                <div className="bg-on-primary/10 rounded p-2 font-mono text-[10px] space-y-1">
                   {linkStatus.addrs.map((addr) => (
                     <p key={addr}>{addr}</p>
                   ))}

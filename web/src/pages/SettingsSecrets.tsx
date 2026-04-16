@@ -909,7 +909,7 @@ function DevicePicker({
               </div>
               <input
                 checked={checked}
-                className="h-4 w-4 accent-[var(--color-primary)]"
+                className="h-4 w-4 accent-primary"
                 onChange={() => {
                   if (checked) {
                     onChange(selected.filter((id) => id !== device.id));

@@ -26,9 +26,9 @@ type NetworkStatusSummary = {
 function transportTone(health?: LinkNetworkHealth) {
   if (!health) return "bg-surface-container text-secondary";
   if (health.transport_degraded_reason) {
-    return "bg-amber-500/10 text-amber-700";
+    return "bg-amber-500/15 text-amber-800 dark:text-amber-200";
   }
-  return "bg-emerald-500/10 text-emerald-700";
+  return "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200";
 }
 
 function transportLabel(health?: LinkNetworkHealth) {
@@ -41,9 +41,9 @@ function fallbackTone(mailbox?: LinkMailboxHealth) {
   if (!mailbox) return "bg-surface-container text-secondary";
   if (mailbox.failed > 0) return "bg-error-container/30 text-error";
   if (mailbox.queued > 0 || mailbox.handed_off > 0) {
-    return "bg-amber-500/10 text-amber-700";
+    return "bg-amber-500/15 text-amber-800 dark:text-amber-200";
   }
-  return "bg-emerald-500/10 text-emerald-700";
+  return "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200";
 }
 
 function fallbackLabel(mailbox?: LinkMailboxHealth) {
@@ -57,9 +57,9 @@ function fallbackLabel(mailbox?: LinkMailboxHealth) {
 function coordinationTone(health?: LinkNetworkHealth) {
   if (!health) return "bg-surface-container text-secondary";
   if (health.coordination_degraded_reason) {
-    return "bg-amber-500/10 text-amber-700";
+    return "bg-amber-500/15 text-amber-800 dark:text-amber-200";
   }
-  return "bg-emerald-500/10 text-emerald-700";
+  return "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200";
 }
 
 function coordinationLabel(health?: LinkNetworkHealth) {
@@ -131,7 +131,7 @@ function networkStatusSummary(health?: LinkNetworkHealth): NetworkStatusSummary 
   if (!health) return null;
   if (health.transport_degraded_reason) {
     return {
-      tone: "bg-amber-500/10 text-amber-800 border-amber-700/15",
+      tone: "bg-amber-500/15 text-amber-900 border-amber-700/15 dark:text-amber-100 dark:border-amber-300/20",
       badge: "Transport",
       title: "Live transport is degraded.",
       detail: describeTransportReason(health.transport_degraded_reason),
@@ -139,7 +139,7 @@ function networkStatusSummary(health?: LinkNetworkHealth): NetworkStatusSummary 
   }
   if (health.delivery_degraded_reason && health.coordination_degraded_reason) {
     return {
-      tone: "bg-amber-500/10 text-amber-800 border-amber-700/15",
+      tone: "bg-amber-500/15 text-amber-900 border-amber-700/15 dark:text-amber-100 dark:border-amber-300/20",
       badge: "Live OK",
       title: "Live transport is healthy.",
       detail: `${describeDeliveryReason(health.delivery_degraded_reason)} ${describeCoordinationReason(health.coordination_degraded_reason)}`,
@@ -147,7 +147,7 @@ function networkStatusSummary(health?: LinkNetworkHealth): NetworkStatusSummary 
   }
   if (health.delivery_degraded_reason) {
     return {
-      tone: "bg-amber-500/10 text-amber-800 border-amber-700/15",
+      tone: "bg-amber-500/15 text-amber-900 border-amber-700/15 dark:text-amber-100 dark:border-amber-300/20",
       badge: "Live OK",
       title: "Live transport is healthy.",
       detail: describeDeliveryReason(health.delivery_degraded_reason),
@@ -155,14 +155,14 @@ function networkStatusSummary(health?: LinkNetworkHealth): NetworkStatusSummary 
   }
   if (health.coordination_degraded_reason) {
     return {
-      tone: "bg-amber-500/10 text-amber-800 border-amber-700/15",
+      tone: "bg-amber-500/15 text-amber-900 border-amber-700/15 dark:text-amber-100 dark:border-amber-300/20",
       badge: "Live OK",
       title: "Live transport is healthy.",
       detail: describeCoordinationReason(health.coordination_degraded_reason),
     };
   }
   return {
-    tone: "bg-emerald-500/10 text-emerald-800 border-emerald-700/15",
+    tone: "bg-emerald-500/15 text-emerald-900 border-emerald-700/15 dark:text-emerald-100 dark:border-emerald-300/20",
     badge: "Healthy",
     title: "Live transport and coordination are healthy.",
     detail: "Direct or relay-backed skylink delivery is available and coordination is in sync.",
@@ -171,9 +171,9 @@ function networkStatusSummary(health?: LinkNetworkHealth): NetworkStatusSummary 
 
 function liveRelayTone(liveRelay?: LinkLiveRelayHealth) {
   if (!liveRelay) return "bg-surface-container text-secondary";
-  if (liveRelay.active_peers > 0) return "bg-emerald-500/10 text-emerald-700";
+  if (liveRelay.active_peers > 0) return "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200";
   if (liveRelay.configured_peers > 0 || liveRelay.cached_peers > 0) {
-    return "bg-amber-500/10 text-amber-700";
+    return "bg-amber-500/15 text-amber-800 dark:text-amber-200";
   }
   return "bg-surface-container text-secondary";
 }
@@ -190,9 +190,9 @@ function eventTone(status: string) {
     case "error":
       return "bg-error-container/30 text-error";
     case "warn":
-      return "bg-amber-500/10 text-amber-700";
+      return "bg-amber-500/15 text-amber-800 dark:text-amber-200";
     default:
-      return "bg-emerald-500/10 text-emerald-700";
+      return "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200";
   }
 }
 
@@ -222,9 +222,9 @@ function relayTone(relay: LinkRelayHealth) {
     return "bg-error-container/30 text-error";
   }
   if (relay.failures > relay.successes) {
-    return "bg-amber-500/10 text-amber-700";
+    return "bg-amber-500/15 text-amber-800 dark:text-amber-200";
   }
-  return "bg-emerald-500/10 text-emerald-700";
+  return "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200";
 }
 
 function relayLabel(relay: LinkRelayHealth) {
@@ -368,7 +368,7 @@ export default function Network() {
           value={connectAddr}
         />
         <button
-          className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-primary/20 hover:bg-primary/90 disabled:opacity-50"
+          className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-on-primary shadow-lg shadow-primary/20 hover:bg-primary/90 disabled:opacity-50"
           disabled={connecting || !connectAddr.trim()}
           onClick={async () => {
             setConnecting(true);
@@ -399,7 +399,7 @@ export default function Network() {
               <div className="text-sm font-semibold">{statusSummary.title}</div>
               <div className="mt-1 text-sm opacity-90">{statusSummary.detail}</div>
             </div>
-            <span className="inline-flex w-fit rounded-full bg-white/50 px-2 py-1 text-[10px] font-bold uppercase tracking-widest">
+            <span className="inline-flex w-fit rounded-full bg-surface-container-high/80 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-on-surface">
               {statusSummary.badge}
             </span>
           </div>
@@ -408,9 +408,9 @@ export default function Network() {
 
       <div className="grid grid-cols-12 gap-8">
         <div className="col-span-12 lg:col-span-8 bg-surface-container-lowest rounded-xl p-8 min-h-[400px] relative overflow-hidden flex items-center justify-center border border-outline-variant/10 shadow-sm">
-          <div className="absolute inset-0 bg-[radial-gradient(#007AFF10_1px,transparent_1px)] [background-size:24px_24px]" />
+          <div className="network-grid absolute inset-0" />
           <div className="relative w-full h-full flex items-center justify-center">
-            <svg className="absolute inset-0 w-full h-full">
+            <svg className="absolute inset-0 h-full w-full text-emerald-500/40 dark:text-emerald-300/30">
               {peers.map((_, i) => {
                 const angle = (i / Math.max(peers.length, 1)) * 2 * Math.PI - Math.PI / 2;
                 const x2 = 50 + 30 * Math.cos(angle);
@@ -422,7 +422,7 @@ export default function Network() {
                     y1="50%"
                     x2={`${x2}%`}
                     y2={`${y2}%`}
-                    stroke="#10b981"
+                    stroke="currentColor"
                     strokeWidth="2"
                   />
                 );
@@ -447,7 +447,7 @@ export default function Network() {
                   className="absolute flex flex-col items-center gap-2"
                   style={{ left: `${x}%`, top: `${y}%`, transform: "translate(-50%, -50%)" }}
                 >
-                  <div className="w-12 h-12 rounded-full bg-white shadow-lg border border-green-500/30 flex items-center justify-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full border border-emerald-500/20 bg-surface-container-lowest shadow-lg">
                     <Icon name="laptop_mac" className="text-secondary" />
                   </div>
                   <div className="px-2 py-1 bg-surface-container-high rounded-full text-[10px] font-medium whitespace-nowrap">
@@ -468,7 +468,7 @@ export default function Network() {
           <div className="bg-surface-container-low rounded-xl p-8 relative overflow-hidden">
             <div className="flex items-center gap-4 mb-4">
               <div className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center">
-                <Icon name="sensors" className="text-green-600" />
+                <Icon name="sensors" className="text-emerald-700 dark:text-emerald-300" />
               </div>
               <div>
                 <h3 className="font-bold text-2xl">
@@ -731,8 +731,8 @@ export default function Network() {
                           subscription.active_relays === 0
                             ? "bg-error-container/30 text-error"
                             : subscription.required_relays > 0 && subscription.active_relays < subscription.required_relays
-                              ? "bg-amber-500/10 text-amber-700"
-                              : "bg-emerald-500/10 text-emerald-700"
+                              ? "bg-amber-500/15 text-amber-800 dark:text-amber-200"
+                              : "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200"
                         }`}>
                           {subscriptionLabel(subscription)}
                         </span>
@@ -781,7 +781,7 @@ export default function Network() {
                         <span className="text-sm font-bold truncate">
                           {device?.name ?? "Unknown"}
                         </span>
-                        <span className="text-[10px] px-1.5 py-0.5 bg-green-500/10 text-green-700 rounded font-bold shrink-0">
+                        <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800 dark:text-emerald-200">
                           LIVE
                         </span>
                       </div>

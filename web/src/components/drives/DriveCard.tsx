@@ -73,7 +73,7 @@ export function DriveCard({
     >
       <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary via-primary-container to-tertiary-container opacity-0 transition-opacity group-hover:opacity-100" />
       <div className="flex items-start justify-between gap-4">
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-white">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-on-primary">
           <Icon name="folder_open" className="text-3xl" />
         </div>
         <div className="flex items-center gap-2">

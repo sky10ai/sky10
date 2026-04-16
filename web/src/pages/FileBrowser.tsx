@@ -306,7 +306,7 @@ export default function FileBrowser() {
                   </StatusBadge>
                 )}
                 <button
-                  className="flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-primary/20 transition-colors hover:bg-primary/90 disabled:opacity-50"
+                  className="flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-lg shadow-primary/20 transition-colors hover:bg-primary/90 disabled:opacity-50"
                   disabled={uploading}
                   onClick={() => fileInputRef.current?.click()}
                   type="button"

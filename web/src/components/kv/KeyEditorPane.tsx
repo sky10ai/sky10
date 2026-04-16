@@ -89,7 +89,7 @@ export function KeyEditorPane({
 
           <div className="flex gap-2">
             <button
-              className="rounded-full bg-gradient-to-br from-primary to-primary-container px-6 py-2 text-sm font-medium text-white shadow-lg shadow-primary/10"
+              className="rounded-full bg-gradient-to-br from-primary to-primary-container px-6 py-2 text-sm font-medium text-on-primary shadow-lg shadow-primary/10"
               onClick={onCreate}
               type="button"
             >
@@ -150,7 +150,7 @@ export function KeyEditorPane({
               Delete
             </button>
             <button
-              className="flex items-center gap-2 rounded-full bg-gradient-to-br from-primary to-primary-container px-6 py-2 text-sm font-medium text-white shadow-lg shadow-primary/10 transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex items-center gap-2 rounded-full bg-gradient-to-br from-primary to-primary-container px-6 py-2 text-sm font-medium text-on-primary shadow-lg shadow-primary/10 transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!isDirty}
               onClick={onSave}
               type="button"

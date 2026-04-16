@@ -5,6 +5,7 @@ import { skyfs } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 import { Icon } from "./Icon";
 import { StatusBadge } from "./StatusBadge";
+import { ThemeControl } from "./ThemeControl";
 
 function getRouteMeta(pathname: string) {
   if (pathname.startsWith("/drives/")) {
@@ -185,6 +186,7 @@ export function Header() {
             <Icon name="account_circle" />
           </button>
         </div>
+        <ThemeControl />
       </div>
     </header>
   );

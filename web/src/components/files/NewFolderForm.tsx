@@ -29,7 +29,7 @@ export function NewFolderForm({
         value={value}
       />
       <button
-        className="rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-white"
+        className="rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-on-primary"
         onClick={onCreate}
         type="button"
       >
