@@ -18,6 +18,7 @@ import (
 
 func TestTerminalCommandHermesLaunchesHermesShared(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
+	t.Setenv("PATH", "")
 
 	m, err := NewManager(nil, nil)
 	if err != nil {
