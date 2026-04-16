@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -74,6 +75,11 @@ type TokenBalance struct {
 	Symbol  string `json:"symbol"`
 	Balance string `json:"balance"`
 	Mint    string `json:"mint,omitempty"`
+}
+
+type signResult struct {
+	Signature  string `json:"signature"`
+	RecoveryID *int   `json:"recovery_id,omitempty"`
 }
 
 // BalanceResult holds the balance response for a wallet on a chain.
@@ -223,91 +229,93 @@ func (c *Client) Address(ctx context.Context, walletName string) (string, error)
 	return c.AddressForChain(ctx, walletName, ChainSolana)
 }
 
-// AddressForChain returns the address for the given wallet and chain.
+// AddressForChain returns the account address for the given wallet and chain.
+// For EVM chains, it resolves the wallet's shared eip155 account.
 func (c *Client) AddressForChain(ctx context.Context, walletName, chain string) (string, error) {
 	if c == nil {
 		return "", ErrNotInstalled
 	}
-	// wallet list shows all addresses; find the line for the requested chain.
 	out, err := c.run(ctx, "wallet", "list")
 	if err != nil {
 		return "", fmt.Errorf("getting address: %w", err)
 	}
-	return parseAddressForChain(string(out), walletName, chain)
+	return parseWalletAddress(string(out), walletName, chain)
 }
 
 // parseSolanaAddress extracts the Solana address from wallet list output.
 // Looks for a line containing "solana:" with "→" pointing to the address.
 func parseSolanaAddress(output, walletName string) (string, error) {
-	return parseAddressForChain(output, walletName, ChainSolana)
+	return parseWalletAddress(output, walletName, ChainSolana)
 }
 
-// parseBaseAddress extracts the Base address from wallet list output.
-// If OWS only lists a generic EVM address, it falls back to that value.
-func parseBaseAddress(output, walletName string) (string, error) {
-	return parseAddressForChain(output, walletName, ChainBase)
-}
-
-func parseAddressForChain(output, walletName, chain string) (string, error) {
+// parseWalletAddress extracts an account address for the requested chain from
+// `ows wallet list` output. It prefers exact chain ID matches, then falls back
+// to the chain namespace so EVM wallets can reuse the same account on Base.
+func parseWalletAddress(output, walletName, chain string) (string, error) {
+	requestedChain := strings.TrimSpace(strings.ToLower(chain))
+	requestedNS := chainNamespace(requestedChain)
 	inWallet := false
-	exactMatchers, fallbackMatchers, chainLabel := walletAddressMatchers(chain)
-	var fallbackAddress string
+	var namespaceAddress string
 
 	for _, line := range strings.Split(output, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "Name:") {
 			name := strings.TrimSpace(strings.TrimPrefix(trimmed, "Name:"))
+			if inWallet && name != walletName {
+				break
+			}
 			inWallet = name == walletName
-		}
-		if !inWallet {
+			namespaceAddress = ""
 			continue
 		}
-		if address, ok := walletAddressFromLine(trimmed, exactMatchers); ok {
+		if !inWallet || !strings.Contains(trimmed, "→") {
+			continue
+		}
+
+		accountPart, addressPart, ok := strings.Cut(trimmed, "→")
+		if !ok {
+			continue
+		}
+		accountID := strings.TrimSpace(accountPart)
+		if idx := strings.Index(accountID, " "); idx >= 0 {
+			accountID = strings.TrimSpace(accountID[:idx])
+		}
+		address := strings.TrimSpace(addressPart)
+		if address == "" {
+			continue
+		}
+
+		if strings.EqualFold(accountID, requestedChain) {
 			return address, nil
 		}
-		if fallbackAddress == "" {
-			if address, ok := walletAddressFromLine(trimmed, fallbackMatchers); ok {
-				fallbackAddress = address
+		if chainNamespace(strings.ToLower(accountID)) == requestedNS && namespaceAddress == "" {
+			namespaceAddress = address
+		}
+	}
+
+	if namespaceAddress != "" {
+		return namespaceAddress, nil
+	}
+	return "", fmt.Errorf("no %s address found for wallet %q", chain, walletName)
+}
+
+func chainNamespace(chain string) string {
+	switch {
+	case strings.Contains(chain, ":"):
+		ns, _, _ := strings.Cut(chain, ":")
+		return strings.ToLower(ns)
+	case chain == "", chain == ChainSolana:
+		return ChainSolana
+	case chain == "base", chain == "base-sepolia", chain == "ethereum", chain == "arbitrum", chain == "optimism", chain == "polygon", chain == "evm":
+		return "eip155"
+	default:
+		for _, r := range chain {
+			if r < '0' || r > '9' {
+				return strings.ToLower(chain)
 			}
 		}
+		return "eip155"
 	}
-	if fallbackAddress != "" {
-		return fallbackAddress, nil
-	}
-	return "", fmt.Errorf("no %s address found for wallet %q", chainLabel, walletName)
-}
-
-func walletAddressMatchers(chain string) (exact []string, fallback []string, label string) {
-	normalized := strings.ToLower(strings.TrimSpace(chain))
-	switch normalized {
-	case "", ChainSolana:
-		return []string{"solana:"}, nil, "Solana"
-	case "base", ChainBase:
-		// OWS may only list an EVM address once, usually under eip155:1.
-		return []string{ChainBase}, []string{"eip155:"}, "Base"
-	default:
-		if strings.HasPrefix(normalized, "eip155:") {
-			return []string{normalized}, []string{"eip155:"}, normalized
-		}
-		return []string{normalized}, nil, normalized
-	}
-}
-
-func walletAddressFromLine(line string, matchers []string) (string, bool) {
-	if len(matchers) == 0 || !strings.Contains(line, "→") {
-		return "", false
-	}
-	parts := strings.SplitN(line, "→", 2)
-	if len(parts) != 2 {
-		return "", false
-	}
-	left := strings.ToLower(strings.TrimSpace(parts[0]))
-	for _, matcher := range matchers {
-		if strings.Contains(left, strings.ToLower(matcher)) {
-			return strings.TrimSpace(parts[1]), true
-		}
-	}
-	return "", false
 }
 
 // MaxTransferResult holds the maximum sendable amount and fee.
@@ -372,6 +380,54 @@ func (c *Client) BalanceForChain(ctx context.Context, walletName, chain string) 
 	default:
 		return nil, fmt.Errorf("unsupported balance chain: %s", chain)
 	}
+}
+
+// SignMessage signs an EIP-191 or chain-native message using the given wallet.
+func (c *Client) SignMessage(ctx context.Context, walletName, chain, message string) (string, error) {
+	if c == nil {
+		return "", ErrNotInstalled
+	}
+	out, err := c.run(ctx,
+		"sign", "message",
+		"--chain", chain,
+		"--wallet", walletName,
+		"--message", message,
+		"--json",
+	)
+	if err != nil {
+		return "", fmt.Errorf("signing message on %q: %w", chain, err)
+	}
+	return parseSignResult(out)
+}
+
+// SignTypedData signs EIP-712 typed data using the given wallet.
+func (c *Client) SignTypedData(ctx context.Context, walletName, chain, typedData string) (string, error) {
+	if c == nil {
+		return "", ErrNotInstalled
+	}
+	out, err := c.run(ctx,
+		"sign", "message",
+		"--chain", chain,
+		"--wallet", walletName,
+		"--message", "",
+		"--typed-data", typedData,
+		"--json",
+	)
+	if err != nil {
+		return "", fmt.Errorf("signing typed data on %q: %w", chain, err)
+	}
+	return parseSignResult(out)
+}
+
+func parseSignResult(output []byte) (string, error) {
+	var result signResult
+	if err := json.Unmarshal(output, &result); err != nil {
+		return "", fmt.Errorf("parsing sign result: %w", err)
+	}
+	if strings.TrimSpace(result.Signature) == "" {
+		return "", fmt.Errorf("sign result missing signature")
+	}
+	return strings.TrimSpace(result.Signature), nil
 }
 
 // Pay makes an x402 payment to a URL using the given wallet.

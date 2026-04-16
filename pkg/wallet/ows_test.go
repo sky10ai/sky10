@@ -25,7 +25,10 @@ func TestClient_NilReturnsErrNotInstalled(t *testing.T) {
 		{"CreateWallet", func() (err error) { _, err = c.CreateWallet(ctx, "test"); return }},
 		{"ListWallets", func() (err error) { _, err = c.ListWallets(ctx); return }},
 		{"Address", func() (err error) { _, err = c.Address(ctx, "test"); return }},
+		{"AddressForChain", func() (err error) { _, err = c.AddressForChain(ctx, "test", "base"); return }},
 		{"Balance", func() (err error) { _, err = c.Balance(ctx, "test"); return }},
+		{"SignMessage", func() (err error) { _, err = c.SignMessage(ctx, "test", "base", "hello"); return }},
+		{"SignTypedData", func() (err error) { _, err = c.SignTypedData(ctx, "test", "base", `{"types":{}}`); return }},
 		{"Pay", func() (err error) { _, err = c.Pay(ctx, "test", "https://example.com"); return }},
 		{"Deposit", func() (err error) { _, err = c.Deposit(ctx, "test"); return }},
 		{"DepositForChain", func() (err error) { _, err = c.DepositForChain(ctx, "test", ChainBase); return }},
@@ -144,17 +147,58 @@ func TestParseSolanaAddress(t *testing.T) {
 	}
 }
 
-func TestParseBaseAddressFallsBackToEVMAddress(t *testing.T) {
+func TestParseWalletAddress(t *testing.T) {
 	t.Parallel()
 
-	input := "ID:      uuid1\nName:    default\n  eip155:1 (ethereum) → 0xabc123\n  solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp (solana) → 6fSWeC5P1icuiW2DfWHxz3rxjjpZXccsNYXJfXYkjaZ4"
+	input := "ID:      uuid1\nName:    default\n  eip155:1 (ethereum) → 0xAbC123\n  solana:mainnet (solana) → So111\n\nID:      uuid2\nName:    other\n  eip155:1 (ethereum) → 0xDef456"
 
-	addr, err := parseBaseAddress(input, "default")
+	tests := []struct {
+		name    string
+		wallet  string
+		chain   string
+		want    string
+		wantErr bool
+	}{
+		{name: "exact solana", wallet: "default", chain: "solana:mainnet", want: "So111"},
+		{name: "namespace solana", wallet: "default", chain: "solana", want: "So111"},
+		{name: "evm namespace", wallet: "default", chain: "base", want: "0xAbC123"},
+		{name: "evm numeric", wallet: "default", chain: "8453", want: "0xAbC123"},
+		{name: "unknown wallet", wallet: "missing", chain: "base", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := parseWalletAddress(input, tt.wallet, tt.chain)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseSignResult(t *testing.T) {
+	t.Parallel()
+
+	got, err := parseSignResult([]byte(`{"signature":"abcdef","recovery_id":1}`))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if addr != "0xabc123" {
-		t.Errorf("got %q", addr)
+	if got != "abcdef" {
+		t.Fatalf("got %q", got)
+	}
+
+	if _, err := parseSignResult([]byte(`{"signature":""}`)); err == nil {
+		t.Fatal("expected missing-signature error")
 	}
 }
 

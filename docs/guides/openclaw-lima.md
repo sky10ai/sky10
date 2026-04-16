@@ -177,6 +177,10 @@ limactl shell my-agent -- bash -lc 'tail -100 /tmp/openclaw-*/*.log'
 - This template is currently macOS-only because it uses Lima `vz`.
 - The default model is `anthropic/claude-sonnet-4-6`.
 - The provisioning scripts force outbound traffic over the guest `eth0`/`vzNAT` route because the default `lima0` route can lack internet reachability on this setup.
+- If you want OpenClaw to use Venice over x402 through a host OWS wallet, use
+  the host daemon's local Venice proxy described in
+  [`docs/guides/venice-x402.md`](./venice-x402.md) and point the guest's custom
+  model provider at that host-reachable URL.
 - To change the default model for future instances, edit
   [`templates/lima/openclaw-sky10.yaml`](../../templates/lima/openclaw-sky10.yaml)
   and adjust `param.model`.
