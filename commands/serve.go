@@ -561,9 +561,9 @@ func ServeCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("configuring venice proxy: %w", err)
 			}
-			server.HandleHTTP("/v1/", veniceProxy.HandleAPI)
+			server.HandleHTTP("/llm/v1/", veniceProxy.HandleAPI)
 			if walletClient != nil {
-				logger.Info("llm proxy enabled", "path_prefix", "/v1")
+				logger.Info("llm proxy enabled", "path_prefix", "/llm/v1")
 			}
 
 			// Wire sync notifications: KV changes notify own devices.

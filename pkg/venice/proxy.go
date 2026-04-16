@@ -125,7 +125,7 @@ func NewProxy(cfg Config, wallet WalletSigner, logger *slog.Logger) (*Proxy, err
 		cfg.TopUpUSD = defaultTopUpUSD
 	}
 	if cfg.PathPrefix == "" {
-		cfg.PathPrefix = "/v1"
+		cfg.PathPrefix = "/llm/v1"
 	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 3 * time.Minute
