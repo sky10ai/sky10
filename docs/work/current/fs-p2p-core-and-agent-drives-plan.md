@@ -435,14 +435,14 @@ Checklist:
 - [x] Make conflict-copy behavior explicit and testable.
 - [ ] Review Windows, case-sensitivity, and path-normalization edge cases.
 - [x] Add end-to-end coverage for P2P-only two-device sync.
-- [ ] Add end-to-end coverage for P2P-only offline catch-up.
+- [x] Add end-to-end coverage for P2P-only offline catch-up.
 - [x] Add end-to-end coverage for P2P-only delete propagation.
 - [x] Add end-to-end coverage for conflict copy behavior.
 - [x] Add end-to-end coverage for restart during download.
 - [x] Add end-to-end coverage for restart during publish.
-- [ ] Add end-to-end coverage for peer unavailable, S3 available.
-- [ ] Add end-to-end coverage for peer available, S3 unavailable.
-- [ ] Add end-to-end coverage for hybrid peer+S3 recovery.
+- [x] Add end-to-end coverage for peer unavailable, S3 available.
+- [x] Add end-to-end coverage for peer available, S3 unavailable.
+- [x] Add end-to-end coverage for hybrid peer+S3 recovery.
 
 Done when:
 

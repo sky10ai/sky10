@@ -136,6 +136,75 @@ func TestIntegrationTwoProcessFSP2POnlyUsesPeerChunks(t *testing.T) {
 	waitForDriveReadSource(t, nodeB.home, "shared", "peer", 1, 0)
 }
 
+func TestIntegrationFSP2POnlyOfflineCatchUp(t *testing.T) {
+	bin := buildSky10Binary(t)
+
+	base := t.TempDir()
+	nodeAHome := filepath.Join(base, "node-a")
+	nodeBHome := filepath.Join(base, "node-b")
+	driveA := filepath.Join(base, "drive-a")
+	driveB := filepath.Join(base, "drive-b")
+	for _, dir := range []string{driveA, driveB} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	nodeA := startProcessNode(t, bin, "node-a", nodeAHome, "--fs-poll-seconds", "1")
+	statusA := waitForLinkStatus(t, bin, nodeA.home, 1)
+	bootstrapAddr := statusA.ListenAddr[0] + "/p2p/" + statusA.PeerID
+	runCLI(t, bin, nodeA.home, "fs", "drive", "create", "shared", driveA, "--namespace", "shared")
+
+	inviteB := inviteCode(t, runCLI(t, bin, nodeA.home, "invite"))
+	joinB := startCLICommand(t, nil, bin, nodeBHome, "join", inviteB)
+	completeJoin(t, joinB, bin, nodeA.home)
+
+	nodeB := startProcessNode(t, bin, "node-b", nodeBHome, "--fs-poll-seconds", "1", "--link-bootstrap", bootstrapAddr)
+	runCLI(t, bin, nodeB.home, "fs", "drive", "create", "shared", driveB, "--namespace", "shared")
+
+	waitForPeerCountAtLeast(t, bin, nodeA.home, 1)
+	waitForPeerCountAtLeast(t, bin, nodeB.home, 1)
+
+	publishStableFile(t, filepath.Join(base, "seed.tmp"), filepath.Join(driveA, "online.txt"), "online seed")
+	waitForFileContent(t, filepath.Join(driveB, "online.txt"), "online seed")
+
+	nodeB.cancel()
+	_ = nodeB.cmd.Wait()
+
+	publishStableFile(t, filepath.Join(base, "alpha-v1.tmp"), filepath.Join(driveA, "alpha.txt"), "alpha v1")
+	waitForDriveIdle(t, nodeA.home, "shared")
+
+	publishStableFile(t, filepath.Join(base, "alpha-v2.tmp"), filepath.Join(driveA, "alpha.txt"), "alpha v2")
+	waitForDriveIdle(t, nodeA.home, "shared")
+
+	publishStableFile(t, filepath.Join(base, "beta-v1.tmp"), filepath.Join(driveA, "beta.txt"), "beta v1")
+	waitForDriveIdle(t, nodeA.home, "shared")
+	if err := os.Remove(filepath.Join(driveA, "beta.txt")); err != nil {
+		t.Fatalf("remove beta.txt: %v", err)
+	}
+	waitForDriveIdle(t, nodeA.home, "shared")
+
+	publishStableFile(t, filepath.Join(base, "cycle-v1.tmp"), filepath.Join(driveA, "cycle.txt"), "cycle v1")
+	waitForDriveIdle(t, nodeA.home, "shared")
+	if err := os.Remove(filepath.Join(driveA, "cycle.txt")); err != nil {
+		t.Fatalf("remove cycle.txt: %v", err)
+	}
+	waitForDriveIdle(t, nodeA.home, "shared")
+	publishStableFile(t, filepath.Join(base, "cycle-v2.tmp"), filepath.Join(driveA, "cycle.txt"), "cycle v2")
+	waitForDriveIdle(t, nodeA.home, "shared")
+
+	nodeB = startProcessNode(t, bin, "node-b-restart", nodeBHome, "--fs-poll-seconds", "1", "--link-bootstrap", bootstrapAddr)
+
+	waitForPeerCountAtLeast(t, bin, nodeA.home, 1)
+	waitForPeerCountAtLeast(t, bin, nodeB.home, 1)
+
+	waitForFileContent(t, filepath.Join(driveB, "online.txt"), "online seed")
+	waitForFileContent(t, filepath.Join(driveB, "alpha.txt"), "alpha v2")
+	waitForFileContent(t, filepath.Join(driveB, "cycle.txt"), "cycle v2")
+	waitForFileMissing(t, filepath.Join(driveB, "beta.txt"))
+	waitForDriveReadSource(t, nodeB.home, "shared", "peer", 1, 0)
+}
+
 func TestIntegrationFSFallsBackToS3WhenPeersAbsent(t *testing.T) {
 	bin := buildSky10Binary(t)
 	minio := startMinIO(t)
