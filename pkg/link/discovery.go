@@ -2,6 +2,7 @@ package link
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
 	"github.com/sky10/sky10/pkg/adapter"
 )
 
@@ -427,35 +429,63 @@ func (r *Resolver) ResolvePeer(ctx context.Context, address string) (*ResolvedPe
 	return resolution.Peers[0], nil
 }
 
-// Connect resolves a peer's addresses and establishes a connection.
-func (r *Resolver) Connect(ctx context.Context, address string) error {
+// ConnectPeer resolves a peer's addresses, applies the direct-then-relay live
+// transport ladder, and returns the connected candidate on success.
+func (r *Resolver) ConnectPeer(ctx context.Context, address string) (*ResolvedPeer, error) {
 	resolved, err := r.ResolvePeer(ctx, address)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return r.connectResolvedPeer(ctx, resolved)
+	if err := r.connectResolvedPeer(ctx, resolved); err != nil {
+		return nil, err
+	}
+	return resolved, nil
 }
 
-func (r *Resolver) connectResolvedPeer(ctx context.Context, resolved *ResolvedPeer) error {
-	if resolved == nil || resolved.Info == nil {
-		return fmt.Errorf("resolved peer is missing address info")
-	}
-	err := r.node.host.Connect(ctx, *resolved.Info)
-	if r.paths != nil {
-		if err != nil {
-			r.paths.RecordFailure(resolved.Info.ID, resolved.Info)
-		} else {
-			r.paths.RecordSuccess(resolved.Info.ID, resolved.Source, resolved.Info)
-		}
-	}
+// Connect resolves a peer's addresses and establishes a connection.
+func (r *Resolver) Connect(ctx context.Context, address string) error {
+	_, err := r.ConnectPeer(ctx, address)
 	return err
 }
 
-func (r *Resolver) prioritizeAddrInfo(ctx context.Context, info *peer.AddrInfo, hint PathHint) (*peer.AddrInfo, []AddrScore) {
-	if r == nil || r.netcheck == nil {
-		return PrioritizeAddrInfoWithHint(info, NetcheckResult{}, hint)
+func (r *Resolver) connectResolvedPeer(ctx context.Context, resolved *ResolvedPeer) error {
+	if r == nil || r.node == nil || r.node.host == nil {
+		return fmt.Errorf("node not running")
 	}
-	return PrioritizeAddrInfoWithHint(info, r.cachedNetcheck(ctx), hint)
+	if resolved == nil || resolved.Info == nil {
+		return fmt.Errorf("resolved peer is missing address info")
+	}
+	phases := connectAddrInfoPhases(resolved.Info)
+	if len(phases) == 0 {
+		return fmt.Errorf("resolved peer is missing address info")
+	}
+	var errs []error
+	for _, phase := range phases {
+		err := r.node.host.Connect(ctx, *phase.info)
+		if r.paths != nil {
+			if err != nil {
+				r.paths.RecordFailure(resolved.Info.ID, phase.info)
+			} else {
+				r.paths.RecordSuccess(resolved.Info.ID, resolved.Source, phase.info)
+			}
+		}
+		if err == nil {
+			return nil
+		}
+		errs = append(errs, fmt.Errorf("%s connect failed: %w", phase.name, err))
+	}
+	return errors.Join(errs...)
+}
+
+func (r *Resolver) prioritizeAddrInfo(ctx context.Context, info *peer.AddrInfo, hint PathHint) (*peer.AddrInfo, []AddrScore) {
+	relayPreference := LiveRelayPreference{}
+	if r != nil && r.node != nil {
+		relayPreference = r.node.liveRelayPreference()
+	}
+	if r == nil || r.netcheck == nil {
+		return PrioritizeAddrInfoWithRelayPreference(info, NetcheckResult{}, hint, relayPreference)
+	}
+	return PrioritizeAddrInfoWithRelayPreference(info, r.cachedNetcheck(ctx), hint, relayPreference)
 }
 
 func (r *Resolver) cachedNetcheck(ctx context.Context) NetcheckResult {
@@ -530,4 +560,52 @@ func AutoConnect(ctx context.Context, resolver *Resolver) error {
 		return firstErr
 	}
 	return nil
+}
+
+type connectPhase struct {
+	name string
+	info *peer.AddrInfo
+}
+
+func connectAddrInfoPhases(info *peer.AddrInfo) []connectPhase {
+	if info == nil || len(info.Addrs) == 0 {
+		return nil
+	}
+
+	direct := filterAddrInfo(info, func(addr ma.Multiaddr) bool {
+		return !isRelayAddr(addr)
+	})
+	relay := filterAddrInfo(info, isRelayAddr)
+
+	phases := make([]connectPhase, 0, 2)
+	if direct != nil {
+		phases = append(phases, connectPhase{name: "direct", info: direct})
+	}
+	if relay != nil {
+		phases = append(phases, connectPhase{name: "relay", info: relay})
+	}
+	return phases
+}
+
+func filterAddrInfo(info *peer.AddrInfo, include func(ma.Multiaddr) bool) *peer.AddrInfo {
+	if info == nil {
+		return nil
+	}
+	addrs := make([]ma.Multiaddr, 0, len(info.Addrs))
+	for _, addr := range info.Addrs {
+		if addr == nil {
+			continue
+		}
+		if include != nil && !include(addr) {
+			continue
+		}
+		addrs = append(addrs, addr)
+	}
+	if len(addrs) == 0 {
+		return nil
+	}
+	return &peer.AddrInfo{
+		ID:    info.ID,
+		Addrs: addrs,
+	}
 }

@@ -452,20 +452,22 @@ func ServeCmd() *cobra.Command {
 			agentRouter = skyagent.NewRouter(agentRegistry, linkNode, server.Emit, bundle.DeviceID(), logRuntime.Logger)
 			agentRouter.SetMailbox(mailboxStore)
 			agentRouter.SetResolver(linkResolver)
+			mailboxRetryManager := link.NewManager(
+				logging.WithComponent(logRuntime.Logger, "agent.mailbox_retry"),
+				func(runCtx context.Context, batch link.ConvergenceBatch) error {
+					return runMailboxRetryBatch(runCtx, agentRouter, mailboxStore, batch)
+				},
+			)
+			go func() {
+				if err := mailboxRetryManager.Run(ctx); err != nil && ctx.Err() == nil {
+					logger.Warn("mailbox retry manager stopped", "error", err)
+				}
+			}()
 			agentRouter.SetMailboxObserver(func(action string, record agentmailbox.Record) {
 				runtimeHealth.RecordMailbox(action, string(record.State), record.Item.ID)
-				if triggerPrivateNetwork == nil {
-					return
-				}
-				if action != "queued" && action != "handed_off" {
-					return
-				}
-				if record.Item.Scope() == agentmailbox.ScopeSky10Network {
-					triggerPrivateNetwork("mailbox_"+action, record.Item.ID)
-					return
-				}
-				if record.Item.To != nil && record.Item.To.DeviceHint != "" {
-					triggerPrivateNetwork("mailbox_"+action, record.Item.To.DeviceHint)
+				reason, detail, ok := mailboxRetryTrigger(action, record)
+				if ok {
+					mailboxRetryManager.Trigger(reason, detail)
 				}
 			})
 			if len(relays) > 0 {

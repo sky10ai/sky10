@@ -152,6 +152,73 @@ func TestPrioritizeAddrInfoPrefersCurrentHomeRelay(t *testing.T) {
 	}
 }
 
+func TestResolverPrioritizeAddrInfoUsesLiveRelayPreference(t *testing.T) {
+	t.Parallel()
+
+	node := generateTestNode(t)
+	const preferredID = "12D3KooWQJ9m1x5v6Lq3J1s4mP4h9j9bpt5yN4B8pJxWf1dP6W8M"
+	const fallbackID = "12D3KooWQJ9m1x5v6Lq3J1s4mP4h9j9bpt5yN4B8pJxWf1dP6W8N"
+	preferredRelay := "/ip4/127.0.0.1/tcp/4101/p2p/" + preferredID + "/p2p-circuit"
+	otherRelay := "/ip4/127.0.0.1/tcp/4102/p2p/" + fallbackID + "/p2p-circuit"
+	node.SetLiveRelayPreferenceProvider(func() LiveRelayPreference {
+		return LiveRelayPreference{CurrentPeerID: preferredID}
+	})
+
+	resolver := NewResolver(node)
+	resolver.netcheck = func(context.Context, []string) NetcheckResult {
+		return NetcheckResult{
+			UDP:                   false,
+			PublicAddr:            "203.0.113.99:55000",
+			MappingVariesByServer: true,
+		}
+	}
+
+	got, scores := resolver.prioritizeAddrInfo(context.Background(), testPeerAddrInfo(t, []string{
+		otherRelay,
+		preferredRelay,
+	}), PathHint{})
+	if got.Addrs[0].String() != preferredRelay {
+		t.Fatalf("first relay addr = %s, want preferred relay", got.Addrs[0])
+	}
+	if len(scores) == 0 || scores[0].Multiaddr != preferredRelay {
+		t.Fatalf("top score = %+v, want preferred relay first", scores)
+	}
+}
+
+func TestConnectAddrInfoPhasesPreferDirectBeforeRelay(t *testing.T) {
+	t.Parallel()
+
+	info := testPeerAddrInfo(t, []string{
+		"/ip4/127.0.0.1/tcp/4101/p2p/12D3KooWQJ9m1x5v6Lq3J1s4mP4h9j9bpt5yN4B8pJxWf1dP6W8M/p2p-circuit",
+		"/ip4/203.0.113.10/udp/4101/quic-v1",
+		"/ip4/203.0.113.10/tcp/4101",
+		"/ip4/127.0.0.1/tcp/4102/p2p/12D3KooWQJ9m1x5v6Lq3J1s4mP4h9j9bpt5yN4B8pJxWf1dP6W8N/p2p-circuit",
+	})
+
+	phases := connectAddrInfoPhases(info)
+	if len(phases) != 2 {
+		t.Fatalf("phase count = %d, want 2", len(phases))
+	}
+	if phases[0].name != "direct" {
+		t.Fatalf("first phase = %q, want direct", phases[0].name)
+	}
+	if got, want := len(phases[0].info.Addrs), 2; got != want {
+		t.Fatalf("direct addr count = %d, want %d", got, want)
+	}
+	if phases[0].info.Addrs[0].String() != "/ip4/203.0.113.10/udp/4101/quic-v1" {
+		t.Fatalf("first direct addr = %s, want QUIC direct addr", phases[0].info.Addrs[0])
+	}
+	if phases[1].name != "relay" {
+		t.Fatalf("second phase = %q, want relay", phases[1].name)
+	}
+	if got, want := len(phases[1].info.Addrs), 2; got != want {
+		t.Fatalf("relay addr count = %d, want %d", got, want)
+	}
+	if !isRelayAddr(phases[1].info.Addrs[0]) || !isRelayAddr(phases[1].info.Addrs[1]) {
+		t.Fatalf("relay phase addrs = %v, want relay addrs only", phases[1].info.Addrs)
+	}
+}
+
 func TestResolverResolveAllPrioritizesPeerAddrs(t *testing.T) {
 	t.Parallel()
 

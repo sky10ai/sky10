@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
 	skykey "github.com/sky10/sky10/pkg/key"
@@ -978,30 +979,39 @@ func (r *Router) sendNetworkMailboxLive(ctx context.Context, address string, ite
 	if r.node == nil {
 		return fmt.Errorf("node not configured")
 	}
-	pid, ok := r.lookupAddress(address)
-	if !ok {
-		if r.resolver == nil {
-			return fmt.Errorf("sky10 address %s not connected", address)
+	if pid, ok := r.lookupAddress(address); ok && r.node.Host() != nil && r.node.Host().Network().Connectedness(pid) == network.Connected {
+		if err := r.callNetworkMailboxDeliver(ctx, pid, item); err == nil {
+			return nil
 		}
-		resolveCtx, cancel := context.WithTimeout(ctx, peerQueryTimeout)
-		defer cancel()
-		info, err := r.resolver.Resolve(resolveCtx, address)
-		if err != nil {
-			return fmt.Errorf("resolving %s: %w", address, err)
-		}
-		if host := r.node.Host(); host != nil {
-			if err := host.Connect(resolveCtx, *info); err != nil {
-				return fmt.Errorf("connecting %s: %w", address, err)
-			}
-		}
-		pid = info.ID
-		r.cacheAddress(address, pid)
 	}
 
+	if r.resolver == nil {
+		return fmt.Errorf("sky10 address %s not connected", address)
+	}
+
+	resolveCtx, cancel := context.WithTimeout(ctx, peerQueryTimeout)
+	defer cancel()
+	resolved, err := r.resolver.ConnectPeer(resolveCtx, address)
+	if err != nil {
+		return fmt.Errorf("connecting %s: %w", address, err)
+	}
+	if resolved == nil || resolved.Info == nil {
+		return fmt.Errorf("connecting %s: resolved peer is missing address info", address)
+	}
+	pid := resolved.Info.ID
+	r.cacheAddress(address, pid)
+
+	if err := r.callNetworkMailboxDeliver(ctx, pid, item); err != nil {
+		return fmt.Errorf("network mailbox deliver to %s: %w", address, err)
+	}
+	return nil
+}
+
+func (r *Router) callNetworkMailboxDeliver(ctx context.Context, pid peer.ID, item agentmailbox.Item) error {
 	sendCtx, cancel := context.WithTimeout(ctx, peerQueryTimeout)
 	defer cancel()
 	if _, err := r.node.Call(sendCtx, pid, "agent.mailbox.deliver", mailboxDeliverParams{Item: item}); err != nil {
-		return fmt.Errorf("network mailbox deliver to %s: %w", address, err)
+		return err
 	}
 	return nil
 }
