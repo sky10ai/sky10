@@ -701,7 +701,17 @@ func TestPrepareHermesSharedDir(t *testing.T) {
 	sharedDir := t.TempDir()
 	if err := prepareHermesSharedDir(sharedDir, map[string]string{
 		"ANTHROPIC_API_KEY": "anthropic-key",
-	}); err != nil {
+	}, map[string][]byte{
+		templateHermesBridgeAsset: []byte("#!/usr/bin/env python3\nprint('ok')\n"),
+	}, &hermesBridgeConfig{
+		HostRPCURL:   guestSky10LocalRPCURL,
+		AgentName:    "Hermes Agent",
+		AgentKeyName: "hermes-agent",
+		Skills:       []string{"code", "shell"},
+	}, &IdentityInvite{
+		HostIdentity: "sky10-host",
+		Code:         "invite-code",
+	}, "hermes-agent", "http://host.lima.internal:9101/rpc"); err != nil {
 		t.Fatalf("prepareHermesSharedDir() error: %v", err)
 	}
 
@@ -715,6 +725,29 @@ func TestPrepareHermesSharedDir(t *testing.T) {
 	}
 	if !strings.Contains(text, "ANTHROPIC_API_KEY=anthropic-key") {
 		t.Fatalf(".env = %q, want resolved anthropic key", text)
+	}
+	configData, err := os.ReadFile(filepath.Join(sharedDir, templateHermesBridgeConfig))
+	if err != nil {
+		t.Fatalf("ReadFile(bridge config) error: %v", err)
+	}
+	if !strings.Contains(string(configData), `"agent_name":"Hermes Agent"`) {
+		t.Fatalf("bridge config = %q, want agent name", string(configData))
+	}
+	inviteData, err := os.ReadFile(filepath.Join(sharedDir, templateOpenClawInviteFile))
+	if err != nil {
+		t.Fatalf("ReadFile(invite payload) error: %v", err)
+	}
+	if !strings.Contains(string(inviteData), `"host_identity":"sky10-host"`) {
+		t.Fatalf("invite payload = %q, want host identity", string(inviteData))
+	}
+	if !strings.Contains(string(inviteData), `"sandbox_slug":"hermes-agent"`) {
+		t.Fatalf("invite payload = %q, want sandbox slug", string(inviteData))
+	}
+	bridgePath := filepath.Join(sharedDir, templateHermesBridgeAsset)
+	if info, err := os.Stat(bridgePath); err != nil {
+		t.Fatalf("Stat(bridge asset) error: %v", err)
+	} else if info.Mode()&0o111 == 0 {
+		t.Fatalf("bridge asset mode = %v, want executable", info.Mode())
 	}
 }
 
@@ -736,11 +769,61 @@ func TestBundledHermesUserScriptKeepsSharedEnv(t *testing.T) {
 	if !strings.Contains(script, `ln -sfn "${SHARED_DIR}/.env" "${HERMES_HOME}/.env"`) {
 		t.Fatalf("bundled Hermes user script missing shared env symlink: %q", script)
 	}
+	if !strings.Contains(script, "hermes-sky10-bridge.py") {
+		t.Fatalf("bundled Hermes user script missing bridge asset install: %q", script)
+	}
+	if !strings.Contains(script, "sky10-hermes-gateway.service") {
+		t.Fatalf("bundled Hermes user script missing gateway service unit: %q", script)
+	}
+	if !strings.Contains(script, "sky10-hermes-bridge.service") {
+		t.Fatalf("bundled Hermes user script missing bridge service unit: %q", script)
+	}
+	if !strings.Contains(script, "sky10-managed-reconnect") {
+		t.Fatalf("bundled Hermes user script missing guest reconnect helper: %q", script)
+	}
+	if !strings.Contains(script, `mkdir -p "${HOME}/.bin"`) {
+		t.Fatalf("bundled Hermes user script missing ~/.bin bootstrap dir creation: %q", script)
+	}
+	if !strings.Contains(script, "sky10.service") {
+		t.Fatalf("bundled Hermes user script missing guest sky10 service unit: %q", script)
+	}
+	if !strings.Contains(script, "sky10 join --role sandbox") {
+		t.Fatalf("bundled Hermes user script missing guest join bootstrap: %q", script)
+	}
+	if !strings.Contains(script, "hermes gateway run") {
+		t.Fatalf("bundled Hermes user script missing gateway foreground command: %q", script)
+	}
+	if !strings.Contains(script, "API_SERVER_ENABLED=true") {
+		t.Fatalf("bundled Hermes user script missing API server env bootstrap: %q", script)
+	}
 	if got := strings.Count(script, "link_hermes_env"); got < 3 {
 		t.Fatalf("bundled Hermes user script should relink shared env after Hermes config writes, count=%d: %q", got, script)
 	}
 	if strings.Contains(script, `cp "${HERMES_HOME}/.env" "${SHARED_DIR}/.env"`) {
 		t.Fatalf("bundled Hermes user script should not clobber shared env with guest env: %q", script)
+	}
+}
+
+func TestBundledHermesBridgeAssetRegistersWithSky10(t *testing.T) {
+	t.Parallel()
+
+	body, err := readBundledTemplateAsset(templateHermesBridgeAsset)
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateHermesBridgeAsset, err)
+	}
+
+	script := string(body)
+	if !strings.Contains(script, `"agent.register"`) {
+		t.Fatalf("bundled Hermes bridge missing sky10 registration call: %q", script)
+	}
+	if !strings.Contains(script, "/rpc/events") {
+		t.Fatalf("bundled Hermes bridge missing SSE subscription: %q", script)
+	}
+	if !strings.Contains(script, "/responses") {
+		t.Fatalf("bundled Hermes bridge missing Hermes Responses API call: %q", script)
+	}
+	if !strings.Contains(script, "/chat/completions") {
+		t.Fatalf("bundled Hermes bridge missing chat completions fallback: %q", script)
 	}
 }
 
@@ -923,6 +1006,161 @@ func TestWaitForGuestHermesCLI(t *testing.T) {
 	}
 	if attempts != 3 {
 		t.Fatalf("waitForGuestHermesCLI() attempts = %d, want 3", attempts)
+	}
+}
+
+func TestWaitForGuestHermesAgent(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	err := waitForGuestHermesAgent(context.Background(), func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		attempts++
+		if attempts < 3 {
+			return nil, fmt.Errorf("not ready")
+		}
+		return []byte("ok"), nil
+	}, "/tmp/fake/limactl", "agent-123", 5*time.Second)
+	if err != nil {
+		t.Fatalf("waitForGuestHermesAgent() error: %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("waitForGuestHermesAgent() attempts = %d, want 3", attempts)
+	}
+}
+
+func TestFinishReadyHermesConnectsGuestSky10Agent(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["hermes-dev"] = Record{
+		Name:      "Hermes Dev",
+		Slug:      "hermes-dev",
+		Provider:  providerLima,
+		Template:  templateHermes,
+		Status:    "starting",
+		SharedDir: filepath.Join(t.TempDir(), "shared"),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	var steps []string
+	m.outputCmd = func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		if len(args) >= 6 && args[0] == "shell" {
+			script := args[len(args)-1]
+			switch {
+			case strings.Contains(script, `command -v hermes`):
+				steps = append(steps, "guest-hermes-cli")
+				return []byte("ok"), nil
+			case strings.Contains(script, guestSky10ReadyURL):
+				steps = append(steps, "guest-sky10-health")
+				return []byte("ok"), nil
+			case strings.Contains(script, `"method":"agent.list"`):
+				steps = append(steps, "guest-agent-list")
+				return []byte("ok"), nil
+			case strings.Contains(script, "ip -4 addr show dev lima0"):
+				steps = append(steps, "lookup-ip")
+				return []byte("192.168.64.24\n"), nil
+			}
+		}
+		return nil, fmt.Errorf("unexpected outputCmd args: %v", args)
+	}
+	m.hostIdentity = func(context.Context) (string, error) {
+		steps = append(steps, "host-identity")
+		return "sky10-host", nil
+	}
+	m.issueIdentityInvite = func(context.Context) (*IdentityInvite, error) {
+		steps = append(steps, "issue-invite")
+		return &IdentityInvite{HostIdentity: "sky10-host", Code: "invite-code"}, nil
+	}
+	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
+		steps = append(steps, "host."+method)
+		switch method {
+		case "skylink.connectPeer":
+			connectParams, ok := params.(map[string]interface{})
+			if !ok {
+				t.Fatalf("host connect params type = %T, want map[string]interface{}", params)
+			}
+			if connectParams["peer_id"] != "12D3KooWhermes" {
+				t.Fatalf("host connect peer_id = %v, want 12D3KooWhermes", connectParams["peer_id"])
+			}
+			return nil
+		case "agent.list":
+			body, err := json.Marshal(map[string]interface{}{
+				"agents": []map[string]string{{"name": "Hermes Dev"}},
+			})
+			if err != nil {
+				t.Fatalf("marshal host agent list: %v", err)
+			}
+			return json.Unmarshal(body, out)
+		default:
+			t.Fatalf("unexpected host RPC method %q", method)
+		}
+		return nil
+	}
+	m.guestRPC = func(ctx context.Context, address, method string, params interface{}, out interface{}) error {
+		steps = append(steps, method)
+		if address != "192.168.64.24" {
+			t.Fatalf("guest RPC address = %q, want 192.168.64.24", address)
+		}
+		switch method {
+		case "identity.show":
+			body, err := json.Marshal(map[string]interface{}{"address": "sky10-host"})
+			if err != nil {
+				t.Fatalf("marshal guest identity show: %v", err)
+			}
+			return json.Unmarshal(body, out)
+		case "skylink.status":
+			body, err := json.Marshal(map[string]interface{}{
+				"peer_id": "12D3KooWhermes",
+				"addrs": []string{
+					"/ip4/127.0.0.1/tcp/4201",
+					"/ip4/192.168.64.24/tcp/4201",
+				},
+			})
+			if err != nil {
+				t.Fatalf("marshal guest skylink status: %v", err)
+			}
+			return json.Unmarshal(body, out)
+		default:
+			t.Fatalf("unexpected guest RPC method %q", method)
+		}
+		return nil
+	}
+
+	if err := m.finishReady(context.Background(), "hermes-dev", "/tmp/fake/limactl"); err != nil {
+		t.Fatalf("finishReady() error: %v", err)
+	}
+
+	want := []string{
+		"guest-hermes-cli",
+		"guest-sky10-health",
+		"host-identity",
+		"lookup-ip",
+		"identity.show",
+		"guest-agent-list",
+		"skylink.status",
+		"host.skylink.connectPeer",
+		"host.agent.list",
+		"lookup-ip",
+	}
+	if strings.Join(steps, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("steps = %v, want %v", steps, want)
+	}
+
+	got, err := m.Get(context.Background(), "hermes-dev")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if got.Status != "ready" {
+		t.Fatalf("status = %q, want ready", got.Status)
+	}
+	if got.IPAddress != "192.168.64.24" {
+		t.Fatalf("ip address = %q, want 192.168.64.24", got.IPAddress)
 	}
 }
 
@@ -1352,6 +1590,111 @@ func TestReconnectRunningOpenClawSandboxes(t *testing.T) {
 	}
 	if got.IPAddress != "192.168.64.17" {
 		t.Fatalf("ip address = %q, want 192.168.64.17", got.IPAddress)
+	}
+}
+
+func TestReconnectRunningOpenClawSandboxesIncludesHermes(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["hermes-dev"] = Record{
+		Name:      "Hermes Dev",
+		Slug:      "hermes-dev",
+		Provider:  providerLima,
+		Template:  templateHermes,
+		Status:    "ready",
+		VMStatus:  "Running",
+		SharedDir: filepath.Join(t.TempDir(), "hermes-dev"),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	var steps []string
+	m.appStatus = func(id skyapps.ID) (*skyapps.Status, error) {
+		return &skyapps.Status{ActivePath: "/tmp/fake/" + string(id)}, nil
+	}
+	m.outputCmd = func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		switch {
+		case len(args) >= 2 && args[0] == "list" && args[1] == "--json":
+			return []byte(`{"name":"hermes-dev","status":"Running"}` + "\n"), nil
+		case len(args) >= 2 && args[0] == "shell":
+			steps = append(steps, "lookup-ip")
+			return []byte("192.168.64.24\n"), nil
+		default:
+			return nil, fmt.Errorf("unexpected outputCmd args: %v", args)
+		}
+	}
+	m.hostIdentity = func(context.Context) (string, error) {
+		steps = append(steps, "host-identity")
+		return "sky10-host", nil
+	}
+	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
+		steps = append(steps, "host."+method)
+		switch method {
+		case "skylink.connectPeer":
+			return nil
+		case "agent.list":
+			body, err := json.Marshal(map[string]interface{}{
+				"agents": []map[string]string{{"name": "Hermes Dev"}},
+			})
+			if err != nil {
+				t.Fatalf("marshal host agent list: %v", err)
+			}
+			return json.Unmarshal(body, out)
+		default:
+			t.Fatalf("unexpected host RPC method %q", method)
+			return nil
+		}
+	}
+	m.guestRPC = func(ctx context.Context, address, method string, params interface{}, out interface{}) error {
+		steps = append(steps, method)
+		if address != "192.168.64.24" {
+			t.Fatalf("guest RPC address = %q, want 192.168.64.24", address)
+		}
+		switch method {
+		case "identity.show":
+			body, err := json.Marshal(map[string]interface{}{"address": "sky10-host"})
+			if err != nil {
+				t.Fatalf("marshal guest identity show: %v", err)
+			}
+			return json.Unmarshal(body, out)
+		case "skylink.status":
+			body, err := json.Marshal(map[string]interface{}{
+				"peer_id": "12D3KooWhermes",
+				"addrs": []string{
+					"/ip4/127.0.0.1/tcp/4201",
+					"/ip4/192.168.64.24/tcp/4201",
+				},
+			})
+			if err != nil {
+				t.Fatalf("marshal guest skylink status: %v", err)
+			}
+			return json.Unmarshal(body, out)
+		default:
+			t.Fatalf("unexpected guest RPC method %q", method)
+			return nil
+		}
+	}
+
+	if err := m.ReconnectRunningOpenClawSandboxes(context.Background()); err != nil {
+		t.Fatalf("ReconnectRunningOpenClawSandboxes() error: %v", err)
+	}
+
+	want := []string{
+		"host-identity",
+		"lookup-ip",
+		"identity.show",
+		"skylink.status",
+		"host.skylink.connectPeer",
+		"host.agent.list",
+	}
+	if strings.Join(steps, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("steps = %v, want %v", steps, want)
 	}
 }
 

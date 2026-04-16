@@ -41,6 +41,8 @@ const (
 	templateHermesDep              = "hermes-sky10.dependency.sh"
 	templateHermesSys              = "hermes-sky10.system.sh"
 	templateHermesUser             = "hermes-sky10.user.sh"
+	templateHermesBridgeAsset      = "hermes-sky10-bridge.py"
+	templateHermesBridgeConfig     = ".sky10-hermes-bridge.json"
 	templateHostsHelper            = "update-lima-hosts.sh"
 	templateOpenClawPluginDir      = "openclaw-sky10-channel"
 	templateOpenClawPluginPackage  = templateOpenClawPluginDir + "/package.json"
@@ -54,6 +56,7 @@ const (
 	templateSharedToken            = "__SKY10_SHARED_DIR__"
 	openClawReadyTimeout           = 2 * time.Minute
 	guestSky10ReadyURL             = "http://127.0.0.1:9101/health"
+	guestSky10LocalRPCURL          = "http://127.0.0.1:9101/rpc"
 	openClawReadyURL               = "http://127.0.0.1:18789/health"
 )
 
@@ -62,6 +65,17 @@ var openClawSharedAssetFiles = []string{
 	templateOpenClawPluginManifest,
 	templateOpenClawPluginIndex,
 	templateOpenClawPluginClient,
+}
+
+var hermesSharedAssetFiles = []string{
+	templateHermesBridgeAsset,
+}
+
+var defaultHermesBridgeSkills = []string{
+	"code",
+	"shell",
+	"web-search",
+	"file-ops",
 }
 
 var slugWordPattern = regexp.MustCompile(`[a-z0-9]+`)
@@ -138,6 +152,13 @@ type openClawJoinPayload struct {
 	Code         string `json:"code"`
 	HostRPCURL   string `json:"host_rpc_url,omitempty"`
 	SandboxSlug  string `json:"sandbox_slug,omitempty"`
+}
+
+type hermesBridgeConfig struct {
+	HostRPCURL   string   `json:"host_rpc_url"`
+	AgentName    string   `json:"agent_name"`
+	AgentKeyName string   `json:"agent_key_name,omitempty"`
+	Skills       []string `json:"skills,omitempty"`
 }
 
 type ReconnectGuestParams struct {
@@ -250,7 +271,7 @@ func (m *Manager) ReconnectRunningOpenClawSandboxes(ctx context.Context) error {
 	m.mu.Lock()
 	items := make([]Record, 0, len(m.records))
 	for _, rec := range m.records {
-		if rec.Template != templateOpenClaw {
+		if rec.Template != templateOpenClaw && rec.Template != templateHermes {
 			continue
 		}
 		if rec.VMStatus != "Running" {
@@ -805,6 +826,23 @@ func (m *Manager) finishReady(ctx context.Context, name, limactl string) error {
 		if err := waitForGuestHermesCLI(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
 			return err
 		}
+		if err := waitForGuestSky10(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
+			return err
+		}
+		hostIdentity, err := m.ensureGuestJoinedHostIdentity(ctx, *rec, limactl)
+		if err != nil {
+			return err
+		}
+		if err := waitForGuestHermesAgent(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
+			return err
+		}
+		updatedRec, err := m.requireRecord(name)
+		if err != nil {
+			return err
+		}
+		if err := m.ensureHostConnectedGuestAgent(ctx, *updatedRec, hostIdentity); err != nil {
+			return err
+		}
 	}
 	ipAddr, err := lookupLimaInstanceIPv4(ctx, m.outputCmd, limactl, name)
 	if err != nil {
@@ -921,6 +959,10 @@ func (m *Manager) materializeTemplate(ctx context.Context, rec Record) (string, 
 func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) error {
 	switch rec.Template {
 	case templateHermes:
+		sharedAssets, err := loadSandboxAssets(ctx, hermesSharedAssetFiles)
+		if err != nil {
+			return err
+		}
 		resolvedEnv := map[string]string{}
 		if m.resolveHermesSharedEnv != nil {
 			values, err := m.resolveHermesSharedEnv(ctx)
@@ -930,7 +972,25 @@ func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) erro
 				resolvedEnv = values
 			}
 		}
-		return prepareHermesSharedDir(rec.SharedDir, resolvedEnv)
+		var invite *IdentityInvite
+		if m.issueIdentityInvite != nil {
+			value, err := m.issueIdentityInvite(ctx)
+			if err != nil {
+				m.logger.Warn("failed to issue host invite for hermes sandbox bootstrap", "sandbox", rec.Slug, "error", err)
+			} else {
+				invite = value
+			}
+		}
+		hostRPCURL := ""
+		if m.hostRPC != nil {
+			value, err := m.guestReachableHostRPCURL(ctx)
+			if err != nil {
+				m.logger.Warn("failed to resolve host http rpc url for hermes sandbox bootstrap", "sandbox", rec.Slug, "error", err)
+			} else {
+				hostRPCURL = value
+			}
+		}
+		return prepareHermesSharedDir(rec.SharedDir, resolvedEnv, sharedAssets, buildHermesBridgeConfig(rec), invite, rec.Slug, hostRPCURL)
 	case templateOpenClaw:
 	default:
 		if err := os.MkdirAll(rec.SharedDir, 0o755); err != nil {
@@ -978,6 +1038,22 @@ func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) erro
 		return err
 	}
 	return nil
+}
+
+func buildHermesBridgeConfig(rec Record) *hermesBridgeConfig {
+	config := &hermesBridgeConfig{
+		HostRPCURL:   guestSky10LocalRPCURL,
+		AgentName:    strings.TrimSpace(rec.Name),
+		AgentKeyName: strings.TrimSpace(rec.Slug),
+		Skills:       append([]string(nil), defaultHermesBridgeSkills...),
+	}
+	if config.AgentName == "" {
+		config.AgentName = strings.TrimSpace(rec.Slug)
+	}
+	if config.AgentKeyName == "" {
+		config.AgentKeyName = strings.TrimSpace(rec.Name)
+	}
+	return config
 }
 
 func (m *Manager) ensureGuestJoinedHostIdentity(ctx context.Context, rec Record, limactl string) (string, error) {
@@ -1309,19 +1385,8 @@ func prepareOpenClawSharedDir(sharedDir string, hostsHelper []byte, pluginAssets
 	}
 
 	if invite != nil && strings.TrimSpace(invite.Code) != "" {
-		payload := openClawJoinPayload{
-			HostIdentity: strings.TrimSpace(invite.HostIdentity),
-			Code:         strings.TrimSpace(invite.Code),
-			HostRPCURL:   strings.TrimSpace(hostRPCURL),
-			SandboxSlug:  strings.TrimSpace(sandboxSlug),
-		}
-		body, err := json.Marshal(payload)
-		if err != nil {
-			return fmt.Errorf("marshaling sandbox join payload: %w", err)
-		}
-		invitePath := filepath.Join(sharedDir, templateOpenClawInviteFile)
-		if err := os.WriteFile(invitePath, append(body, '\n'), 0o600); err != nil {
-			return fmt.Errorf("writing sandbox join payload: %w", err)
+		if err := writeSandboxJoinPayload(sharedDir, invite, sandboxSlug, hostRPCURL); err != nil {
+			return err
 		}
 	}
 
@@ -1345,7 +1410,7 @@ func prepareOpenClawSharedDir(sharedDir string, hostsHelper []byte, pluginAssets
 	return nil
 }
 
-func prepareHermesSharedDir(sharedDir string, resolvedEnv map[string]string) error {
+func prepareHermesSharedDir(sharedDir string, resolvedEnv map[string]string, sharedAssets map[string][]byte, bridgeConfig *hermesBridgeConfig, invite *IdentityInvite, sandboxSlug, hostRPCURL string) error {
 	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
 		return fmt.Errorf("creating shared directory: %w", err)
 	}
@@ -1359,6 +1424,55 @@ func prepareHermesSharedDir(sharedDir string, resolvedEnv map[string]string) err
 		return fmt.Errorf("writing shared env file: %w", err)
 	}
 
+	if bridgeConfig != nil {
+		body, err := json.Marshal(bridgeConfig)
+		if err != nil {
+			return fmt.Errorf("marshaling hermes bridge config: %w", err)
+		}
+		configPath := filepath.Join(sharedDir, templateHermesBridgeConfig)
+		if err := os.WriteFile(configPath, append(body, '\n'), 0o600); err != nil {
+			return fmt.Errorf("writing hermes bridge config: %w", err)
+		}
+	}
+
+	if invite != nil && strings.TrimSpace(invite.Code) != "" {
+		if err := writeSandboxJoinPayload(sharedDir, invite, sandboxSlug, hostRPCURL); err != nil {
+			return err
+		}
+	}
+
+	for relPath, body := range sharedAssets {
+		targetPath := filepath.Join(sharedDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+			return fmt.Errorf("creating hermes shared asset dir: %w", err)
+		}
+		mode := os.FileMode(0o644)
+		if strings.HasSuffix(relPath, ".py") || strings.HasSuffix(relPath, ".sh") {
+			mode = 0o755
+		}
+		if err := os.WriteFile(targetPath, body, mode); err != nil {
+			return fmt.Errorf("writing hermes shared asset %q: %w", relPath, err)
+		}
+	}
+
+	return nil
+}
+
+func writeSandboxJoinPayload(sharedDir string, invite *IdentityInvite, sandboxSlug, hostRPCURL string) error {
+	payload := openClawJoinPayload{
+		HostIdentity: strings.TrimSpace(invite.HostIdentity),
+		Code:         strings.TrimSpace(invite.Code),
+		HostRPCURL:   strings.TrimSpace(hostRPCURL),
+		SandboxSlug:  strings.TrimSpace(sandboxSlug),
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshaling sandbox join payload: %w", err)
+	}
+	invitePath := filepath.Join(sharedDir, templateOpenClawInviteFile)
+	if err := os.WriteFile(invitePath, append(body, '\n'), 0o600); err != nil {
+		return fmt.Errorf("writing sandbox join payload: %w", err)
+	}
 	return nil
 }
 
@@ -1783,6 +1897,23 @@ func waitForGuestOpenClawAgent(
 		name,
 		fmt.Sprintf(`curl -fsS http://127.0.0.1:9101/rpc -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"agent.list","params":{},"id":1}' | grep -F '"name":"%s"' >/dev/null`, name),
 		"guest OpenClaw agent registration",
+		timeout,
+	)
+}
+
+func waitForGuestHermesAgent(
+	ctx context.Context,
+	outputCmd func(context.Context, string, []string) ([]byte, error),
+	limactl, name string,
+	timeout time.Duration,
+) error {
+	return waitForGuestCommand(
+		ctx,
+		outputCmd,
+		limactl,
+		name,
+		fmt.Sprintf(`curl -fsS http://127.0.0.1:9101/rpc -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"agent.list","params":{},"id":1}' | grep -F '"name":"%s"' >/dev/null`, name),
+		"guest Hermes agent registration",
 		timeout,
 	)
 }

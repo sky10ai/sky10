@@ -207,10 +207,10 @@ export default function Sandboxes() {
               ) : templateConfig.id === "hermes" ? (
                 <>
                   <p>
-                    The Hermes template installs Hermes Agent inside the guest, links the shared <code>/shared/.env</code> file into <code>~/.hermes/.env</code>, and launches the embedded sandbox terminal straight into the Hermes TUI.
+                    The Hermes template installs Hermes Agent inside the guest, links the shared <code>/shared/.env</code> file into <code>~/.hermes/.env</code>, and keeps the embedded sandbox terminal ready for the native Hermes TUI.
                   </p>
                   <p>
-                    This first cut is intentionally local-only: it gives you a working Hermes runtime in the sandbox terminal without wiring Hermes into sky10 message routing yet.
+                    It also starts a guest-local Hermes gateway plus a sky10 bridge, so the sandbox shows up in the host agent list and can be chatted with from sky10 while still remaining usable from the guest terminal.
                   </p>
                 </>
               ) : (

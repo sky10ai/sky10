@@ -10,14 +10,212 @@ SHARED_DIR="/shared"
 STATE_DIR="${HERMES_HOME}/.sky10-lima"
 SENTINEL="${STATE_DIR}/initialized-v1"
 HELPER="${HOME}/.local/bin/hermes-shared"
+BRIDGE_INSTALL="${HOME}/.local/bin/hermes-sky10-bridge"
+BRIDGE_ASSET="${SHARED_DIR}/hermes-sky10-bridge.py"
+BRIDGE_CONFIG="${SHARED_DIR}/.sky10-hermes-bridge.json"
+BRIDGE_ENV="${STATE_DIR}/bridge.env"
+SKY10_INVITE_PATH="${SHARED_DIR}/.sky10-join.json"
+SKY10_RECONNECT_HELPER="${HOME}/.bin/sky10-managed-reconnect"
+UNIT_DIR="${HOME}/.config/systemd/user"
+SKY10_UNIT="${UNIT_DIR}/sky10.service"
+GATEWAY_UNIT="${UNIT_DIR}/sky10-hermes-gateway.service"
+BRIDGE_UNIT="${UNIT_DIR}/sky10-hermes-bridge.service"
 WELCOME="${SHARED_DIR}/HERMES.md"
 
 mkdir -p "${STATE_DIR}"
+mkdir -p "${HOME}/.bin"
 mkdir -p "${HOME}/.local/bin"
+mkdir -p "${UNIT_DIR}"
 mkdir -p "${SHARED_DIR}"
 
 curl4() {
   curl -4 --retry 5 --retry-delay 2 --retry-connrefused -fsSL "$@"
+}
+
+wait_for_sky10() {
+  timeout 120s bash -lc 'until curl -fsS http://127.0.0.1:9101/health >/dev/null 2>&1; do sleep 2; done'
+}
+
+install_sky10() {
+  local arch latest asset tmp
+
+  case "$(uname -m)" in
+    x86_64|amd64)
+      arch="amd64"
+      ;;
+    arm64|aarch64)
+      arch="arm64"
+      ;;
+    *)
+      echo >&2 "unsupported sky10 guest architecture: $(uname -m)"
+      return 1
+      ;;
+  esac
+
+  latest="$(
+    curl4 https://api.github.com/repos/sky10ai/sky10/releases/latest \
+      | python3 -c 'import json, sys; print(json.load(sys.stdin)["tag_name"])'
+  )"
+  if [ -z "${latest}" ]; then
+    echo >&2 "failed to resolve latest sky10 release"
+    return 1
+  fi
+
+  asset="sky10-linux-${arch}"
+  tmp="$(mktemp)"
+  curl4 -o "${tmp}" "https://github.com/sky10ai/sky10/releases/download/${latest}/${asset}"
+  install -m 755 "${tmp}" "${HOME}/.bin/sky10"
+  rm -f "${tmp}"
+}
+
+ensure_guest_sky10_binary() {
+  if ! command -v sky10 >/dev/null 2>&1; then
+    install_sky10
+  fi
+}
+
+install_guest_reconnect_helper() {
+  cat > "${SKY10_RECONNECT_HELPER}" <<'EOF'
+#!/bin/bash
+set -u
+
+JOIN_PATH="/shared/.sky10-join.json"
+LOCAL_RPC="http://127.0.0.1:9101/rpc"
+
+if [ ! -f "${JOIN_PATH}" ]; then
+  exit 0
+fi
+
+mapfile -t join_info < <(
+  python3 - "${JOIN_PATH}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as fh:
+    payload = json.load(fh)
+
+print((payload.get("host_rpc_url") or "").strip())
+print((payload.get("sandbox_slug") or "").strip())
+PY
+)
+host_rpc_url="${join_info[0]:-}"
+sandbox_slug="${join_info[1]:-}"
+
+if [ -z "${host_rpc_url}" ] || [ -z "${sandbox_slug}" ]; then
+  exit 0
+fi
+
+guest_ip="$(ip -4 addr show dev lima0 | awk '/inet / {sub(/\/.*/, "", $2); print $2; exit}')"
+
+for _ in $(seq 1 20); do
+  payload="$(
+    curl -fsS "${LOCAL_RPC}" -H 'Content-Type: application/json' \
+      -d '{"jsonrpc":"2.0","method":"skylink.status","params":{},"id":1}' \
+      | python3 - "${sandbox_slug}" "${guest_ip}" <<'PY'
+import json
+import sys
+
+slug = sys.argv[1]
+guest_ip = sys.argv[2]
+resp = json.load(sys.stdin)
+result = resp.get("result") or {}
+peer_id = (result.get("peer_id") or "").strip()
+addrs = result.get("addrs") or []
+if not peer_id or not addrs:
+    raise SystemExit(1)
+
+print(json.dumps({
+    "jsonrpc": "2.0",
+    "method": "sandbox.reconnectGuest",
+    "params": {
+        "slug": slug,
+        "ip_address": guest_ip,
+        "peer_id": peer_id,
+        "multiaddrs": addrs,
+    },
+    "id": 1,
+}))
+PY
+  )" && curl -fsS "${host_rpc_url}" -H 'Content-Type: application/json' -d "${payload}" >/dev/null 2>&1 && exit 0
+  sleep 2
+done
+
+exit 0
+EOF
+  chmod 755 "${SKY10_RECONNECT_HELPER}"
+}
+
+ensure_guest_join() {
+  local invite_info host_identity invite_code
+
+  if [ -f "${SKY10_UNIT}" ]; then
+    return 0
+  fi
+  if [ ! -f "${SKY10_INVITE_PATH}" ]; then
+    return 0
+  fi
+
+  ensure_guest_sky10_binary
+  mapfile -t invite_info < <(
+    python3 - "${SKY10_INVITE_PATH}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as fh:
+    payload = json.load(fh)
+
+print((payload.get("host_identity") or "").strip())
+print((payload.get("code") or "").strip())
+PY
+  )
+  host_identity="${invite_info[0]:-}"
+  invite_code="${invite_info[1]:-}"
+  if [ -z "${invite_code}" ]; then
+    echo >&2 "sky10 invite payload is missing a join code"
+    return 1
+  fi
+
+  sky10 join --role sandbox "${invite_code}"
+
+  if [ -n "${host_identity}" ]; then
+    echo "joined sky10 host identity ${host_identity}"
+  else
+    echo "joined sky10 host identity"
+  fi
+}
+
+ensure_guest_sky10() {
+  ensure_guest_sky10_binary
+  install_guest_reconnect_helper
+
+  if curl -fsS http://127.0.0.1:9101/health >/dev/null 2>&1; then
+    return 0
+  fi
+
+  cat > "${SKY10_UNIT}" <<EOF
+[Unit]
+Description=sky10 Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/env sky10 serve
+ExecStartPost=%h/.bin/sky10-managed-reconnect
+Restart=always
+RestartSec=2
+WorkingDirectory=${HOME}
+Environment=HOME=${HOME}
+Environment=PATH=${HOME}/.local/bin:${HOME}/.cargo/bin:${HOME}/.bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target
+EOF
+
+  systemctl --user daemon-reload
+  systemctl --user enable sky10.service
+  systemctl --user restart sky10.service || systemctl --user start sky10.service
+
+  wait_for_sky10
 }
 
 ensure_shared_env() {
@@ -150,6 +348,119 @@ EOF
   chmod 755 "${HELPER}"
 }
 
+install_bridge_asset() {
+  if [ ! -f "${BRIDGE_ASSET}" ]; then
+    echo >&2 "bundled Hermes bridge not found at ${BRIDGE_ASSET}"
+    return 1
+  fi
+
+  install -m 755 "${BRIDGE_ASSET}" "${BRIDGE_INSTALL}"
+}
+
+write_bridge_env() {
+  if [ ! -f "${BRIDGE_CONFIG}" ]; then
+    return 0
+  fi
+
+  python3 - "${BRIDGE_ENV}" <<'PY'
+import os
+import secrets
+import sys
+
+env_path = sys.argv[1]
+api_key = ""
+
+if os.path.exists(env_path):
+    with open(env_path, "r", encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if line.startswith("API_SERVER_KEY="):
+                api_key = line.split("=", 1)[1]
+                break
+
+if not api_key:
+    api_key = secrets.token_urlsafe(32)
+
+lines = [
+    "API_SERVER_ENABLED=true",
+    "API_SERVER_HOST=127.0.0.1",
+    "API_SERVER_PORT=8642",
+    f"API_SERVER_KEY={api_key}",
+    "API_SERVER_MODEL_NAME=hermes-agent",
+    "SKY10_BRIDGE_CONFIG_PATH=/shared/.sky10-hermes-bridge.json",
+]
+
+with open(env_path, "w", encoding="utf-8") as fh:
+    fh.write("\n".join(lines) + "\n")
+PY
+  chmod 600 "${BRIDGE_ENV}"
+}
+
+write_gateway_unit() {
+  cat > "${GATEWAY_UNIT}" <<EOF
+[Unit]
+Description=sky10 Hermes Gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/env hermes gateway run
+Restart=always
+RestartSec=5
+WorkingDirectory=/shared
+EnvironmentFile=-%h/.hermes/.env
+EnvironmentFile=-%h/.hermes/.sky10-lima/bridge.env
+Environment=HOME=${HOME}
+Environment=PATH=${HOME}/.local/bin:${HOME}/.cargo/bin:${HOME}/.bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target
+EOF
+}
+
+write_bridge_unit() {
+  cat > "${BRIDGE_UNIT}" <<EOF
+[Unit]
+Description=sky10 Hermes Host Bridge
+After=network-online.target sky10-hermes-gateway.service
+Wants=network-online.target sky10-hermes-gateway.service
+
+[Service]
+ExecStart=%h/.local/bin/hermes-sky10-bridge
+Restart=always
+RestartSec=5
+WorkingDirectory=/shared
+EnvironmentFile=-%h/.hermes/.sky10-lima/bridge.env
+Environment=HOME=${HOME}
+Environment=PATH=${HOME}/.local/bin:${HOME}/.cargo/bin:${HOME}/.bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
+EOF
+}
+
+wait_for_hermes_api() {
+  timeout 180s bash -lc 'until curl -fsS http://127.0.0.1:8642/health >/dev/null 2>&1; do sleep 2; done'
+}
+
+enable_host_chat_bridge() {
+  if [ ! -f "${BRIDGE_CONFIG}" ]; then
+    return 0
+  fi
+
+  install_bridge_asset
+  write_bridge_env
+  write_gateway_unit
+  write_bridge_unit
+
+  systemctl --user daemon-reload
+  systemctl --user enable sky10-hermes-gateway.service sky10-hermes-bridge.service
+  systemctl --user restart sky10-hermes-gateway.service || systemctl --user start sky10-hermes-gateway.service
+  wait_for_hermes_api
+  systemctl --user restart sky10-hermes-bridge.service || systemctl --user start sky10-hermes-bridge.service
+}
+
 write_welcome() {
   cat > "${WELCOME}" <<'EOF'
 # Hermes on Lima
@@ -166,8 +477,9 @@ hermes-shared
 
 1. Host-managed provider secrets merge into `/shared/.env` automatically when available
 2. Add or edit keys in `/shared/.env` directly if you need to override them
-3. Run `hermes model` if you want to switch models/providers
-4. Keep project files in `/shared` so Hermes starts in the shared workspace
+3. sky10 also installs a guest bridge so Hermes registers with the guest daemon and appears on the host through skylink
+4. Run `hermes model` if you want to switch models/providers
+5. Keep project files in `/shared` so Hermes starts in the shared workspace
 EOF
 }
 
@@ -181,6 +493,8 @@ fi
 link_hermes_env
 write_helper
 write_welcome
+ensure_guest_join
+ensure_guest_sky10
 
 if command -v hermes >/dev/null 2>&1; then
   hermes config set terminal.backend local || true
@@ -191,3 +505,4 @@ if command -v hermes >/dev/null 2>&1; then
 fi
 
 link_hermes_env
+enable_host_chat_bridge

@@ -102,7 +102,7 @@ func TestPrepareLimaSharedDir(t *testing.T) {
 	}
 	if err := prepareLimaSharedDir(sandboxTemplateOpenClaw, sharedDir, []byte("#!/bin/sh\n"), pluginAssets, map[string]string{
 		"OPENAI_API_KEY": "openai-key",
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("prepareLimaSharedDir() error: %v", err)
 	}
 
@@ -128,8 +128,15 @@ func TestPrepareLimaSharedDirHermes(t *testing.T) {
 	t.Parallel()
 
 	sharedDir := t.TempDir()
-	if err := prepareLimaSharedDir(sandboxTemplateHermes, sharedDir, nil, nil, map[string]string{
+	if err := prepareLimaSharedDir(sandboxTemplateHermes, sharedDir, nil, map[string][]byte{
+		agentLimaHermesBridge: []byte("#!/usr/bin/env python3\nprint('ok')\n"),
+	}, map[string]string{
 		"ANTHROPIC_API_KEY": "anthropic-key",
+	}, &hermesBridgeConfig{
+		HostRPCURL:   "http://host.lima.internal:9101/rpc",
+		AgentName:    "Hermes Agent",
+		AgentKeyName: "hermes-agent",
+		Skills:       []string{"code", "shell"},
 	}); err != nil {
 		t.Fatalf("prepareLimaSharedDir(hermes) error: %v", err)
 	}
@@ -143,6 +150,19 @@ func TestPrepareLimaSharedDirHermes(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "ANTHROPIC_API_KEY=anthropic-key") {
 		t.Fatalf(".env = %q, want resolved anthropic key", string(data))
+	}
+	configData, err := os.ReadFile(filepath.Join(sharedDir, agentLimaHermesBridgeJSON))
+	if err != nil {
+		t.Fatalf("ReadFile(bridge config) error: %v", err)
+	}
+	if !strings.Contains(string(configData), `"agent_name":"Hermes Agent"`) {
+		t.Fatalf("bridge config = %q, want agent name", string(configData))
+	}
+	bridgePath := filepath.Join(sharedDir, agentLimaHermesBridge)
+	if info, err := os.Stat(bridgePath); err != nil {
+		t.Fatalf("Stat(bridge asset) error: %v", err)
+	} else if info.Mode()&0o111 == 0 {
+		t.Fatalf("bridge asset mode = %v, want executable", info.Mode())
 	}
 }
 
@@ -353,6 +373,36 @@ func TestHermesUserScriptInstallsHelper(t *testing.T) {
 	if !strings.Contains(script, "ANTHROPIC_API_KEY/anthropic") {
 		t.Fatalf("user script missing host-secret merge note: %q", script)
 	}
+	if !strings.Contains(script, "hermes-sky10-bridge.py") {
+		t.Fatalf("user script missing bundled bridge asset install: %q", script)
+	}
+	if !strings.Contains(script, "sky10-hermes-gateway.service") {
+		t.Fatalf("user script missing gateway service unit: %q", script)
+	}
+	if !strings.Contains(script, "sky10-hermes-bridge.service") {
+		t.Fatalf("user script missing bridge service unit: %q", script)
+	}
+	if !strings.Contains(script, "sky10-managed-reconnect") {
+		t.Fatalf("user script missing guest reconnect helper: %q", script)
+	}
+	if !strings.Contains(script, `mkdir -p "${HOME}/.bin"`) {
+		t.Fatalf("user script missing ~/.bin bootstrap dir creation: %q", script)
+	}
+	if !strings.Contains(script, "sky10.service") {
+		t.Fatalf("user script missing guest sky10 service unit: %q", script)
+	}
+	if !strings.Contains(script, "sky10 join --role sandbox") {
+		t.Fatalf("user script missing guest join bootstrap: %q", script)
+	}
+	if !strings.Contains(script, "hermes gateway run") {
+		t.Fatalf("user script missing gateway foreground command: %q", script)
+	}
+	if !strings.Contains(script, "API_SERVER_ENABLED=true") {
+		t.Fatalf("user script missing API server env bootstrap: %q", script)
+	}
+	if !strings.Contains(script, ".sky10-hermes-bridge.json") {
+		t.Fatalf("user script missing bridge config path: %q", script)
+	}
 	if !strings.Contains(script, "merge_guest_env_into_shared") {
 		t.Fatalf("user script missing guest-env merge helper: %q", script)
 	}
@@ -367,5 +417,36 @@ func TestHermesUserScriptInstallsHelper(t *testing.T) {
 	}
 	if strings.Contains(script, `cp "${HERMES_HOME}/.env" "${SHARED_DIR}/.env"`) {
 		t.Fatalf("user script should not clobber shared env with guest env: %q", script)
+	}
+}
+
+func TestHermesBridgeAssetSubscribesToSky10Events(t *testing.T) {
+	t.Parallel()
+
+	spec, err := limaTemplateDefinition(sandboxTemplateHermes)
+	if err != nil {
+		t.Fatalf("limaTemplateDefinition(hermes): %v", err)
+	}
+	dir, err := findLocalLimaTemplateDir(spec)
+	if err != nil {
+		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(dir, agentLimaHermesBridge))
+	if err != nil {
+		t.Fatalf("ReadFile(bridge asset) error: %v", err)
+	}
+	script := string(body)
+	if !strings.Contains(script, `"agent.register"`) {
+		t.Fatalf("bridge asset missing sky10 registration call: %q", script)
+	}
+	if !strings.Contains(script, "/rpc/events") {
+		t.Fatalf("bridge asset missing SSE subscription: %q", script)
+	}
+	if !strings.Contains(script, "/responses") {
+		t.Fatalf("bridge asset missing Hermes Responses API call: %q", script)
+	}
+	if !strings.Contains(script, "/chat/completions") {
+		t.Fatalf("bridge asset missing chat completions fallback: %q", script)
 	}
 }

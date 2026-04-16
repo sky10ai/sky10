@@ -31,6 +31,8 @@ const (
 	agentLimaHermesDep        = "hermes-sky10.dependency.sh"
 	agentLimaHermesSys        = "hermes-sky10.system.sh"
 	agentLimaHermesUser       = "hermes-sky10.user.sh"
+	agentLimaHermesBridge     = "hermes-sky10-bridge.py"
+	agentLimaHermesBridgeJSON = ".sky10-hermes-bridge.json"
 	agentLimaHostsScript      = "update-lima-hosts.sh"
 	agentLimaPluginDir        = "openclaw-sky10-channel"
 	agentLimaPluginPackage    = agentLimaPluginDir + "/package.json"
@@ -46,6 +48,7 @@ const (
 	openClawReadyTimeout      = 2 * time.Minute
 	guestSky10ReadyURL        = "http://127.0.0.1:9101/health"
 	openClawReadyURL          = "http://127.0.0.1:18789/health"
+	defaultHermesHostRPCURL   = "http://127.0.0.1:9101/rpc"
 )
 
 var agentLimaAssetFiles = []string{
@@ -62,6 +65,17 @@ var agentLimaSharedPluginFiles = []string{
 	agentLimaPluginClient,
 }
 
+var agentLimaHermesSharedFiles = []string{
+	agentLimaHermesBridge,
+}
+
+var defaultHermesBridgeSkills = []string{
+	"code",
+	"shell",
+	"web-search",
+	"file-ops",
+}
+
 type limaTemplateSpec struct {
 	templateID         string
 	cacheDir           string
@@ -69,6 +83,13 @@ type limaTemplateSpec struct {
 	assets             []string
 	sharedAssetFiles   []string
 	includeHostsHelper bool
+}
+
+type hermesBridgeConfig struct {
+	HostRPCURL   string   `json:"host_rpc_url"`
+	AgentName    string   `json:"agent_name"`
+	AgentKeyName string   `json:"agent_key_name,omitempty"`
+	Skills       []string `json:"skills,omitempty"`
 }
 
 var sandboxNameWordPattern = regexp.MustCompile(`[a-z0-9]+`)
@@ -143,6 +164,7 @@ func sandboxCreateCmd() *cobra.Command {
 				return err
 			}
 			resolvedEnv := map[string]string{}
+			var hermesBridge *hermesBridgeConfig
 			switch template {
 			case sandboxTemplateOpenClaw:
 				resolvedEnv, err = resolveOpenClawProviderEnvFromDaemon(cmd.Context())
@@ -154,8 +176,9 @@ func sandboxCreateCmd() *cobra.Command {
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not resolve host secrets for sandbox env: %v\n", err)
 				}
+				hermesBridge = buildHermesBridgeConfig(displayName, slug, "")
 			}
-			if err := prepareLimaSharedDir(template, sharedDir, hostsScript, sharedAssets, resolvedEnv); err != nil {
+			if err := prepareLimaSharedDir(template, sharedDir, hostsScript, sharedAssets, resolvedEnv, hermesBridge); err != nil {
 				return err
 			}
 
@@ -291,7 +314,7 @@ func printSandboxSummary(cmd *cobra.Command, rec skysandbox.Record) {
 
 	switch rec.Template {
 	case sandboxTemplateHermes:
-		fmt.Fprintf(cmd.OutOrStdout(), "Hermes:     installed inside the guest with its CLI/TUI available via `hermes` and `hermes-shared`\n")
+		fmt.Fprintf(cmd.OutOrStdout(), "Hermes:     installed inside the guest with host chat routed through guest sky10 and a local CLI/TUI via `hermes` and `hermes-shared`\n")
 		fmt.Fprintf(cmd.OutOrStdout(), "Launch:     limactl shell %s -- bash -lc 'hermes-shared'\n", rec.Slug)
 	default:
 		sky10URL, openClawURL := sandboxURLs(rec)
@@ -374,9 +397,10 @@ func limaTemplateDefinition(template string) (limaTemplateSpec, error) {
 		}, nil
 	case sandboxTemplateHermes:
 		return limaTemplateSpec{
-			templateID: template,
-			cacheDir:   agentLimaHermesName,
-			mainAsset:  agentLimaHermesYAML,
+			templateID:       template,
+			cacheDir:         agentLimaHermesName,
+			mainAsset:        agentLimaHermesYAML,
+			sharedAssetFiles: append([]string(nil), agentLimaHermesSharedFiles...),
 			assets: []string{
 				agentLimaHermesYAML,
 				agentLimaHermesDep,
@@ -571,7 +595,7 @@ func downloadLimaAsset(ctx context.Context, name string) ([]byte, error) {
 	return body, nil
 }
 
-func prepareLimaSharedDir(template, sharedDir string, hostsScript []byte, sharedAssets map[string][]byte, resolvedEnv map[string]string) error {
+func prepareLimaSharedDir(template, sharedDir string, hostsScript []byte, sharedAssets map[string][]byte, resolvedEnv map[string]string, hermesBridge *hermesBridgeConfig) error {
 	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
 		return fmt.Errorf("creating shared Lima directory %q: %w", sharedDir, err)
 	}
@@ -590,6 +614,16 @@ func prepareLimaSharedDir(template, sharedDir string, hostsScript []byte, shared
 		if err := os.WriteFile(envPath, skysandbox.BuildHermesSharedEnv(existingEnv, resolvedEnv), 0o600); err != nil {
 			return fmt.Errorf("writing shared env file %q: %w", envPath, err)
 		}
+		if hermesBridge != nil {
+			body, err := json.Marshal(hermesBridge)
+			if err != nil {
+				return fmt.Errorf("marshaling hermes bridge config: %w", err)
+			}
+			configPath := filepath.Join(sharedDir, agentLimaHermesBridgeJSON)
+			if err := os.WriteFile(configPath, append(body, '\n'), 0o600); err != nil {
+				return fmt.Errorf("writing hermes bridge config %q: %w", configPath, err)
+			}
+		}
 	}
 
 	helperPath := filepath.Join(sharedDir, agentLimaHostsScript)
@@ -604,7 +638,11 @@ func prepareLimaSharedDir(template, sharedDir string, hostsScript []byte, shared
 		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 			return fmt.Errorf("creating bundled plugin dir %q: %w", filepath.Dir(targetPath), err)
 		}
-		if err := os.WriteFile(targetPath, body, 0o644); err != nil {
+		mode := os.FileMode(0o644)
+		if strings.HasSuffix(relPath, ".py") || strings.HasSuffix(relPath, ".sh") {
+			mode = 0o755
+		}
+		if err := os.WriteFile(targetPath, body, mode); err != nil {
 			return fmt.Errorf("writing bundled plugin asset %q: %w", targetPath, err)
 		}
 	}
@@ -714,6 +752,25 @@ func resolveOpenClawProviderEnvFromDaemon(ctx context.Context) (map[string]strin
 
 func resolveHermesProviderEnvFromDaemon(ctx context.Context) (map[string]string, error) {
 	return skysandbox.ResolveHermesProviderEnv(ctx, providerSecretLookupFromDaemon())
+}
+
+func buildHermesBridgeConfig(agentName, agentKeyName, hostRPCURL string) *hermesBridgeConfig {
+	config := &hermesBridgeConfig{
+		HostRPCURL:   strings.TrimSpace(hostRPCURL),
+		AgentName:    strings.TrimSpace(agentName),
+		AgentKeyName: strings.TrimSpace(agentKeyName),
+		Skills:       append([]string(nil), defaultHermesBridgeSkills...),
+	}
+	if config.HostRPCURL == "" {
+		config.HostRPCURL = defaultHermesHostRPCURL
+	}
+	if config.AgentName == "" {
+		config.AgentName = strings.TrimSpace(agentKeyName)
+	}
+	if config.AgentKeyName == "" {
+		config.AgentKeyName = strings.TrimSpace(agentName)
+	}
+	return config
 }
 
 func providerSecretLookupFromDaemon() skysandbox.ProviderSecretLookup {

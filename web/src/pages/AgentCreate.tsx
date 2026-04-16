@@ -14,9 +14,9 @@ const OPTIONS = [
     id: "hermes",
     icon: "terminal",
     title: "Hermes + Lima",
-    description: "Managed Ubuntu VM with Hermes Agent preconfigured from shared secrets and launched directly in the embedded terminal.",
+    description: "Managed Ubuntu VM with Hermes Agent preconfigured from shared secrets, a host-side sky10 chat bridge, and the native Hermes terminal ready in the sandbox detail view.",
     action: "Create Hermes",
-    detail: "Best when you want to work in Hermes's native TUI without extra shell setup.",
+    detail: "Best when you want both host-side sky10 chat and direct access to Hermes's native TUI.",
   },
 ] as const;
 
