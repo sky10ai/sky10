@@ -189,6 +189,71 @@ func TestIntegrationFSFallsBackToS3WhenPeersAbsent(t *testing.T) {
 	waitForDriveReadSource(t, nodeB.home, "shared", "s3", 0, 1)
 }
 
+func TestIntegrationFSUsesPeerThenS3FallbackAcrossAvailabilityChange(t *testing.T) {
+	bin := buildSky10Binary(t)
+	minio := startMinIO(t)
+	bucket := newTestBucket(t)
+	minio.createBucket(t, bucket)
+
+	base := t.TempDir()
+	env := []string{
+		"S3_ACCESS_KEY_ID=minioadmin",
+		"S3_SECRET_ACCESS_KEY=minioadmin",
+	}
+
+	nodeAHome := filepath.Join(base, "node-a")
+	nodeBHome := filepath.Join(base, "node-b")
+	driveA := filepath.Join(base, "drive-a")
+	driveB := filepath.Join(base, "drive-b")
+	for _, dir := range []string{driveA, driveB} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	runCLIEnv(t, env, bin, nodeAHome, "fs", "init",
+		"--bucket", bucket,
+		"--region", "us-east-1",
+		"--endpoint", minio.endpoint,
+		"--path-style",
+	)
+
+	nodeA := startProcessNodeEnv(t, env, bin, "node-a", nodeAHome, "--fs-poll-seconds", "1")
+	statusA := waitForLinkStatus(t, bin, nodeA.home, 1)
+	bootstrapAddr := statusA.ListenAddr[0] + "/p2p/" + statusA.PeerID
+	runCLI(t, bin, nodeA.home, "fs", "drive", "create", "shared", driveA, "--namespace", "shared")
+
+	inviteB := inviteCode(t, runCLI(t, bin, nodeA.home, "invite"))
+	joinB := startCLICommand(t, nil, bin, nodeBHome, "join", inviteB)
+	completeJoin(t, joinB, bin, nodeA.home)
+
+	nodeB := startProcessNodeEnv(t, env, bin, "node-b", nodeBHome, "--fs-poll-seconds", "1", "--link-bootstrap", bootstrapAddr)
+	runCLI(t, bin, nodeB.home, "fs", "drive", "create", "shared", driveB, "--namespace", "shared")
+
+	waitForPeerCountAtLeast(t, bin, nodeA.home, 1)
+	waitForPeerCountAtLeast(t, bin, nodeB.home, 1)
+
+	publishStableFile(t, filepath.Join(base, "hybrid-peer.tmp"), filepath.Join(driveA, "peer-first.txt"), "hello from peer first")
+	waitForFileContent(t, filepath.Join(driveB, "peer-first.txt"), "hello from peer first")
+	waitForDriveReadSource(t, nodeB.home, "shared", "peer", 1, 0)
+
+	nodeB.cancel()
+	_ = nodeB.cmd.Wait()
+
+	publishStableFile(t, filepath.Join(base, "hybrid-s3.tmp"), filepath.Join(driveA, "s3-later.txt"), "hello from s3 fallback")
+	waitForDriveIdle(t, nodeA.home, "shared")
+	time.Sleep(2 * time.Second)
+
+	nodeA.cancel()
+	_ = nodeA.cmd.Wait()
+
+	nodeB = startProcessNodeEnv(t, env, bin, "node-b", nodeBHome, "--fs-poll-seconds", "1")
+
+	waitForFileContent(t, filepath.Join(driveB, "peer-first.txt"), "hello from peer first")
+	waitForFileContent(t, filepath.Join(driveB, "s3-later.txt"), "hello from s3 fallback")
+	waitForDriveReadSource(t, nodeB.home, "shared", "s3", 0, 1)
+}
+
 type rpcFSDriveListResult struct {
 	Drives []struct {
 		Name            string `json:"name"`

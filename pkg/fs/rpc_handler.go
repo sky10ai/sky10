@@ -372,6 +372,10 @@ func (s *FSHandler) rpcHealth(_ context.Context) (interface{}, error) {
 	readLocalTotal := 0
 	readPeerTotal := 0
 	readS3Total := 0
+	peerDegradedTotal := 0
+	s3DegradedTotal := 0
+	peerFailureTotal := 0
+	s3FailureTotal := 0
 	for _, id := range driveIDs {
 		dir := driveDataDir(id)
 		outbox := NewSyncLog[OutboxEntry](filepath.Join(dir, "outbox.jsonl"))
@@ -386,6 +390,15 @@ func (s *FSHandler) rpcHealth(_ context.Context) (interface{}, error) {
 		readLocalTotal += readStats.LocalHits
 		readPeerTotal += readStats.PeerHits
 		readS3Total += readStats.S3Hits
+		sourceHealth := s.driveManager.sourceHealthSnapshot(id)
+		if sourceHealth.Peer.Degraded {
+			peerDegradedTotal++
+		}
+		if sourceHealth.S3.Degraded {
+			s3DegradedTotal++
+		}
+		peerFailureTotal += sourceHealth.Peer.ConsecutiveFailures
+		s3FailureTotal += sourceHealth.S3.ConsecutiveFailures
 	}
 
 	subscribers := s.server.SubscriberCount()
@@ -399,20 +412,24 @@ func (s *FSHandler) rpcHealth(_ context.Context) (interface{}, error) {
 	}
 
 	result := map[string]interface{}{
-		"status":            "ok",
-		"version":           s.version,
-		"uptime":            uptime.Truncate(time.Second).String(),
-		"drives":            driveCount,
-		"drives_running":    runningCount,
-		"outbox_pending":    outboxTotal,
-		"transfer_pending":  transferTotal,
-		"transfer_staged":   transferStaged,
-		"read_local_hits":   readLocalTotal,
-		"read_peer_hits":    readPeerTotal,
-		"read_s3_hits":      readS3Total,
-		"last_activity_ago": lastActivityAgo,
-		"rpc_clients":       clients,
-		"rpc_subscribers":   subscribers,
+		"status":               "ok",
+		"version":              s.version,
+		"uptime":               uptime.Truncate(time.Second).String(),
+		"drives":               driveCount,
+		"drives_running":       runningCount,
+		"outbox_pending":       outboxTotal,
+		"transfer_pending":     transferTotal,
+		"transfer_staged":      transferStaged,
+		"read_local_hits":      readLocalTotal,
+		"read_peer_hits":       readPeerTotal,
+		"read_s3_hits":         readS3Total,
+		"peer_degraded_drives": peerDegradedTotal,
+		"s3_degraded_drives":   s3DegradedTotal,
+		"peer_source_failures": peerFailureTotal,
+		"s3_source_failures":   s3FailureTotal,
+		"last_activity_ago":    lastActivityAgo,
+		"rpc_clients":          clients,
+		"rpc_subscribers":      subscribers,
 	}
 	if addr := s.server.HTTPAddr(); addr != "" {
 		result["http_addr"] = addr

@@ -73,6 +73,20 @@ function readSourceLabel(source?: string) {
   return "Unknown";
 }
 
+function sourceHealthBadges(entry: SyncReadSourceEntry) {
+  const badges: Array<{ label: string; tone: "danger" | "neutral" }> = [];
+  if (entry.peer_source_health?.degraded) {
+    badges.push({ label: "Peer retry", tone: "danger" });
+  }
+  if (entry.s3_source_health?.degraded) {
+    badges.push({ label: "S3 retry", tone: "danger" });
+  }
+  if (badges.length === 0 && entry.last_read_source === "s3") {
+    badges.push({ label: "Durable path", tone: "neutral" });
+  }
+  return badges;
+}
+
 function transferSourceLabel(source?: string) {
   if (source === "peer") return "Peer";
   if (source === "s3") return "S3";
@@ -205,6 +219,11 @@ export default function Activity() {
                 <StatusBadge tone={readSourceTone(entry.last_read_source)}>
                   {readSourceLabel(entry.last_read_source)}
                 </StatusBadge>
+                {sourceHealthBadges(entry).map((badge) => (
+                  <StatusBadge key={`${entry.drive_id}-${badge.label}`} tone={badge.tone}>
+                    {badge.label}
+                  </StatusBadge>
+                ))}
                 <span className="text-xs text-on-surface-variant">
                   Cache {entry.read_local_hits}
                 </span>

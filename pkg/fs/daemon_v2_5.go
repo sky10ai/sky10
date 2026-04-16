@@ -193,6 +193,13 @@ func (d *DaemonV2_5) readSourceSnapshot() readSourceStatsSnapshot {
 	return d.readSources.Snapshot()
 }
 
+func (d *DaemonV2_5) sourceHealthSnapshot() chunkSourceHealthSnapshots {
+	if d == nil || d.store == nil {
+		return chunkSourceHealthSnapshots{}
+	}
+	return d.store.sourceHealthSnapshot()
+}
+
 func (d *DaemonV2_5) emitEvent(event string, data map[string]any) {
 	d.onEvent(event, data)
 	// Poke snapshot uploader when local state changes.

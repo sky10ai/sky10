@@ -17,6 +17,10 @@ export function DriveCard({
     (drive.read_local_hits ?? 0) +
     (drive.read_peer_hits ?? 0) +
     (drive.read_s3_hits ?? 0);
+  const sourceWarnings = [
+    drive.peer_source_health?.degraded ? "Peer retrying" : "",
+    drive.s3_source_health?.degraded ? "S3 retrying" : "",
+  ].filter(Boolean);
   const [toggling, setToggling] = useState(false);
 
   const toggleDrive = async (event: React.MouseEvent) => {
@@ -87,6 +91,11 @@ export function DriveCard({
             Reads: cache {drive.read_local_hits} • peer {drive.read_peer_hits} • s3{" "}
             {drive.read_s3_hits}
             {drive.last_read_source ? ` • last ${drive.last_read_source}` : ""}
+          </p>
+        )}
+        {sourceWarnings.length > 0 && (
+          <p className="mt-2 text-xs text-error">
+            Source health: {sourceWarnings.join(" • ")}
           </p>
         )}
       </div>

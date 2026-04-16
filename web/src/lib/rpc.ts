@@ -263,10 +263,23 @@ export interface HealthResult {
   read_local_hits: number;
   read_peer_hits: number;
   read_s3_hits: number;
+  peer_degraded_drives: number;
+  s3_degraded_drives: number;
+  peer_source_failures: number;
+  s3_source_failures: number;
   last_activity_ago: string;
   rpc_clients: number;
   rpc_subscribers: number;
   http_addr?: string;
+}
+
+export interface ChunkSourceHealthSnapshot {
+  consecutive_failures?: number;
+  degraded?: boolean;
+  degraded_until?: number;
+  last_success_at?: number;
+  last_error_at?: number;
+  last_error?: string;
 }
 
 export interface Drive {
@@ -285,6 +298,8 @@ export interface Drive {
   read_s3_hits: number;
   last_read_source?: string;
   last_read_at?: number;
+  peer_source_health?: ChunkSourceHealthSnapshot;
+  s3_source_health?: ChunkSourceHealthSnapshot;
 }
 
 export interface DriveListResult {
@@ -602,6 +617,8 @@ export interface SyncReadSourceEntry {
   read_s3_hits: number;
   last_read_source?: string;
   last_read_at?: number;
+  peer_source_health?: ChunkSourceHealthSnapshot;
+  s3_source_health?: ChunkSourceHealthSnapshot;
 }
 
 export interface SyncActivityResult {

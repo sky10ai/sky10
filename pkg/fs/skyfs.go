@@ -108,6 +108,13 @@ func (s *Store) SetChunkReadRecorder(fn func(kind chunkSourceKind)) {
 	s.onChunkRead = fn
 }
 
+func (s *Store) sourceHealthSnapshot() chunkSourceHealthSnapshots {
+	if s == nil || s.planner == nil {
+		return chunkSourceHealthSnapshots{}
+	}
+	return s.planner.snapshot()
+}
+
 // blobKeyFor returns the S3 key for a chunk, respecting the namespace prefix.
 func (s *Store) blobKeyFor(hash string) string {
 	if s.nsID != "" {

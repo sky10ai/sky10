@@ -3,6 +3,7 @@ package fs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -37,15 +38,26 @@ func newTestServer(store *Store, sockPath, driveCfgPath string) *skyrpc.Server {
 }
 
 func installReadSourceRuntime(handler *FSHandler, driveID string, sources ...chunkSourceKind) {
+	installReadSourceRuntimeWithStore(handler, driveID, nil, sources...)
+}
+
+func installReadSourceRuntimeWithStore(handler *FSHandler, driveID string, configureStore func(*Store), sources ...chunkSourceKind) {
 	stats := newReadSourceStats()
 	for _, source := range sources {
 		stats.Record(source)
+	}
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+	if configureStore != nil {
+		configureStore(store)
 	}
 
 	handler.driveManager.wLock("test:installReadSourceRuntime")
 	handler.driveManager.daemons[driveID] = &driveRuntime{
 		daemon: &DaemonV2_5{
 			readSources: stats,
+			store:       store,
 		},
 	}
 	handler.driveManager.wUnlock()
@@ -374,7 +386,14 @@ func TestSyncActivityRPCIncludesReadSources(t *testing.T) {
 	sockPath := shortSockPath("activity-reads")
 	defer os.Remove(sockPath)
 	server, handler := newTestServerWithHandler(store, sockPath, driveCfgPath)
-	installReadSourceRuntime(handler, "drive_activity_reads", chunkSourceLocal, chunkSourcePeer, chunkSourceS3Blob)
+	now := time.Unix(1700, 0)
+	installReadSourceRuntimeWithStore(handler, "drive_activity_reads", func(store *Store) {
+		store.planner.now = func() time.Time { return now }
+		store.planner.retryBase = time.Minute
+		store.planner.retryMax = time.Minute
+		store.planner.recordSuccess(chunkSourcePeer)
+		store.planner.recordFailure(chunkSourceS3Blob, errors.New("s3 timed out"))
+	}, chunkSourceLocal, chunkSourcePeer, chunkSourceS3Blob)
 	go server.Serve(ctx)
 
 	deadline := time.Now().Add(3 * time.Second)
@@ -408,6 +427,13 @@ func TestSyncActivityRPCIncludesReadSources(t *testing.T) {
 				ReadPeerHits   int    `json:"read_peer_hits"`
 				ReadS3Hits     int    `json:"read_s3_hits"`
 				LastReadSource string `json:"last_read_source"`
+				PeerHealth     struct {
+					Degraded bool `json:"degraded"`
+				} `json:"peer_source_health"`
+				S3Health struct {
+					Degraded  bool   `json:"degraded"`
+					LastError string `json:"last_error"`
+				} `json:"s3_source_health"`
 			} `json:"reads"`
 		} `json:"result"`
 		Error *struct {
@@ -432,6 +458,15 @@ func TestSyncActivityRPCIncludesReadSources(t *testing.T) {
 	}
 	if read.LastReadSource != "s3" {
 		t.Fatalf("last_read_source = %q, want s3", read.LastReadSource)
+	}
+	if read.PeerHealth.Degraded {
+		t.Fatal("peer_source_health.degraded = true, want false")
+	}
+	if !read.S3Health.Degraded {
+		t.Fatal("s3_source_health.degraded = false, want true")
+	}
+	if read.S3Health.LastError != "s3 timed out" {
+		t.Fatalf("s3_source_health.last_error = %q, want %q", read.S3Health.LastError, "s3 timed out")
 	}
 }
 
@@ -571,7 +606,14 @@ func TestHealthRPCIncludesReadSourceCounts(t *testing.T) {
 	sockPath := shortSockPath("health-reads")
 	defer os.Remove(sockPath)
 	server, handler := newTestServerWithHandler(store, sockPath, driveCfgPath)
-	installReadSourceRuntime(handler, "drive_health_reads", chunkSourceLocal, chunkSourcePeer, chunkSourceS3Blob, chunkSourceS3Pack)
+	now := time.Unix(1800, 0)
+	installReadSourceRuntimeWithStore(handler, "drive_health_reads", func(store *Store) {
+		store.planner.now = func() time.Time { return now }
+		store.planner.retryBase = time.Minute
+		store.planner.retryMax = time.Minute
+		store.planner.recordFailure(chunkSourcePeer, errors.New("peer unavailable"))
+		store.planner.recordFailure(chunkSourceS3Blob, errors.New("s3 timed out"))
+	}, chunkSourceLocal, chunkSourcePeer, chunkSourceS3Blob, chunkSourceS3Pack)
 	go server.Serve(ctx)
 
 	deadline := time.Now().Add(3 * time.Second)
@@ -599,9 +641,13 @@ func TestHealthRPCIncludesReadSourceCounts(t *testing.T) {
 
 	var resp struct {
 		Result struct {
-			ReadLocalHits int `json:"read_local_hits"`
-			ReadPeerHits  int `json:"read_peer_hits"`
-			ReadS3Hits    int `json:"read_s3_hits"`
+			ReadLocalHits      int `json:"read_local_hits"`
+			ReadPeerHits       int `json:"read_peer_hits"`
+			ReadS3Hits         int `json:"read_s3_hits"`
+			PeerDegradedDrives int `json:"peer_degraded_drives"`
+			S3DegradedDrives   int `json:"s3_degraded_drives"`
+			PeerSourceFailures int `json:"peer_source_failures"`
+			S3SourceFailures   int `json:"s3_source_failures"`
 		} `json:"result"`
 		Error *struct {
 			Message string `json:"message"`
@@ -621,6 +667,18 @@ func TestHealthRPCIncludesReadSourceCounts(t *testing.T) {
 	}
 	if resp.Result.ReadS3Hits != 2 {
 		t.Fatalf("read_s3_hits = %d, want 2", resp.Result.ReadS3Hits)
+	}
+	if resp.Result.PeerDegradedDrives != 1 {
+		t.Fatalf("peer_degraded_drives = %d, want 1", resp.Result.PeerDegradedDrives)
+	}
+	if resp.Result.S3DegradedDrives != 1 {
+		t.Fatalf("s3_degraded_drives = %d, want 1", resp.Result.S3DegradedDrives)
+	}
+	if resp.Result.PeerSourceFailures != 1 {
+		t.Fatalf("peer_source_failures = %d, want 1", resp.Result.PeerSourceFailures)
+	}
+	if resp.Result.S3SourceFailures != 1 {
+		t.Fatalf("s3_source_failures = %d, want 1", resp.Result.S3SourceFailures)
 	}
 }
 
@@ -770,7 +828,14 @@ func TestDriveListIncludesReadSourceCounts(t *testing.T) {
 	sockPath := shortSockPath("drivelist-reads")
 	defer os.Remove(sockPath)
 	server, handler := newTestServerWithHandler(store, sockPath, driveCfgPath)
-	installReadSourceRuntime(handler, "drive_list_reads", chunkSourcePeer, chunkSourceLocal)
+	now := time.Unix(1900, 0)
+	installReadSourceRuntimeWithStore(handler, "drive_list_reads", func(store *Store) {
+		store.planner.now = func() time.Time { return now }
+		store.planner.retryBase = time.Minute
+		store.planner.retryMax = time.Minute
+		store.planner.recordSuccess(chunkSourcePeer)
+		store.planner.recordFailure(chunkSourceS3Blob, errors.New("s3 timed out"))
+	}, chunkSourcePeer, chunkSourceLocal)
 	go server.Serve(ctx)
 
 	deadline := time.Now().Add(3 * time.Second)
@@ -804,6 +869,13 @@ func TestDriveListIncludesReadSourceCounts(t *testing.T) {
 				ReadPeerHits   int    `json:"read_peer_hits"`
 				ReadS3Hits     int    `json:"read_s3_hits"`
 				LastReadSource string `json:"last_read_source"`
+				PeerHealth     struct {
+					Degraded bool `json:"degraded"`
+				} `json:"peer_source_health"`
+				S3Health struct {
+					Degraded  bool   `json:"degraded"`
+					LastError string `json:"last_error"`
+				} `json:"s3_source_health"`
 			} `json:"drives"`
 		} `json:"result"`
 		Error *struct {
@@ -828,6 +900,15 @@ func TestDriveListIncludesReadSourceCounts(t *testing.T) {
 	}
 	if drive.LastReadSource != "local" {
 		t.Fatalf("last_read_source = %q, want local", drive.LastReadSource)
+	}
+	if drive.PeerHealth.Degraded {
+		t.Fatal("peer_source_health.degraded = true, want false")
+	}
+	if !drive.S3Health.Degraded {
+		t.Fatal("s3_source_health.degraded = false, want true")
+	}
+	if drive.S3Health.LastError != "s3 timed out" {
+		t.Fatalf("s3_source_health.last_error = %q, want %q", drive.S3Health.LastError, "s3 timed out")
 	}
 }
 

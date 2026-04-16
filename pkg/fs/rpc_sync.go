@@ -33,13 +33,15 @@ type activityEntry struct {
 }
 
 type readSourceEntry struct {
-	DriveID    string `json:"drive_id"`
-	DriveName  string `json:"drive_name"`
-	LocalHits  int    `json:"read_local_hits"`
-	PeerHits   int    `json:"read_peer_hits"`
-	S3Hits     int    `json:"read_s3_hits"`
-	LastSource string `json:"last_read_source,omitempty"`
-	LastAt     int64  `json:"last_read_at,omitempty"`
+	DriveID    string                    `json:"drive_id"`
+	DriveName  string                    `json:"drive_name"`
+	LocalHits  int                       `json:"read_local_hits"`
+	PeerHits   int                       `json:"read_peer_hits"`
+	S3Hits     int                       `json:"read_s3_hits"`
+	LastSource string                    `json:"last_read_source,omitempty"`
+	LastAt     int64                     `json:"last_read_at,omitempty"`
+	PeerHealth chunkSourceHealthSnapshot `json:"peer_source_health"`
+	S3Health   chunkSourceHealthSnapshot `json:"s3_source_health"`
 }
 
 func (s *FSHandler) rpcSyncStart(_ context.Context, params json.RawMessage) (interface{}, error) {
@@ -184,7 +186,9 @@ func (s *FSHandler) rpcSyncActivity(_ context.Context) (interface{}, error) {
 			})
 		}
 
-		if stats, ok := sourceStats[id]; ok && (stats.TotalHits() > 0 || stats.LastAt > 0) {
+		health := s.driveManager.sourceHealthSnapshot(id)
+		stats, ok := sourceStats[id]
+		if ok || health.Peer.ConsecutiveFailures > 0 || health.S3.ConsecutiveFailures > 0 || health.Peer.Degraded || health.S3.Degraded {
 			readSources = append(readSources, readSourceEntry{
 				DriveID:    id,
 				DriveName:  d.Name,
@@ -193,6 +197,8 @@ func (s *FSHandler) rpcSyncActivity(_ context.Context) (interface{}, error) {
 				S3Hits:     stats.S3Hits,
 				LastSource: stats.LastSource,
 				LastAt:     stats.LastAt,
+				PeerHealth: health.Peer,
+				S3Health:   health.S3,
 			})
 		}
 	}

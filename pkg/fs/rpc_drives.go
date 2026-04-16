@@ -16,20 +16,22 @@ type driveCreateParams struct {
 }
 
 type driveInfo struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	LocalPath  string `json:"local_path"`
-	Namespace  string `json:"namespace"`
-	Enabled    bool   `json:"enabled"`
-	Running    bool   `json:"running"`
-	Outbox     int    `json:"outbox_pending,omitempty"`
-	Transfer   int    `json:"transfer_pending,omitempty"`
-	Staged     int    `json:"transfer_staged,omitempty"`
-	ReadLocal  int    `json:"read_local_hits,omitempty"`
-	ReadPeer   int    `json:"read_peer_hits,omitempty"`
-	ReadS3     int    `json:"read_s3_hits,omitempty"`
-	LastRead   string `json:"last_read_source,omitempty"`
-	LastReadAt int64  `json:"last_read_at,omitempty"`
+	ID         string                    `json:"id"`
+	Name       string                    `json:"name"`
+	LocalPath  string                    `json:"local_path"`
+	Namespace  string                    `json:"namespace"`
+	Enabled    bool                      `json:"enabled"`
+	Running    bool                      `json:"running"`
+	Outbox     int                       `json:"outbox_pending,omitempty"`
+	Transfer   int                       `json:"transfer_pending,omitempty"`
+	Staged     int                       `json:"transfer_staged,omitempty"`
+	ReadLocal  int                       `json:"read_local_hits,omitempty"`
+	ReadPeer   int                       `json:"read_peer_hits,omitempty"`
+	ReadS3     int                       `json:"read_s3_hits,omitempty"`
+	LastRead   string                    `json:"last_read_source,omitempty"`
+	LastReadAt int64                     `json:"last_read_at,omitempty"`
+	PeerHealth chunkSourceHealthSnapshot `json:"peer_source_health"`
+	S3Health   chunkSourceHealthSnapshot `json:"s3_source_health"`
 }
 
 type driveIDParams struct {
@@ -103,6 +105,9 @@ func (s *FSHandler) rpcDriveList(_ context.Context) (interface{}, error) {
 		entry["read_local_hits"] = readStats.LocalHits
 		entry["read_peer_hits"] = readStats.PeerHits
 		entry["read_s3_hits"] = readStats.S3Hits
+		sourceHealth := s.driveManager.sourceHealthSnapshot(d.ID)
+		entry["peer_source_health"] = sourceHealth.Peer
+		entry["s3_source_health"] = sourceHealth.S3
 		if readStats.LastSource != "" {
 			entry["last_read_source"] = readStats.LastSource
 			entry["last_read_at"] = readStats.LastAt

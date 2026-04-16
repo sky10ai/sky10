@@ -42,16 +42,14 @@ human-useful replication notes.
 - `Milestone 3`: contract/design complete, product wiring still pending
 - `Milestone 4`: complete
 - `Milestone 5`: complete
-- `Milestone 6`: in progress
+- `Milestone 6`: complete
 - `Milestone 7`: in progress, mostly on observability rather than the full
   reliability matrix
 
 Current execution rule:
 
-- treat `Milestone 6` as the main engineering focus now that the pull planner
-  baseline is complete
-- treat `Milestone 7` as secondary to the optional-S3 durability and recovery
-  work
+- treat `Milestone 7` as the main engineering focus now that optional-S3
+  recovery and source health are complete
 - keep `Milestone 3` as design-only until the peer-correct FS core is more
   complete
 
@@ -390,7 +388,7 @@ Likely repo touchpoints:
 Goal: preserve and harden the recent S3 durability work without making it the
 definition of correctness.
 
-Status: in progress
+Status: complete
 
 Checklist:
 
@@ -399,10 +397,10 @@ Checklist:
       layering rule.
 - [x] Treat S3 as durable replica, bootstrap source, and optional blob source.
 - [x] Ensure peer-native sync works unchanged when S3 is disabled.
-- [ ] Ensure cold-start or peer-absent recovery can leverage S3 when present.
-- [ ] Define S3-specific retry, validation, and health surfaces separately
+- [x] Ensure cold-start or peer-absent recovery can leverage S3 when present.
+- [x] Define S3-specific retry, validation, and health surfaces separately
       from peer health.
-- [ ] Add tests for peer-only, S3-only recovery, and hybrid peer+S3 behavior.
+- [x] Add tests for peer-only, S3-only recovery, and hybrid peer+S3 behavior.
 
 Done when:
 
@@ -509,9 +507,9 @@ rewrite, the first slices should be:
 
 To stay aligned with this plan, the next coding focus should now be:
 
-1. move to `Milestone 6`: optional-S3 durability, cold-start recovery, and
-   peer-absent healing
-2. treat additional `Milestone 7` observability as secondary to those
-   recovery-path semantics
+1. move to `Milestone 7`: broader reliability surfacing, degraded-state
+   explainability, and the remaining matrix work
+2. treat follow-on observability as support for reliability claims rather than
+   a separate side track
 3. keep `Milestone 3` in design/docs mode until the peer-correct core and
    optional-S3 layering are stronger

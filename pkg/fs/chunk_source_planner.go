@@ -29,6 +29,20 @@ type chunkSourceHealthState struct {
 	LastError           string
 }
 
+type chunkSourceHealthSnapshot struct {
+	ConsecutiveFailures int    `json:"consecutive_failures,omitempty"`
+	Degraded            bool   `json:"degraded,omitempty"`
+	DegradedUntil       int64  `json:"degraded_until,omitempty"`
+	LastSuccessAt       int64  `json:"last_success_at,omitempty"`
+	LastErrorAt         int64  `json:"last_error_at,omitempty"`
+	LastError           string `json:"last_error,omitempty"`
+}
+
+type chunkSourceHealthSnapshots struct {
+	Peer chunkSourceHealthSnapshot `json:"peer_source_health"`
+	S3   chunkSourceHealthSnapshot `json:"s3_source_health"`
+}
+
 func newChunkSourcePlanner() *chunkSourcePlanner {
 	return &chunkSourcePlanner{
 		now:       func() time.Time { return time.Now().UTC() },
@@ -140,6 +154,33 @@ func (p *chunkSourcePlanner) backoffForFailures(failures int) time.Duration {
 		return maxBackoff
 	}
 	return backoff
+}
+
+func (p *chunkSourcePlanner) snapshot() chunkSourceHealthSnapshots {
+	if p == nil {
+		return chunkSourceHealthSnapshots{}
+	}
+
+	now := p.nowUTC()
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return chunkSourceHealthSnapshots{
+		Peer: snapshotChunkSourceHealthState(p.states["peer"], now),
+		S3:   snapshotChunkSourceHealthState(p.states["s3"], now),
+	}
+}
+
+func snapshotChunkSourceHealthState(state chunkSourceHealthState, now time.Time) chunkSourceHealthSnapshot {
+	return chunkSourceHealthSnapshot{
+		ConsecutiveFailures: state.ConsecutiveFailures,
+		Degraded:            !state.DegradedUntil.IsZero() && state.DegradedUntil.After(now),
+		DegradedUntil:       state.DegradedUntil.Unix(),
+		LastSuccessAt:       state.LastSuccessAt.Unix(),
+		LastErrorAt:         state.LastErrorAt.Unix(),
+		LastError:           state.LastError,
+	}
 }
 
 func chunkSourceHealthKey(kind chunkSourceKind) string {

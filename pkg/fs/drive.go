@@ -292,6 +292,16 @@ func (dm *DriveManager) readSourceSnapshots() map[string]readSourceStatsSnapshot
 	return out
 }
 
+func (dm *DriveManager) sourceHealthSnapshot(id string) chunkSourceHealthSnapshots {
+	dm.mu.RLock()
+	defer dm.mu.RUnlock()
+	runtime, ok := dm.daemons[id]
+	if !ok || runtime == nil || runtime.daemon == nil {
+		return chunkSourceHealthSnapshots{}
+	}
+	return runtime.daemon.sourceHealthSnapshot()
+}
+
 // StartAll starts all enabled drives.
 func (dm *DriveManager) StartAll(logger interface{ Info(string, ...any) }) {
 	dm.wLock("StartAll")
