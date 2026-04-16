@@ -58,3 +58,32 @@ jobs:
 
       - name: Run multi-instance integration tests
         run: go test ./integration -tags integration -v -count=1
+
+  test-integration-skyfs-daemon:
+    name: Integration tests (skyfs-daemon)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: web/package.json
+
+      - name: Build web frontend
+        run: cd web && bun install --frozen-lockfile && bun run build
+
+      - name: Install MinIO
+        run: |
+          curl -sL https://dl.min.io/server/minio/release/linux-amd64/minio -o /usr/local/bin/minio
+          chmod +x /usr/local/bin/minio
+
+      - name: Run skyfs daemon integration tests
+        env:
+          S3_ACCESS_KEY_ID: minioadmin
+          S3_SECRET_ACCESS_KEY: minioadmin
+        run: make test-skyfs-daemon-integration

@@ -1,4 +1,4 @@
-//go:build integration
+//go:build integration && skyfs_daemon
 
 package integration
 
