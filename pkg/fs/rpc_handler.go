@@ -379,11 +379,21 @@ func (s *FSHandler) rpcHealth(_ context.Context) (interface{}, error) {
 	syncReadyTotal := 0
 	syncWaitingTotal := 0
 	syncErrorTotal := 0
+	conflictDrivesTotal := 0
+	conflictFilesTotal := 0
 	for _, id := range driveIDs {
 		dir := driveDataDir(id)
 		outbox := NewSyncLog[OutboxEntry](filepath.Join(dir, "outbox.jsonl"))
 		if entries, err := outbox.ReadAll(); err == nil {
 			outboxTotal += len(entries)
+		}
+		localLog := opslog.NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), s.store.deviceID)
+		if snap, err := localLog.Snapshot(); err == nil {
+			conflicts := len(snapshotConflictPaths(snap))
+			conflictFilesTotal += conflicts
+			if conflicts > 0 {
+				conflictDrivesTotal++
+			}
 		}
 		if counts, err := summarizeTransferSessions(dir); err == nil {
 			transferTotal += counts.Pending
@@ -440,6 +450,8 @@ func (s *FSHandler) rpcHealth(_ context.Context) (interface{}, error) {
 		"sync_ready_drives":    syncReadyTotal,
 		"sync_waiting_drives":  syncWaitingTotal,
 		"sync_error_drives":    syncErrorTotal,
+		"conflict_drives":      conflictDrivesTotal,
+		"conflict_files":       conflictFilesTotal,
 		"peer_degraded_drives": peerDegradedTotal,
 		"s3_degraded_drives":   s3DegradedTotal,
 		"peer_source_failures": peerFailureTotal,

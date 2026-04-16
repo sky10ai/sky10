@@ -32,6 +32,7 @@ export default function Drives() {
   const transfers = health?.transfer_pending ?? 0;
   const waiting = health?.sync_waiting_drives ?? 0;
   const degraded = health?.sync_error_drives ?? 0;
+  const conflicts = health?.conflict_drives ?? 0;
 
   return (
     <section className="mx-auto flex flex-1 w-full max-w-7xl flex-col gap-10 p-12">
@@ -41,6 +42,11 @@ export default function Drives() {
             {degraded > 0 && (
               <StatusBadge icon="error" tone="danger">
                 {degraded} degraded
+              </StatusBadge>
+            )}
+            {conflicts > 0 && (
+              <StatusBadge icon="warning" tone="danger">
+                {conflicts} conflict{conflicts === 1 ? "" : "s"}
               </StatusBadge>
             )}
             {waiting > 0 && (

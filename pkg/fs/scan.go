@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -51,9 +50,9 @@ func ScanDirectory(root string, ignore func(string) bool) (ScanResult, map[strin
 			return nil
 		}
 
-		// Skip conflict artifacts
-		name := d.Name()
-		if strings.Contains(name, ".conflict.") {
+		// Conflict copies are already represented in the local log; scanning them
+		// back in as ordinary files causes echo work.
+		if isConflictCopyPath(rel) {
 			return nil
 		}
 
@@ -103,6 +102,9 @@ func ScanEmptyDirectories(root string, ignore func(string) bool) []string {
 		for _, e := range entries {
 			childRel := rel + "/" + e.Name()
 			if ignore != nil && ignore(childRel) {
+				continue
+			}
+			if isConflictCopyPath(childRel) {
 				continue
 			}
 			hasVisible = true

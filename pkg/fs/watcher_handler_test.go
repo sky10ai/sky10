@@ -105,6 +105,28 @@ func TestWatcherHandlerSkipsUnstableRecentFile(t *testing.T) {
 	}
 }
 
+func TestWatcherHandlerSkipsConflictCopyCreate(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	os.MkdirAll(localDir, 0755)
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+
+	conflictPath := filepath.Join(localDir, "doc.conflict-dev123-1711700000.txt")
+	if err := os.WriteFile(conflictPath, []byte("loser"), 0644); err != nil {
+		t.Fatalf("write conflict copy: %v", err)
+	}
+
+	handler := NewWatcherHandler(outbox, localLog, localDir, "Test", nil)
+	handler.HandleEvents([]FileEvent{{Path: "doc.conflict-dev123-1711700000.txt", Type: FileCreated}})
+
+	if outbox.Len() != 0 {
+		t.Fatalf("outbox has %d entries, want 0 for conflict copy", outbox.Len())
+	}
+}
+
 func TestWatcherHandlerDelete(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()

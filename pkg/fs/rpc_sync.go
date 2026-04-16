@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/sky10/sky10/pkg/fs/opslog"
 )
 
 type syncStartParams struct {
@@ -42,6 +44,13 @@ type readSourceEntry struct {
 	LastAt     int64                     `json:"last_read_at,omitempty"`
 	PeerHealth chunkSourceHealthSnapshot `json:"peer_source_health"`
 	S3Health   chunkSourceHealthSnapshot `json:"s3_source_health"`
+}
+
+type conflictEntry struct {
+	DriveID   string `json:"drive_id"`
+	DriveName string `json:"drive_name"`
+	Path      string `json:"path"`
+	Timestamp int64  `json:"ts,omitempty"`
 }
 
 func (s *FSHandler) rpcSyncStart(_ context.Context, params json.RawMessage) (interface{}, error) {
@@ -139,6 +148,7 @@ func (s *FSHandler) rpcSyncActivity(_ context.Context) (interface{}, error) {
 
 	pending := make([]activityEntry, 0)
 	readSources := make([]readSourceEntry, 0)
+	conflicts := make([]conflictEntry, 0)
 	sourceStats := s.driveManager.readSourceSnapshots()
 
 	for id, d := range drives {
@@ -201,6 +211,19 @@ func (s *FSHandler) rpcSyncActivity(_ context.Context) (interface{}, error) {
 				S3Health:   health.S3,
 			})
 		}
+
+		localLog := opslog.NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), s.store.deviceID)
+		if snap, err := localLog.Snapshot(); err == nil {
+			for _, path := range snapshotConflictPaths(snap) {
+				fi, _ := snap.Lookup(path)
+				conflicts = append(conflicts, conflictEntry{
+					DriveID:   id,
+					DriveName: d.Name,
+					Path:      path,
+					Timestamp: fi.Modified.Unix(),
+				})
+			}
+		}
 	}
 
 	sort.Slice(pending, func(i, j int) bool {
@@ -220,8 +243,19 @@ func (s *FSHandler) rpcSyncActivity(_ context.Context) (interface{}, error) {
 		return readSources[i].LastAt > readSources[j].LastAt
 	})
 
+	sort.Slice(conflicts, func(i, j int) bool {
+		if conflicts[i].Timestamp == conflicts[j].Timestamp {
+			if conflicts[i].DriveName == conflicts[j].DriveName {
+				return conflicts[i].Path < conflicts[j].Path
+			}
+			return conflicts[i].DriveName < conflicts[j].DriveName
+		}
+		return conflicts[i].Timestamp > conflicts[j].Timestamp
+	})
+
 	return map[string]interface{}{
-		"pending": pending,
-		"reads":   readSources,
+		"pending":   pending,
+		"reads":     readSources,
+		"conflicts": conflicts,
 	}, nil
 }

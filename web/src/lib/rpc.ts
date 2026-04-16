@@ -267,6 +267,8 @@ export interface HealthResult {
   sync_ready_drives: number;
   sync_waiting_drives: number;
   sync_error_drives: number;
+  conflict_drives: number;
+  conflict_files: number;
   peer_degraded_drives: number;
   s3_degraded_drives: number;
   peer_source_failures: number;
@@ -312,6 +314,7 @@ export interface Drive {
   last_sync_peer?: string;
   last_sync_error?: string;
   last_sync_error_at?: number;
+  conflict_files?: number;
 }
 
 export interface DriveListResult {
@@ -633,9 +636,17 @@ export interface SyncReadSourceEntry {
   s3_source_health?: ChunkSourceHealthSnapshot;
 }
 
+export interface SyncConflictEntry {
+  drive_id: string;
+  drive_name: string;
+  path: string;
+  ts?: number;
+}
+
 export interface SyncActivityResult {
   pending: SyncActivityEntry[];
   reads: SyncReadSourceEntry[];
+  conflicts: SyncConflictEntry[];
 }
 
 export interface AgentInfo {

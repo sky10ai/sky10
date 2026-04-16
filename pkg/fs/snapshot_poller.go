@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/sky10/sky10/pkg/adapter"
@@ -327,14 +325,6 @@ func (p *SnapshotPoller) createConflictCopy(path string, localfi, remotefi opslo
 		Checksum:  loser.Checksum,
 		Namespace: loser.Namespace,
 	})
-}
-
-// conflictCopyPath generates a conflict copy filename.
-// "docs/notes.md" → "docs/notes.conflict-dev123-1711700000.md"
-func conflictCopyPath(path, device string, ts int64) string {
-	ext := filepath.Ext(path)
-	base := strings.TrimSuffix(path, ext)
-	return fmt.Sprintf("%s.conflict-%s-%d%s", base, device, ts, ext)
 }
 
 // isNotFoundError checks if an error is a not-found error.

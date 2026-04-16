@@ -432,12 +432,12 @@ Checklist:
       downloading, reconciling, retrying, conflict, degraded.
 - [x] Reuse mailbox-style lifecycle visibility for transfer sessions and stuck
       work: attempted, in-progress, failed, retrying, delivered/published.
-- [ ] Make conflict-copy behavior explicit and testable.
+- [x] Make conflict-copy behavior explicit and testable.
 - [ ] Review Windows, case-sensitivity, and path-normalization edge cases.
 - [x] Add end-to-end coverage for P2P-only two-device sync.
 - [ ] Add end-to-end coverage for P2P-only offline catch-up.
 - [x] Add end-to-end coverage for P2P-only delete propagation.
-- [ ] Add end-to-end coverage for conflict copy behavior.
+- [x] Add end-to-end coverage for conflict copy behavior.
 - [x] Add end-to-end coverage for restart during download.
 - [x] Add end-to-end coverage for restart during publish.
 - [ ] Add end-to-end coverage for peer unavailable, S3 available.

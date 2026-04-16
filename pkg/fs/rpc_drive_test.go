@@ -517,6 +517,99 @@ func TestSyncActivityRPCIncludesReadSources(t *testing.T) {
 	}
 }
 
+func TestSyncActivityRPCIncludesConflictCopies(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	driveCfgPath := filepath.Join(tmpDir, "drives.json")
+	localDir := filepath.Join(tmpDir, "sync-folder")
+	os.MkdirAll(localDir, 0755)
+
+	drives := []Drive{{
+		ID:        "drive_activity_conflicts",
+		Name:      "ConflictDrive",
+		LocalPath: localDir,
+		Namespace: "conflicts",
+		Enabled:   false,
+	}}
+	data, _ := json.MarshalIndent(drives, "", "  ")
+	os.WriteFile(driveCfgPath, data, 0600)
+
+	driveDir := driveDataDir("drive_activity_conflicts")
+	localLog := opslog.NewLocalOpsLog(filepath.Join(driveDir, "ops.jsonl"), store.deviceID)
+	if err := localLog.AppendLocal(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "doc.conflict-dev123-1711700000.txt",
+		Checksum:  "abc123",
+		Namespace: "conflicts",
+		Size:      5,
+		Timestamp: time.Unix(2400, 0).Unix(),
+	}); err != nil {
+		t.Fatalf("append conflict copy: %v", err)
+	}
+
+	sockPath := shortSockPath("activity-conflicts")
+	defer os.Remove(sockPath)
+	server := newTestServer(store, sockPath, driveCfgPath)
+	go server.Serve(ctx)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer conn.Close()
+
+	req := `{"jsonrpc":"2.0","method":"skyfs.syncActivity","id":1}` + "\n"
+	conn.Write([]byte(req))
+
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	var resp struct {
+		Result struct {
+			Conflicts []struct {
+				DriveID string `json:"drive_id"`
+				Path    string `json:"path"`
+			} `json:"conflicts"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(buf[:n], &resp); err != nil {
+		t.Fatalf("parse: %v (raw: %s)", err, string(buf[:n]))
+	}
+	if resp.Error != nil {
+		t.Fatalf("RPC error: %s", resp.Error.Message)
+	}
+	if len(resp.Result.Conflicts) != 1 {
+		t.Fatalf("expected 1 conflict entry, got %d", len(resp.Result.Conflicts))
+	}
+	if resp.Result.Conflicts[0].DriveID != "drive_activity_conflicts" {
+		t.Fatalf("drive_id = %q", resp.Result.Conflicts[0].DriveID)
+	}
+	if resp.Result.Conflicts[0].Path != "doc.conflict-dev123-1711700000.txt" {
+		t.Fatalf("path = %q", resp.Result.Conflicts[0].Path)
+	}
+}
+
 func TestHealthRPCIncludesTransferCounts(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -831,6 +924,99 @@ func TestHealthRPCIncludesFSSyncHealthCounts(t *testing.T) {
 	}
 	if resp.Result.SyncErrors != 1 {
 		t.Fatalf("sync_error_drives = %d, want 1", resp.Result.SyncErrors)
+	}
+}
+
+func TestHealthRPCIncludesConflictCounts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	driveCfgPath := filepath.Join(tmpDir, "drives.json")
+	localDir := filepath.Join(tmpDir, "sync-folder")
+	os.MkdirAll(localDir, 0755)
+
+	drives := []Drive{{
+		ID:        "drive_health_conflicts",
+		Name:      "ConflictHealthDrive",
+		LocalPath: localDir,
+		Namespace: "healthconflicts",
+		Enabled:   false,
+	}}
+	data, _ := json.MarshalIndent(drives, "", "  ")
+	os.WriteFile(driveCfgPath, data, 0600)
+
+	driveDir := driveDataDir("drive_health_conflicts")
+	localLog := opslog.NewLocalOpsLog(filepath.Join(driveDir, "ops.jsonl"), store.deviceID)
+	for _, path := range []string{
+		"a.conflict-dev123-1711700000.txt",
+		"nested/b.conflict-dev456-1711700001.txt",
+	} {
+		if err := localLog.AppendLocal(opslog.Entry{
+			Type:      opslog.Put,
+			Path:      path,
+			Checksum:  path,
+			Namespace: "healthconflicts",
+			Size:      5,
+			Timestamp: time.Now().Unix(),
+		}); err != nil {
+			t.Fatalf("append conflict copy %s: %v", path, err)
+		}
+	}
+
+	sockPath := shortSockPath("health-conflicts")
+	defer os.Remove(sockPath)
+	server := newTestServer(store, sockPath, driveCfgPath)
+	go server.Serve(ctx)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer conn.Close()
+
+	req := `{"jsonrpc":"2.0","method":"skyfs.health","id":1}` + "\n"
+	conn.Write([]byte(req))
+
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	var resp struct {
+		Result struct {
+			ConflictDrives int `json:"conflict_drives"`
+			ConflictFiles  int `json:"conflict_files"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(buf[:n], &resp); err != nil {
+		t.Fatalf("parse: %v (raw: %s)", err, string(buf[:n]))
+	}
+	if resp.Error != nil {
+		t.Fatalf("RPC error: %s", resp.Error.Message)
+	}
+	if resp.Result.ConflictDrives != 1 {
+		t.Fatalf("conflict_drives = %d, want 1", resp.Result.ConflictDrives)
+	}
+	if resp.Result.ConflictFiles != 2 {
+		t.Fatalf("conflict_files = %d, want 2", resp.Result.ConflictFiles)
 	}
 }
 
@@ -1169,6 +1355,99 @@ func TestDriveListIncludesFSSyncHealth(t *testing.T) {
 	}
 	if drive.LastSyncError != "" || drive.LastSyncErrorAt != 0 {
 		t.Fatalf("unexpected sync error info: %+v", drive)
+	}
+}
+
+func TestDriveListIncludesConflictCounts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	driveCfgPath := filepath.Join(tmpDir, "drives.json")
+	localDir := filepath.Join(tmpDir, "sync-folder")
+	os.MkdirAll(localDir, 0755)
+
+	drives := []Drive{{
+		ID:        "drive_list_conflicts",
+		Name:      "ListConflictDrive",
+		LocalPath: localDir,
+		Namespace: "listconflicts",
+		Enabled:   false,
+	}}
+	data, _ := json.MarshalIndent(drives, "", "  ")
+	os.WriteFile(driveCfgPath, data, 0600)
+
+	driveDir := driveDataDir("drive_list_conflicts")
+	localLog := opslog.NewLocalOpsLog(filepath.Join(driveDir, "ops.jsonl"), store.deviceID)
+	if err := localLog.AppendLocal(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "doc.conflict-dev123-1711700000.txt",
+		Checksum:  "abc123",
+		Namespace: "listconflicts",
+		Size:      5,
+		Timestamp: time.Now().Unix(),
+	}); err != nil {
+		t.Fatalf("append conflict copy: %v", err)
+	}
+
+	sockPath := shortSockPath("drivelist-conflicts")
+	defer os.Remove(sockPath)
+	server := newTestServer(store, sockPath, driveCfgPath)
+	go server.Serve(ctx)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer conn.Close()
+
+	req := `{"jsonrpc":"2.0","method":"skyfs.driveList","id":1}` + "\n"
+	conn.Write([]byte(req))
+
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	var resp struct {
+		Result struct {
+			Drives []struct {
+				ID            string `json:"id"`
+				ConflictFiles int    `json:"conflict_files"`
+			} `json:"drives"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(buf[:n], &resp); err != nil {
+		t.Fatalf("parse: %v (raw: %s)", err, string(buf[:n]))
+	}
+	if resp.Error != nil {
+		t.Fatalf("RPC error: %s", resp.Error.Message)
+	}
+	if len(resp.Result.Drives) != 1 {
+		t.Fatalf("expected 1 drive, got %d", len(resp.Result.Drives))
+	}
+	if resp.Result.Drives[0].ID != "drive_list_conflicts" {
+		t.Fatalf("drive id = %q", resp.Result.Drives[0].ID)
+	}
+	if resp.Result.Drives[0].ConflictFiles != 1 {
+		t.Fatalf("conflict_files = %d, want 1", resp.Result.Drives[0].ConflictFiles)
 	}
 }
 

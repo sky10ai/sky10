@@ -254,6 +254,97 @@ func TestIntegrationFSUsesPeerThenS3FallbackAcrossAvailabilityChange(t *testing.
 	waitForDriveReadSource(t, nodeB.home, "shared", "s3", 0, 1)
 }
 
+func TestIntegrationFSConflictCreatesConflictCopy(t *testing.T) {
+	bin := buildSky10Binary(t)
+	minio := startMinIO(t)
+	bucket := newTestBucket(t)
+	minio.createBucket(t, bucket)
+
+	base := t.TempDir()
+	env := []string{
+		"S3_ACCESS_KEY_ID=minioadmin",
+		"S3_SECRET_ACCESS_KEY=minioadmin",
+	}
+
+	nodeAHome := filepath.Join(base, "node-a")
+	nodeBHome := filepath.Join(base, "node-b")
+	driveA := filepath.Join(base, "drive-a")
+	driveB := filepath.Join(base, "drive-b")
+	for _, dir := range []string{driveA, driveB} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	runCLIEnv(t, env, bin, nodeAHome, "fs", "init",
+		"--bucket", bucket,
+		"--region", "us-east-1",
+		"--endpoint", minio.endpoint,
+		"--path-style",
+	)
+
+	nodeA := startProcessNodeEnv(t, env, bin, "node-a", nodeAHome, "--fs-poll-seconds", "1")
+	runCLI(t, bin, nodeA.home, "fs", "drive", "create", "shared", driveA, "--namespace", "shared")
+
+	inviteB := inviteCode(t, runCLI(t, bin, nodeA.home, "invite"))
+	joinB := startCLICommand(t, nil, bin, nodeBHome, "join", inviteB)
+	waitForJoinApprovalPrompt(t, joinB)
+	approvePendingJoin(t, bin, nodeA.home)
+	joinB.wait(t)
+
+	nodeB := startProcessNodeEnv(t, env, bin, "node-b", nodeBHome, "--fs-poll-seconds", "1")
+	runCLI(t, bin, nodeB.home, "fs", "drive", "create", "shared", driveB, "--namespace", "shared")
+
+	publishStableFile(t, filepath.Join(base, "conflict-initial.tmp"), filepath.Join(driveA, "doc.txt"), "original")
+	waitForFileContent(t, filepath.Join(driveB, "doc.txt"), "original")
+
+	nodeB.cancel()
+	_ = nodeB.cmd.Wait()
+
+	publishStableFile(t, filepath.Join(base, "conflict-a.tmp"), filepath.Join(driveA, "doc.txt"), "edit from A")
+	waitForDriveIdle(t, nodeA.home, "shared")
+	time.Sleep(2 * time.Second)
+
+	if err := os.WriteFile(filepath.Join(driveB, "doc.txt"), []byte("edit from B"), 0644); err != nil {
+		t.Fatalf("write B edit: %v", err)
+	}
+	time.Sleep(3 * time.Second)
+
+	nodeB = startProcessNodeEnv(t, env, bin, "node-b", nodeBHome, "--fs-poll-seconds", "1")
+
+	waitForDriveConflictCount(t, nodeB.home, "shared", 1)
+	conflictFiles, err := filepath.Glob(filepath.Join(driveB, "doc.conflict-*.txt"))
+	if err != nil {
+		t.Fatalf("glob conflict copies: %v", err)
+	}
+	if len(conflictFiles) != 1 {
+		t.Fatalf("expected 1 conflict copy, got %d", len(conflictFiles))
+	}
+
+	mainContent := strings.TrimSpace(readFile(t, filepath.Join(driveB, "doc.txt")))
+	conflictContent := strings.TrimSpace(readFile(t, conflictFiles[0]))
+	if mainContent == conflictContent {
+		t.Fatalf("main and conflict contents unexpectedly match: %q", mainContent)
+	}
+	got := map[string]bool{mainContent: true, conflictContent: true}
+	if !got["edit from A"] || !got["edit from B"] {
+		t.Fatalf("unexpected conflict contents: main=%q conflict=%q", mainContent, conflictContent)
+	}
+
+	waitForDriveIdle(t, nodeB.home, "shared")
+	driveList := rpcCall[rpcFSDriveListResult](t, nodeB.home, "skyfs.driveList", nil)
+	for _, drive := range driveList.Drives {
+		if drive.Name != "shared" {
+			continue
+		}
+		if drive.OutboxPending != 0 {
+			t.Fatalf("conflict artifact should not be queued for upload, outbox_pending=%d", drive.OutboxPending)
+		}
+		return
+	}
+	t.Fatal("shared drive not found in driveList")
+}
+
 type rpcFSDriveListResult struct {
 	Drives []struct {
 		Name            string `json:"name"`
@@ -263,6 +354,7 @@ type rpcFSDriveListResult struct {
 		ReadPeerHits    int    `json:"read_peer_hits"`
 		ReadS3Hits      int    `json:"read_s3_hits"`
 		LastReadSource  string `json:"last_read_source"`
+		ConflictFiles   int    `json:"conflict_files"`
 	} `json:"drives"`
 }
 
@@ -307,6 +399,26 @@ func waitForDriveReadSource(t *testing.T, home, driveName, wantSource string, mi
 		time.Sleep(200 * time.Millisecond)
 	}
 	t.Fatalf("drive %q on %s did not reach read source %q (peer>=%d s3>=%d); last=%+v", driveName, home, wantSource, minPeerHits, minS3Hits, last.Drives)
+}
+
+func waitForDriveConflictCount(t *testing.T, home, driveName string, want int) {
+	t.Helper()
+
+	deadline := time.Now().Add(20 * time.Second)
+	var last rpcFSDriveListResult
+	for time.Now().Before(deadline) {
+		last = rpcCall[rpcFSDriveListResult](t, home, "skyfs.driveList", nil)
+		for _, drive := range last.Drives {
+			if drive.Name != driveName {
+				continue
+			}
+			if drive.ConflictFiles >= want {
+				return
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("drive %q on %s did not reach conflict count %d; last=%+v", driveName, home, want, last.Drives)
 }
 
 func completeJoin(t *testing.T, joinCmd *runningCLI, bin, approverHome string) {

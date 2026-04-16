@@ -31,6 +31,42 @@ func TestScanDirectory(t *testing.T) {
 	}
 }
 
+func TestScanDirectorySkipsConflictCopies(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "doc.txt"), []byte("main"), 0644)
+	os.WriteFile(filepath.Join(dir, "doc.conflict-dev123-1711700000.txt"), []byte("loser"), 0644)
+
+	files, _, err := ScanDirectory(dir, nil)
+	if err != nil {
+		t.Fatalf("ScanDirectory: %v", err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("got %d files, want 1", len(files))
+	}
+	if _, ok := files["doc.conflict-dev123-1711700000.txt"]; ok {
+		t.Fatal("conflict copy should be skipped from scan")
+	}
+}
+
+func TestScanEmptyDirectoriesIgnoresConflictCopies(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	conflictDir := filepath.Join(dir, "conflicts")
+	if err := os.MkdirAll(conflictDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	os.WriteFile(filepath.Join(conflictDir, "doc.conflict-dev123-1711700000.txt"), []byte("loser"), 0644)
+
+	dirs := ScanEmptyDirectories(dir, nil)
+	if len(dirs) != 1 || dirs[0] != "conflicts" {
+		t.Fatalf("empty dirs = %v, want [conflicts]", dirs)
+	}
+}
+
 func TestDiffLocalRemote(t *testing.T) {
 	t.Parallel()
 

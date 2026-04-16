@@ -40,6 +40,7 @@ type driveInfo struct {
 	LastSyncPeer    string                    `json:"last_sync_peer,omitempty"`
 	LastSyncError   string                    `json:"last_sync_error,omitempty"`
 	LastSyncErrorAt int64                     `json:"last_sync_error_at,omitempty"`
+	ConflictFiles   int                       `json:"conflict_files,omitempty"`
 }
 
 type driveIDParams struct {
@@ -99,6 +100,7 @@ func (s *FSHandler) rpcDriveList(_ context.Context) (interface{}, error) {
 		localLog := opslog.NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), s.store.deviceID)
 		if snap, err := localLog.Snapshot(); err == nil {
 			entry["snapshot_files"] = snap.Len()
+			entry["conflict_files"] = len(snapshotConflictPaths(snap))
 		}
 		// last_remote_op removed — snapshot exchange has no cursors
 		outbox := NewSyncLog[OutboxEntry](filepath.Join(dir, "outbox.jsonl"))

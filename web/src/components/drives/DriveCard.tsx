@@ -36,6 +36,7 @@ export function DriveCard({
     drive.peer_source_health?.degraded ? "Peer retrying" : "",
     drive.s3_source_health?.degraded ? "S3 retrying" : "",
   ].filter(Boolean);
+  const conflictFiles = drive.conflict_files ?? 0;
   const syncSummary =
     drive.sync_state === "error"
       ? drive.sync_message || drive.last_sync_error || "FS sync degraded"
@@ -122,6 +123,16 @@ export function DriveCard({
           <p className="mt-2 text-xs text-error">
             Source health: {sourceWarnings.join(" • ")}
           </p>
+        )}
+        {conflictFiles > 0 && (
+          <div className="mt-3 flex items-center gap-2">
+            <StatusBadge tone="danger">
+              {conflictFiles} conflict{conflictFiles === 1 ? "" : "s"}
+            </StatusBadge>
+            <span className="text-xs text-outline">
+              Conflict copies are present in this drive.
+            </span>
+          </div>
         )}
         {drive.running && drive.sync_state && (
           <div className="mt-3 flex items-center gap-2">

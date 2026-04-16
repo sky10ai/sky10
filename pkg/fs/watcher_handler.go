@@ -50,6 +50,11 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 		}
 		seen[e.Path] = true
 
+		if isConflictCopyPath(e.Path) && e.Type != FileDeleted {
+			h.logger.Debug("watcher: skip conflict artifact", "path", e.Path, "type", e.Type)
+			continue
+		}
+
 		switch e.Type {
 		case FileCreated, FileModified:
 			localPath := filepath.Join(h.localDir, filepath.FromSlash(e.Path))

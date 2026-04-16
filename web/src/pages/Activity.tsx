@@ -6,6 +6,7 @@ import { STORAGE_EVENT_TYPES, subscribe } from "../lib/events";
 import {
   skyfs,
   type SyncActivityEntry,
+  type SyncConflictEntry,
   type SyncReadSourceEntry,
 } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
@@ -144,6 +145,7 @@ export default function Activity() {
 
   const pending: SyncActivityEntry[] = activity?.pending ?? [];
   const reads: SyncReadSourceEntry[] = activity?.reads ?? [];
+  const conflicts: SyncConflictEntry[] = activity?.conflicts ?? [];
 
   return (
     <section className="mx-auto flex flex-1 w-full max-w-7xl flex-col gap-8 p-12">
@@ -232,6 +234,31 @@ export default function Activity() {
                 </span>
                 <span className="text-xs text-on-surface-variant">
                   S3 {entry.read_s3_hits}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {conflicts.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-secondary">
+            Conflict Copies
+          </h3>
+          <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-3 shadow-sm">
+            {conflicts.map((entry) => (
+              <div
+                key={`${entry.drive_id}-${entry.path}`}
+                className="flex items-center gap-4 px-4 py-3 text-sm"
+              >
+                <Icon className="text-lg text-error" name="warning" />
+                <span className="w-24 truncate text-xs font-bold uppercase text-secondary">
+                  {entry.drive_name}
+                </span>
+                <StatusBadge tone="danger">Conflict</StatusBadge>
+                <span className="flex-1 truncate font-mono text-xs text-on-surface">
+                  {entry.path}
                 </span>
               </div>
             ))}
