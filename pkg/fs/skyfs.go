@@ -385,11 +385,11 @@ func (s *Store) getChunksWithReuseAndProgress(
 	reuse chunkReuseProvider,
 	progress chunkProgressFn,
 ) error {
-	nsID, nsKey, err := s.resolveNamespaceState(ctx, namespace)
+	plan, err := s.buildPullPlan(ctx, chunks, namespace, reuse)
 	if err != nil {
-		return fmt.Errorf("namespace state for %q: %w", namespace, err)
+		return err
 	}
-	return s.downloadChunks(ctx, nsID, chunks, nsKey, w, reuse, progress)
+	return s.downloadChunks(ctx, plan, w, progress)
 }
 
 // --- Deprecated stubs: kept so skipped tests compile. Remove when tests are rewritten. ---
@@ -425,23 +425,24 @@ func (s *Store) loadCurrentState(ctx context.Context) (*Manifest, error) {
 // stalls, the reader is closed and the download fails (caller retries).
 func (s *Store) downloadChunks(
 	ctx context.Context,
-	nsID string,
-	chunks []string,
-	nsKey []byte,
+	plan *pullPlan,
 	w io.Writer,
-	reuse chunkReuseProvider,
 	progress chunkProgressFn,
 ) error {
-	if len(chunks) <= 1 {
+	if plan == nil {
+		return fmt.Errorf("pull plan is required")
+	}
+
+	if len(plan.chunks) <= 1 {
 		// Single-chunk fast path — no goroutine overhead.
 		var bytesDone int64
-		for i, hash := range chunks {
-			plain, source, err := s.fetchChunk(ctx, nsID, i, hash, nsKey, reuse)
+		for _, chunk := range plan.chunks {
+			plain, source, err := s.fetchPlannedChunk(ctx, plan, chunk)
 			if err != nil {
 				return err
 			}
 			if _, err := w.Write(plain); err != nil {
-				return fmt.Errorf("writing chunk %d: %w", i, err)
+				return fmt.Errorf("writing chunk %d: %w", chunk.index, err)
 			}
 			bytesDone += int64(len(plain))
 			if progress != nil {
@@ -455,8 +456,8 @@ func (s *Store) downloadChunks(
 	if ahead <= 0 {
 		ahead = 1
 	}
-	if ahead > len(chunks) {
-		ahead = len(chunks)
+	if ahead > len(plan.chunks) {
+		ahead = len(plan.chunks)
 	}
 
 	type result struct {
@@ -471,7 +472,7 @@ func (s *Store) downloadChunks(
 	// Prefetch semaphore — limits in-flight fetches to bound memory.
 	sem := make(chan struct{}, ahead)
 	// One buffered result channel per chunk preserves ordering.
-	slots := make([]chan result, len(chunks))
+	slots := make([]chan result, len(plan.chunks))
 	for i := range slots {
 		slots[i] = make(chan result, 1)
 	}
@@ -480,19 +481,19 @@ func (s *Store) downloadChunks(
 	// are launched in chunk order. This prevents out-of-order slot
 	// acquisition which can deadlock the consumer.
 	go func() {
-		for i, hash := range chunks {
+		for i, chunk := range plan.chunks {
 			select {
 			case sem <- struct{}{}:
 			case <-ctx.Done():
 				// Fill remaining slots so consumer doesn't block.
-				for j := i; j < len(chunks); j++ {
+				for j := i; j < len(plan.chunks); j++ {
 					slots[j] <- result{err: ctx.Err()}
 				}
 				return
 			}
-			i, hash := i, hash
+			i, chunk := i, chunk
 			go func() {
-				plain, source, err := s.fetchChunk(ctx, nsID, i, hash, nsKey, reuse)
+				plain, source, err := s.fetchPlannedChunk(ctx, plan, chunk)
 				slots[i] <- result{data: plain, source: source, err: err}
 				// Semaphore released by consumer, not here — keeps
 				// backpressure tight so at most `ahead` chunks are buffered.
@@ -502,7 +503,7 @@ func (s *Store) downloadChunks(
 
 	// Consume results in order and write to output.
 	var bytesDone int64
-	for i := range chunks {
+	for i := range plan.chunks {
 		select {
 		case r := <-slots[i]:
 			<-sem // release prefetch slot after consuming
@@ -524,69 +525,73 @@ func (s *Store) downloadChunks(
 	return nil
 }
 
-// fetchChunk resolves a single chunk through the local cache, peers, and/or
-// backend, then decrypts, decompresses, and verifies its content hash.
-func (s *Store) fetchChunk(
+// fetchPlannedChunk resolves one chunk through the precomputed plan,
+// then decrypts, decompresses, and verifies its content hash.
+func (s *Store) fetchPlannedChunk(
 	ctx context.Context,
-	nsID string,
-	index int,
-	chunkHash string,
-	nsKey []byte,
-	reuse chunkReuseProvider,
+	plan *pullPlan,
+	chunk plannedChunk,
 ) ([]byte, chunkSourceKind, error) {
-	if reuse != nil {
-		plaintext, ok, err := reuse.LookupChunk(chunkHash)
-		if err != nil {
-			return nil, "", fmt.Errorf("local reuse chunk %d (%s): %w", index, chunkHash[:12], err)
-		}
-		if ok {
-			if s.onChunkRead != nil {
-				s.onChunkRead(chunkSourceLocal)
-			}
-			return plaintext, chunkSourceLocal, nil
-		}
+	if plan == nil {
+		return nil, "", fmt.Errorf("pull plan is required")
 	}
 
-	sources := s.planChunkSources(chunkHash)
-	if len(sources) == 0 {
-		return nil, "", fmt.Errorf("chunk %d (%s): no source available", index, chunkHash[:12])
+	if len(chunk.sources) == 0 {
+		return nil, "", fmt.Errorf("chunk %d (%s): no source available", chunk.index, chunk.hash[:12])
 	}
 
 	var attempts []string
-	for _, source := range sources {
-		raw, err := s.readRawChunkSource(ctx, nsID, index, chunkHash, source)
+	for _, source := range chunk.sources {
+		if source.reuse {
+			if plan.reuse == nil {
+				continue
+			}
+			plaintext, ok, err := plan.reuse.LookupChunk(chunk.hash)
+			if err != nil {
+				return nil, "", fmt.Errorf("local reuse chunk %d (%s): %w", chunk.index, chunk.hash[:12], err)
+			}
+			if !ok {
+				continue
+			}
+			if s.onChunkRead != nil {
+				s.onChunkRead(source.plan.kind)
+			}
+			return plaintext, source.plan.kind, nil
+		}
+
+		raw, err := s.readRawChunkSource(ctx, plan.nsID, chunk.index, chunk.hash, source.plan)
 		if err != nil {
 			if s.planner != nil {
-				s.planner.recordFailure(source.kind, err)
+				s.planner.recordFailure(source.plan.kind, err)
 			}
-			attempts = append(attempts, fmt.Sprintf("%s: %v", source.kind, err))
+			attempts = append(attempts, fmt.Sprintf("%s: %v", source.plan.kind, err))
 			continue
 		}
 
-		plaintext, err := decodeChunkBlob(index, chunkHash, nsKey, raw)
+		plaintext, err := decodeChunkBlob(chunk.index, chunk.hash, plan.nsKey, raw)
 		if err != nil {
 			if s.planner != nil {
-				s.planner.recordFailure(source.kind, err)
+				s.planner.recordFailure(source.plan.kind, err)
 			}
-			attempts = append(attempts, fmt.Sprintf("%s: %v", source.kind, err))
+			attempts = append(attempts, fmt.Sprintf("%s: %v", source.plan.kind, err))
 			continue
 		}
 		if s.planner != nil {
-			s.planner.recordSuccess(source.kind)
+			s.planner.recordSuccess(source.plan.kind)
 		}
 
-		if source.cacheOnSuccess {
-			if err := writeLocalBlob(nsID, chunkHash, raw); err != nil {
-				return nil, "", fmt.Errorf("caching %s chunk %d (%s): %w", source.kind, index, chunkHash[:12], err)
+		if source.plan.cacheOnSuccess {
+			if err := writeLocalBlob(plan.nsID, chunk.hash, raw); err != nil {
+				return nil, "", fmt.Errorf("caching %s chunk %d (%s): %w", source.plan.kind, chunk.index, chunk.hash[:12], err)
 			}
 		}
 		if s.onChunkRead != nil {
-			s.onChunkRead(source.kind)
+			s.onChunkRead(source.plan.kind)
 		}
-		return plaintext, source.kind, nil
+		return plaintext, source.plan.kind, nil
 	}
 
-	return nil, "", fmt.Errorf("chunk %d (%s): %s", index, chunkHash[:12], strings.Join(attempts, "; "))
+	return nil, "", fmt.Errorf("chunk %d (%s): %s", chunk.index, chunk.hash[:12], strings.Join(attempts, "; "))
 }
 
 func decodeChunkBlob(index int, chunkHash string, nsKey, raw []byte) ([]byte, error) {

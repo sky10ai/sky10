@@ -95,6 +95,7 @@ func (s *FSHandler) NamespaceKeys(ctx context.Context) []join.NSKey {
 		}
 		out = append(out, join.NSKey{
 			Namespace: drive.Namespace,
+			Scope:     join.NSScopeFS,
 			Key:       key,
 		})
 		seen[drive.Namespace] = true

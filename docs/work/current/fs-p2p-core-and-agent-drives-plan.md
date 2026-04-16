@@ -41,17 +41,17 @@ human-useful replication notes.
 - `Milestone 2`: complete
 - `Milestone 3`: contract/design complete, product wiring still pending
 - `Milestone 4`: complete
-- `Milestone 5`: in progress, but only the foundational slices are landed
+- `Milestone 5`: complete
 - `Milestone 6`: in progress
 - `Milestone 7`: in progress, mostly on observability rather than the full
   reliability matrix
 
 Current execution rule:
 
-- treat `Milestone 5` as the main engineering focus now that the
-  `Milestone 4` metadata-engine baseline is complete
-- treat `Milestone 6` and `Milestone 7` as secondary to finishing the pull
-  planner and source-selection policy work
+- treat `Milestone 6` as the main engineering focus now that the pull planner
+  baseline is complete
+- treat `Milestone 7` as secondary to the optional-S3 durability and recovery
+  work
 - keep `Milestone 3` as design-only until the peer-correct FS core is more
   complete
 
@@ -350,12 +350,13 @@ Likely repo touchpoints:
 Goal: fetch data from the best available source instead of hardwiring one
 remote path.
 
-Status: in progress
+Status: complete
 
 Checklist:
 
-- [ ] Build one planner that can fetch from local cache, local file reuse,
+- [x] Build one planner that can fetch from local cache, local file reuse,
       peers, and S3.
+- [x] Existing local content reuse reduces unnecessary downloads.
 - [x] Prefer local cache before peer or S3 fetch when safe.
 - [x] Prefer local file reuse before peer or S3 fetch when safe.
 - [x] Add bounded concurrency and backpressure for file and chunk pulls.
@@ -371,9 +372,9 @@ Checklist:
 
 Done when:
 
-- [ ] The same file can be satisfied from peers in P2P-only mode and from S3
+- [x] The same file can be satisfied from peers in P2P-only mode and from S3
       when peers are absent, with no semantic change.
-- [ ] Existing local content reuse reduces unnecessary downloads.
+- [x] Existing local content reuse reduces unnecessary downloads.
 - [x] Existing local cache reuse reduces unnecessary downloads.
 
 Likely repo touchpoints:
@@ -508,11 +509,9 @@ rewrite, the first slices should be:
 
 To stay aligned with this plan, the next coding focus should now be:
 
-1. finish the remaining `Milestone 5` work: source-planner policy, bounded
-   concurrency, and degraded-source behavior
-2. continue `Milestone 6` only where it directly supports the pull planner and
-   durable optional-S3 layering
-3. treat additional `Milestone 7` observability as secondary to the remaining
-   pull-planner work
-4. keep `Milestone 3` in design/docs mode until the peer-correct core is more
-   complete
+1. move to `Milestone 6`: optional-S3 durability, cold-start recovery, and
+   peer-absent healing
+2. treat additional `Milestone 7` observability as secondary to those
+   recovery-path semantics
+3. keep `Milestone 3` in design/docs mode until the peer-correct core and
+   optional-S3 layering are stronger

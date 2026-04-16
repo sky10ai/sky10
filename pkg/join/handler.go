@@ -14,12 +14,18 @@ import (
 // Protocol is the libp2p protocol ID for the P2P join handshake.
 const Protocol = protocol.ID("/sky10/join/1.0.0")
 
+const (
+	NSScopeKV = "kv"
+	NSScopeFS = "fs"
+)
+
 // NSKeyProvider returns namespace keys to send to a joining device.
 type NSKeyProvider func() []NSKey
 
 // NSKey is a namespace name and its symmetric encryption key.
 type NSKey struct {
 	Namespace string
+	Scope     string
 	Key       []byte
 }
 
@@ -43,6 +49,7 @@ type Response struct {
 // WrappedNSKey is a namespace key wrapped for the joiner's identity.
 type WrappedNSKey struct {
 	Namespace string `json:"namespace"`
+	Scope     string `json:"scope,omitempty"`
 	Wrapped   []byte `json:"wrapped"`
 }
 
@@ -157,6 +164,7 @@ func (h *Handler) HandleStream(s network.Stream) {
 			}
 			resp.NSKeys = append(resp.NSKeys, WrappedNSKey{
 				Namespace: nsk.Namespace,
+				Scope:     nsk.Scope,
 				Wrapped:   wrapped,
 			})
 		}

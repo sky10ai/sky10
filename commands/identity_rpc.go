@@ -291,7 +291,11 @@ func joinIdentityP2P(
 		if err != nil {
 			continue
 		}
-		kv.CacheKeyLocally(nsk.Namespace, deviceID, nsKey)
+		if nsk.Scope == skyjoin.NSScopeFS {
+			skyfs.CacheKeyLocally(nsk.Namespace, joinedBundle.Address(), nsKey)
+		} else {
+			kv.CacheKeyLocally(nsk.Namespace, deviceID, nsKey)
+		}
 	}
 	if err := idStore.Save(joinedBundle); err != nil {
 		return nil, fmt.Errorf("saving joined private-network bundle: %w", err)
@@ -398,9 +402,18 @@ func inviteRelays(relays []string) []string {
 	return out
 }
 
-func hasNamespaceKey(keys []skyjoin.WrappedNSKey, namespace string) bool {
+func hasNamespaceKey(keys []skyjoin.WrappedNSKey, scope, namespace string) bool {
 	for _, nsk := range keys {
-		if nsk.Namespace == namespace && len(nsk.Wrapped) > 0 {
+		if nsk.Namespace != namespace || len(nsk.Wrapped) == 0 {
+			continue
+		}
+		if scope == skyjoin.NSScopeFS {
+			if nsk.Scope == skyjoin.NSScopeFS {
+				return true
+			}
+			continue
+		}
+		if nsk.Scope == "" || nsk.Scope == scope {
 			return true
 		}
 	}
@@ -408,7 +421,7 @@ func hasNamespaceKey(keys []skyjoin.WrappedNSKey, namespace string) bool {
 }
 
 func validateJoinNamespaceKeys(keys []skyjoin.WrappedNSKey) error {
-	if !hasNamespaceKey(keys, "default") {
+	if !hasNamespaceKey(keys, skyjoin.NSScopeKV, "default") {
 		return fmt.Errorf("join response missing default KV namespace key")
 	}
 	return nil

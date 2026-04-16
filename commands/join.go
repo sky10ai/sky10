@@ -133,7 +133,11 @@ func runJoinP2P(cmd *cobra.Command, code, role string) error {
 			fmt.Printf("  Warning: could not unwrap key for namespace %q\n", nsk.Namespace)
 			continue
 		}
-		kv.CacheKeyLocally(nsk.Namespace, deviceID, nsKey)
+		if nsk.Scope == join.NSScopeFS {
+			skyfs.CacheKeyLocally(nsk.Namespace, bundle.Address(), nsKey)
+		} else {
+			kv.CacheKeyLocally(nsk.Namespace, deviceID, nsKey)
+		}
 		fmt.Printf("  Namespace key: %s\n", nsk.Namespace)
 	}
 	if err := idStore.Save(bundle); err != nil {

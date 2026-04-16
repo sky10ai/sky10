@@ -609,10 +609,10 @@ func ServeCmd() *cobra.Command {
 				joinHandler.SetNSKeyProvider(func() []skyjoin.NSKey {
 					out := make([]skyjoin.NSKey, 0, 4)
 					if ns, key := kvStore.NamespaceKey(); key != nil {
-						out = append(out, skyjoin.NSKey{Namespace: ns, Key: key})
+						out = append(out, skyjoin.NSKey{Namespace: ns, Scope: skyjoin.NSScopeKV, Key: key})
 					}
 					if ns, key := secretsStore.Transport().NamespaceKey(); key != nil {
-						out = append(out, skyjoin.NSKey{Namespace: ns, Key: key})
+						out = append(out, skyjoin.NSKey{Namespace: ns, Scope: skyjoin.NSScopeKV, Key: key})
 					}
 					out = append(out, fsHandler.NamespaceKeys(context.Background())...)
 					return out
