@@ -180,8 +180,10 @@ export const sandbox = {
   get: (p: { name?: string; slug?: string }) => rpc<SandboxRecord>("sandbox.get", p),
   logs: (p: { name?: string; slug?: string; limit?: number }) =>
     rpc<SandboxLogsResult>("sandbox.logs", p),
-  create: (p: { name: string; provider: string; template: string }) =>
+  create: (p: { name: string; provider: string; template: string; lima?: SandboxLimaSettings }) =>
     rpc<SandboxRecord>("sandbox.create", p),
+  update: (p: { name?: string; slug?: string; lima?: SandboxLimaSettings }) =>
+    rpc<SandboxRecord>("sandbox.update", p),
   start: (p: { name?: string; slug?: string }) => rpc<SandboxRecord>("sandbox.start", p),
   stop: (p: { name?: string; slug?: string }) => rpc<SandboxRecord>("sandbox.stop", p),
   delete: (p: { name?: string; slug?: string }) => rpc<SandboxRecord>("sandbox.delete", p),
@@ -901,6 +903,7 @@ export interface SandboxRecord {
   shared_dir?: string;
   ip_address?: string;
   shell?: string;
+  lima?: SandboxLimaSettings;
   last_error?: string;
   progress?: SandboxProgress;
   guest_device_id?: string;
@@ -914,6 +917,12 @@ export interface SandboxProgress {
   step_id?: string;
   summary?: string;
   percent: number;
+}
+
+export interface SandboxLimaSettings {
+  cpus: number;
+  memory_gib: number;
+  disk_gib: number;
 }
 
 export interface SandboxListResult {

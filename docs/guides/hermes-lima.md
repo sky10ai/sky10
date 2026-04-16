@@ -45,6 +45,10 @@ From the web UI:
 2. Select `Hermes Sandbox`
 3. Pick a name and create it
 
+Once the sandbox is created, `Settings -> Sandboxes -> <sandbox>` also gives
+you a per-sandbox settings panel for Lima CPU, memory, and disk changes while
+the VM is stopped.
+
 ## Launch Hermes
 
 Open a guest shell:

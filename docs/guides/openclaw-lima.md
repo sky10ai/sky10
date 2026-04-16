@@ -44,6 +44,10 @@ From the web UI:
 3. Confirm the `OpenClaw Sandbox` template
 4. Pick a name and create it
 
+After a sandbox exists, open `Settings -> Sandboxes -> <sandbox>` to stop it,
+inspect logs, open the terminal, and adjust Lima CPU, memory, and disk
+settings for the next start.
+
 That flow:
 
 - stages the Lima template locally

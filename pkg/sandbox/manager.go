@@ -26,6 +26,7 @@ import (
 	skyfs "github.com/sky10/sky10/pkg/fs"
 	skyid "github.com/sky10/sky10/pkg/id"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
+	yaml "go.yaml.in/yaml/v2"
 )
 
 const (
@@ -56,6 +57,9 @@ const (
 	templateNameToken              = "__SKY10_SANDBOX_NAME__"
 	templateSharedToken            = "__SKY10_SHARED_DIR__"
 	templateStateToken             = "__SKY10_STATE_DIR__"
+	templateLimaCPUsToken          = "__SKY10_LIMA_CPUS__"
+	templateLimaMemoryToken        = "__SKY10_LIMA_MEMORY__"
+	templateLimaDiskToken          = "__SKY10_LIMA_DISK__"
 	sandboxStateDirName            = "state"
 	sandboxLogsDirName             = "logs"
 	agentWorkspaceDirName          = "workspace"
@@ -66,6 +70,9 @@ const (
 	guestSky10LocalRPCURL          = "http://127.0.0.1:9101/rpc"
 	openClawReadyURL               = "http://127.0.0.1:18789/health"
 	progressMarkerPrefix           = "SKY10_PROGRESS "
+	defaultLimaCPUs                = 4
+	defaultLimaMemoryGiB           = 8
+	defaultLimaDiskGiB             = 30
 )
 
 var openClawSharedAssetFiles = []string{
@@ -127,19 +134,33 @@ var hermesLimaProgressPlan = []progressStep{
 }
 
 var slugWordPattern = regexp.MustCompile(`[a-z0-9]+`)
+var limaSizePattern = regexp.MustCompile(`^([0-9]+(?:\.[0-9]+)?)([kmgt]?i?b?)?$`)
 
 type Emitter func(event string, data interface{})
 
+type LimaSettings struct {
+	CPUs      int     `json:"cpus,omitempty"`
+	MemoryGiB float64 `json:"memory_gib,omitempty"`
+	DiskGiB   float64 `json:"disk_gib,omitempty"`
+}
+
 type CreateParams struct {
-	Name     string `json:"name"`
-	Provider string `json:"provider"`
-	Template string `json:"template"`
-	Model    string `json:"model,omitempty"`
+	Name     string        `json:"name"`
+	Provider string        `json:"provider"`
+	Template string        `json:"template"`
+	Model    string        `json:"model,omitempty"`
+	Lima     *LimaSettings `json:"lima,omitempty"`
 }
 
 type NamedParams struct {
 	Name string `json:"name,omitempty"`
 	Slug string `json:"slug,omitempty"`
+}
+
+type UpdateParams struct {
+	Name string        `json:"name,omitempty"`
+	Slug string        `json:"slug,omitempty"`
+	Lima *LimaSettings `json:"lima,omitempty"`
 }
 
 type LogsParams struct {
@@ -149,23 +170,24 @@ type LogsParams struct {
 }
 
 type Record struct {
-	Name              string    `json:"name"`
-	Slug              string    `json:"slug"`
-	Provider          string    `json:"provider"`
-	Template          string    `json:"template"`
-	Model             string    `json:"model,omitempty"`
-	Status            string    `json:"status"`
-	VMStatus          string    `json:"vm_status,omitempty"`
-	SharedDir         string    `json:"shared_dir,omitempty"`
-	IPAddress         string    `json:"ip_address,omitempty"`
-	Shell             string    `json:"shell,omitempty"`
-	LastError         string    `json:"last_error,omitempty"`
-	Progress          *Progress `json:"progress,omitempty"`
-	GuestDeviceID     string    `json:"guest_device_id,omitempty"`
-	GuestDevicePubKey string    `json:"guest_device_pubkey,omitempty"`
-	CreatedAt         string    `json:"created_at"`
-	UpdatedAt         string    `json:"updated_at"`
-	LastLogAt         string    `json:"last_log_at,omitempty"`
+	Name              string        `json:"name"`
+	Slug              string        `json:"slug"`
+	Provider          string        `json:"provider"`
+	Template          string        `json:"template"`
+	Model             string        `json:"model,omitempty"`
+	Status            string        `json:"status"`
+	VMStatus          string        `json:"vm_status,omitempty"`
+	SharedDir         string        `json:"shared_dir,omitempty"`
+	IPAddress         string        `json:"ip_address,omitempty"`
+	Shell             string        `json:"shell,omitempty"`
+	Lima              *LimaSettings `json:"lima,omitempty"`
+	LastError         string        `json:"last_error,omitempty"`
+	Progress          *Progress     `json:"progress,omitempty"`
+	GuestDeviceID     string        `json:"guest_device_id,omitempty"`
+	GuestDevicePubKey string        `json:"guest_device_pubkey,omitempty"`
+	CreatedAt         string        `json:"created_at"`
+	UpdatedAt         string        `json:"updated_at"`
+	LastLogAt         string        `json:"last_log_at,omitempty"`
 }
 
 type LogEntry struct {
@@ -892,6 +914,10 @@ func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, err
 	if err != nil {
 		return nil, err
 	}
+	limaSettings, err := normalizeLimaSettings(params.Lima)
+	if err != nil {
+		return nil, err
+	}
 	if err := m.ensureAgentHome(ctx, slug, sharedDir); err != nil {
 		return nil, err
 	}
@@ -907,6 +933,7 @@ func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, err
 		Status:    "creating",
 		SharedDir: sharedDir,
 		Shell:     defaultShellCommand(slug, template),
+		Lima:      cloneLimaSettings(limaSettings),
 		Progress:  initialProgress,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -1012,6 +1039,7 @@ func (m *Manager) Ensure(ctx context.Context, params CreateParams) (*Record, err
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
+		rec = m.hydrateRecord(rec)
 		if vmStatus == "Running" {
 			if ipAddr, err := lookupLimaInstanceIPv4(ctx, m.outputCmd, limactl, slug); err == nil && ipAddr != "" {
 				rec.IPAddress = ipAddr
@@ -1034,6 +1062,61 @@ func (m *Manager) Ensure(ctx context.Context, params CreateParams) (*Record, err
 	}
 
 	return m.Create(ctx, params)
+}
+
+func (m *Manager) Update(ctx context.Context, params UpdateParams) (*Record, error) {
+	rec, err := m.requireRecord(coalesceSandboxKey(params.Name, params.Slug))
+	if err != nil {
+		return nil, err
+	}
+	if rec.Provider != providerLima {
+		return nil, fmt.Errorf("sandbox provider %q does not support editable settings yet", rec.Provider)
+	}
+	if params.Lima == nil {
+		return nil, fmt.Errorf("lima settings are required")
+	}
+	if rec.Status == "creating" || rec.Status == "starting" {
+		return nil, fmt.Errorf("sandbox %q is busy; wait for the current operation to finish", rec.Name)
+	}
+	if strings.EqualFold(strings.TrimSpace(rec.VMStatus), "running") || rec.Status == "ready" {
+		return nil, fmt.Errorf("stop sandbox %q before changing Lima settings", rec.Name)
+	}
+
+	m.mu.Lock()
+	running := m.running[rec.Slug]
+	m.mu.Unlock()
+	if running {
+		return nil, fmt.Errorf("sandbox %q is busy; wait for the current operation to finish", rec.Name)
+	}
+
+	limaSettings, err := normalizeLimaSettings(params.Lima)
+	if err != nil {
+		return nil, err
+	}
+	if equalLimaSettings(rec.Lima, limaSettings) {
+		return m.Get(ctx, rec.Slug)
+	}
+
+	limactl, err := m.ensureManagedApp(ctx, skyapps.AppLima, true)
+	if err != nil {
+		return nil, err
+	}
+
+	exists, err := m.limaInstanceExists(ctx, limactl, rec.Slug)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		if err := m.runCmd(ctx, limactl, buildLimaEditArgs(rec.Slug, limaSettings), func(stream, line string) {
+			m.appendLog(rec.Slug, stream, line)
+		}); err != nil {
+			return nil, fmt.Errorf("updating sandbox %q settings: %w", rec.Name, err)
+		}
+	}
+	if err := m.updateLimaSettings(rec.Slug, limaSettings); err != nil {
+		return nil, err
+	}
+	return m.Get(ctx, rec.Slug)
 }
 
 func (m *Manager) Start(ctx context.Context, name string) (*Record, error) {
@@ -1423,7 +1506,7 @@ func (m *Manager) materializeTemplate(ctx context.Context, rec Record) (string, 
 		}
 		if assetName == spec.mainAsset {
 			targetPath = renderedPath
-			data = renderSandboxTemplate(body, rec.Slug, rec.SharedDir, stateDir)
+			data = renderSandboxTemplate(body, rec, stateDir)
 		}
 		if err := os.WriteFile(targetPath, data, mode); err != nil {
 			return "", fmt.Errorf("writing sandbox template asset %q: %w", assetName, err)
@@ -1832,11 +1915,210 @@ func defaultShellCommand(slug, template string) string {
 	return fmt.Sprintf("limactl shell %s", slug)
 }
 
-func renderSandboxTemplate(body []byte, name, sharedDir, stateDir string) []byte {
-	rendered := strings.ReplaceAll(string(body), templateNameToken, name)
-	rendered = strings.ReplaceAll(rendered, templateSharedToken, sharedDir)
+func renderSandboxTemplate(body []byte, rec Record, stateDir string) []byte {
+	rendered := strings.ReplaceAll(string(body), templateNameToken, rec.Slug)
+	rendered = strings.ReplaceAll(rendered, templateSharedToken, rec.SharedDir)
 	rendered = strings.ReplaceAll(rendered, templateStateToken, stateDir)
+	settings := mergeLimaSettings(defaultLimaSettings(), rec.Lima)
+	rendered = strings.ReplaceAll(rendered, templateLimaCPUsToken, strconv.Itoa(settings.CPUs))
+	rendered = strings.ReplaceAll(rendered, templateLimaMemoryToken, formatLimaGiBValue(settings.MemoryGiB))
+	rendered = strings.ReplaceAll(rendered, templateLimaDiskToken, formatLimaGiBValue(settings.DiskGiB))
 	return []byte(rendered)
+}
+
+func cloneLimaSettings(settings *LimaSettings) *LimaSettings {
+	if settings == nil {
+		return nil
+	}
+	copy := *settings
+	return &copy
+}
+
+func defaultLimaSettings() *LimaSettings {
+	return &LimaSettings{
+		CPUs:      defaultLimaCPUs,
+		MemoryGiB: defaultLimaMemoryGiB,
+		DiskGiB:   defaultLimaDiskGiB,
+	}
+}
+
+func normalizeLimaSettings(settings *LimaSettings) (*LimaSettings, error) {
+	normalized := defaultLimaSettings()
+	if settings == nil {
+		return normalized, nil
+	}
+	if settings.CPUs != 0 {
+		if settings.CPUs < 1 {
+			return nil, fmt.Errorf("lima cpus must be at least 1")
+		}
+		normalized.CPUs = settings.CPUs
+	}
+	if settings.MemoryGiB != 0 {
+		if settings.MemoryGiB <= 0 {
+			return nil, fmt.Errorf("lima memory must be greater than 0")
+		}
+		normalized.MemoryGiB = settings.MemoryGiB
+	}
+	if settings.DiskGiB != 0 {
+		if settings.DiskGiB <= 0 {
+			return nil, fmt.Errorf("lima disk must be greater than 0")
+		}
+		normalized.DiskGiB = settings.DiskGiB
+	}
+	return normalized, nil
+}
+
+func mergeLimaSettings(base, overlay *LimaSettings) *LimaSettings {
+	merged := cloneLimaSettings(base)
+	if merged == nil {
+		merged = &LimaSettings{}
+	}
+	if overlay != nil {
+		if overlay.CPUs > 0 {
+			merged.CPUs = overlay.CPUs
+		}
+		if overlay.MemoryGiB > 0 {
+			merged.MemoryGiB = overlay.MemoryGiB
+		}
+		if overlay.DiskGiB > 0 {
+			merged.DiskGiB = overlay.DiskGiB
+		}
+	}
+	return merged
+}
+
+func equalLimaSettings(a, b *LimaSettings) bool {
+	switch {
+	case a == nil && b == nil:
+		return true
+	case a == nil || b == nil:
+		return false
+	default:
+		return a.CPUs == b.CPUs && a.MemoryGiB == b.MemoryGiB && a.DiskGiB == b.DiskGiB
+	}
+}
+
+func buildLimaEditArgs(slug string, settings *LimaSettings) []string {
+	effective := mergeLimaSettings(defaultLimaSettings(), settings)
+	return []string{
+		"edit",
+		"--tty=false",
+		slug,
+		"--cpus", strconv.Itoa(effective.CPUs),
+		"--memory", formatLimaNumericValue(effective.MemoryGiB),
+		"--disk", formatLimaNumericValue(effective.DiskGiB),
+	}
+}
+
+func formatLimaGiBValue(value float64) string {
+	return formatLimaNumericValue(value) + "GiB"
+}
+
+func formatLimaNumericValue(value float64) string {
+	return strconv.FormatFloat(value, 'f', -1, 64)
+}
+
+func readLimaInstanceSettings(name string) (*LimaSettings, error) {
+	path, err := limaInstanceConfigPath(name)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("reading Lima instance config %q: %w", path, err)
+	}
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parsing Lima instance config %q: %w", path, err)
+	}
+	settings := &LimaSettings{
+		CPUs:      parseLimaCPU(raw["cpus"]),
+		MemoryGiB: parseLimaSizeGiB(raw["memory"]),
+		DiskGiB:   parseLimaSizeGiB(raw["disk"]),
+	}
+	if settings.CPUs == 0 && settings.MemoryGiB == 0 && settings.DiskGiB == 0 {
+		return nil, nil
+	}
+	return settings, nil
+}
+
+func parseLimaCPU(value interface{}) int {
+	switch v := value.(type) {
+	case int:
+		if v > 0 {
+			return v
+		}
+	case int64:
+		if v > 0 {
+			return int(v)
+		}
+	case uint64:
+		if v > 0 {
+			return int(v)
+		}
+	case float64:
+		if v > 0 {
+			return int(v)
+		}
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(v))
+		if err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return 0
+}
+
+func parseLimaSizeGiB(value interface{}) float64 {
+	switch v := value.(type) {
+	case int:
+		if v > 0 {
+			return float64(v)
+		}
+	case int64:
+		if v > 0 {
+			return float64(v)
+		}
+	case uint64:
+		if v > 0 {
+			return float64(v)
+		}
+	case float64:
+		if v > 0 {
+			return v
+		}
+	case string:
+		if parsed, ok := parseLimaSizeString(v); ok {
+			return parsed
+		}
+	}
+	return 0
+}
+
+func parseLimaSizeString(value string) (float64, bool) {
+	matches := limaSizePattern.FindStringSubmatch(strings.ToLower(strings.TrimSpace(value)))
+	if len(matches) != 3 {
+		return 0, false
+	}
+	amount, err := strconv.ParseFloat(matches[1], 64)
+	if err != nil || amount <= 0 {
+		return 0, false
+	}
+	switch matches[2] {
+	case "", "g", "gb", "gib":
+		return amount, true
+	case "m", "mb", "mib":
+		return amount / 1024, true
+	case "t", "tb", "tib":
+		return amount * 1024, true
+	case "k", "kb", "kib":
+		return amount / (1024 * 1024), true
+	default:
+		return 0, false
+	}
 }
 
 func sandboxTemplateDefinition(template string) (templateDefinition, error) {
@@ -2158,6 +2440,23 @@ func (m *Manager) updateIPAddress(name, ip string) error {
 	return nil
 }
 
+func (m *Manager) updateLimaSettings(name string, settings *LimaSettings) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rec, ok := m.records[name]
+	if !ok {
+		return fmt.Errorf("sandbox %q not found", name)
+	}
+	rec.Lima = cloneLimaSettings(settings)
+	rec.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	m.records[name] = rec
+	if err := m.saveLocked(); err != nil {
+		return err
+	}
+	m.emitState(rec)
+	return nil
+}
+
 func (m *Manager) recordGuestIdentity(name string, guest guestIdentity) error {
 	return m.recordGuestDevice(name, guest.DeviceID, guest.DevicePubKey)
 }
@@ -2403,6 +2702,11 @@ func (m *Manager) load() error {
 			rec.Shell = shell
 			changed = true
 		}
+		hydrated := m.hydrateRecord(rec)
+		if !equalLimaSettings(rec.Lima, hydrated.Lima) {
+			rec = hydrated
+			changed = true
+		}
 		m.records[rec.Slug] = rec
 	}
 	if changed {
@@ -2433,6 +2737,22 @@ func defaultSharedDir(slug string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(root, slug), nil
+}
+
+func (m *Manager) hydrateRecord(rec Record) Record {
+	if rec.Provider != providerLima {
+		rec.Lima = nil
+		return rec
+	}
+	settings := defaultLimaSettings()
+	instanceSettings, err := readLimaInstanceSettings(rec.Slug)
+	if err != nil {
+		m.logger.Debug("sandbox settings refresh skipped", "sandbox", rec.Slug, "error", err)
+	} else {
+		settings = mergeLimaSettings(settings, instanceSettings)
+	}
+	rec.Lima = mergeLimaSettings(settings, rec.Lima)
+	return rec
 }
 
 func defaultAgentDriveRoot() (string, error) {

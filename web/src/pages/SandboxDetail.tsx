@@ -7,6 +7,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { subscribe } from "../lib/events";
 import {
   sandbox,
+  type SandboxLimaSettings,
   type SandboxLogEntry,
   type SandboxLogsResult,
   type SandboxRecord,
@@ -33,6 +34,19 @@ export default function SandboxDetail() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
+  const [limaCPUInput, setLimaCPUInput] = useState("");
+  const [limaMemoryInput, setLimaMemoryInput] = useState("");
+  const [limaDiskInput, setLimaDiskInput] = useState("");
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
+
+  const syncLimaDraft = useCallback((settings?: SandboxLimaSettings) => {
+    setLimaCPUInput(settings?.cpus ? `${settings.cpus}` : "");
+    setLimaMemoryInput(settings?.memory_gib ? `${settings.memory_gib}` : "");
+    setLimaDiskInput(settings?.disk_gib ? `${settings.disk_gib}` : "");
+  }, []);
 
   const {
     data: selected,
@@ -68,6 +82,27 @@ export default function SandboxDetail() {
       setHasOpenedTerminal(true);
     }
   }, [requestedPanel]);
+
+  useEffect(() => {
+    setSettingsDirty(false);
+    setSettingsError(null);
+    setSettingsMessage(null);
+    syncLimaDraft();
+  }, [slug, syncLimaDraft]);
+
+  useEffect(() => {
+    if (!selected || settingsDirty) {
+      return;
+    }
+    syncLimaDraft(selected.lima);
+  }, [
+    selected,
+    selected?.lima?.cpus,
+    selected?.lima?.disk_gib,
+    selected?.lima?.memory_gib,
+    settingsDirty,
+    syncLimaDraft,
+  ]);
 
   const switchPanel = useCallback((nextPanel: "logs" | "terminal") => {
     setActivePanel(nextPanel);
@@ -161,6 +196,41 @@ export default function SandboxDetail() {
     }
   }, [selected?.shell, selected?.slug, slug]);
 
+  const handleSaveSettings = useCallback(async () => {
+    if (!slug || !selected || selected.provider !== "lima") {
+      return;
+    }
+    setSavingSettings(true);
+    setSettingsError(null);
+    setSettingsMessage(null);
+    try {
+      const updated = await sandbox.update({
+        slug,
+        lima: {
+          cpus: parsePositiveInteger(limaCPUInput, "CPUs"),
+          memory_gib: parsePositiveNumber(limaMemoryInput, "Memory"),
+          disk_gib: parsePositiveNumber(limaDiskInput, "Disk"),
+        },
+      });
+      syncLimaDraft(updated.lima);
+      setSettingsDirty(false);
+      setSettingsMessage("Settings saved. Start the sandbox to apply the new Lima resources.");
+      refetchSelected({ background: true });
+    } catch (error: unknown) {
+      setSettingsError(error instanceof Error ? error.message : "Save failed");
+    } finally {
+      setSavingSettings(false);
+    }
+  }, [
+    limaCPUInput,
+    limaDiskInput,
+    limaMemoryInput,
+    refetchSelected,
+    selected,
+    slug,
+    syncLimaDraft,
+  ]);
+
   if (!slug) {
     return (
       <section className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 p-12">
@@ -189,6 +259,15 @@ export default function SandboxDetail() {
   const guestSky10URL = selected?.template === "openclaw" && guestIP ? `http://${guestIP}:9101` : "";
   const progress = selected ? sandboxCurrentProgress(selected) : null;
   const progressWidth = Math.max(0, Math.min(progress?.percent ?? 0, 100));
+  const limaSettingsBusy = selected?.status === "creating" || selected?.status === "starting";
+  const limaSettingsRequireStop = selected?.provider === "lima"
+    && (selected.status === "ready" || selected.vm_status === "Running");
+  const limaSettingsDisabled = savingSettings
+    || busyAction !== null
+    || !selected
+    || selected.provider !== "lima"
+    || limaSettingsBusy
+    || limaSettingsRequireStop;
 
   return (
     <section className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 p-12">
@@ -293,6 +372,9 @@ export default function SandboxDetail() {
               <InfoCard label="Runtime ID" mono value={selected.slug} />
               <InfoCard label="Provider" value={selected.provider} />
               <InfoCard label="Template" value={selected.template} />
+              {selected.lima && <InfoCard label="CPUs" mono value={`${selected.lima.cpus}`} />}
+              {selected.lima && <InfoCard label="Memory" mono value={formatGiB(selected.lima.memory_gib)} />}
+              {selected.lima && <InfoCard label="Disk" mono value={formatGiB(selected.lima.disk_gib)} />}
               <InfoCard label="Guest IP" mono value={selected.ip_address || "Waiting..."} />
               <InfoCard label="Created" mono value={selected.created_at} />
               <InfoCard label="Updated" mono value={selected.updated_at} />
@@ -328,6 +410,132 @@ export default function SandboxDetail() {
         ) : (
           <div className="text-sm text-secondary">
             Loading sandbox details...
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-6 space-y-2">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
+            Sandbox Settings
+          </p>
+          <h2 className="text-2xl font-semibold text-on-surface">
+            Provider resources
+          </h2>
+          <p className="text-sm text-secondary">
+            Edit provider-specific runtime settings for this sandbox. Lima resources are saved per sandbox and applied with <code>limactl edit</code>.
+          </p>
+        </div>
+
+        {selected ? (
+          selected.provider === "lima" ? (
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+              <div className="space-y-5">
+                <div className="grid gap-4 md:grid-cols-3">
+                  <label className="space-y-2">
+                    <span className="text-sm font-semibold text-on-surface">CPUs</span>
+                    <input
+                      className="w-full rounded-2xl border border-outline-variant/20 bg-surface-container px-4 py-3 text-sm text-on-surface outline-none transition-colors focus:border-primary/40 disabled:opacity-60"
+                      disabled={limaSettingsDisabled}
+                      min={1}
+                      onChange={(event) => {
+                        setLimaCPUInput(event.target.value);
+                        setSettingsDirty(true);
+                        setSettingsError(null);
+                        setSettingsMessage(null);
+                      }}
+                      step={1}
+                      type="number"
+                      value={limaCPUInput}
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-semibold text-on-surface">Memory (GiB)</span>
+                    <input
+                      className="w-full rounded-2xl border border-outline-variant/20 bg-surface-container px-4 py-3 text-sm text-on-surface outline-none transition-colors focus:border-primary/40 disabled:opacity-60"
+                      disabled={limaSettingsDisabled}
+                      min={0.5}
+                      onChange={(event) => {
+                        setLimaMemoryInput(event.target.value);
+                        setSettingsDirty(true);
+                        setSettingsError(null);
+                        setSettingsMessage(null);
+                      }}
+                      step={0.5}
+                      type="number"
+                      value={limaMemoryInput}
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-semibold text-on-surface">Disk (GiB)</span>
+                    <input
+                      className="w-full rounded-2xl border border-outline-variant/20 bg-surface-container px-4 py-3 text-sm text-on-surface outline-none transition-colors focus:border-primary/40 disabled:opacity-60"
+                      disabled={limaSettingsDisabled}
+                      min={1}
+                      onChange={(event) => {
+                        setLimaDiskInput(event.target.value);
+                        setSettingsDirty(true);
+                        setSettingsError(null);
+                        setSettingsMessage(null);
+                      }}
+                      step={1}
+                      type="number"
+                      value={limaDiskInput}
+                    />
+                  </label>
+                </div>
+
+                {(settingsError || settingsMessage) && (
+                  <div className={`rounded-2xl p-4 text-sm ${settingsError ? "bg-error-container/20 text-error" : "bg-surface-container text-secondary"}`}>
+                    {settingsError ?? settingsMessage}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-on-primary shadow-lg transition-all active:scale-95 disabled:opacity-60"
+                    disabled={limaSettingsDisabled || !settingsDirty}
+                    onClick={() => void handleSaveSettings()}
+                    type="button"
+                  >
+                    <Icon name="save" />
+                    {savingSettings ? "Saving..." : "Save settings"}
+                  </button>
+                  {settingsDirty && !savingSettings && (
+                    <span className="text-sm text-secondary">
+                      Unsaved Lima settings.
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <aside className="rounded-2xl bg-surface-container p-5 text-sm text-secondary">
+                <p>
+                  sky10 saves these values with the sandbox record so new provisioning and existing Lima instances stay aligned.
+                </p>
+                <p className="mt-3">
+                  Resource changes are conservative for now: stop the sandbox, save the new values, then start it again.
+                </p>
+                {limaSettingsBusy && (
+                  <p className="mt-3">
+                    Provisioning is still in progress, so settings edits are temporarily locked.
+                  </p>
+                )}
+                {limaSettingsRequireStop && (
+                  <p className="mt-3">
+                    This sandbox is running. Use <strong>Stop</strong> first to apply new CPU, memory, or disk values.
+                  </p>
+                )}
+              </aside>
+            </div>
+          ) : (
+            <div className="rounded-2xl bg-surface-container p-4 text-sm text-secondary">
+              This provider does not expose editable settings yet.
+            </div>
+          )
+        ) : (
+          <div className="rounded-2xl bg-surface-container p-4 text-sm text-secondary">
+            Settings will appear once the sandbox record loads.
           </div>
         )}
       </section>
@@ -509,4 +717,27 @@ function InfoCard({
       )}
     </div>
   );
+}
+
+function formatGiB(value?: number) {
+  if (!value) {
+    return "—";
+  }
+  return `${value} GiB`;
+}
+
+function parsePositiveNumber(raw: string, label: string) {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${label} must be greater than 0`);
+  }
+  return value;
+}
+
+function parsePositiveInteger(raw: string, label: string) {
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${label} must be a whole number greater than 0`);
+  }
+  return value;
 }

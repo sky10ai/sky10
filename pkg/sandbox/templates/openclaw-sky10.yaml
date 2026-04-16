@@ -5,9 +5,9 @@ base:
 
 vmType: vz
 
-cpus: 4
-memory: 8GiB
-disk: 30GiB
+cpus: __SKY10_LIMA_CPUS__
+memory: __SKY10_LIMA_MEMORY__
+disk: __SKY10_LIMA_DISK__
 
 networks:
 - vzNAT: true

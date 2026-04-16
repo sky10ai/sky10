@@ -987,10 +987,18 @@ func TestEnsureLocalAgentDriveConfigReplacesLegacyPerAgentDrive(t *testing.T) {
 func TestRenderSandboxTemplate(t *testing.T) {
 	t.Parallel()
 
-	body := []byte(`name=__SKY10_SANDBOX_NAME__ path=__SKY10_SHARED_DIR__ state=__SKY10_STATE_DIR__`)
-	got := string(renderSandboxTemplate(body, "devbox", "/Users/bf/Sky10/Drives/Agents/devbox", "/Users/bf/.sky10/sandboxes/devbox/state"))
+	body := []byte(`name=__SKY10_SANDBOX_NAME__ path=__SKY10_SHARED_DIR__ state=__SKY10_STATE_DIR__ cpus=__SKY10_LIMA_CPUS__ memory=__SKY10_LIMA_MEMORY__ disk=__SKY10_LIMA_DISK__`)
+	got := string(renderSandboxTemplate(body, Record{
+		Slug:      "devbox",
+		SharedDir: "/Users/bf/Sky10/Drives/Agents/devbox",
+		Lima: &LimaSettings{
+			CPUs:      6,
+			MemoryGiB: 12,
+			DiskGiB:   40,
+		},
+	}, "/Users/bf/.sky10/sandboxes/devbox/state"))
 
-	if strings.Contains(got, templateNameToken) || strings.Contains(got, templateSharedToken) || strings.Contains(got, templateStateToken) {
+	if strings.Contains(got, templateNameToken) || strings.Contains(got, templateSharedToken) || strings.Contains(got, templateStateToken) || strings.Contains(got, templateLimaCPUsToken) || strings.Contains(got, templateLimaMemoryToken) || strings.Contains(got, templateLimaDiskToken) {
 		t.Fatalf("renderSandboxTemplate() left placeholder tokens behind: %q", got)
 	}
 	if !strings.Contains(got, "devbox") {
@@ -1001,6 +1009,9 @@ func TestRenderSandboxTemplate(t *testing.T) {
 	}
 	if !strings.Contains(got, "/Users/bf/.sky10/sandboxes/devbox/state") {
 		t.Fatalf("renderSandboxTemplate() missing state dir: %q", got)
+	}
+	if !strings.Contains(got, "cpus=6") || !strings.Contains(got, "memory=12GiB") || !strings.Contains(got, "disk=40GiB") {
+		t.Fatalf("renderSandboxTemplate() missing Lima settings: %q", got)
 	}
 }
 
@@ -2639,5 +2650,153 @@ func TestLimaInstanceDirPathUsesHome(t *testing.T) {
 	want := filepath.Join(home, ".lima", "devbox")
 	if got != want {
 		t.Fatalf("limaInstanceDirPath() = %q, want %q", got, want)
+	}
+}
+
+func TestManagerLoadHydratesLimaSettingsFromInstanceConfig(t *testing.T) {
+	root := t.TempDir()
+	limaHome := t.TempDir()
+	t.Setenv(config.EnvHome, root)
+	t.Setenv("LIMA_HOME", limaHome)
+
+	stateDir := filepath.Join(root, "sandboxes")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(stateDir) error: %v", err)
+	}
+	stateBody := []byte(`{"sandboxes":[{"name":"devbox","slug":"devbox","provider":"lima","template":"ubuntu","status":"stopped","created_at":"2026-04-16T00:00:00Z","updated_at":"2026-04-16T00:00:00Z"}]}` + "\n")
+	if err := os.WriteFile(filepath.Join(stateDir, "state.json"), stateBody, 0o644); err != nil {
+		t.Fatalf("WriteFile(state.json) error: %v", err)
+	}
+	instanceDir := filepath.Join(limaHome, "devbox")
+	if err := os.MkdirAll(instanceDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(instanceDir) error: %v", err)
+	}
+	configBody := []byte("cpus: 7\nmemory: 14GiB\ndisk: 42GiB\n")
+	if err := os.WriteFile(filepath.Join(instanceDir, "lima.yaml"), configBody, 0o644); err != nil {
+		t.Fatalf("WriteFile(lima.yaml) error: %v", err)
+	}
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	got, err := m.Get(context.Background(), "devbox")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if got.Lima == nil {
+		t.Fatal("Get() Lima settings = nil, want populated settings")
+	}
+	if got.Lima.CPUs != 7 || got.Lima.MemoryGiB != 14 || got.Lima.DiskGiB != 42 {
+		t.Fatalf("Get() Lima settings = %+v, want cpus=7 memory=14 disk=42", got.Lima)
+	}
+}
+
+func TestManagerUpdateLimaSettings(t *testing.T) {
+	root := t.TempDir()
+	limaHome := t.TempDir()
+	t.Setenv(config.EnvHome, root)
+	t.Setenv("LIMA_HOME", limaHome)
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["devbox"] = Record{
+		Name:      "devbox",
+		Slug:      "devbox",
+		Provider:  providerLima,
+		Template:  templateUbuntu,
+		Status:    "stopped",
+		VMStatus:  "Stopped",
+		SharedDir: filepath.Join(root, "Sky10", "Drives", "Agents", "devbox"),
+		Shell:     "limactl shell devbox",
+		Lima:      defaultLimaSettings(),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := m.saveLocked(); err != nil {
+		t.Fatalf("saveLocked() error: %v", err)
+	}
+	instanceDir := filepath.Join(limaHome, "devbox")
+	if err := os.MkdirAll(instanceDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(instanceDir) error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(instanceDir, "lima.yaml"), []byte("cpus: 4\nmemory: 8GiB\ndisk: 30GiB\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(lima.yaml) error: %v", err)
+	}
+
+	m.appStatus = func(id skyapps.ID) (*skyapps.Status, error) {
+		return &skyapps.Status{ActivePath: "/tmp/fake/" + string(id)}, nil
+	}
+	m.outputCmd = func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		if len(args) > 1 && args[0] == "list" && args[1] == "--json" {
+			return []byte(`{"name":"devbox","status":"Stopped"}` + "\n"), nil
+		}
+		return nil, nil
+	}
+
+	var gotArgs []string
+	m.runCmd = func(ctx context.Context, bin string, args []string, onLine func(stream, line string)) error {
+		gotArgs = append([]string(nil), args...)
+		return nil
+	}
+
+	updated, err := m.Update(context.Background(), UpdateParams{
+		Slug: "devbox",
+		Lima: &LimaSettings{
+			CPUs:      6,
+			MemoryGiB: 12,
+			DiskGiB:   45,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Update() error: %v", err)
+	}
+	wantArgs := []string{"edit", "--tty=false", "devbox", "--cpus", "6", "--memory", "12", "--disk", "45"}
+	if strings.Join(gotArgs, "\n") != strings.Join(wantArgs, "\n") {
+		t.Fatalf("Update() args = %v, want %v", gotArgs, wantArgs)
+	}
+	if updated.Lima == nil {
+		t.Fatal("Update() Lima settings = nil, want updated settings")
+	}
+	if updated.Lima.CPUs != 6 || updated.Lima.MemoryGiB != 12 || updated.Lima.DiskGiB != 45 {
+		t.Fatalf("Update() Lima settings = %+v, want cpus=6 memory=12 disk=45", updated.Lima)
+	}
+}
+
+func TestManagerUpdateLimaSettingsRequiresStoppedSandbox(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["devbox"] = Record{
+		Name:      "devbox",
+		Slug:      "devbox",
+		Provider:  providerLima,
+		Template:  templateUbuntu,
+		Status:    "ready",
+		VMStatus:  "Running",
+		Lima:      defaultLimaSettings(),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	_, err = m.Update(context.Background(), UpdateParams{
+		Slug: "devbox",
+		Lima: &LimaSettings{CPUs: 5, MemoryGiB: 10, DiskGiB: 35},
+	})
+	if err == nil {
+		t.Fatal("Update() error = nil, want stop-required error")
+	}
+	if !strings.Contains(err.Error(), "stop sandbox") {
+		t.Fatalf("Update() error = %q, want stop-required error", err)
 	}
 }
