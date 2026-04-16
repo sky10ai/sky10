@@ -35,6 +35,9 @@ func TestStoreGetChunksDegradesPeerAfterFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("localBlobPath: %v", err)
 	}
+	if err := os.Remove(chunkPath); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("remove local blob before first read: %v", err)
+	}
 
 	raw := readBackendBlob(t, backend, store.blobKeyFor(chunkHash))
 	counted := &countingBackend{Backend: backend}
@@ -103,6 +106,9 @@ func TestStoreGetChunksRetriesPeerAfterBackoffExpires(t *testing.T) {
 	chunkPath, err := localBlobPath(nsID, chunkHash)
 	if err != nil {
 		t.Fatalf("localBlobPath: %v", err)
+	}
+	if err := os.Remove(chunkPath); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("remove local blob before first read: %v", err)
 	}
 
 	raw := readBackendBlob(t, backend, store.blobKeyFor(chunkHash))

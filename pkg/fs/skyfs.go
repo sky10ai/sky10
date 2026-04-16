@@ -314,8 +314,10 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 			return fmt.Errorf("deriving file key: %w", err)
 		}
 
+		cacheExists := localBlobExists(nsID, chunk.Hash)
+		remoteExists := false
 		if s.backend == nil {
-			if localBlobExists(nsID, chunk.Hash) {
+			if cacheExists {
 				chunkHashes = append(chunkHashes, chunk.Hash)
 				totalSize += int64(chunk.Length)
 				continue
@@ -323,12 +325,15 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 		} else {
 			_, headErr := s.backend.Head(ctx, s.blobKeyFor(chunk.Hash))
 			if headErr == nil {
+				remoteExists = true
+			}
+			if headErr != nil && !errors.Is(headErr, adapter.ErrNotFound) {
+				return fmt.Errorf("checking chunk %s: %w", chunk.Hash[:12], headErr)
+			}
+			if remoteExists && cacheExists {
 				chunkHashes = append(chunkHashes, chunk.Hash)
 				totalSize += int64(chunk.Length)
 				continue
-			}
-			if !errors.Is(headErr, adapter.ErrNotFound) {
-				return fmt.Errorf("checking chunk %s: %w", chunk.Hash[:12], headErr)
 			}
 		}
 
@@ -340,25 +345,28 @@ func (s *Store) Put(ctx context.Context, path string, r io.Reader) error {
 
 		blob := PrependBlobHeader(encrypted)
 
-		if s.backend == nil {
+		if !cacheExists {
 			if err := writeLocalBlob(nsID, chunk.Hash, blob); err != nil {
 				return fmt.Errorf("caching chunk %s locally: %w", chunk.Hash[:12], err)
 			}
-		} else if s.packing {
-			packed, err := s.packWriter.Add(ctx, chunk.Hash, blob)
-			if err != nil {
-				return fmt.Errorf("packing chunk %s: %w", chunk.Hash[:12], err)
-			}
-			if !packed {
+		}
+		if s.backend != nil && !remoteExists {
+			if s.packing {
+				packed, err := s.packWriter.Add(ctx, chunk.Hash, blob)
+				if err != nil {
+					return fmt.Errorf("packing chunk %s: %w", chunk.Hash[:12], err)
+				}
+				if !packed {
+					cr := bytes.NewReader(blob)
+					if err := s.backend.Put(ctx, s.blobKeyFor(chunk.Hash), cr, int64(len(blob))); err != nil {
+						return fmt.Errorf("uploading chunk %s: %w", chunk.Hash[:12], err)
+					}
+				}
+			} else {
 				cr := bytes.NewReader(blob)
 				if err := s.backend.Put(ctx, s.blobKeyFor(chunk.Hash), cr, int64(len(blob))); err != nil {
 					return fmt.Errorf("uploading chunk %s: %w", chunk.Hash[:12], err)
 				}
-			}
-		} else {
-			cr := bytes.NewReader(blob)
-			if err := s.backend.Put(ctx, s.blobKeyFor(chunk.Hash), cr, int64(len(blob))); err != nil {
-				return fmt.Errorf("uploading chunk %s: %w", chunk.Hash[:12], err)
 			}
 		}
 

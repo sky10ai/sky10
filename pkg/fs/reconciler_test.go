@@ -551,6 +551,111 @@ func TestReconcilerSkipsPendingDeletes(t *testing.T) {
 	}
 }
 
+func TestReconcilerSkipsPendingPuts(t *testing.T) {
+	t.Parallel()
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	if err := os.MkdirAll(localDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	localPath := filepath.Join(localDir, "race.txt")
+	if err := os.WriteFile(localPath, []byte("local newer"), 0644); err != nil {
+		t.Fatalf("write local file: %v", err)
+	}
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "different-device")
+	putAndLog(t, store, localLog, "race.txt", "remote older", 1)
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	if err := outbox.Append(OutboxEntry{
+		Op:        OpPut,
+		Path:      "race.txt",
+		Checksum:  checksumOf("local newer"),
+		Namespace: NamespaceFromPath("race.txt"),
+		LocalPath: localPath,
+		Timestamp: time.Now().Unix(),
+	}); err != nil {
+		t.Fatalf("append outbox put: %v", err)
+	}
+
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.reconcile(context.Background())
+
+	data, err := os.ReadFile(localPath)
+	if err != nil {
+		t.Fatalf("read local file: %v", err)
+	}
+	if string(data) != "local newer" {
+		t.Fatalf("race.txt content = %q, want %q", string(data), "local newer")
+	}
+}
+
+func TestReconcilerSkipsRemoteDeleteForPendingPut(t *testing.T) {
+	t.Parallel()
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+	if err := os.MkdirAll(localDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	localPath := filepath.Join(localDir, "race.txt")
+	if err := os.WriteFile(localPath, []byte("local newer"), 0644); err != nil {
+		t.Fatalf("write local file: %v", err)
+	}
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "different-device")
+	localLog.Append(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "race.txt",
+		Checksum:  checksumOf("remote old"),
+		Namespace: NamespaceFromPath("race.txt"),
+		Device:    "remote-device",
+		Timestamp: 1001,
+		Seq:       1,
+	})
+	localLog.Append(opslog.Entry{
+		Type:         opslog.Delete,
+		Path:         "race.txt",
+		PrevChecksum: checksumOf("remote old"),
+		Namespace:    NamespaceFromPath("race.txt"),
+		Device:       "remote-device",
+		Timestamp:    1002,
+		Seq:          2,
+	})
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	if err := outbox.Append(OutboxEntry{
+		Op:        OpPut,
+		Path:      "race.txt",
+		Checksum:  checksumOf("local newer"),
+		Namespace: NamespaceFromPath("race.txt"),
+		LocalPath: localPath,
+		Timestamp: time.Now().Unix(),
+	}); err != nil {
+		t.Fatalf("append outbox put: %v", err)
+	}
+
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.reconcile(context.Background())
+
+	data, err := os.ReadFile(localPath)
+	if err != nil {
+		t.Fatalf("read local file: %v", err)
+	}
+	if string(data) != "local newer" {
+		t.Fatalf("race.txt content = %q, want %q", string(data), "local newer")
+	}
+}
+
 func TestReconcilerRemovesStaleDirectories(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()

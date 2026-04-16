@@ -826,6 +826,87 @@ func TestDaemonV25DirectoryTrash(t *testing.T) {
 	cancel()
 }
 
+func TestSeedSkipsDeleteForKnownFileMissingWithoutPriorLocalDiskState(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	if err := os.MkdirAll(localDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := DaemonConfig{
+		SyncConfig:  SyncConfig{LocalRoot: localDir},
+		DriveID:     "test_seed_skip_remote_missing",
+		PollSeconds: 300,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatalf("creating daemon: %v", err)
+	}
+
+	daemon.localLog.Append(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "remote.txt",
+		Checksum:  checksumOf("remote"),
+		Namespace: "default",
+		Device:    "remote-device",
+		Timestamp: 100,
+		Seq:       1,
+	})
+
+	daemon.seedStateFromDisk()
+
+	if _, ok := daemon.localLog.Lookup("remote.txt"); !ok {
+		t.Fatal("remote.txt should remain tracked when it was never present locally")
+	}
+}
+
+func TestSeedDeletesKnownFileMissingFromPriorLocalDiskState(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	if err := os.MkdirAll(localDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := DaemonConfig{
+		SyncConfig:  SyncConfig{LocalRoot: localDir},
+		DriveID:     "test_seed_delete_prior_local",
+		PollSeconds: 300,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatalf("creating daemon: %v", err)
+	}
+
+	daemon.localLog.Append(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "remote.txt",
+		Checksum:  checksumOf("remote"),
+		Namespace: "default",
+		Device:    "remote-device",
+		Timestamp: 100,
+		Seq:       1,
+	})
+	if err := saveLocalDiskState(daemon.driveDir, map[string]string{"remote.txt": checksumOf("remote")}); err != nil {
+		t.Fatalf("saveLocalDiskState: %v", err)
+	}
+
+	daemon.seedStateFromDisk()
+
+	if _, ok := daemon.localLog.Lookup("remote.txt"); ok {
+		t.Fatal("remote.txt should be deleted when it previously existed locally and is now missing")
+	}
+}
+
 // Seed with empty log — all local files are new.
 func TestSeedEmptyLog(t *testing.T) {
 	backend := s3adapter.NewMemory()
@@ -982,11 +1063,10 @@ func TestSeedLocalModification(t *testing.T) {
 	}
 }
 
-// Seed treats ALL files in CRDT but not on disk as local deletes.
-// In the snapshot-exchange architecture, the local CRDT is the merge base:
-// if a file was known and is now gone from disk, the user deleted it.
-// Remote state is merged AFTER seed, so remote adds will be re-introduced
-// by the snapshot poller.
+// Seed only treats missing tracked files as local deletes when there is
+// prior evidence that they existed on this node's disk. Without that prior
+// local-disk state, a missing tracked file may simply be remote state that
+// has not been materialized yet.
 func TestSeedDeletesMissingFiles(t *testing.T) {
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
@@ -1012,6 +1092,9 @@ func TestSeedDeletesMissingFiles(t *testing.T) {
 		Type: opslog.Put, Path: "was-here.txt", Checksum: "h1",
 		Device: "other-device", Timestamp: 100, Seq: 1,
 	})
+	if err := saveLocalDiskState(daemon.driveDir, map[string]string{"was-here.txt": "h1"}); err != nil {
+		t.Fatalf("saveLocalDiskState: %v", err)
+	}
 
 	// File is in CRDT but NOT on disk
 	if _, ok := daemon.localLog.Lookup("was-here.txt"); !ok {

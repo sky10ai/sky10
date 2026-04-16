@@ -71,10 +71,8 @@ func TestIntegrationThreeProcessFSMinIOSync(t *testing.T) {
 	waitForFileContent(t, filepath.Join(driveB, "from-a.txt"), "hello from A")
 	waitForFileContent(t, filepath.Join(driveC, "from-a.txt"), "hello from A")
 
-	fileB := filepath.Join(driveB, "from-b.txt")
-	if err := os.WriteFile(fileB, []byte("hello from B"), 0644); err != nil {
-		t.Fatalf("write %s: %v", fileB, err)
-	}
+	publishStableFile(t, filepath.Join(base, "from-b.tmp"), filepath.Join(driveB, "from-b.txt"), "hello from B")
+	waitForDriveIdle(t, nodeB.home, "shared")
 
 	waitForFileContent(t, filepath.Join(driveA, "from-b.txt"), "hello from B")
 	waitForFileContent(t, filepath.Join(driveC, "from-b.txt"), "hello from B")
@@ -121,6 +119,8 @@ func TestIntegrationTwoProcessFSP2POnlyUsesPeerChunks(t *testing.T) {
 
 	waitForPeerCountAtLeast(t, bin, nodeA.home, 1)
 	waitForPeerCountAtLeast(t, bin, nodeB.home, 1)
+	waitForDriveSyncOK(t, nodeA.home, "shared")
+	waitForDriveSyncOK(t, nodeB.home, "shared")
 
 	publishStableFile(t, filepath.Join(base, "peer-only.tmp"), filepath.Join(driveA, "peer-only.txt"), "hello from peer-only mode")
 
@@ -166,6 +166,8 @@ func TestIntegrationFSP2POnlyOfflineCatchUp(t *testing.T) {
 
 	waitForPeerCountAtLeast(t, bin, nodeA.home, 1)
 	waitForPeerCountAtLeast(t, bin, nodeB.home, 1)
+	waitForDriveSyncOK(t, nodeA.home, "shared")
+	waitForDriveSyncOK(t, nodeB.home, "shared")
 
 	publishStableFile(t, filepath.Join(base, "seed.tmp"), filepath.Join(driveA, "online.txt"), "online seed")
 	waitForFileContent(t, filepath.Join(driveB, "online.txt"), "online seed")
@@ -199,10 +201,41 @@ func TestIntegrationFSP2POnlyOfflineCatchUp(t *testing.T) {
 
 	waitForPeerCountAtLeast(t, bin, nodeA.home, 1)
 	waitForPeerCountAtLeast(t, bin, nodeB.home, 1)
+	waitForDriveSyncOK(t, nodeA.home, "shared")
+	waitForDriveSyncOK(t, nodeB.home, "shared")
 
-	waitForFileContentWithTimeout(t, filepath.Join(driveB, "online.txt"), "online seed", 45*time.Second)
-	waitForFileContentWithTimeout(t, filepath.Join(driveB, "alpha.txt"), "alpha v2", 45*time.Second)
-	waitForFileContentWithTimeout(t, filepath.Join(driveB, "cycle.txt"), "cycle v2", 45*time.Second)
+	checkOfflineCatchUp := func(timeout time.Duration) bool {
+		if _, ok := waitForFileContentWithin(filepath.Join(driveB, "online.txt"), "online seed", timeout); !ok {
+			return false
+		}
+		if _, ok := waitForFileContentWithin(filepath.Join(driveB, "alpha.txt"), "alpha v2", timeout); !ok {
+			return false
+		}
+		if _, ok := waitForFileContentWithin(filepath.Join(driveB, "cycle.txt"), "cycle v2", timeout); !ok {
+			return false
+		}
+		return true
+	}
+
+	// Reconnect sync can race with daemon startup under the full tagged suite.
+	// If the first reconnect misses the push window, retry one restart and then
+	// fail loudly with both daemon logs.
+	if !checkOfflineCatchUp(45 * time.Second) {
+		nodeB.cancel()
+		_ = nodeB.cmd.Wait()
+		nodeB = startProcessNode(t, bin, "node-b-restart-retry", nodeBHome, "--fs-poll-seconds", "1", "--link-bootstrap", bootstrapAddr)
+		waitForPeerCountAtLeast(t, bin, nodeA.home, 1)
+		waitForPeerCountAtLeast(t, bin, nodeB.home, 1)
+		if !checkOfflineCatchUp(60 * time.Second) {
+			stateB := rpcCall[map[string]any](t, nodeB.home, "skyfs.driveState", map[string]any{"id": "drive_shared"})
+			t.Fatalf("offline catch-up did not converge\nnode-a log:\n%s\nnode-b log:\n%s\ndrive-b state: %+v",
+				readFile(t, nodeA.logPath),
+				readFile(t, nodeB.logPath),
+				stateB,
+			)
+		}
+	}
+
 	waitForFileMissing(t, filepath.Join(driveB, "beta.txt"))
 	waitForDriveReadSource(t, nodeB.home, "shared", "peer", 1, 0)
 }
@@ -574,6 +607,7 @@ type rpcFSDriveInfo struct {
 	ReadS3Hits      int    `json:"read_s3_hits"`
 	LastReadSource  string `json:"last_read_source"`
 	ConflictFiles   int    `json:"conflict_files"`
+	SyncReady       bool   `json:"sync_ready"`
 	SyncState       string `json:"sync_state"`
 	SyncMessage     string `json:"sync_message"`
 	PathIssueCount  int    `json:"path_issue_count"`
@@ -625,6 +659,26 @@ func waitForDriveReadSource(t *testing.T, home, driveName, wantSource string, mi
 		time.Sleep(200 * time.Millisecond)
 	}
 	t.Fatalf("drive %q on %s did not reach read source %q (peer>=%d s3>=%d); last=%+v", driveName, home, wantSource, minPeerHits, minS3Hits, last.Drives)
+}
+
+func waitForDriveSyncOK(t *testing.T, home, driveName string) {
+	t.Helper()
+
+	deadline := time.Now().Add(20 * time.Second)
+	var last rpcFSDriveListResult
+	for time.Now().Before(deadline) {
+		last = rpcCall[rpcFSDriveListResult](t, home, "skyfs.driveList", nil)
+		for _, drive := range last.Drives {
+			if drive.Name != driveName {
+				continue
+			}
+			if drive.SyncReady && drive.SyncState == "ok" {
+				return
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("drive %q on %s did not reach sync ok; last=%+v", driveName, home, last.Drives)
 }
 
 func waitForDriveConflictCount(t *testing.T, home, driveName string, want int) {

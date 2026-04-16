@@ -327,15 +327,16 @@ func (d *DaemonV2_5) Run(ctx context.Context) error {
 		d.logger.Warn("snapshot key resolution failed — sync will work but no snapshot exchange", "error", err)
 	}
 
-	// Startup sequence (order matters — see snapshot-exchange-architecture.md):
+	// Startup sequence (order matters):
 	// 1. Seed from disk (diff local filesystem vs LOCAL CRDT — merge base)
-	// 2. Poll remote snapshots (baseline diff → merge into CRDT)
-	// 3. Reconcile (download new, delete removed)
-	// 4. Upload our snapshot
+	// 2. Drain the outbox so offline local edits are recorded before remote sync
+	// 3. Poll remote snapshots (baseline diff → merge into CRDT)
+	// 4. Reconcile (download new, delete removed)
+	// 5. Upload our snapshot
 	d.seedStateFromDisk()
+	d.outboxWorker.drain(ctx)
 	d.snapshotPoller.pollOnce(ctx)
 	d.reconciler.reconcile(ctx)
-	d.outboxWorker.drain(ctx)
 	if err := d.snapshotUploader.Upload(ctx); err != nil {
 		d.logger.Warn("initial snapshot upload failed", "error", err)
 	}
@@ -368,9 +369,9 @@ func (d *DaemonV2_5) SyncOnce(ctx context.Context) {
 	d.prepareTransferWorkspace()
 	d.resolveSnapshotKey(ctx)
 	d.seedStateFromDisk()
+	d.outboxWorker.drain(ctx)
 	d.snapshotPoller.pollOnce(ctx)
 	d.reconciler.reconcile(ctx)
-	d.outboxWorker.drain(ctx)
 	d.snapshotUploader.Upload(ctx)
 }
 
@@ -440,6 +441,10 @@ func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duratio
 	}
 	knownFiles := snap.Files()
 	deletedFiles := snap.DeletedFiles()
+	previousLocalFiles, err := loadLocalDiskState(d.driveDir)
+	if err != nil {
+		d.logger.Warn("seed: local disk state load failed", "error", err)
+	}
 	d.logger.Info("seed", "local_files", len(localFiles), "known_files", len(knownFiles), "deleted_files", len(deletedFiles))
 
 	ns := ""
@@ -535,6 +540,9 @@ func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duratio
 	// needed — the snapshot poller will merge remote state AFTER seed.
 	for path, fi := range knownFiles {
 		if _, exists := localFiles[path]; !exists {
+			if !previousLocalFiles[path] {
+				continue
+			}
 			d.logger.Info("seed: local delete", "path", path)
 			d.localLog.AppendLocal(opslog.Entry{
 				Type:      opslog.Delete,
@@ -571,6 +579,9 @@ func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duratio
 
 	if wrote {
 		d.outboxWorker.Poke()
+	}
+	if err := saveLocalDiskState(d.driveDir, localFiles); err != nil {
+		d.logger.Warn("seed: local disk state save failed", "error", err)
 	}
 	return nil
 }

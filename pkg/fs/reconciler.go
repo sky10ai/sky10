@@ -126,10 +126,13 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 	// The watcher already decided these should be deleted — don't
 	// re-download them just because old remote puts are in the log.
 	pendingDeletes := make(map[string]bool)
+	pendingWrites := make(map[string]bool)
 	var pendingDeleteDirs []string
 	if entries, err := r.outbox.ReadAll(); err == nil {
 		for _, e := range entries {
 			switch e.Op {
+			case OpPut, OpSymlink, OpCreateDir:
+				pendingWrites[e.Path] = true
 			case OpDelete:
 				pendingDeletes[e.Path] = true
 			case OpDeleteDir:
@@ -148,6 +151,10 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 	pending := 0
 	for path, fi := range snapshotFiles {
 		if pathIssueBlocksPath(path, pathIssues) {
+			skipped++
+			continue
+		}
+		if pendingWrites[path] {
 			skipped++
 			continue
 		}
@@ -247,6 +254,9 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 			return
 		}
 		if pathIssueBlocksPath(path, pathIssues) {
+			continue
+		}
+		if pendingWrites[path] {
 			continue
 		}
 		if deletedPaths[path] {

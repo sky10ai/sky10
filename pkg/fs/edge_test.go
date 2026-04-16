@@ -251,10 +251,27 @@ func TestStoreNamespaceKeyCaching(t *testing.T) {
 		t.Fatalf("Put b: %v", err)
 	}
 
-	// Only the journal namespace key (default key no longer created
-	// since S3 ops log was removed).
+	// The journal namespace must cache the wrapped namespace key. A clean
+	// environment may also write encrypted namespace metadata the first time
+	// the namespace ID is derived.
 	keys, _ := backend.List(ctx, "keys/namespaces/")
-	if len(keys) != 1 {
-		t.Errorf("expected 1 namespace key (journal), got %d: %v", len(keys), keys)
+	allowed := map[string]bool{
+		"keys/namespaces/fs:journal.ns.enc":   true,
+		"keys/namespaces/fs:journal.meta.enc": true,
+	}
+	if len(keys) < 1 || len(keys) > len(allowed) {
+		t.Fatalf("expected 1 or 2 namespace cache objects, got %d: %v", len(keys), keys)
+	}
+	foundNS := false
+	for _, key := range keys {
+		if !allowed[key] {
+			t.Fatalf("unexpected namespace cache object %q (all keys: %v)", key, keys)
+		}
+		if key == "keys/namespaces/fs:journal.ns.enc" {
+			foundNS = true
+		}
+	}
+	if !foundNS {
+		t.Fatalf("missing wrapped namespace key in %v", keys)
 	}
 }

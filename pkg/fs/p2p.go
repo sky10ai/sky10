@@ -25,7 +25,7 @@ const FSChunkProtocol = protocol.ID("/sky10/fs-chunk/1.0.0")
 
 const fsSyncExchangeTimeout = 5 * time.Second
 const fsReconnectSyncMinInterval = 2 * time.Second
-const defaultFSAntiEntropyInterval = 30 * time.Second
+const defaultFSAntiEntropyInterval = 10 * time.Second
 const fsPeriodicSyncBatchSize = 1
 
 type fsP2PNode interface {

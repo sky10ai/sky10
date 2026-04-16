@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -404,6 +405,13 @@ func TestStoreGetChunksPrefersPeerBeforeBackend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveNamespaceState: %v", err)
 	}
+	localBlob, err := localBlobPath(nsID, res.Chunks[0])
+	if err != nil {
+		t.Fatalf("localBlobPath: %v", err)
+	}
+	if err := os.Remove(localBlob); err != nil {
+		t.Fatalf("remove local blob cache: %v", err)
+	}
 
 	raw := readBackendBlob(t, backend, store.blobKeyFor(res.Chunks[0]))
 	peer := &stubPeerChunkFetcher{raw: raw}
@@ -500,6 +508,19 @@ func TestStoreDownloadChunksBoundsRemoteFetchConcurrency(t *testing.T) {
 	res := store.LastPutResult()
 	if res == nil || len(res.Chunks) < 3 {
 		t.Fatalf("expected multiple chunks from Put, got %#v", res)
+	}
+	nsID, _, err := store.resolveNamespaceState(ctx, "default")
+	if err != nil {
+		t.Fatalf("resolveNamespaceState: %v", err)
+	}
+	for _, chunkHash := range res.Chunks {
+		chunkPath, err := localBlobPath(nsID, chunkHash)
+		if err != nil {
+			t.Fatalf("localBlobPath(%s): %v", chunkHash, err)
+		}
+		if err := os.Remove(chunkPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("remove local blob %s: %v", chunkHash, err)
+		}
 	}
 
 	gated := newGatedCountingBackend(backend)
