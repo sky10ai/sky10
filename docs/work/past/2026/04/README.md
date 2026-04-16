@@ -2,6 +2,7 @@
 
 | Date | Entry |
 |------|-------|
+| 16 | [Hermes Lima Sandboxes And Host Chat](16-Hermes-Lima-And-Host-Chat.md) — Hermes Lima template, host secret hydration, direct terminal launch, guest-local bridge back into host chat, reconnect and long-reply hardening |
 | 15 | [Base Wallet Support](15-Base-Wallet-Support.md) — Base balances, explorer links, ETH/USDC sends, EIP-1559 tx building, fixture-backed regression coverage |
 | 14 | [OpenClaw Lima Sandboxes](14-OpenClaw-Lima-Sandboxes.md) — OpenClaw-on-Lima provisioning, guest-local `sky10`, host secret hydration, auto-join, reconnect sweep, plugin and browser hardening |
 | 14 | [Secrets V1](14-Secrets-V1.md) — device-scoped secrets, `current`/`trusted`/`explicit` sharing, CLI/RPC/web UI, bootstrap repair, delete |
