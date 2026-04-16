@@ -25,6 +25,7 @@ import (
 	skyjoin "github.com/sky10/sky10/pkg/join"
 	"github.com/sky10/sky10/pkg/kv"
 	"github.com/sky10/sky10/pkg/link"
+	skyllm "github.com/sky10/sky10/pkg/llm"
 	llmvenice "github.com/sky10/sky10/pkg/llm/venice"
 	"github.com/sky10/sky10/pkg/logging"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
@@ -553,15 +554,19 @@ func ServeCmd() *cobra.Command {
 				logger.Info("wallet: OWS detected, enabling wallet RPC")
 			}
 			server.RegisterHandler(skywallet.NewRPCHandler(walletClient, server.Emit))
-			veniceProxy, err := llmvenice.NewProxy(llmvenice.Config{
+			veniceBackend, err := llmvenice.NewBackend(llmvenice.Config{
 				APIURL:   os.Getenv("SKY10_VENICE_API_URL"),
 				Wallet:   os.Getenv("SKY10_VENICE_WALLET"),
 				TopUpUSD: os.Getenv("SKY10_VENICE_TOP_UP_USD"),
 			}, walletClient, logRuntime.Logger)
 			if err != nil {
-				return fmt.Errorf("configuring venice proxy: %w", err)
+				return fmt.Errorf("configuring venice llm backend: %w", err)
 			}
-			server.HandleHTTP("/llm/v1/", veniceProxy.HandleAPI)
+			llmProxy, err := skyllm.NewProxy(skyllm.Config{PathPrefix: "/llm/v1"}, veniceBackend, logRuntime.Logger)
+			if err != nil {
+				return fmt.Errorf("configuring llm proxy: %w", err)
+			}
+			server.HandleHTTP("/llm/v1/", llmProxy.HandleAPI)
 			if walletClient != nil {
 				logger.Info("llm proxy enabled", "path_prefix", "/llm/v1")
 			}

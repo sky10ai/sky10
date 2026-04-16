@@ -54,7 +54,7 @@ func (f *fakeWallet) SignTypedData(_ context.Context, _ string, chain, typedData
 	return "def456", nil
 }
 
-func TestProxyChatAutoTopUpAndRetry(t *testing.T) {
+func TestBackendForwardAutoTopUpAndRetry(t *testing.T) {
 	t.Parallel()
 
 	var mu sync.Mutex
@@ -115,19 +115,30 @@ func TestProxyChatAutoTopUpAndRetry(t *testing.T) {
 	defer upstream.Close()
 
 	wallet := &fakeWallet{address: "0x9999999999999999999999999999999999999999"}
-	proxy := newTestProxy(t, wallet, upstream.URL)
+	backend := newTestBackend(t, wallet, upstream.URL)
 
-	req := httptest.NewRequest(http.MethodPost, "/llm/v1/chat/completions", strings.NewReader(`{"model":"llama-3.3-70b","messages":[{"role":"user","content":"ping"}]}`))
-	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-
-	proxy.HandleAPI(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	resp, err := backend.Forward(
+		context.Background(),
+		"/chat/completions",
+		"",
+		http.MethodPost,
+		http.Header{"Content-Type": {"application/json"}},
+		[]byte(`{"model":"llama-3.3-70b","messages":[{"role":"user","content":"ping"}]}`),
+	)
+	if err != nil {
+		t.Fatalf("Forward: %v", err)
 	}
-	if !strings.Contains(rr.Body.String(), `"content":"ok"`) {
-		t.Fatalf("unexpected body: %s", rr.Body.String())
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read response body: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d body=%s", resp.StatusCode, string(body))
+	}
+	if !strings.Contains(string(body), `"content":"ok"`) {
+		t.Fatalf("unexpected body: %s", string(body))
 	}
 
 	mu.Lock()
@@ -158,7 +169,7 @@ func TestProxyChatAutoTopUpAndRetry(t *testing.T) {
 	}
 }
 
-func TestProxyModelsPassThrough(t *testing.T) {
+func TestBackendForwardModelsPassThrough(t *testing.T) {
 	t.Parallel()
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -176,18 +187,23 @@ func TestProxyModelsPassThrough(t *testing.T) {
 	defer upstream.Close()
 
 	wallet := &fakeWallet{address: "0x9999999999999999999999999999999999999999"}
-	proxy := newTestProxy(t, wallet, upstream.URL)
+	backend := newTestBackend(t, wallet, upstream.URL)
 
-	req := httptest.NewRequest(http.MethodGet, "/llm/v1/models", nil)
-	rr := httptest.NewRecorder()
-
-	proxy.HandleAPI(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	resp, err := backend.Forward(context.Background(), "/models", "", http.MethodGet, http.Header{}, nil)
+	if err != nil {
+		t.Fatalf("Forward: %v", err)
 	}
-	if !strings.Contains(rr.Body.String(), `"venice-kimi"`) {
-		t.Fatalf("unexpected body: %s", rr.Body.String())
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read response body: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d body=%s", resp.StatusCode, string(body))
+	}
+	if !strings.Contains(string(body), `"venice-kimi"`) {
+		t.Fatalf("unexpected body: %s", string(body))
 	}
 
 	wallet.mu.Lock()
@@ -221,7 +237,7 @@ func TestBuildSIWEMessage(t *testing.T) {
 func TestResolveWalletNamePrefersDefault(t *testing.T) {
 	t.Parallel()
 
-	proxy := newTestProxy(t, &fakeWallet{
+	backend := newTestBackend(t, &fakeWallet{
 		wallets: []skywallet.Wallet{
 			{Name: "travel", ID: "1"},
 			{Name: "default", ID: "2"},
@@ -229,7 +245,7 @@ func TestResolveWalletNamePrefersDefault(t *testing.T) {
 		address: "0x9999999999999999999999999999999999999999",
 	}, "https://api.venice.ai")
 
-	got, err := proxy.resolveWalletName(context.Background())
+	got, err := backend.resolveWalletName(context.Background())
 	if err != nil {
 		t.Fatalf("resolveWalletName: %v", err)
 	}
@@ -241,12 +257,12 @@ func TestResolveWalletNamePrefersDefault(t *testing.T) {
 func TestResolveWalletNameUsesOnlyWallet(t *testing.T) {
 	t.Parallel()
 
-	proxy := newTestProxy(t, &fakeWallet{
+	backend := newTestBackend(t, &fakeWallet{
 		wallets: []skywallet.Wallet{{Name: "solo", ID: "1"}},
 		address: "0x9999999999999999999999999999999999999999",
 	}, "https://api.venice.ai")
 
-	got, err := proxy.resolveWalletName(context.Background())
+	got, err := backend.resolveWalletName(context.Background())
 	if err != nil {
 		t.Fatalf("resolveWalletName: %v", err)
 	}
@@ -258,7 +274,7 @@ func TestResolveWalletNameUsesOnlyWallet(t *testing.T) {
 func TestResolveWalletNameErrorsOnAmbiguousWallets(t *testing.T) {
 	t.Parallel()
 
-	proxy := newTestProxy(t, &fakeWallet{
+	backend := newTestBackend(t, &fakeWallet{
 		wallets: []skywallet.Wallet{
 			{Name: "alpha", ID: "1"},
 			{Name: "beta", ID: "2"},
@@ -266,27 +282,27 @@ func TestResolveWalletNameErrorsOnAmbiguousWallets(t *testing.T) {
 		address: "0x9999999999999999999999999999999999999999",
 	}, "https://api.venice.ai")
 
-	_, err := proxy.resolveWalletName(context.Background())
+	_, err := backend.resolveWalletName(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "multiple OWS wallets found") {
 		t.Fatalf("err = %v, want multiple-wallets error", err)
 	}
 }
 
-func newTestProxy(t *testing.T, wallet *fakeWallet, apiURL string) *Proxy {
+func newTestBackend(t *testing.T, wallet *fakeWallet, apiURL string) *Backend {
 	t.Helper()
 
-	proxy, err := NewProxy(Config{
+	backend, err := NewBackend(Config{
 		APIURL:   apiURL,
 		Wallet:   "",
 		TopUpUSD: "10",
 	}, wallet, nil)
 	if err != nil {
-		t.Fatalf("NewProxy: %v", err)
+		t.Fatalf("NewBackend: %v", err)
 	}
-	proxy.now = func() time.Time {
+	backend.now = func() time.Time {
 		return time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC)
 	}
-	return proxy
+	return backend
 }
 
 func encodeRequirementsHeader(t *testing.T, requirements topUpRequirements) string {

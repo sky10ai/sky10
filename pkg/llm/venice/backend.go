@@ -36,18 +36,7 @@ const (
 	baseUSDCAddress       = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 )
 
-var hopByHopHeaders = map[string]struct{}{
-	"Connection":          {},
-	"Keep-Alive":          {},
-	"Proxy-Authenticate":  {},
-	"Proxy-Authorization": {},
-	"Te":                  {},
-	"Trailer":             {},
-	"Transfer-Encoding":   {},
-	"Upgrade":             {},
-}
-
-// WalletSigner captures the OWS operations the proxy needs.
+// WalletSigner captures the OWS operations the Venice backend needs.
 type WalletSigner interface {
 	ListWallets(ctx context.Context) ([]skywallet.Wallet, error)
 	AddressForChain(ctx context.Context, walletName, chain string) (string, error)
@@ -55,22 +44,19 @@ type WalletSigner interface {
 	SignTypedData(ctx context.Context, walletName, chain, typedData string) (string, error)
 }
 
-// Config controls the Venice proxy.
+// Config controls the Venice backend.
 type Config struct {
-	APIURL     string
-	Wallet     string
-	TopUpUSD   string
-	Timeout    time.Duration
-	PathPrefix string
+	APIURL   string
+	Wallet   string
+	TopUpUSD string
+	Timeout  time.Duration
 }
 
-// Proxy exposes Venice through a local OpenAI-compatible path while using an
-// OWS wallet for auth and x402 top-ups.
-type Proxy struct {
+// Backend is the Venice-specific implementation used by the generic LLM proxy.
+type Backend struct {
 	apiURL        *url.URL
 	walletName    string
 	topUpAmount   *big.Int
-	pathPrefix    string
 	httpClient    *http.Client
 	wallet        WalletSigner
 	logger        *slog.Logger
@@ -112,20 +98,13 @@ type paymentAuthorization struct {
 	Nonce       string `json:"nonce"`
 }
 
-type manualTopUpRequest struct {
-	AmountUSD string `json:"amountUsd"`
-}
-
-// NewProxy builds a Venice proxy with sane defaults.
-func NewProxy(cfg Config, wallet WalletSigner, logger *slog.Logger) (*Proxy, error) {
+// NewBackend builds a Venice backend with sane defaults.
+func NewBackend(cfg Config, wallet WalletSigner, logger *slog.Logger) (*Backend, error) {
 	if cfg.APIURL == "" {
 		cfg.APIURL = defaultAPIURL
 	}
 	if cfg.TopUpUSD == "" {
 		cfg.TopUpUSD = defaultTopUpUSD
-	}
-	if cfg.PathPrefix == "" {
-		cfg.PathPrefix = "/llm/v1"
 	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 3 * time.Minute
@@ -144,130 +123,80 @@ func NewProxy(cfg Config, wallet WalletSigner, logger *slog.Logger) (*Proxy, err
 		return nil, fmt.Errorf("parse venice top-up amount: %w", err)
 	}
 
-	return &Proxy{
+	return &Backend{
 		apiURL:      apiURL,
 		walletName:  strings.TrimSpace(cfg.Wallet),
 		topUpAmount: topUpAmount,
-		pathPrefix:  strings.TrimRight(cfg.PathPrefix, "/"),
 		httpClient:  &http.Client{Timeout: cfg.Timeout},
 		wallet:      wallet,
-		logger:      logging.WithComponent(logger, "venice.proxy"),
+		logger:      logging.WithComponent(logger, "llm.venice"),
 		now:         time.Now,
 	}, nil
 }
 
-// Ready reports whether the proxy has enough configuration to serve requests.
-func (p *Proxy) Ready() error {
-	if p.wallet == nil {
+// Ready reports whether the backend has enough configuration to serve requests.
+func (b *Backend) Ready() error {
+	if b.wallet == nil {
 		return fmt.Errorf("OWS wallet client is not available")
 	}
 	return nil
 }
 
-// HandleAPI proxies Venice API calls under the configured path prefix.
-func (p *Proxy) HandleAPI(w http.ResponseWriter, r *http.Request) {
-	if err := p.Ready(); err != nil {
-		writeJSONError(w, http.StatusServiceUnavailable, err.Error())
-		return
-	}
-
-	relativePath := strings.TrimPrefix(r.URL.Path, p.pathPrefix)
-	if relativePath == r.URL.Path || relativePath == "" {
-		writeJSONError(w, http.StatusNotFound, "unknown venice route")
-		return
-	}
-	if relativePath == "/x402/top-up" {
-		p.handleManualTopUp(w, r)
-		return
-	}
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, "failed to read request body")
-		return
-	}
-
-	resp, err := p.forward(r.Context(), relativePath, r.URL.RawQuery, r.Method, cloneHeader(r.Header), body, true)
-	if err != nil {
-		p.logger.Warn("venice proxy request failed", "path", relativePath, "method", r.Method, "error", err)
-		writeJSONError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	defer resp.Body.Close()
-
-	copyResponse(w, resp)
-}
-
-func (p *Proxy) handleManualTopUp(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSONError(w, http.StatusMethodNotAllowed, fmt.Sprintf("use POST for %s/x402/top-up", p.pathPrefix))
-		return
-	}
-
-	amount := new(big.Int).Set(p.topUpAmount)
-	if r.Body != nil {
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			writeJSONError(w, http.StatusBadRequest, "failed to read request body")
-			return
-		}
-		if len(bytes.TrimSpace(body)) > 0 {
-			var req manualTopUpRequest
-			if err := json.Unmarshal(body, &req); err != nil {
-				writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
-				return
-			}
-			if strings.TrimSpace(req.AmountUSD) != "" {
-				parsed, err := parseUSDToBaseUnits(req.AmountUSD)
-				if err != nil {
-					writeJSONError(w, http.StatusBadRequest, err.Error())
-					return
-				}
-				amount = parsed
-			}
-		}
-	}
-
-	result, err, _ := p.topUpRequests.Do("topup", func() (interface{}, error) {
-		return nil, p.topUp(r.Context(), amount)
-	})
-	_ = result
-	if err != nil {
-		writeJSONError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"status":    "ok",
-		"amountUsd": formatBaseUnitsUSD(amount),
-	})
-}
-
-func (p *Proxy) forward(ctx context.Context, path, rawQuery, method string, headers http.Header, body []byte, allowTopUp bool) (*http.Response, error) {
-	resp, err := p.doRequest(ctx, path, rawQuery, method, headers, body)
+// Forward proxies a single upstream Venice request and auto-tops up on 402.
+func (b *Backend) Forward(ctx context.Context, path, rawQuery, method string, headers http.Header, body []byte) (*http.Response, error) {
+	resp, err := b.doRequest(ctx, path, rawQuery, method, headers, body)
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != http.StatusPaymentRequired || !allowTopUp {
+	if resp.StatusCode != http.StatusPaymentRequired {
 		return resp, nil
 	}
 
 	io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 
-	_, err, _ = p.topUpRequests.Do("topup", func() (interface{}, error) {
-		return nil, p.topUp(ctx, p.topUpAmount)
+	_, err, _ = b.topUpRequests.Do("topup", func() (interface{}, error) {
+		_, err := b.topUp(ctx, b.topUpAmount)
+		return nil, err
 	})
 	if err != nil {
 		return nil, fmt.Errorf("top-up failed: %w", err)
 	}
 
-	return p.doRequest(ctx, path, rawQuery, method, headers, body)
+	return b.doRequest(ctx, path, rawQuery, method, headers, body)
 }
 
-func (p *Proxy) doRequest(ctx context.Context, path, rawQuery, method string, headers http.Header, body []byte) (*http.Response, error) {
-	upstreamURL := p.apiURL.ResolveReference(&url.URL{Path: "/api/v1" + path, RawQuery: rawQuery})
+// TopUp performs a manual Venice balance top-up.
+func (b *Backend) TopUp(ctx context.Context, amountUSD string) (string, error) {
+	amount := new(big.Int).Set(b.topUpAmount)
+	if strings.TrimSpace(amountUSD) != "" {
+		parsed, err := parseUSDToBaseUnits(amountUSD)
+		if err != nil {
+			return "", err
+		}
+		amount = parsed
+	}
+
+	var actual *big.Int
+	result, err, _ := b.topUpRequests.Do("topup", func() (interface{}, error) {
+		applied, err := b.topUp(ctx, amount)
+		if err != nil {
+			return nil, err
+		}
+		return applied, nil
+	})
+	if err != nil {
+		return "", err
+	}
+	actual, _ = result.(*big.Int)
+	if actual == nil {
+		actual = amount
+	}
+	return formatBaseUnitsUSD(actual), nil
+}
+
+func (b *Backend) doRequest(ctx context.Context, path, rawQuery, method string, headers http.Header, body []byte) (*http.Response, error) {
+	upstreamURL := b.apiURL.ResolveReference(&url.URL{Path: "/api/v1" + path, RawQuery: rawQuery})
 
 	req, err := http.NewRequestWithContext(ctx, method, upstreamURL.String(), bytes.NewReader(body))
 	if err != nil {
@@ -285,32 +214,32 @@ func (p *Proxy) doRequest(ctx context.Context, path, rawQuery, method string, he
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	authHeader, err := p.signInHeader(ctx, upstreamURL.String())
+	authHeader, err := b.signInHeader(ctx, upstreamURL.String())
 	if err != nil {
 		return nil, fmt.Errorf("sign venice auth header: %w", err)
 	}
 	req.Header.Set(authHeaderName, authHeader)
 
-	return p.httpClient.Do(req)
+	return b.httpClient.Do(req)
 }
 
-func (p *Proxy) signInHeader(ctx context.Context, resourceURL string) (string, error) {
-	walletName, err := p.resolveWalletName(ctx)
+func (b *Backend) signInHeader(ctx context.Context, resourceURL string) (string, error) {
+	walletName, err := b.resolveWalletName(ctx)
 	if err != nil {
 		return "", err
 	}
-	address, err := p.wallet.AddressForChain(ctx, walletName, "base")
+	address, err := b.wallet.AddressForChain(ctx, walletName, "base")
 	if err != nil {
 		return "", err
 	}
 
-	now := p.now().UTC()
+	now := b.now().UTC()
 	nonce, err := randomHex(8)
 	if err != nil {
 		return "", fmt.Errorf("generate nonce: %w", err)
 	}
-	message := buildSIWEMessage(p.apiURL.Host, address, resourceURL, nonce, now, now.Add(defaultAuthWindow), baseChainID)
-	signature, err := p.wallet.SignMessage(ctx, walletName, "base", message)
+	message := buildSIWEMessage(b.apiURL.Host, address, resourceURL, nonce, now, now.Add(defaultAuthWindow), baseChainID)
+	signature, err := b.wallet.SignMessage(ctx, walletName, "base", message)
 	if err != nil {
 		return "", err
 	}
@@ -329,45 +258,45 @@ func (p *Proxy) signInHeader(ctx context.Context, resourceURL string) (string, e
 	return base64.StdEncoding.EncodeToString(payload), nil
 }
 
-func (p *Proxy) topUp(ctx context.Context, requestedAmount *big.Int) error {
-	walletName, err := p.resolveWalletName(ctx)
+func (b *Backend) topUp(ctx context.Context, requestedAmount *big.Int) (*big.Int, error) {
+	walletName, err := b.resolveWalletName(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	requirements, err := p.fetchTopUpRequirements(ctx)
+	requirements, err := b.fetchTopUpRequirements(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	requirement, minAmount, err := selectTopUpRequirement(requirements.Accepts)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	amount := new(big.Int).Set(requestedAmount)
 	if amount.Cmp(minAmount) < 0 {
-		p.logger.Info("raising venice top-up to server minimum", "requested_usd", formatBaseUnitsUSD(amount), "minimum_usd", formatBaseUnitsUSD(minAmount))
+		b.logger.Info("raising venice top-up to server minimum", "requested_usd", formatBaseUnitsUSD(amount), "minimum_usd", formatBaseUnitsUSD(minAmount))
 		amount = minAmount
 	}
 
 	network := normalizePaymentNetwork(requirement.Network)
-	address, err := p.wallet.AddressForChain(ctx, walletName, network)
+	address, err := b.wallet.AddressForChain(ctx, walletName, network)
 	if err != nil {
-		return fmt.Errorf("resolve %s wallet address: %w", network, err)
+		return nil, fmt.Errorf("resolve %s wallet address: %w", network, err)
 	}
-	validAfter := p.now().UTC().Add(-10 * time.Minute).Unix()
-	validBefore := p.now().UTC().Add(5 * time.Minute).Unix()
+	validAfter := b.now().UTC().Add(-10 * time.Minute).Unix()
+	validBefore := b.now().UTC().Add(5 * time.Minute).Unix()
 	nonce, err := randomHex(32)
 	if err != nil {
-		return fmt.Errorf("generate payment nonce: %w", err)
+		return nil, fmt.Errorf("generate payment nonce: %w", err)
 	}
 
 	typedData, err := buildTransferTypedData(network, address, requirement.PayTo, amount.String(), requirement.AssetOrDefault(), validAfter, validBefore, nonce)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	signature, err := p.wallet.SignTypedData(ctx, walletName, network, typedData)
+	signature, err := b.wallet.SignTypedData(ctx, walletName, network, typedData)
 	if err != nil {
-		return fmt.Errorf("sign venice payment: %w", err)
+		return nil, fmt.Errorf("sign venice payment: %w", err)
 	}
 	signature = ensureHexPrefix(signature)
 
@@ -389,35 +318,35 @@ func (p *Proxy) topUp(ctx context.Context, requestedAmount *big.Int) error {
 	}
 	encodedHeader, err := encodePaymentHeader(headerPayload)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.apiURL.ResolveReference(&url.URL{Path: "/api/v1/x402/top-up"}).String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.apiURL.ResolveReference(&url.URL{Path: "/api/v1/x402/top-up"}).String(), nil)
 	if err != nil {
-		return fmt.Errorf("build top-up request: %w", err)
+		return nil, fmt.Errorf("build top-up request: %w", err)
 	}
 	req.Header.Set(paymentHeaderName, encodedHeader)
 
-	resp, err := p.httpClient.Do(req)
+	resp, err := b.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("send top-up request: %w", err)
+		return nil, fmt.Errorf("send top-up request: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("venice top-up returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("venice top-up returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	p.logger.Info("venice balance topped up", "network", network, "amount_usd", formatBaseUnitsUSD(amount))
-	return nil
+	b.logger.Info("venice balance topped up", "network", network, "amount_usd", formatBaseUnitsUSD(amount))
+	return new(big.Int).Set(amount), nil
 }
 
-func (p *Proxy) fetchTopUpRequirements(ctx context.Context) (*topUpRequirements, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.apiURL.ResolveReference(&url.URL{Path: "/api/v1/x402/top-up"}).String(), nil)
+func (b *Backend) fetchTopUpRequirements(ctx context.Context) (*topUpRequirements, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.apiURL.ResolveReference(&url.URL{Path: "/api/v1/x402/top-up"}).String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("build top-up requirements request: %w", err)
 	}
-	resp, err := p.httpClient.Do(req)
+	resp, err := b.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request top-up requirements: %w", err)
 	}
@@ -571,12 +500,12 @@ func buildSIWEMessage(domain, address, resourceURL, nonce string, issuedAt, expi
 	)
 }
 
-func (p *Proxy) resolveWalletName(ctx context.Context) (string, error) {
-	if strings.TrimSpace(p.walletName) != "" {
-		return strings.TrimSpace(p.walletName), nil
+func (b *Backend) resolveWalletName(ctx context.Context) (string, error) {
+	if strings.TrimSpace(b.walletName) != "" {
+		return strings.TrimSpace(b.walletName), nil
 	}
 
-	wallets, err := p.wallet.ListWallets(ctx)
+	wallets, err := b.wallet.ListWallets(ctx)
 	if err != nil {
 		return "", fmt.Errorf("list OWS wallets: %w", err)
 	}
@@ -603,7 +532,7 @@ func (p *Proxy) resolveWalletName(ctx context.Context) (string, error) {
 		}
 		names = append(names, label)
 	}
-	return "", fmt.Errorf("multiple OWS wallets found (%s); rename one to 'default' or set SKY10_VENICE_WALLET", strings.Join(names, ", "))
+	return "", fmt.Errorf("multiple OWS wallets found (%s); rename one to 'default' or configure an explicit Venice wallet", strings.Join(names, ", "))
 }
 
 func formatSIWETime(t time.Time) string {
@@ -611,44 +540,12 @@ func formatSIWETime(t time.Time) string {
 }
 
 func shouldSkipRequestHeader(name string) bool {
-	if _, ok := hopByHopHeaders[http.CanonicalHeaderKey(name)]; ok {
-		return true
-	}
 	switch http.CanonicalHeaderKey(name) {
 	case "Authorization", authHeaderName, paymentHeaderName, "Host", "Content-Length":
 		return true
 	default:
 		return false
 	}
-}
-
-func cloneHeader(src http.Header) http.Header {
-	dst := make(http.Header, len(src))
-	for name, values := range src {
-		dst[name] = append([]string(nil), values...)
-	}
-	return dst
-}
-
-func copyResponse(w http.ResponseWriter, resp *http.Response) {
-	for name, values := range resp.Header {
-		if _, ok := hopByHopHeaders[http.CanonicalHeaderKey(name)]; ok {
-			continue
-		}
-		for _, value := range values {
-			w.Header().Add(name, value)
-		}
-	}
-	w.WriteHeader(resp.StatusCode)
-	_, _ = io.Copy(w, resp.Body)
-}
-
-func writeJSONError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"error": message,
-	})
 }
 
 func parseUSDToBaseUnits(amount string) (*big.Int, error) {
