@@ -2,6 +2,7 @@ package fs
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"sort"
 	"strings"
@@ -9,7 +10,9 @@ import (
 	"github.com/sky10/sky10/pkg/fs/opslog"
 )
 
-var windowsPathPolicyEnabled = runtime.GOOS == "windows"
+const envForceWindowsPathPolicy = "SKY10_FS_FORCE_WINDOWS_POLICY"
+
+var windowsPathPolicyEnabled = runtime.GOOS == "windows" || os.Getenv(envForceWindowsPathPolicy) == "1"
 
 type pathPolicyIssueKind string
 

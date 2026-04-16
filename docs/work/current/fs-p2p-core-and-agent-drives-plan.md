@@ -43,15 +43,14 @@ human-useful replication notes.
 - `Milestone 4`: complete
 - `Milestone 5`: complete
 - `Milestone 6`: complete
-- `Milestone 7`: in progress, mostly on observability rather than the full
-  reliability matrix
+- `Milestone 7`: complete
 
 Current execution rule:
 
-- treat `Milestone 7` as the main engineering focus now that optional-S3
-  recovery and source health are complete
 - keep `Milestone 3` as design-only until the peer-correct FS core is more
   complete
+- treat the current branch as ready for final fit-and-finish and merge prep
+  rather than another large FS architecture shift
 
 ## Existing Work To Leverage
 
@@ -420,7 +419,7 @@ Likely repo touchpoints:
 
 Goal: make the system explainable and verifiably reliable.
 
-Status: in progress
+Status: complete
 
 Reference draft:
 
@@ -437,7 +436,7 @@ Checklist:
 - [x] Reuse mailbox-style lifecycle visibility for transfer sessions and stuck
       work: attempted, in-progress, failed, retrying, delivered/published.
 - [x] Make conflict-copy behavior explicit and testable.
-- [ ] Review Windows, case-sensitivity, and path-normalization edge cases.
+- [x] Review Windows, case-sensitivity, and path-normalization edge cases.
 - [x] Add end-to-end coverage for P2P-only two-device sync.
 - [x] Add end-to-end coverage for P2P-only offline catch-up.
 - [x] Add end-to-end coverage for P2P-only delete propagation.
@@ -452,7 +451,7 @@ Done when:
 
 - [x] A user can tell why a drive is behind or degraded without reading raw
       logs.
-- [ ] Reliability claims are backed by repeatable tests instead of manual
+- [x] Reliability claims are backed by repeatable tests instead of manual
       confidence.
 
 Likely repo touchpoints:

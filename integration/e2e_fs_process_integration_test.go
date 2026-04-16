@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const forceWindowsPathPolicyEnv = "SKY10_FS_FORCE_WINDOWS_POLICY=1"
+
 func TestIntegrationThreeProcessFSMinIOSync(t *testing.T) {
 	bin := buildSky10Binary(t)
 	minio := startMinIO(t)
@@ -414,17 +416,172 @@ func TestIntegrationFSConflictCreatesConflictCopy(t *testing.T) {
 	t.Fatal("shared drive not found in driveList")
 }
 
+func TestIntegrationFSWindowsPathPolicyRejectsInvalidPeerPath(t *testing.T) {
+	bin := buildSky10Binary(t)
+
+	base := t.TempDir()
+	nodeAHome := filepath.Join(base, "node-a")
+	nodeBHome := filepath.Join(base, "node-b")
+	driveA := filepath.Join(base, "drive-a")
+	driveB := filepath.Join(base, "drive-b")
+	for _, dir := range []string{driveA, driveB} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	nodeA := startProcessNode(t, bin, "node-a", nodeAHome, "--fs-poll-seconds", "1")
+	statusA := waitForLinkStatus(t, bin, nodeA.home, 1)
+	bootstrapAddr := statusA.ListenAddr[0] + "/p2p/" + statusA.PeerID
+	runCLI(t, bin, nodeA.home, "fs", "drive", "create", "shared", driveA, "--namespace", "shared")
+
+	inviteB := inviteCode(t, runCLI(t, bin, nodeA.home, "invite"))
+	joinB := startCLICommand(t, nil, bin, nodeBHome, "join", inviteB)
+	completeJoin(t, joinB, bin, nodeA.home)
+
+	nodeB := startProcessNodeEnv(t, []string{forceWindowsPathPolicyEnv}, bin, "node-b", nodeBHome, "--fs-poll-seconds", "1", "--link-bootstrap", bootstrapAddr)
+	runCLI(t, bin, nodeB.home, "fs", "drive", "create", "shared", driveB, "--namespace", "shared")
+
+	waitForPeerCountAtLeast(t, bin, nodeA.home, 1)
+	waitForPeerCountAtLeast(t, bin, nodeB.home, 1)
+
+	publishStableFile(t, filepath.Join(base, "invalid-windows.tmp"), filepath.Join(driveA, "CON.txt"), "invalid on windows")
+
+	drive := waitForDrivePathIssueCount(t, nodeB.home, "shared", 1)
+	if drive.SyncState != "error" {
+		t.Fatalf("sync_state = %q, want error", drive.SyncState)
+	}
+	if !strings.Contains(drive.PathIssueMsg, "reserved name") {
+		t.Fatalf("path_issue_message = %q, want reserved-name hint", drive.PathIssueMsg)
+	}
+	waitForFileMissing(t, filepath.Join(driveB, "CON.txt"))
+}
+
+func TestIntegrationFSWindowsPathPolicyRejectsCaseCollidingPeerPaths(t *testing.T) {
+	if !supportsCaseDistinctNames(t) {
+		t.Skip("host filesystem is case-insensitive; skipping case-collision daemon test")
+	}
+
+	bin := buildSky10Binary(t)
+
+	base := t.TempDir()
+	nodeAHome := filepath.Join(base, "node-a")
+	nodeBHome := filepath.Join(base, "node-b")
+	driveA := filepath.Join(base, "drive-a")
+	driveB := filepath.Join(base, "drive-b")
+	for _, dir := range []string{driveA, driveB} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	nodeA := startProcessNode(t, bin, "node-a", nodeAHome, "--fs-poll-seconds", "1")
+	statusA := waitForLinkStatus(t, bin, nodeA.home, 1)
+	bootstrapAddr := statusA.ListenAddr[0] + "/p2p/" + statusA.PeerID
+	runCLI(t, bin, nodeA.home, "fs", "drive", "create", "shared", driveA, "--namespace", "shared")
+
+	inviteB := inviteCode(t, runCLI(t, bin, nodeA.home, "invite"))
+	joinB := startCLICommand(t, nil, bin, nodeBHome, "join", inviteB)
+	completeJoin(t, joinB, bin, nodeA.home)
+
+	nodeB := startProcessNodeEnv(t, []string{forceWindowsPathPolicyEnv}, bin, "node-b", nodeBHome, "--fs-poll-seconds", "1", "--link-bootstrap", bootstrapAddr)
+	runCLI(t, bin, nodeB.home, "fs", "drive", "create", "shared", driveB, "--namespace", "shared")
+
+	waitForPeerCountAtLeast(t, bin, nodeA.home, 1)
+	waitForPeerCountAtLeast(t, bin, nodeB.home, 1)
+
+	for _, dir := range []string{
+		filepath.Join(driveA, "Docs"),
+		filepath.Join(driveA, "docs"),
+	} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	publishStableFile(t, filepath.Join(base, "case-upper.tmp"), filepath.Join(driveA, "Docs", "Readme.md"), "upper")
+	publishStableFile(t, filepath.Join(base, "case-lower.tmp"), filepath.Join(driveA, "docs", "readme.md"), "lower")
+
+	drive := waitForDrivePathIssueCount(t, nodeB.home, "shared", 1)
+	if drive.SyncState != "error" {
+		t.Fatalf("sync_state = %q, want error", drive.SyncState)
+	}
+	if !strings.Contains(drive.PathIssueMsg, "collide on Windows case-insensitive filesystem") {
+		t.Fatalf("path_issue_message = %q, want collision hint", drive.PathIssueMsg)
+	}
+	waitForFileMissing(t, filepath.Join(driveB, "Docs", "Readme.md"))
+	waitForFileMissing(t, filepath.Join(driveB, "docs", "readme.md"))
+}
+
+func TestIntegrationFSWindowsPathPolicyReplicatesPeerSymlink(t *testing.T) {
+	if !supportsSymlinks(t) {
+		t.Skip("host filesystem does not permit symlink creation")
+	}
+
+	bin := buildSky10Binary(t)
+
+	base := t.TempDir()
+	nodeAHome := filepath.Join(base, "node-a")
+	nodeBHome := filepath.Join(base, "node-b")
+	driveA := filepath.Join(base, "drive-a")
+	driveB := filepath.Join(base, "drive-b")
+	for _, dir := range []string{driveA, driveB} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	nodeA := startProcessNode(t, bin, "node-a", nodeAHome, "--fs-poll-seconds", "1")
+	statusA := waitForLinkStatus(t, bin, nodeA.home, 1)
+	bootstrapAddr := statusA.ListenAddr[0] + "/p2p/" + statusA.PeerID
+	runCLI(t, bin, nodeA.home, "fs", "drive", "create", "shared", driveA, "--namespace", "shared")
+
+	inviteB := inviteCode(t, runCLI(t, bin, nodeA.home, "invite"))
+	joinB := startCLICommand(t, nil, bin, nodeBHome, "join", inviteB)
+	completeJoin(t, joinB, bin, nodeA.home)
+
+	nodeB := startProcessNodeEnv(t, []string{forceWindowsPathPolicyEnv}, bin, "node-b", nodeBHome, "--fs-poll-seconds", "1", "--link-bootstrap", bootstrapAddr)
+	runCLI(t, bin, nodeB.home, "fs", "drive", "create", "shared", driveB, "--namespace", "shared")
+
+	waitForPeerCountAtLeast(t, bin, nodeA.home, 1)
+	waitForPeerCountAtLeast(t, bin, nodeB.home, 1)
+
+	publishStableFile(t, filepath.Join(base, "symlink-target.tmp"), filepath.Join(driveA, "target.txt"), "hello from symlink target")
+	waitForFileContent(t, filepath.Join(driveB, "target.txt"), "hello from symlink target")
+
+	if err := os.MkdirAll(filepath.Join(driveA, "links"), 0755); err != nil {
+		t.Fatalf("mkdir links: %v", err)
+	}
+	if err := os.Symlink("../target.txt", filepath.Join(driveA, "links", "target.txt")); err != nil {
+		t.Fatalf("symlink create: %v", err)
+	}
+
+	waitForSymlinkTarget(t, filepath.Join(driveB, "links", "target.txt"), "../target.txt")
+	waitForFileContent(t, filepath.Join(driveB, "links", "target.txt"), "hello from symlink target")
+
+	drive := currentDriveInfo(t, nodeB.home, "shared")
+	if drive.PathIssueCount != 0 {
+		t.Fatalf("path_issue_count = %d, want 0 (%s)", drive.PathIssueCount, drive.PathIssueMsg)
+	}
+}
+
+type rpcFSDriveInfo struct {
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	OutboxPending   int    `json:"outbox_pending"`
+	TransferPending int    `json:"transfer_pending"`
+	TransferStaged  int    `json:"transfer_staged"`
+	ReadPeerHits    int    `json:"read_peer_hits"`
+	ReadS3Hits      int    `json:"read_s3_hits"`
+	LastReadSource  string `json:"last_read_source"`
+	ConflictFiles   int    `json:"conflict_files"`
+	SyncState       string `json:"sync_state"`
+	SyncMessage     string `json:"sync_message"`
+	PathIssueCount  int    `json:"path_issue_count"`
+	PathIssueMsg    string `json:"path_issue_message"`
+}
+
 type rpcFSDriveListResult struct {
-	Drives []struct {
-		Name            string `json:"name"`
-		OutboxPending   int    `json:"outbox_pending"`
-		TransferPending int    `json:"transfer_pending"`
-		TransferStaged  int    `json:"transfer_staged"`
-		ReadPeerHits    int    `json:"read_peer_hits"`
-		ReadS3Hits      int    `json:"read_s3_hits"`
-		LastReadSource  string `json:"last_read_source"`
-		ConflictFiles   int    `json:"conflict_files"`
-	} `json:"drives"`
+	Drives []rpcFSDriveInfo `json:"drives"`
 }
 
 func waitForDriveIdle(t *testing.T, home, driveName string) {
@@ -490,6 +647,40 @@ func waitForDriveConflictCount(t *testing.T, home, driveName string, want int) {
 	t.Fatalf("drive %q on %s did not reach conflict count %d; last=%+v", driveName, home, want, last.Drives)
 }
 
+func waitForDrivePathIssueCount(t *testing.T, home, driveName string, wantAtLeast int) rpcFSDriveInfo {
+	t.Helper()
+
+	deadline := time.Now().Add(20 * time.Second)
+	var last rpcFSDriveListResult
+	for time.Now().Before(deadline) {
+		last = rpcCall[rpcFSDriveListResult](t, home, "skyfs.driveList", nil)
+		for _, drive := range last.Drives {
+			if drive.Name != driveName {
+				continue
+			}
+			if drive.PathIssueCount >= wantAtLeast {
+				return drive
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("drive %q on %s did not reach path issue count %d; last=%+v", driveName, home, wantAtLeast, last.Drives)
+	return rpcFSDriveInfo{}
+}
+
+func currentDriveInfo(t *testing.T, home, driveName string) rpcFSDriveInfo {
+	t.Helper()
+
+	result := rpcCall[rpcFSDriveListResult](t, home, "skyfs.driveList", nil)
+	for _, drive := range result.Drives {
+		if drive.Name == driveName {
+			return drive
+		}
+	}
+	t.Fatalf("drive %q not found in driveList: %+v", driveName, result.Drives)
+	return rpcFSDriveInfo{}
+}
+
 func completeJoin(t *testing.T, joinCmd *runningCLI, bin, approverHome string) {
 	t.Helper()
 
@@ -524,6 +715,62 @@ func waitForFileContentWithin(path, want string, timeout time.Duration) (string,
 		time.Sleep(200 * time.Millisecond)
 	}
 	return last, false
+}
+
+func waitForSymlinkTarget(t *testing.T, path, want string) {
+	t.Helper()
+
+	deadline := time.Now().Add(20 * time.Second)
+	var last string
+	for time.Now().Before(deadline) {
+		target, err := os.Readlink(path)
+		if err == nil {
+			last = target
+			if target == want {
+				return
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("symlink %s = %q, want %q", path, last, want)
+}
+
+func supportsCaseDistinctNames(t *testing.T) bool {
+	t.Helper()
+
+	dir := t.TempDir()
+	upper := filepath.Join(dir, "Foo.txt")
+	lower := filepath.Join(dir, "foo.txt")
+	if err := os.WriteFile(upper, []byte("upper"), 0644); err != nil {
+		t.Fatalf("write %s: %v", upper, err)
+	}
+	if err := os.WriteFile(lower, []byte("lower"), 0644); err != nil {
+		return false
+	}
+	data, err := os.ReadFile(upper)
+	if err != nil {
+		t.Fatalf("read %s: %v", upper, err)
+	}
+	return string(data) == "upper"
+}
+
+func supportsSymlinks(t *testing.T) bool {
+	t.Helper()
+
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.txt")
+	link := filepath.Join(dir, "link.txt")
+	if err := os.WriteFile(target, []byte("ok"), 0644); err != nil {
+		t.Fatalf("write %s: %v", target, err)
+	}
+	if err := os.Symlink("target.txt", link); err != nil {
+		return false
+	}
+	got, err := os.Readlink(link)
+	if err != nil {
+		return false
+	}
+	return got == "target.txt"
 }
 
 func publishStableFile(t *testing.T, tempPath, targetPath, content string) string {

@@ -279,10 +279,10 @@ This work should be driven by tests before broad code changes.
 
 ### End-to-end tests
 
-- [ ] Daemon integration case for a peer-created case collision arriving on a
-      Windows node.
-- [ ] Daemon integration case for a peer-created invalid Windows path.
-- [ ] Daemon integration case for symlink behavior under the chosen Windows
+- [x] Daemon integration case for a peer-created case collision arriving on a
+      Windows-policy node.
+- [x] Daemon integration case for a peer-created invalid Windows path.
+- [x] Daemon integration case for symlink behavior under the chosen Windows
       policy.
 
 Done when:
@@ -306,7 +306,7 @@ Done when:
 - [ ] Windows-invalid names are detected before local materialization.
 - [ ] Case collisions do not silently overwrite data.
 - [ ] Windows path issues are visible in health/activity surfaces.
-- [ ] The daemon integration suite covers the critical Windows naming failure
+- [x] The daemon integration suite covers the critical Windows naming failure
       modes.
 
 ## Repo Touchpoints
