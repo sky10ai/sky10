@@ -234,7 +234,7 @@ export default function AgentChat() {
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
+    <div className="flex flex-1 min-h-0 flex-col bg-surface">
       {/* Header */}
       <div className="flex items-center gap-4 px-8 py-4 border-b border-outline-variant/10">
         <button
@@ -261,7 +261,7 @@ export default function AgentChat() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-8 py-6 space-y-4">
+      <div className="flex-1 space-y-4 overflow-y-auto bg-surface-container-low/35 px-8 py-6">
         {messages.length === 0 && (
           <div className="flex-1 flex items-center justify-center text-secondary text-sm h-full">
             <div className="text-center space-y-2">
@@ -276,12 +276,12 @@ export default function AgentChat() {
               className={`flex ${msg.from === "user" ? "justify-end" : "justify-start"}`}
             >
               <div
-                className={`max-w-[70%] rounded-2xl px-4 py-3 text-sm ${
+                className={`max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
                   msg.from === "user"
                     ? "bg-primary text-on-primary rounded-br-md whitespace-pre-wrap"
                     : msg.type === "error"
                       ? "bg-error-container/20 text-error rounded-bl-md whitespace-pre-wrap"
-                      : "bg-surface-container-lowest ring-1 ring-outline-variant/10 text-on-surface rounded-bl-md"
+                      : "rounded-bl-md border border-outline-variant/20 bg-surface-container-high text-on-surface shadow-[0_10px_30px_-24px_rgba(0,0,0,0.7)]"
                 }`}
               >
                 {msg.from === "agent" && msg.type !== "error" ? (
@@ -294,18 +294,23 @@ export default function AgentChat() {
                       li: ({ children }) => <li className="mb-0.5">{children}</li>,
                       code: ({ children, className }) =>
                         className ? (
-                          <pre className="bg-surface-container rounded-lg p-3 my-2 overflow-x-auto text-xs">
+                          <pre className="my-2 overflow-x-auto rounded-lg border border-outline-variant/20 bg-surface-container-low px-3 py-2 text-xs text-on-surface">
                             <code>{children}</code>
                           </pre>
                         ) : (
-                          <code className="bg-surface-container rounded px-1.5 py-0.5 text-xs">{children}</code>
+                          <code className="rounded bg-surface-container-low px-1.5 py-0.5 text-xs text-on-surface">{children}</code>
                         ),
                       h1: ({ children }) => <h1 className="text-base font-bold mb-2">{children}</h1>,
                       h2: ({ children }) => <h2 className="text-sm font-bold mb-1.5">{children}</h2>,
                       h3: ({ children }) => <h3 className="text-sm font-semibold mb-1">{children}</h3>,
                       strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
                       a: ({ href, children }) => (
-                        <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary underline decoration-primary/40 underline-offset-2"
+                        >
                           {children}
                         </a>
                       ),
@@ -336,7 +341,7 @@ export default function AgentChat() {
         ))}
         {waiting && (
           <div className="flex justify-start">
-            <div className="bg-surface-container-lowest ring-1 ring-outline-variant/10 rounded-2xl rounded-bl-md px-4 py-3">
+            <div className="rounded-2xl rounded-bl-md border border-outline-variant/20 bg-surface-container-high px-4 py-3 shadow-sm">
               <div className="flex items-center gap-1.5">
                 <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
                 <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
