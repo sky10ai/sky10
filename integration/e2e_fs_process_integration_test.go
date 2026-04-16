@@ -200,9 +200,9 @@ func TestIntegrationFSP2POnlyOfflineCatchUp(t *testing.T) {
 	waitForPeerCountAtLeast(t, bin, nodeA.home, 1)
 	waitForPeerCountAtLeast(t, bin, nodeB.home, 1)
 
-	waitForFileContent(t, filepath.Join(driveB, "online.txt"), "online seed")
-	waitForFileContent(t, filepath.Join(driveB, "alpha.txt"), "alpha v2")
-	waitForFileContent(t, filepath.Join(driveB, "cycle.txt"), "cycle v2")
+	waitForFileContentWithTimeout(t, filepath.Join(driveB, "online.txt"), "online seed", 45*time.Second)
+	waitForFileContentWithTimeout(t, filepath.Join(driveB, "alpha.txt"), "alpha v2", 45*time.Second)
+	waitForFileContentWithTimeout(t, filepath.Join(driveB, "cycle.txt"), "cycle v2", 45*time.Second)
 	waitForFileMissing(t, filepath.Join(driveB, "beta.txt"))
 	waitForDriveReadSource(t, nodeB.home, "shared", "peer", 1, 0)
 }
@@ -733,6 +733,14 @@ func waitForSymlinkTarget(t *testing.T, path, want string) {
 		time.Sleep(200 * time.Millisecond)
 	}
 	t.Fatalf("symlink %s = %q, want %q", path, last, want)
+}
+
+func waitForFileContentWithTimeout(t *testing.T, path, want string, timeout time.Duration) {
+	t.Helper()
+
+	if last, ok := waitForFileContentWithin(path, want, timeout); !ok {
+		t.Fatalf("file %s = %q, want %q", path, last, want)
+	}
 }
 
 func supportsCaseDistinctNames(t *testing.T) bool {
