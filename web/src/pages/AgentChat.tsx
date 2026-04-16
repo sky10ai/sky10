@@ -53,6 +53,7 @@ export default function AgentChat() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [waiting, setWaiting] = useState(false);
+  const [slowWaiting, setSlowWaiting] = useState(false);
   const [sessionId] = useState(() => {
     const existing = localStorage.getItem(sessionKey);
     if (existing) return existing;
@@ -62,7 +63,7 @@ export default function AgentChat() {
   });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const waitingTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const slowWaitingTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Fetch agent info.
   const { data, loading } = useRPC(() => agent.list(), [], {
@@ -97,7 +98,9 @@ export default function AgentChat() {
       const ai = agentInfoRef.current;
       if (ai && (msg.to === ai.id || msg.to === ai.name)) return;
 
+      clearTimeout(slowWaitingTimerRef.current);
       setWaiting(false);
+      setSlowWaiting(false);
       setMessages((prev) => appendChatMessage(prev, {
           id: (msg.id as string) || uuid(),
           from: "agent" as const,
@@ -123,7 +126,7 @@ export default function AgentChat() {
   // Focus input on mount, clean up timer on unmount.
   useEffect(() => {
     inputRef.current?.focus();
-    return () => clearTimeout(waitingTimerRef.current);
+    return () => clearTimeout(slowWaitingTimerRef.current);
   }, []);
 
   const sendMessage = async () => {
@@ -164,12 +167,18 @@ export default function AgentChat() {
       );
       if (result.status === "sent" && result.delivery.status === "sent") {
         setWaiting(true);
-        clearTimeout(waitingTimerRef.current);
-        waitingTimerRef.current = setTimeout(() => setWaiting(false), 30_000);
+        setSlowWaiting(false);
+        clearTimeout(slowWaitingTimerRef.current);
+        slowWaitingTimerRef.current = setTimeout(() => setSlowWaiting(true), 30_000);
       } else {
+        clearTimeout(slowWaitingTimerRef.current);
         setWaiting(false);
+        setSlowWaiting(false);
       }
     } catch (e) {
+      clearTimeout(slowWaitingTimerRef.current);
+      setWaiting(false);
+      setSlowWaiting(false);
       setMessages((prev) => [
         ...prev,
         {
@@ -327,10 +336,17 @@ export default function AgentChat() {
         ))}
         {waiting && (
           <div className="flex justify-start">
-            <div className="bg-surface-container-lowest ring-1 ring-outline-variant/10 rounded-2xl rounded-bl-md px-4 py-3 flex items-center gap-1.5">
-              <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-              <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-              <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+            <div className="bg-surface-container-lowest ring-1 ring-outline-variant/10 rounded-2xl rounded-bl-md px-4 py-3">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+              </div>
+              {slowWaiting && (
+                <p className="mt-2 text-xs text-secondary">
+                  Still working. Hermes searches can take close to a minute.
+                </p>
+              )}
             </div>
           </div>
         )}
