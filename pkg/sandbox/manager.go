@@ -308,6 +308,12 @@ func (m *Manager) ReconnectRunningOpenClawSandboxes(ctx context.Context) error {
 			m.logger.Warn("sandbox reconnect failed", "sandbox", rec.Slug, "error", err)
 			continue
 		}
+		if err := m.updateVMStatus(rec.Slug, "Running"); err != nil {
+			return err
+		}
+		if err := m.updateStatus(rec.Slug, "ready", ""); err != nil {
+			return err
+		}
 	}
 
 	return nil

@@ -1607,8 +1607,9 @@ func TestReconnectRunningOpenClawSandboxesIncludesHermes(t *testing.T) {
 		Slug:      "hermes-dev",
 		Provider:  providerLima,
 		Template:  templateHermes,
-		Status:    "ready",
+		Status:    "error",
 		VMStatus:  "Running",
+		LastError: "waiting for guest Hermes agent registration: signal: killed",
 		SharedDir: filepath.Join(t.TempDir(), "hermes-dev"),
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -1695,6 +1696,17 @@ func TestReconnectRunningOpenClawSandboxesIncludesHermes(t *testing.T) {
 	}
 	if strings.Join(steps, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("steps = %v, want %v", steps, want)
+	}
+
+	got, err := m.Get(context.Background(), "hermes-dev")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if got.Status != "ready" {
+		t.Fatalf("status = %q, want ready", got.Status)
+	}
+	if got.LastError != "" {
+		t.Fatalf("last error = %q, want empty", got.LastError)
 	}
 }
 
