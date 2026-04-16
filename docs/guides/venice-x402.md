@@ -36,14 +36,27 @@ The proxy uses the same OWS wallet for both wallet auth and Base USDC top-up.
 - Base `USDC` in that wallet
 - `OWS_PASSPHRASE` set in the daemon environment if the wallet is encrypted
 
-## Daemon Environment
+## Default Behavior
 
-Set these before starting `sky10 serve`:
+You should not need extra Venice env vars on the normal host flow.
+
+Wallet selection is automatic:
+
+- if an OWS wallet named `default` exists, the proxy uses it
+- otherwise, if there is only one OWS wallet, the proxy uses that
+- otherwise, the proxy returns an ambiguity error until you either rename one
+  wallet to `default` or explicitly override the choice
+
+Top-up amount defaults to `$10`.
+
+## Optional Overrides
+
+If you are running multiple host wallets or want a different top-up amount, the
+daemon still supports operator overrides:
 
 ```bash
 export SKY10_VENICE_WALLET=my-ows-wallet
 export SKY10_VENICE_TOP_UP_USD=10
-export OWS_PASSPHRASE='your-wallet-passphrase'
 ```
 
 Optional:
@@ -52,14 +65,20 @@ Optional:
 export SKY10_VENICE_API_URL=https://api.venice.ai
 ```
 
+If the chosen wallet is encrypted:
+
+```bash
+export OWS_PASSPHRASE='your-wallet-passphrase'
+```
+
 Then start the daemon normally:
 
 ```bash
 sky10 serve
 ```
 
-If `SKY10_VENICE_WALLET` is unset, the route still exists but returns a
-configuration error instead of proxying.
+If no override is set, the proxy still works through the automatic wallet
+selection rules above.
 
 ## Hermes
 

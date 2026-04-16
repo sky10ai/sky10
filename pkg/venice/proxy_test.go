@@ -11,14 +11,26 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	skywallet "github.com/sky10/sky10/pkg/wallet"
 )
 
 type fakeWallet struct {
 	mu               sync.Mutex
+	wallets          []skywallet.Wallet
 	addressCalls     []string
 	signMessageCalls []string
 	signTypedCalls   []string
 	address          string
+}
+
+func (f *fakeWallet) ListWallets(_ context.Context) ([]skywallet.Wallet, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.wallets == nil {
+		return []skywallet.Wallet{{Name: "default", ID: "wallet-1"}}, nil
+	}
+	return append([]skywallet.Wallet(nil), f.wallets...), nil
 }
 
 func (f *fakeWallet) AddressForChain(_ context.Context, _ string, chain string) (string, error) {
@@ -206,12 +218,66 @@ func TestBuildSIWEMessage(t *testing.T) {
 	}
 }
 
+func TestResolveWalletNamePrefersDefault(t *testing.T) {
+	t.Parallel()
+
+	proxy := newTestProxy(t, &fakeWallet{
+		wallets: []skywallet.Wallet{
+			{Name: "travel", ID: "1"},
+			{Name: "default", ID: "2"},
+		},
+		address: "0x9999999999999999999999999999999999999999",
+	}, "https://api.venice.ai")
+
+	got, err := proxy.resolveWalletName(context.Background())
+	if err != nil {
+		t.Fatalf("resolveWalletName: %v", err)
+	}
+	if got != "default" {
+		t.Fatalf("got %q, want default", got)
+	}
+}
+
+func TestResolveWalletNameUsesOnlyWallet(t *testing.T) {
+	t.Parallel()
+
+	proxy := newTestProxy(t, &fakeWallet{
+		wallets: []skywallet.Wallet{{Name: "solo", ID: "1"}},
+		address: "0x9999999999999999999999999999999999999999",
+	}, "https://api.venice.ai")
+
+	got, err := proxy.resolveWalletName(context.Background())
+	if err != nil {
+		t.Fatalf("resolveWalletName: %v", err)
+	}
+	if got != "solo" {
+		t.Fatalf("got %q, want solo", got)
+	}
+}
+
+func TestResolveWalletNameErrorsOnAmbiguousWallets(t *testing.T) {
+	t.Parallel()
+
+	proxy := newTestProxy(t, &fakeWallet{
+		wallets: []skywallet.Wallet{
+			{Name: "alpha", ID: "1"},
+			{Name: "beta", ID: "2"},
+		},
+		address: "0x9999999999999999999999999999999999999999",
+	}, "https://api.venice.ai")
+
+	_, err := proxy.resolveWalletName(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "multiple OWS wallets found") {
+		t.Fatalf("err = %v, want multiple-wallets error", err)
+	}
+}
+
 func newTestProxy(t *testing.T, wallet *fakeWallet, apiURL string) *Proxy {
 	t.Helper()
 
 	proxy, err := NewProxy(Config{
 		APIURL:   apiURL,
-		Wallet:   "test-wallet",
+		Wallet:   "",
 		TopUpUSD: "10",
 	}, wallet, nil)
 	if err != nil {

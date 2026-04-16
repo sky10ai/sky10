@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/sky10/sky10/pkg/logging"
+	skywallet "github.com/sky10/sky10/pkg/wallet"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -48,6 +49,7 @@ var hopByHopHeaders = map[string]struct{}{
 
 // WalletSigner captures the OWS operations the proxy needs.
 type WalletSigner interface {
+	ListWallets(ctx context.Context) ([]skywallet.Wallet, error)
 	AddressForChain(ctx context.Context, walletName, chain string) (string, error)
 	SignMessage(ctx context.Context, walletName, chain, message string) (string, error)
 	SignTypedData(ctx context.Context, walletName, chain, typedData string) (string, error)
@@ -158,9 +160,6 @@ func NewProxy(cfg Config, wallet WalletSigner, logger *slog.Logger) (*Proxy, err
 func (p *Proxy) Ready() error {
 	if p.wallet == nil {
 		return fmt.Errorf("OWS wallet client is not available")
-	}
-	if p.walletName == "" {
-		return fmt.Errorf("SKY10_VENICE_WALLET is not set")
 	}
 	return nil
 }
@@ -296,7 +295,11 @@ func (p *Proxy) doRequest(ctx context.Context, path, rawQuery, method string, he
 }
 
 func (p *Proxy) signInHeader(ctx context.Context, resourceURL string) (string, error) {
-	address, err := p.wallet.AddressForChain(ctx, p.walletName, "base")
+	walletName, err := p.resolveWalletName(ctx)
+	if err != nil {
+		return "", err
+	}
+	address, err := p.wallet.AddressForChain(ctx, walletName, "base")
 	if err != nil {
 		return "", err
 	}
@@ -307,7 +310,7 @@ func (p *Proxy) signInHeader(ctx context.Context, resourceURL string) (string, e
 		return "", fmt.Errorf("generate nonce: %w", err)
 	}
 	message := buildSIWEMessage(p.apiURL.Host, address, resourceURL, nonce, now, now.Add(defaultAuthWindow), baseChainID)
-	signature, err := p.wallet.SignMessage(ctx, p.walletName, "base", message)
+	signature, err := p.wallet.SignMessage(ctx, walletName, "base", message)
 	if err != nil {
 		return "", err
 	}
@@ -327,6 +330,10 @@ func (p *Proxy) signInHeader(ctx context.Context, resourceURL string) (string, e
 }
 
 func (p *Proxy) topUp(ctx context.Context, requestedAmount *big.Int) error {
+	walletName, err := p.resolveWalletName(ctx)
+	if err != nil {
+		return err
+	}
 	requirements, err := p.fetchTopUpRequirements(ctx)
 	if err != nil {
 		return err
@@ -343,7 +350,7 @@ func (p *Proxy) topUp(ctx context.Context, requestedAmount *big.Int) error {
 	}
 
 	network := normalizePaymentNetwork(requirement.Network)
-	address, err := p.wallet.AddressForChain(ctx, p.walletName, network)
+	address, err := p.wallet.AddressForChain(ctx, walletName, network)
 	if err != nil {
 		return fmt.Errorf("resolve %s wallet address: %w", network, err)
 	}
@@ -358,7 +365,7 @@ func (p *Proxy) topUp(ctx context.Context, requestedAmount *big.Int) error {
 	if err != nil {
 		return err
 	}
-	signature, err := p.wallet.SignTypedData(ctx, p.walletName, network, typedData)
+	signature, err := p.wallet.SignTypedData(ctx, walletName, network, typedData)
 	if err != nil {
 		return fmt.Errorf("sign venice payment: %w", err)
 	}
@@ -562,6 +569,41 @@ func buildSIWEMessage(domain, address, resourceURL, nonce string, issuedAt, expi
 		formatSIWETime(issuedAt),
 		formatSIWETime(expiresAt),
 	)
+}
+
+func (p *Proxy) resolveWalletName(ctx context.Context) (string, error) {
+	if strings.TrimSpace(p.walletName) != "" {
+		return strings.TrimSpace(p.walletName), nil
+	}
+
+	wallets, err := p.wallet.ListWallets(ctx)
+	if err != nil {
+		return "", fmt.Errorf("list OWS wallets: %w", err)
+	}
+	if len(wallets) == 0 {
+		return "", fmt.Errorf("no OWS wallets found")
+	}
+	for _, wallet := range wallets {
+		if strings.EqualFold(strings.TrimSpace(wallet.Name), "default") {
+			return wallet.Name, nil
+		}
+	}
+	if len(wallets) == 1 {
+		if strings.TrimSpace(wallets[0].Name) != "" {
+			return wallets[0].Name, nil
+		}
+		return wallets[0].ID, nil
+	}
+
+	names := make([]string, 0, len(wallets))
+	for _, wallet := range wallets {
+		label := strings.TrimSpace(wallet.Name)
+		if label == "" {
+			label = wallet.ID
+		}
+		names = append(names, label)
+	}
+	return "", fmt.Errorf("multiple OWS wallets found (%s); rename one to 'default' or set SKY10_VENICE_WALLET", strings.Join(names, ", "))
 }
 
 func formatSIWETime(t time.Time) string {

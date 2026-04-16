@@ -562,8 +562,8 @@ func ServeCmd() *cobra.Command {
 				return fmt.Errorf("configuring venice proxy: %w", err)
 			}
 			server.HandleHTTP("/venice/v1/", veniceProxy.HandleAPI)
-			if os.Getenv("SKY10_VENICE_WALLET") != "" {
-				logger.Info("venice x402 proxy enabled", "path_prefix", "/venice/v1", "wallet", os.Getenv("SKY10_VENICE_WALLET"))
+			if walletClient != nil {
+				logger.Info("venice x402 proxy enabled", "path_prefix", "/venice/v1")
 			}
 
 			// Wire sync notifications: KV changes notify own devices.
