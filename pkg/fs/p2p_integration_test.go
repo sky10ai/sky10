@@ -522,6 +522,55 @@ func TestFSP2PChunkFetchWithoutBackend(t *testing.T) {
 	_ = syncA
 }
 
+func TestFSP2PChunkFetchFallsBackToSoleReplicaOnNSIDMismatch(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	nsKey, err := GenerateNamespaceKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nsID := deriveNSID(nsKey, "agents")
+
+	replicaA, replicaB := startSharedFSTestReplicaPair(t, ctx, nsID, nsKey)
+	nodeA, bundleA := replicaA.node, replicaA.bundle
+	nodeB, syncB, bundleB := replicaB.node, replicaB.sync, replicaB.bundle
+	infoB := nodeB.Host().Peerstore().PeerInfo(nodeB.PeerID())
+	if err := nodeA.Host().Connect(ctx, infoB); err != nil {
+		t.Fatalf("connect A->B: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	storeA := New(nil, bundleA.Identity)
+	storeA.SetNamespace("agents")
+	storeA.nsID = nsID
+	storeA.nsKeys["agents"] = nsKey
+	if err := storeA.Put(ctx, "shared.txt", bytes.NewReader([]byte("hello from peer chunk"))); err != nil {
+		t.Fatalf("Put on A: %v", err)
+	}
+	put := storeA.LastPutResult()
+	if put == nil {
+		t.Fatal("missing put result on A")
+	}
+
+	storeB := New(nil, bundleB.Identity)
+	storeB.SetNamespace("agents")
+	storeB.nsID = deriveNSID(nsKey, "agents-mismatch")
+	storeB.nsKeys["agents"] = nsKey
+	storeB.SetPeerChunkFetcher(syncB)
+
+	var buf bytes.Buffer
+	if err := storeB.GetChunks(ctx, put.Chunks, "agents", &buf); err != nil {
+		t.Fatalf("GetChunks on B with mismatched nsid: %v", err)
+	}
+	if got := buf.String(); got != "hello from peer chunk" {
+		t.Fatalf("content = %q", got)
+	}
+}
+
 func startSharedFSTestReplicaPair(t *testing.T, ctx context.Context, nsID string, nsKey []byte) (*fsTestReplica, *fsTestReplica) {
 	t.Helper()
 

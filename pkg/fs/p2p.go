@@ -896,8 +896,15 @@ func (s *P2PSync) handleChunkStream(stream network.Stream) {
 		return
 	}
 
-	raw, err := readLocalBlob(msg.NSID, msg.Hash)
-	resp := fsChunkMsg{NSID: msg.NSID, Hash: msg.Hash}
+	resolvedNSID := msg.NSID
+	if replica, _ := s.replicaForNSID(context.Background(), msg.NSID); replica != nil {
+		if replicaNSID, _, err := replica.state(context.Background()); err == nil && replicaNSID != "" {
+			resolvedNSID = replicaNSID
+		}
+	}
+
+	raw, err := readLocalBlob(resolvedNSID, msg.Hash)
+	resp := fsChunkMsg{NSID: resolvedNSID, Hash: msg.Hash}
 	if err != nil {
 		resp.Error = fmt.Sprintf("chunk not available: %v", err)
 	} else {
