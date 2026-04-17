@@ -332,6 +332,38 @@ That matters because most of the branch's claims are about reconnection,
 restarts, anti-entropy, and materialization edge cases, not just unit-level
 helpers.
 
+## Post-Merge CI Hardening On `main`
+
+One important follow-up happened after the branch landed: the first `main`
+builds exposed several FS test failures that local runs had not caught
+reliably enough before merge.
+
+The failures were not new product bugs in the core FS engine. They were test
+isolation problems caused by the branch's new local object-cache and namespace
+metadata behavior:
+
+- some tests still assumed backend reads would always happen, even when chunks
+  were already present in the local object cache
+- some tests still expected the old namespace-key shape and did not account for
+  both `.ns.enc` and `.meta.enc`
+- several tests were still sharing global local FS state under the default
+  `~/.sky10` test location instead of isolating `SKY10_HOME`
+
+The `main` follow-up fixes did three things:
+
+- updated stale expectations for namespace metadata layout
+- explicitly removed cached local blobs in tests that were supposed to verify
+  backend fetch behavior
+- added reusable test helpers so cache-dependent tests run with isolated local
+  FS state instead of leaking through global disk state
+
+That work mattered because it sharpened a real lesson from the branch:
+
+- once local hidden state becomes more capable, tests must control that state
+  explicitly
+- "passes locally" is not enough for merge; the exact GitHub workflow paths
+  need to be treated as the real acceptance bar
+
 ## What This Branch Did Not Finish
 
 This branch substantially improved FS correctness, but it did not finish every
@@ -366,3 +398,8 @@ That is the main Syncthing takeaway as applied to `sky10`:
 P2P file sync gets reliable when metadata anti-entropy, transfer staging,
 verified block pulls, and loud failure surfaces are treated as first-class
 system design, not as cleanup around a storage backend.
+
+The branch also left one operational lesson that is worth keeping: when sync
+behavior starts depending on durable local caches and hidden workspace state,
+the test suite and CI discipline need to be upgraded alongside the product
+code, not after the merge.
