@@ -18,6 +18,8 @@ UNAME_S  := $(shell uname -s)
 WEB_DEV_PORT ?= 5173
 WEB_DEV_PATH ?= /
 WEB_RPC_TARGET ?= http://localhost:9102
+INSTALL_DIR ?= $(HOME)/.bin
+INSTALL_BIN ?= $(INSTALL_DIR)/sky10
 
 export CGO_ENABLED := 0
 
@@ -35,7 +37,7 @@ endif
 MENU_SOURCE_DATE_EPOCH := $(shell git log -1 --format=%ct 2>/dev/null || echo 0)
 MENU_RUSTFLAGS := --remap-path-prefix=$(CURDIR)=/workspace $(MENU_LINK_RUSTFLAGS)
 
-.PHONY: all build build-go build-web build-menu web-dev test test-skyfs test-skyfs-cli test-skyfs-cli-v test-skyfs-p2p-integration test-skyfs-daemon-integration check vet fmt verify clean install reproduce reproduce-menu platforms checksums
+.PHONY: all build build-go build-web build-menu web-dev test test-skyfs test-skyfs-cli test-skyfs-cli-v test-skyfs-p2p-integration test-skyfs-daemon-integration check vet fmt verify clean install go-install reproduce reproduce-menu platforms checksums
 
 # --- Default ---
 
@@ -114,7 +116,11 @@ clean:
 
 # --- Install ---
 
-install:
+install: build
+	mkdir -p "$(INSTALL_DIR)"
+	install -m 755 bin/sky10 "$(INSTALL_BIN)"
+
+go-install:
 	go install $(GOFLAGS) -ldflags "$(LDFLAGS)" .
 
 # --- Cross-compilation ---
