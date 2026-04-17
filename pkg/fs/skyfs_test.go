@@ -188,7 +188,7 @@ func TestStoreEncryptedAtRest(t *testing.T) {
 }
 
 func TestStoreNamespaceIsolation(t *testing.T) {
-	t.Parallel()
+	useIsolatedSky10Home(t)
 	ctx := context.Background()
 	store, backend := newTestStore(t)
 
@@ -199,14 +199,23 @@ func TestStoreNamespaceIsolation(t *testing.T) {
 		t.Fatalf("Put financial: %v", err)
 	}
 
-	// Should have two namespace keys
 	nsKeys, err := backend.List(ctx, "keys/namespaces/")
 	if err != nil {
 		t.Fatalf("List namespace keys: %v", err)
 	}
-	// journal + financial (default key no longer created — S3 ops log removed)
-	if len(nsKeys) != 2 {
-		t.Errorf("expected 2 namespace keys, got %d: %v", len(nsKeys), nsKeys)
+	expected := map[string]bool{
+		"keys/namespaces/fs:journal.meta.enc":   true,
+		"keys/namespaces/fs:journal.ns.enc":     true,
+		"keys/namespaces/fs:financial.meta.enc": true,
+		"keys/namespaces/fs:financial.ns.enc":   true,
+	}
+	if len(nsKeys) != len(expected) {
+		t.Fatalf("expected %d namespace keys, got %d: %v", len(expected), len(nsKeys), nsKeys)
+	}
+	for _, key := range nsKeys {
+		if !expected[key] {
+			t.Fatalf("unexpected namespace key %q in %v", key, nsKeys)
+		}
 	}
 }
 
@@ -310,7 +319,7 @@ func TestDownloadChunksCancellation(t *testing.T) {
 }
 
 func TestDownloadChunksErrorMidStream(t *testing.T) {
-	t.Parallel()
+	useIsolatedSky10Home(t)
 	ctx := context.Background()
 	store, backend := newTestStore(t)
 
@@ -327,6 +336,7 @@ func TestDownloadChunksErrorMidStream(t *testing.T) {
 	if res == nil {
 		t.Fatal("LastPutResult returned nil")
 	}
+	removeLocalBlobsForTest(t, store, "default", res.Chunks)
 
 	// Swap backend to one that fails on the 3rd Get/GetRange.
 	injectedErr := fmt.Errorf("injected S3 error")

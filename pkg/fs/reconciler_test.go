@@ -117,7 +117,7 @@ func TestReconcilerDownloadUsesConfiguredStagingDir(t *testing.T) {
 }
 
 func TestReconcilerReusesLocalFileChunksBeforeBackendFetch(t *testing.T) {
-	t.Parallel()
+	useIsolatedSky10Home(t)
 
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
@@ -148,6 +148,7 @@ func TestReconcilerReusesLocalFileChunksBeforeBackendFetch(t *testing.T) {
 	if res == nil {
 		t.Fatal("store.LastPutResult() nil after Put(shared.bin)")
 	}
+	removeLocalBlobsForTest(t, store, "default", res.Chunks)
 
 	baseHashes := chunkHashesForTest(t, base)
 	overlap := 0
@@ -201,7 +202,7 @@ func TestReconcilerReusesLocalFileChunksBeforeBackendFetch(t *testing.T) {
 }
 
 func TestReconcilerBoundsConcurrentFileDownloads(t *testing.T) {
-	t.Parallel()
+	useIsolatedSky10Home(t)
 
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
@@ -215,25 +216,13 @@ func TestReconcilerBoundsConcurrentFileDownloads(t *testing.T) {
 	}
 
 	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "different-device")
-	nsID, _, err := store.resolveNamespaceState(ctx, "default")
-	if err != nil {
-		t.Fatalf("resolveNamespaceState: %v", err)
-	}
 	for i := 0; i < 6; i++ {
 		putAndLog(t, store, localLog, fmt.Sprintf("file-%d.txt", i), fmt.Sprintf("content-%d", i), i+1)
 		res := store.LastPutResult()
 		if res == nil {
 			t.Fatalf("LastPutResult nil after file-%d.txt", i)
 		}
-		for _, chunkHash := range res.Chunks {
-			chunkPath, err := localBlobPath(nsID, chunkHash)
-			if err != nil {
-				t.Fatalf("localBlobPath(%s): %v", chunkHash, err)
-			}
-			if err := os.Remove(chunkPath); err != nil && !os.IsNotExist(err) {
-				t.Fatalf("remove local blob %s: %v", chunkHash, err)
-			}
-		}
+		removeLocalBlobsForTest(t, store, "default", res.Chunks)
 	}
 
 	gated := newGatedCountingBackend(backend)
