@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -628,16 +629,19 @@ func newInitialProgress(provider, template string) (*Progress, *progressTracker)
 
 func parseProgressMarker(line string) (progressEvent, bool) {
 	line = strings.TrimSpace(line)
-	if !strings.HasPrefix(line, progressMarkerPrefix) {
-		return progressEvent{}, false
-	}
-	payload := strings.TrimSpace(strings.TrimPrefix(line, progressMarkerPrefix))
-	if payload == "" {
+	payload, ok := extractProgressPayload(line)
+	if !ok {
 		return progressEvent{}, false
 	}
 	var event progressEvent
 	if err := json.Unmarshal([]byte(payload), &event); err != nil {
-		return progressEvent{}, false
+		unescaped, unescapeErr := strconv.Unquote(`"` + payload + `"`)
+		if unescapeErr != nil {
+			return progressEvent{}, false
+		}
+		if err := json.Unmarshal([]byte(unescaped), &event); err != nil {
+			return progressEvent{}, false
+		}
 	}
 	event.Event = strings.ToLower(strings.TrimSpace(event.Event))
 	event.ID = strings.TrimSpace(event.ID)
@@ -652,6 +656,49 @@ func parseProgressMarker(line string) (progressEvent, bool) {
 		return progressEvent{}, false
 	}
 	return event, true
+}
+
+func extractProgressPayload(line string) (string, bool) {
+	idx := strings.Index(line, progressMarkerPrefix)
+	if idx < 0 {
+		return "", false
+	}
+	if idx > 0 && line[idx-1] == '\'' {
+		return "", false
+	}
+	payload := strings.TrimSpace(line[idx+len(progressMarkerPrefix):])
+	if payload == "" {
+		return "", false
+	}
+	start := strings.Index(payload, "{")
+	if start < 0 {
+		return "", false
+	}
+	payload = payload[start:]
+	end := progressPayloadEnd(payload)
+	if end < 0 {
+		return "", false
+	}
+	return payload[:end+1], true
+}
+
+func progressPayloadEnd(payload string) int {
+	depth := 0
+	for i, r := range payload {
+		switch r {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i
+			}
+			if depth < 0 {
+				return -1
+			}
+		}
+	}
+	return -1
 }
 
 func (m *Manager) resetProgress(name string) error {

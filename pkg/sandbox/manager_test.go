@@ -149,6 +149,84 @@ func TestAppendLogProgressMarkerUpdatesRecordAndSuppressesMarker(t *testing.T) {
 	}
 }
 
+func TestAppendLogProgressMarkerWrappedByCloudInitUpdatesRecord(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["devbox"] = Record{
+		Name:      "devbox",
+		Slug:      "devbox",
+		Provider:  providerLima,
+		Template:  templateOpenClaw,
+		Status:    "creating",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := m.resetProgress("devbox"); err != nil {
+		t.Fatalf("resetProgress() error: %v", err)
+	}
+	if err := m.updateProgress("devbox", progressEvent{
+		Event:   "end",
+		ID:      "sandbox.prepare",
+		Summary: "Sandbox prepared.",
+	}); err != nil {
+		t.Fatalf("updateProgress(sandbox.prepare) error: %v", err)
+	}
+	if err := m.updateProgress("devbox", progressEvent{
+		Event:   "begin",
+		ID:      "vm.start",
+		Summary: "Booting device...",
+	}); err != nil {
+		t.Fatalf("updateProgress(vm.start begin) error: %v", err)
+	}
+	if err := m.updateProgress("devbox", progressEvent{
+		Event:   "end",
+		ID:      "vm.start",
+		Summary: "Device booted.",
+	}); err != nil {
+		t.Fatalf("updateProgress(vm.start) error: %v", err)
+	}
+
+	m.appendLog("devbox", "stderr", `time="2026-04-17T06:42:01-05:00" level=info msg="[cloud-init] SKY10_PROGRESS {\"event\":\"begin\",\"id\":\"guest.system.packages\",\"summary\":\"Installing system packages...\"}"`)
+	m.appendLog("devbox", "stderr", `time="2026-04-17T06:42:12-05:00" level=info msg="[cloud-init] SKY10_PROGRESS {\"event\":\"end\",\"id\":\"guest.system.packages\",\"summary\":\"System packages installed.\"}"`)
+	m.appendLog("devbox", "stderr", `time="2026-04-17T06:42:12-05:00" level=info msg="[cloud-init] SKY10_PROGRESS {\"event\":\"begin\",\"id\":\"guest.node.install\",\"summary\":\"Installing Node.js...\"}"`)
+	m.appendLog("devbox", "stderr", `time="2026-04-17T06:42:20-05:00" level=info msg="[cloud-init] SKY10_PROGRESS {\"event\":\"end\",\"id\":\"guest.node.install\",\"summary\":\"Node.js installed.\"}"`)
+	m.appendLog("devbox", "stderr", `time="2026-04-17T06:42:20-05:00" level=info msg="[cloud-init] + printf 'SKY10_PROGRESS {\"event\":\"%s\",\"id\":\"%s\",\"summary\":\"%s\"}\n' begin guest.openclaw.install 'Installing OpenClaw...'"`)
+
+	got, err := m.Get(context.Background(), "devbox")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if got.Progress == nil {
+		t.Fatal("progress = nil, want populated progress state")
+	}
+	if got.Progress.StepID != "guest.node.install" {
+		t.Fatalf("progress step_id = %q, want %q", got.Progress.StepID, "guest.node.install")
+	}
+	if got.Progress.Summary != "Node.js installed." {
+		t.Fatalf("progress summary = %q, want %q", got.Progress.Summary, "Node.js installed.")
+	}
+	if got.Progress.Percent != 25 {
+		t.Fatalf("progress percent = %d, want 25", got.Progress.Percent)
+	}
+
+	logs, err := m.Logs("devbox", 10)
+	if err != nil {
+		t.Fatalf("Logs() error: %v", err)
+	}
+	if len(logs.Entries) != 1 {
+		t.Fatalf("log entries = %d, want 1 xtrace entry", len(logs.Entries))
+	}
+	if !strings.Contains(logs.Entries[0].Line, `+ printf 'SKY10_PROGRESS`) {
+		t.Fatalf("log line = %q, want xtrace printf marker line", logs.Entries[0].Line)
+	}
+}
+
 func TestManagerEnsureManagedApp_IgnoresManagedLimaInstall(t *testing.T) {
 	t.Setenv("PATH", "")
 	t.Setenv(config.EnvHome, t.TempDir())
