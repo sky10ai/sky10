@@ -206,6 +206,7 @@ func TestReconcilerBoundsConcurrentFileDownloads(t *testing.T) {
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
+	ctx := context.Background()
 
 	tmpDir := t.TempDir()
 	localDir := filepath.Join(tmpDir, "sync")
@@ -214,8 +215,25 @@ func TestReconcilerBoundsConcurrentFileDownloads(t *testing.T) {
 	}
 
 	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "different-device")
+	nsID, _, err := store.resolveNamespaceState(ctx, "default")
+	if err != nil {
+		t.Fatalf("resolveNamespaceState: %v", err)
+	}
 	for i := 0; i < 6; i++ {
 		putAndLog(t, store, localLog, fmt.Sprintf("file-%d.txt", i), fmt.Sprintf("content-%d", i), i+1)
+		res := store.LastPutResult()
+		if res == nil {
+			t.Fatalf("LastPutResult nil after file-%d.txt", i)
+		}
+		for _, chunkHash := range res.Chunks {
+			chunkPath, err := localBlobPath(nsID, chunkHash)
+			if err != nil {
+				t.Fatalf("localBlobPath(%s): %v", chunkHash, err)
+			}
+			if err := os.Remove(chunkPath); err != nil && !os.IsNotExist(err) {
+				t.Fatalf("remove local blob %s: %v", chunkHash, err)
+			}
+		}
 	}
 
 	gated := newGatedCountingBackend(backend)
@@ -228,7 +246,7 @@ func TestReconcilerBoundsConcurrentFileDownloads(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		r.reconcile(context.Background())
+		r.reconcile(ctx)
 		close(done)
 	}()
 
