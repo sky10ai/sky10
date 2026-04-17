@@ -7,26 +7,30 @@ export HERMES_HOME="${HOME}/.hermes"
 export HERMES_MODEL="{{.Param.model}}"
 
 SHARED_DIR="/shared"
+WORKSPACE_DIR="${SHARED_DIR}/workspace"
+SANDBOX_STATE_DIR="/sandbox-state"
 STATE_DIR="${HERMES_HOME}/.sky10-lima"
 SENTINEL="${STATE_DIR}/initialized-v1"
 HELPER="${HOME}/.local/bin/hermes-shared"
 BRIDGE_INSTALL="${HOME}/.local/bin/hermes-sky10-bridge"
-BRIDGE_ASSET="${SHARED_DIR}/hermes-sky10-bridge.py"
-BRIDGE_CONFIG="${SHARED_DIR}/.sky10-hermes-bridge.json"
+BRIDGE_ASSET="${SANDBOX_STATE_DIR}/hermes-sky10-bridge.py"
+BRIDGE_CONFIG="${SANDBOX_STATE_DIR}/bridge.json"
 BRIDGE_ENV="${STATE_DIR}/bridge.env"
-SKY10_INVITE_PATH="${SHARED_DIR}/.sky10-join.json"
+SKY10_INVITE_PATH="${SANDBOX_STATE_DIR}/join.json"
 SKY10_RECONNECT_HELPER="${HOME}/.bin/sky10-managed-reconnect"
 UNIT_DIR="${HOME}/.config/systemd/user"
 SKY10_UNIT="${UNIT_DIR}/sky10.service"
 GATEWAY_UNIT="${UNIT_DIR}/sky10-hermes-gateway.service"
 BRIDGE_UNIT="${UNIT_DIR}/sky10-hermes-bridge.service"
-WELCOME="${SHARED_DIR}/HERMES.md"
+WELCOME="${WORKSPACE_DIR}/HERMES.md"
 
 mkdir -p "${STATE_DIR}"
 mkdir -p "${HOME}/.bin"
 mkdir -p "${HOME}/.local/bin"
 mkdir -p "${UNIT_DIR}"
 mkdir -p "${SHARED_DIR}"
+mkdir -p "${WORKSPACE_DIR}"
+mkdir -p "${SANDBOX_STATE_DIR}"
 
 emit_progress() {
   local event="$1"
@@ -86,7 +90,7 @@ install_guest_reconnect_helper() {
 #!/bin/bash
 set -u
 
-JOIN_PATH="/shared/.sky10-join.json"
+JOIN_PATH="/sandbox-state/join.json"
 LOCAL_RPC="http://127.0.0.1:9101/rpc"
 
 if [ ! -f "${JOIN_PATH}" ]; then
@@ -152,49 +156,6 @@ EOF
   chmod 755 "${SKY10_RECONNECT_HELPER}"
 }
 
-ensure_guest_join() {
-  local invite_info host_identity invite_code
-
-  if [ -f "${SKY10_UNIT}" ]; then
-    emit_progress skip guest.sky10.join "Guest sky10 already linked."
-    return 0
-  fi
-  if [ ! -f "${SKY10_INVITE_PATH}" ]; then
-    emit_progress skip guest.sky10.join "Guest sky10 join not required."
-    return 0
-  fi
-
-  emit_progress begin guest.sky10.join "Linking guest sky10 identity..."
-  ensure_guest_sky10_binary
-  mapfile -t invite_info < <(
-    python3 - "${SKY10_INVITE_PATH}" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], "r", encoding="utf-8") as fh:
-    payload = json.load(fh)
-
-print((payload.get("host_identity") or "").strip())
-print((payload.get("code") or "").strip())
-PY
-  )
-  host_identity="${invite_info[0]:-}"
-  invite_code="${invite_info[1]:-}"
-  if [ -z "${invite_code}" ]; then
-    echo >&2 "sky10 invite payload is missing a join code"
-    return 1
-  fi
-
-  sky10 join --role sandbox "${invite_code}"
-  emit_progress end guest.sky10.join "Guest sky10 linked."
-
-  if [ -n "${host_identity}" ]; then
-    echo "joined sky10 host identity ${host_identity}"
-  else
-    echo "joined sky10 host identity"
-  fi
-}
-
 ensure_guest_sky10() {
   ensure_guest_sky10_binary
   install_guest_reconnect_helper
@@ -233,18 +194,18 @@ EOF
 }
 
 ensure_shared_env() {
-  if [ ! -f "${SHARED_DIR}/.env" ]; then
-    cat > "${SHARED_DIR}/.env" <<'EOF'
+  if [ ! -f "${SANDBOX_STATE_DIR}/.env" ]; then
+    cat > "${SANDBOX_STATE_DIR}/.env" <<'EOF'
 # Optional provider keys for Hermes inside Lima.
 # Host secrets named ANTHROPIC_API_KEY/anthropic, OPENAI_API_KEY/openai,
 # and OPENROUTER_API_KEY/openrouter merge in automatically when available.
-# Hermes reads ~/.hermes/.env, which is linked to this shared file.
+# Hermes reads ~/.hermes/.env, which is linked to this sandbox state file.
 
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
 OPENROUTER_API_KEY=
 EOF
-    chmod 600 "${SHARED_DIR}/.env"
+    chmod 600 "${SANDBOX_STATE_DIR}/.env"
   fi
 }
 
@@ -260,7 +221,7 @@ shared_env_has_value() {
     END {
       exit found ? 0 : 1
     }
-  ' "${SHARED_DIR}/.env"
+  ' "${SANDBOX_STATE_DIR}/.env"
 }
 
 set_shared_env_value() {
@@ -268,7 +229,7 @@ set_shared_env_value() {
   local value="$2"
   local tmp
 
-  tmp="$(mktemp "${SHARED_DIR}/.env.tmp.XXXXXX")"
+  tmp="$(mktemp "${SANDBOX_STATE_DIR}/.env.tmp.XXXXXX")"
   awk -v key="$key" -v value="$value" '
     BEGIN { replaced = 0 }
     index($0, key "=") == 1 {
@@ -284,9 +245,9 @@ set_shared_env_value() {
         print key "=" value
       }
     }
-  ' "${SHARED_DIR}/.env" > "${tmp}"
+  ' "${SANDBOX_STATE_DIR}/.env" > "${tmp}"
   chmod 600 "${tmp}"
-  mv "${tmp}" "${SHARED_DIR}/.env"
+  mv "${tmp}" "${SANDBOX_STATE_DIR}/.env"
 }
 
 guest_env_line_is_example_default() {
@@ -348,7 +309,7 @@ link_hermes_env() {
     rm -f "${HERMES_HOME}/.env"
   fi
 
-  ln -sfn "${SHARED_DIR}/.env" "${HERMES_HOME}/.env"
+  ln -sfn "${SANDBOX_STATE_DIR}/.env" "${HERMES_HOME}/.env"
 }
 
 write_helper() {
@@ -356,7 +317,7 @@ write_helper() {
 #!/bin/bash
 set -e
 export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${HOME}/.bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
-cd /shared
+cd /shared/workspace
 exec hermes "$@"
 EOF
   chmod 755 "${HELPER}"
@@ -401,7 +362,7 @@ lines = [
     "API_SERVER_PORT=8642",
     f"API_SERVER_KEY={api_key}",
     "API_SERVER_MODEL_NAME=hermes-agent",
-    "SKY10_BRIDGE_CONFIG_PATH=/shared/.sky10-hermes-bridge.json",
+    "SKY10_BRIDGE_CONFIG_PATH=/sandbox-state/bridge.json",
 ]
 
 with open(env_path, "w", encoding="utf-8") as fh:
@@ -421,7 +382,7 @@ Wants=network-online.target
 ExecStart=/usr/bin/env hermes gateway run
 Restart=always
 RestartSec=5
-WorkingDirectory=/shared
+WorkingDirectory=/shared/workspace
 EnvironmentFile=-%h/.hermes/.env
 EnvironmentFile=-%h/.hermes/.sky10-lima/bridge.env
 Environment=HOME=${HOME}
@@ -443,7 +404,7 @@ Wants=network-online.target sky10-hermes-gateway.service
 ExecStart=%h/.local/bin/hermes-sky10-bridge
 Restart=always
 RestartSec=5
-WorkingDirectory=/shared
+WorkingDirectory=/shared/workspace
 EnvironmentFile=-%h/.hermes/.sky10-lima/bridge.env
 Environment=HOME=${HOME}
 Environment=PATH=${HOME}/.local/bin:${HOME}/.cargo/bin:${HOME}/.bin:/usr/local/bin:/usr/bin:/bin
@@ -482,7 +443,7 @@ write_welcome() {
   cat > "${WELCOME}" <<'EOF'
 # Hermes on Lima
 
-This sandbox installs Hermes Agent inside the guest and keeps your working files in `/shared`.
+This sandbox installs Hermes Agent inside the guest and keeps your durable agent files in `/shared`.
 
 ## Start the TUI
 
@@ -492,11 +453,11 @@ hermes-shared
 
 ## Common setup
 
-1. Host-managed provider secrets merge into `/shared/.env` automatically when available
-2. Add or edit keys in `/shared/.env` directly if you need to override them
+1. Host-managed provider secrets merge into `/sandbox-state/.env` automatically when available
+2. Add or edit keys in `/sandbox-state/.env` directly if you need to override them
 3. sky10 also installs a guest bridge so Hermes registers with the guest daemon and appears on the host through skylink
 4. Run `hermes model` if you want to switch models/providers
-5. Keep project files in `/shared` so Hermes starts in the shared workspace
+5. Keep project files in `/shared/workspace` so Hermes starts in the shared workspace
 EOF
 }
 
@@ -515,12 +476,11 @@ emit_progress begin guest.hermes.configure "Configuring Hermes..."
 link_hermes_env
 write_helper
 write_welcome
-ensure_guest_join
 ensure_guest_sky10
 
 if command -v hermes >/dev/null 2>&1; then
   hermes config set terminal.backend local || true
-  hermes config set terminal.cwd /shared || true
+  hermes config set terminal.cwd /shared/workspace || true
   if [ -n "${HERMES_MODEL}" ]; then
     hermes config set model "${HERMES_MODEL}" || true
   fi

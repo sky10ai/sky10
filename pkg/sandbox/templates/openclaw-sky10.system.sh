@@ -12,6 +12,8 @@ OPENCLAW_VERSION=2026.4.14
 
 mkdir -p "${STATE_DIR}"
 mkdir -p /shared
+mkdir -p /shared/workspace
+mkdir -p /sandbox-state
 
 emit_progress() {
   local event="$1"
@@ -134,8 +136,8 @@ else
   emit_progress skip guest.caddy.install "Caddy already installed."
 fi
 
-CERT_PEM=/shared/certs/sb.sky10.local.pem
-CERT_KEY=/shared/certs/sb.sky10.local-key.pem
+CERT_PEM=/sandbox-state/certs/sb.sky10.local.pem
+CERT_KEY=/sandbox-state/certs/sb.sky10.local-key.pem
 if [ -f "${CERT_PEM}" ] && [ -f "${CERT_KEY}" ]; then
   cat > /etc/caddy/Caddyfile <<'EOF'
 {
@@ -143,7 +145,7 @@ if [ -f "${CERT_PEM}" ] && [ -f "${CERT_KEY}" ]; then
 }
 
 :18790 {
-  tls /shared/certs/sb.sky10.local.pem /shared/certs/sb.sky10.local-key.pem
+  tls /sandbox-state/certs/sb.sky10.local.pem /sandbox-state/certs/sb.sky10.local-key.pem
   reverse_proxy localhost:18789
 }
 EOF

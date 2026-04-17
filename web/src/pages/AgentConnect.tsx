@@ -10,7 +10,7 @@ const GUIDES = [
     steps: [
       "Preferred path: Agents -> Create OpenClaw. CLI equivalent:",
       null,
-      "Optional: store provider keys in Settings -> Secrets with names like openai or anthropic. The sandbox will merge them into ~/sky10/sandboxes/my-agent/.env automatically, or you can still edit that file directly:",
+      "Optional: store provider keys in Settings -> Secrets with names like openai or anthropic. The sandbox will merge them into ~/.sky10/sandboxes/my-agent/state/.env automatically, or you can still edit that file directly:",
       null,
       "This milestone provisions guest-local sky10 and OpenClaw inside the guest, loads the bundled sky10 channel plugin, and auto-registers the guest agent locally. sky10 network join comes later.",
       "Inspect the guest or fetch the UI IP with:",
@@ -20,7 +20,7 @@ const GUIDES = [
     ],
     codeBlocks: [
       `sky10 sandbox create my-agent --provider lima --template openclaw`,
-      `cat > ~/sky10/sandboxes/my-agent/.env <<'EOF'
+      `cat > ~/.sky10/sandboxes/my-agent/state/.env <<'EOF'
 ANTHROPIC_API_KEY=your-anthropic-key
 OPENAI_API_KEY=your-openai-key
 EOF`,

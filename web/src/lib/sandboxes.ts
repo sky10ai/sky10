@@ -22,7 +22,7 @@ export const SANDBOX_TEMPLATES = [
     label: "Hermes Sandbox",
     summary: "Hermes chat + TUI runtime",
     description:
-      "Ubuntu VM on Lima that installs Hermes Agent, links a shared /shared/.env into ~/.hermes/.env, bridges Hermes into the host sky10 agent list, and keeps the Hermes TUI available in the sandbox terminal.",
+      "Ubuntu VM on Lima that installs Hermes Agent, links /sandbox-state/.env into ~/.hermes/.env, bridges Hermes into the host sky10 agent list, and keeps the Hermes TUI available in /shared/workspace.",
   },
 ] as const;
 

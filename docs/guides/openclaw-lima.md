@@ -12,7 +12,8 @@ This flow uses the repo's Lima template at
 - OpenClaw installed with Chromium + Xvfb browser automation
 - the sky10 web UI reachable on guest port `9101`
 - Caddy reverse proxy for guest-local UI access on port `18790`
-- a shared host directory at `~/sky10/sandboxes/<slug>`
+- a durable agent home at `~/Sky10/Drives/Agents/<slug>`
+- sandbox-local state at `~/.sky10/sandboxes/<slug>/state`
 
 ## Prerequisites
 
@@ -44,28 +45,34 @@ From the web UI:
 That flow:
 
 - stages the Lima template locally
-- creates `~/sky10/sandboxes/my-agent/.env` if it does not exist yet
-- merges host `sky10` secrets into that shared `.env` when known provider secrets exist
-- writes `~/sky10/sandboxes/my-agent/update-lima-hosts.sh`
-- stages the bundled `openclaw-sky10-channel` plugin into the shared directory
+- creates `~/.sky10/sandboxes/my-agent/state/.env` if it does not exist yet
+- merges host `sky10` secrets into that sandbox-local `.env` when known provider secrets exist
+- writes `~/.sky10/sandboxes/my-agent/state/update-lima-hosts.sh`
+- stages the bundled `openclaw-sky10-channel` plugin into `~/.sky10/sandboxes/my-agent/state/plugins/`
 - starts the Lima VM
 - installs guest-local `sky10`, OpenClaw, Chromium, Xvfb, and Caddy inside the guest
 - configures OpenClaw to talk to guest-local `sky10` at `http://localhost:9101`
 - waits for the guest `sky10` daemon, the OpenClaw gateway, and the guest agent registration to report healthy
 
-## Shared Host Directory
+## Agent Home And Sandbox State
 
-Each sandbox gets a shared host directory at:
+Each sandbox gets a durable agent home at:
 
 ```text
-~/sky10/sandboxes/<slug>
+~/Sky10/Drives/Agents/<slug>
+```
+
+Each sandbox also gets disposable local state at:
+
+```text
+~/.sky10/sandboxes/<slug>/state
 ```
 
 Provider keys are optional at boot, but the agent will need them before it can
 answer real requests:
 
 If you already store provider keys in host `sky10`, the OpenClaw sandbox will
-merge them into the shared `.env` automatically. The currently recognized secret
+merge them into the sandbox-local `.env` automatically. The currently recognized secret
 names are:
 
 - `OPENAI_API_KEY` or `openai`
@@ -78,10 +85,10 @@ sky10 secrets put openai --from-env OPENAI_API_KEY --kind api-key --scope curren
 sky10 secrets put anthropic --from-env ANTHROPIC_API_KEY --kind api-key --scope current
 ```
 
-You can still set or override the shared `.env` manually:
+You can still set or override the sandbox-local `.env` manually:
 
 ```bash
-cat > ~/sky10/sandboxes/my-agent/.env <<'EOF'
+cat > ~/.sky10/sandboxes/my-agent/state/.env <<'EOF'
 ANTHROPIC_API_KEY=your-anthropic-key
 OPENAI_API_KEY=your-openai-key
 EOF

@@ -22,6 +22,9 @@ mounts:
 - location: "__SKY10_SHARED_DIR__"
   mountPoint: "/shared"
   writable: true
+- location: "__SKY10_STATE_DIR__"
+  mountPoint: "/sandbox-state"
+  writable: true
 
 provision:
 - mode: dependency
@@ -44,8 +47,11 @@ probes:
 message: |
   OpenClaw is provisioning inside "__SKY10_SANDBOX_NAME__".
 
-  Shared host directory:
+  Agent home:
     __SKY10_SHARED_DIR__
+
+  Sandbox state:
+    __SKY10_STATE_DIR__
 
   The VM auto-installs:
   - sky10 on guest-local port 9101

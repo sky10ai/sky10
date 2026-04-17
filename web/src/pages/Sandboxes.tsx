@@ -175,7 +175,7 @@ export default function Sandboxes() {
             </div>
             <p className="text-xs text-secondary">
               {draftSlug
-                ? <>Runtime ID: <code>{draftSlug}</code> • Shared dir <code>~/sky10/sandboxes/{draftSlug}</code></>
+                ? <>Runtime ID: <code>{draftSlug}</code> • Agent home <code>~/Sky10/Drives/Agents/{draftSlug}</code></>
                 : "Names must include at least one letter or number."}
             </p>
           </div>
@@ -193,8 +193,7 @@ export default function Sandboxes() {
             </div>
             <div className="space-y-3 text-sm text-secondary">
               <p>
-                Sandboxes are isolated workspaces with a shared host directory under your local{" "}
-                <code>~/sky10/sandboxes/&lt;slug&gt;</code> path.
+                Sandboxes mount a durable agent home from <code>~/Sky10/Drives/Agents/&lt;slug&gt;</code> and keep disposable sandbox-local state under <code>~/.sky10/sandboxes/&lt;slug&gt;/state</code>.
               </p>
               {templateConfig.id === "openclaw" ? (
                 <>
@@ -208,7 +207,7 @@ export default function Sandboxes() {
               ) : templateConfig.id === "hermes" ? (
                 <>
                   <p>
-                    The Hermes template installs Hermes Agent inside the guest, links the shared <code>/shared/.env</code> file into <code>~/.hermes/.env</code>, and keeps the embedded sandbox terminal ready for the native Hermes TUI.
+                    The Hermes template installs Hermes Agent inside the guest, links <code>/sandbox-state/.env</code> into <code>~/.hermes/.env</code>, and keeps the embedded sandbox terminal ready for the native Hermes TUI in <code>/shared/workspace</code>.
                   </p>
                   <p>
                     It also starts a guest-local Hermes gateway plus a sky10 bridge, so the sandbox shows up in the host agent list and can be chatted with from sky10 while still remaining usable from the guest terminal.

@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sky10/sky10/pkg/config"
+	skyfs "github.com/sky10/sky10/pkg/fs"
 )
 
 func TestDefaultLimaSharedDir(t *testing.T) {
@@ -16,9 +19,86 @@ func TestDefaultLimaSharedDir(t *testing.T) {
 		t.Fatalf("defaultLimaSharedDir: %v", err)
 	}
 
-	want := filepath.Join(home, "sky10", "sandboxes", "bobs-burgers")
+	want := filepath.Join(home, "Sky10", "Drives", "Agents", "bobs-burgers")
 	if got != want {
 		t.Fatalf("defaultLimaSharedDir = %q, want %q", got, want)
+	}
+}
+
+func TestDefaultLimaStateDir(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(config.EnvHome, root)
+
+	got, err := defaultLimaStateDir("bobs-burgers")
+	if err != nil {
+		t.Fatalf("defaultLimaStateDir: %v", err)
+	}
+
+	want := filepath.Join(root, "sandboxes", "bobs-burgers", "state")
+	if got != want {
+		t.Fatalf("defaultLimaStateDir = %q, want %q", got, want)
+	}
+}
+
+func TestEnsureLocalAgentHomeUsesAgentsDriveRoot(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	driveHome := t.TempDir()
+	sharedDir := filepath.Join(driveHome, "Sky10", "Drives", "Agents", "devbox")
+	if err := ensureLocalAgentHome("devbox", sharedDir); err != nil {
+		t.Fatalf("ensureLocalAgentHome() error: %v", err)
+	}
+
+	cfgDir, err := config.Dir()
+	if err != nil {
+		t.Fatalf("config.Dir() error: %v", err)
+	}
+	manager := skyfs.NewDriveManager(nil, filepath.Join(cfgDir, "drives.json"))
+	drives := manager.ListDrives()
+	if len(drives) != 1 {
+		t.Fatalf("drive count = %d, want 1", len(drives))
+	}
+	if drives[0].Name != agentDriveRootName {
+		t.Fatalf("drive name = %q, want %q", drives[0].Name, agentDriveRootName)
+	}
+	if drives[0].Namespace != agentDriveRootName {
+		t.Fatalf("drive namespace = %q, want %q", drives[0].Namespace, agentDriveRootName)
+	}
+	if drives[0].LocalPath != filepath.Join(driveHome, "Sky10", "Drives", "Agents") {
+		t.Fatalf("drive path = %q, want root agent drive", drives[0].LocalPath)
+	}
+}
+
+func TestEnsureLocalAgentHomeReplacesLegacyPerAgentDrive(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	driveHome := t.TempDir()
+	sharedDir := filepath.Join(driveHome, "Sky10", "Drives", "Agents", "devbox")
+
+	cfgDir, err := config.Dir()
+	if err != nil {
+		t.Fatalf("config.Dir() error: %v", err)
+	}
+	manager := skyfs.NewDriveManager(nil, filepath.Join(cfgDir, "drives.json"))
+	legacyName := agentDriveNamePrefix + "devbox"
+	if _, err := manager.CreateDrive(legacyName, sharedDir, legacyName); err != nil {
+		t.Fatalf("CreateDrive(legacy) error: %v", err)
+	}
+
+	if err := ensureLocalAgentHome("devbox", sharedDir); err != nil {
+		t.Fatalf("ensureLocalAgentHome() error: %v", err)
+	}
+
+	manager = skyfs.NewDriveManager(nil, filepath.Join(cfgDir, "drives.json"))
+	drives := manager.ListDrives()
+	if len(drives) != 1 {
+		t.Fatalf("drive count = %d, want 1", len(drives))
+	}
+	if drives[0].Name != agentDriveRootName {
+		t.Fatalf("drive name = %q, want %q", drives[0].Name, agentDriveRootName)
+	}
+	if drives[0].LocalPath != filepath.Join(driveHome, "Sky10", "Drives", "Agents") {
+		t.Fatalf("drive path = %q, want root agent drive", drives[0].LocalPath)
 	}
 }
 
@@ -78,17 +158,20 @@ func TestValidateSandboxCreate(t *testing.T) {
 func TestRenderLimaTemplate(t *testing.T) {
 	t.Parallel()
 
-	body := []byte(`name=__SKY10_SANDBOX_NAME__ path=__SKY10_SHARED_DIR__`)
-	got := string(renderLimaTemplate(body, "bobs-burgers", "/Users/bf/sky10/sandboxes/bobs-burgers"))
+	body := []byte(`name=__SKY10_SANDBOX_NAME__ path=__SKY10_SHARED_DIR__ state=__SKY10_STATE_DIR__`)
+	got := string(renderLimaTemplate(body, "bobs-burgers", "/Users/bf/Sky10/Drives/Agents/bobs-burgers", "/Users/bf/.sky10/sandboxes/bobs-burgers/state"))
 
-	if strings.Contains(got, templateNameToken) || strings.Contains(got, templateSharedToken) {
+	if strings.Contains(got, templateNameToken) || strings.Contains(got, templateSharedToken) || strings.Contains(got, templateStateToken) {
 		t.Fatalf("renderLimaTemplate() left placeholder tokens behind: %q", got)
 	}
 	if !strings.Contains(got, "bobs-burgers") {
 		t.Fatalf("renderLimaTemplate() missing sandbox name: %q", got)
 	}
-	if !strings.Contains(got, "/Users/bf/sky10/sandboxes/bobs-burgers") {
+	if !strings.Contains(got, "/Users/bf/Sky10/Drives/Agents/bobs-burgers") {
 		t.Fatalf("renderLimaTemplate() missing shared dir: %q", got)
+	}
+	if !strings.Contains(got, "/Users/bf/.sky10/sandboxes/bobs-burgers/state") {
+		t.Fatalf("renderLimaTemplate() missing state dir: %q", got)
 	}
 }
 
@@ -96,30 +179,36 @@ func TestPrepareLimaSharedDir(t *testing.T) {
 	t.Parallel()
 
 	sharedDir := t.TempDir()
+	stateDir := filepath.Join(t.TempDir(), "state")
 	pluginAssets := map[string][]byte{
 		agentLimaPluginManifest: []byte(`{"id":"sky10"}` + "\n"),
 		agentLimaPluginIndex:    []byte("export default function register() {}\n"),
 	}
-	if err := prepareLimaSharedDir(sandboxTemplateOpenClaw, sharedDir, []byte("#!/bin/sh\n"), pluginAssets, map[string]string{
+	if err := prepareLimaSharedDir(sandboxTemplateOpenClaw, sharedDir, stateDir, []byte("#!/bin/sh\n"), pluginAssets, map[string]string{
 		"OPENAI_API_KEY": "openai-key",
 	}, nil); err != nil {
 		t.Fatalf("prepareLimaSharedDir() error: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(sharedDir, agentLimaHostsScript)); err != nil {
+	for _, rel := range []string{"mind", "workspace"} {
+		if _, err := os.Stat(filepath.Join(sharedDir, rel)); err != nil {
+			t.Fatalf("Stat(agent home %q) error: %v", rel, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, agentLimaHostsScript)); err != nil {
 		t.Fatalf("Stat(hosts helper) error: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(sharedDir, ".env")); err != nil {
+	if _, err := os.Stat(filepath.Join(stateDir, ".env")); err != nil {
 		t.Fatalf("Stat(.env) error: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(sharedDir, ".env"))
+	data, err := os.ReadFile(filepath.Join(stateDir, ".env"))
 	if err != nil {
 		t.Fatalf("ReadFile(.env) error: %v", err)
 	}
 	if !strings.Contains(string(data), "OPENAI_API_KEY=openai-key") {
 		t.Fatalf(".env = %q, want resolved openai key", string(data))
 	}
-	if _, err := os.Stat(filepath.Join(sharedDir, agentLimaPluginManifest)); err != nil {
+	if _, err := os.Stat(filepath.Join(stateDir, "plugins", agentLimaPluginManifest)); err != nil {
 		t.Fatalf("Stat(plugin manifest) error: %v", err)
 	}
 }
@@ -128,7 +217,8 @@ func TestPrepareLimaSharedDirHermes(t *testing.T) {
 	t.Parallel()
 
 	sharedDir := t.TempDir()
-	if err := prepareLimaSharedDir(sandboxTemplateHermes, sharedDir, nil, map[string][]byte{
+	stateDir := filepath.Join(t.TempDir(), "state")
+	if err := prepareLimaSharedDir(sandboxTemplateHermes, sharedDir, stateDir, nil, map[string][]byte{
 		agentLimaHermesBridge: []byte("#!/usr/bin/env python3\nprint('ok')\n"),
 	}, map[string]string{
 		"ANTHROPIC_API_KEY": "anthropic-key",
@@ -141,7 +231,7 @@ func TestPrepareLimaSharedDirHermes(t *testing.T) {
 		t.Fatalf("prepareLimaSharedDir(hermes) error: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(sharedDir, ".env"))
+	data, err := os.ReadFile(filepath.Join(stateDir, ".env"))
 	if err != nil {
 		t.Fatalf("ReadFile(.env) error: %v", err)
 	}
@@ -151,14 +241,14 @@ func TestPrepareLimaSharedDirHermes(t *testing.T) {
 	if !strings.Contains(string(data), "ANTHROPIC_API_KEY=anthropic-key") {
 		t.Fatalf(".env = %q, want resolved anthropic key", string(data))
 	}
-	configData, err := os.ReadFile(filepath.Join(sharedDir, agentLimaHermesBridgeJSON))
+	configData, err := os.ReadFile(filepath.Join(stateDir, agentLimaHermesBridgeJSON))
 	if err != nil {
 		t.Fatalf("ReadFile(bridge config) error: %v", err)
 	}
 	if !strings.Contains(string(configData), `"agent_name":"Hermes Agent"`) {
 		t.Fatalf("bridge config = %q, want agent name", string(configData))
 	}
-	bridgePath := filepath.Join(sharedDir, agentLimaHermesBridge)
+	bridgePath := filepath.Join(stateDir, agentLimaHermesBridge)
 	if info, err := os.Stat(bridgePath); err != nil {
 		t.Fatalf("Stat(bridge asset) error: %v", err)
 	} else if info.Mode()&0o111 == 0 {
@@ -185,14 +275,11 @@ func TestOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), "EnvironmentFile=-%h/.openclaw/.env") {
 		t.Fatalf("user script missing systemd env file import: %q", string(body))
 	}
-	if !strings.Contains(string(body), `SKY10_INVITE_PATH="/shared/.sky10-join.json"`) {
-		t.Fatalf("user script missing shared invite path: %q", string(body))
+	if !strings.Contains(string(body), `SKY10_INVITE_PATH="/sandbox-state/join.json"`) {
+		t.Fatalf("user script missing sandbox invite path: %q", string(body))
 	}
-	if !strings.Contains(string(body), "sky10 join --role sandbox") {
-		t.Fatalf("user script missing pre-boot sky10 join: %q", string(body))
-	}
-	if !strings.Contains(string(body), `if [ -f "${UNIT_DIR}/sky10.service" ]; then`) {
-		t.Fatalf("user script missing existing-service join guard: %q", string(body))
+	if strings.Contains(string(body), "sky10 join --role sandbox") {
+		t.Fatalf("user script should not join the host identity during boot: %q", string(body))
 	}
 	if !strings.Contains(string(body), "cat > \"${UNIT_DIR}/sky10.service\" <<EOF") {
 		t.Fatalf("user script missing guest sky10 systemd unit: %q", string(body))
@@ -217,6 +304,12 @@ func TestOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "bootstrap_local_cli_pairing") {
 		t.Fatalf("user script missing CLI pairing bootstrap: %q", string(body))
+	}
+	if !strings.Contains(string(body), `PLUGIN_DIR="/sandbox-state/plugins/openclaw-sky10-channel"`) {
+		t.Fatalf("user script missing sandbox-state plugin dir: %q", string(body))
+	}
+	if !strings.Contains(string(body), `WORKSPACE_DIR="/shared/workspace"`) {
+		t.Fatalf("user script missing shared workspace dir: %q", string(body))
 	}
 	if !strings.Contains(string(body), `"skills": ["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("user script missing browser skill registration: %q", string(body))
@@ -364,7 +457,7 @@ func TestHermesUserScriptInstallsHelper(t *testing.T) {
 	if !strings.Contains(script, "hermes-shared") {
 		t.Fatalf("user script missing helper command: %q", script)
 	}
-	if !strings.Contains(script, "hermes config set terminal.cwd /shared") {
+	if !strings.Contains(script, "hermes config set terminal.cwd /shared/workspace") {
 		t.Fatalf("user script missing shared cwd config: %q", script)
 	}
 	if !strings.Contains(script, "hermes config set model \"${HERMES_MODEL}\"") {
@@ -391,8 +484,8 @@ func TestHermesUserScriptInstallsHelper(t *testing.T) {
 	if !strings.Contains(script, "sky10.service") {
 		t.Fatalf("user script missing guest sky10 service unit: %q", script)
 	}
-	if !strings.Contains(script, "sky10 join --role sandbox") {
-		t.Fatalf("user script missing guest join bootstrap: %q", script)
+	if strings.Contains(script, "sky10 join --role sandbox") {
+		t.Fatalf("user script should not join the host identity during boot: %q", script)
 	}
 	if !strings.Contains(script, "hermes gateway run") {
 		t.Fatalf("user script missing gateway foreground command: %q", script)
@@ -400,7 +493,7 @@ func TestHermesUserScriptInstallsHelper(t *testing.T) {
 	if !strings.Contains(script, "API_SERVER_ENABLED=true") {
 		t.Fatalf("user script missing API server env bootstrap: %q", script)
 	}
-	if !strings.Contains(script, ".sky10-hermes-bridge.json") {
+	if !strings.Contains(script, "/sandbox-state/bridge.json") {
 		t.Fatalf("user script missing bridge config path: %q", script)
 	}
 	if !strings.Contains(script, "merge_guest_env_into_shared") {
@@ -409,8 +502,8 @@ func TestHermesUserScriptInstallsHelper(t *testing.T) {
 	if !strings.Contains(script, ".env.example") {
 		t.Fatalf("user script missing Hermes example env comparison: %q", script)
 	}
-	if !strings.Contains(script, `ln -sfn "${SHARED_DIR}/.env" "${HERMES_HOME}/.env"`) {
-		t.Fatalf("user script missing shared env symlink: %q", script)
+	if !strings.Contains(script, `ln -sfn "${SANDBOX_STATE_DIR}/.env" "${HERMES_HOME}/.env"`) {
+		t.Fatalf("user script missing sandbox env symlink: %q", script)
 	}
 	if got := strings.Count(script, "link_hermes_env"); got < 3 {
 		t.Fatalf("user script should relink shared env after Hermes config writes, count=%d: %q", got, script)

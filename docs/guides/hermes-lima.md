@@ -9,13 +9,13 @@ This flow uses the repo's Lima template at
 
 - Ubuntu 24.04 VM on Lima using `vz`
 - Hermes Agent installed inside the guest
-- a shared host directory at `~/sky10/sandboxes/<slug>`
-- shared provider env at `~/sky10/sandboxes/<slug>/.env`, linked into
-  `~/.hermes/.env` inside the guest
+- a durable agent home at `~/Sky10/Drives/Agents/<slug>`
+- sandbox-local provider env at `~/.sky10/sandboxes/<slug>/state/.env`,
+  linked into `~/.hermes/.env` inside the guest
 - automatic host-secret merge for `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
   and `OPENROUTER_API_KEY` when the sandbox is created through the
   running `sky10` daemon
-- a `hermes-shared` helper that starts Hermes from `/shared`
+- a `hermes-shared` helper that starts Hermes from `/shared/workspace`
 
 ## Prerequisites
 
@@ -63,17 +63,23 @@ Or launch it directly from the host:
 limactl shell my-hermes -- bash -lc 'hermes-shared'
 ```
 
-## Shared Host Directory
+## Agent Home And Sandbox State
 
-Each Hermes sandbox gets a shared host directory at:
+Each Hermes sandbox gets a durable agent home at:
 
 ```text
-~/sky10/sandboxes/<slug>
+~/Sky10/Drives/Agents/<slug>
+```
+
+Each Hermes sandbox also gets disposable local state at:
+
+```text
+~/.sky10/sandboxes/<slug>/state
 ```
 
 When the sandbox is created through the running `sky10` daemon, host
 secrets named `anthropic` or `ANTHROPIC_API_KEY` are merged into the
-shared `.env` automatically. The same applies to `openai` /
+sandbox-local `.env` automatically. The same applies to `openai` /
 `OPENAI_API_KEY` and `openrouter` / `OPENROUTER_API_KEY`.
 
 For example:
@@ -82,11 +88,11 @@ For example:
 sky10 secrets put anthropic --from-env ANTHROPIC_API_KEY --kind api-key
 ```
 
-You can still edit the shared `.env` file directly if you want to
+You can still edit the sandbox-local `.env` file directly if you want to
 override or add keys manually:
 
 ```bash
-cat > ~/sky10/sandboxes/my-hermes/.env <<'EOF'
+cat > ~/.sky10/sandboxes/my-hermes/state/.env <<'EOF'
 OPENAI_API_KEY=your-openai-key
 ANTHROPIC_API_KEY=your-anthropic-key
 EOF

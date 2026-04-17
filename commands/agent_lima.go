@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/sky10/sky10/pkg/config"
+	skyfs "github.com/sky10/sky10/pkg/fs"
 	skysandbox "github.com/sky10/sky10/pkg/sandbox"
 	"github.com/spf13/cobra"
 )
@@ -32,7 +33,7 @@ const (
 	agentLimaHermesSys        = "hermes-sky10.system.sh"
 	agentLimaHermesUser       = "hermes-sky10.user.sh"
 	agentLimaHermesBridge     = "hermes-sky10-bridge.py"
-	agentLimaHermesBridgeJSON = ".sky10-hermes-bridge.json"
+	agentLimaHermesBridgeJSON = "bridge.json"
 	agentLimaHostsScript      = "update-lima-hosts.sh"
 	agentLimaPluginDir        = "openclaw-sky10-channel"
 	agentLimaPluginPackage    = agentLimaPluginDir + "/package.json"
@@ -43,8 +44,12 @@ const (
 	sandboxProviderLima       = "lima"
 	sandboxTemplateOpenClaw   = "openclaw"
 	sandboxTemplateHermes     = "hermes"
+	agentLimaJoinFile         = "join.json"
 	templateNameToken         = "__SKY10_SANDBOX_NAME__"
 	templateSharedToken       = "__SKY10_SHARED_DIR__"
+	templateStateToken        = "__SKY10_STATE_DIR__"
+	agentDriveRootName        = "Agents"
+	agentDriveNamePrefix      = "agent-"
 	openClawReadyTimeout      = 2 * time.Minute
 	guestSky10ReadyURL        = "http://127.0.0.1:9101/health"
 	openClawReadyURL          = "http://127.0.0.1:18789/health"
@@ -154,8 +159,15 @@ func sandboxCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			stateDir, err := defaultLimaStateDir(slug)
+			if err != nil {
+				return err
+			}
+			if err := ensureLocalAgentHome(slug, sharedDir); err != nil {
+				return err
+			}
 
-			templatePath, hostsScript, err := materializeLimaAssets(cmd.Context(), slug, sharedDir, spec)
+			templatePath, hostsScript, err := materializeLimaAssets(cmd.Context(), slug, sharedDir, stateDir, spec)
 			if err != nil {
 				return err
 			}
@@ -178,7 +190,7 @@ func sandboxCreateCmd() *cobra.Command {
 				}
 				hermesBridge = buildHermesBridgeConfig(displayName, slug, "")
 			}
-			if err := prepareLimaSharedDir(template, sharedDir, hostsScript, sharedAssets, resolvedEnv, hermesBridge); err != nil {
+			if err := prepareLimaSharedDir(template, sharedDir, stateDir, hostsScript, sharedAssets, resolvedEnv, hermesBridge); err != nil {
 				return err
 			}
 
@@ -310,7 +322,10 @@ func printSandboxSummary(cmd *cobra.Command, rec skysandbox.Record) {
 	fmt.Fprintf(cmd.OutOrStdout(), "Runtime ID: %s\n", rec.Slug)
 	fmt.Fprintf(cmd.OutOrStdout(), "Provider:   %s\n", rec.Provider)
 	fmt.Fprintf(cmd.OutOrStdout(), "Template:   %s\n", rec.Template)
-	fmt.Fprintf(cmd.OutOrStdout(), "Shared dir: %s\n", rec.SharedDir)
+	fmt.Fprintf(cmd.OutOrStdout(), "Agent home: %s\n", rec.SharedDir)
+	if stateDir, err := defaultLimaStateDir(rec.Slug); err == nil {
+		fmt.Fprintf(cmd.OutOrStdout(), "State dir:  %s\n", stateDir)
+	}
 
 	switch rec.Template {
 	case sandboxTemplateHermes:
@@ -418,7 +433,15 @@ func defaultLimaSharedDir(name string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("finding home directory: %w", err)
 	}
-	return filepath.Join(home, "sky10", "sandboxes", name), nil
+	return filepath.Join(home, "Sky10", "Drives", "Agents", name), nil
+}
+
+func defaultLimaStateDir(name string) (string, error) {
+	root, err := config.RootDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "sandboxes", name, "state"), nil
 }
 
 func slugifySandboxName(name string) string {
@@ -427,7 +450,7 @@ func slugifySandboxName(name string) string {
 	return strings.Join(parts, "-")
 }
 
-func materializeLimaAssets(ctx context.Context, sandboxName, sharedDir string, spec limaTemplateSpec) (string, []byte, error) {
+func materializeLimaAssets(ctx context.Context, sandboxName, sharedDir, stateDir string, spec limaTemplateSpec) (string, []byte, error) {
 	root, err := config.RootDir()
 	if err != nil {
 		return "", nil, err
@@ -451,7 +474,7 @@ func materializeLimaAssets(ctx context.Context, sandboxName, sharedDir string, s
 				mode = 0o755
 			}
 			if assetName == spec.mainAsset {
-				if err := copyAndRenderTemplate(src, templatePath, mode, sandboxName, sharedDir); err != nil {
+				if err := copyAndRenderTemplate(src, templatePath, mode, sandboxName, sharedDir, stateDir); err != nil {
 					return "", nil, err
 				}
 				continue
@@ -480,9 +503,9 @@ func materializeLimaAssets(ctx context.Context, sandboxName, sharedDir string, s
 			mode = 0o755
 		}
 		dst := filepath.Join(destDir, assetName)
-		if assetName == agentLimaTemplateYAML {
+		if assetName == spec.mainAsset {
 			dst = templatePath
-			body = renderLimaTemplate(body, sandboxName, sharedDir)
+			body = renderLimaTemplate(body, sandboxName, sharedDir, stateDir)
 		}
 		if err := os.WriteFile(dst, body, mode); err != nil {
 			return "", nil, fmt.Errorf("writing Lima asset %q: %w", assetName, err)
@@ -499,20 +522,21 @@ func materializeLimaAssets(ctx context.Context, sandboxName, sharedDir string, s
 	return templatePath, helper, nil
 }
 
-func copyAndRenderTemplate(src, dst string, mode os.FileMode, name, sharedDir string) error {
+func copyAndRenderTemplate(src, dst string, mode os.FileMode, name, sharedDir, stateDir string) error {
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return fmt.Errorf("reading Lima asset %q: %w", src, err)
 	}
-	if err := os.WriteFile(dst, renderLimaTemplate(data, name, sharedDir), mode); err != nil {
+	if err := os.WriteFile(dst, renderLimaTemplate(data, name, sharedDir, stateDir), mode); err != nil {
 		return fmt.Errorf("writing Lima asset %q: %w", dst, err)
 	}
 	return nil
 }
 
-func renderLimaTemplate(body []byte, name, sharedDir string) []byte {
+func renderLimaTemplate(body []byte, name, sharedDir, stateDir string) []byte {
 	rendered := strings.ReplaceAll(string(body), templateNameToken, name)
 	rendered = strings.ReplaceAll(rendered, templateSharedToken, sharedDir)
+	rendered = strings.ReplaceAll(rendered, templateStateToken, stateDir)
 	return []byte(rendered)
 }
 
@@ -595,38 +619,41 @@ func downloadLimaAsset(ctx context.Context, name string) ([]byte, error) {
 	return body, nil
 }
 
-func prepareLimaSharedDir(template, sharedDir string, hostsScript []byte, sharedAssets map[string][]byte, resolvedEnv map[string]string, hermesBridge *hermesBridgeConfig) error {
-	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
-		return fmt.Errorf("creating shared Lima directory %q: %w", sharedDir, err)
+func prepareLimaSharedDir(template, sharedDir, stateDir string, hostsScript []byte, sharedAssets map[string][]byte, resolvedEnv map[string]string, hermesBridge *hermesBridgeConfig) error {
+	if err := skysandbox.EnsureAgentHomeLayout(sharedDir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return fmt.Errorf("creating sandbox state directory %q: %w", stateDir, err)
 	}
 
-	envPath := filepath.Join(sharedDir, ".env")
+	envPath := filepath.Join(stateDir, ".env")
 	existingEnv, err := os.ReadFile(envPath)
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("checking shared env file %q: %w", envPath, err)
+		return fmt.Errorf("checking sandbox env file %q: %w", envPath, err)
 	}
 	switch template {
 	case sandboxTemplateOpenClaw:
 		if err := os.WriteFile(envPath, skysandbox.BuildOpenClawSharedEnv(existingEnv, resolvedEnv), 0o600); err != nil {
-			return fmt.Errorf("writing shared env file %q: %w", envPath, err)
+			return fmt.Errorf("writing sandbox env file %q: %w", envPath, err)
 		}
 	case sandboxTemplateHermes:
 		if err := os.WriteFile(envPath, skysandbox.BuildHermesSharedEnv(existingEnv, resolvedEnv), 0o600); err != nil {
-			return fmt.Errorf("writing shared env file %q: %w", envPath, err)
+			return fmt.Errorf("writing sandbox env file %q: %w", envPath, err)
 		}
 		if hermesBridge != nil {
 			body, err := json.Marshal(hermesBridge)
 			if err != nil {
 				return fmt.Errorf("marshaling hermes bridge config: %w", err)
 			}
-			configPath := filepath.Join(sharedDir, agentLimaHermesBridgeJSON)
+			configPath := filepath.Join(stateDir, agentLimaHermesBridgeJSON)
 			if err := os.WriteFile(configPath, append(body, '\n'), 0o600); err != nil {
 				return fmt.Errorf("writing hermes bridge config %q: %w", configPath, err)
 			}
 		}
 	}
 
-	helperPath := filepath.Join(sharedDir, agentLimaHostsScript)
+	helperPath := filepath.Join(stateDir, agentLimaHostsScript)
 	if len(hostsScript) > 0 {
 		if err := os.WriteFile(helperPath, hostsScript, 0o755); err != nil {
 			return fmt.Errorf("writing Lima hosts helper %q: %w", helperPath, err)
@@ -634,7 +661,10 @@ func prepareLimaSharedDir(template, sharedDir string, hostsScript []byte, shared
 	}
 
 	for relPath, body := range sharedAssets {
-		targetPath := filepath.Join(sharedDir, relPath)
+		targetPath := filepath.Join(stateDir, relPath)
+		if template == sandboxTemplateOpenClaw {
+			targetPath = filepath.Join(stateDir, "plugins", relPath)
+		}
 		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 			return fmt.Errorf("creating bundled plugin dir %q: %w", filepath.Dir(targetPath), err)
 		}
@@ -647,6 +677,54 @@ func prepareLimaSharedDir(template, sharedDir string, hostsScript []byte, shared
 		}
 	}
 
+	return nil
+}
+
+func ensureLocalAgentHome(slug, sharedDir string) error {
+	if err := skysandbox.EnsureAgentHomeLayout(sharedDir); err != nil {
+		return err
+	}
+
+	cfgDir, err := config.Dir()
+	if err != nil {
+		return fmt.Errorf("resolving drive config directory: %w", err)
+	}
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		return fmt.Errorf("creating drive config directory: %w", err)
+	}
+
+	manager := skyfs.NewDriveManager(nil, filepath.Join(cfgDir, "drives.json"))
+	cleanPath := filepath.Clean(sharedDir)
+	driveRoot := filepath.Clean(filepath.Dir(cleanPath))
+	legacyIDs := make([]string, 0)
+	rootReady := false
+	for _, drive := range manager.ListDrives() {
+		driveName := strings.TrimSpace(drive.Name)
+		drivePath := filepath.Clean(strings.TrimSpace(drive.LocalPath))
+		switch {
+		case drivePath == driveRoot:
+			if driveName != agentDriveRootName {
+				return fmt.Errorf("drive %q already exists with path %q; expected drive %q", driveName, drive.LocalPath, agentDriveRootName)
+			}
+			rootReady = true
+		case driveName == agentDriveRootName:
+			return fmt.Errorf("drive %q already exists with path %q", agentDriveRootName, drive.LocalPath)
+		case strings.HasPrefix(driveName, agentDriveNamePrefix) && filepath.Clean(filepath.Dir(drivePath)) == driveRoot:
+			legacyIDs = append(legacyIDs, drive.ID)
+		}
+	}
+	for _, id := range legacyIDs {
+		if err := manager.RemoveDrive(id); err != nil {
+			return fmt.Errorf("removing legacy agent drive %q: %w", id, err)
+		}
+	}
+	if rootReady {
+		return nil
+	}
+
+	if _, err := manager.CreateDrive(agentDriveRootName, driveRoot, agentDriveRootName); err != nil {
+		return fmt.Errorf("creating drive %q for agent home %q: %w", agentDriveRootName, slug, err)
+	}
 	return nil
 }
 

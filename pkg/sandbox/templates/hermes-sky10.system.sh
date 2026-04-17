@@ -10,6 +10,8 @@ APT_FLAGS=(-o Acquire::ForceIPv4=true -o Acquire::Retries=3)
 
 mkdir -p "${STATE_DIR}"
 mkdir -p /shared
+mkdir -p /shared/workspace
+mkdir -p /sandbox-state
 
 emit_progress() {
   local event="$1"

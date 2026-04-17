@@ -406,7 +406,7 @@ class Bridge:
 
 
 def main() -> int:
-    config_path = os.environ.get("SKY10_BRIDGE_CONFIG_PATH", "/shared/.sky10-hermes-bridge.json").strip()
+    config_path = os.environ.get("SKY10_BRIDGE_CONFIG_PATH", "/sandbox-state/bridge.json").strip()
     if not config_path:
         raise BridgeError("SKY10_BRIDGE_CONFIG_PATH is empty")
     if not os.path.exists(config_path):

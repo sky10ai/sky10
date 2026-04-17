@@ -43,18 +43,25 @@ const (
 	templateHermesSys              = "hermes-sky10.system.sh"
 	templateHermesUser             = "hermes-sky10.user.sh"
 	templateHermesBridgeAsset      = "hermes-sky10-bridge.py"
-	templateHermesBridgeConfig     = ".sky10-hermes-bridge.json"
+	templateHermesBridgeConfig     = "bridge.json"
 	templateHostsHelper            = "update-lima-hosts.sh"
 	templateOpenClawPluginDir      = "openclaw-sky10-channel"
 	templateOpenClawPluginPackage  = templateOpenClawPluginDir + "/package.json"
 	templateOpenClawPluginManifest = templateOpenClawPluginDir + "/openclaw.plugin.json"
 	templateOpenClawPluginIndex    = templateOpenClawPluginDir + "/src/index.js"
 	templateOpenClawPluginClient   = templateOpenClawPluginDir + "/src/sky10.js"
-	templateOpenClawInviteFile     = ".sky10-join.json"
+	templateOpenClawInviteFile     = "join.json"
 	templateRemoteBase             = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
 	logFileName                    = "boot.log"
 	templateNameToken              = "__SKY10_SANDBOX_NAME__"
 	templateSharedToken            = "__SKY10_SHARED_DIR__"
+	templateStateToken             = "__SKY10_STATE_DIR__"
+	sandboxStateDirName            = "state"
+	sandboxLogsDirName             = "logs"
+	agentMindDirName               = "mind"
+	agentWorkspaceDirName          = "workspace"
+	agentDriveRootName             = "Agents"
+	agentDriveNamePrefix           = "agent-"
 	openClawReadyTimeout           = 2 * time.Minute
 	guestSky10ReadyURL             = "http://127.0.0.1:9101/health"
 	guestSky10LocalRPCURL          = "http://127.0.0.1:9101/rpc"
@@ -886,6 +893,9 @@ func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, err
 	if err != nil {
 		return nil, err
 	}
+	if err := m.ensureAgentHome(ctx, slug, sharedDir); err != nil {
+		return nil, err
+	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	initialProgress, tracker := newInitialProgress(provider, template)
@@ -935,6 +945,9 @@ func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, err
 func (m *Manager) Ensure(ctx context.Context, params CreateParams) (*Record, error) {
 	displayName, slug, provider, template, model, sharedDir, err := normalizeCreateParams(params)
 	if err != nil {
+		return nil, err
+	}
+	if err := m.ensureAgentHome(ctx, slug, sharedDir); err != nil {
 		return nil, err
 	}
 
@@ -1507,6 +1520,7 @@ func (m *Manager) materializeTemplate(ctx context.Context, rec Record) (string, 
 	}
 
 	renderedPath := filepath.Join(cacheDir, rec.Slug+"-"+spec.mainAsset)
+	stateDir := m.sandboxStateDir(rec.Slug)
 	for _, assetName := range spec.assets {
 		body, err := loadSandboxAsset(ctx, assetName)
 		if err != nil {
@@ -1520,7 +1534,7 @@ func (m *Manager) materializeTemplate(ctx context.Context, rec Record) (string, 
 		}
 		if assetName == spec.mainAsset {
 			targetPath = renderedPath
-			data = renderSandboxTemplate(body, rec.Slug, rec.SharedDir)
+			data = renderSandboxTemplate(body, rec.Slug, rec.SharedDir, stateDir)
 		}
 		if err := os.WriteFile(targetPath, data, mode); err != nil {
 			return "", fmt.Errorf("writing sandbox template asset %q: %w", assetName, err)
@@ -1530,6 +1544,10 @@ func (m *Manager) materializeTemplate(ctx context.Context, rec Record) (string, 
 }
 
 func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) error {
+	stateDir := m.sandboxStateDir(rec.Slug)
+	if err := m.ensureAgentHome(ctx, rec.Slug, rec.SharedDir); err != nil {
+		return err
+	}
 	switch rec.Template {
 	case templateHermes:
 		sharedAssets, err := loadSandboxAssets(ctx, hermesSharedAssetFiles)
@@ -1563,11 +1581,14 @@ func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) erro
 				hostRPCURL = value
 			}
 		}
-		return prepareHermesSharedDir(rec.SharedDir, resolvedEnv, sharedAssets, buildHermesBridgeConfig(rec), invite, rec.Slug, hostRPCURL)
+		return prepareHermesSharedDir(rec.SharedDir, stateDir, resolvedEnv, sharedAssets, buildHermesBridgeConfig(rec), invite, rec.Slug, hostRPCURL)
 	case templateOpenClaw:
 	default:
 		if err := os.MkdirAll(rec.SharedDir, 0o755); err != nil {
 			return fmt.Errorf("creating shared directory: %w", err)
+		}
+		if err := os.MkdirAll(stateDir, 0o700); err != nil {
+			return fmt.Errorf("creating sandbox state directory: %w", err)
 		}
 		return nil
 	}
@@ -1607,7 +1628,7 @@ func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) erro
 			hostRPCURL = value
 		}
 	}
-	if err := prepareOpenClawSharedDir(rec.SharedDir, hostsHelper, pluginAssets, resolvedEnv, invite, rec.Slug, hostRPCURL); err != nil {
+	if err := prepareOpenClawSharedDir(rec.SharedDir, stateDir, hostsHelper, pluginAssets, resolvedEnv, invite, rec.Slug, hostRPCURL); err != nil {
 		return err
 	}
 	return nil
@@ -1912,9 +1933,10 @@ func defaultShellCommand(slug, template string) string {
 	return fmt.Sprintf("limactl shell %s", slug)
 }
 
-func renderSandboxTemplate(body []byte, name, sharedDir string) []byte {
+func renderSandboxTemplate(body []byte, name, sharedDir, stateDir string) []byte {
 	rendered := strings.ReplaceAll(string(body), templateNameToken, name)
 	rendered = strings.ReplaceAll(rendered, templateSharedToken, sharedDir)
+	rendered = strings.ReplaceAll(rendered, templateStateToken, stateDir)
 	return []byte(rendered)
 }
 
@@ -1950,35 +1972,38 @@ func sandboxTemplateDefinition(template string) (templateDefinition, error) {
 	}
 }
 
-func prepareOpenClawSharedDir(sharedDir string, hostsHelper []byte, pluginAssets map[string][]byte, resolvedEnv map[string]string, invite *IdentityInvite, sandboxSlug, hostRPCURL string) error {
-	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
-		return fmt.Errorf("creating shared directory: %w", err)
+func prepareOpenClawSharedDir(sharedDir, stateDir string, hostsHelper []byte, pluginAssets map[string][]byte, resolvedEnv map[string]string, invite *IdentityInvite, sandboxSlug, hostRPCURL string) error {
+	if err := EnsureAgentHomeLayout(sharedDir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return fmt.Errorf("creating sandbox state directory: %w", err)
 	}
 
-	envPath := filepath.Join(sharedDir, ".env")
+	envPath := filepath.Join(stateDir, ".env")
 	existingEnv, err := os.ReadFile(envPath)
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("checking shared env file: %w", err)
+		return fmt.Errorf("checking sandbox env file: %w", err)
 	}
 	if err := os.WriteFile(envPath, BuildOpenClawSharedEnv(existingEnv, resolvedEnv), 0o600); err != nil {
-		return fmt.Errorf("writing shared env file: %w", err)
+		return fmt.Errorf("writing sandbox env file: %w", err)
 	}
 
 	if invite != nil && strings.TrimSpace(invite.Code) != "" {
-		if err := writeSandboxJoinPayload(sharedDir, invite, sandboxSlug, hostRPCURL); err != nil {
+		if err := writeSandboxJoinPayload(stateDir, invite, sandboxSlug, hostRPCURL); err != nil {
 			return err
 		}
 	}
 
 	if len(hostsHelper) > 0 {
-		helperPath := filepath.Join(sharedDir, templateHostsHelper)
+		helperPath := filepath.Join(stateDir, templateHostsHelper)
 		if err := os.WriteFile(helperPath, hostsHelper, 0o755); err != nil {
 			return fmt.Errorf("writing hosts helper: %w", err)
 		}
 	}
 
 	for relPath, body := range pluginAssets {
-		targetPath := filepath.Join(sharedDir, relPath)
+		targetPath := filepath.Join(stateDir, "plugins", relPath)
 		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 			return fmt.Errorf("creating bundled plugin dir: %w", err)
 		}
@@ -1990,18 +2015,21 @@ func prepareOpenClawSharedDir(sharedDir string, hostsHelper []byte, pluginAssets
 	return nil
 }
 
-func prepareHermesSharedDir(sharedDir string, resolvedEnv map[string]string, sharedAssets map[string][]byte, bridgeConfig *hermesBridgeConfig, invite *IdentityInvite, sandboxSlug, hostRPCURL string) error {
-	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
-		return fmt.Errorf("creating shared directory: %w", err)
+func prepareHermesSharedDir(sharedDir, stateDir string, resolvedEnv map[string]string, sharedAssets map[string][]byte, bridgeConfig *hermesBridgeConfig, invite *IdentityInvite, sandboxSlug, hostRPCURL string) error {
+	if err := EnsureAgentHomeLayout(sharedDir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return fmt.Errorf("creating sandbox state directory: %w", err)
 	}
 
-	envPath := filepath.Join(sharedDir, ".env")
+	envPath := filepath.Join(stateDir, ".env")
 	existingEnv, err := os.ReadFile(envPath)
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("checking shared env file: %w", err)
+		return fmt.Errorf("checking sandbox env file: %w", err)
 	}
 	if err := os.WriteFile(envPath, BuildHermesSharedEnv(existingEnv, resolvedEnv), 0o600); err != nil {
-		return fmt.Errorf("writing shared env file: %w", err)
+		return fmt.Errorf("writing sandbox env file: %w", err)
 	}
 
 	if bridgeConfig != nil {
@@ -2009,20 +2037,20 @@ func prepareHermesSharedDir(sharedDir string, resolvedEnv map[string]string, sha
 		if err != nil {
 			return fmt.Errorf("marshaling hermes bridge config: %w", err)
 		}
-		configPath := filepath.Join(sharedDir, templateHermesBridgeConfig)
+		configPath := filepath.Join(stateDir, templateHermesBridgeConfig)
 		if err := os.WriteFile(configPath, append(body, '\n'), 0o600); err != nil {
 			return fmt.Errorf("writing hermes bridge config: %w", err)
 		}
 	}
 
 	if invite != nil && strings.TrimSpace(invite.Code) != "" {
-		if err := writeSandboxJoinPayload(sharedDir, invite, sandboxSlug, hostRPCURL); err != nil {
+		if err := writeSandboxJoinPayload(stateDir, invite, sandboxSlug, hostRPCURL); err != nil {
 			return err
 		}
 	}
 
 	for relPath, body := range sharedAssets {
-		targetPath := filepath.Join(sharedDir, relPath)
+		targetPath := filepath.Join(stateDir, relPath)
 		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 			return fmt.Errorf("creating hermes shared asset dir: %w", err)
 		}
@@ -2038,7 +2066,7 @@ func prepareHermesSharedDir(sharedDir string, resolvedEnv map[string]string, sha
 	return nil
 }
 
-func writeSandboxJoinPayload(sharedDir string, invite *IdentityInvite, sandboxSlug, hostRPCURL string) error {
+func writeSandboxJoinPayload(stateDir string, invite *IdentityInvite, sandboxSlug, hostRPCURL string) error {
 	payload := openClawJoinPayload{
 		HostIdentity: strings.TrimSpace(invite.HostIdentity),
 		Code:         strings.TrimSpace(invite.Code),
@@ -2049,7 +2077,7 @@ func writeSandboxJoinPayload(sharedDir string, invite *IdentityInvite, sandboxSl
 	if err != nil {
 		return fmt.Errorf("marshaling sandbox join payload: %w", err)
 	}
-	invitePath := filepath.Join(sharedDir, templateOpenClawInviteFile)
+	invitePath := filepath.Join(stateDir, templateOpenClawInviteFile)
 	if err := os.WriteFile(invitePath, append(body, '\n'), 0o600); err != nil {
 		return fmt.Errorf("writing sandbox join payload: %w", err)
 	}
@@ -2384,8 +2412,16 @@ func (m *Manager) sandboxDir(name string) string {
 	return filepath.Join(m.rootDir, name)
 }
 
+func (m *Manager) sandboxStateDir(name string) string {
+	return filepath.Join(m.sandboxDir(name), sandboxStateDirName)
+}
+
+func (m *Manager) sandboxLogsDir(name string) string {
+	return filepath.Join(m.sandboxDir(name), sandboxLogsDirName)
+}
+
 func (m *Manager) logPath(name string) string {
-	return filepath.Join(m.sandboxDir(name), logFileName)
+	return filepath.Join(m.sandboxLogsDir(name), logFileName)
 }
 
 func (m *Manager) load() error {
@@ -2403,7 +2439,6 @@ func (m *Manager) load() error {
 	}
 	changed := false
 	for _, rec := range state.Sandboxes {
-		originalName := rec.Name
 		rec.Name = normalizeDisplayName(rec.Name)
 		if rec.Name == "" {
 			rec.Name = rec.Slug
@@ -2416,21 +2451,15 @@ func (m *Manager) load() error {
 		if rec.Slug == "" {
 			continue
 		}
-		if err := m.migrateSandboxLogDir(originalName, rec.Slug); err == nil && originalName != rec.Slug {
-			changed = true
-		}
-		if dir, err := defaultSharedDir(rec.Slug); err == nil && rec.SharedDir != dir {
-			rec.SharedDir = dir
-			changed = true
+		if rec.SharedDir == "" {
+			if dir, err := defaultSharedDir(rec.Slug); err == nil {
+				rec.SharedDir = dir
+				changed = true
+			}
 		}
 		if shell := defaultShellCommand(rec.Slug, rec.Template); rec.Shell != shell {
 			rec.Shell = shell
 			changed = true
-		}
-		if rec.SharedDir == "" {
-			if dir, err := defaultSharedDir(rec.Slug); err == nil {
-				rec.SharedDir = dir
-			}
 		}
 		m.records[rec.Slug] = rec
 	}
@@ -2438,31 +2467,6 @@ func (m *Manager) load() error {
 		return m.saveLocked()
 	}
 	return nil
-}
-
-func (m *Manager) migrateSandboxLogDir(name, slug string) error {
-	name = strings.TrimSpace(name)
-	slug = strings.TrimSpace(slug)
-	if name == "" || slug == "" || name == slug {
-		return nil
-	}
-	oldPath := m.sandboxDir(name)
-	newPath := m.sandboxDir(slug)
-	if oldPath == newPath {
-		return nil
-	}
-	if _, err := os.Stat(oldPath); err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	if _, err := os.Stat(newPath); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	return os.Rename(oldPath, newPath)
 }
 
 func (m *Manager) saveLocked() error {
@@ -2482,11 +2486,157 @@ func (m *Manager) saveLocked() error {
 }
 
 func defaultSharedDir(slug string) (string, error) {
+	root, err := defaultAgentDriveRoot()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, slug), nil
+}
+
+func defaultAgentDriveRoot() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("finding home directory: %w", err)
 	}
-	return filepath.Join(home, "sky10", "sandboxes", slug), nil
+	return filepath.Join(home, "Sky10", "Drives", agentDriveRootName), nil
+}
+
+func legacyAgentDriveName(slug string) string {
+	return agentDriveNamePrefix + strings.TrimSpace(slug)
+}
+
+func EnsureAgentHomeLayout(sharedDir string) error {
+	if err := os.MkdirAll(sharedDir, 0o755); err != nil {
+		return fmt.Errorf("creating agent home directory: %w", err)
+	}
+	for _, rel := range []string{agentMindDirName, agentWorkspaceDirName} {
+		if err := os.MkdirAll(filepath.Join(sharedDir, rel), 0o755); err != nil {
+			return fmt.Errorf("creating agent home directory %q: %w", rel, err)
+		}
+	}
+	return nil
+}
+
+func (m *Manager) ensureAgentHome(ctx context.Context, slug, sharedDir string) error {
+	cleanPath := filepath.Clean(sharedDir)
+	driveRoot := filepath.Clean(filepath.Dir(cleanPath))
+	if err := EnsureAgentHomeLayout(cleanPath); err != nil {
+		return err
+	}
+	if m.hostRPC == nil {
+		return ensureLocalAgentDriveConfig(slug, cleanPath)
+	}
+
+	var listed struct {
+		Drives []struct {
+			ID        string `json:"id"`
+			Name      string `json:"name"`
+			LocalPath string `json:"local_path"`
+		} `json:"drives"`
+	}
+	if err := m.hostRPC(ctx, "skyfs.driveList", nil, &listed); err != nil {
+		if shouldFallbackToLocalDriveConfig(err) {
+			return ensureLocalAgentDriveConfig(slug, cleanPath)
+		}
+		return fmt.Errorf("listing drives for agent home %q: %w", slug, err)
+	}
+
+	legacyIDs := make([]string, 0)
+	rootReady := false
+	for _, drive := range listed.Drives {
+		driveName := strings.TrimSpace(drive.Name)
+		drivePath := filepath.Clean(strings.TrimSpace(drive.LocalPath))
+		switch {
+		case drivePath == driveRoot:
+			if driveName != agentDriveRootName {
+				return fmt.Errorf("drive %q already exists with path %q; expected drive %q", driveName, drive.LocalPath, agentDriveRootName)
+			}
+			rootReady = true
+		case driveName == agentDriveRootName:
+			return fmt.Errorf("drive %q already exists with path %q", agentDriveRootName, drive.LocalPath)
+		case strings.HasPrefix(driveName, agentDriveNamePrefix) && filepath.Clean(filepath.Dir(drivePath)) == driveRoot:
+			if strings.TrimSpace(drive.ID) != "" {
+				legacyIDs = append(legacyIDs, strings.TrimSpace(drive.ID))
+			}
+		}
+	}
+	for _, id := range legacyIDs {
+		if err := m.hostRPC(ctx, "skyfs.driveRemove", map[string]string{"id": id}, nil); err != nil {
+			if shouldFallbackToLocalDriveConfig(err) {
+				return ensureLocalAgentDriveConfig(slug, cleanPath)
+			}
+			return fmt.Errorf("removing legacy agent drive %q: %w", id, err)
+		}
+	}
+	if rootReady {
+		return nil
+	}
+
+	params := map[string]string{
+		"name":      agentDriveRootName,
+		"path":      driveRoot,
+		"namespace": agentDriveRootName,
+	}
+	if err := m.hostRPC(ctx, "skyfs.driveCreate", params, nil); err != nil {
+		if shouldFallbackToLocalDriveConfig(err) {
+			return ensureLocalAgentDriveConfig(slug, cleanPath)
+		}
+		return fmt.Errorf("creating drive %q for agent home %q: %w", agentDriveRootName, slug, err)
+	}
+	return nil
+}
+
+func shouldFallbackToLocalDriveConfig(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(text, "daemon not running") ||
+		strings.Contains(text, "connection refused") ||
+		strings.Contains(text, "no such file or directory")
+}
+
+func ensureLocalAgentDriveConfig(slug, sharedDir string) error {
+	cfgDir, err := config.Dir()
+	if err != nil {
+		return fmt.Errorf("resolving drive config directory: %w", err)
+	}
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		return fmt.Errorf("creating drive config directory: %w", err)
+	}
+
+	manager := skyfs.NewDriveManager(nil, filepath.Join(cfgDir, "drives.json"))
+	driveRoot := filepath.Clean(filepath.Dir(sharedDir))
+	legacyIDs := make([]string, 0)
+	rootReady := false
+	for _, drive := range manager.ListDrives() {
+		driveName := strings.TrimSpace(drive.Name)
+		drivePath := filepath.Clean(strings.TrimSpace(drive.LocalPath))
+		switch {
+		case drivePath == driveRoot:
+			if driveName != agentDriveRootName {
+				return fmt.Errorf("drive %q already exists with path %q; expected drive %q", driveName, drive.LocalPath, agentDriveRootName)
+			}
+			rootReady = true
+		case driveName == agentDriveRootName:
+			return fmt.Errorf("drive %q already exists with path %q", agentDriveRootName, drive.LocalPath)
+		case strings.HasPrefix(driveName, agentDriveNamePrefix) && filepath.Clean(filepath.Dir(drivePath)) == driveRoot:
+			legacyIDs = append(legacyIDs, drive.ID)
+		}
+	}
+	for _, id := range legacyIDs {
+		if err := manager.RemoveDrive(id); err != nil {
+			return fmt.Errorf("removing legacy agent drive %q: %w", id, err)
+		}
+	}
+	if rootReady {
+		return nil
+	}
+
+	if _, err := manager.CreateDrive(agentDriveRootName, driveRoot, agentDriveRootName); err != nil {
+		return fmt.Errorf("creating drive %q for agent home %q: %w", agentDriveRootName, slug, err)
+	}
+	return nil
 }
 
 func normalizeDisplayName(name string) string {
