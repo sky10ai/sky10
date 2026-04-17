@@ -429,7 +429,7 @@ func TestDaemonV25PeriodicScanWaitsForStableFile(t *testing.T) {
 	t.Fatal("periodic scan did not queue settled file")
 }
 
-func TestDaemonV25SeedStateFromDiskReportsScanError(t *testing.T) {
+func TestDaemonV25SeedStateFromDiskTreatsMissingRootAsDeletedDrive(t *testing.T) {
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
@@ -440,10 +440,16 @@ func TestDaemonV25SeedStateFromDiskReportsScanError(t *testing.T) {
 	if err := os.MkdirAll(localDir, 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
+	if err := os.MkdirAll(filepath.Join(localDir, "agents", "lisa"), 0755); err != nil {
+		t.Fatalf("mkdir nested dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "agents", "lisa", "memory.md"), []byte("remember"), 0644); err != nil {
+		t.Fatalf("write tracked file: %v", err)
+	}
 
 	cfg := DaemonConfig{
 		SyncConfig:  SyncConfig{LocalRoot: localDir},
-		DriveID:     "test_seed_scan_error",
+		DriveID:     "test_seed_missing_root_delete",
 		PollSeconds: 300,
 	}
 	daemon, err := NewDaemonV2_5(store, cfg, nil)
@@ -451,12 +457,57 @@ func TestDaemonV25SeedStateFromDiskReportsScanError(t *testing.T) {
 		t.Fatalf("creating daemon: %v", err)
 	}
 
+	daemon.localLog.AppendLocal(opslog.Entry{
+		Type:      opslog.CreateDir,
+		Path:      "agents",
+		Namespace: "default",
+	})
+	daemon.localLog.AppendLocal(opslog.Entry{
+		Type:      opslog.CreateDir,
+		Path:      "agents/lisa",
+		Namespace: "default",
+	})
+	daemon.localLog.AppendLocal(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "agents/lisa/memory.md",
+		Checksum:  checksumOf("remember"),
+		Namespace: "default",
+	})
+	if err := saveLocalDiskState(daemon.driveDir, map[string]string{
+		"agents/lisa/memory.md": checksumOf("remember"),
+	}); err != nil {
+		t.Fatalf("saveLocalDiskState: %v", err)
+	}
+
 	if err := os.RemoveAll(localDir); err != nil {
 		t.Fatalf("remove local root: %v", err)
 	}
 
-	if err := daemon.seedStateFromDiskWithStableWindow(time.Second); err == nil {
-		t.Fatal("expected seedStateFromDiskWithStableWindow to report scan error")
+	if err := daemon.seedStateFromDiskWithStableWindow(time.Second); err != nil {
+		t.Fatalf("seedStateFromDiskWithStableWindow: %v", err)
+	}
+
+	if _, ok := daemon.localLog.Lookup("agents/lisa/memory.md"); ok {
+		t.Fatal("tracked file should be deleted when the drive root disappears")
+	}
+
+	snap, err := daemon.localLog.Snapshot()
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if _, ok := snap.Dirs()["agents"]; ok {
+		t.Fatal("agents dir should be tombstoned when the drive root disappears")
+	}
+	if _, ok := snap.Dirs()["agents/lisa"]; ok {
+		t.Fatal("agents/lisa dir should be tombstoned when the drive root disappears")
+	}
+
+	paths, err := loadLocalDiskState(daemon.driveDir)
+	if err != nil {
+		t.Fatalf("loadLocalDiskState: %v", err)
+	}
+	if len(paths) != 0 {
+		t.Fatalf("local disk state should be cleared after deleting the drive root, got %v", paths)
 	}
 }
 

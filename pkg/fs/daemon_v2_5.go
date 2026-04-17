@@ -411,10 +411,26 @@ func (d *DaemonV2_5) seedStateFromDisk() {
 }
 
 func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duration) error {
-	localFiles, localSymlinks, err := ScanDirectory(d.config.LocalRoot, d.config.IgnoreFunc)
-	if err != nil {
-		d.logger.Warn("seed: scan failed", "error", err)
-		return fmt.Errorf("scan directory: %w", err)
+	localFiles := make(ScanResult)
+	localSymlinks := make(map[string]string)
+	emptyDirs := []string{}
+	localRootMissing := false
+
+	if _, err := os.Lstat(d.config.LocalRoot); err != nil {
+		if !os.IsNotExist(err) {
+			d.logger.Warn("seed: local root stat failed", "root", d.config.LocalRoot, "error", err)
+			return fmt.Errorf("stat local root: %w", err)
+		}
+		localRootMissing = true
+		d.logger.Warn("seed: local root missing, treating drive as empty", "root", d.config.LocalRoot)
+	} else {
+		var err error
+		localFiles, localSymlinks, err = ScanDirectory(d.config.LocalRoot, d.config.IgnoreFunc)
+		if err != nil {
+			d.logger.Warn("seed: scan failed", "error", err)
+			return fmt.Errorf("scan directory: %w", err)
+		}
+		emptyDirs = ScanEmptyDirectories(d.config.LocalRoot, d.config.IgnoreFunc)
 	}
 
 	snap, err := d.localLog.Snapshot()
@@ -422,7 +438,6 @@ func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duratio
 		d.logger.Warn("seed: snapshot failed", "error", err)
 		return fmt.Errorf("snapshot local log: %w", err)
 	}
-	emptyDirs := ScanEmptyDirectories(d.config.LocalRoot, d.config.IgnoreFunc)
 	var pathIssues map[string]pathPolicyIssue
 	if windowsPathPolicyEnabled {
 		entries, err := d.outbox.ReadAll()
@@ -452,7 +467,8 @@ func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duratio
 		ns = d.config.Namespaces[0]
 	}
 
-	wrote := false
+	outboxChanged := false
+	localStateChanged := false
 
 	// Files on disk not in snapshot → new local files → outbox only.
 	// Files with different checksums → modified → outbox only.
@@ -487,7 +503,7 @@ func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duratio
 					Namespace:  ns,
 					Timestamp:  time.Now().Unix(),
 				})
-				wrote = true
+				outboxChanged = true
 				continue
 			}
 
@@ -530,7 +546,7 @@ func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duratio
 				Timestamp: time.Now().Unix(),
 			})
 
-			wrote = true
+			outboxChanged = true
 		}
 	}
 
@@ -540,7 +556,7 @@ func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duratio
 	// needed — the snapshot poller will merge remote state AFTER seed.
 	for path, fi := range knownFiles {
 		if _, exists := localFiles[path]; !exists {
-			if !previousLocalFiles[path] {
+			if !localRootMissing && !previousLocalFiles[path] {
 				continue
 			}
 			d.logger.Info("seed: local delete", "path", path)
@@ -549,12 +565,24 @@ func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duratio
 				Path:      path,
 				Namespace: fi.Namespace,
 			})
-			wrote = true
+			localStateChanged = true
+		}
+	}
+
+	knownDirs := snap.Dirs()
+	if localRootMissing {
+		for path, di := range knownDirs {
+			d.logger.Info("seed: local delete_dir", "path", path)
+			d.localLog.AppendLocal(opslog.Entry{
+				Type:      opslog.DeleteDir,
+				Path:      path,
+				Namespace: di.Namespace,
+			})
+			localStateChanged = true
 		}
 	}
 
 	// Empty directories on disk not in snapshot → outbox only.
-	knownDirs := snap.Dirs()
 	for _, dir := range emptyDirs {
 		if issue, ok := pathIssues[dir]; ok {
 			d.logger.Warn("seed: skip empty dir for Windows path issue",
@@ -573,12 +601,16 @@ func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duratio
 				Namespace: ns,
 				Timestamp: time.Now().Unix(),
 			})
-			wrote = true
+			outboxChanged = true
 		}
 	}
 
-	if wrote {
+	if outboxChanged {
 		d.outboxWorker.Poke()
+	}
+	if localStateChanged {
+		d.emitEvent("state.changed", nil)
+		d.reconciler.Poke()
 	}
 	if err := saveLocalDiskState(d.driveDir, localFiles); err != nil {
 		d.logger.Warn("seed: local disk state save failed", "error", err)
