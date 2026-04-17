@@ -305,6 +305,9 @@ func TestOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), "bootstrap_local_cli_pairing") {
 		t.Fatalf("user script missing CLI pairing bootstrap: %q", string(body))
 	}
+	if strings.Contains(string(body), "IDENTITY.md") {
+		t.Fatalf("user script should not seed identity files into the shared workspace: %q", string(body))
+	}
 	if !strings.Contains(string(body), `PLUGIN_DIR="/sandbox-state/plugins/openclaw-sky10-channel"`) {
 		t.Fatalf("user script missing sandbox-state plugin dir: %q", string(body))
 	}
@@ -495,6 +498,9 @@ func TestHermesUserScriptInstallsHelper(t *testing.T) {
 	}
 	if !strings.Contains(script, "/sandbox-state/bridge.json") {
 		t.Fatalf("user script missing bridge config path: %q", script)
+	}
+	if strings.Contains(script, "HERMES.md") {
+		t.Fatalf("user script should not seed welcome docs into the shared workspace: %q", script)
 	}
 	if !strings.Contains(script, "merge_guest_env_into_shared") {
 		t.Fatalf("user script missing guest-env merge helper: %q", script)

@@ -22,7 +22,6 @@ UNIT_DIR="${HOME}/.config/systemd/user"
 SKY10_UNIT="${UNIT_DIR}/sky10.service"
 GATEWAY_UNIT="${UNIT_DIR}/sky10-hermes-gateway.service"
 BRIDGE_UNIT="${UNIT_DIR}/sky10-hermes-bridge.service"
-WELCOME="${WORKSPACE_DIR}/HERMES.md"
 
 mkdir -p "${STATE_DIR}"
 mkdir -p "${HOME}/.bin"
@@ -439,28 +438,6 @@ enable_host_chat_bridge() {
   emit_progress end guest.hermes.bridge.start "Hermes bridge ready."
 }
 
-write_welcome() {
-  cat > "${WELCOME}" <<'EOF'
-# Hermes on Lima
-
-This sandbox installs Hermes Agent inside the guest and keeps your durable agent files in `/shared`.
-
-## Start the TUI
-
-```bash
-hermes-shared
-```
-
-## Common setup
-
-1. Host-managed provider secrets merge into `/sandbox-state/.env` automatically when available
-2. Add or edit keys in `/sandbox-state/.env` directly if you need to override them
-3. sky10 also installs a guest bridge so Hermes registers with the guest daemon and appears on the host through skylink
-4. Run `hermes model` if you want to switch models/providers
-5. Keep project files in `/shared/workspace` so Hermes starts in the shared workspace
-EOF
-}
-
 ensure_shared_env
 
 if [ ! -f "${SENTINEL}" ]; then
@@ -475,7 +452,6 @@ fi
 emit_progress begin guest.hermes.configure "Configuring Hermes..."
 link_hermes_env
 write_helper
-write_welcome
 ensure_guest_sky10
 
 if command -v hermes >/dev/null 2>&1; then

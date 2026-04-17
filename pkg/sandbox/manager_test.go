@@ -446,6 +446,9 @@ func TestBundledOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), "bootstrap_local_cli_pairing") {
 		t.Fatalf("bundled user script missing CLI pairing bootstrap: %q", string(body))
 	}
+	if strings.Contains(string(body), "IDENTITY.md") {
+		t.Fatalf("bundled user script should not seed identity files into the shared workspace: %q", string(body))
+	}
 	if !strings.Contains(string(body), `"skills": ["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("bundled user script missing browser skill registration: %q", string(body))
 	}
@@ -1113,6 +1116,9 @@ func TestBundledHermesUserScriptKeepsSharedEnv(t *testing.T) {
 	}
 	if !strings.Contains(script, "hermes config set terminal.cwd /shared/workspace") {
 		t.Fatalf("bundled Hermes user script missing shared workspace cwd config: %q", script)
+	}
+	if strings.Contains(script, "HERMES.md") {
+		t.Fatalf("bundled Hermes user script should not seed welcome docs into the shared workspace: %q", script)
 	}
 	if got := strings.Count(script, "link_hermes_env"); got < 3 {
 		t.Fatalf("bundled Hermes user script should relink shared env after Hermes config writes, count=%d: %q", got, script)

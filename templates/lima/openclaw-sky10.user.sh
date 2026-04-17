@@ -239,15 +239,6 @@ if [ ! -d "${PLUGIN_DIR}" ]; then
   exit 1
 fi
 
-if [ ! -f "${WORKSPACE_DIR}/IDENTITY.md" ]; then
-  cat > "${WORKSPACE_DIR}/IDENTITY.md" <<EOF
----
-name: {{.Name}}
-theme: OpenClaw sandbox running inside Lima with local browser automation.
----
-EOF
-fi
-
 if [ ! -e "${OPENCLAW_DIR}/.env" ] && [ -f /sandbox-state/.env ]; then
   ln -s /sandbox-state/.env "${OPENCLAW_DIR}/.env"
 fi
