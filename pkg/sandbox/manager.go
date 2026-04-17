@@ -101,20 +101,22 @@ type LogsParams struct {
 }
 
 type Record struct {
-	Name      string `json:"name"`
-	Slug      string `json:"slug"`
-	Provider  string `json:"provider"`
-	Template  string `json:"template"`
-	Model     string `json:"model,omitempty"`
-	Status    string `json:"status"`
-	VMStatus  string `json:"vm_status,omitempty"`
-	SharedDir string `json:"shared_dir,omitempty"`
-	IPAddress string `json:"ip_address,omitempty"`
-	Shell     string `json:"shell,omitempty"`
-	LastError string `json:"last_error,omitempty"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
-	LastLogAt string `json:"last_log_at,omitempty"`
+	Name              string `json:"name"`
+	Slug              string `json:"slug"`
+	Provider          string `json:"provider"`
+	Template          string `json:"template"`
+	Model             string `json:"model,omitempty"`
+	Status            string `json:"status"`
+	VMStatus          string `json:"vm_status,omitempty"`
+	SharedDir         string `json:"shared_dir,omitempty"`
+	IPAddress         string `json:"ip_address,omitempty"`
+	Shell             string `json:"shell,omitempty"`
+	LastError         string `json:"last_error,omitempty"`
+	GuestDeviceID     string `json:"guest_device_id,omitempty"`
+	GuestDevicePubKey string `json:"guest_device_pubkey,omitempty"`
+	CreatedAt         string `json:"created_at"`
+	UpdatedAt         string `json:"updated_at"`
+	LastLogAt         string `json:"last_log_at,omitempty"`
 }
 
 type LogEntry struct {
@@ -177,6 +179,13 @@ type ReconnectGuestResult struct {
 type guestSkylinkStatus struct {
 	PeerID string   `json:"peer_id"`
 	Addrs  []string `json:"addrs"`
+}
+
+type guestIdentity struct {
+	Address      string `json:"address"`
+	DeviceID     string `json:"device_id"`
+	DevicePubKey string `json:"device_pubkey"`
+	DeviceCount  int    `json:"device_count"`
 }
 
 type Manager struct {
@@ -366,12 +375,13 @@ func (m *Manager) waitForGuestIdentityMatch(ctx context.Context, rec Record, hos
 
 	var lastErr error
 	for {
-		var guest struct {
-			Address string `json:"address"`
-		}
-		if err := m.guestRPC(ctx, rec.IPAddress, "identity.show", nil, &guest); err != nil {
-			lastErr = fmt.Errorf("reading guest identity for sandbox %q: %w", rec.Name, err)
+		guest, err := m.readGuestIdentity(ctx, rec, rec.IPAddress)
+		if err != nil {
+			lastErr = err
 		} else {
+			if err := m.recordGuestIdentity(rec.Slug, guest); err != nil {
+				return err
+			}
 			guestIdentity := strings.TrimSpace(guest.Address)
 			if strings.EqualFold(guestIdentity, hostIdentity) {
 				return nil
@@ -713,6 +723,7 @@ func (m *Manager) Delete(ctx context.Context, name string) (*Record, error) {
 		return nil, err
 	}
 	if exists {
+		rec = m.captureGuestDeviceIdentity(ctx, rec, limactl)
 		_ = m.runCmd(ctx, limactl, []string{"stop", rec.Slug}, func(stream, line string) {
 			m.appendLog(rec.Slug, stream, line)
 		})
@@ -732,20 +743,11 @@ func (m *Manager) Delete(ctx context.Context, name string) (*Record, error) {
 		return nil, err
 	}
 
-	m.mu.Lock()
-	delete(m.records, rec.Slug)
-	delete(m.running, rec.Slug)
-	err = m.saveLocked()
-	m.mu.Unlock()
-	if err != nil {
+	if err := m.removeSandboxDevice(ctx, *rec); err != nil {
 		return nil, err
 	}
-	if m.emit != nil {
-		m.emit("sandbox:state", map[string]any{
-			"name":   rec.Name,
-			"slug":   rec.Slug,
-			"status": "deleted",
-		})
+	if err := m.forgetRecord(*rec); err != nil {
+		return nil, err
 	}
 	return rec, nil
 }
@@ -1087,12 +1089,12 @@ func (m *Manager) ensureGuestJoinedHostIdentity(ctx context.Context, rec Record,
 		return "", err
 	}
 
-	var guest struct {
-		Address     string `json:"address"`
-		DeviceCount int    `json:"device_count"`
+	guest, err := m.readGuestIdentity(ctx, rec, ipAddr)
+	if err != nil {
+		return "", err
 	}
-	if err := m.guestRPC(ctx, ipAddr, "identity.show", nil, &guest); err != nil {
-		return "", fmt.Errorf("reading guest sky10 identity for sandbox %q: %w", rec.Name, err)
+	if err := m.recordGuestIdentity(rec.Slug, guest); err != nil {
+		return "", err
 	}
 	guestIdentity := strings.TrimSpace(guest.Address)
 	if strings.EqualFold(guestIdentity, hostIdentity) {
@@ -1119,11 +1121,18 @@ func (m *Manager) ensureGuestJoinedHostIdentity(ctx context.Context, rec Record,
 		"code": strings.TrimSpace(invite.Code),
 		"role": skyid.DeviceRoleSandbox,
 	}
-	if err := m.guestRPC(ctx, ipAddr, "identity.join", params, nil); err != nil {
+	var joinResult struct {
+		DeviceID     string `json:"device_id"`
+		DevicePubKey string `json:"device_pubkey"`
+	}
+	if err := m.guestRPC(ctx, ipAddr, "identity.join", params, &joinResult); err != nil {
 		return "", fmt.Errorf("joining guest sky10 for sandbox %q: %w", rec.Name, err)
 	}
 	if err := waitForGuestSky10(ctx, m.outputCmd, limactl, rec.Slug, openClawReadyTimeout); err != nil {
 		return "", fmt.Errorf("waiting for guest sky10 after join: %w", err)
+	}
+	if err := m.recordGuestDevice(rec.Slug, joinResult.DeviceID, joinResult.DevicePubKey); err != nil {
+		return "", err
 	}
 	m.appendLog(rec.Slug, "stdout", "guest sky10 joined host identity")
 	return hostIdentity, nil
@@ -1517,25 +1526,41 @@ func (m *Manager) refreshRuntime(ctx context.Context) error {
 
 	m.mu.Lock()
 	changed := false
+	missing := make([]Record, 0)
 	for name, rec := range m.records {
-		if status, ok := statuses[name]; ok && rec.VMStatus != status {
-			rec.VMStatus = status
-			if status == "Running" && rec.Status == "stopped" {
-				rec.Status = "ready"
+		status, ok := statuses[name]
+		if ok {
+			if rec.VMStatus != status {
+				rec.VMStatus = status
+				if status == "Running" && rec.Status == "stopped" {
+					rec.Status = "ready"
+				}
+				if status != "Running" && rec.Status == "ready" {
+					rec.Status = "stopped"
+				}
+				rec.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+				m.records[name] = rec
+				changed = true
 			}
-			if status != "Running" && rec.Status == "ready" {
-				rec.Status = "stopped"
-			}
-			rec.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-			m.records[name] = rec
-			changed = true
+			continue
+		}
+		if m.shouldAutoRemoveMissingRecord(rec) {
+			missing = append(missing, rec)
 		}
 	}
 	if changed {
 		err = m.saveLocked()
 	}
 	m.mu.Unlock()
-	return err
+	if err != nil {
+		return err
+	}
+	for _, rec := range missing {
+		if err := m.cleanupMissingSandbox(ctx, rec); err != nil {
+			m.logger.Warn("sandbox cleanup after missing runtime failed", "sandbox", rec.Slug, "error", err)
+		}
+	}
+	return nil
 }
 
 func (m *Manager) appendLog(slug, stream, line string) {
@@ -1631,6 +1656,143 @@ func (m *Manager) updateIPAddress(name, ip string) error {
 	}
 	m.emitState(rec)
 	return nil
+}
+
+func (m *Manager) recordGuestIdentity(name string, guest guestIdentity) error {
+	return m.recordGuestDevice(name, guest.DeviceID, guest.DevicePubKey)
+}
+
+func (m *Manager) recordGuestDevice(name, deviceID, devicePubKey string) error {
+	deviceID = strings.TrimSpace(deviceID)
+	devicePubKey = strings.ToLower(strings.TrimSpace(devicePubKey))
+	if deviceID == "" && devicePubKey == "" {
+		return nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	rec, ok := m.records[name]
+	if !ok {
+		return fmt.Errorf("sandbox %q not found", name)
+	}
+
+	changed := false
+	if deviceID != "" && rec.GuestDeviceID != deviceID {
+		rec.GuestDeviceID = deviceID
+		changed = true
+	}
+	if devicePubKey != "" && rec.GuestDevicePubKey != devicePubKey {
+		rec.GuestDevicePubKey = devicePubKey
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+
+	rec.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	m.records[name] = rec
+	if err := m.saveLocked(); err != nil {
+		return err
+	}
+	m.emitState(rec)
+	return nil
+}
+
+func (m *Manager) readGuestIdentity(ctx context.Context, rec Record, ipAddr string) (guestIdentity, error) {
+	var guest guestIdentity
+	if err := m.guestRPC(ctx, ipAddr, "identity.show", nil, &guest); err != nil {
+		return guestIdentity{}, fmt.Errorf("reading guest identity for sandbox %q: %w", rec.Name, err)
+	}
+	return guest, nil
+}
+
+func (m *Manager) captureGuestDeviceIdentity(ctx context.Context, rec *Record, limactl string) *Record {
+	if rec == nil || m.guestRPC == nil || strings.TrimSpace(rec.GuestDevicePubKey) != "" {
+		return rec
+	}
+
+	copy := *rec
+	ipAddr := strings.TrimSpace(copy.IPAddress)
+	if ipAddr == "" {
+		value, err := lookupLimaInstanceIPv4(ctx, m.outputCmd, limactl, copy.Slug)
+		if err == nil && strings.TrimSpace(value) != "" {
+			ipAddr = strings.TrimSpace(value)
+			if err := m.updateIPAddress(copy.Slug, ipAddr); err == nil {
+				copy.IPAddress = ipAddr
+			}
+		}
+	}
+	if ipAddr == "" {
+		return &copy
+	}
+
+	guest, err := m.readGuestIdentity(ctx, copy, ipAddr)
+	if err != nil {
+		m.logger.Debug("sandbox guest identity capture skipped", "sandbox", copy.Slug, "error", err)
+		return &copy
+	}
+	if err := m.recordGuestIdentity(copy.Slug, guest); err != nil {
+		m.logger.Debug("sandbox guest identity capture failed", "sandbox", copy.Slug, "error", err)
+		return &copy
+	}
+	copy.GuestDeviceID = strings.TrimSpace(guest.DeviceID)
+	copy.GuestDevicePubKey = strings.ToLower(strings.TrimSpace(guest.DevicePubKey))
+	return &copy
+}
+
+func (m *Manager) removeSandboxDevice(ctx context.Context, rec Record) error {
+	if m.hostRPC == nil {
+		return nil
+	}
+
+	pubKey := strings.ToLower(strings.TrimSpace(rec.GuestDevicePubKey))
+	if pubKey == "" {
+		return nil
+	}
+	if err := m.hostRPC(ctx, "identity.deviceRemove", map[string]string{"pubkey": pubKey}, nil); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "device not found in private network") {
+			return nil
+		}
+		return fmt.Errorf("removing sandbox device for %q: %w", rec.Name, err)
+	}
+	return nil
+}
+
+func (m *Manager) forgetRecord(rec Record) error {
+	m.mu.Lock()
+	delete(m.records, rec.Slug)
+	delete(m.running, rec.Slug)
+	err := m.saveLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if m.emit != nil {
+		m.emit("sandbox:state", map[string]any{
+			"name":   rec.Name,
+			"slug":   rec.Slug,
+			"status": "deleted",
+		})
+	}
+	return nil
+}
+
+func (m *Manager) shouldAutoRemoveMissingRecord(rec Record) bool {
+	if m.running[rec.Slug] || rec.Status == "creating" || rec.Status == "starting" {
+		return false
+	}
+	return strings.TrimSpace(rec.GuestDevicePubKey) != ""
+}
+
+func (m *Manager) cleanupMissingSandbox(ctx context.Context, rec Record) error {
+	if err := cleanupLimaInstanceDir(rec.Slug); err != nil {
+		return err
+	}
+	if err := m.removeSandboxDevice(ctx, rec); err != nil {
+		return err
+	}
+	return m.forgetRecord(rec)
 }
 
 func (m *Manager) emitState(rec Record) {

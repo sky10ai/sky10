@@ -514,6 +514,68 @@ func TestDeleteMissingInstanceRemovesRecord(t *testing.T) {
 	}
 }
 
+func TestDeleteMissingInstanceRemovesRecordedGuestDevice(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+	t.Setenv("HOME", home)
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["devbox"] = Record{
+		Name:              "devbox",
+		Slug:              "devbox",
+		Provider:          providerLima,
+		Template:          templateOpenClaw,
+		Status:            "ready",
+		VMStatus:          "Running",
+		GuestDeviceID:     "D-guest123",
+		GuestDevicePubKey: "abcdef1234567890",
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+	m.appStatus = func(id skyapps.ID) (*skyapps.Status, error) {
+		return &skyapps.Status{ActivePath: "/tmp/fake/" + string(id)}, nil
+	}
+	m.outputCmd = func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		return nil, nil
+	}
+	m.runCmd = func(ctx context.Context, bin string, args []string, onLine func(stream, line string)) error {
+		t.Fatalf("runCmd should not be called when the instance is missing")
+		return nil
+	}
+
+	var removedPubKey string
+	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
+		if method != "identity.deviceRemove" {
+			t.Fatalf("unexpected host RPC method %q", method)
+		}
+		values, ok := params.(map[string]string)
+		if !ok {
+			t.Fatalf("device remove params type = %T, want map[string]string", params)
+		}
+		removedPubKey = values["pubkey"]
+		return nil
+	}
+
+	rec, err := m.Delete(context.Background(), "devbox")
+	if err != nil {
+		t.Fatalf("Delete() error: %v", err)
+	}
+	if rec.Slug != "devbox" {
+		t.Fatalf("Delete() slug = %q, want devbox", rec.Slug)
+	}
+	if removedPubKey != "abcdef1234567890" {
+		t.Fatalf("removed pubkey = %q, want abcdef1234567890", removedPubKey)
+	}
+	if _, err := m.Get(context.Background(), "devbox"); err == nil {
+		t.Fatalf("sandbox record still present after Delete()")
+	}
+}
+
 func TestLogsMissingFileReturnsEmptyEntries(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
 
@@ -1257,20 +1319,30 @@ func TestFinishReadyOpenClawJoinsGuestSky10Identity(t *testing.T) {
 		}
 		switch method {
 		case "identity.show":
-			ptr := out.(*struct {
-				Address     string `json:"address"`
-				DeviceCount int    `json:"device_count"`
+			body, err := json.Marshal(map[string]interface{}{
+				"address":       "guest-solo",
+				"device_count":  1,
+				"device_id":     "D-guest123",
+				"device_pubkey": "abcdef1234567890",
 			})
-			ptr.Address = "guest-solo"
-			ptr.DeviceCount = 1
-			return nil
+			if err != nil {
+				t.Fatalf("marshal guest identity show: %v", err)
+			}
+			return json.Unmarshal(body, out)
 		case "identity.join":
 			var ok bool
 			joinParams, ok = params.(map[string]string)
 			if !ok {
 				t.Fatalf("join params type = %T, want map[string]string", params)
 			}
-			return nil
+			body, err := json.Marshal(map[string]string{
+				"device_id":     "D-guest123",
+				"device_pubkey": "abcdef1234567890",
+			})
+			if err != nil {
+				t.Fatalf("marshal guest identity join result: %v", err)
+			}
+			return json.Unmarshal(body, out)
 		case "skylink.status":
 			body, err := json.Marshal(map[string]interface{}{
 				"peer_id": "12D3KooWguest",
@@ -1332,6 +1404,12 @@ func TestFinishReadyOpenClawJoinsGuestSky10Identity(t *testing.T) {
 	}
 	if got.IPAddress != "192.168.64.14" {
 		t.Fatalf("ip address = %q, want 192.168.64.14", got.IPAddress)
+	}
+	if got.GuestDeviceID != "D-guest123" {
+		t.Fatalf("guest device id = %q, want D-guest123", got.GuestDeviceID)
+	}
+	if got.GuestDevicePubKey != "abcdef1234567890" {
+		t.Fatalf("guest device pubkey = %q, want abcdef1234567890", got.GuestDevicePubKey)
 	}
 }
 
@@ -1406,13 +1484,16 @@ func TestFinishReadyOpenClawSkipsJoinWhenGuestAlreadyJoined(t *testing.T) {
 	m.guestRPC = func(ctx context.Context, address, method string, params interface{}, out interface{}) error {
 		switch method {
 		case "identity.show":
-			ptr := out.(*struct {
-				Address     string `json:"address"`
-				DeviceCount int    `json:"device_count"`
+			body, err := json.Marshal(map[string]interface{}{
+				"address":       "sky10-host",
+				"device_count":  2,
+				"device_id":     "D-guest456",
+				"device_pubkey": "abcdef9999999999",
 			})
-			ptr.Address = "sky10-host"
-			ptr.DeviceCount = 2
-			return nil
+			if err != nil {
+				t.Fatalf("marshal guest identity show: %v", err)
+			}
+			return json.Unmarshal(body, out)
 		case "skylink.status":
 			body, err := json.Marshal(map[string]interface{}{
 				"peer_id": "12D3KooWguest",
@@ -1437,6 +1518,17 @@ func TestFinishReadyOpenClawSkipsJoinWhenGuestAlreadyJoined(t *testing.T) {
 
 	if err := m.finishReady(context.Background(), "openclaw-m6", "/tmp/fake/limactl"); err != nil {
 		t.Fatalf("finishReady() error: %v", err)
+	}
+
+	got, err := m.Get(context.Background(), "openclaw-m6")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if got.GuestDeviceID != "D-guest456" {
+		t.Fatalf("guest device id = %q, want D-guest456", got.GuestDeviceID)
+	}
+	if got.GuestDevicePubKey != "abcdef9999999999" {
+		t.Fatalf("guest device pubkey = %q, want abcdef9999999999", got.GuestDevicePubKey)
 	}
 }
 
@@ -1590,6 +1682,65 @@ func TestReconnectRunningOpenClawSandboxes(t *testing.T) {
 	}
 	if got.IPAddress != "192.168.64.17" {
 		t.Fatalf("ip address = %q, want 192.168.64.17", got.IPAddress)
+	}
+}
+
+func TestRefreshRuntimeRemovesMissingSandboxAndGuestDevice(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["openclaw-missing"] = Record{
+		Name:              "openclaw-missing",
+		Slug:              "openclaw-missing",
+		Provider:          providerLima,
+		Template:          templateOpenClaw,
+		Status:            "ready",
+		VMStatus:          "Running",
+		GuestDeviceID:     "D-guest789",
+		GuestDevicePubKey: "deadbeefcafefeed",
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+	m.appStatus = func(id skyapps.ID) (*skyapps.Status, error) {
+		return &skyapps.Status{ActivePath: "/tmp/fake/" + string(id)}, nil
+	}
+	m.outputCmd = func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "list" && args[1] == "--json" {
+			return []byte(`{"name":"other-sandbox","status":"Running"}` + "\n"), nil
+		}
+		return nil, fmt.Errorf("unexpected outputCmd args: %v", args)
+	}
+
+	var removedPubKey string
+	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
+		if method != "identity.deviceRemove" {
+			t.Fatalf("unexpected host RPC method %q", method)
+		}
+		values, ok := params.(map[string]string)
+		if !ok {
+			t.Fatalf("device remove params type = %T, want map[string]string", params)
+		}
+		removedPubKey = values["pubkey"]
+		return nil
+	}
+
+	listed, err := m.List(context.Background())
+	if err != nil {
+		t.Fatalf("List() error: %v", err)
+	}
+	if len(listed.Sandboxes) != 0 {
+		t.Fatalf("List() sandboxes len = %d, want 0", len(listed.Sandboxes))
+	}
+	if removedPubKey != "deadbeefcafefeed" {
+		t.Fatalf("removed pubkey = %q, want deadbeefcafefeed", removedPubKey)
+	}
+	if _, err := m.Get(context.Background(), "openclaw-missing"); err == nil {
+		t.Fatalf("sandbox record still present after refresh cleanup")
 	}
 }
 
