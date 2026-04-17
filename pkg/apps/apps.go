@@ -19,6 +19,7 @@ import (
 
 	"github.com/sky10/sky10/pkg/config"
 	"github.com/sky10/sky10/pkg/logging"
+	"github.com/sky10/sky10/pkg/releases"
 )
 
 // ID identifies a managed helper app.
@@ -181,6 +182,8 @@ var ghReleaseURL = func(s spec) string {
 	return fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", s.Repo)
 }
 
+var ghReleaseClient = releases.NewGitHubClient("sky10-apps")
+
 var versionPattern = regexp.MustCompile(`v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?`)
 
 // List returns the known managed apps.
@@ -276,25 +279,9 @@ func CheckRelease(id ID, current string) (*ReleaseInfo, error) {
 		return nil, err
 	}
 
-	resp, err := http.Get(ghReleaseURL(s))
+	release, err := ghReleaseClient.Latest(context.Background(), ghReleaseURL(s))
 	if err != nil {
 		return nil, fmt.Errorf("fetching latest %s release: %w", s.Name, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
-	}
-
-	var release struct {
-		TagName string `json:"tag_name"`
-		Assets  []struct {
-			Name               string `json:"name"`
-			BrowserDownloadURL string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return nil, fmt.Errorf("decoding release: %w", err)
 	}
 
 	info := &ReleaseInfo{

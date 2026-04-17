@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,9 +14,12 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/sky10/sky10/pkg/releases"
 )
 
 const repo = "sky10ai/sky10"
+const updateDownloadUserAgent = "sky10-updater"
 
 // checkURL is the GitHub API endpoint; overridden in tests.
 var checkURL = fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
@@ -47,32 +49,14 @@ type Info struct {
 
 // Check queries GitHub for the latest release and compares to current.
 func Check(currentVersion string) (*Info, error) {
-	req, err := http.NewRequest("GET", checkURL, nil)
+	currentVersion = strings.TrimSpace(currentVersion)
+	if isDevBuildVersion(currentVersion) {
+		return &Info{Current: currentVersion}, nil
+	}
+
+	release, err := releases.NewGitHubClient("sky10/"+currentVersion).Latest(context.Background(), checkURL)
 	if err != nil {
-		return nil, fmt.Errorf("building request: %w", err)
-	}
-	req.Header.Set("User-Agent", "sky10/"+currentVersion)
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("fetching latest release: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
-	}
-
-	var release struct {
-		TagName string `json:"tag_name"`
-		Assets  []struct {
-			Name               string `json:"name"`
-			BrowserDownloadURL string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return nil, fmt.Errorf("decoding release: %w", err)
+		return nil, err
 	}
 
 	info := &Info{
@@ -172,7 +156,11 @@ func menuNeedsUpdate(info *Info) bool {
 
 // fetchChecksum fetches checksums.txt and returns the SHA-256 for the named asset.
 func fetchChecksum(url, asset string) (string, error) {
-	resp, err := http.Get(url)
+	req, err := updateRequest(http.MethodGet, url)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -211,6 +199,10 @@ func hashFile(path string) string {
 // emitting "update:available" events when a new version is found.
 // Blocks until ctx is cancelled.
 func PeriodicCheck(ctx context.Context, version string, emit Emitter) {
+	if isDevBuildVersion(version) {
+		return
+	}
+
 	check := func() {
 		info, err := Check(version)
 		if err != nil {
@@ -269,7 +261,11 @@ func executablePath() (string, error) {
 }
 
 func downloadToPath(url, dest, pattern, action string, onProgress ProgressFunc) error {
-	resp, err := http.Get(url)
+	req, err := updateRequest(http.MethodGet, url)
+	if err != nil {
+		return fmt.Errorf("%s: %w", action, err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("%s: %w", action, err)
 	}
@@ -319,4 +315,18 @@ func downloadToPath(url, dest, pattern, action string, onProgress ProgressFunc) 
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func updateRequest(method, url string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(context.Background(), method, url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("building request: %w", err)
+	}
+	req.Header.Set("User-Agent", updateDownloadUserAgent)
+	return req, nil
+}
+
+func isDevBuildVersion(version string) bool {
+	version = strings.TrimSpace(version)
+	return version == "" || strings.EqualFold(version, "dev")
 }

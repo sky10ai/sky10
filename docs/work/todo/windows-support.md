@@ -54,6 +54,7 @@ Tracking all work needed to run sky10 on Windows.
 - [ ] Binary name needs `.exe` suffix
 - [ ] Update `checksums.txt` generation to include Windows binaries
 - [ ] Update `pkg/update/update.go` if asset naming needs adjustment
+- [ ] Update `pkg/update` staged/install paths for Windows binary naming and menu entrypoint naming (`sky10.exe`, `sky10-menu.exe`)
 - [ ] Test cross-compilation from macOS/Linux
 
 ## 6. Installer

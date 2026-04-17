@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -32,23 +33,19 @@ func withRPCStubs(t *testing.T) {
 	})
 }
 
-func TestCheck(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping network test in short mode")
-	}
-
+func TestCheckDevBuildSkipsUpdate(t *testing.T) {
 	info, err := Check("dev")
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
-	if info.Latest == "" {
-		t.Error("latest version is empty")
-	}
-	if !info.Available {
-		t.Error("expected update available for dev version")
-	}
 	if info.Current != "dev" {
 		t.Errorf("current = %q, want %q", info.Current, "dev")
+	}
+	if info.Latest != "" {
+		t.Errorf("latest = %q, want empty", info.Latest)
+	}
+	if info.Available || info.CLIAvailable || info.MenuAvailable {
+		t.Fatalf("expected no update info for dev build: %#v", info)
 	}
 }
 
@@ -463,5 +460,32 @@ func TestPeriodicCheckEmitsEvent(t *testing.T) {
 	}
 	if emitted[0] != "update:available" {
 		t.Errorf("event = %q, want %q", emitted[0], "update:available")
+	}
+}
+
+func TestPeriodicCheckSkipsDevBuild(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	origCheck := checkURL
+	checkURL = srv.URL
+	defer func() { checkURL = origCheck }()
+
+	emitted := make(chan struct{}, 1)
+	PeriodicCheck(context.Background(), "dev", func(string, interface{}) {
+		emitted <- struct{}{}
+	})
+
+	select {
+	case <-emitted:
+		t.Fatal("did not expect update event for dev build")
+	default:
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("expected no network calls for dev build, got %d", hits.Load())
 	}
 }
