@@ -349,7 +349,7 @@ export default function AgentChat() {
               </div>
               {slowWaiting && (
                 <p className="mt-2 text-xs text-secondary">
-                  Still working. Hermes searches can take close to a minute.
+                  Still working. Some agent requests can take close to a minute.
                 </p>
               )}
             </div>
