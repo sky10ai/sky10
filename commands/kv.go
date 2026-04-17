@@ -68,19 +68,74 @@ func kvGetCmd() *cobra.Command {
 }
 
 func kvDeleteCmd() *cobra.Command {
-	return &cobra.Command{
+	var pattern string
+	var dryRun bool
+	var includeInternal bool
+
+	cmd := &cobra.Command{
 		Use:   "delete <key>",
-		Short: "Delete a key",
-		Args:  cobra.ExactArgs(1),
+		Short: "Delete a key or keys matching a pattern",
+		Example: strings.TrimSpace(`
+sky10 kv delete session/token
+sky10 kv delete --pattern 'session/*'
+sky10 kv delete --pattern 'session/*' --dry-run
+`),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if pattern != "" {
+				if len(args) != 0 {
+					return fmt.Errorf("delete with --pattern does not take a key argument")
+				}
+				return nil
+			}
+			if dryRun {
+				return fmt.Errorf("--dry-run requires --pattern")
+			}
+			return cobra.ExactArgs(1)(cmd, args)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, err := rpcCall("skykv.delete", map[string]string{"key": args[0]})
+			if pattern == "" {
+				_, err := rpcCall("skykv.delete", map[string]string{"key": args[0]})
+				if err != nil {
+					return err
+				}
+				fmt.Printf("deleted %s\n", args[0])
+				return nil
+			}
+
+			result, err := rpcCall("skykv.deleteMatching", map[string]interface{}{
+				"pattern":          pattern,
+				"dry_run":          dryRun,
+				"include_internal": includeInternal,
+			})
 			if err != nil {
 				return err
 			}
-			fmt.Printf("deleted %s\n", args[0])
+			var r struct {
+				Keys   []string `json:"keys"`
+				Count  int      `json:"count"`
+				DryRun bool     `json:"dry_run"`
+			}
+			json.Unmarshal(result, &r)
+			if r.Count == 0 {
+				fmt.Printf("no keys matched %q\n", pattern)
+				return nil
+			}
+
+			action := "deleted"
+			if r.DryRun {
+				action = "would delete"
+			}
+			for _, key := range r.Keys {
+				fmt.Printf("%s %s\n", action, key)
+			}
+			fmt.Printf("%s %d key(s) matching %q\n", action, r.Count, pattern)
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&pattern, "pattern", "", "Delete all keys matching this pattern ('*' matches any sequence, including '/', '?' matches one character)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show matching keys without deleting them")
+	cmd.Flags().BoolVar(&includeInternal, "internal", false, "include reserved _sys/* keys when matching patterns")
+	return cmd
 }
 
 func kvListCmd() *cobra.Command {

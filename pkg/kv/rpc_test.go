@@ -70,6 +70,116 @@ func TestRPCGetAllAndStatusHideInternalKeysByDefault(t *testing.T) {
 	}
 }
 
+func TestRPCDeleteMatchingDryRun(t *testing.T) {
+	t.Parallel()
+
+	store := newRPCTestStore(t)
+	appendRPCTestEntry(t, store, "users/alice", "value-1")
+	appendRPCTestEntry(t, store, "users/team/bob", "value-2")
+	appendRPCTestEntry(t, store, "config", "value-3")
+
+	handler := NewRPCHandler(store)
+
+	result, err := handler.rpcDeleteMatching(context.Background(), mustJSON(t, map[string]any{
+		"pattern": "users/*",
+		"dry_run": true,
+	}))
+	if err != nil {
+		t.Fatalf("rpcDeleteMatching(dry_run): %v", err)
+	}
+
+	resp := result.(deleteMatchingResult)
+	if resp.Count != 2 {
+		t.Fatalf("dry-run count = %d, want 2", resp.Count)
+	}
+	if _, ok := store.Get("users/alice"); !ok {
+		t.Fatal("users/alice should still exist after dry-run")
+	}
+	if _, ok := store.Get("users/team/bob"); !ok {
+		t.Fatal("users/team/bob should still exist after dry-run")
+	}
+}
+
+func TestRPCDeleteMatchingDeletesMatchedKeys(t *testing.T) {
+	t.Parallel()
+
+	store := newRPCTestStore(t)
+	appendRPCTestEntry(t, store, "users/alice", "value-1")
+	appendRPCTestEntry(t, store, "users/team/bob", "value-2")
+	appendRPCTestEntry(t, store, "config", "value-3")
+
+	handler := NewRPCHandler(store)
+
+	result, err := handler.rpcDeleteMatching(context.Background(), mustJSON(t, map[string]any{
+		"pattern": "users/*",
+	}))
+	if err != nil {
+		t.Fatalf("rpcDeleteMatching: %v", err)
+	}
+
+	resp := result.(deleteMatchingResult)
+	if resp.Count != 2 {
+		t.Fatalf("delete count = %d, want 2", resp.Count)
+	}
+	if _, ok := store.Get("users/alice"); ok {
+		t.Fatal("users/alice should be deleted")
+	}
+	if _, ok := store.Get("users/team/bob"); ok {
+		t.Fatal("users/team/bob should be deleted")
+	}
+	if _, ok := store.Get("config"); !ok {
+		t.Fatal("config should remain")
+	}
+}
+
+func TestRPCDeleteMatchingHidesInternalKeysByDefault(t *testing.T) {
+	t.Parallel()
+
+	store := newRPCTestStore(t)
+	appendRPCTestEntry(t, store, "public/token", "value-1")
+	appendRPCTestEntry(t, store, "_sys/secrets/heads/secret-1", "value-2")
+
+	handler := NewRPCHandler(store)
+
+	result, err := handler.rpcDeleteMatching(context.Background(), mustJSON(t, map[string]any{
+		"pattern": "*",
+		"dry_run": true,
+	}))
+	if err != nil {
+		t.Fatalf("rpcDeleteMatching(dry_run): %v", err)
+	}
+
+	resp := result.(deleteMatchingResult)
+	if len(resp.Keys) != 1 || resp.Keys[0] != "public/token" {
+		t.Fatalf("visible matches = %v, want only public/token", resp.Keys)
+	}
+
+	result, err = handler.rpcDeleteMatching(context.Background(), mustJSON(t, map[string]any{
+		"pattern":          "*",
+		"dry_run":          true,
+		"include_internal": true,
+	}))
+	if err != nil {
+		t.Fatalf("rpcDeleteMatching(include_internal): %v", err)
+	}
+
+	resp = result.(deleteMatchingResult)
+	if resp.Count != 2 {
+		t.Fatalf("matches with include_internal = %v, want 2 keys", resp.Keys)
+	}
+}
+
+func TestRPCDeleteMatchingRequiresPattern(t *testing.T) {
+	t.Parallel()
+
+	store := newRPCTestStore(t)
+	handler := NewRPCHandler(store)
+
+	if _, err := handler.rpcDeleteMatching(context.Background(), mustJSON(t, map[string]any{"pattern": ""})); err == nil {
+		t.Fatal("rpcDeleteMatching(empty pattern) error = nil, want error")
+	}
+}
+
 func TestRPCSyncP2POnlyReturnsOK(t *testing.T) {
 	t.Parallel()
 
@@ -93,10 +203,13 @@ func newRPCTestStore(t *testing.T) *Store {
 	if err != nil {
 		t.Fatalf("Generate identity: %v", err)
 	}
-	return New(nil, identity, Config{
+	store := New(nil, identity, Config{
 		Namespace: "default",
 		DataDir:   t.TempDir(),
 	}, nil)
+	store.nsKey = []byte("test-namespace-key")
+	store.nsID = "test-nsid"
+	return store
 }
 
 func appendRPCTestEntry(t *testing.T, store *Store, key, value string) {

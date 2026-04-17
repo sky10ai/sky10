@@ -143,6 +143,18 @@ func (s *Store) Get(key string) ([]byte, bool) {
 
 // Delete removes a key. Appends delete to local log and triggers sync.
 func (s *Store) Delete(ctx context.Context, key string) error {
+	return s.deleteKeys(ctx, []string{key})
+}
+
+// DeleteMany removes multiple keys and triggers a single sync cycle.
+func (s *Store) DeleteMany(ctx context.Context, keys []string) error {
+	return s.deleteKeys(ctx, keys)
+}
+
+func (s *Store) deleteKeys(ctx context.Context, keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
 	if s.nsKey == nil || s.nsID == "" {
 		if err := s.resolveKeys(ctx); err != nil {
 			s.markResolveError(err)
@@ -152,12 +164,22 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 	if err := s.ensureReady(); err != nil {
 		return err
 	}
-	if err := s.localLog.AppendLocal(Entry{
-		Type:      Delete,
-		Key:       key,
-		Namespace: s.nsID,
-	}); err != nil {
-		return fmt.Errorf("kv delete: %w", err)
+	seen := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		if key == "" {
+			return fmt.Errorf("kv delete: key is required")
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		if err := s.localLog.AppendLocal(Entry{
+			Type:      Delete,
+			Key:       key,
+			Namespace: s.nsID,
+		}); err != nil {
+			return fmt.Errorf("kv delete: %w", err)
+		}
 	}
 	s.pokeSync(ctx)
 	return nil
@@ -188,6 +210,15 @@ func (s *Store) List(prefix string) []string {
 		return snap.Keys()
 	}
 	return snap.KeysWithPrefix(prefix)
+}
+
+// ListMatching returns sorted keys that match the provided pattern.
+func (s *Store) ListMatching(pattern string, includeInternal bool) ([]string, error) {
+	snap, err := s.localLog.Snapshot()
+	if err != nil {
+		return nil, err
+	}
+	return filterKeysByPattern(filterVisibleKeys(snap.Keys(), includeInternal), pattern), nil
 }
 
 // GetAll returns all key-value pairs with the given prefix.

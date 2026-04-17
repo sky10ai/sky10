@@ -35,6 +35,8 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		result, err = h.rpcGet(ctx, params)
 	case "skykv.delete":
 		result, err = h.rpcDelete(ctx, params)
+	case "skykv.deleteMatching":
+		result, err = h.rpcDeleteMatching(ctx, params)
 	case "skykv.list":
 		result, err = h.rpcList(ctx, params)
 	case "skykv.getAll":
@@ -104,6 +106,46 @@ func (h *RPCHandler) rpcDelete(ctx context.Context, params json.RawMessage) (int
 		return nil, err
 	}
 	return map[string]string{"status": "ok"}, nil
+}
+
+type deleteMatchingParams struct {
+	Pattern         string `json:"pattern"`
+	DryRun          bool   `json:"dry_run,omitempty"`
+	IncludeInternal bool   `json:"include_internal,omitempty"`
+}
+
+type deleteMatchingResult struct {
+	Pattern string   `json:"pattern"`
+	Keys    []string `json:"keys"`
+	Count   int      `json:"count"`
+	DryRun  bool     `json:"dry_run"`
+}
+
+func (h *RPCHandler) rpcDeleteMatching(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p deleteMatchingParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if strings.TrimSpace(p.Pattern) == "" {
+		return nil, fmt.Errorf("pattern is required")
+	}
+
+	keys, err := h.store.ListMatching(p.Pattern, p.IncludeInternal)
+	if err != nil {
+		return nil, err
+	}
+	if !p.DryRun {
+		if err := h.store.DeleteMany(ctx, keys); err != nil {
+			return nil, err
+		}
+	}
+
+	return deleteMatchingResult{
+		Pattern: p.Pattern,
+		Keys:    keys,
+		Count:   len(keys),
+		DryRun:  p.DryRun,
+	}, nil
 }
 
 type listParams struct {
