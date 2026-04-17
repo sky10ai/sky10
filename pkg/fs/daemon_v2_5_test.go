@@ -495,6 +495,9 @@ func TestDaemonV25SeedStateFromDiskTreatsMissingRootAsDeletedDrive(t *testing.T)
 	if err != nil {
 		t.Fatalf("snapshot: %v", err)
 	}
+	if !snap.RootDeleted() {
+		t.Fatal("drive root should be tombstoned when the local root disappears")
+	}
 	if _, ok := snap.Dirs()["agents"]; ok {
 		t.Fatal("agents dir should be tombstoned when the drive root disappears")
 	}

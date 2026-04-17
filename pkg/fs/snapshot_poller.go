@@ -185,6 +185,28 @@ func (p *SnapshotPoller) diffAndMerge(remote, baseline *opslog.Snapshot) int {
 	if baseline != nil {
 		baselineFiles = baseline.Files()
 	}
+	remoteRootTomb, remoteHasRootTomb := remote.RootTombstone()
+	baselineRootTomb, baselineHasRootTomb := (*opslog.TombstoneInfo)(nil), false
+	if baseline != nil {
+		baselineRootTomb, baselineHasRootTomb = baseline.RootTombstone()
+	}
+	if remoteHasRootTomb && (!baselineHasRootTomb || remoteRootTomb.Modified.After(baselineRootTomb.Modified) ||
+		(remoteRootTomb.Modified.Equal(baselineRootTomb.Modified) && (remoteRootTomb.Device > baselineRootTomb.Device ||
+			(remoteRootTomb.Device == baselineRootTomb.Device && remoteRootTomb.Seq > baselineRootTomb.Seq)))) {
+		if err := p.localLog.Append(opslog.Entry{
+			Type:         opslog.DeleteRoot,
+			Path:         "",
+			Namespace:    remoteRootTomb.Namespace,
+			Device:       remoteRootTomb.Device,
+			Timestamp:    remoteRootTomb.Modified.Unix(),
+			Seq:          remoteRootTomb.Seq,
+			PrevChecksum: remoteRootTomb.PrevChecksum,
+		}); err != nil {
+			p.logger.Warn("poll: root delete merge failed", "error", err)
+		} else {
+			merged++
+		}
+	}
 
 	// Get local snapshot for conflict detection
 	localSnap, _ := p.localLog.Snapshot()
@@ -234,7 +256,7 @@ func (p *SnapshotPoller) diffAndMerge(remote, baseline *opslog.Snapshot) int {
 
 	// Deletes: in baseline but not in remote
 	now := time.Now().Unix()
-	if baseline != nil {
+	if baseline != nil && !remoteHasRootTomb {
 		for path, basefi := range baselineFiles {
 			if _, inRemote := remoteFiles[path]; !inRemote {
 				// Remote deleted this file. Use a timestamp guaranteed
@@ -282,6 +304,9 @@ func (p *SnapshotPoller) diffAndMerge(remote, baseline *opslog.Snapshot) int {
 	}
 
 	if baseline != nil {
+		if remoteHasRootTomb {
+			return merged
+		}
 		for path, di := range baselineDirs {
 			if _, inRemote := remoteDirs[path]; !inRemote {
 				p.localLog.Append(opslog.Entry{

@@ -6,9 +6,9 @@ import (
 	"time"
 )
 
-// MarshalSnapshot serializes a Snapshot to JSON. Only live files and
-// directories are included — no tombstones. This is the format uploaded
-// to S3 for snapshot exchange.
+// MarshalSnapshot serializes a Snapshot to JSON. Live files and directories
+// are included, and delete_root is preserved so whole-drive clears survive
+// snapshot exchange and restart. Per-path tombstones are still omitted.
 func MarshalSnapshot(snap *Snapshot) ([]byte, error) {
 	if snap == nil {
 		return json.Marshal(snapshotJSON{Version: 1, Tree: map[string]fileInfoJSON{}})
@@ -49,6 +49,15 @@ func MarshalSnapshot(snap *Snapshot) ([]byte, error) {
 				Seq:       di.Seq,
 				Modified:  di.Modified,
 			}
+		}
+	}
+	if snap.deletedRoot != nil {
+		m.DeletedRoot = &tombstoneJSON{
+			Namespace:    snap.deletedRoot.Namespace,
+			Device:       snap.deletedRoot.Device,
+			Seq:          snap.deletedRoot.Seq,
+			Modified:     snap.deletedRoot.Modified,
+			PrevChecksum: snap.deletedRoot.PrevChecksum,
 		}
 	}
 
@@ -122,6 +131,15 @@ func MarshalPeerSnapshot(snap *Snapshot) ([]byte, error) {
 			}
 		}
 	}
+	if snap.deletedRoot != nil {
+		m.DeletedRoot = &tombstoneJSON{
+			Namespace:    snap.deletedRoot.Namespace,
+			Device:       snap.deletedRoot.Device,
+			Seq:          snap.deletedRoot.Seq,
+			Modified:     snap.deletedRoot.Modified,
+			PrevChecksum: snap.deletedRoot.PrevChecksum,
+		}
+	}
 
 	return json.Marshal(m)
 }
@@ -162,6 +180,15 @@ func UnmarshalSnapshot(data []byte) (*Snapshot, error) {
 			Device:    di.Device,
 			Seq:       di.Seq,
 			Modified:  di.Modified,
+		}
+	}
+	if m.DeletedRoot != nil {
+		snap.deletedRoot = &TombstoneInfo{
+			Namespace:    m.DeletedRoot.Namespace,
+			Device:       m.DeletedRoot.Device,
+			Seq:          m.DeletedRoot.Seq,
+			Modified:     m.DeletedRoot.Modified,
+			PrevChecksum: m.DeletedRoot.PrevChecksum,
 		}
 	}
 
@@ -224,17 +251,27 @@ func UnmarshalPeerSnapshot(data []byte) (*Snapshot, error) {
 			PrevChecksum: tomb.PrevChecksum,
 		}
 	}
+	if m.DeletedRoot != nil {
+		snap.deletedRoot = &TombstoneInfo{
+			Namespace:    m.DeletedRoot.Namespace,
+			Device:       m.DeletedRoot.Device,
+			Seq:          m.DeletedRoot.Seq,
+			Modified:     m.DeletedRoot.Modified,
+			PrevChecksum: m.DeletedRoot.PrevChecksum,
+		}
+	}
 
 	return snap, nil
 }
 
 // snapshotJSON is the wire format, compatible with manifestJSON.
 type snapshotJSON struct {
-	Version int                     `json:"version"`
-	Created time.Time               `json:"created"`
-	Updated time.Time               `json:"updated"`
-	Tree    map[string]fileInfoJSON `json:"tree"`
-	Dirs    map[string]dirInfoJSON  `json:"dirs,omitempty"`
+	Version     int                     `json:"version"`
+	Created     time.Time               `json:"created"`
+	Updated     time.Time               `json:"updated"`
+	Tree        map[string]fileInfoJSON `json:"tree"`
+	Dirs        map[string]dirInfoJSON  `json:"dirs,omitempty"`
+	DeletedRoot *tombstoneJSON          `json:"deleted_root,omitempty"`
 }
 
 type peerSnapshotJSON struct {
@@ -245,4 +282,5 @@ type peerSnapshotJSON struct {
 	Dirs        map[string]dirInfoJSON   `json:"dirs,omitempty"`
 	Deleted     map[string]tombstoneJSON `json:"deleted,omitempty"`
 	DeletedDirs map[string]tombstoneJSON `json:"deleted_dirs,omitempty"`
+	DeletedRoot *tombstoneJSON           `json:"deleted_root,omitempty"`
 }

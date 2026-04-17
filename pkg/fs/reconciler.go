@@ -102,6 +102,7 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 
 	snapshotFiles := snap.Files()
 	snapshotDirs := snap.Dirs()
+	rootDeleted := snap.RootDeleted()
 	pathIssues := activeSnapshotPathIssues(snap)
 	localFiles, localSymlinks, err := ScanDirectory(r.localDir, r.ignore)
 	if err != nil {
@@ -259,7 +260,7 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		if pendingWrites[path] {
 			continue
 		}
-		if deletedPaths[path] {
+		if rootDeleted || deletedPaths[path] {
 			r.deleteFile(path)
 			deleted++
 			active = true

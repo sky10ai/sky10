@@ -438,6 +438,7 @@ func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duratio
 		d.logger.Warn("seed: snapshot failed", "error", err)
 		return fmt.Errorf("snapshot local log: %w", err)
 	}
+	rootTomb, hasRootTomb := snap.RootTombstone()
 	var pathIssues map[string]pathPolicyIssue
 	if windowsPathPolicyEnabled {
 		entries, err := d.outbox.ReadAll()
@@ -550,35 +551,56 @@ func (d *DaemonV2_5) seedStateFromDiskWithStableWindow(stableWindow time.Duratio
 		}
 	}
 
-	// Files in CRDT but not on disk → local delete. The local CRDT is
-	// the merge base: if a file was known and is now gone from disk,
-	// the user deleted it while the daemon was off. No device attribution
-	// needed — the snapshot poller will merge remote state AFTER seed.
-	for path, fi := range knownFiles {
-		if _, exists := localFiles[path]; !exists {
-			if !localRootMissing && !previousLocalFiles[path] {
-				continue
+	knownDirs := snap.Dirs()
+	if localRootMissing {
+		if !hasRootTomb {
+			rootNS := ns
+			if rootNS == "" {
+				if rootTomb != nil && rootTomb.Namespace != "" {
+					rootNS = rootTomb.Namespace
+				} else {
+					for _, fi := range knownFiles {
+						if fi.Namespace != "" {
+							rootNS = fi.Namespace
+							break
+						}
+					}
+					if rootNS == "" {
+						for _, di := range knownDirs {
+							if di.Namespace != "" {
+								rootNS = di.Namespace
+								break
+							}
+						}
+					}
+				}
 			}
-			d.logger.Info("seed: local delete", "path", path)
+			d.logger.Info("seed: local delete_root", "root", d.config.LocalRoot)
 			d.localLog.AppendLocal(opslog.Entry{
-				Type:      opslog.Delete,
-				Path:      path,
-				Namespace: fi.Namespace,
+				Type:      opslog.DeleteRoot,
+				Path:      "",
+				Namespace: rootNS,
 			})
 			localStateChanged = true
 		}
-	}
-
-	knownDirs := snap.Dirs()
-	if localRootMissing {
-		for path, di := range knownDirs {
-			d.logger.Info("seed: local delete_dir", "path", path)
-			d.localLog.AppendLocal(opslog.Entry{
-				Type:      opslog.DeleteDir,
-				Path:      path,
-				Namespace: di.Namespace,
-			})
-			localStateChanged = true
+	} else {
+		// Files in CRDT but not on disk → local delete. The local CRDT is
+		// the merge base: if a file was known and is now gone from disk,
+		// the user deleted it while the daemon was off. No device attribution
+		// needed — the snapshot poller will merge remote state AFTER seed.
+		for path, fi := range knownFiles {
+			if _, exists := localFiles[path]; !exists {
+				if !previousLocalFiles[path] {
+					continue
+				}
+				d.logger.Info("seed: local delete", "path", path)
+				d.localLog.AppendLocal(opslog.Entry{
+					Type:      opslog.Delete,
+					Path:      path,
+					Namespace: fi.Namespace,
+				})
+				localStateChanged = true
+			}
 		}
 	}
 

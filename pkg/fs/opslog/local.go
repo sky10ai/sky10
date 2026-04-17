@@ -271,6 +271,30 @@ func (l *LocalOpsLog) Compact() error {
 			return err
 		}
 	}
+	if l.cache.deletedRoot != nil {
+		tomb := l.cache.deletedRoot
+		e := Entry{
+			Type:         DeleteRoot,
+			Path:         "",
+			Namespace:    tomb.Namespace,
+			Device:       tomb.Device,
+			Timestamp:    tomb.Modified.Unix(),
+			Seq:          tomb.Seq,
+			PrevChecksum: tomb.PrevChecksum,
+		}
+		data, err := json.Marshal(e)
+		if err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("marshaling entry: %w", err)
+		}
+		data = append(data, '\n')
+		if _, err := f.Write(data); err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return err
+		}
+	}
 	f.Close()
 
 	// Atomic replace

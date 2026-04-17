@@ -38,11 +38,12 @@ const SchemaVersion = "1.1.0"
 type EntryType string
 
 const (
-	Put       EntryType = "put"
-	Delete    EntryType = "delete"
-	DeleteDir EntryType = "delete_dir"
-	CreateDir EntryType = "create_dir"
-	Symlink   EntryType = "symlink"
+	Put        EntryType = "put"
+	Delete     EntryType = "delete"
+	DeleteDir  EntryType = "delete_dir"
+	DeleteRoot EntryType = "delete_root"
+	CreateDir  EntryType = "create_dir"
+	Symlink    EntryType = "symlink"
 )
 
 // Entry is a single operation in the append-only log.
@@ -165,6 +166,7 @@ type Snapshot struct {
 	dirs        map[string]DirInfo       // explicitly created directories
 	deleted     map[string]TombstoneInfo // paths with an explicit delete as last op
 	deletedDirs map[string]TombstoneInfo // directories with an explicit delete_dir tombstone
+	deletedRoot *TombstoneInfo           // whole-drive delete_root tombstone
 	created     time.Time
 	updated     time.Time
 }
@@ -243,6 +245,20 @@ func (s *Snapshot) DirTombstones() map[string]TombstoneInfo {
 		cp[k] = v
 	}
 	return cp
+}
+
+// RootDeleted reports whether the drive has an explicit delete_root tombstone.
+func (s *Snapshot) RootDeleted() bool {
+	return s != nil && s.deletedRoot != nil
+}
+
+// RootTombstone returns a copy of the delete_root tombstone, if present.
+func (s *Snapshot) RootTombstone() (*TombstoneInfo, bool) {
+	if s == nil || s.deletedRoot == nil {
+		return nil, false
+	}
+	tomb := *s.deletedRoot
+	return &tomb, true
 }
 
 // Created returns when the earliest snapshot base was created.
@@ -545,6 +561,7 @@ type manifestJSON struct {
 	Dirs        map[string]dirInfoJSON   `json:"dirs,omitempty"`
 	Deleted     map[string]tombstoneJSON `json:"deleted,omitempty"`
 	DeletedDirs map[string]tombstoneJSON `json:"deleted_dirs,omitempty"`
+	DeletedRoot *tombstoneJSON           `json:"deleted_root,omitempty"`
 }
 
 type dirInfoJSON struct {
@@ -635,6 +652,15 @@ func (l *OpsLog) saveSnapshot(ctx context.Context, snap *Snapshot) error {
 				Modified:     tomb.Modified,
 				PrevChecksum: tomb.PrevChecksum,
 			}
+		}
+	}
+	if snap.deletedRoot != nil {
+		m.DeletedRoot = &tombstoneJSON{
+			Namespace:    snap.deletedRoot.Namespace,
+			Device:       snap.deletedRoot.Device,
+			Seq:          snap.deletedRoot.Seq,
+			Modified:     snap.deletedRoot.Modified,
+			PrevChecksum: snap.deletedRoot.PrevChecksum,
 		}
 	}
 
@@ -737,6 +763,15 @@ func (l *OpsLog) LoadLatestSnapshot(ctx context.Context) (*Snapshot, int64, erro
 			PrevChecksum: tomb.PrevChecksum,
 		}
 	}
+	if m.DeletedRoot != nil {
+		snap.deletedRoot = &TombstoneInfo{
+			Namespace:    m.DeletedRoot.Namespace,
+			Device:       m.DeletedRoot.Device,
+			Seq:          m.DeletedRoot.Seq,
+			Modified:     m.DeletedRoot.Modified,
+			PrevChecksum: m.DeletedRoot.PrevChecksum,
+		}
+	}
 
 	ts := parseSnapshotTimestamp(latestKey)
 	return snap, ts, nil
@@ -800,6 +835,8 @@ func makeEnvelope(e *Entry, encrypted []byte) []byte {
 		buf[21] = 3
 	case Symlink:
 		buf[21] = 4
+	case DeleteRoot:
+		buf[21] = 5
 	}
 
 	copy(buf[envelopeSize:], encrypted)
@@ -928,6 +965,7 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 	// is rejected unless its clock beats the tombstone. This ensures
 	// DeleteDir is order-independent (commutative).
 	dirTombstones := make(map[string]clockTuple)
+	rootTombstone := (*clockTuple)(nil)
 
 	// Per-directory clock tracking for CreateDir/DeleteDir.
 	dirClocks := make(map[string]clockTuple)
@@ -954,6 +992,12 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 				dirClocks[k] = tombClock
 			}
 		}
+		if base.deletedRoot != nil {
+			tomb := *base.deletedRoot
+			snap.deletedRoot = &tomb
+			tombClock := tombstoneClock(tomb)
+			rootTombstone = &tombClock
+		}
 	}
 
 	for _, e := range entries {
@@ -961,6 +1005,9 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 
 		switch e.Type {
 		case Put, Symlink:
+			if rootTombstone != nil && !ec.beats(*rootTombstone) {
+				continue
+			}
 			if local, ok := snap.files[e.Path]; ok {
 				if fileDescendsEntry(local, e) {
 					continue
@@ -997,6 +1044,9 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 				LinkTarget:   e.LinkTarget,
 			}
 		case Delete:
+			if rootTombstone != nil && !ec.beats(*rootTombstone) {
+				continue
+			}
 			if local, ok := snap.files[e.Path]; ok {
 				if !entryDescendsFile(e, local) {
 					if prev, ok := clocks[e.Path]; ok && !ec.beats(prev) {
@@ -1010,6 +1060,9 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 			delete(snap.files, e.Path)
 			snap.deleted[e.Path] = tombstoneInfoFromEntry(e)
 		case CreateDir:
+			if rootTombstone != nil && !ec.beats(*rootTombstone) {
+				continue
+			}
 			if prev, ok := dirClocks[e.Path]; ok && !ec.beats(prev) {
 				continue
 			}
@@ -1029,6 +1082,9 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 				Modified:  time.Unix(e.Timestamp, 0).UTC(),
 			}
 		case DeleteDir:
+			if rootTombstone != nil && !ec.beats(*rootTombstone) {
+				continue
+			}
 			// Record tombstone so future puts/creates under this prefix
 			// are rejected unless they have a higher clock.
 			if prev, ok := dirTombstones[e.Path]; !ok || ec.beats(prev) {
@@ -1059,6 +1115,20 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 					}
 				}
 			}
+		case DeleteRoot:
+			if rootTombstone != nil && !ec.beats(*rootTombstone) {
+				continue
+			}
+			tomb := tombstoneInfoFromEntry(e)
+			snap.files = make(map[string]FileInfo)
+			snap.dirs = make(map[string]DirInfo)
+			snap.deleted = make(map[string]TombstoneInfo)
+			snap.deletedDirs = make(map[string]TombstoneInfo)
+			snap.deletedRoot = &tomb
+			clocks = make(map[string]clockTuple)
+			dirTombstones = make(map[string]clockTuple)
+			dirClocks = make(map[string]clockTuple)
+			rootTombstone = &ec
 		}
 	}
 

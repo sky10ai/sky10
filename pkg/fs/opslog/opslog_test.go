@@ -686,6 +686,48 @@ func TestCRDTDeleteDirClockSurvivesCompactionBase(t *testing.T) {
 	}
 }
 
+func TestCRDTDeleteRoot(t *testing.T) {
+	t.Parallel()
+
+	entries := []Entry{
+		{Type: Put, Path: "dir/a.txt", Checksum: "a1", Timestamp: 100, Device: "dev-a", Seq: 1},
+		{Type: CreateDir, Path: "dir", Timestamp: 100, Device: "dev-a", Seq: 2},
+		{Type: DeleteRoot, Path: "", Namespace: "Agents", Timestamp: 200, Device: "dev-b", Seq: 1},
+	}
+
+	snap := buildSnapshot(nil, entries)
+	if snap.Len() != 0 {
+		t.Fatalf("Len() = %d, want 0 after delete_root", snap.Len())
+	}
+	if len(snap.Dirs()) != 0 {
+		t.Fatalf("Dirs() len = %d, want 0 after delete_root", len(snap.Dirs()))
+	}
+	if !snap.RootDeleted() {
+		t.Fatal("root tombstone missing after delete_root")
+	}
+}
+
+func TestCRDTDeleteRootLaterPutWins(t *testing.T) {
+	t.Parallel()
+
+	entries := []Entry{
+		{Type: DeleteRoot, Path: "", Namespace: "Agents", Timestamp: 200, Device: "dev-a", Seq: 1},
+		{Type: Put, Path: "dir/new.txt", Checksum: "new", Timestamp: 300, Device: "dev-b", Seq: 1},
+		{Type: CreateDir, Path: "dir", Timestamp: 300, Device: "dev-b", Seq: 2},
+	}
+
+	snap := buildSnapshot(nil, entries)
+	if _, ok := snap.Lookup("dir/new.txt"); !ok {
+		t.Fatal("dir/new.txt should survive when it is newer than delete_root")
+	}
+	if _, ok := snap.Dirs()["dir"]; !ok {
+		t.Fatal("dir should survive when it is newer than delete_root")
+	}
+	if !snap.RootDeleted() {
+		t.Fatal("root tombstone should remain as the causal barrier")
+	}
+}
+
 // permutations returns all orderings of the given entries.
 func permutations(entries []Entry) [][]Entry {
 	if len(entries) <= 1 {

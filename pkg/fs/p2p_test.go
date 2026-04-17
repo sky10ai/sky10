@@ -149,6 +149,60 @@ func TestMergePeerSnapshotPreservesDeleteDirAuthority(t *testing.T) {
 	}
 }
 
+func TestMergePeerSnapshotPreservesDeleteRootAuthority(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	localLog := opslog.NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), "dev-a")
+	remoteLog := opslog.NewLocalOpsLog(filepath.Join(dir, "remote.jsonl"), "dev-b")
+
+	if err := localLog.Append(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "dir/stale.txt",
+		Checksum:  "old",
+		Chunks:    []string{"c1"},
+		Device:    "dev-a",
+		Timestamp: 100,
+		Seq:       1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := remoteLog.Append(opslog.Entry{
+		Type:      opslog.DeleteRoot,
+		Path:      "",
+		Namespace: "Agents",
+		Device:    "dev-b",
+		Timestamp: 200,
+		Seq:       1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	remoteSnap, err := remoteLog.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	merged, err := mergePeerSnapshot(localLog, remoteSnap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged != 1 {
+		t.Fatalf("merge = %d, want 1", merged)
+	}
+
+	localSnap, err := localLog.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := localSnap.Lookup("dir/stale.txt"); ok {
+		t.Fatal("dir/stale.txt should be removed by remote delete_root")
+	}
+	if !localSnap.RootDeleted() {
+		t.Fatal("root tombstone should be present after merge")
+	}
+}
+
 func TestMergePeerSnapshotAppliesCausalSuccessorDespiteOlderTimestamp(t *testing.T) {
 	t.Parallel()
 

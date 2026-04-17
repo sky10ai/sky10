@@ -1140,6 +1140,7 @@ func summarizeFSSnapshot(snap *opslog.Snapshot) (fsSnapshotState, error) {
 		Dirs          []summaryDir  `json:"dirs"`
 		Tombstones    []summaryTomb `json:"tombstones"`
 		DirTombstones []summaryTomb `json:"dir_tombstones"`
+		RootTombstone *summaryTomb  `json:"root_tombstone,omitempty"`
 	}
 
 	filesMap := snap.Files()
@@ -1223,6 +1224,16 @@ func summarizeFSSnapshot(snap *opslog.Snapshot) (fsSnapshotState, error) {
 			PrevChecksum: tomb.PrevChecksum,
 		})
 	}
+	if tomb, ok := snap.RootTombstone(); ok {
+		canonical.RootTombstone = &summaryTomb{
+			Path:         "",
+			Namespace:    tomb.Namespace,
+			Device:       tomb.Device,
+			Seq:          tomb.Seq,
+			Modified:     tomb.Modified.Unix(),
+			PrevChecksum: tomb.PrevChecksum,
+		}
+	}
 
 	data, err := json.Marshal(canonical)
 	if err != nil {
@@ -1281,8 +1292,28 @@ func mergePeerSnapshot(localLog *opslog.LocalOpsLog, remote *opslog.Snapshot) (i
 	localDirs := localSnap.Dirs()
 	localTombs := localSnap.Tombstones()
 	localDirTombs := localSnap.DirTombstones()
+	localRootTomb, _ := localSnap.RootTombstone()
 
 	merged := 0
+
+	if remoteRootTomb, ok := remote.RootTombstone(); ok {
+		if shouldApplyRemoteRootTombstone(*remoteRootTomb, localRootTomb) {
+			if err := localLog.Append(opslog.Entry{
+				Type:         opslog.DeleteRoot,
+				Path:         "",
+				Namespace:    remoteRootTomb.Namespace,
+				Device:       remoteRootTomb.Device,
+				Timestamp:    remoteRootTomb.Modified.Unix(),
+				Seq:          remoteRootTomb.Seq,
+				PrevChecksum: remoteRootTomb.PrevChecksum,
+			}); err != nil {
+				return merged, err
+			}
+			merged++
+			tomb := *remoteRootTomb
+			localRootTomb = &tomb
+		}
+	}
 
 	remoteDirTombs := remote.DirTombstones()
 	dirTombPaths := make([]string, 0, len(remoteDirTombs))
@@ -1292,7 +1323,7 @@ func mergePeerSnapshot(localLog *opslog.LocalOpsLog, remote *opslog.Snapshot) (i
 	sort.Strings(dirTombPaths)
 	for _, path := range dirTombPaths {
 		tomb := remoteDirTombs[path]
-		if !shouldApplyRemoteDirTombstone(path, tomb, localDirs, localDirTombs) {
+		if !shouldApplyRemoteDirTombstone(path, tomb, localDirs, localDirTombs, localRootTomb) {
 			continue
 		}
 		if err := localLog.Append(opslog.Entry{
@@ -1316,7 +1347,7 @@ func mergePeerSnapshot(localLog *opslog.LocalOpsLog, remote *opslog.Snapshot) (i
 	sort.Strings(tombPaths)
 	for _, path := range tombPaths {
 		tomb := remoteTombs[path]
-		if !shouldApplyRemoteTombstone(path, tomb, localFiles, localTombs, localDirTombs) {
+		if !shouldApplyRemoteTombstone(path, tomb, localFiles, localTombs, localDirTombs, localRootTomb) {
 			continue
 		}
 		if err := localLog.Append(opslog.Entry{
@@ -1341,7 +1372,7 @@ func mergePeerSnapshot(localLog *opslog.LocalOpsLog, remote *opslog.Snapshot) (i
 	sort.Strings(dirPaths)
 	for _, path := range dirPaths {
 		di := remoteDirs[path]
-		if !shouldApplyRemoteDir(path, di, localDirs, localDirTombs) {
+		if !shouldApplyRemoteDir(path, di, localDirs, localDirTombs, localRootTomb) {
 			continue
 		}
 		if err := localLog.Append(opslog.Entry{
@@ -1365,7 +1396,7 @@ func mergePeerSnapshot(localLog *opslog.LocalOpsLog, remote *opslog.Snapshot) (i
 	sort.Strings(filePaths)
 	for _, path := range filePaths {
 		fi := remoteFiles[path]
-		if !shouldApplyRemoteFile(path, fi, localFiles, localTombs, localDirTombs) {
+		if !shouldApplyRemoteFile(path, fi, localFiles, localTombs, localDirTombs, localRootTomb) {
 			continue
 		}
 		entryType := opslog.Put
@@ -1429,8 +1460,18 @@ func tombstoneDescendsFile(tomb opslog.TombstoneInfo, current opslog.FileInfo) b
 	return tomb.PrevChecksum != "" && current.Checksum != "" && tomb.PrevChecksum == current.Checksum
 }
 
-func shouldApplyRemoteFile(path string, remote opslog.FileInfo, localFiles map[string]opslog.FileInfo, localTombs, localDirTombs map[string]opslog.TombstoneInfo) bool {
+func shouldApplyRemoteRootTombstone(remote opslog.TombstoneInfo, localRoot *opslog.TombstoneInfo) bool {
+	if localRoot == nil {
+		return true
+	}
+	return clockFromTombstone(remote).beats(clockFromTombstone(*localRoot))
+}
+
+func shouldApplyRemoteFile(path string, remote opslog.FileInfo, localFiles map[string]opslog.FileInfo, localTombs, localDirTombs map[string]opslog.TombstoneInfo, localRoot *opslog.TombstoneInfo) bool {
 	remoteClock := clockFromFileInfo(remote)
+	if localRoot != nil && !remoteClock.beats(clockFromTombstone(*localRoot)) {
+		return false
+	}
 	if local, ok := localFiles[path]; ok {
 		if fileDescendsFile(local, remote) {
 			return false
@@ -1450,8 +1491,11 @@ func shouldApplyRemoteFile(path string, remote opslog.FileInfo, localFiles map[s
 	return true
 }
 
-func shouldApplyRemoteTombstone(path string, remote opslog.TombstoneInfo, localFiles map[string]opslog.FileInfo, localTombs, localDirTombs map[string]opslog.TombstoneInfo) bool {
+func shouldApplyRemoteTombstone(path string, remote opslog.TombstoneInfo, localFiles map[string]opslog.FileInfo, localTombs, localDirTombs map[string]opslog.TombstoneInfo, localRoot *opslog.TombstoneInfo) bool {
 	remoteClock := clockFromTombstone(remote)
+	if localRoot != nil && !remoteClock.beats(clockFromTombstone(*localRoot)) {
+		return false
+	}
 	if local, ok := localFiles[path]; ok {
 		if !tombstoneDescendsFile(remote, local) && !remoteClock.beats(clockFromFileInfo(local)) {
 			return false
@@ -1466,8 +1510,11 @@ func shouldApplyRemoteTombstone(path string, remote opslog.TombstoneInfo, localF
 	return true
 }
 
-func shouldApplyRemoteDir(path string, remote opslog.DirInfo, localDirs map[string]opslog.DirInfo, localDirTombs map[string]opslog.TombstoneInfo) bool {
+func shouldApplyRemoteDir(path string, remote opslog.DirInfo, localDirs map[string]opslog.DirInfo, localDirTombs map[string]opslog.TombstoneInfo, localRoot *opslog.TombstoneInfo) bool {
 	remoteClock := clockFromDirInfo(remote)
+	if localRoot != nil && !remoteClock.beats(clockFromTombstone(*localRoot)) {
+		return false
+	}
 	if local, ok := localDirs[path]; ok && !remoteClock.beats(clockFromDirInfo(local)) {
 		return false
 	}
@@ -1480,8 +1527,11 @@ func shouldApplyRemoteDir(path string, remote opslog.DirInfo, localDirs map[stri
 	return true
 }
 
-func shouldApplyRemoteDirTombstone(path string, remote opslog.TombstoneInfo, localDirs map[string]opslog.DirInfo, localDirTombs map[string]opslog.TombstoneInfo) bool {
+func shouldApplyRemoteDirTombstone(path string, remote opslog.TombstoneInfo, localDirs map[string]opslog.DirInfo, localDirTombs map[string]opslog.TombstoneInfo, localRoot *opslog.TombstoneInfo) bool {
 	remoteClock := clockFromTombstone(remote)
+	if localRoot != nil && !remoteClock.beats(clockFromTombstone(*localRoot)) {
+		return false
+	}
 	if local, ok := localDirs[path]; ok && !remoteClock.beats(clockFromDirInfo(local)) {
 		return false
 	}

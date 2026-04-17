@@ -133,6 +133,48 @@ func TestMarshalPeerSnapshotPreservesTombstones(t *testing.T) {
 	}
 }
 
+func TestMarshalSnapshotPreservesDeleteRoot(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	log := NewLocalOpsLog(filepath.Join(dir, "ops.jsonl"), "dev-a")
+
+	if err := log.Append(Entry{
+		Type:      Put,
+		Path:      "agents/lisa/memory.md",
+		Checksum:  "h1",
+		Chunks:    []string{"c1"},
+		Device:    "dev-a",
+		Timestamp: 100,
+		Seq:       1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := log.Append(Entry{
+		Type:      DeleteRoot,
+		Path:      "",
+		Namespace: "Agents",
+		Device:    "dev-b",
+		Timestamp: 200,
+		Seq:       1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	snap, _ := log.Snapshot()
+	data, err := MarshalSnapshot(snap)
+	if err != nil {
+		t.Fatalf("MarshalSnapshot: %v", err)
+	}
+
+	snap2, err := UnmarshalSnapshot(data)
+	if err != nil {
+		t.Fatalf("UnmarshalSnapshot: %v", err)
+	}
+	if !snap2.RootDeleted() {
+		t.Fatal("delete_root should survive standard snapshot marshaling")
+	}
+}
+
 func TestMarshalSnapshotOmitsTombstones(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -163,5 +205,11 @@ func TestMarshalSnapshotOmitsTombstones(t *testing.T) {
 	}
 	if len(snap2.Tombstones()) != 0 {
 		t.Fatalf("expected S3 snapshot format to omit tombstones, got %+v", snap2.Tombstones())
+	}
+	if len(snap2.DirTombstones()) != 0 {
+		t.Fatalf("expected S3 snapshot format to omit dir tombstones, got %+v", snap2.DirTombstones())
+	}
+	if snap2.RootDeleted() {
+		t.Fatal("delete_root should not appear when it was never recorded")
 	}
 }

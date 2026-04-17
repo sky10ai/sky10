@@ -752,6 +752,46 @@ func TestReconcilerDeleteDirEndToEnd(t *testing.T) {
 	}
 }
 
+func TestReconcilerDeleteRootEndToEnd(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+
+	os.MkdirAll(filepath.Join(localDir, "photos", "vacation"), 0755)
+	os.WriteFile(filepath.Join(localDir, "photos", "a.jpg"), []byte("img-a"), 0644)
+	os.WriteFile(filepath.Join(localDir, "notes.txt"), []byte("keep"), 0644)
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+	localLog.AppendLocal(opslog.Entry{
+		Type: opslog.Put, Path: "photos/a.jpg", Checksum: checksumOf("img-a"), Namespace: "Test",
+	})
+	localLog.AppendLocal(opslog.Entry{
+		Type: opslog.Put, Path: "notes.txt", Checksum: checksumOf("keep"), Namespace: "Test",
+	})
+	localLog.Append(opslog.Entry{
+		Type: opslog.DeleteRoot, Path: "",
+		Device: "dev-b", Timestamp: 9999999999, Seq: 1, Namespace: "Test",
+	})
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.reconcile(context.Background())
+
+	if _, err := os.Stat(localDir); err != nil {
+		t.Fatalf("drive root should remain on disk after delete_root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(localDir, "photos")); err == nil {
+		t.Error("photos/ should have been removed by delete_root")
+	}
+	if _, err := os.Stat(filepath.Join(localDir, "notes.txt")); err == nil {
+		t.Error("notes.txt should have been removed by delete_root")
+	}
+}
+
 func TestReconcilerCreatesDirectories(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
