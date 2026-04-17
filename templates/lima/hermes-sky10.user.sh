@@ -28,6 +28,13 @@ mkdir -p "${HOME}/.local/bin"
 mkdir -p "${UNIT_DIR}"
 mkdir -p "${SHARED_DIR}"
 
+emit_progress() {
+  local event="$1"
+  local id="$2"
+  local summary="$3"
+  printf 'SKY10_PROGRESS {"event":"%s","id":"%s","summary":"%s"}\n' "${event}" "${id}" "${summary}"
+}
+
 curl4() {
   curl -4 --retry 5 --retry-delay 2 --retry-connrefused -fsSL "$@"
 }
@@ -149,12 +156,15 @@ ensure_guest_join() {
   local invite_info host_identity invite_code
 
   if [ -f "${SKY10_UNIT}" ]; then
+    emit_progress skip guest.sky10.join "Guest sky10 already linked."
     return 0
   fi
   if [ ! -f "${SKY10_INVITE_PATH}" ]; then
+    emit_progress skip guest.sky10.join "Guest sky10 join not required."
     return 0
   fi
 
+  emit_progress begin guest.sky10.join "Linking guest sky10 identity..."
   ensure_guest_sky10_binary
   mapfile -t invite_info < <(
     python3 - "${SKY10_INVITE_PATH}" <<'PY'
@@ -176,6 +186,7 @@ PY
   fi
 
   sky10 join --role sandbox "${invite_code}"
+  emit_progress end guest.sky10.join "Guest sky10 linked."
 
   if [ -n "${host_identity}" ]; then
     echo "joined sky10 host identity ${host_identity}"
@@ -189,9 +200,11 @@ ensure_guest_sky10() {
   install_guest_reconnect_helper
 
   if curl -fsS http://127.0.0.1:9101/health >/dev/null 2>&1; then
+    emit_progress skip guest.sky10.start "Guest sky10 already running."
     return 0
   fi
 
+  emit_progress begin guest.sky10.start "Starting guest sky10..."
   cat > "${SKY10_UNIT}" <<EOF
 [Unit]
 Description=sky10 Daemon
@@ -216,6 +229,7 @@ EOF
   systemctl --user restart sky10.service || systemctl --user start sky10.service
 
   wait_for_sky10
+  emit_progress end guest.sky10.start "Guest sky10 running."
 }
 
 ensure_shared_env() {
@@ -446,9 +460,11 @@ wait_for_hermes_api() {
 
 enable_host_chat_bridge() {
   if [ ! -f "${BRIDGE_CONFIG}" ]; then
+    emit_progress skip guest.hermes.bridge.start "Hermes bridge not configured."
     return 0
   fi
 
+  emit_progress begin guest.hermes.bridge.start "Starting Hermes bridge..."
   install_bridge_asset
   write_bridge_env
   write_gateway_unit
@@ -459,6 +475,7 @@ enable_host_chat_bridge() {
   systemctl --user restart sky10-hermes-gateway.service || systemctl --user start sky10-hermes-gateway.service
   wait_for_hermes_api
   systemctl --user restart sky10-hermes-bridge.service || systemctl --user start sky10-hermes-bridge.service
+  emit_progress end guest.hermes.bridge.start "Hermes bridge ready."
 }
 
 write_welcome() {
@@ -486,10 +503,15 @@ EOF
 ensure_shared_env
 
 if [ ! -f "${SENTINEL}" ]; then
+  emit_progress begin guest.hermes.install "Installing Hermes..."
   curl4 https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup
   touch "${SENTINEL}"
+  emit_progress end guest.hermes.install "Hermes installed."
+else
+  emit_progress skip guest.hermes.install "Hermes already installed."
 fi
 
+emit_progress begin guest.hermes.configure "Configuring Hermes..."
 link_hermes_env
 write_helper
 write_welcome
@@ -505,4 +527,5 @@ if command -v hermes >/dev/null 2>&1; then
 fi
 
 link_hermes_env
+emit_progress end guest.hermes.configure "Hermes configured."
 enable_host_chat_bridge

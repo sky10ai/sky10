@@ -1,4 +1,4 @@
-import type { SandboxLogEntry } from "./rpc";
+import type { SandboxLogEntry, SandboxProgress, SandboxRecord } from "./rpc";
 
 export const SANDBOX_TEMPLATES = [
   {
@@ -74,6 +74,17 @@ export function sandboxLabel(status: string) {
     default:
       return status || "Unknown";
   }
+}
+
+export function sandboxCurrentProgress(record: Pick<SandboxRecord, "status" | "progress">): SandboxProgress | null {
+  const progress = record.progress;
+  if (!progress || !progress.summary?.trim()) {
+    return null;
+  }
+  if (record.status !== "creating" && record.status !== "starting" && record.status !== "error") {
+    return null;
+  }
+  return progress;
 }
 
 export function sandboxLogKey(entry: SandboxLogEntry, index: number) {

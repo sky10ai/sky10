@@ -58,6 +58,7 @@ const (
 	guestSky10ReadyURL             = "http://127.0.0.1:9101/health"
 	guestSky10LocalRPCURL          = "http://127.0.0.1:9101/rpc"
 	openClawReadyURL               = "http://127.0.0.1:18789/health"
+	progressMarkerPrefix           = "SKY10_PROGRESS "
 )
 
 var openClawSharedAssetFiles = []string{
@@ -76,6 +77,46 @@ var defaultHermesBridgeSkills = []string{
 	"shell",
 	"web-search",
 	"file-ops",
+}
+
+var ubuntuLimaProgressPlan = []progressStep{
+	{ID: "sandbox.prepare", Summary: "Preparing sandbox..."},
+	{ID: "vm.start", Summary: "Booting device..."},
+}
+
+var openClawLimaProgressPlan = []progressStep{
+	{ID: "sandbox.prepare", Summary: "Preparing sandbox..."},
+	{ID: "vm.start", Summary: "Booting device..."},
+	{ID: "guest.system.packages", Summary: "Installing system packages..."},
+	{ID: "guest.node.install", Summary: "Installing Node.js..."},
+	{ID: "guest.openclaw.install", Summary: "Installing OpenClaw..."},
+	{ID: "guest.chromium.install", Summary: "Installing Chromium..."},
+	{ID: "guest.caddy.install", Summary: "Installing Caddy..."},
+	{ID: "guest.sky10.join", Summary: "Linking guest sky10 identity..."},
+	{ID: "guest.sky10.start", Summary: "Starting guest sky10..."},
+	{ID: "guest.openclaw.configure", Summary: "Configuring OpenClaw..."},
+	{ID: "guest.openclaw.start", Summary: "Starting OpenClaw..."},
+	{ID: "ready.openclaw.gateway", Summary: "Waiting for OpenClaw gateway..."},
+	{ID: "ready.guest.sky10", Summary: "Waiting for guest sky10..."},
+	{ID: "ready.guest.identity", Summary: "Confirming guest identity..."},
+	{ID: "ready.guest.agent", Summary: "Waiting for agent registration..."},
+	{ID: "ready.host.connect", Summary: "Connecting host to guest..."},
+}
+
+var hermesLimaProgressPlan = []progressStep{
+	{ID: "sandbox.prepare", Summary: "Preparing sandbox..."},
+	{ID: "vm.start", Summary: "Booting device..."},
+	{ID: "guest.system.packages", Summary: "Installing system packages..."},
+	{ID: "guest.hermes.install", Summary: "Installing Hermes..."},
+	{ID: "guest.hermes.configure", Summary: "Configuring Hermes..."},
+	{ID: "guest.sky10.join", Summary: "Linking guest sky10 identity..."},
+	{ID: "guest.sky10.start", Summary: "Starting guest sky10..."},
+	{ID: "guest.hermes.bridge.start", Summary: "Starting Hermes bridge..."},
+	{ID: "ready.guest.hermes", Summary: "Waiting for Hermes CLI..."},
+	{ID: "ready.guest.sky10", Summary: "Waiting for guest sky10..."},
+	{ID: "ready.guest.identity", Summary: "Confirming guest identity..."},
+	{ID: "ready.guest.agent", Summary: "Waiting for agent registration..."},
+	{ID: "ready.host.connect", Summary: "Connecting host to guest..."},
 }
 
 var slugWordPattern = regexp.MustCompile(`[a-z0-9]+`)
@@ -101,28 +142,35 @@ type LogsParams struct {
 }
 
 type Record struct {
-	Name              string `json:"name"`
-	Slug              string `json:"slug"`
-	Provider          string `json:"provider"`
-	Template          string `json:"template"`
-	Model             string `json:"model,omitempty"`
-	Status            string `json:"status"`
-	VMStatus          string `json:"vm_status,omitempty"`
-	SharedDir         string `json:"shared_dir,omitempty"`
-	IPAddress         string `json:"ip_address,omitempty"`
-	Shell             string `json:"shell,omitempty"`
-	LastError         string `json:"last_error,omitempty"`
-	GuestDeviceID     string `json:"guest_device_id,omitempty"`
-	GuestDevicePubKey string `json:"guest_device_pubkey,omitempty"`
-	CreatedAt         string `json:"created_at"`
-	UpdatedAt         string `json:"updated_at"`
-	LastLogAt         string `json:"last_log_at,omitempty"`
+	Name              string    `json:"name"`
+	Slug              string    `json:"slug"`
+	Provider          string    `json:"provider"`
+	Template          string    `json:"template"`
+	Model             string    `json:"model,omitempty"`
+	Status            string    `json:"status"`
+	VMStatus          string    `json:"vm_status,omitempty"`
+	SharedDir         string    `json:"shared_dir,omitempty"`
+	IPAddress         string    `json:"ip_address,omitempty"`
+	Shell             string    `json:"shell,omitempty"`
+	LastError         string    `json:"last_error,omitempty"`
+	Progress          *Progress `json:"progress,omitempty"`
+	GuestDeviceID     string    `json:"guest_device_id,omitempty"`
+	GuestDevicePubKey string    `json:"guest_device_pubkey,omitempty"`
+	CreatedAt         string    `json:"created_at"`
+	UpdatedAt         string    `json:"updated_at"`
+	LastLogAt         string    `json:"last_log_at,omitempty"`
 }
 
 type LogEntry struct {
 	Time   string `json:"time"`
 	Stream string `json:"stream"`
 	Line   string `json:"line"`
+}
+
+type Progress struct {
+	StepID  string `json:"step_id,omitempty"`
+	Summary string `json:"summary,omitempty"`
+	Percent int    `json:"percent"`
 }
 
 type ListResult struct {
@@ -142,6 +190,26 @@ type stateFile struct {
 type templateDefinition struct {
 	mainAsset string
 	assets    []string
+}
+
+type progressEvent struct {
+	Event   string `json:"event"`
+	ID      string `json:"id"`
+	Summary string `json:"summary,omitempty"`
+	Detail  string `json:"detail,omitempty"`
+}
+
+type progressStep struct {
+	ID      string
+	Summary string
+}
+
+type progressTracker struct {
+	plan        []progressStep
+	index       map[string]int
+	completed   map[string]bool
+	open        []string
+	openSummary map[string]string
 }
 
 type IdentityInvite struct {
@@ -188,9 +256,121 @@ type guestIdentity struct {
 	DeviceCount  int    `json:"device_count"`
 }
 
+func sandboxProgressPlan(provider, template string) []progressStep {
+	if provider != providerLima {
+		return nil
+	}
+	switch template {
+	case templateUbuntu:
+		return ubuntuLimaProgressPlan
+	case templateOpenClaw:
+		return openClawLimaProgressPlan
+	case templateHermes:
+		return hermesLimaProgressPlan
+	default:
+		return nil
+	}
+}
+
+func newProgressTracker(provider, template string) *progressTracker {
+	plan := sandboxProgressPlan(provider, template)
+	if len(plan) == 0 {
+		return nil
+	}
+	index := make(map[string]int, len(plan))
+	for i, step := range plan {
+		index[step.ID] = i
+	}
+	return &progressTracker{
+		plan:        plan,
+		index:       index,
+		completed:   make(map[string]bool, len(plan)),
+		openSummary: make(map[string]string, len(plan)),
+	}
+}
+
+func (t *progressTracker) current() (string, string) {
+	for i := len(t.open) - 1; i >= 0; i-- {
+		id := t.open[i]
+		if summary := strings.TrimSpace(t.openSummary[id]); summary != "" {
+			return id, summary
+		}
+	}
+	return "", ""
+}
+
+func (t *progressTracker) removeOpen(id string) {
+	if id == "" {
+		return
+	}
+	filtered := t.open[:0]
+	for _, item := range t.open {
+		if item != id {
+			filtered = append(filtered, item)
+		}
+	}
+	t.open = filtered
+	delete(t.openSummary, id)
+}
+
+func (t *progressTracker) percent() int {
+	total := len(t.plan)
+	if total == 0 {
+		return 0
+	}
+	completed := 0
+	for _, step := range t.plan {
+		if t.completed[step.ID] {
+			completed++
+		}
+	}
+	return (completed * 100) / total
+}
+
+func (t *progressTracker) apply(event progressEvent) *Progress {
+	id := strings.TrimSpace(event.ID)
+	summary := strings.TrimSpace(event.Summary)
+	switch event.Event {
+	case "begin":
+		t.removeOpen(id)
+		t.open = append(t.open, id)
+		if summary != "" {
+			t.openSummary[id] = summary
+		}
+	case "end", "skip":
+		if _, ok := t.index[id]; ok {
+			t.completed[id] = true
+		}
+		t.removeOpen(id)
+	case "fail":
+		t.removeOpen(id)
+	}
+
+	currentID, currentSummary := t.current()
+	if currentSummary == "" {
+		switch event.Event {
+		case "begin", "fail":
+			currentID = id
+			currentSummary = summary
+		case "end", "skip":
+			if summary != "" {
+				currentID = id
+				currentSummary = summary
+			}
+		}
+	}
+
+	return &Progress{
+		StepID:  currentID,
+		Summary: currentSummary,
+		Percent: t.percent(),
+	}
+}
+
 type Manager struct {
 	mu                       sync.Mutex
 	records                  map[string]Record
+	progress                 map[string]*progressTracker
 	rootDir                  string
 	emit                     Emitter
 	logger                   *slog.Logger
@@ -216,6 +396,7 @@ func NewManager(emit Emitter, logger *slog.Logger) (*Manager, error) {
 	}
 	m := &Manager{
 		records:   map[string]Record{},
+		progress:  map[string]*progressTracker{},
 		rootDir:   filepath.Join(root, "sandboxes"),
 		emit:      emit,
 		logger:    componentLogger(logger),
@@ -432,6 +613,151 @@ func (m *Manager) ReconnectGuest(ctx context.Context, params ReconnectGuestParam
 	}, nil
 }
 
+func newInitialProgress(provider, template string) (*Progress, *progressTracker) {
+	tracker := newProgressTracker(provider, template)
+	if tracker == nil || len(tracker.plan) == 0 {
+		return nil, nil
+	}
+	first := tracker.plan[0]
+	return tracker.apply(progressEvent{
+		Event:   "begin",
+		ID:      first.ID,
+		Summary: first.Summary,
+	}), tracker
+}
+
+func parseProgressMarker(line string) (progressEvent, bool) {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, progressMarkerPrefix) {
+		return progressEvent{}, false
+	}
+	payload := strings.TrimSpace(strings.TrimPrefix(line, progressMarkerPrefix))
+	if payload == "" {
+		return progressEvent{}, false
+	}
+	var event progressEvent
+	if err := json.Unmarshal([]byte(payload), &event); err != nil {
+		return progressEvent{}, false
+	}
+	event.Event = strings.ToLower(strings.TrimSpace(event.Event))
+	event.ID = strings.TrimSpace(event.ID)
+	event.Summary = strings.TrimSpace(event.Summary)
+	event.Detail = strings.TrimSpace(event.Detail)
+	switch event.Event {
+	case "begin", "end", "skip", "fail":
+	default:
+		return progressEvent{}, false
+	}
+	if event.ID == "" {
+		return progressEvent{}, false
+	}
+	return event, true
+}
+
+func (m *Manager) resetProgress(name string) error {
+	m.mu.Lock()
+	rec, ok := m.records[name]
+	if !ok {
+		m.mu.Unlock()
+		return fmt.Errorf("sandbox %q not found", name)
+	}
+	progress, tracker := newInitialProgress(rec.Provider, rec.Template)
+	rec.Progress = progress
+	rec.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	m.records[name] = rec
+	if tracker != nil {
+		m.progress[name] = tracker
+	} else {
+		delete(m.progress, name)
+	}
+	if err := m.saveLocked(); err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	m.mu.Unlock()
+	m.emitState(rec)
+	return nil
+}
+
+func (m *Manager) updateProgress(name string, event progressEvent) error {
+	event.Event = strings.ToLower(strings.TrimSpace(event.Event))
+	event.ID = strings.TrimSpace(event.ID)
+	event.Summary = strings.TrimSpace(event.Summary)
+	event.Detail = strings.TrimSpace(event.Detail)
+	if event.ID == "" {
+		return nil
+	}
+
+	m.mu.Lock()
+	rec, ok := m.records[name]
+	if !ok {
+		m.mu.Unlock()
+		return fmt.Errorf("sandbox %q not found", name)
+	}
+	tracker := m.progress[name]
+	if tracker == nil {
+		tracker = newProgressTracker(rec.Provider, rec.Template)
+		if tracker == nil {
+			m.mu.Unlock()
+			return nil
+		}
+		m.progress[name] = tracker
+	}
+	rec.Progress = tracker.apply(event)
+	rec.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	m.records[name] = rec
+	if err := m.saveLocked(); err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	m.mu.Unlock()
+	m.emitState(rec)
+	return nil
+}
+
+func (m *Manager) failCurrentProgress(name, detail string) error {
+	detail = strings.TrimSpace(detail)
+
+	m.mu.Lock()
+	rec, ok := m.records[name]
+	if !ok {
+		m.mu.Unlock()
+		return fmt.Errorf("sandbox %q not found", name)
+	}
+	tracker := m.progress[name]
+	currentID := ""
+	currentSummary := ""
+	if tracker != nil {
+		currentID, currentSummary = tracker.current()
+	}
+	if currentID == "" && rec.Progress != nil {
+		currentID = strings.TrimSpace(rec.Progress.StepID)
+		currentSummary = strings.TrimSpace(rec.Progress.Summary)
+	}
+	if currentSummary == "" {
+		currentSummary = "Provisioning failed."
+	}
+	if tracker != nil && currentID != "" {
+		rec.Progress = tracker.apply(progressEvent{
+			Event:   "fail",
+			ID:      currentID,
+			Summary: currentSummary,
+			Detail:  detail,
+		})
+	} else if rec.Progress != nil {
+		rec.Progress.Summary = currentSummary
+	}
+	rec.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	m.records[name] = rec
+	if err := m.saveLocked(); err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	m.mu.Unlock()
+	m.emitState(rec)
+	return nil
+}
+
 func (m *Manager) List(ctx context.Context) (*ListResult, error) {
 	if err := m.refreshRuntime(ctx); err != nil {
 		m.logger.Debug("sandbox runtime refresh failed", "error", err)
@@ -515,6 +841,7 @@ func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, err
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
+	initialProgress, tracker := newInitialProgress(provider, template)
 	rec := Record{
 		Name:      displayName,
 		Slug:      slug,
@@ -524,6 +851,7 @@ func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, err
 		Status:    "creating",
 		SharedDir: sharedDir,
 		Shell:     defaultShellCommand(slug, template),
+		Progress:  initialProgress,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -539,7 +867,11 @@ func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, err
 	}
 	m.records[slug] = rec
 	m.running[slug] = true
+	if tracker != nil {
+		m.progress[slug] = tracker
+	}
 	if err := m.saveLocked(); err != nil {
+		delete(m.progress, slug)
 		delete(m.running, slug)
 		delete(m.records, slug)
 		m.mu.Unlock()
@@ -660,15 +992,41 @@ func (m *Manager) Start(ctx context.Context, name string) (*Record, error) {
 	if err := m.updateStatus(rec.Slug, "starting", ""); err != nil {
 		return nil, err
 	}
+	if err := m.resetProgress(rec.Slug); err != nil {
+		return nil, err
+	}
+	if err := m.updateProgress(rec.Slug, progressEvent{
+		Event:   "end",
+		ID:      "sandbox.prepare",
+		Summary: "Sandbox prepared.",
+	}); err != nil {
+		return nil, err
+	}
+	if err := m.updateProgress(rec.Slug, progressEvent{
+		Event:   "begin",
+		ID:      "vm.start",
+		Summary: "Booting device...",
+	}); err != nil {
+		return nil, err
+	}
 	go func() {
 		err := m.runCmd(context.Background(), limactl, []string{"start", "--tty=false", rec.Slug}, func(stream, line string) {
 			m.appendLog(rec.Slug, stream, line)
 		})
 		if err != nil {
+			_ = m.failCurrentProgress(rec.Slug, err.Error())
 			_ = m.updateStatus(rec.Slug, "error", err.Error())
 			return
 		}
-		_ = m.finishReady(context.Background(), rec.Slug, limactl)
+		_ = m.updateProgress(rec.Slug, progressEvent{
+			Event:   "end",
+			ID:      "vm.start",
+			Summary: "Device booted.",
+		})
+		if err := m.finishReady(context.Background(), rec.Slug, limactl); err != nil {
+			_ = m.failCurrentProgress(rec.Slug, err.Error())
+			_ = m.updateStatus(rec.Slug, "error", err.Error())
+		}
 	}()
 	return m.Get(context.Background(), rec.Slug)
 }
@@ -761,29 +1119,49 @@ func (m *Manager) runCreate(ctx context.Context, rec Record) {
 
 	limactl, err := m.ensureManagedApp(ctx, skyapps.AppLima, true)
 	if err != nil {
+		_ = m.failCurrentProgress(rec.Slug, err.Error())
 		_ = m.updateStatus(rec.Slug, "error", err.Error())
 		return
 	}
 
 	templatePath, err := m.materializeTemplate(ctx, rec)
 	if err != nil {
+		_ = m.failCurrentProgress(rec.Slug, err.Error())
 		_ = m.updateStatus(rec.Slug, "error", err.Error())
 		return
 	}
+	_ = m.updateProgress(rec.Slug, progressEvent{
+		Event:   "end",
+		ID:      "sandbox.prepare",
+		Summary: "Sandbox prepared.",
+	})
+	_ = m.updateProgress(rec.Slug, progressEvent{
+		Event:   "begin",
+		ID:      "vm.start",
+		Summary: "Booting device...",
+	})
 
 	args, err := m.buildStartArgs(ctx, rec, templatePath)
 	if err != nil {
+		_ = m.failCurrentProgress(rec.Slug, err.Error())
 		_ = m.updateStatus(rec.Slug, "error", err.Error())
 		return
 	}
 	if err := m.runCmd(ctx, limactl, args, func(stream, line string) {
 		m.appendLog(rec.Slug, stream, line)
 	}); err != nil {
+		_ = m.failCurrentProgress(rec.Slug, err.Error())
 		_ = m.updateStatus(rec.Slug, "error", err.Error())
 		return
 	}
+	_ = m.updateProgress(rec.Slug, progressEvent{
+		Event:   "end",
+		ID:      "vm.start",
+		Summary: "Device booted.",
+	})
 
 	if err := m.finishReady(ctx, rec.Slug, limactl); err != nil {
+		_ = m.failCurrentProgress(rec.Slug, err.Error())
 		_ = m.updateStatus(rec.Slug, "error", err.Error())
 		return
 	}
@@ -809,46 +1187,186 @@ func (m *Manager) finishReady(ctx context.Context, name, limactl string) error {
 		return err
 	}
 	if rec.Template == templateOpenClaw {
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "begin",
+			ID:      "ready.openclaw.gateway",
+			Summary: "Waiting for OpenClaw gateway...",
+		}); err != nil {
+			return err
+		}
 		if err := waitForOpenClawGateway(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
+			return err
+		}
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "end",
+			ID:      "ready.openclaw.gateway",
+			Summary: "OpenClaw gateway is ready.",
+		}); err != nil {
+			return err
+		}
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "begin",
+			ID:      "ready.guest.sky10",
+			Summary: "Waiting for guest sky10...",
+		}); err != nil {
 			return err
 		}
 		if err := waitForGuestSky10(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
 			return err
 		}
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "end",
+			ID:      "ready.guest.sky10",
+			Summary: "Guest sky10 is ready.",
+		}); err != nil {
+			return err
+		}
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "begin",
+			ID:      "ready.guest.identity",
+			Summary: "Confirming guest identity...",
+		}); err != nil {
+			return err
+		}
 		hostIdentity, err := m.ensureGuestJoinedHostIdentity(ctx, *rec, limactl)
 		if err != nil {
+			return err
+		}
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "end",
+			ID:      "ready.guest.identity",
+			Summary: "Guest identity confirmed.",
+		}); err != nil {
+			return err
+		}
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "begin",
+			ID:      "ready.guest.agent",
+			Summary: "Waiting for agent registration...",
+		}); err != nil {
 			return err
 		}
 		if err := waitForGuestOpenClawAgent(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
 			return err
 		}
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "end",
+			ID:      "ready.guest.agent",
+			Summary: "Agent registered in guest sky10.",
+		}); err != nil {
+			return err
+		}
 		updatedRec, err := m.requireRecord(name)
 		if err != nil {
+			return err
+		}
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "begin",
+			ID:      "ready.host.connect",
+			Summary: "Connecting host to guest...",
+		}); err != nil {
 			return err
 		}
 		if err := m.ensureHostConnectedGuestAgent(ctx, *updatedRec, hostIdentity); err != nil {
 			return err
 		}
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "end",
+			ID:      "ready.host.connect",
+			Summary: "Host connected to guest.",
+		}); err != nil {
+			return err
+		}
 	}
 	if rec.Template == templateHermes {
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "begin",
+			ID:      "ready.guest.hermes",
+			Summary: "Waiting for Hermes CLI...",
+		}); err != nil {
+			return err
+		}
 		if err := waitForGuestHermesCLI(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
 			return err
 		}
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "end",
+			ID:      "ready.guest.hermes",
+			Summary: "Hermes CLI is ready.",
+		}); err != nil {
+			return err
+		}
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "begin",
+			ID:      "ready.guest.sky10",
+			Summary: "Waiting for guest sky10...",
+		}); err != nil {
+			return err
+		}
 		if err := waitForGuestSky10(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
+			return err
+		}
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "end",
+			ID:      "ready.guest.sky10",
+			Summary: "Guest sky10 is ready.",
+		}); err != nil {
+			return err
+		}
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "begin",
+			ID:      "ready.guest.identity",
+			Summary: "Confirming guest identity...",
+		}); err != nil {
 			return err
 		}
 		hostIdentity, err := m.ensureGuestJoinedHostIdentity(ctx, *rec, limactl)
 		if err != nil {
 			return err
 		}
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "end",
+			ID:      "ready.guest.identity",
+			Summary: "Guest identity confirmed.",
+		}); err != nil {
+			return err
+		}
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "begin",
+			ID:      "ready.guest.agent",
+			Summary: "Waiting for agent registration...",
+		}); err != nil {
+			return err
+		}
 		if err := waitForGuestHermesAgent(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
+			return err
+		}
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "end",
+			ID:      "ready.guest.agent",
+			Summary: "Agent registered in guest sky10.",
+		}); err != nil {
 			return err
 		}
 		updatedRec, err := m.requireRecord(name)
 		if err != nil {
 			return err
 		}
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "begin",
+			ID:      "ready.host.connect",
+			Summary: "Connecting host to guest...",
+		}); err != nil {
+			return err
+		}
 		if err := m.ensureHostConnectedGuestAgent(ctx, *updatedRec, hostIdentity); err != nil {
+			return err
+		}
+		if err := m.updateProgress(name, progressEvent{
+			Event:   "end",
+			ID:      "ready.host.connect",
+			Summary: "Host connected to guest.",
+		}); err != nil {
 			return err
 		}
 	}
@@ -1568,6 +2086,10 @@ func (m *Manager) appendLog(slug, stream, line string) {
 	if strings.TrimSpace(line) == "" {
 		return
 	}
+	if event, ok := parseProgressMarker(line); ok {
+		_ = m.updateProgress(slug, event)
+		return
+	}
 	entry := LogEntry{
 		Time:   time.Now().UTC().Format(time.RFC3339),
 		Stream: stream,
@@ -1615,6 +2137,10 @@ func (m *Manager) updateStatus(name, status, lastErr string) error {
 	}
 	rec.Status = status
 	rec.LastError = lastErr
+	if status == "ready" || status == "stopped" {
+		rec.Progress = nil
+		delete(m.progress, name)
+	}
 	rec.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	m.records[name] = rec
 	if err := m.saveLocked(); err != nil {
@@ -1763,6 +2289,7 @@ func (m *Manager) forgetRecord(rec Record) error {
 	m.mu.Lock()
 	delete(m.records, rec.Slug)
 	delete(m.running, rec.Slug)
+	delete(m.progress, rec.Slug)
 	err := m.saveLocked()
 	m.mu.Unlock()
 	if err != nil {

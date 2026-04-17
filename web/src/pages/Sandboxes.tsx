@@ -6,6 +6,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { SANDBOX_STATE_EVENT_TYPES } from "../lib/events";
 import { sandbox } from "../lib/rpc";
 import {
+  sandboxCurrentProgress,
   nextSandboxName,
   sandboxTemplateById,
   SANDBOX_TEMPLATES,
@@ -252,40 +253,61 @@ export default function Sandboxes() {
 
         {sandboxes.length ? (
           <div className="space-y-3">
-            {sandboxes.map((item) => (
-              <Link
-                key={item.slug}
-                className="group flex flex-col gap-4 rounded-2xl border border-outline-variant/10 bg-surface-container px-5 py-4 transition-all hover:border-primary/20 hover:bg-surface-container-high md:flex-row md:items-center md:justify-between"
-                to={`/settings/sandboxes/${encodeURIComponent(item.slug)}`}
-              >
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <h3 className="text-lg font-semibold text-on-surface">{item.name}</h3>
-                    <StatusBadge tone={sandboxTone(item.status)}>
-                      {sandboxLabel(item.status)}
-                    </StatusBadge>
-                    {item.vm_status && (
-                      <StatusBadge tone="neutral">
-                        VM {item.vm_status}
+            {sandboxes.map((item) => {
+              const progress = sandboxCurrentProgress(item);
+              const progressWidth = Math.max(0, Math.min(progress?.percent ?? 0, 100));
+
+              return (
+                <Link
+                  key={item.slug}
+                  className="group flex flex-col gap-4 rounded-2xl border border-outline-variant/10 bg-surface-container px-5 py-4 transition-all hover:border-primary/20 hover:bg-surface-container-high md:flex-row md:items-center md:justify-between"
+                  to={`/settings/sandboxes/${encodeURIComponent(item.slug)}`}
+                >
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <h3 className="text-lg font-semibold text-on-surface">{item.name}</h3>
+                      <StatusBadge tone={sandboxTone(item.status)}>
+                        {sandboxLabel(item.status)}
                       </StatusBadge>
+                      {item.vm_status && (
+                        <StatusBadge tone="neutral">
+                          VM {item.vm_status}
+                        </StatusBadge>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-secondary">
+                      <span>{item.provider} / {item.template}</span>
+                      <span>ID {item.slug}</span>
+                      <span>Updated {timeAgo(item.updated_at)}</span>
+                      {item.ip_address && <span>{item.ip_address}</span>}
+                    </div>
+                    {progress && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-3 text-sm">
+                          <span className="font-medium text-on-surface">{progress.summary}</span>
+                          <span className="font-semibold text-secondary">{progress.percent}%</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-surface-container-high">
+                          <div
+                            className={`h-full rounded-full transition-[width] duration-300 ${
+                              item.status === "error" ? "bg-error" : "bg-primary"
+                            }`}
+                            style={{ width: `${progressWidth}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {item.last_error && (
+                      <p className="text-sm text-error">{item.last_error}</p>
                     )}
                   </div>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-secondary">
-                    <span>{item.provider} / {item.template}</span>
-                    <span>ID {item.slug}</span>
-                    <span>Updated {timeAgo(item.updated_at)}</span>
-                    {item.ip_address && <span>{item.ip_address}</span>}
+                  <div className="inline-flex items-center gap-2 text-sm font-semibold text-primary transition-colors group-hover:text-on-surface">
+                    Open
+                    <Icon className="text-base" name="arrow_forward" />
                   </div>
-                  {item.last_error && (
-                    <p className="text-sm text-error">{item.last_error}</p>
-                  )}
-                </div>
-                <div className="inline-flex items-center gap-2 text-sm font-semibold text-primary transition-colors group-hover:text-on-surface">
-                  Open
-                  <Icon className="text-base" name="arrow_forward" />
-                </div>
-              </Link>
-            ))}
+                </Link>
+              );
+            })}
           </div>
         ) : (
           <div className="rounded-2xl bg-surface-container p-6 text-sm text-secondary">

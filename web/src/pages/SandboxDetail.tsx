@@ -12,6 +12,7 @@ import {
   type SandboxRecord,
 } from "../lib/rpc";
 import {
+  sandboxCurrentProgress,
   sandboxLabel,
   sandboxLogKey,
   sandboxTone,
@@ -186,6 +187,8 @@ export default function SandboxDetail() {
   const guestIP = selected?.ip_address?.trim() ?? "";
   const openClawURL = selected?.template === "openclaw" && guestIP ? `http://${guestIP}:18790/chat?session=main` : "";
   const guestSky10URL = selected?.template === "openclaw" && guestIP ? `http://${guestIP}:9101` : "";
+  const progress = selected ? sandboxCurrentProgress(selected) : null;
+  const progressWidth = Math.max(0, Math.min(progress?.percent ?? 0, 100));
 
   return (
     <section className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 p-12">
@@ -237,6 +240,22 @@ export default function SandboxDetail() {
                     {selected.last_log_at ? ` • last log ${timeAgo(selected.last_log_at)}` : ""}
                   </p>
                 </div>
+                {progress && (
+                  <div className="w-full max-w-xl space-y-2 pt-1">
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="font-medium text-on-surface">{progress.summary}</span>
+                      <span className="font-semibold text-secondary">{progress.percent}%</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-surface-container">
+                      <div
+                        className={`h-full rounded-full transition-[width] duration-300 ${
+                          selected.status === "error" ? "bg-error" : "bg-primary"
+                        }`}
+                        style={{ width: `${progressWidth}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center gap-3">

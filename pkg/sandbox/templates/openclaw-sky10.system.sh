@@ -13,6 +13,13 @@ OPENCLAW_VERSION=2026.4.14
 mkdir -p "${STATE_DIR}"
 mkdir -p /shared
 
+emit_progress() {
+  local event="$1"
+  local id="$2"
+  local summary="$3"
+  printf 'SKY10_PROGRESS {"event":"%s","id":"%s","summary":"%s"}\n' "${event}" "${id}" "${summary}"
+}
+
 persist_route_metrics() {
   cat > "${ROUTE_OVERRIDE}" <<'EOF'
 network:
@@ -55,6 +62,7 @@ curl4() {
 prefer_eth0_default_route
 
 if [ ! -f "${SENTINEL}" ]; then
+  emit_progress begin guest.system.packages "Installing system packages..."
   apt-get "${APT_FLAGS[@]}" update -y
   apt-get "${APT_FLAGS[@]}" install -y \
     apt-transport-https \
@@ -65,12 +73,18 @@ if [ ! -f "${SENTINEL}" ]; then
     gnupg \
     python3 \
     xvfb
+  emit_progress end guest.system.packages "System packages installed."
 
+  emit_progress begin guest.node.install "Installing Node.js..."
   curl4 https://deb.nodesource.com/setup_22.x | bash -
   apt-get "${APT_FLAGS[@]}" install -y nodejs
+  emit_progress end guest.node.install "Node.js installed."
 
+  emit_progress begin guest.openclaw.install "Installing OpenClaw..."
   npm install -g "openclaw@${OPENCLAW_VERSION}"
+  emit_progress end guest.openclaw.install "OpenClaw installed."
 
+  emit_progress begin guest.chromium.install "Installing Chromium..."
   npx -y playwright install-deps chromium
   mkdir -p /opt/ms-playwright
   PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright npx -y playwright install chromium
@@ -82,7 +96,9 @@ if [ ! -f "${SENTINEL}" ]; then
   fi
   ln -sf "${CHROME_BIN}" /usr/local/bin/chromium
   ln -sf "${CHROME_BIN}" /usr/local/bin/google-chrome
+  emit_progress end guest.chromium.install "Chromium installed."
 
+  emit_progress begin guest.caddy.install "Installing Caddy..."
   curl4 https://dl.cloudsmith.io/public/caddy/stable/gpg.key \
     | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   curl4 https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt \
@@ -109,6 +125,13 @@ EOF
   loginctl enable-linger "{{.User}}" || true
 
   touch "${SENTINEL}"
+  emit_progress end guest.caddy.install "Caddy installed."
+else
+  emit_progress skip guest.system.packages "System packages already installed."
+  emit_progress skip guest.node.install "Node.js already installed."
+  emit_progress skip guest.openclaw.install "OpenClaw already installed."
+  emit_progress skip guest.chromium.install "Chromium already installed."
+  emit_progress skip guest.caddy.install "Caddy already installed."
 fi
 
 CERT_PEM=/shared/certs/sb.sky10.local.pem

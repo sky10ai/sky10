@@ -21,6 +21,13 @@ mkdir -p "${STATE_DIR}"
 mkdir -p "${UNIT_DIR}"
 mkdir -p "${HOME}/.bin"
 
+emit_progress() {
+  local event="$1"
+  local id="$2"
+  local summary="$3"
+  printf 'SKY10_PROGRESS {"event":"%s","id":"%s","summary":"%s"}\n' "${event}" "${id}" "${summary}"
+}
+
 curl4() {
   curl -4 --retry 5 --retry-delay 2 --retry-connrefused -fsSL "$@"
 }
@@ -179,12 +186,15 @@ ensure_guest_join() {
   local invite_info host_identity invite_code
 
   if [ -f "${UNIT_DIR}/sky10.service" ]; then
+    emit_progress skip guest.sky10.join "Guest sky10 already linked."
     return 0
   fi
   if [ ! -f "${SKY10_INVITE_PATH}" ]; then
+    emit_progress skip guest.sky10.join "Guest sky10 join not required."
     return 0
   fi
 
+  emit_progress begin guest.sky10.join "Linking guest sky10 identity..."
   ensure_guest_sky10_binary
   mapfile -t invite_info < <(
     python3 - "${SKY10_INVITE_PATH}" <<'PY'
@@ -206,6 +216,7 @@ PY
   fi
 
   sky10 join --role sandbox "${invite_code}"
+  emit_progress end guest.sky10.join "Guest sky10 linked."
 
   if [ -n "${host_identity}" ]; then
     echo "joined sky10 host identity ${host_identity}"
@@ -219,9 +230,11 @@ ensure_guest_sky10() {
   install_guest_reconnect_helper
 
   if curl -fsS http://127.0.0.1:9101/health >/dev/null 2>&1; then
+    emit_progress skip guest.sky10.start "Guest sky10 already running."
     return 0
   fi
 
+  emit_progress begin guest.sky10.start "Starting guest sky10..."
   cat > "${UNIT_DIR}/sky10.service" <<EOF
 [Unit]
 Description=sky10 Daemon
@@ -246,6 +259,7 @@ EOF
   systemctl --user restart sky10.service || systemctl --user start sky10.service
 
   wait_for_sky10
+  emit_progress end guest.sky10.start "Guest sky10 running."
 }
 
 if ! command -v openclaw >/dev/null 2>&1; then
@@ -261,6 +275,7 @@ fi
 ensure_guest_join
 ensure_guest_sky10
 
+emit_progress begin guest.openclaw.configure "Configuring OpenClaw..."
 if [ ! -d "${PLUGIN_DIR}" ]; then
   echo >&2 "bundled sky10 plugin not found at ${PLUGIN_DIR}"
   exit 1
@@ -344,7 +359,9 @@ PY
 if [ ! -f "${SENTINEL}" ]; then
   touch "${SENTINEL}"
 fi
+emit_progress end guest.openclaw.configure "OpenClaw configured."
 
+emit_progress begin guest.openclaw.start "Starting OpenClaw..."
 cat > "${UNIT_DIR}/openclaw-gateway.service" <<EOF
 [Unit]
 Description=OpenClaw Gateway
@@ -371,3 +388,4 @@ systemctl --user enable openclaw-gateway.service
 systemctl --user restart openclaw-gateway.service || systemctl --user start openclaw-gateway.service
 wait_for_openclaw_agent
 bootstrap_local_cli_pairing
+emit_progress end guest.openclaw.start "OpenClaw ready."

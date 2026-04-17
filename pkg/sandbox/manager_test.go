@@ -84,6 +84,71 @@ func TestManagerCreateTransitionsToReady(t *testing.T) {
 	t.Fatalf("sandbox did not reach ready state, final status=%q", got.Status)
 }
 
+func TestAppendLogProgressMarkerUpdatesRecordAndSuppressesMarker(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["devbox"] = Record{
+		Name:      "devbox",
+		Slug:      "devbox",
+		Provider:  providerLima,
+		Template:  templateUbuntu,
+		Status:    "creating",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := m.resetProgress("devbox"); err != nil {
+		t.Fatalf("resetProgress() error: %v", err)
+	}
+
+	m.appendLog("devbox", "stdout", `SKY10_PROGRESS {"event":"end","id":"sandbox.prepare","summary":"Sandbox prepared."}`)
+
+	got, err := m.Get(context.Background(), "devbox")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if got.Progress == nil {
+		t.Fatal("progress = nil, want populated progress state")
+	}
+	if got.Progress.Percent != 50 {
+		t.Fatalf("progress percent = %d, want 50", got.Progress.Percent)
+	}
+	if got.Progress.Summary != "Sandbox prepared." {
+		t.Fatalf("progress summary = %q, want %q", got.Progress.Summary, "Sandbox prepared.")
+	}
+
+	m.appendLog("devbox", "stdout", "booting vm")
+	logs, err := m.Logs("devbox", 10)
+	if err != nil {
+		t.Fatalf("Logs() error: %v", err)
+	}
+	if len(logs.Entries) != 1 || logs.Entries[0].Line != "booting vm" {
+		t.Fatalf("logs = %#v, want only raw non-marker output", logs.Entries)
+	}
+
+	m.appendLog("devbox", "stdout", `SKY10_PROGRESS {"event":"begin","id":"vm.start","summary":"Booting device..."}`)
+	m.appendLog("devbox", "stdout", `SKY10_PROGRESS {"event":"end","id":"vm.start","summary":"Device booted."}`)
+
+	got, err = m.Get(context.Background(), "devbox")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if got.Progress == nil {
+		t.Fatal("progress = nil after vm.start, want populated progress state")
+	}
+	if got.Progress.Percent != 100 {
+		t.Fatalf("progress percent = %d, want 100", got.Progress.Percent)
+	}
+	if got.Progress.Summary != "Device booted." {
+		t.Fatalf("progress summary = %q, want %q", got.Progress.Summary, "Device booted.")
+	}
+}
+
 func TestManagerEnsureManagedApp_IgnoresManagedLimaInstall(t *testing.T) {
 	t.Setenv("PATH", "")
 	t.Setenv(config.EnvHome, t.TempDir())
@@ -290,6 +355,9 @@ func TestBundledOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), "install_guest_reconnect_helper") {
 		t.Fatalf("bundled user script missing guest reconnect helper install: %q", string(body))
 	}
+	if !strings.Contains(string(body), `emit_progress begin guest.openclaw.configure`) {
+		t.Fatalf("bundled user script missing OpenClaw progress markers: %q", string(body))
+	}
 	if !strings.Contains(string(body), `"method": "sandbox.reconnectGuest"`) {
 		t.Fatalf("bundled user script missing sandbox reconnect guest callback: %q", string(body))
 	}
@@ -348,6 +416,9 @@ func TestBundledOpenClawSystemScriptPinsOpenClawVersion(t *testing.T) {
 	script := string(body)
 	if !strings.Contains(script, `OPENCLAW_VERSION=2026.4.14`) {
 		t.Fatalf("bundled system script missing pinned openclaw version: %q", script)
+	}
+	if !strings.Contains(script, `emit_progress begin guest.openclaw.install`) {
+		t.Fatalf("bundled system script missing OpenClaw progress markers: %q", script)
 	}
 	if !strings.Contains(script, `npm install -g "openclaw@${OPENCLAW_VERSION}"`) {
 		t.Fatalf("bundled system script missing pinned openclaw install command: %q", script)
@@ -417,6 +488,31 @@ func TestBundledHermesTemplateProbeUsesHermesCLI(t *testing.T) {
 	}
 	if !strings.Contains(text, "portForwards:") || !strings.Contains(text, "ignore: true") {
 		t.Fatalf("hermes template should disable Lima host port forwarding")
+	}
+}
+
+func TestBundledHermesScriptsEmitProgressMarkers(t *testing.T) {
+	t.Parallel()
+
+	systemBody, err := readBundledTemplateAsset(templateHermesSys)
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateHermesSys, err)
+	}
+	systemScript := string(systemBody)
+	if !strings.Contains(systemScript, `emit_progress begin guest.system.packages`) {
+		t.Fatalf("bundled hermes system script missing progress markers: %q", systemScript)
+	}
+
+	userBody, err := readBundledTemplateAsset(templateHermesUser)
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateHermesUser, err)
+	}
+	userScript := string(userBody)
+	if !strings.Contains(userScript, `emit_progress begin guest.hermes.install`) {
+		t.Fatalf("bundled hermes user script missing install progress markers: %q", userScript)
+	}
+	if !strings.Contains(userScript, `emit_progress begin guest.hermes.bridge.start`) {
+		t.Fatalf("bundled hermes user script missing bridge progress markers: %q", userScript)
 	}
 }
 

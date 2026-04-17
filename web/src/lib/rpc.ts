@@ -879,9 +879,16 @@ export interface SandboxRecord {
   ip_address?: string;
   shell?: string;
   last_error?: string;
+  progress?: SandboxProgress;
   created_at: string;
   updated_at: string;
   last_log_at?: string;
+}
+
+export interface SandboxProgress {
+  step_id?: string;
+  summary?: string;
+  percent: number;
 }
 
 export interface SandboxListResult {
