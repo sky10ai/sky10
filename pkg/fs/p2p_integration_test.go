@@ -148,6 +148,90 @@ func TestFSP2PSyncPropagatesDeleteTombstones(t *testing.T) {
 	}
 }
 
+func TestFSP2PSyncPropagatesDeleteRoot(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	nsKey, err := GenerateNamespaceKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nsID := deriveNSID(nsKey, "agents")
+
+	replicaA, replicaB := startSharedFSTestReplicaPair(t, ctx, nsID, nsKey)
+	nodeA, syncA, logA := replicaA.node, replicaA.sync, replicaA.log
+	nodeB, logB := replicaB.node, replicaB.log
+
+	infoB := nodeB.Host().Peerstore().PeerInfo(nodeB.PeerID())
+	if err := nodeA.Host().Connect(ctx, infoB); err != nil {
+		t.Fatalf("connect A->B: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	for _, entry := range []opslog.Entry{
+		{
+			Type:      opslog.Put,
+			Path:      "agents/lisa/memory.md",
+			Checksum:  "old-memory",
+			Chunks:    []string{"c1"},
+			Device:    "dev-b",
+			Timestamp: 100,
+			Seq:       1,
+		},
+		{
+			Type:      opslog.Put,
+			Path:      "notes.txt",
+			Checksum:  "old-note",
+			Chunks:    []string{"c2"},
+			Device:    "dev-b",
+			Timestamp: 110,
+			Seq:       2,
+		},
+	} {
+		if err := logB.Append(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := logA.Append(opslog.Entry{
+		Type:      opslog.DeleteRoot,
+		Path:      "",
+		Namespace: "agents",
+		Device:    "dev-a",
+		Timestamp: 200,
+		Seq:       1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	syncA.PushToAll(ctx)
+
+	waitForFS(t, 5*time.Second, func() bool {
+		snapB, _ := logB.Snapshot()
+		if _, ok := snapB.Lookup("agents/lisa/memory.md"); ok {
+			return false
+		}
+		if _, ok := snapB.Lookup("notes.txt"); ok {
+			return false
+		}
+		return snapB.RootDeleted()
+	})
+
+	snapB, err := logB.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := snapB.Lookup("agents/lisa/memory.md"); ok {
+		t.Fatal("agents/lisa/memory.md should be removed on node B")
+	}
+	if _, ok := snapB.Lookup("notes.txt"); ok {
+		t.Fatal("notes.txt should be removed on node B")
+	}
+	if !snapB.RootDeleted() {
+		t.Fatal("root tombstone should be present on node B")
+	}
+}
+
 func TestFSP2PSyncConnectTriggerReplicatesWithoutManualPush(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

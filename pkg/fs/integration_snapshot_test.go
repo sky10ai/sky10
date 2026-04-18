@@ -178,6 +178,65 @@ func TestEndToEnd_DeletePropagation(t *testing.T) {
 	}
 }
 
+func TestEndToEnd_DeleteRootPropagation(t *testing.T) {
+	env := setupTwoDevices(t)
+	ctx := context.Background()
+
+	env.storeA.Put(ctx, "agents/lisa/memory.md", strings.NewReader("remember"))
+	memory := env.storeA.LastPutResult()
+	env.localLogA.AppendLocal(opslog.Entry{
+		Type: opslog.Put, Path: "agents/lisa/memory.md", Checksum: memory.Checksum,
+		Chunks: memory.Chunks, Size: memory.Size, Namespace: env.nsID,
+	})
+	env.storeA.Put(ctx, "notes.txt", strings.NewReader("ephemeral"))
+	note := env.storeA.LastPutResult()
+	env.localLogA.AppendLocal(opslog.Entry{
+		Type: opslog.Put, Path: "notes.txt", Checksum: note.Checksum,
+		Chunks: note.Chunks, Size: note.Size, Namespace: env.nsID,
+	})
+	env.uploaderA.Upload(ctx)
+
+	env.pollerB.pollOnce(ctx)
+	outboxB := NewSyncLog[OutboxEntry](filepath.Join(env.syncB, "..", "outbox.jsonl"))
+	reconcilerB := NewReconciler(env.storeB, env.localLogB, outboxB, env.syncB, nil, nil)
+	reconcilerB.reconcile(ctx)
+
+	for _, path := range []string{"agents/lisa/memory.md", "notes.txt"} {
+		if _, err := os.Stat(filepath.Join(env.syncB, filepath.FromSlash(path))); err != nil {
+			t.Fatalf("B: %s should exist after initial sync: %v", path, err)
+		}
+	}
+
+	env.localLogA.AppendLocal(opslog.Entry{
+		Type: opslog.DeleteRoot, Path: "", Namespace: env.nsID,
+	})
+	env.uploaderA.Upload(ctx)
+
+	env.pollerB.pollOnce(ctx)
+	reconcilerB.reconcile(ctx)
+
+	if _, err := os.Stat(env.syncB); err != nil {
+		t.Fatalf("B: drive root should remain after delete_root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(env.syncB, "agents")); !os.IsNotExist(err) {
+		t.Error("B: agents/ should be removed after delete_root")
+	}
+	if _, err := os.Stat(filepath.Join(env.syncB, "notes.txt")); !os.IsNotExist(err) {
+		t.Error("B: notes.txt should be removed after delete_root")
+	}
+
+	snapB, err := env.localLogB.Snapshot()
+	if err != nil {
+		t.Fatalf("B: snapshot after delete_root: %v", err)
+	}
+	if !snapB.RootDeleted() {
+		t.Fatal("B: root tombstone should be present after delete_root sync")
+	}
+	if snapB.Len() != 0 {
+		t.Fatalf("B: snapshot should be empty after delete_root, got %d files", snapB.Len())
+	}
+}
+
 func TestEndToEnd_BidirectionalSync(t *testing.T) {
 	env := setupTwoDevices(t)
 	ctx := context.Background()
