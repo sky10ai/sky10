@@ -187,7 +187,7 @@ func TestPrepareLimaSharedDir(t *testing.T) {
 	}
 	if err := prepareLimaSharedDir(sandboxTemplateOpenClaw, sharedDir, stateDir, []byte("#!/bin/sh\n"), pluginAssets, map[string]string{
 		"OPENAI_API_KEY": "openai-key",
-	}, nil, skysandbox.AgentMindSeed{
+	}, nil, skysandbox.AgentProfileSeed{
 		DisplayName: "OpenClaw Dev",
 		Slug:        "devbox",
 		Template:    sandboxTemplateOpenClaw,
@@ -195,10 +195,8 @@ func TestPrepareLimaSharedDir(t *testing.T) {
 		t.Fatalf("prepareLimaSharedDir() error: %v", err)
 	}
 
-	for _, rel := range []string{"mind", "workspace"} {
-		if _, err := os.Stat(filepath.Join(sharedDir, rel)); err != nil {
-			t.Fatalf("Stat(agent home %q) error: %v", rel, err)
-		}
+	if _, err := os.Stat(filepath.Join(sharedDir, "workspace")); err != nil {
+		t.Fatalf("Stat(agent workspace) error: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(stateDir, agentLimaHostsScript)); err != nil {
 		t.Fatalf("Stat(hosts helper) error: %v", err)
@@ -216,13 +214,13 @@ func TestPrepareLimaSharedDir(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(stateDir, "plugins", agentLimaPluginManifest)); err != nil {
 		t.Fatalf("Stat(plugin manifest) error: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(sharedDir, "mind", "sky10.md")); err != nil {
-		t.Fatalf("Stat(mind/sky10.md) error: %v", err)
+	if _, err := os.Stat(filepath.Join(sharedDir, "sky10.md")); err != nil {
+		t.Fatalf("Stat(sky10.md) error: %v", err)
 	}
 	if got, err := os.Readlink(filepath.Join(sharedDir, "workspace", "SOUL.md")); err != nil {
 		t.Fatalf("Readlink(workspace/SOUL.md) error: %v", err)
-	} else if got != filepath.Join("..", "mind", "soul.md") {
-		t.Fatalf("workspace/SOUL.md -> %q, want ../mind/soul.md", got)
+	} else if got != filepath.Join("..", "soul.md") {
+		t.Fatalf("workspace/SOUL.md -> %q, want ../soul.md", got)
 	}
 }
 
@@ -240,7 +238,7 @@ func TestPrepareLimaSharedDirHermes(t *testing.T) {
 		AgentName:    "Hermes Agent",
 		AgentKeyName: "hermes-agent",
 		Skills:       []string{"code", "shell"},
-	}, skysandbox.AgentMindSeed{
+	}, skysandbox.AgentProfileSeed{
 		DisplayName: "Hermes Agent",
 		Slug:        "hermes-agent",
 		Template:    sandboxTemplateHermes,
@@ -257,8 +255,8 @@ func TestPrepareLimaSharedDirHermes(t *testing.T) {
 	}
 	if got, err := os.Readlink(filepath.Join(sharedDir, "workspace", "AGENTS.md")); err != nil {
 		t.Fatalf("Readlink(workspace/AGENTS.md) error: %v", err)
-	} else if got != filepath.Join("..", "mind", "AGENTS.md") {
-		t.Fatalf("workspace/AGENTS.md -> %q, want ../mind/AGENTS.md", got)
+	} else if got != filepath.Join("..", "AGENTS.md") {
+		t.Fatalf("workspace/AGENTS.md -> %q, want ../AGENTS.md", got)
 	}
 	if !strings.Contains(string(data), "ANTHROPIC_API_KEY=anthropic-key") {
 		t.Fatalf(".env = %q, want resolved anthropic key", string(data))
@@ -527,11 +525,11 @@ func TestHermesUserScriptInstallsHelper(t *testing.T) {
 	if !strings.Contains(script, "/sandbox-state/bridge.json") {
 		t.Fatalf("user script missing bridge config path: %q", script)
 	}
-	if !strings.Contains(script, `link_mind_file "${MIND_DIR}/soul.md" "${HERMES_HOME}/SOUL.md"`) {
-		t.Fatalf("user script missing SOUL.md mind link: %q", script)
+	if !strings.Contains(script, `link_agent_file "${SHARED_DIR}/soul.md" "${HERMES_HOME}/SOUL.md"`) {
+		t.Fatalf("user script missing SOUL.md root link: %q", script)
 	}
-	if !strings.Contains(script, `link_mind_file "${MIND_DIR}/memory.md" "${HERMES_HOME}/memories/MEMORY.md"`) {
-		t.Fatalf("user script missing MEMORY.md mind link: %q", script)
+	if !strings.Contains(script, `link_agent_file "${SHARED_DIR}/memory.md" "${HERMES_HOME}/memories/MEMORY.md"`) {
+		t.Fatalf("user script missing MEMORY.md root link: %q", script)
 	}
 	if strings.Contains(script, "HERMES.md") {
 		t.Fatalf("user script should not seed welcome docs into the shared workspace: %q", script)

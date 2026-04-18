@@ -13,7 +13,7 @@ This flow uses the repo's Lima template at
 - the sky10 web UI reachable on guest port `9101`
 - Caddy reverse proxy for guest-local UI access on port `18790`
 - a durable agent home at `~/Sky10/Drives/Agents/<slug>`
-- portable mind files under `~/Sky10/Drives/Agents/<slug>/mind/`
+- portable agent files at the root of `~/Sky10/Drives/Agents/<slug>`
   wired into the OpenClaw workspace bootstrap files
 - sandbox-local state at `~/.sky10/sandboxes/<slug>/state`
 
@@ -70,17 +70,17 @@ Each sandbox also gets disposable local state at:
 ~/.sky10/sandboxes/<slug>/state
 ```
 
-The mounted agent home is split into:
+The mounted agent home keeps its durable agent files at the root and its tool
+workspace under:
 
 ```text
-~/Sky10/Drives/Agents/<slug>/mind/
 ~/Sky10/Drives/Agents/<slug>/workspace/
 ```
 
 OpenClaw runs with `/shared/workspace` as its configured workspace, and the
 bootstrap files it reads there (`SOUL.md`, `AGENTS.md`, `MEMORY.md`,
-`IDENTITY.md`, and friends) are linked back to `mind/` so durable personality
-and memory edits land in the portable folder.
+`identity.md`, and friends) are linked back to the agent-root files so durable
+personality and memory edits land in the portable folder.
 
 Provider keys are optional at boot, but the agent will need them before it can
 answer real requests:

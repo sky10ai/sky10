@@ -58,7 +58,6 @@ const (
 	templateStateToken             = "__SKY10_STATE_DIR__"
 	sandboxStateDirName            = "state"
 	sandboxLogsDirName             = "logs"
-	agentMindDirName               = "mind"
 	agentWorkspaceDirName          = "workspace"
 	agentDriveRootName             = "Agents"
 	agentDriveNamePrefix           = "agent-"
@@ -1581,7 +1580,7 @@ func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) erro
 				hostRPCURL = value
 			}
 		}
-		return prepareHermesSharedDir(rec.SharedDir, stateDir, resolvedEnv, sharedAssets, buildHermesBridgeConfig(rec), invite, AgentMindSeed{
+		return prepareHermesSharedDir(rec.SharedDir, stateDir, resolvedEnv, sharedAssets, buildHermesBridgeConfig(rec), invite, AgentProfileSeed{
 			DisplayName: rec.Name,
 			Slug:        rec.Slug,
 			Template:    rec.Template,
@@ -1633,7 +1632,7 @@ func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) erro
 			hostRPCURL = value
 		}
 	}
-	if err := prepareOpenClawSharedDir(rec.SharedDir, stateDir, hostsHelper, pluginAssets, resolvedEnv, invite, AgentMindSeed{
+	if err := prepareOpenClawSharedDir(rec.SharedDir, stateDir, hostsHelper, pluginAssets, resolvedEnv, invite, AgentProfileSeed{
 		DisplayName: rec.Name,
 		Slug:        rec.Slug,
 		Template:    rec.Template,
@@ -1982,8 +1981,8 @@ func sandboxTemplateDefinition(template string) (templateDefinition, error) {
 	}
 }
 
-func prepareOpenClawSharedDir(sharedDir, stateDir string, hostsHelper []byte, pluginAssets map[string][]byte, resolvedEnv map[string]string, invite *IdentityInvite, seed AgentMindSeed, hostRPCURL string) error {
-	if err := EnsureAgentMindLayout(sharedDir, seed); err != nil {
+func prepareOpenClawSharedDir(sharedDir, stateDir string, hostsHelper []byte, pluginAssets map[string][]byte, resolvedEnv map[string]string, invite *IdentityInvite, seed AgentProfileSeed, hostRPCURL string) error {
+	if err := EnsureAgentProfileLayout(sharedDir, seed); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
@@ -2025,8 +2024,8 @@ func prepareOpenClawSharedDir(sharedDir, stateDir string, hostsHelper []byte, pl
 	return nil
 }
 
-func prepareHermesSharedDir(sharedDir, stateDir string, resolvedEnv map[string]string, sharedAssets map[string][]byte, bridgeConfig *hermesBridgeConfig, invite *IdentityInvite, seed AgentMindSeed, hostRPCURL string) error {
-	if err := EnsureAgentMindLayout(sharedDir, seed); err != nil {
+func prepareHermesSharedDir(sharedDir, stateDir string, resolvedEnv map[string]string, sharedAssets map[string][]byte, bridgeConfig *hermesBridgeConfig, invite *IdentityInvite, seed AgentProfileSeed, hostRPCURL string) error {
+	if err := EnsureAgentProfileLayout(sharedDir, seed); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
@@ -2519,7 +2518,7 @@ func EnsureAgentHomeLayout(sharedDir string) error {
 	if err := os.MkdirAll(sharedDir, 0o755); err != nil {
 		return fmt.Errorf("creating agent home directory: %w", err)
 	}
-	for _, rel := range []string{agentMindDirName, agentWorkspaceDirName} {
+	for _, rel := range []string{agentWorkspaceDirName} {
 		if err := os.MkdirAll(filepath.Join(sharedDir, rel), 0o755); err != nil {
 			return fmt.Errorf("creating agent home directory %q: %w", rel, err)
 		}

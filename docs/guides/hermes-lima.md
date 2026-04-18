@@ -10,7 +10,7 @@ This flow uses the repo's Lima template at
 - Ubuntu 24.04 VM on Lima using `vz`
 - Hermes Agent installed inside the guest
 - a durable agent home at `~/Sky10/Drives/Agents/<slug>`
-- portable mind files under `~/Sky10/Drives/Agents/<slug>/mind/`
+- portable agent files at the root of `~/Sky10/Drives/Agents/<slug>`
   wired into Hermes `SOUL.md`, memory, and workspace context
 - sandbox-local provider env at `~/.sky10/sandboxes/<slug>/state/.env`,
   linked into `~/.hermes/.env` inside the guest
@@ -79,17 +79,18 @@ Each Hermes sandbox also gets disposable local state at:
 ~/.sky10/sandboxes/<slug>/state
 ```
 
-The mounted agent home is split into:
+The mounted agent home keeps its durable agent files at the root and its tool
+workspace under:
 
 ```text
-~/Sky10/Drives/Agents/<slug>/mind/
 ~/Sky10/Drives/Agents/<slug>/workspace/
 ```
 
-Hermes reads its durable identity and memory from `mind/`: `SOUL.md` is linked
-into `~/.hermes/SOUL.md`, `MEMORY.md` and `USER.md` are linked into
+Hermes reads its durable identity and memory from the agent root: `SOUL.md` is
+linked into `~/.hermes/SOUL.md`, `MEMORY.md` and `USER.md` are linked into
 `~/.hermes/memories/`, and `/shared/workspace/AGENTS.md` points back to the
-same mounted mind so both the TUI and the gateway use the portable files.
+same mounted agent root so both the TUI and the gateway use the portable
+files.
 
 When the sandbox is created through the running `sky10` daemon, host
 secrets named `anthropic` or `ANTHROPIC_API_KEY` are merged into the

@@ -9,36 +9,36 @@ import (
 )
 
 const (
-	agentMindSoulFile      = "soul.md"
-	agentMindMemoryFile    = "memory.md"
-	agentMindContractFile  = "sky10.md"
-	agentMindAgentsFile    = "AGENTS.md"
-	agentMindBootstrapFile = "BOOTSTRAP.md"
-	agentMindIdentityFile  = "IDENTITY.md"
-	agentMindRuntimeSoul   = "SOUL.md"
-	agentMindRuntimeMemory = "MEMORY.md"
-	agentMindToolsFile     = "TOOLS.md"
-	agentMindUserFile      = "USER.md"
+	agentProfileSoulFile      = "soul.md"
+	agentProfileMemoryFile    = "memory.md"
+	agentProfileContractFile  = "sky10.md"
+	agentProfileAgentsFile    = "AGENTS.md"
+	agentProfileBootstrapFile = "BOOTSTRAP.md"
+	agentProfileIdentityFile  = "identity.md"
+	agentProfileRuntimeSoul   = "SOUL.md"
+	agentProfileRuntimeMemory = "MEMORY.md"
+	agentProfileToolsFile     = "TOOLS.md"
+	agentProfileUserFile      = "USER.md"
 )
 
-var agentMindWorkspaceLinks = map[string]string{
-	agentMindAgentsFile:    filepath.Join("..", agentMindDirName, agentMindAgentsFile),
-	agentMindBootstrapFile: filepath.Join("..", agentMindDirName, agentMindBootstrapFile),
-	agentMindIdentityFile:  filepath.Join("..", agentMindDirName, agentMindIdentityFile),
-	agentMindRuntimeMemory: filepath.Join("..", agentMindDirName, agentMindMemoryFile),
-	agentMindRuntimeSoul:   filepath.Join("..", agentMindDirName, agentMindSoulFile),
-	agentMindToolsFile:     filepath.Join("..", agentMindDirName, agentMindToolsFile),
-	agentMindUserFile:      filepath.Join("..", agentMindDirName, agentMindUserFile),
+var agentProfileWorkspaceLinks = map[string]string{
+	agentProfileAgentsFile:    filepath.Join("..", agentProfileAgentsFile),
+	agentProfileBootstrapFile: filepath.Join("..", agentProfileBootstrapFile),
+	agentProfileIdentityFile:  filepath.Join("..", agentProfileIdentityFile),
+	agentProfileRuntimeMemory: filepath.Join("..", agentProfileMemoryFile),
+	agentProfileRuntimeSoul:   filepath.Join("..", agentProfileSoulFile),
+	agentProfileToolsFile:     filepath.Join("..", agentProfileToolsFile),
+	agentProfileUserFile:      filepath.Join("..", agentProfileUserFile),
 }
 
-type AgentMindSeed struct {
+type AgentProfileSeed struct {
 	DisplayName string
 	Slug        string
 	Template    string
 	Model       string
 }
 
-func EnsureAgentMindLayout(sharedDir string, seed AgentMindSeed) error {
+func EnsureAgentProfileLayout(sharedDir string, seed AgentProfileSeed) error {
 	if err := EnsureAgentHomeLayout(sharedDir); err != nil {
 		return err
 	}
@@ -55,32 +55,31 @@ func EnsureAgentMindLayout(sharedDir string, seed AgentMindSeed) error {
 	if template == "" {
 		template = "lima"
 	}
-	modelProvider, modelName := parseAgentMindModel(seed.Model)
+	modelProvider, modelName := parseAgentProfileModel(seed.Model)
 
-	mindDir := filepath.Join(sharedDir, agentMindDirName)
-	if err := writeFileIfMissing(filepath.Join(mindDir, agentMindSoulFile), agentMindSoulTemplate(displayName, template), 0o644); err != nil {
+	if err := writeFileIfMissing(filepath.Join(sharedDir, agentProfileSoulFile), agentProfileSoulTemplate(displayName, template), 0o644); err != nil {
 		return err
 	}
-	if err := writeFileIfMissing(filepath.Join(mindDir, agentMindMemoryFile), agentMindMemoryTemplate(), 0o644); err != nil {
+	if err := writeFileIfMissing(filepath.Join(sharedDir, agentProfileMemoryFile), agentProfileMemoryTemplate(), 0o644); err != nil {
 		return err
 	}
-	if err := writeFileIfMissing(filepath.Join(mindDir, agentMindContractFile), agentMindContractTemplate(displayName, slug, template, modelProvider, modelName), 0o644); err != nil {
+	if err := writeFileIfMissing(filepath.Join(sharedDir, agentProfileContractFile), agentProfileContractTemplate(displayName, slug, template, modelProvider, modelName), 0o644); err != nil {
 		return err
 	}
-	if err := writeFileIfMissing(filepath.Join(mindDir, agentMindAgentsFile), agentMindAgentsTemplate(), 0o644); err != nil {
+	if err := writeFileIfMissing(filepath.Join(sharedDir, agentProfileAgentsFile), agentProfileAgentsTemplate(), 0o644); err != nil {
 		return err
 	}
-	if err := writeFileIfMissing(filepath.Join(mindDir, agentMindIdentityFile), agentMindIdentityTemplate(displayName, slug, template), 0o644); err != nil {
+	if err := writeFileIfMissing(filepath.Join(sharedDir, agentProfileIdentityFile), agentProfileIdentityTemplate(displayName, slug, template), 0o644); err != nil {
 		return err
 	}
-	for _, name := range []string{agentMindBootstrapFile, agentMindToolsFile, agentMindUserFile} {
-		if err := writeFileIfMissing(filepath.Join(mindDir, name), "", 0o644); err != nil {
+	for _, name := range []string{agentProfileBootstrapFile, agentProfileToolsFile, agentProfileUserFile} {
+		if err := writeFileIfMissing(filepath.Join(sharedDir, name), "", 0o644); err != nil {
 			return err
 		}
 	}
 
 	workspaceDir := filepath.Join(sharedDir, agentWorkspaceDirName)
-	for name, target := range agentMindWorkspaceLinks {
+	for name, target := range agentProfileWorkspaceLinks {
 		if err := ensureRelativeSymlink(filepath.Join(workspaceDir, name), target); err != nil {
 			return err
 		}
@@ -89,7 +88,7 @@ func EnsureAgentMindLayout(sharedDir string, seed AgentMindSeed) error {
 	return nil
 }
 
-func parseAgentMindModel(model string) (string, string) {
+func parseAgentProfileModel(model string) (string, string) {
 	model = strings.TrimSpace(model)
 	if model == "" {
 		model = "anthropic/claude-sonnet-4-6"
@@ -101,7 +100,7 @@ func parseAgentMindModel(model string) (string, string) {
 	return "custom", model
 }
 
-func agentMindSoulTemplate(displayName, template string) string {
+func agentProfileSoulTemplate(displayName, template string) string {
 	return strings.TrimSpace(fmt.Sprintf(`
 # Soul
 
@@ -121,7 +120,7 @@ Describe what the agent should avoid, when it should escalate, and what humans o
 `, displayName, template)) + "\n"
 }
 
-func agentMindMemoryTemplate() string {
+func agentProfileMemoryTemplate() string {
 	return strings.TrimSpace(`
 # Memory
 
@@ -133,7 +132,7 @@ Use this file for durable facts that should survive model, runtime, and machine 
 `) + "\n"
 }
 
-func agentMindContractTemplate(displayName, slug, template, modelProvider, modelName string) string {
+func agentProfileContractTemplate(displayName, slug, template, modelProvider, modelName string) string {
 	return fmt.Sprintf(`---
 schema: sky10-agent/v1
 profile_id: %s
@@ -161,15 +160,15 @@ field_ownership:
 
 # %s
 
-Portable mind contract for the sky10 %s sandbox backed by mind/.
+Portable agent contract for the sky10 %s sandbox backed by the agent root.
 `, yamlQuote(slug), yamlQuote(displayName), yamlQuote(template), yamlQuote(modelProvider), yamlQuote(modelName), displayName, template)
 }
 
-func agentMindAgentsTemplate() string {
+func agentProfileAgentsTemplate() string {
 	return strings.TrimSpace(`
-# Agent Mind
+# Agent Profile
 
-Treat the files in this directory as the portable source of truth for this agent:
+Treat the files in this agent root as the portable source of truth for this agent:
 
 - `+"`soul.md`"+`: durable identity, tone, and boundaries. Humans own this file.
 - `+"`memory.md`"+`: durable portable memory worth carrying across runtime or machine changes.
@@ -181,7 +180,7 @@ Do not silently rewrite `+"`soul.md`"+`; propose edits instead.
 `) + "\n"
 }
 
-func agentMindIdentityTemplate(displayName, slug, template string) string {
+func agentProfileIdentityTemplate(displayName, slug, template string) string {
 	return strings.TrimSpace(fmt.Sprintf(`
 # Identity
 

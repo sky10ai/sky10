@@ -943,7 +943,7 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	}
 	if err := prepareOpenClawSharedDir(sharedDir, stateDir, helper, pluginAssets, map[string]string{
 		"OPENAI_API_KEY": "openai-key",
-	}, &IdentityInvite{HostIdentity: "sky10-host", Code: "invite-code"}, AgentMindSeed{
+	}, &IdentityInvite{HostIdentity: "sky10-host", Code: "invite-code"}, AgentProfileSeed{
 		DisplayName: "OpenClaw M8",
 		Slug:        "openclaw-m8",
 		Template:    templateOpenClaw,
@@ -951,15 +951,13 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 		t.Fatalf("prepareOpenClawSharedDir() error: %v", err)
 	}
 
-	for _, rel := range []string{"mind", "workspace"} {
-		if _, err := os.Stat(filepath.Join(sharedDir, rel)); err != nil {
-			t.Fatalf("Stat(agent home %q) error: %v", rel, err)
-		}
+	if _, err := os.Stat(filepath.Join(sharedDir, "workspace")); err != nil {
+		t.Fatalf("Stat(agent workspace) error: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(sharedDir, "mind", "sky10.md")); err != nil {
-		t.Fatalf("Stat(mind/sky10.md) error: %v", err)
+	if _, err := os.Stat(filepath.Join(sharedDir, "sky10.md")); err != nil {
+		t.Fatalf("Stat(sky10.md) error: %v", err)
 	}
-	assertSymlinkTarget(t, filepath.Join(sharedDir, "workspace", "SOUL.md"), filepath.Join("..", "mind", "soul.md"))
+	assertSymlinkTarget(t, filepath.Join(sharedDir, "workspace", "SOUL.md"), filepath.Join("..", "soul.md"))
 
 	envPath := filepath.Join(stateDir, ".env")
 	envData, err := os.ReadFile(envPath)
@@ -1031,7 +1029,7 @@ func TestPrepareHermesSharedDir(t *testing.T) {
 	}, &IdentityInvite{
 		HostIdentity: "sky10-host",
 		Code:         "invite-code",
-	}, AgentMindSeed{
+	}, AgentProfileSeed{
 		DisplayName: "Hermes Agent",
 		Slug:        "hermes-agent",
 		Template:    templateHermes,
@@ -1039,12 +1037,10 @@ func TestPrepareHermesSharedDir(t *testing.T) {
 		t.Fatalf("prepareHermesSharedDir() error: %v", err)
 	}
 
-	for _, rel := range []string{"mind", "workspace"} {
-		if _, err := os.Stat(filepath.Join(sharedDir, rel)); err != nil {
-			t.Fatalf("Stat(agent home %q) error: %v", rel, err)
-		}
+	if _, err := os.Stat(filepath.Join(sharedDir, "workspace")); err != nil {
+		t.Fatalf("Stat(agent workspace) error: %v", err)
 	}
-	assertSymlinkTarget(t, filepath.Join(sharedDir, "workspace", "AGENTS.md"), filepath.Join("..", "mind", "AGENTS.md"))
+	assertSymlinkTarget(t, filepath.Join(sharedDir, "workspace", "AGENTS.md"), filepath.Join("..", "AGENTS.md"))
 
 	envData, err := os.ReadFile(filepath.Join(stateDir, ".env"))
 	if err != nil {
@@ -1133,11 +1129,11 @@ func TestBundledHermesUserScriptKeepsSharedEnv(t *testing.T) {
 	if !strings.Contains(script, "SKY10_BRIDGE_CONFIG_PATH=/sandbox-state/bridge.json") {
 		t.Fatalf("bundled Hermes user script missing bridge config path: %q", script)
 	}
-	if !strings.Contains(script, `link_mind_file "${MIND_DIR}/soul.md" "${HERMES_HOME}/SOUL.md"`) {
-		t.Fatalf("bundled Hermes user script missing SOUL.md mind link: %q", script)
+	if !strings.Contains(script, `link_agent_file "${SHARED_DIR}/soul.md" "${HERMES_HOME}/SOUL.md"`) {
+		t.Fatalf("bundled Hermes user script missing SOUL.md root link: %q", script)
 	}
-	if !strings.Contains(script, `link_mind_file "${MIND_DIR}/memory.md" "${HERMES_HOME}/memories/MEMORY.md"`) {
-		t.Fatalf("bundled Hermes user script missing MEMORY.md mind link: %q", script)
+	if !strings.Contains(script, `link_agent_file "${SHARED_DIR}/memory.md" "${HERMES_HOME}/memories/MEMORY.md"`) {
+		t.Fatalf("bundled Hermes user script missing MEMORY.md root link: %q", script)
 	}
 	if !strings.Contains(script, "hermes config set terminal.cwd /shared/workspace") {
 		t.Fatalf("bundled Hermes user script missing shared workspace cwd config: %q", script)

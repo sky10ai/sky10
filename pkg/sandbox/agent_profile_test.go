@@ -7,38 +7,37 @@ import (
 	"testing"
 )
 
-func TestEnsureAgentMindLayoutSeedsPortableFiles(t *testing.T) {
+func TestEnsureAgentProfileLayoutSeedsPortableFiles(t *testing.T) {
 	t.Parallel()
 
 	sharedDir := t.TempDir()
-	if err := EnsureAgentMindLayout(sharedDir, AgentMindSeed{
+	if err := EnsureAgentProfileLayout(sharedDir, AgentProfileSeed{
 		DisplayName: "Hermes Dev",
 		Slug:        "hermes-dev",
 		Template:    templateHermes,
 		Model:       "openrouter/anthropic/claude-sonnet-4-6",
 	}); err != nil {
-		t.Fatalf("EnsureAgentMindLayout() error: %v", err)
+		t.Fatalf("EnsureAgentProfileLayout() error: %v", err)
 	}
 
-	mindDir := filepath.Join(sharedDir, agentMindDirName)
 	workspaceDir := filepath.Join(sharedDir, agentWorkspaceDirName)
 
 	for _, rel := range []string{
-		agentMindSoulFile,
-		agentMindMemoryFile,
-		agentMindContractFile,
-		agentMindAgentsFile,
-		agentMindIdentityFile,
-		agentMindBootstrapFile,
-		agentMindToolsFile,
-		agentMindUserFile,
+		agentProfileSoulFile,
+		agentProfileMemoryFile,
+		agentProfileContractFile,
+		agentProfileAgentsFile,
+		agentProfileIdentityFile,
+		agentProfileBootstrapFile,
+		agentProfileToolsFile,
+		agentProfileUserFile,
 	} {
-		if _, err := os.Stat(filepath.Join(mindDir, rel)); err != nil {
+		if _, err := os.Stat(filepath.Join(sharedDir, rel)); err != nil {
 			t.Fatalf("Stat(%q) error: %v", rel, err)
 		}
 	}
 
-	soulData, err := os.ReadFile(filepath.Join(mindDir, agentMindSoulFile))
+	soulData, err := os.ReadFile(filepath.Join(sharedDir, agentProfileSoulFile))
 	if err != nil {
 		t.Fatalf("ReadFile(soul.md) error: %v", err)
 	}
@@ -46,7 +45,7 @@ func TestEnsureAgentMindLayoutSeedsPortableFiles(t *testing.T) {
 		t.Fatalf("soul.md = %q, want display name", string(soulData))
 	}
 
-	contractData, err := os.ReadFile(filepath.Join(mindDir, agentMindContractFile))
+	contractData, err := os.ReadFile(filepath.Join(sharedDir, agentProfileContractFile))
 	if err != nil {
 		t.Fatalf("ReadFile(sky10.md) error: %v", err)
 	}
@@ -61,24 +60,24 @@ func TestEnsureAgentMindLayoutSeedsPortableFiles(t *testing.T) {
 		t.Fatalf("sky10.md = %q, want parsed model provider", contractText)
 	}
 
-	assertSymlinkTarget(t, filepath.Join(workspaceDir, agentMindAgentsFile), filepath.Join("..", agentMindDirName, agentMindAgentsFile))
-	assertSymlinkTarget(t, filepath.Join(workspaceDir, agentMindRuntimeSoul), filepath.Join("..", agentMindDirName, agentMindSoulFile))
-	assertSymlinkTarget(t, filepath.Join(workspaceDir, agentMindRuntimeMemory), filepath.Join("..", agentMindDirName, agentMindMemoryFile))
+	assertSymlinkTarget(t, filepath.Join(workspaceDir, agentProfileAgentsFile), filepath.Join("..", agentProfileAgentsFile))
+	assertSymlinkTarget(t, filepath.Join(workspaceDir, agentProfileRuntimeSoul), filepath.Join("..", agentProfileSoulFile))
+	assertSymlinkTarget(t, filepath.Join(workspaceDir, agentProfileRuntimeMemory), filepath.Join("..", agentProfileMemoryFile))
 }
 
-func TestEnsureAgentMindLayoutPreservesExistingFiles(t *testing.T) {
+func TestEnsureAgentProfileLayoutPreservesExistingFiles(t *testing.T) {
 	t.Parallel()
 
 	sharedDir := t.TempDir()
-	mindSoulPath := filepath.Join(sharedDir, agentMindDirName, agentMindSoulFile)
-	if err := os.MkdirAll(filepath.Dir(mindSoulPath), 0o755); err != nil {
-		t.Fatalf("MkdirAll(mind) error: %v", err)
+	soulPath := filepath.Join(sharedDir, agentProfileSoulFile)
+	if err := os.MkdirAll(filepath.Dir(soulPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(root) error: %v", err)
 	}
-	if err := os.WriteFile(mindSoulPath, []byte("keep me\n"), 0o644); err != nil {
+	if err := os.WriteFile(soulPath, []byte("keep me\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(soul.md) error: %v", err)
 	}
 
-	workspaceAgentsPath := filepath.Join(sharedDir, agentWorkspaceDirName, agentMindAgentsFile)
+	workspaceAgentsPath := filepath.Join(sharedDir, agentWorkspaceDirName, agentProfileAgentsFile)
 	if err := os.MkdirAll(filepath.Dir(workspaceAgentsPath), 0o755); err != nil {
 		t.Fatalf("MkdirAll(workspace) error: %v", err)
 	}
@@ -86,15 +85,15 @@ func TestEnsureAgentMindLayoutPreservesExistingFiles(t *testing.T) {
 		t.Fatalf("WriteFile(AGENTS.md) error: %v", err)
 	}
 
-	if err := EnsureAgentMindLayout(sharedDir, AgentMindSeed{
+	if err := EnsureAgentProfileLayout(sharedDir, AgentProfileSeed{
 		DisplayName: "OpenClaw Dev",
 		Slug:        "openclaw-dev",
 		Template:    templateOpenClaw,
 	}); err != nil {
-		t.Fatalf("EnsureAgentMindLayout() error: %v", err)
+		t.Fatalf("EnsureAgentProfileLayout() error: %v", err)
 	}
 
-	gotSoul, err := os.ReadFile(mindSoulPath)
+	gotSoul, err := os.ReadFile(soulPath)
 	if err != nil {
 		t.Fatalf("ReadFile(soul.md) error: %v", err)
 	}
