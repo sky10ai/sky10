@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { DeleteKeysDialog } from "../components/kv/DeleteKeysDialog";
+import { Icon } from "../components/Icon";
 import { KeyEditorPane } from "../components/kv/KeyEditorPane";
 import { KeyListPane } from "../components/kv/KeyListPane";
 import { NamespaceBar } from "../components/kv/NamespaceBar";
@@ -414,6 +415,30 @@ export default function KVStore() {
           </div>
         </div>
       )}
+
+      <div className="mx-8 mt-4 rounded-[28px] border border-error/20 bg-[radial-gradient(circle_at_top_left,rgba(239,68,68,0.14),rgba(239,68,68,0.05)_40%,transparent_78%)] p-5 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="space-y-2">
+            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-error">
+              Danger Zone
+            </p>
+            <h2 className="text-xl font-semibold text-on-surface">
+              Bulk delete keys by pattern
+            </h2>
+            <p className="max-w-2xl text-sm text-secondary">
+              Preview all matching keys first, then pass through the full warning dialog and type the exact pattern before deletion unlocks.
+            </p>
+          </div>
+          <button
+            className="inline-flex items-center justify-center gap-2 rounded-full border border-error/25 bg-error px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-error/20 transition-colors hover:bg-error/90"
+            onClick={openPatternDeleteDialog}
+            type="button"
+          >
+            <Icon className="text-base" name="warning" />
+            Open Bulk Delete
+          </button>
+        </div>
+      </div>
 
       <div className="flex flex-1 overflow-hidden">
         <KeyListPane

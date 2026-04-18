@@ -50,7 +50,7 @@ export function NamespaceBar({
           />
           Show _sys
         </button>
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-3">
           <span className="font-mono text-[10px] text-secondary">
             {keyCount} {countLabel}
           </span>
@@ -69,7 +69,7 @@ export function NamespaceBar({
             type="button"
           >
             <Icon className="text-sm" name="warning" />
-            Delete Pattern
+            Bulk Delete
           </button>
           <button
             className="flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-on-primary shadow-lg shadow-primary/15"
