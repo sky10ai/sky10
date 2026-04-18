@@ -7,6 +7,7 @@ export function NamespaceBar({
   namespace,
   onChangeSystemPrefix,
   onCreate,
+  onDeletePattern,
   onToggleSystemValues,
   refreshing,
   showSystemValues,
@@ -17,6 +18,7 @@ export function NamespaceBar({
   namespace: string;
   onChangeSystemPrefix: (value: string) => void;
   onCreate: () => void;
+  onDeletePattern: () => void;
   onToggleSystemValues: () => void;
   refreshing: boolean;
   showSystemValues: boolean;
@@ -61,6 +63,14 @@ export function NamespaceBar({
               Live
             </StatusBadge>
           )}
+          <button
+            className="flex items-center gap-2 rounded-full border border-error/25 bg-error/5 px-4 py-2 text-xs font-semibold text-error transition-colors hover:bg-error/10"
+            onClick={onDeletePattern}
+            type="button"
+          >
+            <Icon className="text-sm" name="warning" />
+            Delete Pattern
+          </button>
           <button
             className="flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-on-primary shadow-lg shadow-primary/15"
             onClick={onCreate}

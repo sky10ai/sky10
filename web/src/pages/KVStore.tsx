@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { DeleteKeysDialog } from "../components/kv/DeleteKeysDialog";
 import { KeyEditorPane } from "../components/kv/KeyEditorPane";
 import { KeyListPane } from "../components/kv/KeyListPane";
 import { NamespaceBar } from "../components/kv/NamespaceBar";
@@ -9,8 +10,12 @@ import {
   matchesKVBrowseView,
   normalizeKVBrowsePrefix,
 } from "../lib/kvBrowse";
-import { skykv } from "../lib/rpc";
+import { skykv, type KVDeleteMatchingResult } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
+
+type DeleteDialogState =
+  | { mode: "single"; key: string }
+  | { mode: "pattern"; key: null };
 
 export default function KVStore() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -20,8 +25,17 @@ export default function KVStore() {
   const [showNew, setShowNew] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [showSystemValues, setShowSystemValues] = useState(false);
   const [systemPrefix, setSystemPrefix] = useState("");
+  const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(null);
+  const [deletePattern, setDeletePattern] = useState("");
+  const [deleteIncludeInternal, setDeleteIncludeInternal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleteDialogError, setDeleteDialogError] = useState<string | null>(null);
+  const [deletePreview, setDeletePreview] = useState<KVDeleteMatchingResult | null>(null);
+  const [deletePreviewing, setDeletePreviewing] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const normalizedSystemPrefix = normalizeKVBrowsePrefix(systemPrefix);
   const browseQuery = buildKVBrowseQuery(showSystemValues, normalizedSystemPrefix);
@@ -54,6 +68,17 @@ export default function KVStore() {
   const combinedRefreshing = refreshing || statusRefreshing;
   const showSyncWarning = kvStatus && kvStatus.sync_state !== "ok";
 
+  const resetDeleteDialog = useCallback(() => {
+    setDeleteDialog(null);
+    setDeletePattern("");
+    setDeleteIncludeInternal(false);
+    setDeleteConfirmText("");
+    setDeleteDialogError(null);
+    setDeletePreview(null);
+    setDeletePreviewing(false);
+    setDeleteBusy(false);
+  }, []);
+
   useEffect(() => {
     if (!selectedKey || showNew) return;
 
@@ -74,6 +99,7 @@ export default function KVStore() {
     (key: string) => {
       setShowNew(false);
       setActionError(null);
+      setActionNotice(null);
       setSelectedKey(key);
       setEditValue(entries[key] ?? "");
       setIsDirty(false);
@@ -92,6 +118,7 @@ export default function KVStore() {
 
     const previousValue = entries[selectedKey] ?? "";
     setActionError(null);
+    setActionNotice(null);
     setIsDirty(false);
 
     mutate((previous) => {
@@ -124,6 +151,7 @@ export default function KVStore() {
     const visibleKey = hadKey && !isInternalKVKey(deletedKey);
 
     setActionError(null);
+    setActionNotice(null);
     setSelectedKey(null);
     setEditValue("");
     setIsDirty(false);
@@ -155,16 +183,124 @@ export default function KVStore() {
       refetch({ background: true });
       refetchStatus({ background: true });
     } catch (e: unknown) {
-      setActionError(e instanceof Error ? e.message : "Failed to delete key");
       refetch();
       refetchStatus();
+      throw e instanceof Error ? e : new Error(`Failed to delete key "${deletedKey}"`);
     }
   }, [entries, mutate, mutateStatus, refetch, refetchStatus]);
 
-  const deleteKey = useCallback(async () => {
-    if (!selectedKey) return;
-    deleteKeyByName(selectedKey);
-  }, [deleteKeyByName, selectedKey]);
+  const openSingleDeleteDialog = useCallback((key: string) => {
+    setActionError(null);
+    setActionNotice(null);
+    setDeleteDialog({ mode: "single", key });
+    setDeletePattern("");
+    setDeleteIncludeInternal(false);
+    setDeleteConfirmText("");
+    setDeleteDialogError(null);
+    setDeletePreview(null);
+    setDeletePreviewing(false);
+    setDeleteBusy(false);
+  }, []);
+
+  const openPatternDeleteDialog = useCallback(() => {
+    const suggestedPattern = normalizedSystemPrefix ? `${normalizedSystemPrefix}*` : "";
+    setActionError(null);
+    setActionNotice(null);
+    setDeleteDialog({ mode: "pattern", key: null });
+    setDeletePattern(suggestedPattern);
+    setDeleteIncludeInternal(showSystemValues);
+    setDeleteConfirmText("");
+    setDeleteDialogError(null);
+    setDeletePreview(null);
+    setDeletePreviewing(false);
+    setDeleteBusy(false);
+  }, [normalizedSystemPrefix, showSystemValues]);
+
+  const handleDeletePatternChange = useCallback((value: string) => {
+    setDeletePattern(value);
+    setDeleteConfirmText("");
+    setDeleteDialogError(null);
+    setDeletePreview(null);
+  }, []);
+
+  const handleDeleteIncludeInternalChange = useCallback((value: boolean) => {
+    setDeleteIncludeInternal(value);
+    setDeleteConfirmText("");
+    setDeleteDialogError(null);
+    setDeletePreview(null);
+  }, []);
+
+  const previewPatternDelete = useCallback(async () => {
+    const pattern = deletePattern.trim();
+    if (!pattern) {
+      setDeleteDialogError("Enter a pattern before previewing matches.");
+      setDeletePreview(null);
+      return;
+    }
+
+    setDeleteDialogError(null);
+    setDeletePreviewing(true);
+    setActionNotice(null);
+
+    try {
+      const result = await skykv.deleteMatching({
+        pattern,
+        dry_run: true,
+        include_internal: deleteIncludeInternal,
+      });
+      setDeletePreview(result);
+      setDeleteConfirmText("");
+    } catch (e: unknown) {
+      setDeleteDialogError(e instanceof Error ? e.message : "Failed to preview matching keys");
+      setDeletePreview(null);
+    } finally {
+      setDeletePreviewing(false);
+    }
+  }, [deleteIncludeInternal, deletePattern]);
+
+  const confirmDelete = useCallback(async () => {
+    if (!deleteDialog) {
+      return;
+    }
+
+    setDeleteBusy(true);
+    setDeleteDialogError(null);
+    setActionError(null);
+    setActionNotice(null);
+
+    try {
+      if (deleteDialog.mode === "single") {
+        await deleteKeyByName(deleteDialog.key);
+        setActionNotice(`Deleted "${deleteDialog.key}".`);
+      } else {
+        const pattern = deletePattern.trim();
+        const result = await skykv.deleteMatching({
+          pattern,
+          include_internal: deleteIncludeInternal,
+        });
+        refetch({ background: true });
+        refetchStatus({ background: true });
+        setActionNotice(
+          result.count === 1
+            ? `Deleted 1 key matching "${pattern}".`
+            : `Deleted ${result.count} keys matching "${pattern}".`
+        );
+      }
+      resetDeleteDialog();
+    } catch (e: unknown) {
+      setDeleteDialogError(e instanceof Error ? e.message : "Failed to delete keys");
+    } finally {
+      setDeleteBusy(false);
+    }
+  }, [
+    deleteDialog,
+    deleteIncludeInternal,
+    deleteKeyByName,
+    deletePattern,
+    refetch,
+    refetchStatus,
+    resetDeleteDialog,
+  ]);
 
   const createKey = useCallback(async () => {
     const key = newKey.trim();
@@ -176,6 +312,7 @@ export default function KVStore() {
       !systemFilterActive && !isInternalKVKey(key) && !existed ? 1 : 0;
 
     setActionError(null);
+    setActionNotice(null);
     setShowNew(false);
     setSelectedKey(visibleInCurrentView ? key : null);
     setEditValue(newValue);
@@ -218,11 +355,11 @@ export default function KVStore() {
     }
   }, [
     entries,
+    keyMatchesCurrentView,
     mutate,
     mutateStatus,
     newKey,
     newValue,
-    keyMatchesCurrentView,
     refetch,
     refetchStatus,
     systemFilterActive,
@@ -238,11 +375,13 @@ export default function KVStore() {
         onCreate={() => {
           setShowNew(true);
           setActionError(null);
+          setActionNotice(null);
           setSelectedKey(null);
           setNewKey("");
           setNewValue("");
           setIsDirty(false);
         }}
+        onDeletePattern={openPatternDeleteDialog}
         onToggleSystemValues={() => {
           setShowSystemValues((previous) => !previous);
         }}
@@ -254,6 +393,12 @@ export default function KVStore() {
       {error && (
         <div className="mx-8 mt-4 rounded-xl bg-error-container/20 p-4 text-sm text-error">
           {error}
+        </div>
+      )}
+
+      {actionNotice && (
+        <div className="mx-8 mt-4 rounded-xl border border-primary/20 bg-primary/10 p-4 text-sm text-primary">
+          {actionNotice}
         </div>
       )}
 
@@ -280,7 +425,7 @@ export default function KVStore() {
           emptyTitle={systemFilterActive ? "No matching keys" : "No keys yet"}
           entries={entries}
           loading={loading}
-          onDelete={deleteKeyByName}
+          onDelete={openSingleDeleteDialog}
           onSelect={selectKey}
           selectedKey={selectedKey}
         />
@@ -301,13 +446,36 @@ export default function KVStore() {
           onChangeNewKey={setNewKey}
           onChangeNewValue={setNewValue}
           onCreate={createKey}
-          onDelete={deleteKey}
+          onDelete={() => {
+            if (selectedKey) {
+              openSingleDeleteDialog(selectedKey);
+            }
+          }}
           onSave={saveValue}
           refreshing={combinedRefreshing}
           selectedKey={selectedKey}
           showNew={showNew}
         />
       </div>
+
+      <DeleteKeysDialog
+        busy={deleteBusy}
+        confirmationText={deleteConfirmText}
+        dialogError={deleteDialogError}
+        includeInternal={deleteIncludeInternal}
+        mode={deleteDialog?.mode ?? null}
+        onChangeConfirmationText={setDeleteConfirmText}
+        onChangeIncludeInternal={handleDeleteIncludeInternalChange}
+        onChangePattern={handleDeletePatternChange}
+        onClose={resetDeleteDialog}
+        onConfirm={confirmDelete}
+        onPreview={previewPatternDelete}
+        open={deleteDialog !== null}
+        pattern={deletePattern}
+        preview={deletePreview}
+        previewing={deletePreviewing}
+        targetKey={deleteDialog?.key ?? null}
+      />
     </div>
   );
 }

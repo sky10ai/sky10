@@ -90,6 +90,8 @@ export const skykv = {
     rpc("skykv.set", p),
   delete: (p: { key: string; namespace?: string }) =>
     rpc("skykv.delete", p),
+  deleteMatching: (p: { pattern: string; dry_run?: boolean; include_internal?: boolean }) =>
+    rpc<KVDeleteMatchingResult>("skykv.deleteMatching", p),
   status: () => rpc<KVStatus>("skykv.status"),
 };
 
@@ -429,6 +431,13 @@ export interface KVStatus {
   last_sync_peer?: string;
   last_sync_error?: string;
   last_sync_error_at?: string;
+}
+
+export interface KVDeleteMatchingResult {
+  pattern: string;
+  keys: string[];
+  count: number;
+  dry_run: boolean;
 }
 
 export interface LinkStatus {
