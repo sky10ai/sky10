@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { DeleteKeysDialog } from "../components/kv/DeleteKeysDialog";
-import { Icon } from "../components/Icon";
 import { KeyEditorPane } from "../components/kv/KeyEditorPane";
 import { KeyListPane } from "../components/kv/KeyListPane";
 import { NamespaceBar } from "../components/kv/NamespaceBar";
@@ -415,37 +414,6 @@ export default function KVStore() {
           </div>
         </div>
       )}
-
-      <div className="mx-8 mt-4 rounded-2xl border border-outline-variant/15 bg-surface-container-lowest px-5 py-4 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-error/10 text-error">
-              <Icon className="text-lg" name="warning" />
-            </div>
-            <div className="space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-sm font-semibold text-on-surface">
-                  Bulk delete keys
-                </p>
-                <span className="rounded-full bg-error/10 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-error">
-                  Confirmed flow
-                </span>
-              </div>
-              <p className="max-w-2xl text-sm text-secondary">
-                Preview matches, then use the warning dialog to confirm the exact pattern before deletion unlocks.
-              </p>
-            </div>
-          </div>
-          <button
-            className="inline-flex items-center justify-center gap-2 rounded-full border border-error/25 px-4 py-2.5 text-sm font-semibold text-error transition-colors hover:bg-error/10"
-            onClick={openPatternDeleteDialog}
-            type="button"
-          >
-            <Icon className="text-base" name="warning" />
-            Open Bulk Delete
-          </button>
-        </div>
-      </div>
 
       <div className="flex flex-1 overflow-hidden">
         <KeyListPane
