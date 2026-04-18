@@ -21,6 +21,23 @@ The end state should support:
 - correct composition with identity membership and agent placement without
   creating package cycles
 
+## Status Snapshot
+
+- `Milestone 0`: complete
+- `Milestone 1`: pending
+- `Milestone 2`: pending
+- `Milestone 3`: pending
+- `Milestone 4`: pending
+- `Milestone 5`: pending
+- `Milestone 6`: pending
+- `Milestone 7`: pending
+- `Milestone 8`: pending
+
+## Reference Docs
+
+- [`milestone-0-contract.md`](./milestone-0-contract.md)
+- [`current-state-report.md`](./current-state-report.md)
+
 ## Why This Exists
 
 Today device behavior is real product surface area:
@@ -103,24 +120,31 @@ Known current gaps that the later milestones should address:
 Goal: define the device subsystem boundary and product contract before moving
 files.
 
+Status: complete
+
 Checklist:
 
-- [ ] Define the canonical device concepts: profile, current state,
+- [x] Define the canonical device concepts: profile, current state,
       observation, and change event.
-- [ ] Define which fields are stable vs derived vs best-effort:
+- [x] Define which fields are stable vs derived vs best-effort:
       alias, system name, OS, version, public IP, coarse location,
       multiaddrs, online state, and last seen.
-- [ ] Define source precedence between local observation, registry snapshot,
+- [x] Define source precedence between local observation, registry snapshot,
       link presence, and user-authored alias.
-- [ ] Define privacy/retention expectations for IP and location history.
-- [ ] Define how hosted agents appear in device-facing read models without
+- [x] Define privacy/retention expectations for IP and location history.
+- [x] Define how hosted agents appear in device-facing read models without
       making `pkg/device` depend on `pkg/agent`.
 
 Done when:
 
-- [ ] We can explain exactly what belongs in `pkg/device` vs `pkg/id`.
-- [ ] We can explain the current-state and history models without reference to
+- [x] We can explain exactly what belongs in `pkg/device` vs `pkg/id`.
+- [x] We can explain the current-state and history models without reference to
       `pkg/fs`.
+
+Artifacts:
+
+- [`milestone-0-contract.md`](./milestone-0-contract.md)
+- [`current-state-report.md`](./current-state-report.md)
 
 ## Milestone 1: Extract Current Device Snapshot Ownership
 
