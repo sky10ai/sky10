@@ -3,14 +3,74 @@
 package integration
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	skysandbox "github.com/sky10/sky10/pkg/sandbox"
 )
 
 const forceWindowsPathPolicyEnv = "SKY10_FS_FORCE_WINDOWS_POLICY=1"
+
+func TestIntegrationFSRemoveRejectsManagedSandboxHome(t *testing.T) {
+	bin := buildSky10Binary(t)
+	minio := startMinIO(t)
+	bucket := newTestBucket(t)
+	minio.createBucket(t, bucket)
+
+	base := t.TempDir()
+	env := []string{
+		"S3_ACCESS_KEY_ID=minioadmin",
+		"S3_SECRET_ACCESS_KEY=minioadmin",
+	}
+
+	nodeHome := filepath.Join(base, "node-a")
+	agentsRoot := filepath.Join(base, "Drives", "Agents")
+	managedHome := filepath.Join(agentsRoot, "hermes-2tpd")
+
+	runCLIEnv(t, env, bin, nodeHome, "fs", "init",
+		"--bucket", bucket,
+		"--region", "us-east-1",
+		"--endpoint", minio.endpoint,
+		"--path-style",
+	)
+
+	writeSandboxState(t, nodeHome, skysandbox.Record{
+		Name:      "hermes-2tpd",
+		Slug:      "hermes-2tpd",
+		Provider:  "lima",
+		Template:  "hermes",
+		Status:    "ready",
+		SharedDir: managedHome,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+	})
+
+	if err := os.MkdirAll(filepath.Join(managedHome, "workspace"), 0755); err != nil {
+		t.Fatalf("mkdir managed sandbox home: %v", err)
+	}
+
+	node := startProcessNodeEnv(t, env, bin, "node-a", nodeHome, "--fs-poll-seconds", "1")
+	runCLI(t, bin, node.home, "fs", "drive", "create", "Agents", agentsRoot, "--namespace", "Agents")
+	waitForDriveIdle(t, node.home, "Agents")
+
+	err := rpcCallInto(node.home, "skyfs.remove", map[string]any{
+		"drive": "Agents",
+		"path":  "hermes-2tpd",
+	}, nil)
+	if err == nil {
+		t.Fatal("skyfs.remove unexpectedly allowed deleting a managed sandbox home")
+	}
+	if !strings.Contains(err.Error(), "delete the sandbox from Settings -> Sandboxes first") {
+		t.Fatalf("skyfs.remove error = %q, want sandbox ownership message", err)
+	}
+	if _, err := os.Stat(managedHome); err != nil {
+		t.Fatalf("managed sandbox home should remain on disk: %v", err)
+	}
+}
 
 func TestIntegrationThreeProcessFSMinIOSync(t *testing.T) {
 	bin := buildSky10Binary(t)
@@ -733,6 +793,26 @@ func currentDriveInfo(t *testing.T, home, driveName string) rpcFSDriveInfo {
 	}
 	t.Fatalf("drive %q not found in driveList: %+v", driveName, result.Drives)
 	return rpcFSDriveInfo{}
+}
+
+type sandboxStateFile struct {
+	Sandboxes []skysandbox.Record `json:"sandboxes"`
+}
+
+func writeSandboxState(t *testing.T, home string, records ...skysandbox.Record) {
+	t.Helper()
+
+	sandboxesDir := filepath.Join(home, "sandboxes")
+	if err := os.MkdirAll(sandboxesDir, 0755); err != nil {
+		t.Fatalf("mkdir sandboxes dir: %v", err)
+	}
+	data, err := json.MarshalIndent(sandboxStateFile{Sandboxes: records}, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal sandbox state: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sandboxesDir, "state.json"), append(data, '\n'), 0644); err != nil {
+		t.Fatalf("write sandbox state: %v", err)
+	}
 }
 
 func completeJoin(t *testing.T, joinCmd *runningCLI, bin, approverHome string) {

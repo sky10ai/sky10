@@ -51,11 +51,10 @@ type minIOHarness struct {
 func buildSky10Binary(t *testing.T) string {
 	t.Helper()
 
-	wd, err := os.Getwd()
+	repoRoot, err := findRepoRoot()
 	if err != nil {
-		t.Fatalf("getwd: %v", err)
+		t.Fatalf("find repo root: %v", err)
 	}
-	repoRoot := filepath.Dir(wd)
 	bin := filepath.Join(t.TempDir(), "sky10")
 	cmd := exec.Command("go", "build", "-o", bin, ".")
 	cmd.Dir = repoRoot
@@ -64,6 +63,29 @@ func buildSky10Binary(t *testing.T) string {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
 	return bin
+}
+
+func findRepoRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	dir = filepath.Clean(dir)
+	for {
+		if fileExists(filepath.Join(dir, "go.mod")) && fileExists(filepath.Join(dir, "main.go")) {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("repo root not found from %s", dir)
+		}
+		dir = parent
+	}
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func startProcessNode(t *testing.T, bin, name, home string, extraServeArgs ...string) *processNode {
