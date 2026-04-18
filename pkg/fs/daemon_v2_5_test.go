@@ -54,6 +54,19 @@ func waitForDaemonStartup(t *testing.T, daemon *DaemonV2_5) {
 	t.Fatal("daemon did not finish startup in time")
 }
 
+func waitForDaemonTrackedPath(t *testing.T, daemon *DaemonV2_5, path string, timeout time.Duration) opslog.FileInfo {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if fi, ok := daemon.localLog.Lookup(path); ok {
+			return fi
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("%s not tracked after %v", path, timeout)
+	return opslog.FileInfo{}
+}
+
 // Regression: seedStateFromDisk must queue new files for upload.
 // Bug: seed set state BEFORE sending events to the watcher handler,
 // so the handler saw matching checksums and skipped — files never
@@ -574,6 +587,174 @@ func TestDaemonV25PeriodicReconcileDownloadsRemoteWithoutPoke(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatal("periodic reconcile did not materialize remote file")
+}
+
+// Regression: when the drive has a delete_root tombstone, a newly created
+// one-shot file must still be tracked and survive the next reconcile loop.
+// This covers the daemon path that was deleting root agent profile files like
+// TOOLS.md after sandbox prep recreated them.
+func TestDaemonV25DeleteRootKeepsOneShotCreatedFile(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	if err := os.MkdirAll(localDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	cfg := DaemonConfig{
+		SyncConfig:        SyncConfig{LocalRoot: localDir},
+		DriveID:           "test_delete_root_one_shot",
+		PollSeconds:       300,
+		ScanSeconds:       300,
+		ReconcileSeconds:  2,
+		StableWriteWindow: 2 * time.Second,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatalf("creating daemon: %v", err)
+	}
+	if err := daemon.localLog.Append(opslog.Entry{
+		Type:      opslog.DeleteRoot,
+		Path:      "",
+		Namespace: "default",
+		Device:    "remote-device",
+		Timestamp: 100,
+		Seq:       1,
+	}); err != nil {
+		t.Fatalf("append delete_root: %v", err)
+	}
+
+	stop := runDaemon(ctx, cancel, daemon)
+	defer stop()
+	waitForDaemonStartup(t, daemon)
+	time.Sleep(300 * time.Millisecond)
+
+	targetPath := filepath.Join(localDir, "TOOLS.md")
+	if err := os.WriteFile(targetPath, nil, 0644); err != nil {
+		t.Fatalf("write TOOLS.md: %v", err)
+	}
+
+	fi := waitForDaemonTrackedPath(t, daemon, "TOOLS.md", 5*time.Second)
+	if fi.Checksum != checksumOf("") {
+		t.Fatalf("TOOLS.md checksum = %q, want empty checksum %q", fi.Checksum, checksumOf(""))
+	}
+
+	time.Sleep(3 * time.Second)
+
+	if _, err := os.Stat(targetPath); err != nil {
+		t.Fatalf("stat TOOLS.md after reconcile: %v", err)
+	}
+	if _, ok := daemon.localLog.Lookup("TOOLS.md"); !ok {
+		t.Fatal("TOOLS.md should remain tracked after reconcile")
+	}
+	snap, err := daemon.localLog.Snapshot()
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if !snap.RootDeleted() {
+		t.Fatal("root tombstone should remain present")
+	}
+	if _, ok := snap.Lookup("TOOLS.md"); !ok {
+		t.Fatal("TOOLS.md should remain present in the snapshot after reconcile")
+	}
+}
+
+// Regression: recreating a file with the same checksum after a delete must
+// survive the daemon loop. The watcher records the recreate, the outbox drains,
+// and the reconciler must not re-apply the stale tombstone and delete it again.
+func TestDaemonV25DeleteTombstoneKeepsSameChecksumRecreate(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	localDir := filepath.Join(tmpDir, "sync")
+	if err := os.MkdirAll(localDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	cfg := DaemonConfig{
+		SyncConfig:        SyncConfig{LocalRoot: localDir},
+		DriveID:           "test_same_checksum_recreate",
+		PollSeconds:       300,
+		ScanSeconds:       300,
+		ReconcileSeconds:  2,
+		StableWriteWindow: 2 * time.Second,
+	}
+	daemon, err := NewDaemonV2_5(store, cfg, nil)
+	if err != nil {
+		t.Fatalf("creating daemon: %v", err)
+	}
+
+	keepChecksum := checksumOf("keep")
+	deviceID := daemon.localLog.DeviceID()
+	if err := daemon.localLog.Append(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "soul.md",
+		Checksum:  keepChecksum,
+		Namespace: "default",
+		Device:    deviceID,
+		Timestamp: 100,
+		Seq:       1,
+	}); err != nil {
+		t.Fatalf("append historical put: %v", err)
+	}
+	if err := daemon.localLog.Append(opslog.Entry{
+		Type:         opslog.Delete,
+		Path:         "soul.md",
+		PrevChecksum: keepChecksum,
+		Namespace:    "default",
+		Device:       deviceID,
+		Timestamp:    200,
+		Seq:          2,
+	}); err != nil {
+		t.Fatalf("append tombstone: %v", err)
+	}
+
+	stop := runDaemon(ctx, cancel, daemon)
+	defer stop()
+	waitForDaemonStartup(t, daemon)
+	time.Sleep(300 * time.Millisecond)
+
+	targetPath := filepath.Join(localDir, "soul.md")
+	if err := os.WriteFile(targetPath, []byte("keep"), 0644); err != nil {
+		t.Fatalf("write soul.md: %v", err)
+	}
+
+	fi := waitForDaemonTrackedPath(t, daemon, "soul.md", 5*time.Second)
+	if fi.Checksum != keepChecksum {
+		t.Fatalf("soul.md checksum = %q, want %q", fi.Checksum, keepChecksum)
+	}
+
+	time.Sleep(3 * time.Second)
+
+	if _, err := os.Stat(targetPath); err != nil {
+		t.Fatalf("stat soul.md after reconcile: %v", err)
+	}
+	if _, ok := daemon.localLog.Lookup("soul.md"); !ok {
+		t.Fatal("soul.md should remain tracked after same-checksum recreate")
+	}
+	snap, err := daemon.localLog.Snapshot()
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if snap.DeletedFiles()["soul.md"] {
+		t.Fatal("soul.md tombstone should be cleared by the later recreate")
+	}
+	if _, ok := snap.Lookup("soul.md"); !ok {
+		t.Fatal("soul.md should remain present in the snapshot after recreate")
+	}
 }
 
 // DaemonV2.5 should detect a pre-existing file and upload it to S3.
