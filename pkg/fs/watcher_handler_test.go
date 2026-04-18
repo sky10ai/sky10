@@ -68,7 +68,7 @@ func TestWatcherHandlerModify(t *testing.T) {
 	}
 }
 
-func TestWatcherHandlerSkipsUnstableRecentFile(t *testing.T) {
+func TestWatcherHandlerQueuesUnstableRecentFile(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	localDir := filepath.Join(tmpDir, "sync")
@@ -86,22 +86,15 @@ func TestWatcherHandlerSkipsUnstableRecentFile(t *testing.T) {
 	handler.stableWriteWindow = 2 * time.Second
 	handler.HandleEvents([]FileEvent{{Path: "large.txt", Type: FileCreated}})
 
-	if outbox.Len() != 0 {
-		t.Fatalf("outbox has %d entries, want 0 for unstable file", outbox.Len())
-	}
-
-	old := time.Now().Add(-3 * time.Second)
-	if err := os.Chtimes(target, old, old); err != nil {
-		t.Fatalf("chtimes: %v", err)
-	}
-	handler.HandleEvents([]FileEvent{{Path: "large.txt", Type: FileModified}})
-
 	entries, err := outbox.ReadAll()
 	if err != nil {
 		t.Fatalf("read outbox: %v", err)
 	}
 	if len(entries) != 1 {
-		t.Fatalf("outbox has %d entries, want 1 after file settles", len(entries))
+		t.Fatalf("outbox has %d entries, want 1 for unstable file", len(entries))
+	}
+	if entries[0].Checksum == "" {
+		t.Fatal("unstable file should still carry a checksum for outbox refresh")
 	}
 }
 

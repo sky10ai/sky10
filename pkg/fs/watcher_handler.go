@@ -105,8 +105,14 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 				continue
 			}
 			if !stable {
-				h.logger.Debug("watcher: file not stable yet", "path", e.Path, "window", h.stableWriteWindow.String())
-				continue
+				// Keep the event by queueing a best-effort put now. The outbox
+				// worker applies the settle window before upload, so one-shot
+				// creates do not get lost if no follow-up event arrives.
+				cksum, err = fileChecksum(localPath)
+				if err != nil {
+					h.logger.Warn("watcher: checksum failed for unstable file", "path", e.Path, "error", err)
+					continue
+				}
 			}
 
 			// Skip if unchanged from local log
@@ -124,7 +130,11 @@ func (h *WatcherHandler) HandleEvents(events []FileEvent) {
 				}
 			}
 
-			h.logger.Info("watcher: outbox", "path", e.Path)
+			if stable {
+				h.logger.Info("watcher: outbox", "path", e.Path)
+			} else {
+				h.logger.Info("watcher: outbox (unstable)", "path", e.Path, "window", h.stableWriteWindow.String())
+			}
 
 			info, _ := os.Stat(localPath)
 			if info == nil {

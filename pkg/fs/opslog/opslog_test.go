@@ -728,6 +728,24 @@ func TestCRDTDeleteRootLaterPutWins(t *testing.T) {
 	}
 }
 
+func TestCRDTDeleteLaterPutSameChecksumWins(t *testing.T) {
+	t.Parallel()
+
+	entries := []Entry{
+		{Type: Put, Path: "agent/soul.md", Checksum: "same", Timestamp: 100, Device: "dev-a", Seq: 1},
+		{Type: Delete, Path: "agent/soul.md", PrevChecksum: "same", Timestamp: 200, Device: "dev-a", Seq: 2},
+		{Type: Put, Path: "agent/soul.md", Checksum: "same", Timestamp: 300, Device: "dev-a", Seq: 3},
+	}
+
+	snap := buildSnapshot(nil, entries)
+	if _, ok := snap.Lookup("agent/soul.md"); !ok {
+		t.Fatal("agent/soul.md should survive when a later put recreates the same checksum")
+	}
+	if snap.DeletedFiles()["agent/soul.md"] {
+		t.Fatal("agent/soul.md tombstone should be cleared by the later put")
+	}
+}
+
 // permutations returns all orderings of the given entries.
 func permutations(entries []Entry) [][]Entry {
 	if len(entries) <= 1 {

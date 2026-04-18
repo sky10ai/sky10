@@ -1018,7 +1018,10 @@ func buildSnapshot(base *Snapshot, entries []Entry) *Snapshot {
 					}
 				}
 			} else if tomb, ok := snap.deleted[e.Path]; ok {
-				if tombstoneDescendsEntry(tomb, e) {
+				// A tombstone should still block stale cross-device replays of the
+				// deleted content, but a later same-device put may legitimately
+				// recreate the exact same bytes after a local delete.
+				if tombstoneDescendsEntry(tomb, e) && tomb.Device != "" && e.Device != tomb.Device {
 					continue
 				}
 				if prev, ok := clocks[e.Path]; ok && !ec.beats(prev) {

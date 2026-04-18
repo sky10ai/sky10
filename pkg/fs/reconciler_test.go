@@ -792,6 +792,86 @@ func TestReconcilerDeleteRootEndToEnd(t *testing.T) {
 	}
 }
 
+func TestReconcilerDeleteRootPreservesLaterFiles(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	localDir := filepath.Join(tmpDir, "sync")
+
+	os.MkdirAll(filepath.Join(localDir, "agent", "workspace"), 0755)
+	os.WriteFile(filepath.Join(localDir, "stale.txt"), []byte("remove"), 0644)
+	os.WriteFile(filepath.Join(localDir, "agent", "soul.md"), []byte("keep"), 0644)
+	if err := os.Symlink("../soul.md", filepath.Join(localDir, "agent", "workspace", "SOUL.md")); err != nil {
+		t.Fatalf("Symlink(workspace/SOUL.md) error: %v", err)
+	}
+
+	localLog := opslog.NewLocalOpsLog(filepath.Join(tmpDir, "ops.jsonl"), "dev-a")
+	localLog.Append(opslog.Entry{
+		Type:      opslog.DeleteRoot,
+		Path:      "",
+		Device:    "dev-b",
+		Timestamp: 200,
+		Seq:       1,
+		Namespace: "Agents",
+	})
+	localLog.Append(opslog.Entry{
+		Type:      opslog.CreateDir,
+		Path:      "agent",
+		Device:    "dev-b",
+		Timestamp: 300,
+		Seq:       1,
+		Namespace: "Agents",
+	})
+	localLog.Append(opslog.Entry{
+		Type:      opslog.CreateDir,
+		Path:      "agent/workspace",
+		Device:    "dev-b",
+		Timestamp: 300,
+		Seq:       2,
+		Namespace: "Agents",
+	})
+	localLog.Append(opslog.Entry{
+		Type:      opslog.Put,
+		Path:      "agent/soul.md",
+		Checksum:  checksumOf("keep"),
+		Device:    "dev-b",
+		Timestamp: 300,
+		Seq:       3,
+		Namespace: "Agents",
+	})
+	localLog.Append(opslog.Entry{
+		Type:       opslog.Put,
+		Path:       "agent/workspace/SOUL.md",
+		Checksum:   symlinkChecksum("../soul.md"),
+		LinkTarget: "../soul.md",
+		Device:     "dev-b",
+		Timestamp:  300,
+		Seq:        4,
+		Namespace:  "Agents",
+	})
+
+	outbox := NewSyncLog[OutboxEntry](filepath.Join(tmpDir, "outbox.jsonl"))
+	backend := s3adapter.NewMemory()
+	id, _ := GenerateDeviceKey()
+	store := New(backend, id)
+
+	r := NewReconciler(store, localLog, outbox, localDir, nil, nil)
+	r.reconcile(context.Background())
+
+	if _, err := os.Stat(filepath.Join(localDir, "stale.txt")); err == nil {
+		t.Error("stale.txt should have been removed by delete_root")
+	}
+	if data, err := os.ReadFile(filepath.Join(localDir, "agent", "soul.md")); err != nil {
+		t.Fatalf("ReadFile(agent/soul.md) error: %v", err)
+	} else if string(data) != "keep" {
+		t.Fatalf("agent/soul.md = %q, want keep", string(data))
+	}
+	if got, err := os.Readlink(filepath.Join(localDir, "agent", "workspace", "SOUL.md")); err != nil {
+		t.Fatalf("Readlink(workspace/SOUL.md) error: %v", err)
+	} else if got != "../soul.md" {
+		t.Fatalf("workspace/SOUL.md -> %q, want ../soul.md", got)
+	}
+}
+
 func TestReconcilerCreatesDirectories(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()

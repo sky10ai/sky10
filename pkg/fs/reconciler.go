@@ -260,7 +260,8 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		if pendingWrites[path] {
 			continue
 		}
-		if rootDeleted || deletedPaths[path] {
+		_, inSnapshot := snapshotFiles[path]
+		if deletedPaths[path] || (rootDeleted && !inSnapshot) {
 			r.deleteFile(path)
 			deleted++
 			active = true
