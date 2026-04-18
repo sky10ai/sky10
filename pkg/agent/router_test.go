@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -186,6 +187,10 @@ func TestRouterSendRemote(t *testing.T) {
 	connectNodes(t, nodeA, nodeB)
 
 	routerA := NewRouter(regA, nodeA, nil, "D-deviceAA", nil)
+	routerA.SetPrivateDeviceMembership(
+		func(deviceID string) bool { return deviceID == "D-deviceBB" },
+		func() bool { return true },
+	)
 	routerA.cachePeer("D-deviceBB", nodeB.PeerID())
 
 	msg := Message{
@@ -350,6 +355,10 @@ func TestRouterSendUnknownDevice(t *testing.T) {
 	node := makeTestNode(t)
 	reg := NewRegistry("D-device01", "host1", nil)
 	router := NewRouter(reg, node, nil, "D-device01", nil)
+	router.SetPrivateDeviceMembership(
+		func(deviceID string) bool { return deviceID == "D-deviceBB" },
+		func() bool { return true },
+	)
 
 	msg := Message{
 		ID:       "msg-1",
@@ -1185,6 +1194,10 @@ func TestRouterSendQueuesWhenRemoteDeviceUnavailable(t *testing.T) {
 	node := makeTestNode(t)
 	reg := NewRegistry("D-deviceAA", "hostA", nil)
 	router := NewRouter(reg, node, nil, "D-deviceAA", nil)
+	router.SetPrivateDeviceMembership(
+		func(deviceID string) bool { return deviceID == "D-deviceBB" },
+		func() bool { return true },
+	)
 	mailboxStore := newTestMailboxStore(t)
 	router.SetMailbox(mailboxStore)
 
@@ -1234,6 +1247,78 @@ func TestRouterSendQueuesWhenRemoteDeviceUnavailable(t *testing.T) {
 	}
 }
 
+func TestRouterSendDoesNotQueueWhenIdentityHasNoOtherDevices(t *testing.T) {
+	t.Parallel()
+
+	node := makeTestNode(t)
+	reg := NewRegistry("D-deviceAA", "hostA", nil)
+	router := NewRouter(reg, node, nil, "D-deviceAA", nil)
+	router.SetPrivateDeviceMembership(
+		func(deviceID string) bool { return false },
+		func() bool { return false },
+	)
+	mailboxStore := newTestMailboxStore(t)
+	router.SetMailbox(mailboxStore)
+
+	msg := Message{
+		ID:        "msg-no-other-devices",
+		SessionID: "session-1",
+		From:      "D-deviceAA",
+		To:        "researcher",
+		DeviceID:  "D-deviceBB",
+		Type:      "text",
+		Content:   json.RawMessage(`{"text":"search this"}`),
+		Timestamp: time.Now().UTC(),
+	}
+	_, err := router.Send(context.Background(), msg)
+	if err == nil {
+		t.Fatal("expected error when no other devices are configured")
+	}
+	if !strings.Contains(err.Error(), "not part of this identity") {
+		t.Fatalf("error = %v, want non-member identity error", err)
+	}
+
+	if outbox := mailboxStore.ListOutbox("D-deviceAA"); len(outbox) != 0 {
+		t.Fatalf("outbox len = %d, want 0", len(outbox))
+	}
+}
+
+func TestRouterSendDoesNotQueueWhenTargetDeviceNotInMembership(t *testing.T) {
+	t.Parallel()
+
+	node := makeTestNode(t)
+	reg := NewRegistry("D-deviceAA", "hostA", nil)
+	router := NewRouter(reg, node, nil, "D-deviceAA", nil)
+	router.SetPrivateDeviceMembership(
+		func(deviceID string) bool { return deviceID == "D-deviceBB" },
+		func() bool { return true },
+	)
+	mailboxStore := newTestMailboxStore(t)
+	router.SetMailbox(mailboxStore)
+
+	msg := Message{
+		ID:        "msg-non-member-device",
+		SessionID: "session-1",
+		From:      "D-deviceAA",
+		To:        "researcher",
+		DeviceID:  "D-missing0",
+		Type:      "text",
+		Content:   json.RawMessage(`{"text":"search this"}`),
+		Timestamp: time.Now().UTC(),
+	}
+	_, err := router.Send(context.Background(), msg)
+	if err == nil {
+		t.Fatal("expected error for non-member device")
+	}
+	if !strings.Contains(err.Error(), "not part of this identity") {
+		t.Fatalf("error = %v, want non-member identity error", err)
+	}
+
+	if outbox := mailboxStore.ListOutbox("D-deviceAA"); len(outbox) != 0 {
+		t.Fatalf("outbox len = %d, want 0", len(outbox))
+	}
+}
+
 func TestRouterDrainOutboxDeliversQueuedRemoteMessage(t *testing.T) {
 	t.Parallel()
 
@@ -1255,6 +1340,10 @@ func TestRouterDrainOutboxDeliversQueuedRemoteMessage(t *testing.T) {
 	connectNodes(t, nodeA, nodeB)
 
 	routerA := NewRouter(regA, nodeA, nil, "D-deviceAA", nil)
+	routerA.SetPrivateDeviceMembership(
+		func(deviceID string) bool { return deviceID == "D-deviceBB" },
+		func() bool { return true },
+	)
 	mailboxStore := newTestMailboxStore(t)
 	routerA.SetMailbox(mailboxStore)
 

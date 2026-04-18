@@ -21,16 +21,18 @@ const peerQueryTimeout = 3 * time.Second
 // Router dispatches messages locally via SSE or to remote devices via
 // skylink. It also aggregates agent lists across the swarm.
 type Router struct {
-	registry        *Registry
-	node            *link.Node
-	resolver        *link.Resolver
-	emit            Emitter
-	deviceID        string
-	logger          *slog.Logger
-	mailbox         *agentmailbox.Store
-	relay           agentmailbox.NetworkRelay
-	networkQueue    agentmailbox.NetworkQueue
-	mailboxObserver func(action string, record agentmailbox.Record)
+	registry               *Registry
+	node                   *link.Node
+	resolver               *link.Resolver
+	emit                   Emitter
+	deviceID               string
+	logger                 *slog.Logger
+	mailbox                *agentmailbox.Store
+	relay                  agentmailbox.NetworkRelay
+	networkQueue           agentmailbox.NetworkQueue
+	mailboxObserver        func(action string, record agentmailbox.Record)
+	knownPrivateDevice     func(deviceID string) bool
+	hasOtherPrivateDevices func() bool
 
 	// mu protects peerDevices, peerAddresses, and peerAgentCache.
 	mu             sync.RWMutex
@@ -86,6 +88,14 @@ func (r *Router) SetMailboxObserver(observer func(action string, record agentmai
 	r.mailboxObserver = observer
 }
 
+// SetPrivateDeviceMembership configures private-network membership hints used
+// to decide whether a remote device is part of the current identity and
+// whether durable private mailbox fallback is meaningful.
+func (r *Router) SetPrivateDeviceMembership(knownDevice func(deviceID string) bool, hasOtherDevices func() bool) {
+	r.knownPrivateDevice = knownDevice
+	r.hasOtherPrivateDevices = hasOtherDevices
+}
+
 // Send routes a message to the target agent or identity. Local targets
 // get an SSE event. Remote targets are forwarded via skylink.
 func (r *Router) Send(ctx context.Context, msg Message) (interface{}, error) {
@@ -93,10 +103,13 @@ func (r *Router) Send(ctx context.Context, msg Message) (interface{}, error) {
 	if msg.DeviceID == "" || msg.DeviceID == r.deviceID {
 		return r.routeIncoming(ctx, msg)
 	}
+	if err := r.validateRemotePrivateDevice(msg.DeviceID); err != nil {
+		return nil, err
+	}
 
 	// Remote — route via skylink.
 	if err := r.sendRemoteLive(ctx, msg); err != nil {
-		if r.mailbox == nil {
+		if r.mailbox == nil || !r.shouldQueueRemoteFailure(msg.DeviceID) {
 			return nil, err
 		}
 		record, queueErr := r.queueRemoteFailure(ctx, msg, err.Error())
@@ -655,6 +668,54 @@ func (r *Router) routeIncoming(ctx context.Context, msg Message) (interface{}, e
 		return r.queuedResult(msg.ID, record, "local_registry", false), nil
 	}
 	return r.sentResult(msg.ID, agentmailbox.ScopePrivateNetwork, "local_registry"), nil
+}
+
+func (r *Router) validateRemotePrivateDevice(deviceID string) error {
+	known, _, ok := r.privateDeviceMembership(deviceID)
+	if ok && !known {
+		return fmt.Errorf("device %s is not part of this identity", deviceID)
+	}
+	return nil
+}
+
+func (r *Router) shouldQueueRemoteFailure(deviceID string) bool {
+	known, hasOtherDevices, ok := r.privateDeviceMembership(deviceID)
+	if !ok {
+		return true
+	}
+	return known && hasOtherDevices
+}
+
+func (r *Router) privateDeviceMembership(deviceID string) (known, hasOtherDevices, ok bool) {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return false, false, false
+	}
+	if r.knownPrivateDevice != nil || r.hasOtherPrivateDevices != nil {
+		known = true
+		hasOtherDevices = true
+		if r.knownPrivateDevice != nil {
+			known = r.knownPrivateDevice(deviceID)
+		}
+		if r.hasOtherPrivateDevices != nil {
+			hasOtherDevices = r.hasOtherPrivateDevices()
+		}
+		return known, hasOtherDevices, true
+	}
+	if r.node == nil || r.node.Bundle() == nil || r.node.Bundle().Manifest == nil {
+		return false, false, false
+	}
+	for _, device := range r.node.Bundle().Manifest.Devices {
+		memberID := "D-" + skykey.FromPublicKey(device.PublicKey).ShortID()
+		if memberID == r.deviceID {
+			continue
+		}
+		hasOtherDevices = true
+		if memberID == deviceID {
+			known = true
+		}
+	}
+	return known, hasOtherDevices, true
 }
 
 func (r *Router) sendRemoteLive(ctx context.Context, msg Message) error {

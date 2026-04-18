@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -291,6 +292,10 @@ func TestRPCSendQueuedIncludesDeliveryMetadata(t *testing.T) {
 	mailboxStore := newTestMailboxStore(t)
 	h.SetMailbox(mailboxStore)
 	router := NewRouter(r, makeTestNode(t), nil, r.DeviceID(), nil)
+	router.SetPrivateDeviceMembership(
+		func(deviceID string) bool { return deviceID == "D-deviceBB" },
+		func() bool { return true },
+	)
 	router.SetMailbox(mailboxStore)
 	h.SetRouter(router)
 
@@ -324,6 +329,43 @@ func TestRPCSendQueuedIncludesDeliveryMetadata(t *testing.T) {
 	}
 	if queued.Delivery.LastEvent != agentmailbox.EventTypeDeliveryFailed {
 		t.Fatalf("last event = %q, want %q", queued.Delivery.LastEvent, agentmailbox.EventTypeDeliveryFailed)
+	}
+}
+
+func TestRPCSendFailsFastForNonMemberDevice(t *testing.T) {
+	t.Parallel()
+
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	mailboxStore := newTestMailboxStore(t)
+	h.SetMailbox(mailboxStore)
+	router := NewRouter(r, makeTestNode(t), nil, r.DeviceID(), nil)
+	router.SetPrivateDeviceMembership(
+		func(deviceID string) bool { return deviceID == "D-deviceBB" },
+		func() bool { return true },
+	)
+	router.SetMailbox(mailboxStore)
+	h.SetRouter(router)
+
+	sendParams, _ := json.Marshal(SendParams{
+		To:        "researcher",
+		DeviceID:  "D-missing0",
+		SessionID: "session-non-member",
+		Type:      "text",
+		Content:   json.RawMessage(`{"text":"do not queue this"}`),
+	})
+	_, err, handled := h.Dispatch(context.Background(), "agent.send", sendParams)
+	if !handled {
+		t.Fatal("expected agent.send to be handled")
+	}
+	if err == nil {
+		t.Fatal("expected non-member device send to fail")
+	}
+	if !strings.Contains(err.Error(), "not part of this identity") {
+		t.Fatalf("err = %v, want non-member identity error", err)
+	}
+	if outbox := mailboxStore.ListOutbox(r.DeviceID()); len(outbox) != 0 {
+		t.Fatalf("outbox len = %d, want 0", len(outbox))
 	}
 }
 
