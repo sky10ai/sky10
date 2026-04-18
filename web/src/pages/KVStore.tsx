@@ -416,21 +416,28 @@ export default function KVStore() {
         </div>
       )}
 
-      <div className="mx-8 mt-4 rounded-[28px] border border-error/20 bg-[radial-gradient(circle_at_top_left,rgba(239,68,68,0.14),rgba(239,68,68,0.05)_40%,transparent_78%)] p-5 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="space-y-2">
-            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-error">
-              Danger Zone
-            </p>
-            <h2 className="text-xl font-semibold text-on-surface">
-              Bulk delete keys by pattern
-            </h2>
-            <p className="max-w-2xl text-sm text-secondary">
-              Preview all matching keys first, then pass through the full warning dialog and type the exact pattern before deletion unlocks.
-            </p>
+      <div className="mx-8 mt-4 rounded-2xl border border-outline-variant/15 bg-surface-container-lowest px-5 py-4 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-error/10 text-error">
+              <Icon className="text-lg" name="warning" />
+            </div>
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-semibold text-on-surface">
+                  Bulk delete keys
+                </p>
+                <span className="rounded-full bg-error/10 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-error">
+                  Confirmed flow
+                </span>
+              </div>
+              <p className="max-w-2xl text-sm text-secondary">
+                Preview matches, then use the warning dialog to confirm the exact pattern before deletion unlocks.
+              </p>
+            </div>
           </div>
           <button
-            className="inline-flex items-center justify-center gap-2 rounded-full border border-error/25 bg-error px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-error/20 transition-colors hover:bg-error/90"
+            className="inline-flex items-center justify-center gap-2 rounded-full border border-error/25 px-4 py-2.5 text-sm font-semibold text-error transition-colors hover:bg-error/10"
             onClick={openPatternDeleteDialog}
             type="button"
           >
