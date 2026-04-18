@@ -452,6 +452,9 @@ func TestBundledOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), `"skills": ["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("bundled user script missing browser skill registration: %q", string(body))
 	}
+	if !strings.Contains(string(body), `defaults["workspace"] = "/shared/workspace"`) {
+		t.Fatalf("bundled user script missing shared workspace config: %q", string(body))
+	}
 	if !strings.Contains(string(body), `sky10_channel["defaultAccount"] = "default"`) {
 		t.Fatalf("bundled user script missing sky10 default account config: %q", string(body))
 	}
@@ -940,7 +943,11 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	}
 	if err := prepareOpenClawSharedDir(sharedDir, stateDir, helper, pluginAssets, map[string]string{
 		"OPENAI_API_KEY": "openai-key",
-	}, &IdentityInvite{HostIdentity: "sky10-host", Code: "invite-code"}, "openclaw-m8", "http://host.lima.internal:9101/rpc"); err != nil {
+	}, &IdentityInvite{HostIdentity: "sky10-host", Code: "invite-code"}, AgentMindSeed{
+		DisplayName: "OpenClaw M8",
+		Slug:        "openclaw-m8",
+		Template:    templateOpenClaw,
+	}, "http://host.lima.internal:9101/rpc"); err != nil {
 		t.Fatalf("prepareOpenClawSharedDir() error: %v", err)
 	}
 
@@ -949,6 +956,10 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 			t.Fatalf("Stat(agent home %q) error: %v", rel, err)
 		}
 	}
+	if _, err := os.Stat(filepath.Join(sharedDir, "mind", "sky10.md")); err != nil {
+		t.Fatalf("Stat(mind/sky10.md) error: %v", err)
+	}
+	assertSymlinkTarget(t, filepath.Join(sharedDir, "workspace", "SOUL.md"), filepath.Join("..", "mind", "soul.md"))
 
 	envPath := filepath.Join(stateDir, ".env")
 	envData, err := os.ReadFile(envPath)
@@ -1020,7 +1031,11 @@ func TestPrepareHermesSharedDir(t *testing.T) {
 	}, &IdentityInvite{
 		HostIdentity: "sky10-host",
 		Code:         "invite-code",
-	}, "hermes-agent", "http://host.lima.internal:9101/rpc"); err != nil {
+	}, AgentMindSeed{
+		DisplayName: "Hermes Agent",
+		Slug:        "hermes-agent",
+		Template:    templateHermes,
+	}, "http://host.lima.internal:9101/rpc"); err != nil {
 		t.Fatalf("prepareHermesSharedDir() error: %v", err)
 	}
 
@@ -1029,6 +1044,7 @@ func TestPrepareHermesSharedDir(t *testing.T) {
 			t.Fatalf("Stat(agent home %q) error: %v", rel, err)
 		}
 	}
+	assertSymlinkTarget(t, filepath.Join(sharedDir, "workspace", "AGENTS.md"), filepath.Join("..", "mind", "AGENTS.md"))
 
 	envData, err := os.ReadFile(filepath.Join(stateDir, ".env"))
 	if err != nil {
@@ -1111,8 +1127,17 @@ func TestBundledHermesUserScriptKeepsSharedEnv(t *testing.T) {
 	if !strings.Contains(script, "API_SERVER_ENABLED=true") {
 		t.Fatalf("bundled Hermes user script missing API server env bootstrap: %q", script)
 	}
+	if !strings.Contains(script, `Environment=MESSAGING_CWD=/shared/workspace`) {
+		t.Fatalf("bundled Hermes user script missing messaging cwd override: %q", script)
+	}
 	if !strings.Contains(script, "SKY10_BRIDGE_CONFIG_PATH=/sandbox-state/bridge.json") {
 		t.Fatalf("bundled Hermes user script missing bridge config path: %q", script)
+	}
+	if !strings.Contains(script, `link_mind_file "${MIND_DIR}/soul.md" "${HERMES_HOME}/SOUL.md"`) {
+		t.Fatalf("bundled Hermes user script missing SOUL.md mind link: %q", script)
+	}
+	if !strings.Contains(script, `link_mind_file "${MIND_DIR}/memory.md" "${HERMES_HOME}/memories/MEMORY.md"`) {
+		t.Fatalf("bundled Hermes user script missing MEMORY.md mind link: %q", script)
 	}
 	if !strings.Contains(script, "hermes config set terminal.cwd /shared/workspace") {
 		t.Fatalf("bundled Hermes user script missing shared workspace cwd config: %q", script)

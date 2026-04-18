@@ -7,6 +7,7 @@ export HERMES_HOME="${HOME}/.hermes"
 export HERMES_MODEL="{{.Param.model}}"
 
 SHARED_DIR="/shared"
+MIND_DIR="${SHARED_DIR}/mind"
 WORKSPACE_DIR="${SHARED_DIR}/workspace"
 SANDBOX_STATE_DIR="/sandbox-state"
 STATE_DIR="${HERMES_HOME}/.sky10-lima"
@@ -311,6 +312,25 @@ link_hermes_env() {
   ln -sfn "${SANDBOX_STATE_DIR}/.env" "${HERMES_HOME}/.env"
 }
 
+link_mind_file() {
+  local source="$1"
+  local target="$2"
+
+  mkdir -p "$(dirname "${target}")"
+  if [ -e "${target}" ] && [ ! -L "${target}" ]; then
+    return 0
+  fi
+
+  ln -sfn "${source}" "${target}"
+}
+
+link_hermes_mind() {
+  mkdir -p "${HERMES_HOME}/memories"
+  link_mind_file "${MIND_DIR}/soul.md" "${HERMES_HOME}/SOUL.md"
+  link_mind_file "${MIND_DIR}/memory.md" "${HERMES_HOME}/memories/MEMORY.md"
+  link_mind_file "${MIND_DIR}/USER.md" "${HERMES_HOME}/memories/USER.md"
+}
+
 write_helper() {
   cat > "${HELPER}" <<'EOF'
 #!/bin/bash
@@ -385,6 +405,7 @@ WorkingDirectory=/shared/workspace
 EnvironmentFile=-%h/.hermes/.env
 EnvironmentFile=-%h/.hermes/.sky10-lima/bridge.env
 Environment=HOME=${HOME}
+Environment=MESSAGING_CWD=/shared/workspace
 Environment=PATH=${HOME}/.local/bin:${HOME}/.cargo/bin:${HOME}/.bin:/usr/local/bin:/usr/bin:/bin
 
 [Install]
@@ -451,6 +472,7 @@ fi
 
 emit_progress begin guest.hermes.configure "Configuring Hermes..."
 link_hermes_env
+link_hermes_mind
 write_helper
 ensure_guest_sky10
 
@@ -463,5 +485,6 @@ if command -v hermes >/dev/null 2>&1; then
 fi
 
 link_hermes_env
+link_hermes_mind
 emit_progress end guest.hermes.configure "Hermes configured."
 enable_host_chat_bridge

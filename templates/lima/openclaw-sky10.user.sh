@@ -254,6 +254,9 @@ if config_path.exists():
 else:
     config = {}
 
+defaults = config.setdefault("agents", {}).setdefault("defaults", {})
+defaults["workspace"] = "/shared/workspace"
+
 gateway = config.setdefault("gateway", {})
 gateway["port"] = 18789
 gateway["bind"] = "loopback"
@@ -261,7 +264,7 @@ gateway["mode"] = "local"
 gateway["auth"] = {"mode": "none"}
 gateway.setdefault("http", {}).setdefault("endpoints", {}).setdefault("responses", {})["enabled"] = True
 
-config.setdefault("agents", {}).setdefault("defaults", {})["model"] = os.environ["OPENCLAW_MODEL"]
+defaults["model"] = os.environ["OPENCLAW_MODEL"]
 
 browser = config.setdefault("browser", {})
 browser["executablePath"] = "/usr/local/bin/chromium"

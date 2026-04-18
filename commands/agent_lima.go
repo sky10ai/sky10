@@ -190,7 +190,12 @@ func sandboxCreateCmd() *cobra.Command {
 				}
 				hermesBridge = buildHermesBridgeConfig(displayName, slug, "")
 			}
-			if err := prepareLimaSharedDir(template, sharedDir, stateDir, hostsScript, sharedAssets, resolvedEnv, hermesBridge); err != nil {
+			if err := prepareLimaSharedDir(template, sharedDir, stateDir, hostsScript, sharedAssets, resolvedEnv, hermesBridge, skysandbox.AgentMindSeed{
+				DisplayName: displayName,
+				Slug:        slug,
+				Template:    template,
+				Model:       model,
+			}); err != nil {
 				return err
 			}
 
@@ -619,8 +624,8 @@ func downloadLimaAsset(ctx context.Context, name string) ([]byte, error) {
 	return body, nil
 }
 
-func prepareLimaSharedDir(template, sharedDir, stateDir string, hostsScript []byte, sharedAssets map[string][]byte, resolvedEnv map[string]string, hermesBridge *hermesBridgeConfig) error {
-	if err := skysandbox.EnsureAgentHomeLayout(sharedDir); err != nil {
+func prepareLimaSharedDir(template, sharedDir, stateDir string, hostsScript []byte, sharedAssets map[string][]byte, resolvedEnv map[string]string, hermesBridge *hermesBridgeConfig, seed skysandbox.AgentMindSeed) error {
+	if err := skysandbox.EnsureAgentMindLayout(sharedDir, seed); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
