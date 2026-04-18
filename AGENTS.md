@@ -1,5 +1,4 @@
----
-updated: 2026-04-07
+updated: 2026-04-18
 ---
 
 # AGENTS.md
@@ -104,6 +103,14 @@ should use this file directly.
   and choose the highest-value test shape.
 - Bug fixes follow: regression test first, confirm the failure when
   practical, apply the fix, then rerun the relevant tests.
+- If the user references a specific CI job, test bucket, or discovered
+  test count, inspect the exact workflow or Makefile selector before
+  adding tests or reporting counts.
+- When the goal is to change a named test bucket, put the test in the
+  exact path, build-tag set, and naming pattern that bucket actually
+  runs. Do not assume a nearby package test affects the same count.
+- Verify bucket changes with the same discovery or count command the CI
+  job uses, not with a broader or different local test command.
 - Run `gofmt -w` on changed Go files before handing off Go changes.
 - Preferred validation for most Go work:
   - `make check`
