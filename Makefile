@@ -17,7 +17,7 @@ LDFLAGS  := -s -w \
 UNAME_S  := $(shell uname -s)
 WEB_DEV_PORT ?= 5173
 WEB_DEV_PATH ?= /
-WEB_RPC_TARGET ?= http://localhost:9102
+WEB_RPC_TARGET ?= http://localhost:9101
 INSTALL_DIR ?= $(HOME)/.bin
 INSTALL_BIN ?= $(INSTALL_DIR)/sky10
 
@@ -60,7 +60,7 @@ web-dev:
 	@echo "Starting web dev UI on http://localhost:$(WEB_DEV_PORT)$(WEB_DEV_PATH)"
 	@echo "Proxying /rpc and /health to $(WEB_RPC_TARGET)"
 	@curl -fsS "$(WEB_RPC_TARGET)/health" >/dev/null 2>&1 || echo "Warning: no daemon responding at $(WEB_RPC_TARGET)"
-	@echo "Override with: make web-dev WEB_RPC_TARGET=http://localhost:9101 WEB_DEV_PATH=/bucket"
+	@echo "Override with: make web-dev WEB_RPC_TARGET=http://host:port WEB_DEV_PATH=/bucket"
 	@if [ -n "$(OPEN_CMD)" ]; then (sleep 1; $(OPEN_CMD) "http://localhost:$(WEB_DEV_PORT)$(WEB_DEV_PATH)" >/dev/null 2>&1 || true) & fi
 	cd web && SKY10_WEB_RPC_TARGET=$(WEB_RPC_TARGET) $(BUN) run dev -- --host 0.0.0.0 --port $(WEB_DEV_PORT) --strictPort
 
@@ -119,6 +119,7 @@ clean:
 install: build
 	mkdir -p "$(INSTALL_DIR)"
 	install -m 755 bin/sky10 "$(INSTALL_BIN)"
+	@echo "Installed $(INSTALL_BIN). Restart the daemon to use it: $(INSTALL_BIN) daemon restart"
 
 restart-daemon:
 	"$(INSTALL_BIN)" daemon restart
