@@ -181,7 +181,7 @@ func ServeCmd() *cobra.Command {
 			go func() {
 				kvRunErr <- kvStore.Run(ctx)
 			}()
-			mailboxStore, err := agentmailbox.NewStore(ctx, agentmailbox.NewScopedKVBackend(kvStore, "mailbox"))
+			mailboxStore, err := agentmailbox.NewStore(ctx, agentmailbox.NewScopedKVBackend(kvStore, "_sys/mailbox"))
 			if err != nil {
 				return fmt.Errorf("creating mailbox store: %w", err)
 			}

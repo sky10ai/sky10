@@ -1,6 +1,7 @@
 package kv
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"path/filepath"
@@ -289,17 +290,50 @@ func TestDiffAndMergeAppliesExplicitRemoteTombstoneWithoutBaseline(t *testing.T)
 	}
 }
 
-func TestBoundedSyncContext(t *testing.T) {
+func TestBoundedSummaryContext(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := boundedSyncContext(context.Background())
+	ctx, cancel := boundedSummaryContext(context.Background())
 	defer cancel()
 
 	deadline, ok := ctx.Deadline()
 	if !ok {
-		t.Fatal("expected bounded sync context to have a deadline")
+		t.Fatal("expected bounded summary context to have a deadline")
 	}
-	if remaining := time.Until(deadline); remaining > syncExchangeTimeout || remaining <= 0 {
-		t.Fatalf("remaining deadline = %v, want (0,%v]", remaining, syncExchangeTimeout)
+	if remaining := time.Until(deadline); remaining > summaryExchangeTimeout || remaining <= 0 {
+		t.Fatalf("remaining deadline = %v, want (0,%v]", remaining, summaryExchangeTimeout)
+	}
+}
+
+func TestBoundedSnapshotContext(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := boundedSnapshotContext(context.Background())
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("expected bounded snapshot context to have a deadline")
+	}
+	if remaining := time.Until(deadline); remaining > snapshotTransferTimeout || remaining <= 0 {
+		t.Fatalf("remaining deadline = %v, want (0,%v]", remaining, snapshotTransferTimeout)
+	}
+}
+
+func TestReadMsgAllowsLargeSnapshotPayload(t *testing.T) {
+	t.Parallel()
+
+	payload := bytes.Repeat([]byte("a"), 5*1024*1024)
+	var buf bytes.Buffer
+	if err := writeMsg(&buf, payload); err != nil {
+		t.Fatalf("writeMsg: %v", err)
+	}
+
+	got, err := readMsg(&buf)
+	if err != nil {
+		t.Fatalf("readMsg: %v", err)
+	}
+	if len(got) != len(payload) {
+		t.Fatalf("payload len = %d, want %d", len(got), len(payload))
 	}
 }

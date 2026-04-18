@@ -105,3 +105,67 @@ func TestScopedKVBackendClaimsNetworkQueueItems(t *testing.T) {
 		t.Fatalf("reloaded claim = %+v, want holder agent:worker", got.Claim)
 	}
 }
+
+func TestScopedKVBackendDefaultsToSysMailboxRoot(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	raw := newMemoryKVStore()
+	backend := NewScopedKVBackend(raw, "")
+	store, err := NewStore(ctx, backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	record, err := store.Create(ctx, Item{
+		Kind:           ItemKindMessage,
+		From:           Principal{ID: "agent:local", Kind: PrincipalKindLocalAgent, Scope: ScopePrivateNetwork},
+		To:             &Principal{ID: "human:alice", Kind: PrincipalKindHuman, Scope: ScopePrivateNetwork},
+		IdempotencyKey: "sys-root-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if keys := raw.List("_sys/mailbox/private/"); len(keys) == 0 {
+		t.Fatal("expected mailbox state under _sys/mailbox/private/")
+	}
+	if keys := raw.List("mailbox/private/"); len(keys) != 0 {
+		t.Fatalf("legacy mailbox root should stay empty for new writes, got %d keys", len(keys))
+	}
+	if !backend.ContainsItem(record.Item.ID) {
+		t.Fatal("expected backend to contain new mailbox item")
+	}
+}
+
+func TestScopedKVBackendIgnoresLegacyMailboxRoots(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	raw := newMemoryKVStore()
+	legacyBackend := NewScopedKVBackend(raw, "mailbox")
+	legacyStore, err := NewStore(ctx, legacyBackend)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	record, err := legacyStore.Create(ctx, Item{
+		Kind:           ItemKindMessage,
+		From:           Principal{ID: "agent:legacy", Kind: PrincipalKindLocalAgent, Scope: ScopePrivateNetwork},
+		To:             &Principal{ID: "human:bob", Kind: PrincipalKindHuman, Scope: ScopePrivateNetwork},
+		IdempotencyKey: "legacy-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	backend := NewScopedKVBackend(raw, "")
+	store, err := NewStore(ctx, backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := store.Get(record.Item.ID); ok {
+		t.Fatal("default _sys/mailbox backend should ignore legacy mailbox roots")
+	}
+}

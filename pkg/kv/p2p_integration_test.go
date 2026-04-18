@@ -202,8 +202,9 @@ func TestP2PSyncSingleInitiatorConvergesBothPeers(t *testing.T) {
 		t.Fatalf("append on B: %v", err)
 	}
 
-	// Only A initiates anti-entropy. The summary response should bring A up to
-	// date and A's follow-up delta should heal B in the same round.
+	// Only A initiates anti-entropy. B now returns a compact summary response
+	// and follows up with its delta on a separate stream while A sends its own
+	// delta after reading B's summary.
 	storeA.p2pSync.PushToAll(ctx)
 
 	waitFor(t, 5*time.Second, func() bool {

@@ -1,5 +1,4 @@
 const INTERNAL_SLASH_PREFIX = "_sys/";
-const INTERNAL_COLON_PREFIX = "_sys:";
 
 export interface KVBrowseQuery {
   include_internal?: boolean;
@@ -11,9 +10,7 @@ export function normalizeKVBrowsePrefix(prefix: string) {
 }
 
 export function isInternalKVKey(key: string) {
-  return (
-    key.startsWith(INTERNAL_SLASH_PREFIX) || key.startsWith(INTERNAL_COLON_PREFIX)
-  );
+  return key.startsWith(INTERNAL_SLASH_PREFIX);
 }
 
 export function buildKVBrowseQuery(

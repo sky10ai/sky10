@@ -8,7 +8,8 @@ import {
 describe("isInternalKVKey", () => {
   test("recognizes reserved _sys prefixes", () => {
     expect(isInternalKVKey("_sys/secrets/head")).toBe(true);
-    expect(isInternalKVKey("_sys:secrets:head")).toBe(true);
+    expect(isInternalKVKey("_sys/mailbox/private/items/item-1")).toBe(true);
+    expect(isInternalKVKey("mailbox/private/items/item-1")).toBe(false);
     expect(isInternalKVKey("user/config")).toBe(false);
   });
 });
@@ -33,6 +34,7 @@ describe("buildKVBrowseQuery", () => {
 describe("matchesKVBrowseView", () => {
   test("hides internal keys when the toggle is off", () => {
     expect(matchesKVBrowseView("_sys/secrets/head", false, "")).toBe(false);
+    expect(matchesKVBrowseView("_sys/mailbox/private/items/item-1", false, "")).toBe(false);
     expect(matchesKVBrowseView("settings/theme", false, "")).toBe(true);
   });
 

@@ -4,14 +4,13 @@ import "strings"
 
 const (
 	internalSlashPrefix = "_sys/"
-	internalColonPrefix = "_sys:"
 )
 
-// IsInternalKey reports whether a key uses the reserved internal prefix.
+// IsInternalKey reports whether a key uses a system-managed prefix.
 // Internal keys are hidden from generic KV browsing by default, but this is
-// only a UX boundary. Callers that know the key can still fetch it directly.
+// only a UX boundary.
 func IsInternalKey(key string) bool {
-	return strings.HasPrefix(key, internalSlashPrefix) || strings.HasPrefix(key, internalColonPrefix)
+	return strings.HasPrefix(key, internalSlashPrefix)
 }
 
 func filterVisibleKeys(keys []string, includeInternal bool) []string {

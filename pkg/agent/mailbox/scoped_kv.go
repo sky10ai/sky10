@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	defaultScopedRoot      = "mailbox"
+	defaultScopedRoot      = "_sys/mailbox"
 	defaultPrivateRootName = "private"
 	defaultSky10RootName   = "sky10"
 )

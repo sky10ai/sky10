@@ -20,7 +20,11 @@ import (
 // KVSyncProtocol is the libp2p protocol ID for KV anti-entropy sync.
 const KVSyncProtocol = protocol.ID("/sky10/kv-sync/1.0.0")
 
-const syncExchangeTimeout = 5 * time.Second
+const (
+	summaryExchangeTimeout  = 5 * time.Second
+	snapshotTransferTimeout = 30 * time.Second
+	maxSyncMessageSize      = 32 * 1024 * 1024
+)
 
 // p2pNode is the subset of link.Node that P2PSync needs. Avoids import
 // cycle between kv and link.
@@ -105,9 +109,7 @@ func (s *P2PSync) PushToAll(ctx context.Context) {
 		}
 		for _, store := range stores {
 			go func(pid peer.ID, store *Store) {
-				boundedCtx, cancel := boundedSyncContext(ctx)
-				defer cancel()
-				s.syncWithPeer(boundedCtx, pid, store)
+				s.syncWithPeer(ctx, pid, store)
 			}(pid, store)
 		}
 	}
@@ -129,7 +131,9 @@ func (s *P2PSync) syncWithPeer(ctx context.Context, pid peer.ID, store *Store) {
 		return
 	}
 
-	response, err := s.requestSummary(ctx, pid, store, snap.Summary())
+	summaryCtx, cancel := boundedSummaryContext(ctx)
+	response, err := s.requestSummary(summaryCtx, pid, store, snap.Summary())
+	cancel()
 	if err != nil {
 		if response != nil && response.ExpectedNSID != "" {
 			store.recordNamespaceMismatch(pid.String(), response.ObservedNSID, response.ExpectedNSID)
@@ -164,7 +168,10 @@ func (s *P2PSync) syncWithPeer(ctx context.Context, pid peer.ID, store *Store) {
 		store.recordSyncSuccess(pid.String())
 		return
 	}
-	if err := s.sendSnapshotMessage(ctx, pid, store, "delta", delta); err != nil {
+	deltaCtx, cancel := boundedSnapshotContext(ctx)
+	err = s.sendSnapshotMessage(deltaCtx, pid, store, "delta", delta)
+	cancel()
+	if err != nil {
 		store.recordSyncError(pid.String(), err)
 		s.logger.Warn("kv p2p push: send delta failed", "peer", pid, "error", err)
 		return
@@ -266,7 +273,7 @@ func (s *P2PSync) sendSnapshotMessage(ctx context.Context, pid peer.ID, store *S
 // handleStream processes an incoming KV sync stream.
 func (s *P2PSync) handleStream(stream network.Stream) {
 	defer stream.Close()
-	_ = stream.SetDeadline(time.Now().Add(syncExchangeTimeout))
+	_ = stream.SetDeadline(time.Now().Add(snapshotTransferTimeout))
 
 	payload, err := readMsg(stream)
 	if err != nil {
@@ -331,15 +338,11 @@ func (s *P2PSync) handleSummary(stream network.Stream, msg p2pSyncMsg, from peer
 		NSID:    nsID,
 		Summary: summaryPtr(snap.Summary()),
 	}
+	var followUpDelta *Snapshot
 	if msg.Summary != nil {
 		delta := snap.DeltaSince(msg.Summary.Vector)
 		if delta.HasState() {
-			encJSON, err := s.encodeSnapshotData(store, delta)
-			if err != nil {
-				s.logger.Warn("kv p2p: encode delta failed", "error", err)
-				return
-			}
-			response.Data = encJSON
+			followUpDelta = delta
 		}
 	}
 
@@ -355,6 +358,16 @@ func (s *P2PSync) handleSummary(stream network.Stream, msg p2pSyncMsg, from peer
 		return
 	}
 	store.recordSyncSuccess(from.String())
+	if followUpDelta != nil {
+		go func(delta *Snapshot) {
+			ctx, cancel := boundedSnapshotContext(context.Background())
+			defer cancel()
+			if err := s.sendSnapshotMessage(ctx, from, store, "delta", delta); err != nil {
+				store.recordSyncError(from.String(), err)
+				s.logger.Warn("kv p2p: async delta send failed", "peer", from, "error", err)
+			}
+		}(followUpDelta)
+	}
 }
 
 func (s *P2PSync) mergeSnapshotMessage(msg p2pSyncMsg, from peer.ID, useBaseline bool) (int, error) {
@@ -474,14 +487,24 @@ func (s *P2PSync) writeErrorResponse(stream network.Stream, message, expectedNSI
 	}
 }
 
-func boundedSyncContext(parent context.Context) (context.Context, context.CancelFunc) {
+func boundedSummaryContext(parent context.Context) (context.Context, context.CancelFunc) {
 	if parent == nil {
 		parent = context.Background()
 	}
-	if deadline, ok := parent.Deadline(); ok && time.Until(deadline) <= syncExchangeTimeout {
+	if deadline, ok := parent.Deadline(); ok && time.Until(deadline) <= summaryExchangeTimeout {
 		return context.WithCancel(parent)
 	}
-	return context.WithTimeout(parent, syncExchangeTimeout)
+	return context.WithTimeout(parent, summaryExchangeTimeout)
+}
+
+func boundedSnapshotContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	if deadline, ok := parent.Deadline(); ok && time.Until(deadline) <= snapshotTransferTimeout {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, snapshotTransferTimeout)
 }
 
 func (s *P2PSync) registeredStores() []*Store {
@@ -529,7 +552,7 @@ func readMsg(r io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	length := uint32(header[0])<<24 | uint32(header[1])<<16 | uint32(header[2])<<8 | uint32(header[3])
-	if length > 4*1024*1024 {
+	if length > maxSyncMessageSize {
 		return nil, fmt.Errorf("message too large: %d bytes", length)
 	}
 	data := make([]byte, length)
