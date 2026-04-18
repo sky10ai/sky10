@@ -75,8 +75,8 @@ func TestStoreStatsSummarizesFallbackState(t *testing.T) {
 	if stats.HandedOff != 1 {
 		t.Fatalf("handed_off = %d, want 1", stats.HandedOff)
 	}
-	if stats.PendingPrivate != 2 {
-		t.Fatalf("pending_private = %d, want 2", stats.PendingPrivate)
+	if stats.PendingPrivate != 1 {
+		t.Fatalf("pending_private = %d, want 1", stats.PendingPrivate)
 	}
 	if stats.PendingSky10Network != 1 {
 		t.Fatalf("pending_sky10_network = %d, want 1", stats.PendingSky10Network)

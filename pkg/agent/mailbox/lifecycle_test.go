@@ -205,3 +205,86 @@ func TestStoreSweepCompactsOldTerminalRecord(t *testing.T) {
 		t.Fatal("backend should not contain compacted item")
 	}
 }
+
+func TestStoreSweepCompactsDeliveredMessagePastExpiry(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, backend := newTestMailboxStore(t)
+	now := time.Now().UTC()
+	store.now = func() time.Time { return now }
+
+	record, err := store.Create(ctx, Item{
+		Kind:      ItemKindMessage,
+		From:      Principal{ID: "agent:sender", Kind: PrincipalKindLocalAgent, Scope: ScopePrivateNetwork},
+		To:        &Principal{ID: "human:alice", Kind: PrincipalKindHuman, Scope: ScopePrivateNetwork},
+		ExpiresAt: now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendEvent(ctx, Event{
+		ItemID: record.Item.ID,
+		Type:   EventTypeDelivered,
+		Actor:  Principal{ID: "agent:sender", Kind: PrincipalKindLocalAgent, Scope: ScopePrivateNetwork},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	now = now.Add(2 * time.Minute)
+	swept, err := store.Sweep(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if swept.Compacted != 1 {
+		t.Fatalf("compacted = %d, want 1", swept.Compacted)
+	}
+	if _, ok := store.Get(record.Item.ID); ok {
+		t.Fatal("delivered message should be removed after sweep once expired")
+	}
+	if backend.ContainsItem(record.Item.ID) {
+		t.Fatal("backend should not contain compacted delivered message")
+	}
+}
+
+func TestStoreSweepCompactsDeliveredMessageAfterRetention(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, backend := newTestMailboxStore(t)
+	now := time.Now().UTC()
+	store.now = func() time.Time { return now }
+
+	record, err := store.Create(ctx, Item{
+		Kind:      ItemKindMessage,
+		From:      Principal{ID: "agent:sender", Kind: PrincipalKindLocalAgent, Scope: ScopePrivateNetwork},
+		To:        &Principal{ID: "human:alice", Kind: PrincipalKindHuman, Scope: ScopePrivateNetwork},
+		ExpiresAt: now.Add(24 * time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendEvent(ctx, Event{
+		ItemID:    record.Item.ID,
+		Type:      EventTypeDelivered,
+		Actor:     Principal{ID: "agent:sender", Kind: PrincipalKindLocalAgent, Scope: ScopePrivateNetwork},
+		Timestamp: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	now = now.Add(DefaultLifecyclePolicy(ItemKindMessage).DeliveredRetention + time.Minute)
+	swept, err := store.Sweep(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if swept.Compacted != 1 {
+		t.Fatalf("compacted = %d, want 1", swept.Compacted)
+	}
+	if _, ok := store.Get(record.Item.ID); ok {
+		t.Fatal("delivered message should be removed after delivered retention elapses")
+	}
+	if backend.ContainsItem(record.Item.ID) {
+		t.Fatal("backend should not contain compacted delivered message")
+	}
+}

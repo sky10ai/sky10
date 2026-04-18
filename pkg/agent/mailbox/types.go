@@ -267,6 +267,15 @@ func stateFailed(state State) bool {
 	}
 }
 
+func statePending(state State) bool {
+	switch state {
+	case StateQueued, StateClaimed, StateFailed:
+		return true
+	default:
+		return false
+	}
+}
+
 func clonePrincipal(p Principal) Principal {
 	return p
 }

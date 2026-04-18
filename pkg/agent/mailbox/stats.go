@@ -34,7 +34,7 @@ func (s *Store) Stats() Stats {
 		if record.State == StateFailed {
 			stats.Failed++
 		}
-		if !record.Terminal() {
+		if statePending(record.State) {
 			switch record.Item.Scope() {
 			case ScopeSky10Network:
 				stats.PendingSky10Network++

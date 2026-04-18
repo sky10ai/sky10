@@ -42,10 +42,11 @@ func (p RetryPolicy) Delay(attempt int) time.Duration {
 // LifecyclePolicy defines creation, retry, and retention defaults for one
 // mailbox item kind.
 type LifecyclePolicy struct {
-	DefaultTTL        time.Duration
-	Retry             RetryPolicy
-	TerminalRetention time.Duration
-	AckExplicit       bool
+	DefaultTTL         time.Duration
+	Retry              RetryPolicy
+	DeliveredRetention time.Duration
+	TerminalRetention  time.Duration
+	AckExplicit        bool
 }
 
 // LifecycleSweepResult reports the number of transitions performed during one
@@ -131,8 +132,9 @@ func DefaultLifecyclePolicy(kind string) LifecyclePolicy {
 				InitialBackoff: 5 * time.Second,
 				MaxBackoff:     5 * time.Minute,
 			},
-			TerminalRetention: 7 * 24 * time.Hour,
-			AckExplicit:       true,
+			DeliveredRetention: time.Hour,
+			TerminalRetention:  7 * 24 * time.Hour,
+			AckExplicit:        true,
 		}
 	default:
 		return LifecyclePolicy{
@@ -244,6 +246,16 @@ func (s *Store) sweepRecord(ctx context.Context, now time.Time, record Record, r
 		}
 	}
 
+	policy := DefaultLifecyclePolicy(record.Item.Kind)
+	if shouldCompactDeliveredRecord(now, record, policy) {
+		if err := s.compactRecord(ctx, record); err != nil {
+			return changed, fmt.Errorf("delete compacted mailbox item %s: %w", record.Item.ID, err)
+		}
+		result.Compacted++
+		changed = true
+		return changed, nil
+	}
+
 	if !record.Terminal() && !record.Item.ExpiresAt.IsZero() && !now.Before(record.Item.ExpiresAt) {
 		if !hasRecordEvent(record, EventTypeExpired, "", "") {
 			if _, err := s.AppendEvent(ctx, Event{
@@ -287,16 +299,10 @@ func (s *Store) sweepRecord(ctx context.Context, now time.Time, record Record, r
 		}
 	}
 
-	policy := DefaultLifecyclePolicy(record.Item.Kind)
 	if record.Terminal() && policy.TerminalRetention > 0 && !recordActivityTime(record).IsZero() && !now.Before(recordActivityTime(record).Add(policy.TerminalRetention)) {
-		if err := s.backend.DeleteItem(ctx, record.Item.ID); err != nil {
+		if err := s.compactRecord(ctx, record); err != nil {
 			return changed, fmt.Errorf("delete compacted mailbox item %s: %w", record.Item.ID, err)
 		}
-		s.mu.Lock()
-		if s.index != nil {
-			s.index.delete(record.Item.ID)
-		}
-		s.mu.Unlock()
 		result.Compacted++
 		changed = true
 	}
@@ -358,4 +364,33 @@ func recordActivityTime(record Record) time.Time {
 		return latest.Timestamp
 	}
 	return record.Item.CreatedAt
+}
+
+func shouldCompactDeliveredRecord(now time.Time, record Record, policy LifecyclePolicy) bool {
+	if record.State != StateDelivered {
+		return false
+	}
+	if !record.Item.ExpiresAt.IsZero() && !now.Before(record.Item.ExpiresAt) {
+		return true
+	}
+	if policy.DeliveredRetention <= 0 {
+		return false
+	}
+	activity := recordActivityTime(record)
+	if activity.IsZero() {
+		return false
+	}
+	return !now.Before(activity.Add(policy.DeliveredRetention))
+}
+
+func (s *Store) compactRecord(ctx context.Context, record Record) error {
+	if err := s.backend.DeleteItem(ctx, record.Item.ID); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	if s.index != nil {
+		s.index.delete(record.Item.ID)
+	}
+	s.mu.Unlock()
+	return nil
 }
