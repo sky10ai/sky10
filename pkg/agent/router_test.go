@@ -101,6 +101,22 @@ func connectNodes(t *testing.T, a, b *link.Node) {
 	}
 }
 
+func waitForRouterList(t *testing.T, router *Router, timeout time.Duration, predicate func([]AgentInfo) bool) []AgentInfo {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	var last []AgentInfo
+	for {
+		last = router.List(context.Background())
+		if predicate(last) {
+			return last
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for router list; last agents = %v", last)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 func TestRouterSendLocal(t *testing.T) {
 	t.Parallel()
 
@@ -220,7 +236,16 @@ func TestRouterListAggregation(t *testing.T) {
 
 	routerA := NewRouter(regA, nodeA, nil, "D-deviceAA", nil)
 
-	agents := routerA.List(context.Background())
+	agents := waitForRouterList(t, routerA, 5*time.Second, func(agents []AgentInfo) bool {
+		if len(agents) != 2 {
+			return false
+		}
+		names := map[string]bool{}
+		for _, a := range agents {
+			names[a.Name] = true
+		}
+		return names["coder"] && names["researcher"]
+	})
 	if len(agents) != 2 {
 		t.Fatalf("List() returned %d agents, want 2", len(agents))
 	}
@@ -256,7 +281,16 @@ func TestRouterListReturnsSortedAgents(t *testing.T) {
 
 	routerA := NewRouter(regA, nodeA, nil, "D-deviceAA", nil)
 
-	agents := routerA.List(context.Background())
+	agents := waitForRouterList(t, routerA, 5*time.Second, func(agents []AgentInfo) bool {
+		if len(agents) != 2 {
+			return false
+		}
+		got := make([]string, len(agents))
+		for i, agent := range agents {
+			got[i] = agent.Name
+		}
+		return reflect.DeepEqual(got, []string{"alpha", "zebra"})
+	})
 	got := make([]string, len(agents))
 	for i, agent := range agents {
 		got[i] = agent.Name
@@ -283,6 +317,16 @@ func TestRouterDiscover(t *testing.T) {
 	connectNodes(t, nodeA, nodeB)
 
 	routerA := NewRouter(regA, nodeA, nil, "D-deviceAA", nil)
+	waitForRouterList(t, routerA, 5*time.Second, func(agents []AgentInfo) bool {
+		if len(agents) != 2 {
+			return false
+		}
+		names := map[string]bool{}
+		for _, a := range agents {
+			names[a.Name] = true
+		}
+		return names["coder"] && names["researcher"]
+	})
 
 	found := routerA.Discover(context.Background(), "code")
 	if len(found) != 1 || found[0].Name != "coder" {
@@ -339,7 +383,13 @@ func TestRouterListPopulatesPeerCache(t *testing.T) {
 		t.Fatal("peer cache should be empty before List")
 	}
 
-	routerA.List(context.Background())
+	waitForRouterList(t, routerA, 5*time.Second, func(agents []AgentInfo) bool {
+		if len(agents) != 1 || agents[0].Name != "researcher" {
+			return false
+		}
+		_, ok := routerA.lookupPeer("D-deviceBB")
+		return ok
+	})
 
 	pid, ok := routerA.lookupPeer("D-deviceBB")
 	if !ok {
@@ -375,7 +425,16 @@ func TestRouterListIgnoresPublicPeers(t *testing.T) {
 	connectNodes(t, nodeA, nodePublic)
 
 	routerA := NewRouter(regA, nodeA, nil, "D-deviceAA", nil)
-	agents := routerA.List(context.Background())
+	agents := waitForRouterList(t, routerA, 5*time.Second, func(agents []AgentInfo) bool {
+		names := make(map[string]struct{}, len(agents))
+		for _, agent := range agents {
+			names[agent.Name] = struct{}{}
+		}
+		_, hasCoder := names["coder"]
+		_, hasResearcher := names["researcher"]
+		_, hasOutsider := names["outsider"]
+		return hasCoder && hasResearcher && !hasOutsider
+	})
 
 	names := make(map[string]struct{}, len(agents))
 	for _, agent := range agents {
