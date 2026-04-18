@@ -127,6 +127,11 @@ func (s *FSHandler) rpcRemove(_ context.Context, params json.RawMessage) (interf
 	if err != nil {
 		return nil, fmt.Errorf("invalid path: %w", err)
 	}
+	if s.deleteGuard != nil {
+		if err := s.deleteGuard(target); err != nil {
+			return nil, err
+		}
+	}
 
 	if err := os.RemoveAll(target); err != nil {
 		return nil, fmt.Errorf("removing %s: %w", logicalPath, err)

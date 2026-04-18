@@ -754,6 +754,68 @@ func TestDeleteMissingInstanceRemovesRecordedGuestDevice(t *testing.T) {
 	}
 }
 
+func TestGuardDeletePathRejectsManagedHomeAndAncestor(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+	t.Setenv("HOME", home)
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	agentsRoot := filepath.Join(home, "Sky10", "Drives", "Agents")
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["hermes-2tpd"] = Record{
+		Name:      "hermes-2tpd",
+		Slug:      "hermes-2tpd",
+		Provider:  providerLima,
+		Template:  templateHermes,
+		Status:    "ready",
+		SharedDir: filepath.Join(agentsRoot, "hermes-2tpd"),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	if err := m.GuardDeletePath(filepath.Join(agentsRoot, "hermes-2tpd")); err == nil {
+		t.Fatal("GuardDeletePath() unexpectedly allowed deleting managed sandbox home")
+	}
+	if err := m.GuardDeletePath(agentsRoot); err == nil {
+		t.Fatal("GuardDeletePath() unexpectedly allowed deleting ancestor of managed sandbox home")
+	}
+}
+
+func TestGuardDeletePathAllowsDescendantAndUnrelatedPaths(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+	t.Setenv("HOME", home)
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	agentsRoot := filepath.Join(home, "Sky10", "Drives", "Agents")
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["hermes-2tpd"] = Record{
+		Name:      "hermes-2tpd",
+		Slug:      "hermes-2tpd",
+		Provider:  providerLima,
+		Template:  templateHermes,
+		Status:    "ready",
+		SharedDir: filepath.Join(agentsRoot, "hermes-2tpd"),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	if err := m.GuardDeletePath(filepath.Join(agentsRoot, "hermes-2tpd", "workspace")); err != nil {
+		t.Fatalf("GuardDeletePath() blocked descendant path: %v", err)
+	}
+	if err := m.GuardDeletePath(filepath.Join(home, "tmp", "other")); err != nil {
+		t.Fatalf("GuardDeletePath() blocked unrelated path: %v", err)
+	}
+}
+
 func TestLogsMissingFileReturnsEmptyEntries(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
 

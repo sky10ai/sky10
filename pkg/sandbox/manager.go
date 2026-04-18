@@ -2389,6 +2389,49 @@ func (m *Manager) forgetRecord(rec Record) error {
 	return nil
 }
 
+// GuardDeletePath rejects destructive deletes that would remove a managed
+// sandbox home or one of its ancestors. Durable agent profiles must be
+// detached from their sandbox first to avoid immediate recreation.
+func (m *Manager) GuardDeletePath(target string) error {
+	target = filepath.Clean(strings.TrimSpace(target))
+	if target == "" || target == "." {
+		return nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	conflicts := make([]string, 0)
+	for _, rec := range m.records {
+		sharedDir := filepath.Clean(strings.TrimSpace(rec.SharedDir))
+		if sharedDir == "" || !pathContainsTarget(target, sharedDir) {
+			continue
+		}
+		name := strings.TrimSpace(rec.Name)
+		if name == "" {
+			name = rec.Slug
+		}
+		conflicts = append(conflicts, name)
+	}
+	if len(conflicts) == 0 {
+		return nil
+	}
+
+	sort.Strings(conflicts)
+	if len(conflicts) == 1 {
+		return fmt.Errorf("path %q is the managed agent home for sandbox %q; delete the sandbox from Settings -> Sandboxes first", target, conflicts[0])
+	}
+	return fmt.Errorf("path %q contains managed agent homes for sandboxes %s; delete those sandboxes from Settings -> Sandboxes first", target, strings.Join(conflicts, ", "))
+}
+
+func pathContainsTarget(target, child string) bool {
+	rel, err := filepath.Rel(target, child)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
+}
+
 func (m *Manager) shouldAutoRemoveMissingRecord(rec Record) bool {
 	if m.running[rec.Slug] || rec.Status == "creating" || rec.Status == "starting" {
 		return false

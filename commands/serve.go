@@ -293,6 +293,7 @@ func ServeCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("creating sandbox manager: %w", err)
 			}
+			fsHandler.SetDeleteGuard(sandboxManager.GuardDeletePath)
 			sandboxManager.SetHostIdentityProvider(func(context.Context) (string, error) {
 				return bundle.Address(), nil
 			})

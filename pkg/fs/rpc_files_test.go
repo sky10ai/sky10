@@ -3,6 +3,7 @@ package fs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -63,5 +64,44 @@ func TestRPCRemoveRejectsEscapingPath(t *testing.T) {
 
 	if _, err := handler.rpcRemove(context.Background(), params); err == nil {
 		t.Fatal("rpcRemove() unexpectedly accepted escaping path")
+	}
+}
+
+func TestRPCRemoveHonorsDeleteGuard(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	id, _ := GenerateDeviceKey()
+	store := New(s3adapter.NewMemory(), id)
+	server := skyrpc.NewServer(filepath.Join(tmpDir, "test.sock"), "test", nil)
+	handler := NewFSHandler(store, server, filepath.Join(tmpDir, "drives.json"), nil, nil)
+
+	localDir := filepath.Join(tmpDir, "sync")
+	drive, err := handler.driveManager.CreateDrive("Agents", localDir, "agents")
+	if err != nil {
+		t.Fatalf("create drive: %v", err)
+	}
+	target := filepath.Join(localDir, "hermes-2tpd")
+	if err := os.MkdirAll(target, 0755); err != nil {
+		t.Fatalf("mkdir target: %v", err)
+	}
+
+	handler.SetDeleteGuard(func(path string) error {
+		if path == target {
+			return errors.New("blocked by sandbox")
+		}
+		return nil
+	})
+
+	params, err := json.Marshal(removeParams{Drive: drive.ID, Path: "hermes-2tpd"})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+
+	if _, err := handler.rpcRemove(context.Background(), params); err == nil {
+		t.Fatal("rpcRemove() unexpectedly bypassed delete guard")
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("guarded path should remain on disk: %v", err)
 	}
 }

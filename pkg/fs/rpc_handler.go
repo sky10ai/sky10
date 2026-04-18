@@ -24,6 +24,7 @@ type FSHandler struct {
 	logBuf       *logging.Buffer
 	logger       *slog.Logger
 	version      string
+	deleteGuard  func(string) error
 
 	syncMu     sync.Mutex
 	syncCancel context.CancelFunc
@@ -77,6 +78,12 @@ func (s *FSHandler) SetPeerDevices(fn func() []DeviceInfo) {
 // SetP2PSync attaches the shared FS P2P sync manager for all drives.
 func (s *FSHandler) SetP2PSync(sync *P2PSync) {
 	s.driveManager.SetP2PSync(sync)
+}
+
+// SetDeleteGuard installs an optional local-path guard for destructive file
+// removals initiated through the RPC layer.
+func (s *FSHandler) SetDeleteGuard(fn func(string) error) {
+	s.deleteGuard = fn
 }
 
 // NamespaceKeys returns the configured FS drive namespace keys for P2P join.
