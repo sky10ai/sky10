@@ -5,6 +5,7 @@ package fs
 import (
 	"bytes"
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -21,6 +22,14 @@ type fsTestReplica struct {
 	log      *opslog.LocalOpsLog
 	bundle   *id.Bundle
 	stateDir string
+}
+
+type fsTestDaemon struct {
+	node      *link.Node
+	sync      *P2PSync
+	daemon    *DaemonV2_5
+	bundle    *id.Bundle
+	localRoot string
 }
 
 func TestFSP2PSyncSingleInitiatorConvergesBothPeers(t *testing.T) {
@@ -230,6 +239,70 @@ func TestFSP2PSyncPropagatesDeleteRoot(t *testing.T) {
 	if !snapB.RootDeleted() {
 		t.Fatal("root tombstone should be present on node B")
 	}
+}
+
+func TestFSP2PSyncPropagatesDeleteRootWithDaemons(t *testing.T) {
+	useIsolatedSky10Home(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	nsKey, err := GenerateNamespaceKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const nsName = "agents"
+
+	daemonA, daemonB := startSharedFSTestDaemonPair(t, ctx, nsName, nsKey)
+	infoB := daemonB.node.Host().Peerstore().PeerInfo(daemonB.node.PeerID())
+	if err := daemonA.node.Host().Connect(ctx, infoB); err != nil {
+		t.Fatalf("connect A->B: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	for _, root := range []string{daemonA.localRoot, daemonB.localRoot} {
+		if err := os.WriteFile(filepath.Join(root, "memory.md"), []byte("remember"), 0644); err != nil {
+			t.Fatalf("write memory in %s: %v", root, err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "notes.txt"), []byte("ephemeral"), 0644); err != nil {
+			t.Fatalf("write note in %s: %v", root, err)
+		}
+	}
+
+	waitForFS(t, 8*time.Second, func() bool {
+		if _, ok := daemonA.daemon.localLog.Lookup("memory.md"); !ok {
+			return false
+		}
+		if _, ok := daemonB.daemon.localLog.Lookup("memory.md"); !ok {
+			return false
+		}
+		if _, err := os.Stat(filepath.Join(daemonB.localRoot, "memory.md")); err != nil {
+			return false
+		}
+		if _, err := os.Stat(filepath.Join(daemonB.localRoot, "notes.txt")); err != nil {
+			return false
+		}
+		return true
+	})
+
+	time.Sleep(1100 * time.Millisecond)
+	if err := os.RemoveAll(daemonA.localRoot); err != nil {
+		t.Fatalf("remove local root A: %v", err)
+	}
+
+	waitForFS(t, 10*time.Second, func() bool {
+		if _, err := os.Stat(daemonB.localRoot); err != nil {
+			return false
+		}
+		if _, err := os.Stat(filepath.Join(daemonB.localRoot, "memory.md")); !os.IsNotExist(err) {
+			return false
+		}
+		if _, err := os.Stat(filepath.Join(daemonB.localRoot, "notes.txt")); !os.IsNotExist(err) {
+			return false
+		}
+		snapB, err := daemonB.daemon.localLog.Snapshot()
+		return err == nil && snapB.RootDeleted()
+	})
 }
 
 func TestFSP2PSyncConnectTriggerReplicatesWithoutManualPush(t *testing.T) {
@@ -698,6 +771,43 @@ func startSharedFSTestPair(t *testing.T, ctx context.Context, nsID string, nsKey
 	return replicaA.node, replicaA.sync, replicaA.log, replicaB.node, replicaB.sync, replicaB.log
 }
 
+func startSharedFSTestDaemonPair(t *testing.T, ctx context.Context, nsName string, nsKey []byte) (*fsTestDaemon, *fsTestDaemon) {
+	t.Helper()
+
+	identity, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceA, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceB, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := id.NewManifest(identity)
+	manifest.AddDevice(deviceA.PublicKey, "nodeA")
+	manifest.AddDevice(deviceB.PublicKey, "nodeB")
+	if err := manifest.Sign(identity.PrivateKey); err != nil {
+		t.Fatal(err)
+	}
+
+	bundleA, err := id.New(identity, deviceA, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleB, err := id.New(identity, deviceB, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	daemonA := startFSTestDaemonFromBundle(t, ctx, bundleA, nsName, nsKey)
+	daemonB := startFSTestDaemonFromBundle(t, ctx, bundleB, nsName, nsKey)
+	return daemonA, daemonB
+}
+
 func startSharedFSTestNodes(t *testing.T, ctx context.Context, nsID string, nsKey []byte) (*link.Node, *P2PSync, *id.Bundle, *link.Node, *P2PSync, *id.Bundle) {
 	t.Helper()
 	replicaA, replicaB := startSharedFSTestReplicaPair(t, ctx, nsID, nsKey)
@@ -752,6 +862,74 @@ func startFSTestReplicaFromBundle(t *testing.T, ctx context.Context, bundle *id.
 		log:      localLog,
 		bundle:   bundle,
 		stateDir: stateDir,
+	}
+}
+
+func startFSTestDaemonFromBundle(t *testing.T, ctx context.Context, bundle *id.Bundle, nsName string, nsKey []byte) *fsTestDaemon {
+	t.Helper()
+
+	node, err := link.New(bundle, link.Config{Mode: link.Private}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = node.Run(ctx) }()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for node.Host() == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("host did not start")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	localRoot := filepath.Join(t.TempDir(), "sync")
+	if err := os.MkdirAll(localRoot, 0755); err != nil {
+		t.Fatalf("mkdir local root: %v", err)
+	}
+	stateDir := t.TempDir()
+	store := New(nil, bundle.Identity)
+	store.SetNamespace(nsName)
+	store.SetNamespaceID(deriveNSID(nsKey, nsName))
+	store.nsKeys[nsName] = append([]byte(nil), nsKey...)
+
+	sync := NewP2PSync(node, nil)
+	store.SetPeerChunkFetcher(sync)
+
+	daemon, err := NewDaemonV2_5(store, DaemonConfig{
+		SyncConfig:        SyncConfig{LocalRoot: localRoot, Namespaces: []string{nsName}},
+		DriveID:           "drive-" + bundle.DeviceID(),
+		ManifestPath:      filepath.Join(stateDir, "manifest.json"),
+		PollSeconds:       300,
+		ScanSeconds:       1,
+		ReconcileSeconds:  1,
+		StableWriteWindow: 0,
+	}, nil)
+	if err != nil {
+		t.Fatalf("creating daemon: %v", err)
+	}
+
+	replicaID := "drive-" + bundle.DeviceID()
+	sync.AddReplica(daemon.peerReplica(replicaID))
+	daemon.peerSyncPoke = func() {
+		sync.PushToAll(context.Background())
+	}
+	sync.RegisterProtocol()
+
+	daemonCtx, daemonCancel := context.WithCancel(ctx)
+	stopDaemon := runDaemon(daemonCtx, daemonCancel, daemon)
+	t.Cleanup(func() {
+		stopDaemon()
+		node.Close()
+	})
+
+	waitForDaemonStartup(t, daemon)
+
+	return &fsTestDaemon{
+		node:      node,
+		sync:      sync,
+		daemon:    daemon,
+		bundle:    bundle,
+		localRoot: localRoot,
 	}
 }
 

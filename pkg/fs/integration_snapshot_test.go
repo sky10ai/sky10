@@ -103,6 +103,18 @@ func regDev(t *testing.T, backend adapter.Backend, deviceID string) {
 		bytes.NewReader(data), int64(len(data)))
 }
 
+func waitForSnapshotTest(t *testing.T, timeout time.Duration, fn func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if fn() {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for snapshot integration condition")
+}
+
 func TestEndToEnd_TwoDeviceFileSync(t *testing.T) {
 	env := setupTwoDevices(t)
 	ctx := context.Background()
@@ -235,6 +247,114 @@ func TestEndToEnd_DeleteRootPropagation(t *testing.T) {
 	if snapB.Len() != 0 {
 		t.Fatalf("B: snapshot should be empty after delete_root, got %d files", snapB.Len())
 	}
+}
+
+func TestEndToEnd_DeleteRootPropagationWithDaemons(t *testing.T) {
+	useIsolatedSky10Home(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	h := StartMinIO(t)
+	bucket := NewTestBucket(t)
+	backend := h.Backend(t, bucket)
+	WriteSchema(ctx, backend)
+
+	idA, _ := GenerateDeviceKey()
+	idB, _ := GenerateDeviceKey()
+	regDev(t, backend, "device-a")
+	regDev(t, backend, "device-b")
+
+	storeA := NewWithDevice(backend, idA, "device-a")
+	storeA.SetNamespace("shared")
+	storeB := NewWithDevice(backend, idB, "device-b")
+	storeB.SetNamespace("shared")
+
+	if _, err := storeA.getOrCreateNamespaceKey(ctx, "shared"); err != nil {
+		t.Fatalf("create namespace key for A: %v", err)
+	}
+	simulateApprove(t, ctx, backend, idA, idB)
+
+	rootA := filepath.Join(t.TempDir(), "sync-a")
+	rootB := filepath.Join(t.TempDir(), "sync-b")
+	if err := os.MkdirAll(filepath.Join(rootA, "agents", "lisa"), 0755); err != nil {
+		t.Fatalf("mkdir rootA: %v", err)
+	}
+	if err := os.MkdirAll(rootB, 0755); err != nil {
+		t.Fatalf("mkdir rootB: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(rootA, "agents", "lisa", "memory.md"), []byte("remember"), 0644); err != nil {
+		t.Fatalf("write memory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(rootA, "notes.txt"), []byte("ephemeral"), 0644); err != nil {
+		t.Fatalf("write note: %v", err)
+	}
+
+	daemonA, err := NewDaemonV2_5(storeA, DaemonConfig{
+		SyncConfig:        SyncConfig{LocalRoot: rootA, Namespaces: []string{"shared"}},
+		DriveID:           "test-delete-root-daemon-a",
+		ManifestPath:      filepath.Join(t.TempDir(), "state-a", "manifest.json"),
+		PollSeconds:       1,
+		ScanSeconds:       1,
+		ReconcileSeconds:  1,
+		StableWriteWindow: 0,
+	}, nil)
+	if err != nil {
+		t.Fatalf("creating daemon A: %v", err)
+	}
+	daemonB, err := NewDaemonV2_5(storeB, DaemonConfig{
+		SyncConfig:        SyncConfig{LocalRoot: rootB, Namespaces: []string{"shared"}},
+		DriveID:           "test-delete-root-daemon-b",
+		ManifestPath:      filepath.Join(t.TempDir(), "state-b", "manifest.json"),
+		PollSeconds:       1,
+		ScanSeconds:       1,
+		ReconcileSeconds:  1,
+		StableWriteWindow: 0,
+	}, nil)
+	if err != nil {
+		t.Fatalf("creating daemon B: %v", err)
+	}
+
+	ctxA, cancelA := context.WithCancel(ctx)
+	stopA := runDaemon(ctxA, cancelA, daemonA)
+	defer stopA()
+	ctxB, cancelB := context.WithCancel(ctx)
+	stopB := runDaemon(ctxB, cancelB, daemonB)
+	defer stopB()
+
+	waitForDaemonStartup(t, daemonA)
+	waitForDaemonStartup(t, daemonB)
+
+	waitForSnapshotTest(t, 10*time.Second, func() bool {
+		memory, err := os.ReadFile(filepath.Join(rootB, "agents", "lisa", "memory.md"))
+		if err != nil {
+			return false
+		}
+		note, err := os.ReadFile(filepath.Join(rootB, "notes.txt"))
+		if err != nil {
+			return false
+		}
+		return string(memory) == "remember" && string(note) == "ephemeral"
+	})
+
+	time.Sleep(1100 * time.Millisecond)
+	if err := os.RemoveAll(rootA); err != nil {
+		t.Fatalf("remove rootA: %v", err)
+	}
+
+	waitForSnapshotTest(t, 12*time.Second, func() bool {
+		if _, err := os.Stat(rootB); err != nil {
+			return false
+		}
+		if _, err := os.Stat(filepath.Join(rootB, "agents")); !os.IsNotExist(err) {
+			return false
+		}
+		if _, err := os.Stat(filepath.Join(rootB, "notes.txt")); !os.IsNotExist(err) {
+			return false
+		}
+		snapB, err := daemonB.localLog.Snapshot()
+		return err == nil && snapB.RootDeleted()
+	})
 }
 
 func TestEndToEnd_BidirectionalSync(t *testing.T) {
