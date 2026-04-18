@@ -660,6 +660,9 @@ func (r *Router) routeIncoming(ctx context.Context, msg Message) (interface{}, e
 	if r.emit != nil {
 		r.emit("agent.message", msg)
 	}
+	if msg.To == r.deviceID {
+		return r.sentResult(msg.ID, agentmailbox.ScopePrivateNetwork, "local_registry"), nil
+	}
 	if r.mailbox != nil && r.registry.Resolve(msg.To) == nil {
 		record, err := r.queueLocalPending(ctx, msg)
 		if err != nil {

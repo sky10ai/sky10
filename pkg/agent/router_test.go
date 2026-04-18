@@ -1394,3 +1394,53 @@ func TestRouterDrainOutboxDeliversQueuedRemoteMessage(t *testing.T) {
 		t.Fatalf("latest event = %+v, want delivered", latest)
 	}
 }
+
+func TestRouterRouteIncomingDeliversDeviceTargetedHumanReplyWithoutMailbox(t *testing.T) {
+	t.Parallel()
+
+	reg := NewRegistry("D-deviceAA", "hostA", nil)
+	var emitted []Message
+	emit := func(event string, data interface{}) {
+		if msg, ok := data.(Message); ok {
+			emitted = append(emitted, msg)
+		}
+	}
+	router := NewRouter(reg, makeTestNode(t), emit, reg.DeviceID(), nil)
+	mailboxStore := newTestMailboxStore(t)
+	router.SetMailbox(mailboxStore)
+
+	msg := Message{
+		ID:        "msg-human-reply",
+		SessionID: "session-human",
+		From:      "D-deviceBB",
+		To:        reg.DeviceID(),
+		DeviceID:  reg.DeviceID(),
+		Type:      "text",
+		Content:   json.RawMessage(`{"text":"hello human"}`),
+		Timestamp: time.Now().UTC(),
+	}
+	result, err := router.routeIncoming(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("route incoming: %v", err)
+	}
+
+	sent := result.(SendResult)
+	if sent.Status != "sent" {
+		t.Fatalf("status = %s, want sent", sent.Status)
+	}
+	if sent.Delivery.Status != "sent" {
+		t.Fatalf("delivery status = %s, want sent", sent.Delivery.Status)
+	}
+	if len(emitted) != 1 {
+		t.Fatalf("emitted %d messages, want 1", len(emitted))
+	}
+	if emitted[0].ID != msg.ID || emitted[0].To != reg.DeviceID() {
+		t.Fatalf("emitted message = %+v, want id=%s to=%s", emitted[0], msg.ID, reg.DeviceID())
+	}
+	if inbox := mailboxStore.ListInbox(reg.DeviceID()); len(inbox) != 0 {
+		t.Fatalf("device inbox len = %d, want 0", len(inbox))
+	}
+	if outbox := mailboxStore.ListOutbox(""); len(outbox) != 0 {
+		t.Fatalf("outbox len = %d, want 0", len(outbox))
+	}
+}
