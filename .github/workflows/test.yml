@@ -108,7 +108,7 @@ jobs:
       - name: Report skyfs-daemon integration test count
         shell: bash
         run: |
-          count="$(go test ./integration -tags integration,skyfs_daemon -list '^TestIntegration.*FS$' | awk '/^TestIntegration.*FS$/{c++} END{print c+0}')"
+          count="$(go test ./integration -tags integration,skyfs_daemon -list '^TestIntegration.*FS' | awk '/^TestIntegration.*FS/{c++} END{print c+0}')"
           echo "Discovered skyfs-daemon integration tests: ${count}"
           {
             echo "### skyfs-daemon Integration Test Count"
