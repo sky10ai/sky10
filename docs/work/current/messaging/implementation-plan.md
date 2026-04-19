@@ -33,7 +33,7 @@ This plan does not yet cover:
 | Milestone | Status | Outcome |
 | --- | --- | --- |
 | 0. Terminology And Architecture | done | Naming and architecture draft exist |
-| 1. Core Domain And Storage | not started | `pkg/messaging` types and persistence backbone |
+| 1. Core Domain And Storage | in progress | `pkg/messaging` types and persistence backbone |
 | 2. Adapter Protocol And Runtime Host | not started | External adapter process contract and supervision |
 | 3. Broker Core And Event Flows | not started | Normalize inbound/outbound flow through broker |
 | 4. Policy And Approval Engine | not started | Broker-enforced permissions and durable approvals |
@@ -76,10 +76,10 @@ committing to any one platform adapter.
 
 ### Checklist
 
-- [ ] Create `pkg/messaging` with the first normalized types:
+- [x] Create `pkg/messaging` with the first normalized types:
   `Connection`, `AuthInfo`, `Identity`, `Conversation`, `Participant`,
   `Message`, `Draft`, `Policy`, `Exposure`, `Event`, `Capability`.
-- [ ] Define stable ID types for connections, identities, conversations,
+- [x] Define stable ID types for connections, identities, conversations,
   messages, drafts, policies, and exposures.
 - [ ] Decide which records are durable truth versus derived cache.
 - [ ] Add a storage package for messaging state, likely under
