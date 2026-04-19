@@ -580,4 +580,16 @@ func TestHermesBridgeAssetSubscribesToSky10Events(t *testing.T) {
 	if !strings.Contains(script, "/chat/completions") {
 		t.Fatalf("bridge asset missing chat completions fallback: %q", script)
 	}
+	if !strings.Contains(script, "def stream(self, session_id: str, text: str, on_delta") {
+		t.Fatalf("bridge asset missing Hermes streaming entrypoint: %q", script)
+	}
+	if !strings.Contains(script, "self.sky10.send_delta(") {
+		t.Fatalf("bridge asset missing delta send path: %q", script)
+	}
+	if !strings.Contains(script, "self.sky10.send_done(") {
+		t.Fatalf("bridge asset missing done send path: %q", script)
+	}
+	if !strings.Contains(script, `"stream_id": stream_id`) {
+		t.Fatalf("bridge asset missing stream_id propagation: %q", script)
+	}
 }

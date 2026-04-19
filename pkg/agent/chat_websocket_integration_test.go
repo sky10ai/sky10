@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -141,33 +142,60 @@ func TestChatWebSocketHostGuestIntegration(t *testing.T) {
 }
 
 type chatWebSocketTestServer struct {
-	baseURL string
-	port    int
-	hub     *MessageHub
+	baseURL  string
+	port     int
+	server   *skyrpc.Server
+	hub      *MessageHub
+	registry *Registry
 }
 
 func startChatWebSocketTestServer(t *testing.T, ctx context.Context, name string, withChatRoute bool) chatWebSocketTestServer {
 	t.Helper()
 
 	port := freePort(t)
-	server := skyrpc.NewServer(filepath.Join(t.TempDir(), name+".sock"), "test", nil)
+	sockPath := filepath.Join(os.TempDir(), fmt.Sprintf("sky10-%s-%d.sock", strings.ReplaceAll(name, "/", "-"), time.Now().UnixNano()))
+	server := skyrpc.NewServer(sockPath, "test", nil)
 	registry := NewRegistry("D-"+name, name, nil)
 	hub := NewMessageHub()
-	handler := newTestRPCHandler(t, registry, nil)
-	router := NewRouter(registry, nil, nil, registry.DeviceID(), nil)
+	emit := func(event string, data interface{}) {
+		server.Emit(event, data)
+		if event != "agent.message" {
+			return
+		}
+		msg, ok := data.(Message)
+		if !ok || strings.TrimSpace(msg.To) != registry.DeviceID() {
+			return
+		}
+		hub.Publish(msg)
+	}
+	handler := newTestRPCHandler(t, registry, emit)
+	router := NewRouter(registry, nil, emit, registry.DeviceID(), nil)
 	handler.SetRouter(router)
 	server.RegisterHandler(handler)
 	if withChatRoute {
 		server.HandleHTTP("GET /rpc/agents/{agent}/chat", NewChatWebSocketHandler(registry, handler, hub, nil).HandleChat)
 	}
 
-	errCh := make(chan error, 1)
+	rpcErrCh := make(chan error, 1)
 	go func() {
-		errCh <- server.ServeHTTP(ctx, port)
+		rpcErrCh <- server.Serve(ctx)
+	}()
+
+	httpErrCh := make(chan error, 1)
+	go func() {
+		httpErrCh <- server.ServeHTTP(ctx, port)
 	}()
 	t.Cleanup(func() {
 		select {
-		case err := <-errCh:
+		case err := <-rpcErrCh:
+			if err != nil {
+				t.Fatalf("Serve returned error: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for RPC server shutdown")
+		}
+		select {
+		case err := <-httpErrCh:
 			if err != nil {
 				t.Fatalf("ServeHTTP returned error: %v", err)
 			}
@@ -177,9 +205,11 @@ func startChatWebSocketTestServer(t *testing.T, ctx context.Context, name string
 	})
 
 	return chatWebSocketTestServer{
-		baseURL: fmt.Sprintf("http://127.0.0.1:%d", port),
-		port:    port,
-		hub:     hub,
+		baseURL:  fmt.Sprintf("http://127.0.0.1:%d", port),
+		port:     port,
+		server:   server,
+		hub:      hub,
+		registry: registry,
 	}
 }
 

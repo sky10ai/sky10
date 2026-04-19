@@ -465,7 +465,18 @@ func ServeCmd() *cobra.Command {
 			// Agent registry — local agent registration and message routing.
 			agentRegistry := skyagent.NewRegistry(bundle.DeviceID(), skydevice.DeviceName(), logRuntime.Logger)
 			agentMessageHub := skyagent.NewMessageHub()
-			agentRouter = skyagent.NewRouter(agentRegistry, linkNode, server.Emit, bundle.DeviceID(), logRuntime.Logger)
+			agentEventEmitter := func(event string, data interface{}) {
+				server.Emit(event, data)
+				if event != "agent.message" {
+					return
+				}
+				msg, ok := data.(skyagent.Message)
+				if !ok || strings.TrimSpace(msg.To) != bundle.DeviceID() {
+					return
+				}
+				agentMessageHub.Publish(msg)
+			}
+			agentRouter = skyagent.NewRouter(agentRegistry, linkNode, agentEventEmitter, bundle.DeviceID(), logRuntime.Logger)
 			agentRouter.SetMailbox(mailboxStore)
 			agentRouter.SetResolver(linkResolver)
 			mailboxRetryManager := link.NewManager(
@@ -504,13 +515,13 @@ func ServeCmd() *cobra.Command {
 					}
 				}()
 			}
-			agentRPC := skyagent.NewRPCHandler(agentRegistry, bundle.Identity, server.Emit)
+			agentRPC := skyagent.NewRPCHandler(agentRegistry, bundle.Identity, agentEventEmitter)
 			agentRPC.SetRouter(agentRouter)
 			agentRPC.SetMailbox(mailboxStore)
 			server.RegisterHandler(agentRPC)
 			agentChatWS := skyagent.NewChatWebSocketHandler(agentRegistry, agentRPC, agentMessageHub, logRuntime.Logger)
 			server.HandleHTTP("GET /rpc/agents/{agent}/chat", agentChatWS.HandleChat)
-			skyagent.RegisterLinkHandlers(linkNode, agentRegistry, server.Emit, agentRouter)
+			skyagent.RegisterLinkHandlers(linkNode, agentRegistry, agentEventEmitter, agentRouter)
 			agentRPC.SetPeerNotifier(func(ctx context.Context, topic string) {
 				linkNode.NotifyOwn(ctx, topic)
 			})
