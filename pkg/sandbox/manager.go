@@ -1246,186 +1246,22 @@ func (m *Manager) finishReady(ctx context.Context, name, limactl string) error {
 		return err
 	}
 	if rec.Template == templateOpenClaw {
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "begin",
-			ID:      "ready.openclaw.gateway",
-			Summary: "Waiting for OpenClaw gateway...",
+		if err := m.runReadyProgressStep(name, "ready.openclaw.gateway", "Waiting for OpenClaw gateway...", "OpenClaw gateway is ready.", func() error {
+			return waitForOpenClawGateway(ctx, m.outputCmd, limactl, name, openClawReadyTimeout)
 		}); err != nil {
 			return err
 		}
-		if err := waitForOpenClawGateway(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
-			return err
-		}
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "end",
-			ID:      "ready.openclaw.gateway",
-			Summary: "OpenClaw gateway is ready.",
-		}); err != nil {
-			return err
-		}
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "begin",
-			ID:      "ready.guest.sky10",
-			Summary: "Waiting for guest sky10...",
-		}); err != nil {
-			return err
-		}
-		if err := waitForGuestSky10(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
-			return err
-		}
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "end",
-			ID:      "ready.guest.sky10",
-			Summary: "Guest sky10 is ready.",
-		}); err != nil {
-			return err
-		}
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "begin",
-			ID:      "ready.guest.identity",
-			Summary: "Confirming guest identity...",
-		}); err != nil {
-			return err
-		}
-		hostIdentity, err := m.ensureGuestJoinedHostIdentity(ctx, *rec, limactl)
-		if err != nil {
-			return err
-		}
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "end",
-			ID:      "ready.guest.identity",
-			Summary: "Guest identity confirmed.",
-		}); err != nil {
-			return err
-		}
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "begin",
-			ID:      "ready.guest.agent",
-			Summary: "Waiting for agent registration...",
-		}); err != nil {
-			return err
-		}
-		if err := waitForGuestOpenClawAgent(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
-			return err
-		}
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "end",
-			ID:      "ready.guest.agent",
-			Summary: "Agent registered in guest sky10.",
-		}); err != nil {
-			return err
-		}
-		updatedRec, err := m.requireRecord(name)
-		if err != nil {
-			return err
-		}
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "begin",
-			ID:      "ready.host.connect",
-			Summary: "Connecting host to guest...",
-		}); err != nil {
-			return err
-		}
-		if err := m.ensureHostConnectedGuestAgent(ctx, *updatedRec, hostIdentity); err != nil {
-			return err
-		}
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "end",
-			ID:      "ready.host.connect",
-			Summary: "Host connected to guest.",
-		}); err != nil {
+		if err := m.finishGuestReadyFlow(ctx, name, limactl, *rec, waitForGuestOpenClawAgent); err != nil {
 			return err
 		}
 	}
 	if rec.Template == templateHermes {
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "begin",
-			ID:      "ready.guest.hermes",
-			Summary: "Waiting for Hermes CLI...",
+		if err := m.runReadyProgressStep(name, "ready.guest.hermes", "Waiting for Hermes CLI...", "Hermes CLI is ready.", func() error {
+			return waitForGuestHermesCLI(ctx, m.outputCmd, limactl, name, openClawReadyTimeout)
 		}); err != nil {
 			return err
 		}
-		if err := waitForGuestHermesCLI(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
-			return err
-		}
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "end",
-			ID:      "ready.guest.hermes",
-			Summary: "Hermes CLI is ready.",
-		}); err != nil {
-			return err
-		}
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "begin",
-			ID:      "ready.guest.sky10",
-			Summary: "Waiting for guest sky10...",
-		}); err != nil {
-			return err
-		}
-		if err := waitForGuestSky10(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
-			return err
-		}
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "end",
-			ID:      "ready.guest.sky10",
-			Summary: "Guest sky10 is ready.",
-		}); err != nil {
-			return err
-		}
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "begin",
-			ID:      "ready.guest.identity",
-			Summary: "Confirming guest identity...",
-		}); err != nil {
-			return err
-		}
-		hostIdentity, err := m.ensureGuestJoinedHostIdentity(ctx, *rec, limactl)
-		if err != nil {
-			return err
-		}
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "end",
-			ID:      "ready.guest.identity",
-			Summary: "Guest identity confirmed.",
-		}); err != nil {
-			return err
-		}
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "begin",
-			ID:      "ready.guest.agent",
-			Summary: "Waiting for agent registration...",
-		}); err != nil {
-			return err
-		}
-		if err := waitForGuestHermesAgent(ctx, m.outputCmd, limactl, name, openClawReadyTimeout); err != nil {
-			return err
-		}
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "end",
-			ID:      "ready.guest.agent",
-			Summary: "Agent registered in guest sky10.",
-		}); err != nil {
-			return err
-		}
-		updatedRec, err := m.requireRecord(name)
-		if err != nil {
-			return err
-		}
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "begin",
-			ID:      "ready.host.connect",
-			Summary: "Connecting host to guest...",
-		}); err != nil {
-			return err
-		}
-		if err := m.ensureHostConnectedGuestAgent(ctx, *updatedRec, hostIdentity); err != nil {
-			return err
-		}
-		if err := m.updateProgress(name, progressEvent{
-			Event:   "end",
-			ID:      "ready.host.connect",
-			Summary: "Host connected to guest.",
-		}); err != nil {
+		if err := m.finishGuestReadyFlow(ctx, name, limactl, *rec, waitForGuestHermesAgent); err != nil {
 			return err
 		}
 	}
@@ -1442,6 +1278,60 @@ func (m *Manager) finishReady(ctx context.Context, name, limactl string) error {
 		return err
 	}
 	return m.updateStatus(name, "ready", "")
+}
+
+func (m *Manager) runReadyProgressStep(name, id, beginSummary, endSummary string, wait func() error) error {
+	if err := m.updateProgress(name, progressEvent{
+		Event:   "begin",
+		ID:      id,
+		Summary: beginSummary,
+	}); err != nil {
+		return err
+	}
+	if err := wait(); err != nil {
+		return err
+	}
+	return m.updateProgress(name, progressEvent{
+		Event:   "end",
+		ID:      id,
+		Summary: endSummary,
+	})
+}
+
+func (m *Manager) finishGuestReadyFlow(
+	ctx context.Context,
+	name, limactl string,
+	rec Record,
+	waitForGuestAgent func(context.Context, func(context.Context, string, []string) ([]byte, error), string, string, time.Duration) error,
+) error {
+	if err := m.runReadyProgressStep(name, "ready.guest.sky10", "Waiting for guest sky10...", "Guest sky10 is ready.", func() error {
+		return waitForGuestSky10(ctx, m.outputCmd, limactl, name, openClawReadyTimeout)
+	}); err != nil {
+		return err
+	}
+
+	var hostIdentity string
+	if err := m.runReadyProgressStep(name, "ready.guest.identity", "Confirming guest identity...", "Guest identity confirmed.", func() error {
+		var err error
+		hostIdentity, err = m.ensureGuestJoinedHostIdentity(ctx, rec, limactl)
+		return err
+	}); err != nil {
+		return err
+	}
+
+	if err := m.runReadyProgressStep(name, "ready.guest.agent", "Waiting for agent registration...", "Agent registered in guest sky10.", func() error {
+		return waitForGuestAgent(ctx, m.outputCmd, limactl, name, openClawReadyTimeout)
+	}); err != nil {
+		return err
+	}
+
+	updatedRec, err := m.requireRecord(name)
+	if err != nil {
+		return err
+	}
+	return m.runReadyProgressStep(name, "ready.host.connect", "Connecting host to guest...", "Host connected to guest.", func() error {
+		return m.ensureHostConnectedGuestAgent(ctx, *updatedRec, hostIdentity)
+	})
 }
 
 func (m *Manager) requireRecord(name string) (*Record, error) {
