@@ -23,6 +23,7 @@ Enabled linters today:
 - `bodyclose`
 - `dupl`
 - `nolintlint`
+- `revive` with only `file-length-limit`
 - `rowserrcheck`
 - `sloglint`
 - `sqlclosecheck`
@@ -31,9 +32,19 @@ Current `dupl` setting:
 
 - `threshold: 500`
 
+Current `revive` file-length setting:
+
+- `file-length-limit.max: 4000`
+- `skip-comments: true`
+- `skip-blank-lines: true`
+
 That threshold is intentionally loose. It is meant to catch only
 obvious, large copy-paste blocks and avoid noisy failures while the repo
 gets used to the rule.
+
+The file-length limit is also intentionally loose. It adds a hard stop
+for truly oversized Go files without forcing a broad split-up pass in
+the same change.
 
 ## Why Tighten Later
 
@@ -85,6 +96,49 @@ To test a lower threshold, temporarily adjust
       large duplicates
 - [ ] Avoid dropping lower unless the team wants duplication cleanup to
       become active PR pressure
+
+## File Length Plan
+
+### Stage 1: Keep `file-length-limit` at 4000
+
+- [x] Enable `revive` only for `file-length-limit`
+- [x] Start with `max: 4000` so CI stays green
+- [x] Confirm `make lint` passes with the new limit
+
+### Stage 2: Inventory the path to 1000
+
+Go files currently above `1000` lines:
+
+- `pkg/sandbox/manager.go` (`3148`)
+- `pkg/sandbox/manager_test.go` (`2429`)
+- `pkg/fs/rpc_drive_test.go` (`1615`)
+- `pkg/fs/p2p.go` (`1595`)
+- `pkg/agent/router_test.go` (`1446`)
+- `pkg/fs/daemon_v2_5_test.go` (`1419`)
+- `pkg/agent/router.go` (`1402`)
+- `pkg/fs/reconciler_test.go` (`1343`)
+- `pkg/fs/opslog/opslog.go` (`1238`)
+- `pkg/secrets/store_test.go` (`1132`)
+- `pkg/agent/rpc_test.go` (`1024`)
+- `pkg/fs/skyfs.go` (`1006`)
+
+Follow-up tasks:
+
+- [ ] Split the largest production files before lowering the cap
+- [ ] Decide whether large test files should be split the same way or
+      exempted with path-based exclusions
+- [ ] Dry-run `file-length-limit` at `2500`, `2000`, `1500`, and `1000`
+- [ ] Record whether each remaining violation is production code, test
+      scaffolding, or generated-style glue that should stay together
+
+### Stage 3: Tighten to 1000
+
+- [ ] Lower the repo-wide cap from `4000` to `2500` after the first
+      split pass
+- [ ] Lower from `2500` to `1500` once the largest packages are broken
+      up
+- [ ] Land `1000` only after the remaining violations are either fixed
+      or intentionally excluded with reviewable path rules
 
 ## Other Linters Worth Considering
 
@@ -172,8 +226,10 @@ early value in this repo.
 
 - `funlen`
 - `maintidx`
-- `revive`
 - `gocritic`
+
+`revive` is already enabled for the narrow `file-length-limit` rule.
+Treat broader `revive` style bundles as a separate decision.
 
 If these are reconsidered later:
 

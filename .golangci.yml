@@ -9,12 +9,20 @@ linters:
     - bodyclose
     - dupl
     - nolintlint
+    - revive
     - rowserrcheck
     - sloglint
     - sqlclosecheck
   settings:
     dupl:
       threshold: 500
+    revive:
+      rules:
+        - name: file-length-limit
+          arguments:
+            - max: 4000
+              skip-comments: true
+              skip-blank-lines: true
 
 issues:
   max-issues-per-linter: 0
