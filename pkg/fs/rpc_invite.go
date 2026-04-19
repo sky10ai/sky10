@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sky10/sky10/pkg/config"
+	skydevice "github.com/sky10/sky10/pkg/device"
 	"github.com/sky10/sky10/pkg/join"
 )
 
@@ -25,19 +26,12 @@ func (s *FSHandler) rpcDeviceList(ctx context.Context) (interface{}, error) {
 
 	// Always include this device, even without S3.
 	if !hasDevice(devices, s.store.deviceID) {
-		hostname, _ := os.Hostname()
-		ip, location := fetchIPLocation()
-		devices = append([]DeviceInfo{{
-			ID:       s.store.deviceID,
-			PubKey:   s.store.identity.Address(),
-			Name:     hostname,
-			Platform: detectPlatform(),
-			Version:  s.version,
-			IP:       ip,
-			Location: location,
-			Joined:   time.Now().UTC().Format(time.RFC3339),
-			LastSeen: time.Now().UTC().Format(time.RFC3339),
-		}}, devices...)
+		devices = append([]DeviceInfo{skydevice.LocalInfo(
+			s.store.deviceID,
+			s.store.identity.Address(),
+			skydevice.DeviceName(),
+			s.version,
+		)}, devices...)
 	}
 
 	// Include connected P2P peers.
@@ -175,7 +169,7 @@ func (s *FSHandler) rpcJoin(ctx context.Context, params json.RawMessage) (interf
 		}
 		if granted {
 			// Register this device
-			RegisterDevice(ctx, s.store.backend, s.store.deviceID, s.store.devicePubKey, GetDeviceName(), s.version)
+			RegisterDevice(ctx, s.store.backend, s.store.deviceID, s.store.devicePubKey, skydevice.DeviceName(), s.version)
 			return map[string]string{"status": "approved"}, nil
 		}
 		select {

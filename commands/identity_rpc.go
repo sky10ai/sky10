@@ -14,6 +14,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sky10/sky10/pkg/adapter"
 	"github.com/sky10/sky10/pkg/config"
+	skydevice "github.com/sky10/sky10/pkg/device"
 	skyfs "github.com/sky10/sky10/pkg/fs"
 	skyid "github.com/sky10/sky10/pkg/id"
 	skyjoin "github.com/sky10/sky10/pkg/join"
@@ -69,7 +70,7 @@ func privateNetworkDeviceMetadata(
 	metadata := make(map[string]skyid.DeviceMetadata)
 
 	if backend != nil {
-		devices, err := skyfs.ListDevices(ctx, backend)
+		devices, err := skydevice.List(ctx, backend)
 		if err == nil {
 			for _, device := range devices {
 				pubHex, err := canonicalDevicePubKey(device.PubKey)
@@ -243,7 +244,7 @@ func joinIdentityP2P(
 		info.ID,
 		invite,
 		currentBundle.Device.Address(),
-		skyfs.GetDeviceName(),
+		skydevice.DeviceName(),
 		role,
 	)
 	if err != nil {
@@ -463,7 +464,7 @@ func joinIdentityS3(
 		return nil, err
 	}
 
-	bundle, err := skyid.SyncIdentity(ctx, idStore, backend, skyfs.GetDeviceName())
+	bundle, err := skyid.SyncIdentity(ctx, idStore, backend, skydevice.DeviceName())
 	if err != nil {
 		return nil, err
 	}
@@ -483,7 +484,7 @@ func joinIdentityS3(
 			return nil, err
 		}
 		if granted {
-			if err := skyfs.RegisterDevice(waitCtx, backend, bundle.DeviceID(), bundle.DevicePubKeyHex(), skyfs.GetDeviceName(), Version); err != nil {
+			if err := skydevice.Register(waitCtx, backend, bundle.DeviceID(), bundle.DevicePubKeyHex(), skydevice.DeviceName(), Version); err != nil {
 				return nil, fmt.Errorf("registering device: %w", err)
 			}
 			scheduleDaemonRestart()

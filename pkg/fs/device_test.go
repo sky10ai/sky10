@@ -34,14 +34,17 @@ func TestRegisterDeviceUsesExplicitDeviceID(t *testing.T) {
 		t.Errorf("device stored at %q, want %q", keys[0], wantKey)
 	}
 
-	dev, err := readDevice(ctx, backend, wantKey)
+	devices, err := ListDevices(ctx, backend)
 	if err != nil {
-		t.Fatalf("readDevice: %v", err)
+		t.Fatalf("ListDevices: %v", err)
 	}
-	if dev.PubKey != hexPubkey {
-		t.Errorf("PubKey = %q, want %q", dev.PubKey, hexPubkey)
+	if len(devices) != 1 {
+		t.Fatalf("expected 1 device, got %d", len(devices))
 	}
-	if dev.ID != deviceID {
-		t.Errorf("ID = %q, want %q", dev.ID, deviceID)
+	if devices[0].PubKey != hexPubkey {
+		t.Errorf("PubKey = %q, want %q", devices[0].PubKey, hexPubkey)
+	}
+	if devices[0].ID != deviceID {
+		t.Errorf("ID = %q, want %q", devices[0].ID, deviceID)
 	}
 }

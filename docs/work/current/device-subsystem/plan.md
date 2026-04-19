@@ -24,7 +24,7 @@ The end state should support:
 ## Status Snapshot
 
 - `Milestone 0`: complete
-- `Milestone 1`: pending
+- `Milestone 1`: complete
 - `Milestone 2`: pending
 - `Milestone 3`: pending
 - `Milestone 4`: pending
@@ -151,6 +151,8 @@ Artifacts:
 Goal: move current device snapshot logic out of `pkg/fs` into `pkg/device`
 without changing behavior.
 
+Status: complete
+
 Scope:
 
 - move current `DeviceInfo`-style types
@@ -161,17 +163,17 @@ Scope:
 
 Checklist:
 
-- [ ] Create `pkg/device` with a narrow current-state model.
-- [ ] Move S3-backed device registry code from `pkg/fs` into `pkg/device`.
-- [ ] Hide geo-IP lookup behind a device-local metadata collector rather than
+- [x] Create `pkg/device` with a narrow current-state model.
+- [x] Move S3-backed device registry code from `pkg/fs` into `pkg/device`.
+- [x] Hide geo-IP lookup behind a device-local metadata collector rather than
       exporting a generic helper.
-- [ ] Keep Windows-friendly platform detection in scope for the extraction.
-- [ ] Leave compatibility shims only where needed during the transition.
+- [x] Keep Windows-friendly platform detection in scope for the extraction.
+- [x] Leave compatibility shims only where needed during the transition.
 
 Done when:
 
-- [ ] `pkg/fs` no longer owns canonical device metadata types or collectors.
-- [ ] Existing command wiring can fetch current device state via `pkg/device`.
+- [x] `pkg/fs` no longer owns canonical device metadata types or collectors.
+- [x] Existing command wiring can fetch current device state via `pkg/device`.
 
 ## Milestone 2: Replace Command-Layer Metadata Merging With A Device Service
 

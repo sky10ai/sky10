@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sky10/sky10/pkg/config"
+	skydevice "github.com/sky10/sky10/pkg/device"
 	skyfs "github.com/sky10/sky10/pkg/fs"
 	skyid "github.com/sky10/sky10/pkg/id"
 	"github.com/sky10/sky10/pkg/join"
@@ -61,7 +62,7 @@ func runJoinP2P(cmd *cobra.Command, code, role string) error {
 
 	// Temporary bundle with just the device key for the P2P node.
 	tmpManifest := skyid.NewManifest(deviceKey)
-	tmpManifest.AddDevice(deviceKey.PublicKey, skyfs.GetDeviceName())
+	tmpManifest.AddDevice(deviceKey.PublicKey, skydevice.DeviceName())
 	tmpManifest.Sign(deviceKey.PrivateKey)
 	tmpBundle, err := skyid.New(deviceKey, deviceKey, tmpManifest)
 	if err != nil {
@@ -83,7 +84,7 @@ func runJoinP2P(cmd *cobra.Command, code, role string) error {
 		return err
 	}
 
-	resp, err := join.RequestP2PJoin(ctx, node.Host(), info.ID, invite, deviceKey.Address(), skyfs.GetDeviceName(), role)
+	resp, err := join.RequestP2PJoin(ctx, node.Host(), info.ID, invite, deviceKey.Address(), skydevice.DeviceName(), role)
 	if err != nil {
 		return fmt.Errorf("join request failed: %w", err)
 	}
@@ -184,7 +185,7 @@ func runJoinS3(cmd *cobra.Command, code, role string) error {
 	if err != nil {
 		return err
 	}
-	bundle, err := skyid.SyncIdentity(ctx, idStore, backend, skyfs.GetDeviceName())
+	bundle, err := skyid.SyncIdentity(ctx, idStore, backend, skydevice.DeviceName())
 	if err != nil {
 		return err
 	}
@@ -201,7 +202,7 @@ func runJoinS3(cmd *cobra.Command, code, role string) error {
 			return err
 		}
 		if granted {
-			skyfs.RegisterDevice(ctx, backend, bundle.DeviceID(), bundle.DevicePubKeyHex(), skyfs.GetDeviceName(), cmd.Root().Version)
+			skydevice.Register(ctx, backend, bundle.DeviceID(), bundle.DevicePubKeyHex(), skydevice.DeviceName(), cmd.Root().Version)
 			fmt.Println("Approved! You can now sync.")
 			return nil
 		}

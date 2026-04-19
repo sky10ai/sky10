@@ -19,6 +19,7 @@ import (
 	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
 	skyapps "github.com/sky10/sky10/pkg/apps"
 	"github.com/sky10/sky10/pkg/config"
+	skydevice "github.com/sky10/sky10/pkg/device"
 	skyfs "github.com/sky10/sky10/pkg/fs"
 	skyid "github.com/sky10/sky10/pkg/id"
 	skyjoin "github.com/sky10/sky10/pkg/join"
@@ -135,7 +136,7 @@ func ServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			bundle, err := skyid.SyncIdentity(ctx, idStore, backend, skyfs.GetDeviceName())
+			bundle, err := skyid.SyncIdentity(ctx, idStore, backend, skydevice.DeviceName())
 			if err != nil {
 				return err
 			}
@@ -145,7 +146,7 @@ func ServeCmd() *cobra.Command {
 			store.SetClient("cli/" + cmd.Root().Version)
 
 			if backend != nil {
-				skyfs.RegisterDevice(ctx, backend, bundle.DeviceID(), bundle.DevicePubKeyHex(), skyfs.GetDeviceName(), cmd.Root().Version)
+				skydevice.Register(ctx, backend, bundle.DeviceID(), bundle.DevicePubKeyHex(), skydevice.DeviceName(), cmd.Root().Version)
 			}
 			skyfs.HandleDumpSignal(logRuntime.Logger)
 
@@ -462,7 +463,7 @@ func ServeCmd() *cobra.Command {
 			})
 
 			// Agent registry — local agent registration and message routing.
-			agentRegistry := skyagent.NewRegistry(bundle.DeviceID(), skyfs.GetDeviceName(), logRuntime.Logger)
+			agentRegistry := skyagent.NewRegistry(bundle.DeviceID(), skydevice.DeviceName(), logRuntime.Logger)
 			agentRouter = skyagent.NewRouter(agentRegistry, linkNode, server.Emit, bundle.DeviceID(), logRuntime.Logger)
 			agentRouter.SetMailbox(mailboxStore)
 			agentRouter.SetResolver(linkResolver)
@@ -642,7 +643,7 @@ func ServeCmd() *cobra.Command {
 
 				// Publish multiaddrs to S3 device registry (if configured).
 				if backend != nil {
-					if err := skyfs.UpdateDeviceMultiaddrs(ctx, backend, bundle.DeviceID(), addrs); err != nil {
+					if err := skydevice.UpdateMultiaddrs(ctx, backend, bundle.DeviceID(), addrs); err != nil {
 						logger.Warn("failed to publish multiaddrs to S3", "error", err)
 					} else {
 						logger.Info("published multiaddrs to S3 device registry", "count", len(addrs))

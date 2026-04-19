@@ -7,6 +7,7 @@ import (
 	"github.com/sky10/sky10/pkg/adapter"
 	s3backend "github.com/sky10/sky10/pkg/adapter/s3"
 	"github.com/sky10/sky10/pkg/config"
+	skydevice "github.com/sky10/sky10/pkg/device"
 	skyfs "github.com/sky10/sky10/pkg/fs"
 	skyid "github.com/sky10/sky10/pkg/id"
 	"github.com/spf13/cobra"
@@ -55,11 +56,11 @@ func fsInitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			bundle, err := skyid.SyncIdentity(ctx, idStore, backend, skyfs.GetDeviceName())
+			bundle, err := skyid.SyncIdentity(ctx, idStore, backend, skydevice.DeviceName())
 			if err != nil {
 				return err
 			}
-			skyfs.RegisterDevice(ctx, backend, bundle.DeviceID(), bundle.DevicePubKeyHex(), skyfs.GetDeviceName(), cmd.Root().Version)
+			skydevice.Register(ctx, backend, bundle.DeviceID(), bundle.DevicePubKeyHex(), skydevice.DeviceName(), cmd.Root().Version)
 
 			fmt.Printf("Initialized skyfs\n  Schema:   v%s\n  Identity: %s\n  Bucket:   %s\n",
 				skyfs.SchemaVersion, bundle.Address(), cfg.Bucket)
