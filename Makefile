@@ -20,6 +20,10 @@ WEB_DEV_PATH ?= /
 WEB_RPC_TARGET ?= http://localhost:9101
 INSTALL_DIR ?= $(HOME)/.bin
 INSTALL_BIN ?= $(INSTALL_DIR)/sky10
+TOOLS_BIN ?= $(CURDIR)/.tools/bin
+GOEXE := $(shell go env GOEXE)
+GOLANGCI_LINT_VERSION ?= v2.11.4
+GOLANGCI_LINT := $(TOOLS_BIN)/golangci-lint$(GOEXE)
 
 export CGO_ENABLED := 0
 
@@ -37,7 +41,7 @@ endif
 MENU_SOURCE_DATE_EPOCH := $(shell git log -1 --format=%ct 2>/dev/null || echo 0)
 MENU_RUSTFLAGS := --remap-path-prefix=$(CURDIR)=/workspace $(MENU_LINK_RUSTFLAGS)
 
-.PHONY: all build build-go build-web build-menu web-dev test test-skyfs test-skyfs-cli test-skyfs-cli-v test-skyfs-p2p-integration test-skyfs-daemon-integration check vet fmt verify clean install dev-install restart-daemon go-install reproduce reproduce-menu platforms checksums
+.PHONY: all build build-go build-web build-menu web-dev test test-skyfs test-skyfs-cli test-skyfs-cli-v test-skyfs-p2p-integration test-skyfs-daemon-integration ensure-web-dist check vet fmt lint verify tools clean install dev-install restart-daemon go-install reproduce reproduce-menu platforms checksums
 
 # --- Default ---
 
@@ -81,7 +85,7 @@ test: test-skyfs
 
 test-skyfs: test-skyfs-cli
 
-test-skyfs-cli:
+test-skyfs-cli: ensure-web-dist
 	@echo "=== test-skyfs-cli (Go) ==="
 	go test ./... -count=1
 
@@ -98,16 +102,30 @@ test-skyfs-daemon-integration:
 
 # --- Lint ---
 
-vet:
+ensure-web-dist:
+	@test -d web/dist || (echo "web/dist missing; run 'make build-web' first" && exit 1)
+
+vet: ensure-web-dist
 	go vet ./...
 
 fmt:
 	@test -z "$$(gofmt -l .)" || (echo "Files need formatting:" && gofmt -l . && exit 1)
 
-check: fmt vet
+lint: ensure-web-dist $(GOLANGCI_LINT)
+	$(GOLANGCI_LINT) run
+
+check: fmt vet lint
 
 verify:
 	go mod verify
+
+tools: $(GOLANGCI_LINT)
+
+$(TOOLS_BIN):
+	mkdir -p $(TOOLS_BIN)
+
+$(GOLANGCI_LINT): | $(TOOLS_BIN)
+	GOBIN=$(TOOLS_BIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 # --- Clean ---
 

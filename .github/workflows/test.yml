@@ -7,6 +7,29 @@ on:
     branches: ["**"]
 
 jobs:
+  lint-go:
+    name: Go lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: web/package.json
+
+      - name: Build web frontend
+        run: cd web && bun install --frozen-lockfile && bun run build
+
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.11.4
+          verify: true
+          args: --timeout=10m
+
   test-go:
     name: Go tests
     runs-on: ubuntu-latest
@@ -34,7 +57,7 @@ jobs:
             echo "- Discovered tests in \`./...\`: ${count}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - run: make check
+      - run: make fmt vet
       - run: make test-skyfs-cli
 
   test-integration:

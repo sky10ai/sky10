@@ -19,6 +19,7 @@ profile.cov
 
 # Build output
 bin/
+.tools/
 .build/
 cirrus/macos/.build/
 menu/src-tauri/target/
