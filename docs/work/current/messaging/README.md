@@ -1,0 +1,484 @@
+---
+created: 2026-04-18
+updated: 2026-04-18
+model: gpt-5.4
+---
+
+# Messaging Broker Architecture
+
+## Purpose
+
+This document defines the first architecture draft for `sky10` messaging.
+
+The core idea is:
+
+- `sky10` owns the messaging domain and policy boundary
+- external messaging platforms connect through adapter executables
+- agent runtimes connect through thin shim executables
+- agents never hold raw platform credentials
+- all inbound, draft, outbound, and approval decisions flow through the
+  `sky10` broker
+
+This product area should stand on its own even if `sky10` later supports zero
+agents. Agents are one consumer of the messaging broker, not the definition of
+the product.
+
+## Terminology
+
+### User-Facing
+
+- **Messaging** — the product area
+- **Messaging platform** — Slack, Gmail, WhatsApp, Telegram, Discord, and so on
+- **Connection** — one connected instance of a platform
+- **Conversation** — a thread, DM, room, group chat, or email thread
+- **Message** — one inbound or outbound message
+- **Draft** — a proposed outbound reply that has not been sent
+- **Reply permissions** — user-facing language for what an agent may do
+- **Approval** — a required human decision before send or other sensitive action
+
+### Core Domain / Code
+
+- **Adapter** — a platform integration executable or plugin
+- **Connection** — one configured adapter instance with auth and policy
+- **AuthInfo** — auth/session metadata for a connection
+- **Identity** — one local messaging persona exposed by a connection
+- **Conversation** — the normalized thread/container
+- **Participant** — one member of a conversation
+- **Message** — a normalized inbound or outbound message record
+- **Draft** — a normalized unsent outbound message
+- **Policy** — rules for inbound, outbound, drafts, approvals, recipients,
+  attachments, and timing
+- **Broker** — the `sky10` middle layer that owns policy, approvals, routing,
+  and storage
+- **Event** — a normalized inbound change from an adapter
+- **Capability** — what an adapter can do
+- **Exposure** — a grant that lets an agent/runtime access a connection under a
+  policy
+
+### Extension Layers
+
+- **Platform adapter** — southbound integration to Slack, Gmail, WhatsApp, and
+  similar systems
+- **Agent shim** — northbound integration to OpenClaw, Hermes, Codex, Claude
+  Code, and similar runtimes
+- **Protocol** — the stable RPC contract adapters and shims speak to `sky10`
+
+### Terms To Avoid As Canonical
+
+- `channel` — overloaded in OpenClaw, Slack, and existing `pkg/link/channel.go`
+- `account` — ambiguous between credential, tenant, persona, mailbox, page, or
+  bot
+- `connector` — acceptable in implementation details, too broad for the core
+  noun
+- `bridge` — fine for one implementation, not the product-wide domain term
+- `messenger` — poor consumer language for this product area
+
+## Why Connection And Identity Are Separate
+
+One login or credentialed binding can expose multiple local messaging
+identities.
+
+Examples:
+
+- one Gmail connection may expose `me@company.com`, `support@company.com`, and
+  `billing@company.com`
+- one Meta business connection may expose multiple pages
+- one future business messaging connection may expose multiple send-as
+  identities
+
+That means:
+
+- `Connection` is the configured binding
+- `AuthInfo` describes how it authenticates
+- `Identity` describes who it can actually speak as or receive as
+
+`account` is not sharp enough for this model.
+
+## High-Level Architecture
+
+```text
+External Messaging Platforms
+Slack / Gmail / IMAP / WhatsApp / Telegram / Discord / ...
+
+        ^
+        | webhook / polling / send / draft APIs
+        v
+
+Platform Adapters (external executables, any language)
+gmail-adapter
+slack-adapter
+whatsapp-adapter
+...
+
+        ^
+        | adapter protocol
+        v
+
+sky10 Messaging Broker (Go, pkg/messaging)
+- connection manager
+- auth + secrets lookup
+- identity discovery
+- conversation/message normalization
+- policy engine
+- approval engine
+- draft/send orchestration
+- event fanout
+- storage
+
+        ^
+        | shim protocol / MCP / local RPC
+        v
+
+Agent Shims (thin runtime-specific bridges)
+OpenClaw shim
+Hermes shim
+Codex shim
+Claude Code shim
+...
+
+        ^
+        | normalized messaging tools/events
+        v
+
+Agents
+```
+
+## Responsibility Split
+
+### Platform Adapters
+
+Platform adapters:
+
+- talk to Slack, Gmail, WhatsApp, Telegram, and similar APIs
+- translate platform-native objects into normalized broker events
+- execute outbound send and draft operations when the broker tells them to
+- report their capabilities and auth state
+
+Platform adapters do not:
+
+- own policy
+- decide whether a message should be sent
+- hold approval logic
+- expose arbitrary direct access to messaging providers
+
+### Messaging Broker
+
+The broker owns:
+
+- the stable messaging domain model
+- connection lifecycle
+- auth metadata and secret references
+- identity discovery and indexing
+- conversation and message storage
+- draft lifecycle
+- policy evaluation
+- approval workflows
+- audit history
+- fanout to UI and agent shims
+
+The broker is the policy and authority boundary.
+
+### Agent Shims
+
+Agent shims:
+
+- translate one runtime's tool/plugin model into a stable local `sky10`
+  messaging interface
+- expose normalized read/draft/request-send operations to the runtime
+- do not embed platform-specific logic
+
+Agents should learn one `sky10 messaging` interface, not Slack or Gmail
+directly.
+
+## Core Domain Model
+
+The first normalized model should include:
+
+- `Adapter`
+- `Connection`
+- `AuthInfo`
+- `Identity`
+- `Conversation`
+- `Participant`
+- `Message`
+- `Draft`
+- `Policy`
+- `Exposure`
+- `Event`
+- `Capability`
+
+Recommended relationship shape:
+
+- one `Adapter` supports many `Connection`s
+- one `Connection` may expose many `Identity` records
+- one `Connection` owns many `Conversation`s
+- one `Conversation` contains many `Message`s
+- one `Message` may lead to one or more `Draft`s or approvals
+- one `Connection` has a default `Policy`
+- one `Exposure` narrows a `Policy` for one agent/runtime
+
+## Capabilities
+
+Each platform adapter should declare capabilities so the broker can adapt its
+behavior without platform-specific branching throughout the core.
+
+Initial capability set:
+
+- `receive_messages`
+- `send_messages`
+- `create_drafts`
+- `update_drafts`
+- `delete_drafts`
+- `list_conversations`
+- `list_messages`
+- `threading`
+- `attachments`
+- `webhooks`
+- `polling`
+- `mark_read`
+- `typing_indicators`
+- `delivery_status`
+- `reactions`
+- `edits`
+- `deletes`
+
+## Southbound Adapter Protocol
+
+Platform adapters should be external executables speaking a stable protocol to
+the broker.
+
+Initial method set:
+
+- `Describe`
+- `ValidateConfig`
+- `Connect`
+- `Refresh`
+- `ListIdentities`
+- `ListConversations`
+- `ListMessages`
+- `GetMessage`
+- `CreateDraft`
+- `UpdateDraft`
+- `DeleteDraft`
+- `SendMessage`
+- `ReplyMessage`
+- `HandleWebhook`
+- `Poll`
+- `Health`
+
+Design constraints:
+
+- adapters may be written in any language
+- adapters should be restartable without corrupting broker state
+- adapters should not require public network listeners of their own when
+  webhooks are involved
+- adapters should not store long-lived policy decisions locally
+
+## Northbound Shim Protocol
+
+Agent shims should also speak a stable protocol to the broker.
+
+Initial method set:
+
+- `ListConnections`
+- `ListIdentities`
+- `ListConversations`
+- `GetConversation`
+- `GetMessages`
+- `CreateDraft`
+- `UpdateDraft`
+- `RequestSend`
+- `SendDraft`
+- `MarkRead`
+- `SubscribeEvents`
+
+Agents should be able to:
+
+- read normalized inbound messages
+- inspect conversations
+- create and revise drafts
+- request sends
+
+Agents should not:
+
+- hold platform credentials
+- bypass policy
+- call platform APIs directly
+- auto-send without broker approval
+
+## Policy Model
+
+Policy lives in the broker.
+
+Representative policy controls:
+
+- can read inbound messages
+- can draft replies
+- can send replies
+- approval required before send
+- replies only in existing conversations
+- cannot start new conversations
+- attachments disallowed
+- only these identities may send
+- only during business hours
+- only for these channels/folders/labels/conversation classes
+
+Policy should apply at two levels:
+
+- `Connection` default policy
+- `Exposure` policy for one agent/runtime/user surface
+
+## Inbound Flow
+
+1. An adapter receives a webhook, or the broker schedules a poll.
+2. The adapter returns normalized `Event` values.
+3. The broker upserts `Conversation`, `Message`, and `Participant` records.
+4. The broker evaluates inbound policy.
+5. The broker stores event and audit history.
+6. The broker fans out updates to UI and eligible agent shims.
+7. Agents may create drafts or request actions.
+
+## Outbound Flow
+
+1. An agent shim or UI creates a `Draft` or `RequestSend`.
+2. The broker validates the caller's `Exposure` and effective `Policy`.
+3. If approval is required, the broker creates an approval request.
+4. A human approves or rejects.
+5. The broker calls the platform adapter's send/reply operation.
+6. The adapter returns delivery state and remote identifiers.
+7. The broker records the outbound message and emits updates.
+
+## Approvals
+
+`sky10` already has durable mailbox and approval workflow primitives in the
+agent/messaging-adjacent parts of the repo. Messaging approvals should reuse
+that direction rather than creating an unrelated approval system.
+
+Messaging approvals should cover operations such as:
+
+- send this draft
+- send as this identity
+- allow attachment delivery
+- allow starting a new conversation
+
+## Webhook And Poll Ownership
+
+The broker should own public HTTP ingress for webhook-based platforms.
+
+Reasoning:
+
+- one public network surface
+- one verification and audit boundary
+- easier packaging and deployment
+- adapters stay local workers
+- simpler cross-platform support, including Windows
+
+Recommended pattern:
+
+- broker receives webhook
+- broker forwards a normalized request envelope to the adapter
+- adapter verifies/parses platform-specific content
+- adapter returns normalized events
+
+Polling adapters should follow the same authority model:
+
+- broker schedules polls
+- adapter returns events plus an updated checkpoint
+
+## Storage
+
+The broker should persist:
+
+- connections
+- auth metadata references
+- discovered identities
+- conversation index
+- message index
+- drafts
+- policy bindings
+- exposures
+- checkpoints/cursors for polling
+- webhook verification state
+- approval state
+- audit log
+
+Secrets should not live directly in the messaging store:
+
+- `AuthInfo` references secret material
+- actual tokens/passwords should live in `pkg/secrets`
+
+## Packaging Direction
+
+The recommended packaging split is:
+
+- broker built into `sky10`
+- platform adapters shipped as external binaries
+- agent shims shipped as external binaries or MCP-compatible local servers
+
+This gives:
+
+- a clean language boundary
+- process isolation
+- restartability
+- support for first-party and third-party adapter ecosystems
+
+If JavaScript is attractive for adapters or shims, a self-contained sidecar
+runtime such as Bun-compiled executables is a plausible packaging option.
+
+## Package Layout
+
+The first package layout should center on:
+
+- `pkg/messaging`
+- `pkg/messaging/broker`
+- `pkg/messaging/policy`
+- `pkg/messaging/protocol`
+- `pkg/messaging/store`
+- `pkg/messaging/webhook`
+- `pkg/messaging/runtime`
+- `pkg/messaging/approval`
+- `pkg/messaging/adapters`
+
+This keeps the messaging domain independent from the current `pkg/agent`
+layout, which is important because messaging should still make sense if the
+product later has zero agents.
+
+## Initial Platform Priority
+
+The architecture should be broad enough to support many platforms even if
+`sky10` only ships a smaller first-party set.
+
+Reasonable early first-party priorities:
+
+- `email/imap-smtp`
+- `gmail`
+- `microsoft365`
+- `slack`
+- `telegram`
+- `whatsapp`
+
+Reasonable later first-party candidates:
+
+- `instagram`
+- `messenger`
+- `discord`
+- `x`
+
+The model should still accommodate third-party adapters for platforms that are
+out of scope, expensive, brittle, or policy-constrained.
+
+## First Implementation Checkpoint
+
+The first buildable checkpoint should include:
+
+1. `pkg/messaging` core types
+2. a stable adapter protocol
+3. a minimal broker with one polling path and one webhook path
+4. persistence for `Connection`, `Identity`, `Conversation`, `Message`, and
+   `Draft`
+5. one approval path
+6. one shim path
+7. one or two first-party adapters
+
+That is enough to validate the architecture without committing to every
+platform upfront.
