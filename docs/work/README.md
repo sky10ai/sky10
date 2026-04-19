@@ -9,6 +9,11 @@
 - Active FS Windows normalization plan: [`current/fs-windows-normalization-plan.md`](current/fs-windows-normalization-plan.md)
 - Active Agents drive contract: [`current/agents-drive-contract.md`](current/agents-drive-contract.md)
 
+## Todo
+
+- See [`todo/`](todo/) for follow-up work that is no longer active branch planning.
+- Device subsystem follow-up: [`todo/device-subsystem-followup.md`](todo/device-subsystem-followup.md)
+
 ## Past
 
 | Year | Summary |
