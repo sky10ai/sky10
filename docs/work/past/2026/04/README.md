@@ -2,6 +2,7 @@
 
 | Date | Entry |
 |------|-------|
+| 19 | [Host-Guest WebSocket Comms Foundation](19-Host-Guest-WebSocket-Comms-Foundation.md) — dedicated host-initiated guest chat websocket transport, streaming event vocabulary, two-daemon integration coverage, and groundwork for streaming guest agents back into the host web UI with a tighter VM boundary |
 | 16 | [Web Dark Theme And Selector](16-Web-Dark-Theme-And-Selector.md) — system-aware `System`/`Light`/`Dark` preference model, top-right header selector, CSS-variable-backed token palette, and dark-mode cleanup across the main command-center surfaces |
 | 16 | [Syncthing-Informed FS P2P Hardening](16-Syncthing-Informed-FS-P2P-Hardening.md) — forty-commit FS branch: hidden transfer workspace, peer metadata sync, peer chunk fetch, unified pull planner, conflict/health surfaces, Windows path policy, and the practical Syncthing lessons that shaped the implementation |
 | 16 | [Live Relay Productization And Health Clarity](16-Live-Relay-Productization-And-Health-Clarity.md) — explicit direct→relay→Nostr delivery, sticky relay preference in normal resolution, mailbox retry isolation, managed live-relay requirement, and transport-vs-coordination UI clarity |
