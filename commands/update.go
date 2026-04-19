@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/sky10/sky10/pkg/update"
@@ -306,12 +305,14 @@ func waitForDaemonHTTPReady() error {
 			continue
 		}
 
-		port := health.HTTPAddr
-		if i := strings.LastIndex(port, ":"); i >= 0 {
-			port = port[i:]
+		baseURL, err := loopbackHTTPURL(health.HTTPAddr)
+		if err != nil {
+			lastErr = err
+			time.Sleep(200 * time.Millisecond)
+			continue
 		}
 
-		resp, err := client.Get("http://127.0.0.1" + port + "/health")
+		resp, err := client.Get(baseURL + "/health")
 		if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()

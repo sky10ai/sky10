@@ -689,7 +689,12 @@ func ServeCmd() *cobra.Command {
 			}()
 			time.Sleep(100 * time.Millisecond)
 			if addr := server.HTTPAddr(); addr != "" {
-				fmt.Printf("http://localhost%s\n", addr)
+				url, err := localhostHTTPURL(addr)
+				if err != nil {
+					logger.Warn("failed to format local HTTP URL", "addr", addr, "error", err)
+				} else {
+					fmt.Println(url)
+				}
 			}
 
 			return server.Serve(ctx)
