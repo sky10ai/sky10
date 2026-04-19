@@ -37,7 +37,11 @@ func configureIdentityRPCHandler(
 	}
 
 	handler.SetDeviceMetadataProvider(func(ctx context.Context) (map[string]skyid.DeviceMetadata, error) {
-		return privateNetworkDeviceMetadata(ctx, bundle, backend, linkNode)
+		metadata, err := skydevice.PrivateNetworkMetadata(ctx, bundle, backend, linkNode)
+		if err != nil {
+			return nil, err
+		}
+		return identityDeviceMetadata(metadata), nil
 	})
 	handler.SetInviteHandler(func(ctx context.Context, options skyid.InviteOptions) (string, error) {
 		return createIdentityInvite(ctx, backend, bundle, linkNode, relays, options)
@@ -61,78 +65,24 @@ type identityJoinResult struct {
 	Restarting   bool   `json:"restarting"`
 }
 
-func privateNetworkDeviceMetadata(
-	ctx context.Context,
-	bundle *skyid.Bundle,
-	backend adapter.Backend,
-	linkNode *link.Node,
-) (map[string]skyid.DeviceMetadata, error) {
-	metadata := make(map[string]skyid.DeviceMetadata)
-
-	if backend != nil {
-		devices, err := skydevice.List(ctx, backend)
-		if err == nil {
-			for _, device := range devices {
-				pubHex, err := canonicalDevicePubKey(device.PubKey)
-				if err != nil {
-					continue
-				}
-				meta := metadata[pubHex]
-				meta.Alias = device.Alias
-				meta.Platform = device.Platform
-				meta.IP = device.IP
-				meta.Location = device.Location
-				meta.Version = device.Version
-				meta.LastSeen = device.LastSeen
-				meta.Multiaddrs = appendUniqueStrings(meta.Multiaddrs, device.Multiaddrs...)
-				metadata[pubHex] = meta
-			}
-		}
+func identityDeviceMetadata(metadata map[string]skydevice.Metadata) map[string]skyid.DeviceMetadata {
+	if len(metadata) == 0 {
+		return nil
 	}
 
-	if linkNode != nil {
-		rec, err := linkNode.CurrentPresenceRecord(0)
-		if err == nil {
-			meta := metadata[rec.DevicePubKey]
-			if meta.Version == "" {
-				meta.Version = rec.Version
-			}
-			if !rec.PublishedAt.IsZero() {
-				meta.LastSeen = rec.PublishedAt.UTC().Format(time.RFC3339)
-			}
-			meta.Multiaddrs = appendUniqueStrings(meta.Multiaddrs, rec.Multiaddrs...)
-			metadata[rec.DevicePubKey] = meta
-		}
-		if host := linkNode.Host(); host != nil && bundle.Manifest != nil {
-			deviceByPeerID := make(map[string]string, len(bundle.Manifest.Devices))
-			for _, device := range bundle.Manifest.Devices {
-				pid, err := link.PeerIDFromPubKey(device.PublicKey)
-				if err != nil {
-					continue
-				}
-				deviceByPeerID[pid.String()] = strings.ToLower(hex.EncodeToString(device.PublicKey))
-			}
-			for _, pid := range linkNode.ConnectedPrivateNetworkPeers() {
-				pubHex, ok := deviceByPeerID[pid.String()]
-				if !ok {
-					continue
-				}
-				info := host.Peerstore().PeerInfo(pid)
-				meta := metadata[pubHex]
-				addrs := make([]string, 0, len(info.Addrs))
-				for _, addr := range info.Addrs {
-					addrs = append(addrs, addr.String()+"/p2p/"+pid.String())
-				}
-				meta.Multiaddrs = appendUniqueStrings(meta.Multiaddrs, addrs...)
-				if meta.LastSeen == "" {
-					meta.LastSeen = time.Now().UTC().Format(time.RFC3339)
-				}
-				metadata[pubHex] = meta
-			}
+	out := make(map[string]skyid.DeviceMetadata, len(metadata))
+	for pubHex, meta := range metadata {
+		out[pubHex] = skyid.DeviceMetadata{
+			Alias:      meta.Alias,
+			Platform:   meta.Platform,
+			IP:         meta.IP,
+			Location:   meta.Location,
+			Version:    meta.Version,
+			LastSeen:   meta.LastSeen,
+			Multiaddrs: append([]string(nil), meta.Multiaddrs...),
 		}
 	}
-
-	return metadata, nil
+	return out
 }
 
 func createIdentityInvite(ctx context.Context, backend adapter.Backend, bundle *skyid.Bundle, linkNode *link.Node, relays []string, options skyid.InviteOptions) (string, error) {
@@ -692,25 +642,6 @@ func canonicalDevicePubKey(value string) (string, error) {
 		return "", fmt.Errorf("invalid device public key: %q", value)
 	}
 	return hex.EncodeToString(key.PublicKey), nil
-}
-
-func appendUniqueStrings(existing []string, values ...string) []string {
-	seen := make(map[string]struct{}, len(existing))
-	out := append([]string(nil), existing...)
-	for _, value := range existing {
-		seen[value] = struct{}{}
-	}
-	for _, value := range values {
-		if value == "" {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		out = append(out, value)
-	}
-	return out
 }
 
 func waitForLinkHost(ctx context.Context, node *link.Node) error {

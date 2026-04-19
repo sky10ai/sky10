@@ -1,6 +1,6 @@
 ---
 created: 2026-04-18
-updated: 2026-04-18
+updated: 2026-04-19
 model: gpt-5.4
 ---
 
@@ -25,7 +25,7 @@ The end state should support:
 
 - `Milestone 0`: complete
 - `Milestone 1`: complete
-- `Milestone 2`: pending
+- `Milestone 2`: complete
 - `Milestone 3`: pending
 - `Milestone 4`: pending
 - `Milestone 5`: pending
@@ -179,22 +179,24 @@ Done when:
 
 Goal: stop hand-merging device metadata inside `commands/identity_rpc.go`.
 
+Status: complete
+
 The command layer should wire a device service, not implement the device model.
 
 Checklist:
 
-- [ ] Create a `pkg/device` service that composes registry state, local
+- [x] Create a `pkg/device` service that composes registry state, local
       metadata, and link presence.
-- [ ] Move current merge behavior out of `commands/identity_rpc.go`.
-- [ ] Preserve `identity.deviceList` as a compatibility surface backed by the
+- [x] Move current merge behavior out of `commands/identity_rpc.go`.
+- [x] Preserve `identity.deviceList` as a compatibility surface backed by the
       new service.
-- [ ] Restore correct local metadata in no-S3 / P2P-only mode.
-- [ ] Keep membership ordering and device role logic anchored in `pkg/id`.
+- [x] Restore correct local metadata in no-S3 / P2P-only mode.
+- [x] Keep membership ordering and device role logic anchored in `pkg/id`.
 
 Done when:
 
-- [ ] Device metadata composition logic is owned by `pkg/device`.
-- [ ] `identity.deviceList` remains stable for the current UI.
+- [x] Device metadata composition logic is owned by `pkg/device`.
+- [x] `identity.deviceList` remains stable for the current UI.
 
 ## Milestone 3: Introduce Device Observations And Event Normalization
 

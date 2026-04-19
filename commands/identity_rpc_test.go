@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-	"encoding/hex"
 	"testing"
 	"time"
 
@@ -29,59 +28,6 @@ func TestValidateJoinNamespaceKeysAllowsMissingSecretsNamespace(t *testing.T) {
 	}}
 	if err := validateJoinNamespaceKeys(keys); err != nil {
 		t.Fatalf("validateJoinNamespaceKeys() error = %v, want nil", err)
-	}
-}
-
-func TestPrivateNetworkDeviceMetadataUsesConnectedPrivatePeers(t *testing.T) {
-	t.Parallel()
-
-	bundleA, bundleB := testSharedBundles(t)
-
-	nodeA, err := link.New(bundleA, link.Config{Mode: link.Private}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	nodeA.SetVersion("v-test")
-
-	nodeB, err := link.New(bundleB, link.Config{Mode: link.Private}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	startTestLinkNode(t, nodeA)
-	startTestLinkNode(t, nodeB)
-	connectTestNodes(t, nodeA, nodeB)
-
-	waitForCondition(t, 5*time.Second, func() bool {
-		return len(nodeA.ConnectedPrivateNetworkPeers()) == 1
-	})
-
-	metadata, err := privateNetworkDeviceMetadata(context.Background(), bundleA, nil, nodeA)
-	if err != nil {
-		t.Fatalf("privateNetworkDeviceMetadata: %v", err)
-	}
-
-	currentMeta, ok := metadata[bundleA.DevicePubKeyHex()]
-	if !ok {
-		t.Fatalf("missing current device metadata for %s", bundleA.DevicePubKeyHex())
-	}
-	if currentMeta.Version != "v-test" {
-		t.Fatalf("current version = %q, want v-test", currentMeta.Version)
-	}
-	if len(currentMeta.Multiaddrs) == 0 {
-		t.Fatal("expected current device multiaddrs")
-	}
-
-	remotePubHex := hex.EncodeToString(bundleB.Device.PublicKey)
-	remoteMeta, ok := metadata[remotePubHex]
-	if !ok {
-		t.Fatalf("missing remote device metadata for %s", remotePubHex)
-	}
-	if len(remoteMeta.Multiaddrs) == 0 {
-		t.Fatal("expected remote device multiaddrs from connected private peer")
-	}
-	if remoteMeta.LastSeen == "" {
-		t.Fatal("expected remote device last_seen from connected private peer")
 	}
 }
 
