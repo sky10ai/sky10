@@ -1,4 +1,4 @@
-updated: 2026-04-18
+updated: 2026-04-19
 ---
 
 # AGENTS.md
@@ -26,6 +26,9 @@ should use this file directly.
 - If requirements, expected behavior, or constraints are ambiguous, ask
   clarifying questions before writing code. Clarity first usually leads
   to better code and fewer retries.
+- If a rebase hits conflicts, stop immediately, explain the conflicting
+  files and the competing changes, and ask the user for their
+  preference before resolving anything or continuing the rebase.
 - Prefer minimal, targeted changes over opportunistic cleanup.
 - Answer direct questions directly. Only edit code when the user asked
   for a change or the intent is clearly implementation.
@@ -73,12 +76,18 @@ should use this file directly.
   worktree.
 - Keep the branch current by rebasing onto `origin/main`. Do not merge
   `main` or `origin/main` into the branch.
+- If a rebase hits conflicts, stop instead of auto-resolving them.
+  Summarize what is in conflict, point to the files or areas involved,
+  and ask the user which resolution they want before continuing.
 - Integrate completed work back to `main` with fast-forward-only
   semantics. Do not create merge commits.
 - Branch landing requires an explicit user instruction such as
   `land this branch`. That authorizes fetch, rebase onto `origin/main`,
   final validation, fast-forward-only integration onto `main`, push, and
   remote branch cleanup.
+- `land this branch` does not authorize unilateral rebase conflict
+  resolution. If the rebase conflicts, pause, explain the conflict, and
+  ask the user for their preference before proceeding.
 - Because worktrees are user-managed, do not remove the current
   worktree by default when landing a branch. Only do worktree cleanup if
   the user explicitly asks.
@@ -151,6 +160,9 @@ should use this file directly.
 
 - `land this branch` means the coding work is done and the agent may use
   the repo's branch-landing workflow.
+- `land this branch` is not permission to guess through a rebase
+  conflict. Stop, explain the conflict, and ask the user how they want
+  it resolved before continuing.
 - `land this branch and clean up this worktree too` is a stronger
   instruction. Only treat it as permission for worktree cleanup if the
   requested cleanup is actually possible from the current checkout.
