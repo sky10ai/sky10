@@ -15,7 +15,7 @@ linters:
     - sqlclosecheck
   settings:
     dupl:
-      threshold: 500
+      threshold: 350
     revive:
       rules:
         - name: file-length-limit

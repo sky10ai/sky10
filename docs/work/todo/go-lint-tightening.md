@@ -30,7 +30,7 @@ Enabled linters today:
 
 Current `dupl` setting:
 
-- `threshold: 500`
+- `threshold: 350`
 
 Current `revive` file-length setting:
 
