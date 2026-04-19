@@ -20,7 +20,8 @@ type RPCHandler struct {
 }
 
 var (
-	rpcCheck         = Check
+	rpcCheckPassive  = Check
+	rpcCheckAction   = CheckExplicit
 	rpcApply         = Apply
 	rpcApplyMenu     = ApplyMenu
 	rpcStage         = Stage
@@ -70,7 +71,7 @@ func (h *RPCHandler) Dispatch(_ context.Context, method string, _ json.RawMessag
 }
 
 func (h *RPCHandler) rpcUpdateCheck() (interface{}, error, bool) {
-	info, err := rpcCheck(h.version)
+	info, err := rpcCheckPassive(h.version)
 	if err != nil {
 		return nil, err, true
 	}
@@ -93,7 +94,7 @@ func (h *RPCHandler) rpcDownloadUpdate() (interface{}, error, bool) {
 	go func() {
 		defer h.updating.Store(false)
 
-		info, err := rpcCheck(h.version)
+		info, err := rpcCheckAction(h.version)
 		if err != nil {
 			h.emit("update:download:error", map[string]string{"message": err.Error()})
 			return
@@ -181,7 +182,7 @@ func (h *RPCHandler) rpcUpdate() (interface{}, error, bool) {
 	go func() {
 		defer h.updating.Store(false)
 
-		info, err := rpcCheck(h.version)
+		info, err := rpcCheckAction(h.version)
 		if err != nil {
 			h.emit("update:error", map[string]string{"message": err.Error()})
 			return

@@ -49,12 +49,28 @@ type Info struct {
 
 // Check queries GitHub for the latest release and compares to current.
 func Check(currentVersion string) (*Info, error) {
+	return check(currentVersion, false)
+}
+
+// CheckExplicit queries GitHub for the latest release and compares to current,
+// even for local dev builds. Use this only for explicit user-triggered update
+// actions, not background notification checks.
+func CheckExplicit(currentVersion string) (*Info, error) {
+	return check(currentVersion, true)
+}
+
+func check(currentVersion string, allowDev bool) (*Info, error) {
 	currentVersion = strings.TrimSpace(currentVersion)
-	if isDevBuildVersion(currentVersion) {
+	if !allowDev && isDevBuildVersion(currentVersion) {
 		return &Info{Current: currentVersion}, nil
 	}
 
-	release, err := releases.NewGitHubClient("sky10/"+currentVersion).Latest(context.Background(), checkURL)
+	userAgentVersion := currentVersion
+	if userAgentVersion == "" {
+		userAgentVersion = "dev"
+	}
+
+	release, err := releases.NewGitHubClient("sky10/"+userAgentVersion).Latest(context.Background(), checkURL)
 	if err != nil {
 		return nil, err
 	}

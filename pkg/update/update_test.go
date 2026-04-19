@@ -17,14 +17,16 @@ import (
 
 func withRPCStubs(t *testing.T) {
 	t.Helper()
-	oldCheck := rpcCheck
+	oldCheckPassive := rpcCheckPassive
+	oldCheckAction := rpcCheckAction
 	oldApply := rpcApply
 	oldApplyMenu := rpcApplyMenu
 	oldStage := rpcStage
 	oldStatus := rpcStatus
 	oldInstall := rpcInstallStaged
 	t.Cleanup(func() {
-		rpcCheck = oldCheck
+		rpcCheckPassive = oldCheckPassive
+		rpcCheckAction = oldCheckAction
 		rpcApply = oldApply
 		rpcApplyMenu = oldApplyMenu
 		rpcStage = oldStage
@@ -46,6 +48,40 @@ func TestCheckDevBuildSkipsUpdate(t *testing.T) {
 	}
 	if info.Available || info.CLIAvailable || info.MenuAvailable {
 		t.Fatalf("expected no update info for dev build: %#v", info)
+	}
+}
+
+func TestCheckExplicitDevBuildChecksLatestRelease(t *testing.T) {
+	asset := fmt.Sprintf("sky10-%s-%s", runtime.GOOS, runtime.GOARCH)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"tag_name": "v2.0.0",
+			"assets": []map[string]string{
+				{"name": asset, "browser_download_url": "https://example.com/" + asset},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	origCheck := checkURL
+	checkURL = srv.URL
+	defer func() { checkURL = origCheck }()
+
+	info, err := CheckExplicit("dev")
+	if err != nil {
+		t.Fatalf("CheckExplicit: %v", err)
+	}
+	if info.Current != "dev" {
+		t.Fatalf("current = %q, want %q", info.Current, "dev")
+	}
+	if info.Latest != "v2.0.0" {
+		t.Fatalf("latest = %q, want %q", info.Latest, "v2.0.0")
+	}
+	if !info.Available || !info.CLIAvailable {
+		t.Fatalf("expected update available for explicit dev check: %#v", info)
+	}
+	if info.AssetURL == "" {
+		t.Fatal("expected asset URL for explicit dev check")
 	}
 }
 
@@ -299,7 +335,7 @@ func TestRPCUpdateStatusDispatch(t *testing.T) {
 func TestRPCDownloadUpdateStagesRelease(t *testing.T) {
 	withRPCStubs(t)
 
-	rpcCheck = func(current string) (*Info, error) {
+	rpcCheckAction = func(current string) (*Info, error) {
 		return &Info{
 			Current:       current,
 			Latest:        "v2.0.0",
@@ -356,6 +392,65 @@ func TestRPCDownloadUpdateStagesRelease(t *testing.T) {
 	case data := <-completeSeen:
 		staged, _ := data.(*StagedRelease)
 		if staged == nil || staged.Latest != "v2.0.0" {
+			t.Fatalf("complete data = %#v", data)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("expected update:download:complete event")
+	}
+}
+
+func TestRPCDownloadUpdateAllowsDevBuild(t *testing.T) {
+	withRPCStubs(t)
+
+	asset := fmt.Sprintf("sky10-%s-%s", runtime.GOOS, runtime.GOARCH)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"tag_name": "v2.0.0",
+			"assets": []map[string]string{
+				{"name": asset, "browser_download_url": "https://example.com/" + asset},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	origCheck := checkURL
+	checkURL = srv.URL
+	defer func() { checkURL = origCheck }()
+
+	rpcStage = func(info *Info, onProgress ProgressFunc) (*StagedRelease, error) {
+		return &StagedRelease{
+			Current:   info.Current,
+			Latest:    info.Latest,
+			CLIStaged: true,
+		}, nil
+	}
+
+	completeSeen := make(chan interface{}, 1)
+	emit := func(event string, data interface{}) {
+		if event != "update:download:complete" {
+			return
+		}
+		select {
+		case completeSeen <- data:
+		default:
+		}
+	}
+
+	h := NewRPCHandler("dev", emit)
+	result, err, ok := h.Dispatch(context.Background(), "system.update.download", nil)
+	if !ok || err != nil {
+		t.Fatalf("downloadUpdate dispatch: ok=%v err=%v", ok, err)
+	}
+
+	status, _ := result.(map[string]string)
+	if status["status"] != "downloading" {
+		t.Fatalf("status = %v, want downloading", result)
+	}
+
+	select {
+	case data := <-completeSeen:
+		staged, _ := data.(*StagedRelease)
+		if staged == nil || staged.Current != "dev" || staged.Latest != "v2.0.0" {
 			t.Fatalf("complete data = %#v", data)
 		}
 	case <-time.After(250 * time.Millisecond):

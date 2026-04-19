@@ -57,6 +57,12 @@ func withUpdateStubs(t *testing.T) {
 	})
 }
 
+func TestUpdateCommandsUseExplicitCheckByDefault(t *testing.T) {
+	if reflect.ValueOf(updateCheck).Pointer() != reflect.ValueOf(skyupdate.CheckExplicit).Pointer() {
+		t.Fatalf("updateCheck should default to CheckExplicit")
+	}
+}
+
 func TestUpdateCmdDownloadsAndInstallsBeforeRestartingDaemon(t *testing.T) {
 	withUpdateStubs(t)
 	Version = "v0.37.1"

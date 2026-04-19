@@ -16,7 +16,7 @@ import (
 var Version string
 
 var (
-	updateCheck         = update.Check
+	updateCheck         = update.CheckExplicit
 	updateDownload      = func(info *update.Info) (*update.StagedRelease, error) { return update.Stage(info, nil) }
 	updateStatus        = update.Status
 	updateInstall       = update.InstallStaged
