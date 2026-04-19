@@ -5,9 +5,20 @@ import remarkGfm from "remark-gfm";
 import { Icon } from "../components/Icon";
 import { StatusBadge } from "../components/StatusBadge";
 import { AGENT_EVENT_TYPES, subscribe } from "../lib/events";
-import { appendChatMessage, loadChatMessages, type ChatMessage } from "../lib/agentChat";
+import {
+  appendChatMessage,
+  applyStreamingDelta,
+  finalizeStreamingMessage,
+  loadChatMessages,
+  type ChatMessage,
+} from "../lib/agentChat";
 import { agent, type AgentInfo, type AgentSendResult, type DeliveryMetadata } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
+
+interface StreamingEnvelope {
+  stream_id?: string;
+  text?: string;
+}
 
 // uuid() is only available in secure contexts (HTTPS or
 // localhost). Fall back to getRandomValues for plain HTTP hosts like
@@ -39,6 +50,17 @@ function deliveryLabel(delivery?: DeliveryMetadata): string | null {
       : "Sent";
   }
   return delivery.status.replaceAll("_", " ");
+}
+
+function readStreamingEnvelope(content: unknown): StreamingEnvelope {
+  if (!content || typeof content !== "object") {
+    return {};
+  }
+  const value = content as Record<string, unknown>;
+  return {
+    stream_id: typeof value.stream_id === "string" ? value.stream_id : undefined,
+    text: typeof value.text === "string" ? value.text : undefined,
+  };
 }
 
 export default function AgentChat() {
@@ -101,15 +123,33 @@ export default function AgentChat() {
       clearTimeout(slowWaitingTimerRef.current);
       setWaiting(false);
       setSlowWaiting(false);
-      setMessages((prev) => appendChatMessage(prev, {
-          id: (msg.id as string) || uuid(),
-          from: "agent" as const,
-          type: (msg.type as string) || "text",
-          content:
-            (msg.content as { text?: string })?.text ||
-            JSON.stringify(msg.content),
-          timestamp: new Date(),
-        }));
+
+      const msgType = (msg.type as string) || "text";
+      const envelope = readStreamingEnvelope(msg.content);
+      if (msgType === "done") {
+        return;
+      }
+      if (msgType === "delta" && envelope.stream_id && envelope.text) {
+        setMessages((prev) => applyStreamingDelta(prev, envelope.stream_id!, envelope.text!, new Date()));
+        return;
+      }
+
+      const nextMessage: ChatMessage = {
+        id: (msg.id as string) || uuid(),
+        from: "agent" as const,
+        type: msgType,
+        content:
+          (msg.content as { text?: string })?.text ||
+          JSON.stringify(msg.content),
+        timestamp: new Date(),
+      };
+
+      if (envelope.stream_id && (msgType === "text" || msgType === "error" || msgType === "message")) {
+        setMessages((prev) => finalizeStreamingMessage(prev, envelope.stream_id!, nextMessage));
+        return;
+      }
+
+      setMessages((prev) => appendChatMessage(prev, nextMessage));
     });
   }, [sessionId, agentId]);
 

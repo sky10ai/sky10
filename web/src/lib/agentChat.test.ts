@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { appendChatMessage, dedupeChatMessages, type ChatMessage } from "./agentChat";
+import {
+  appendChatMessage,
+  applyStreamingDelta,
+  dedupeChatMessages,
+  finalizeStreamingMessage,
+  type ChatMessage,
+} from "./agentChat";
 
 function msg(overrides: Partial<ChatMessage> = {}): ChatMessage {
   return {
@@ -38,5 +44,29 @@ describe("appendChatMessage", () => {
   test("ignores a replayed inbound message", () => {
     const first = msg({ id: "m-1", content: "reply" });
     expect(appendChatMessage([first], msg({ id: "m-1", content: "reply" }))).toEqual([first]);
+  });
+});
+
+describe("streaming helpers", () => {
+  test("applyStreamingDelta accumulates onto one synthetic message", () => {
+    const first = applyStreamingDelta([], "stream-1", "Hel");
+    const second = applyStreamingDelta(first, "stream-1", "lo");
+
+    expect(second).toHaveLength(1);
+    expect(second[0]?.id).toBe("stream:stream-1");
+    expect(second[0]?.streaming).toBe(true);
+    expect(second[0]?.content).toBe("Hello");
+  });
+
+  test("finalizeStreamingMessage replaces the draft bubble", () => {
+    const draft = applyStreamingDelta([], "stream-2", "Hello");
+    const finalMessage = msg({
+      id: "m-final",
+      type: "text",
+      content: "Hello world",
+    });
+
+    const finalized = finalizeStreamingMessage(draft, "stream-2", finalMessage);
+    expect(finalized).toEqual([{ ...finalMessage, streaming: false }]);
   });
 });

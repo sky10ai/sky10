@@ -6,6 +6,7 @@ export interface ChatMessage {
   type: string;
   content: string;
   timestamp: Date;
+  streaming?: boolean;
   delivered?: boolean;
   delivery?: DeliveryMetadata;
 }
@@ -36,6 +37,7 @@ function normalizeMessage(value: unknown): ChatMessage | null {
     type: msg.type,
     content: msg.content,
     timestamp: parseTimestamp(msg.timestamp),
+    streaming: msg.streaming,
     delivered: msg.delivered,
     delivery: msg.delivery,
   };
@@ -65,6 +67,65 @@ export function dedupeChatMessages(messages: readonly unknown[]): ChatMessage[] 
 
 export function appendChatMessage(messages: readonly ChatMessage[], message: ChatMessage): ChatMessage[] {
   return dedupeChatMessages([...messages, message]);
+}
+
+export function applyStreamingDelta(
+  messages: readonly ChatMessage[],
+  streamID: string,
+  deltaText: string,
+  timestamp = new Date(),
+): ChatMessage[] {
+  if (!streamID || !deltaText) {
+    return [...messages];
+  }
+
+  const syntheticID = `stream:${streamID}`;
+  const next = [...messages];
+  const index = next.findIndex((message) => message.id === syntheticID);
+  if (index === -1) {
+    next.push({
+      id: syntheticID,
+      from: "agent",
+      type: "delta",
+      content: deltaText,
+      timestamp,
+      streaming: true,
+    });
+    return next;
+  }
+
+  const existing = next[index]!;
+  next[index] = {
+    ...existing,
+    type: "delta",
+    content: `${existing.content}${deltaText}`,
+    timestamp,
+    streaming: true,
+  };
+  return next;
+}
+
+export function finalizeStreamingMessage(
+  messages: readonly ChatMessage[],
+  streamID: string,
+  finalMessage: ChatMessage,
+): ChatMessage[] {
+  if (!streamID) {
+    return appendChatMessage(messages, finalMessage);
+  }
+
+  const syntheticID = `stream:${streamID}`;
+  const next = [...messages];
+  const index = next.findIndex((message) => message.id === syntheticID);
+  if (index === -1) {
+    return appendChatMessage(next, { ...finalMessage, streaming: false });
+  }
+
+  next[index] = {
+    ...finalMessage,
+    streaming: false,
+  };
+  return dedupeChatMessages(next);
 }
 
 export function loadChatMessages(raw: string | null): ChatMessage[] {
