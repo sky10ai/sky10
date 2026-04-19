@@ -120,19 +120,22 @@ export default function AgentChat() {
       const ai = agentInfoRef.current;
       if (ai && (msg.to === ai.id || msg.to === ai.name)) return;
 
-      clearTimeout(slowWaitingTimerRef.current);
-      setWaiting(false);
-      setSlowWaiting(false);
-
       const msgType = (msg.type as string) || "text";
       const envelope = readStreamingEnvelope(msg.content);
       if (msgType === "done") {
+        clearTimeout(slowWaitingTimerRef.current);
+        setWaiting(false);
+        setSlowWaiting(false);
         return;
       }
       if (msgType === "delta" && envelope.stream_id && envelope.text) {
         setMessages((prev) => applyStreamingDelta(prev, envelope.stream_id!, envelope.text!, new Date()));
         return;
       }
+
+      clearTimeout(slowWaitingTimerRef.current);
+      setWaiting(false);
+      setSlowWaiting(false);
 
       const nextMessage: ChatMessage = {
         id: (msg.id as string) || uuid(),
