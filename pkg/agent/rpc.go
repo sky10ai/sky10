@@ -199,6 +199,23 @@ func (h *RPCHandler) rpcSend(ctx context.Context, params json.RawMessage) (inter
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
+	return h.sendMessage(ctx, p)
+}
+
+// SendMessage routes one chat message using the same delivery path as agent.send.
+func (h *RPCHandler) SendMessage(ctx context.Context, p SendParams) (SendResult, error) {
+	result, err := h.sendMessage(ctx, p)
+	if err != nil {
+		return SendResult{}, err
+	}
+	sent, ok := result.(SendResult)
+	if !ok {
+		return SendResult{}, fmt.Errorf("unexpected send result %T", result)
+	}
+	return sent, nil
+}
+
+func (h *RPCHandler) sendMessage(ctx context.Context, p SendParams) (interface{}, error) {
 	if p.To == "" {
 		return nil, fmt.Errorf("to is required")
 	}

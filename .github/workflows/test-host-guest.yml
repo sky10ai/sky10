@@ -1,0 +1,39 @@
+name: test-host-guest
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  test-host-guest:
+    name: Integration tests (Host & Guest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: web/package.json
+
+      - name: Build web frontend
+        run: cd web && bun install --frozen-lockfile && bun run build
+
+      - name: Report host/guest integration test count
+        shell: bash
+        run: |
+          count="$(go test ./pkg/agent -list '^TestChatWebSocketHostGuestIntegration$' | awk '/^TestChatWebSocketHostGuestIntegration$/{c++} END{print c+0}')"
+          echo "Discovered host/guest integration tests: ${count}"
+          {
+            echo "### Host/Guest Integration Test Count"
+            echo "- Discovered tests in \`./pkg/agent\`: ${count}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run host/guest integration tests
+        run: go test ./pkg/agent -run '^TestChatWebSocketHostGuestIntegration$' -count=1 -v

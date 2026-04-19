@@ -464,6 +464,7 @@ func ServeCmd() *cobra.Command {
 
 			// Agent registry — local agent registration and message routing.
 			agentRegistry := skyagent.NewRegistry(bundle.DeviceID(), skydevice.DeviceName(), logRuntime.Logger)
+			agentMessageHub := skyagent.NewMessageHub()
 			agentRouter = skyagent.NewRouter(agentRegistry, linkNode, server.Emit, bundle.DeviceID(), logRuntime.Logger)
 			agentRouter.SetMailbox(mailboxStore)
 			agentRouter.SetResolver(linkResolver)
@@ -507,6 +508,8 @@ func ServeCmd() *cobra.Command {
 			agentRPC.SetRouter(agentRouter)
 			agentRPC.SetMailbox(mailboxStore)
 			server.RegisterHandler(agentRPC)
+			agentChatWS := skyagent.NewChatWebSocketHandler(agentRegistry, agentRPC, agentMessageHub, logRuntime.Logger)
+			server.HandleHTTP("GET /rpc/agents/{agent}/chat", agentChatWS.HandleChat)
 			skyagent.RegisterLinkHandlers(linkNode, agentRegistry, server.Emit, agentRouter)
 			agentRPC.SetPeerNotifier(func(ctx context.Context, topic string) {
 				linkNode.NotifyOwn(ctx, topic)

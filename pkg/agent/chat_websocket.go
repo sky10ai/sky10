@@ -1,0 +1,357 @@
+package agent
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
+)
+
+const chatWebSocketReadLimit = 1 << 20
+
+type chatWSRequest struct {
+	Type   string          `json:"type"`
+	ID     interface{}     `json:"id,omitempty"`
+	Method string          `json:"method,omitempty"`
+	Params json.RawMessage `json:"params,omitempty"`
+}
+
+type chatWSResponse struct {
+	Type   string       `json:"type"`
+	ID     interface{}  `json:"id,omitempty"`
+	Result interface{}  `json:"result,omitempty"`
+	Error  *chatWSError `json:"error,omitempty"`
+}
+
+type chatWSError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type chatWSEvent struct {
+	Type    string      `json:"type"`
+	Event   string      `json:"event"`
+	Payload interface{} `json:"payload,omitempty"`
+}
+
+type chatWSSendParams struct {
+	MessageType string          `json:"message_type,omitempty"`
+	Content     json.RawMessage `json:"content"`
+}
+
+type chatTextContent struct {
+	Text  string             `json:"text,omitempty"`
+	Parts []chatTextPartJSON `json:"parts,omitempty"`
+}
+
+type chatTextPartJSON struct {
+	Type string `json:"type,omitempty"`
+	Text string `json:"text,omitempty"`
+}
+
+// ChatStreamMessage is the normalized wire payload emitted by the guest chat
+// WebSocket bridge for `delta`, `message`, `done`, and `error` events.
+type ChatStreamMessage struct {
+	ID          string          `json:"id,omitempty"`
+	SessionID   string          `json:"session_id"`
+	From        string          `json:"from,omitempty"`
+	To          string          `json:"to,omitempty"`
+	DeviceID    string          `json:"device_id,omitempty"`
+	MessageType string          `json:"message_type,omitempty"`
+	Content     json.RawMessage `json:"content,omitempty"`
+	Timestamp   time.Time       `json:"timestamp,omitempty"`
+}
+
+// ChatWebSocketHandler exposes a narrow guest-side chat transport for one
+// session without reopening generic RPC tunneling.
+type ChatWebSocketHandler struct {
+	registry *Registry
+	sender   *RPCHandler
+	hub      *MessageHub
+	logger   *slog.Logger
+}
+
+// NewChatWebSocketHandler creates a chat-only guest bridge.
+func NewChatWebSocketHandler(registry *Registry, sender *RPCHandler, hub *MessageHub, logger *slog.Logger) *ChatWebSocketHandler {
+	return &ChatWebSocketHandler{
+		registry: registry,
+		sender:   sender,
+		hub:      hub,
+		logger:   componentLogger(logger),
+	}
+}
+
+// HandleChat upgrades the request and bridges session-scoped chat traffic.
+func (h *ChatWebSocketHandler) HandleChat(w http.ResponseWriter, r *http.Request) {
+	if h.registry == nil || h.sender == nil {
+		http.Error(w, "agent chat websocket is not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	agentName := strings.TrimSpace(r.PathValue("agent"))
+	if agentName == "" {
+		http.Error(w, "missing agent", http.StatusBadRequest)
+		return
+	}
+	info := h.registry.Resolve(agentName)
+	if info == nil {
+		http.Error(w, fmt.Sprintf("agent %q not found", agentName), http.StatusNotFound)
+		return
+	}
+
+	sessionID := strings.TrimSpace(r.URL.Query().Get("session_id"))
+	if sessionID == "" {
+		http.Error(w, "missing session_id", http.StatusBadRequest)
+		return
+	}
+
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		OriginPatterns: []string{"localhost:*", "127.0.0.1:*", "[::1]:*"},
+	})
+	if err != nil {
+		return
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+	conn.SetReadLimit(chatWebSocketReadLimit)
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	sub := h.hub.Subscribe(ctx, func(msg Message) bool {
+		return msg.SessionID == sessionID
+	})
+
+	if err := wsjson.Write(ctx, conn, chatWSEvent{
+		Type:  "event",
+		Event: "session.ready",
+		Payload: map[string]interface{}{
+			"session_id": sessionID,
+			"agent": map[string]string{
+				"id":   info.ID,
+				"name": info.Name,
+			},
+		},
+	}); err != nil {
+		return
+	}
+
+	reqCh := make(chan chatWSRequest)
+	readErrCh := make(chan error, 1)
+	go func() {
+		defer close(reqCh)
+		for {
+			var req chatWSRequest
+			if err := wsjson.Read(ctx, conn, &req); err != nil {
+				readErrCh <- err
+				return
+			}
+			select {
+			case reqCh <- req:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case err := <-readErrCh:
+			if err == nil {
+				return
+			}
+			status := websocket.CloseStatus(err)
+			if status == websocket.StatusNormalClosure || status == websocket.StatusGoingAway {
+				return
+			}
+			h.logger.Debug("agent chat websocket read failed", "error", err)
+			return
+		case msg, ok := <-sub:
+			if !ok {
+				return
+			}
+			if err := wsjson.Write(ctx, conn, chatWSEvent{
+				Type:    "event",
+				Event:   chatEventName(msg),
+				Payload: normalizeChatStreamMessage(msg),
+			}); err != nil {
+				return
+			}
+		case req, ok := <-reqCh:
+			if !ok {
+				return
+			}
+			resp := h.handleRequest(ctx, info.ID, sessionID, req)
+			if err := wsjson.Write(ctx, conn, resp); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func (h *ChatWebSocketHandler) handleRequest(ctx context.Context, agentID, sessionID string, req chatWSRequest) chatWSResponse {
+	if strings.TrimSpace(req.Type) != "req" {
+		return chatWSResponse{
+			Type: "res",
+			ID:   req.ID,
+			Error: &chatWSError{
+				Code:    "bad_request",
+				Message: "type must be req",
+			},
+		}
+	}
+	if strings.TrimSpace(req.Method) != "message.send" {
+		return chatWSResponse{
+			Type: "res",
+			ID:   req.ID,
+			Error: &chatWSError{
+				Code:    "method_not_found",
+				Message: "method must be message.send",
+			},
+		}
+	}
+
+	var params chatWSSendParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return chatWSResponse{
+			Type: "res",
+			ID:   req.ID,
+			Error: &chatWSError{
+				Code:    "invalid_params",
+				Message: "invalid params: " + err.Error(),
+			},
+		}
+	}
+
+	messageType := strings.TrimSpace(params.MessageType)
+	if messageType == "" {
+		messageType = "chat"
+	}
+	if messageType != "chat" {
+		return chatWSResponse{
+			Type: "res",
+			ID:   req.ID,
+			Error: &chatWSError{
+				Code:    "invalid_params",
+				Message: "message_type must be chat",
+			},
+		}
+	}
+
+	content, err := normalizeTextOnlyContent(params.Content)
+	if err != nil {
+		return chatWSResponse{
+			Type: "res",
+			ID:   req.ID,
+			Error: &chatWSError{
+				Code:    "invalid_content",
+				Message: err.Error(),
+			},
+		}
+	}
+
+	result, err := h.sender.SendMessage(ctx, SendParams{
+		To:        agentID,
+		SessionID: sessionID,
+		Type:      messageType,
+		Content:   content,
+	})
+	if err != nil {
+		return chatWSResponse{
+			Type: "res",
+			ID:   req.ID,
+			Error: &chatWSError{
+				Code:    "send_failed",
+				Message: err.Error(),
+			},
+		}
+	}
+
+	return chatWSResponse{
+		Type:   "res",
+		ID:     req.ID,
+		Result: result,
+	}
+}
+
+func chatEventName(msg Message) string {
+	switch strings.TrimSpace(msg.Type) {
+	case "delta", "message", "done", "error":
+		return msg.Type
+	default:
+		return "message"
+	}
+}
+
+func normalizeChatStreamMessage(msg Message) ChatStreamMessage {
+	return ChatStreamMessage{
+		ID:          msg.ID,
+		SessionID:   msg.SessionID,
+		From:        msg.From,
+		To:          msg.To,
+		DeviceID:    msg.DeviceID,
+		MessageType: msg.Type,
+		Content:     msg.Content,
+		Timestamp:   msg.Timestamp,
+	}
+}
+
+func normalizeTextOnlyContent(raw json.RawMessage) (json.RawMessage, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil, fmt.Errorf("content is required")
+	}
+
+	var text string
+	if err := json.Unmarshal(trimmed, &text); err == nil {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return nil, fmt.Errorf("content text is required")
+		}
+		return marshalTextParts([]chatTextPartJSON{{Type: "text", Text: text}})
+	}
+
+	var content chatTextContent
+	if err := json.Unmarshal(trimmed, &content); err != nil {
+		return nil, fmt.Errorf("invalid content JSON: %w", err)
+	}
+
+	parts := make([]chatTextPartJSON, 0, len(content.Parts)+1)
+	if text := strings.TrimSpace(content.Text); text != "" {
+		parts = append(parts, chatTextPartJSON{Type: "text", Text: text})
+	}
+	for _, part := range content.Parts {
+		partType := strings.TrimSpace(part.Type)
+		if partType == "" {
+			partType = "text"
+		}
+		if partType != "text" {
+			return nil, fmt.Errorf("unsupported content part type %q", partType)
+		}
+		text := strings.TrimSpace(part.Text)
+		if text == "" {
+			return nil, fmt.Errorf("text part is required")
+		}
+		parts = append(parts, chatTextPartJSON{Type: "text", Text: text})
+	}
+	if len(parts) == 0 {
+		return nil, fmt.Errorf("content is required")
+	}
+	return marshalTextParts(parts)
+}
+
+func marshalTextParts(parts []chatTextPartJSON) (json.RawMessage, error) {
+	body, err := json.Marshal(chatTextContent{Parts: parts})
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(body), nil
+}
