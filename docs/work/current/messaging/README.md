@@ -23,6 +23,9 @@ This product area should stand on its own even if `sky10` later supports zero
 agents. Agents are one consumer of the messaging broker, not the definition of
 the product.
 
+The implementation plan for this architecture lives in
+[`implementation-plan.md`](./implementation-plan.md).
+
 ## Terminology
 
 ### User-Facing
