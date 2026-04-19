@@ -40,6 +40,9 @@ func TestChatWebSocketHostGuestIntegration(t *testing.T) {
 	hostDialCtx, hostDialCancel := context.WithTimeout(context.Background(), time.Second)
 	defer hostDialCancel()
 	hostConn, hostResp, hostErr := websocket.Dial(hostDialCtx, hostWSURL, nil)
+	if hostResp != nil && hostResp.Body != nil {
+		defer hostResp.Body.Close()
+	}
 	if hostConn != nil {
 		hostConn.Close(websocket.StatusNormalClosure, "")
 	}
@@ -187,7 +190,10 @@ func dialChatSession(t *testing.T, baseURL, agentName, sessionID string) *websoc
 	defer cancel()
 
 	wsURL := "ws" + strings.TrimPrefix(baseURL, "http") + "/rpc/agents/" + agentName + "/chat?session_id=" + sessionID
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("websocket dial for %s: %v", sessionID, err)
 	}

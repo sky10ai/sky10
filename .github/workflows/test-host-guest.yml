@@ -1,4 +1,4 @@
-name: test-host-guest
+name: test-host-guest-sandbox-vm
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   test-host-guest:
-    name: Integration tests (Host & Guest)
+    name: Integration tests (Host and Guest Sandbox/VM)
     runs-on: ubuntu-latest
 
     steps:

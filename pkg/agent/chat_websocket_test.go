@@ -50,7 +50,10 @@ func TestChatWebSocketValidatesRequests(t *testing.T) {
 	}
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/rpc/agents/coder/chat?session_id=session-1"
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("websocket dial: %v", err)
 	}
