@@ -164,6 +164,7 @@ export default function AgentChat() {
           : undefined)
       : agentChatWebSocketURL(agentInfoID, sessionId)
     : undefined;
+  const showGlobalWaiting = waiting && !messages.some((message) => message.streaming);
 
   const clearWaitingState = useEffectEvent(() => {
     clearTimeout(slowWaitingTimerRef.current);
@@ -651,6 +652,16 @@ export default function AgentChat() {
                 ) : (
                   msg.content
                 )}
+                {msg.from === "agent" && msg.streaming && (
+                  <div className="mt-3 flex items-center gap-2 text-[11px] text-secondary">
+                    <div className="flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-secondary/60 animate-bounce" style={{ animationDelay: "0ms" }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-secondary/60 animate-bounce" style={{ animationDelay: "150ms" }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-secondary/60 animate-bounce" style={{ animationDelay: "300ms" }} />
+                    </div>
+                    <span>Streaming...</span>
+                  </div>
+                )}
               </div>
             </div>
             {msg.from === "user" && msg.delivered && (
@@ -669,7 +680,7 @@ export default function AgentChat() {
             )}
           </div>
         ))}
-        {waiting && (
+        {showGlobalWaiting && (
           <div className="flex justify-start">
             <div className="rounded-2xl rounded-bl-md border border-outline-variant/20 bg-surface-container-high px-4 py-3 shadow-sm">
               <div className="flex items-center gap-1.5">
