@@ -595,6 +595,15 @@ func TestHermesUserScriptInstallsHelper(t *testing.T) {
 	if !strings.Contains(script, "merge_guest_env_into_shared") {
 		t.Fatalf("user script missing guest-env merge helper: %q", script)
 	}
+	if !strings.Contains(script, "shared_agent_file_is_seed") {
+		t.Fatalf("user script missing seeded-profile detection helper: %q", script)
+	}
+	if !strings.Contains(script, `preserve_guest_agent_path "${source}" "${target}"`) {
+		t.Fatalf("user script missing guest profile preservation before relink: %q", script)
+	}
+	if !strings.Contains(script, "guest-profile-backup") {
+		t.Fatalf("user script missing guest profile backup path: %q", script)
+	}
 	if !strings.Contains(script, ".env.example") {
 		t.Fatalf("user script missing Hermes example env comparison: %q", script)
 	}

@@ -311,15 +311,82 @@ link_hermes_env() {
   ln -sfn "${SANDBOX_STATE_DIR}/.env" "${HERMES_HOME}/.env"
 }
 
+shared_agent_file_is_seed() {
+  local source="$1"
+  local base
+
+  if [ ! -f "${source}" ]; then
+    return 1
+  fi
+
+  base="$(basename "${source}")"
+  case "${base}" in
+    memory.md)
+      grep -Fqx -- "# Memory" "${source}" &&
+        grep -Fqx -- "Use this file for durable facts that should survive model, runtime, and machine changes." "${source}" &&
+        grep -Fqx -- "- Project conventions worth carrying forward" "${source}" &&
+        grep -Fqx -- "- Recurring tasks or preferences" "${source}" &&
+        grep -Fqx -- "- Useful environment facts" "${source}"
+      ;;
+    USER.md)
+      ! grep -q -- '[^[:space:]]' "${source}"
+      ;;
+    soul.md)
+      grep -Fqx -- "# Soul" "${source}" &&
+        grep -Fq -- "This file defines the durable identity for " "${source}" &&
+        grep -Fqx -- "## Role" "${source}" &&
+        grep -Fq -- "Describe who this agent is and what it should optimize for in the " "${source}" &&
+        grep -Fqx -- "## Tone" "${source}" &&
+        grep -Fqx -- "Describe how the agent should communicate." "${source}" &&
+        grep -Fqx -- "## Boundaries" "${source}" &&
+        grep -Fqx -- "Describe what the agent should avoid, when it should escalate, and what humans own." "${source}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+preserve_guest_agent_path() {
+  local source="$1"
+  local target="$2"
+  local rel_path
+  local backup_path
+
+  if [ ! -e "${target}" ] || [ -L "${target}" ]; then
+    return 0
+  fi
+
+  if [ -f "${target}" ]; then
+    if [ -f "${source}" ] && cmp -s "${source}" "${target}" >/dev/null 2>&1; then
+      rm -f "${target}"
+      return 0
+    fi
+
+    if [ -f "${source}" ] && shared_agent_file_is_seed "${source}"; then
+      cp "${target}" "${source}"
+      rm -f "${target}"
+      return 0
+    fi
+  fi
+
+  rel_path="${target#${HERMES_HOME}/}"
+  if [ "${rel_path}" = "${target}" ]; then
+    rel_path="$(basename "${target}")"
+  fi
+  backup_path="${SANDBOX_STATE_DIR}/guest-profile-backup/${rel_path}"
+  mkdir -p "$(dirname "${backup_path}")"
+  rm -rf "${backup_path}"
+  cp -R "${target}" "${backup_path}"
+  rm -rf "${target}"
+}
+
 link_agent_file() {
   local source="$1"
   local target="$2"
 
   mkdir -p "$(dirname "${target}")"
-  if [ -e "${target}" ] && [ ! -L "${target}" ]; then
-    return 0
-  fi
-
+  preserve_guest_agent_path "${source}" "${target}"
   ln -sfn "${source}" "${target}"
 }
 

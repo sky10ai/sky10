@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -1201,6 +1203,15 @@ func TestBundledHermesUserScriptKeepsSharedEnv(t *testing.T) {
 	if !strings.Contains(script, "merge_guest_env_into_shared") {
 		t.Fatalf("bundled Hermes user script missing guest-env merge helper: %q", script)
 	}
+	if !strings.Contains(script, "shared_agent_file_is_seed") {
+		t.Fatalf("bundled Hermes user script missing seeded-profile detection helper: %q", script)
+	}
+	if !strings.Contains(script, `preserve_guest_agent_path "${source}" "${target}"`) {
+		t.Fatalf("bundled Hermes user script missing guest profile preservation before relink: %q", script)
+	}
+	if !strings.Contains(script, "guest-profile-backup") {
+		t.Fatalf("bundled Hermes user script missing guest profile backup path: %q", script)
+	}
 	if !strings.Contains(script, ".env.example") {
 		t.Fatalf("bundled Hermes user script missing example env comparison: %q", script)
 	}
@@ -1257,6 +1268,148 @@ func TestBundledHermesUserScriptKeepsSharedEnv(t *testing.T) {
 	}
 	if strings.Contains(script, `cp "${HERMES_HOME}/.env" "${SHARED_DIR}/.env"`) {
 		t.Fatalf("bundled Hermes user script should not clobber shared env with guest env: %q", script)
+	}
+}
+
+func TestBundledHermesUserScriptRelinksExistingGuestProfileFiles(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("Hermes Lima template shell helpers require bash")
+	}
+
+	body, err := readBundledTemplateAsset(templateHermesUser)
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateHermesUser, err)
+	}
+
+	script := string(body)
+	start := strings.Index(script, "shared_agent_file_is_seed() {")
+	if start == -1 {
+		t.Fatal("shared_agent_file_is_seed() not found in bundled Hermes user script")
+	}
+	end := strings.Index(script, "\nwrite_helper() {")
+	if end == -1 || end <= start {
+		t.Fatal("write_helper() marker not found after Hermes profile helpers")
+	}
+	helperScript := script[start:end]
+
+	root := t.TempDir()
+	sharedDir := filepath.Join(root, "shared")
+	stateDir := filepath.Join(root, "state")
+	hermesHome := filepath.Join(root, "home", ".hermes")
+
+	if err := os.MkdirAll(filepath.Join(hermesHome, "memories"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(hermes memories) error: %v", err)
+	}
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(stateDir) error: %v", err)
+	}
+	if err := os.MkdirAll(sharedDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(sharedDir) error: %v", err)
+	}
+
+	seedSoul := strings.TrimSpace(`
+# Soul
+
+This file defines the durable identity for Hermes Dev.
+
+## Role
+
+Describe who this agent is and what it should optimize for in the hermes runtime.
+
+## Tone
+
+Describe how the agent should communicate.
+
+## Boundaries
+
+Describe what the agent should avoid, when it should escalate, and what humans own.
+`) + "\n"
+	seedMemory := strings.TrimSpace(`
+# Memory
+
+Use this file for durable facts that should survive model, runtime, and machine changes.
+
+- Project conventions worth carrying forward
+- Recurring tasks or preferences
+- Useful environment facts
+`) + "\n"
+
+	if err := os.WriteFile(filepath.Join(sharedDir, "soul.md"), []byte(seedSoul), 0o644); err != nil {
+		t.Fatalf("WriteFile(shared soul) error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sharedDir, "memory.md"), []byte(seedMemory), 0o644); err != nil {
+		t.Fatalf("WriteFile(shared memory) error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sharedDir, "USER.md"), nil, 0o644); err != nil {
+		t.Fatalf("WriteFile(shared USER) error: %v", err)
+	}
+
+	wantSoul := "# Soul\n\nKeep replies terse and biased toward shipping.\n"
+	wantMemory := "# Memory\n\n- Remember the deployment bucket is west-2.\n"
+	wantUser := "# User\n\n- Prefers direct answers without filler.\n"
+
+	if err := os.WriteFile(filepath.Join(hermesHome, "SOUL.md"), []byte(wantSoul), 0o644); err != nil {
+		t.Fatalf("WriteFile(guest SOUL) error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(hermesHome, "memories", "MEMORY.md"), []byte(wantMemory), 0o644); err != nil {
+		t.Fatalf("WriteFile(guest MEMORY) error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(hermesHome, "memories", "USER.md"), []byte(wantUser), 0o644); err != nil {
+		t.Fatalf("WriteFile(guest USER) error: %v", err)
+	}
+
+	cmd := exec.Command("bash", "-lc", "set -euo pipefail\nSTATE_DIR=\"${HERMES_HOME}/.sky10-lima\"\nmkdir -p \"${STATE_DIR}\"\n"+helperScript+"\nlink_hermes_profile\n")
+	cmd.Env = append(os.Environ(),
+		"SHARED_DIR="+sharedDir,
+		"SANDBOX_STATE_DIR="+stateDir,
+		"HERMES_HOME="+hermesHome,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("bash relink helpers failed: %v\n%s", err, string(out))
+	}
+
+	for _, tc := range []struct {
+		target string
+		source string
+		want   string
+	}{
+		{
+			target: filepath.Join(hermesHome, "SOUL.md"),
+			source: filepath.Join(sharedDir, "soul.md"),
+			want:   wantSoul,
+		},
+		{
+			target: filepath.Join(hermesHome, "memories", "MEMORY.md"),
+			source: filepath.Join(sharedDir, "memory.md"),
+			want:   wantMemory,
+		},
+		{
+			target: filepath.Join(hermesHome, "memories", "USER.md"),
+			source: filepath.Join(sharedDir, "USER.md"),
+			want:   wantUser,
+		},
+	} {
+		linkTarget, err := os.Readlink(tc.target)
+		if err != nil {
+			t.Fatalf("Readlink(%q) error: %v", tc.target, err)
+		}
+		if linkTarget != tc.source {
+			t.Fatalf("%q -> %q, want %q", tc.target, linkTarget, tc.source)
+		}
+		body, err := os.ReadFile(tc.source)
+		if err != nil {
+			t.Fatalf("ReadFile(%q) error: %v", tc.source, err)
+		}
+		if string(body) != tc.want {
+			t.Fatalf("%q = %q, want %q", tc.source, string(body), tc.want)
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(stateDir, "guest-profile-backup")); !os.IsNotExist(err) {
+		t.Fatalf("guest profile backup dir = %v, want not created for seeded profile migration", err)
 	}
 }
 
