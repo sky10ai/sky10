@@ -275,6 +275,19 @@ function resolveReplyText(payload) {
   return "";
 }
 
+function resolveIncrementalReplyText(nextText, previousText) {
+  if (!nextText) {
+    return "";
+  }
+  if (!previousText) {
+    return nextText;
+  }
+  if (nextText.startsWith(previousText)) {
+    return nextText.slice(previousText.length);
+  }
+  return nextText;
+}
+
 function buildStreamContent(text, streamId, clientRequestID) {
   const content = {
     text,
@@ -410,6 +423,9 @@ async function dispatchInbound(log, ctx, account, msg, rawBody) {
 
   const clientRequestID = extractClientRequestID(msg.content);
   const streamId = randomUUID();
+  const partialReplyState = {
+    lastText: "",
+  };
   const { onModelSelected, ...replyPipeline } = createChannelReplyPipeline({
     cfg: ctx.cfg,
     agentId: route.agentId,
@@ -425,6 +441,9 @@ async function dispatchInbound(log, ctx, account, msg, rawBody) {
         const kind = meta?.kind ?? "final";
         const replyText = resolveReplyText(payload);
         if (kind === "block") {
+          if (partialReplyState.lastText) {
+            return;
+          }
           await state.client.sendDelta(msg.from, sessionId, replyText, msg.from, streamId, clientRequestID);
           return;
         }
@@ -446,6 +465,18 @@ async function dispatchInbound(log, ctx, account, msg, rawBody) {
     },
     replyOptions: {
       onModelSelected,
+      onAssistantMessageStart: () => {
+        partialReplyState.lastText = "";
+      },
+      onPartialReply: async (payload) => {
+        const nextText = resolveReplyText(payload);
+        const deltaText = resolveIncrementalReplyText(nextText, partialReplyState.lastText);
+        partialReplyState.lastText = nextText;
+        if (!deltaText) {
+          return;
+        }
+        await state.client.sendDelta(msg.from, sessionId, deltaText, msg.from, streamId, clientRequestID);
+      },
     },
   });
 }

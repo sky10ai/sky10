@@ -571,6 +571,12 @@ func TestBundledOpenClawBridgeAssetStreamsReplies(t *testing.T) {
 	if !strings.Contains(indexScript, "state.client.sendDelta(") {
 		t.Fatalf("bundled plugin index missing delta send path: %q", indexScript)
 	}
+	if !strings.Contains(indexScript, "onPartialReply: async (payload)") {
+		t.Fatalf("bundled plugin index missing partial reply stream hook: %q", indexScript)
+	}
+	if !strings.Contains(indexScript, "resolveIncrementalReplyText") {
+		t.Fatalf("bundled plugin index missing incremental reply helper: %q", indexScript)
+	}
 	if !strings.Contains(indexScript, "state.client.sendContent(") {
 		t.Fatalf("bundled plugin index missing final content send path: %q", indexScript)
 	}
