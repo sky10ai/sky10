@@ -2,6 +2,7 @@
 
 | Date | Entry |
 |------|-------|
+| 19 | [Hermes WebSocket Streaming And Web Chat](19-Hermes-WebSocket-Streaming-And-Web-Chat.md) — Hermes guest bridge streaming over the guest chat websocket, host web chat cutover to direct guest sockets, stream-merge/progress/timing UX fixes, same-session queue removal, and cold-start warm-up |
 | 19 | [Device Subsystem Foundation](19-Device-Subsystem-Foundation.md) — Milestone 0-2 device refactor: package boundary contract, extraction of current device snapshot ownership into `pkg/device`, command-layer metadata composition moved into a device service, and restored current-device platform/IP/location in no-S3 P2P mode |
 | 19 | [Host-Guest WebSocket Comms Foundation](19-Host-Guest-WebSocket-Comms-Foundation.md) — dedicated host-initiated guest chat websocket transport, streaming event vocabulary, two-daemon integration coverage, and groundwork for streaming guest agents back into the host web UI with a tighter VM boundary |
 | 16 | [Web Dark Theme And Selector](16-Web-Dark-Theme-And-Selector.md) — system-aware `System`/`Light`/`Dark` preference model, top-right header selector, CSS-variable-backed token palette, and dark-mode cleanup across the main command-center surfaces |
