@@ -354,6 +354,7 @@ func startHermesBridge(t *testing.T, guestBaseURL, hermesAPIBaseURL, agentName s
 		"PYTHONUNBUFFERED=1",
 		"SKY10_BRIDGE_CONFIG_PATH="+configPath,
 		"HERMES_API_BASE_URL="+hermesAPIBaseURL+"/v1",
+		"HERMES_BRIDGE_SKIP_WARMUP=1",
 	)
 	cmd.Stdout = logs
 	cmd.Stderr = logs

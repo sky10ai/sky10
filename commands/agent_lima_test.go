@@ -592,4 +592,10 @@ func TestHermesBridgeAssetSubscribesToSky10Events(t *testing.T) {
 	if !strings.Contains(script, `"stream_id": stream_id`) {
 		t.Fatalf("bridge asset missing stream_id propagation: %q", script)
 	}
+	if !strings.Contains(script, "def warm_up(self) -> None:") {
+		t.Fatalf("bridge asset missing Hermes warm-up path: %q", script)
+	}
+	if !strings.Contains(script, "HERMES_BRIDGE_SKIP_WARMUP") {
+		t.Fatalf("bridge asset missing warm-up test escape hatch: %q", script)
+	}
 }

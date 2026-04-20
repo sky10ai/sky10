@@ -20,6 +20,7 @@ HEARTBEAT_INTERVAL_SECONDS = 25
 RECONNECT_DELAY_SECONDS = 5
 SEEN_TTL_SECONDS = 30
 DEFAULT_AGENT_SKILLS = ["code", "shell", "web-search", "file-ops"]
+WARMUP_PROMPT = "Reply with exactly OK."
 
 
 class BridgeError(RuntimeError):
@@ -55,6 +56,11 @@ def extract_client_request_id(content: Any) -> str:
     if not isinstance(client_request_id, str):
         return ""
     return client_request_id.strip()
+
+
+def env_truthy(name: str) -> bool:
+    value = os.environ.get(name, "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def iter_sse(response: Any) -> Any:
@@ -219,6 +225,77 @@ class HermesClient:
                 else:
                     raise
         return self._stream_chat_completions(session_id, text, on_delta)
+
+    def warm_up(self) -> None:
+        start = time.time()
+        if self.use_responses_api:
+            try:
+                self._warm_responses()
+                elapsed_ms = int((time.time() - start) * 1000)
+                log(f"Hermes API warm-up completed in {elapsed_ms}ms via /responses")
+                return
+            except BridgeError as exc:
+                if self._responses_api_unsupported(str(exc)):
+                    log(f"Hermes Responses API warm-up unavailable, falling back to chat completions: {exc}")
+                    self.use_responses_api = False
+                else:
+                    raise
+        self._warm_chat_completions()
+        elapsed_ms = int((time.time() - start) * 1000)
+        log(f"Hermes API warm-up completed in {elapsed_ms}ms via /chat/completions")
+
+    def _warm_responses(self) -> None:
+        payload = {
+            "model": self.model,
+            "input": WARMUP_PROMPT,
+            "store": False,
+            "stream": True,
+            "max_output_tokens": 1,
+        }
+        request = self._stream_request("/responses", payload)
+        try:
+            with urllib.request.urlopen(request, timeout=600) as response:
+                for event_name, data in iter_sse(response):
+                    if data.strip() == "[DONE]":
+                        return
+                    try:
+                        event = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    if self._extract_responses_delta(event_name, event):
+                        return
+                    if event_name in {"response.completed", "response.output_text.done"}:
+                        return
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            raise BridgeError(f"Hermes API warm-up /responses failed with HTTP {exc.code}: {body}") from exc
+        except urllib.error.URLError as exc:
+            raise BridgeError(f"Hermes API warm-up /responses failed: {exc.reason}") from exc
+
+    def _warm_chat_completions(self) -> None:
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": WARMUP_PROMPT}],
+            "stream": True,
+            "max_tokens": 1,
+        }
+        request = self._stream_request("/chat/completions", payload)
+        try:
+            with urllib.request.urlopen(request, timeout=600) as response:
+                for _event_name, data in iter_sse(response):
+                    if data.strip() == "[DONE]":
+                        return
+                    try:
+                        event = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    if self._extract_chat_completions_delta(event):
+                        return
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            raise BridgeError(f"Hermes API warm-up /chat/completions failed with HTTP {exc.code}: {body}") from exc
+        except urllib.error.URLError as exc:
+            raise BridgeError(f"Hermes API warm-up /chat/completions failed: {exc.reason}") from exc
 
     def _stream_responses(self, session_id: str, text: str, on_delta: Callable[[str], None]) -> str:
         payload = {
@@ -443,6 +520,7 @@ class Bridge:
         self.skills = [str(skill).strip() for skill in raw_skills if str(skill).strip()] or list(DEFAULT_AGENT_SKILLS)
         self.sky10 = Sky10Client(self.host_rpc_url)
         self.hermes = HermesClient()
+        self.skip_warmup = env_truthy("HERMES_BRIDGE_SKIP_WARMUP")
         self.stop_event = threading.Event()
         self.agent_id = ""
         self.seen_lock = threading.Lock()
@@ -450,6 +528,11 @@ class Bridge:
 
     def run(self) -> None:
         self.hermes.wait_until_ready(self.stop_event)
+        if not self.skip_warmup:
+            try:
+                self.hermes.warm_up()
+            except Exception as exc:
+                log(f"Hermes API warm-up failed: {exc}")
         self.ensure_registered()
 
         heartbeat_thread = threading.Thread(target=self._heartbeat_loop, name="sky10-hermes-heartbeat", daemon=True)
