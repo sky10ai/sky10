@@ -47,8 +47,9 @@ type chatWSSendParams struct {
 }
 
 type chatTextContent struct {
-	Text  string             `json:"text,omitempty"`
-	Parts []chatTextPartJSON `json:"parts,omitempty"`
+	Text            string             `json:"text,omitempty"`
+	Parts           []chatTextPartJSON `json:"parts,omitempty"`
+	ClientRequestID string             `json:"client_request_id,omitempty"`
 }
 
 type chatTextPartJSON struct {
@@ -356,13 +357,14 @@ func normalizeTextOnlyContent(raw json.RawMessage) (json.RawMessage, error) {
 		if text == "" {
 			return nil, fmt.Errorf("content text is required")
 		}
-		return marshalTextParts([]chatTextPartJSON{{Type: "text", Text: text}})
+		return marshalTextParts([]chatTextPartJSON{{Type: "text", Text: text}}, "")
 	}
 
 	var content chatTextContent
 	if err := json.Unmarshal(trimmed, &content); err != nil {
 		return nil, fmt.Errorf("invalid content JSON: %w", err)
 	}
+	clientRequestID := strings.TrimSpace(content.ClientRequestID)
 
 	parts := make([]chatTextPartJSON, 0, len(content.Parts)+1)
 	if text := strings.TrimSpace(content.Text); text != "" {
@@ -385,11 +387,14 @@ func normalizeTextOnlyContent(raw json.RawMessage) (json.RawMessage, error) {
 	if len(parts) == 0 {
 		return nil, fmt.Errorf("content is required")
 	}
-	return marshalTextParts(parts)
+	return marshalTextParts(parts, clientRequestID)
 }
 
-func marshalTextParts(parts []chatTextPartJSON) (json.RawMessage, error) {
-	body, err := json.Marshal(chatTextContent{Parts: parts})
+func marshalTextParts(parts []chatTextPartJSON, clientRequestID string) (json.RawMessage, error) {
+	body, err := json.Marshal(chatTextContent{
+		Parts:           parts,
+		ClientRequestID: clientRequestID,
+	})
 	if err != nil {
 		return nil, err
 	}

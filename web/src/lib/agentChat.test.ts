@@ -18,6 +18,7 @@ function msg(overrides: Partial<ChatMessage> = {}): ChatMessage {
     timestamp: overrides.timestamp ?? new Date("2026-04-14T22:00:00Z"),
     delivered: overrides.delivered,
     delivery: overrides.delivery,
+    timing: overrides.timing,
   };
 }
 
@@ -51,31 +52,46 @@ describe("appendChatMessage", () => {
 
 describe("streaming helpers", () => {
   test("applyStreamingDelta accumulates onto one synthetic message", () => {
-    const first = applyStreamingDelta([], "stream-1", "Hel");
+    const first = applyStreamingDelta([], "stream-1", "Hel", new Date("2026-04-14T22:00:01Z"), {
+      firstTokenMs: 1400,
+    });
     const second = applyStreamingDelta(first, "stream-1", "lo");
 
     expect(second).toHaveLength(1);
     expect(second[0]?.id).toBe("stream:stream-1");
     expect(second[0]?.streaming).toBe(true);
     expect(second[0]?.content).toBe("Hello");
+    expect(second[0]?.timing).toEqual({ firstTokenMs: 1400, completeMs: undefined });
   });
 
   test("finalizeStreamingMessage replaces the draft bubble", () => {
-    const draft = applyStreamingDelta([], "stream-2", "Hello");
+    const draft = applyStreamingDelta([], "stream-2", "Hello", new Date("2026-04-14T22:00:01Z"), {
+      firstTokenMs: 1400,
+    });
     const finalMessage = msg({
       id: "m-final",
       type: "text",
       content: "Hello world",
+      timing: { completeMs: 3500 },
     });
 
     const finalized = finalizeStreamingMessage(draft, "stream-2", finalMessage);
-    expect(finalized).toEqual([{ ...finalMessage, streaming: false }]);
+    expect(finalized).toEqual([{
+      ...finalMessage,
+      streaming: false,
+      timing: { firstTokenMs: 1400, completeMs: 3500 },
+    }]);
   });
 
   test("readStreamingEnvelope returns stream metadata", () => {
-    expect(readStreamingEnvelope({ stream_id: "stream-3", text: "Hel" })).toEqual({
+    expect(readStreamingEnvelope({
       stream_id: "stream-3",
       text: "Hel",
+      client_request_id: "req-3",
+    })).toEqual({
+      stream_id: "stream-3",
+      text: "Hel",
+      client_request_id: "req-3",
     });
   });
 

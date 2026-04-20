@@ -1,5 +1,10 @@
 import type { DeliveryMetadata } from "./rpc";
 
+export interface ChatMessageTiming {
+  firstTokenMs?: number;
+  completeMs?: number;
+}
+
 export interface ChatMessage {
   id: string;
   from: "user" | "agent";
@@ -9,6 +14,7 @@ export interface ChatMessage {
   streaming?: boolean;
   delivered?: boolean;
   delivery?: DeliveryMetadata;
+  timing?: ChatMessageTiming;
 }
 
 function parseTimestamp(value: unknown): Date {
@@ -37,6 +43,7 @@ function stringifyChatContent(content: unknown): string {
 export interface StreamingEnvelope {
   stream_id?: string;
   text?: string;
+  client_request_id?: string;
 }
 
 export function readStreamingEnvelope(content: unknown): StreamingEnvelope {
@@ -47,6 +54,7 @@ export function readStreamingEnvelope(content: unknown): StreamingEnvelope {
   return {
     stream_id: typeof value.stream_id === "string" ? value.stream_id : undefined,
     text: typeof value.text === "string" ? value.text : undefined,
+    client_request_id: typeof value.client_request_id === "string" ? value.client_request_id : undefined,
   };
 }
 
@@ -84,6 +92,7 @@ function normalizeMessage(value: unknown): ChatMessage | null {
   if (msg.from !== "user" && msg.from !== "agent") return null;
   if (typeof msg.type !== "string") return null;
   if (typeof msg.content !== "string") return null;
+  const timing = normalizeTiming(msg.timing);
   return {
     id: msg.id,
     from: msg.from,
@@ -93,6 +102,24 @@ function normalizeMessage(value: unknown): ChatMessage | null {
     streaming: msg.streaming,
     delivered: msg.delivered,
     delivery: msg.delivery,
+    timing,
+  };
+}
+
+function normalizeTiming(value: unknown): ChatMessageTiming | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const timing = value as Record<string, unknown>;
+  const firstTokenMs = typeof timing.firstTokenMs === "number" ? timing.firstTokenMs : undefined;
+  const completeMs = typeof timing.completeMs === "number" ? timing.completeMs : undefined;
+  if (firstTokenMs == null && completeMs == null) return undefined;
+  return { firstTokenMs, completeMs };
+}
+
+function mergeTiming(existing?: ChatMessageTiming, next?: ChatMessageTiming): ChatMessageTiming | undefined {
+  if (!existing && !next) return undefined;
+  return {
+    firstTokenMs: next?.firstTokenMs ?? existing?.firstTokenMs,
+    completeMs: next?.completeMs ?? existing?.completeMs,
   };
 }
 
@@ -127,6 +154,7 @@ export function applyStreamingDelta(
   streamID: string,
   deltaText: string,
   timestamp = new Date(),
+  timing?: ChatMessageTiming,
 ): ChatMessage[] {
   if (!streamID || !deltaText) {
     return [...messages];
@@ -143,6 +171,7 @@ export function applyStreamingDelta(
       content: deltaText,
       timestamp,
       streaming: true,
+      timing,
     });
     return next;
   }
@@ -154,6 +183,7 @@ export function applyStreamingDelta(
     content: `${existing.content}${deltaText}`,
     timestamp,
     streaming: true,
+    timing: mergeTiming(existing.timing, timing),
   };
   return next;
 }
@@ -177,6 +207,7 @@ export function finalizeStreamingMessage(
   next[index] = {
     ...finalMessage,
     streaming: false,
+    timing: mergeTiming(next[index]?.timing, finalMessage.timing),
   };
   return dedupeChatMessages(next);
 }

@@ -48,6 +48,15 @@ def extract_text(content: Any) -> str:
     return json.dumps(content, ensure_ascii=True)
 
 
+def extract_client_request_id(content: Any) -> str:
+    if not isinstance(content, dict):
+        return ""
+    client_request_id = content.get("client_request_id")
+    if not isinstance(client_request_id, str):
+        return ""
+    return client_request_id.strip()
+
+
 def iter_sse(response: Any) -> Any:
     event_name = "message"
     data_lines: list[str] = []
@@ -139,27 +148,33 @@ class Sky10Client:
     def send(self, to: str, session_id: str, text: str, device_id: str, msg_type: str = "text") -> None:
         self.send_content(to, session_id, {"text": text}, device_id, msg_type)
 
-    def send_delta(self, to: str, session_id: str, text: str, device_id: str, stream_id: str) -> None:
+    def send_delta(self, to: str, session_id: str, text: str, device_id: str, stream_id: str, client_request_id: str = "") -> None:
         if not text:
             return
+        content = {
+            "text": text,
+            "stream_id": stream_id,
+        }
+        if client_request_id:
+            content["client_request_id"] = client_request_id
         self.send_content(
             to,
             session_id,
-            {
-                "text": text,
-                "stream_id": stream_id,
-            },
+            content,
             device_id,
             "delta",
         )
 
-    def send_done(self, to: str, session_id: str, device_id: str, stream_id: str) -> None:
+    def send_done(self, to: str, session_id: str, device_id: str, stream_id: str, client_request_id: str = "") -> None:
+        content = {
+            "stream_id": stream_id,
+        }
+        if client_request_id:
+            content["client_request_id"] = client_request_id
         self.send_content(
             to,
             session_id,
-            {
-                "stream_id": stream_id,
-            },
+            content,
             device_id,
             "done",
         )
@@ -511,7 +526,9 @@ class Bridge:
 
     def _handle_message(self, message: dict[str, Any]) -> None:
         session_id = str(message.get("session_id") or "main").strip() or "main"
-        user_text = extract_text(message.get("content"))
+        content = message.get("content")
+        user_text = extract_text(content)
+        client_request_id = extract_client_request_id(content)
         sender = str(message.get("from") or "").strip()
         if not sender:
             log("Skipping inbound message without sender")
@@ -522,32 +539,38 @@ class Bridge:
             reply = self.hermes.stream(
                 session_id,
                 user_text,
-                lambda chunk: self.sky10.send_delta(sender, session_id, chunk, sender, stream_id),
+                lambda chunk: self.sky10.send_delta(sender, session_id, chunk, sender, stream_id, client_request_id),
             )
             if reply.strip():
+                reply_content = {
+                    "text": reply,
+                    "stream_id": stream_id,
+                }
+                if client_request_id:
+                    reply_content["client_request_id"] = client_request_id
                 self.sky10.send_content(
                     sender,
                     session_id,
-                    {
-                        "text": reply,
-                        "stream_id": stream_id,
-                    },
+                    reply_content,
                     sender,
                     "text",
                 )
-                self.sky10.send_done(sender, session_id, sender, stream_id)
+                self.sky10.send_done(sender, session_id, sender, stream_id, client_request_id)
                 log(f"Reply sent for session {session_id}")
         except Exception as exc:
             error_text = f"Hermes bridge error: {exc}"
             log(error_text)
             try:
+                error_content = {
+                    "text": error_text,
+                    "stream_id": stream_id,
+                }
+                if client_request_id:
+                    error_content["client_request_id"] = client_request_id
                 self.sky10.send_content(
                     sender,
                     session_id,
-                    {
-                        "text": error_text,
-                        "stream_id": stream_id,
-                    },
+                    error_content,
                     sender,
                     "error",
                 )

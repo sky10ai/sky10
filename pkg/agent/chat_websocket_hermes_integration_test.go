@@ -73,6 +73,9 @@ func TestChatWebSocketHermesBridgeStreamsResponses(t *testing.T) {
 	if deltaOneContent.StreamID == "" {
 		t.Fatal("first delta stream_id is empty")
 	}
+	if deltaOneContent.ClientRequestID != "req-stream" {
+		t.Fatalf("first delta client_request_id = %q, want req-stream", deltaOneContent.ClientRequestID)
+	}
 
 	_, deltaTwoContent := readHermesStreamEvent(t, sessionAConn, "delta")
 	if deltaTwoContent.Text != "lo" {
@@ -80,6 +83,9 @@ func TestChatWebSocketHermesBridgeStreamsResponses(t *testing.T) {
 	}
 	if deltaTwoContent.StreamID != deltaOneContent.StreamID {
 		t.Fatalf("second delta stream_id = %q, want %q", deltaTwoContent.StreamID, deltaOneContent.StreamID)
+	}
+	if deltaTwoContent.ClientRequestID != deltaOneContent.ClientRequestID {
+		t.Fatalf("second delta client_request_id = %q, want %q", deltaTwoContent.ClientRequestID, deltaOneContent.ClientRequestID)
 	}
 
 	messageEvent, messageContent := readHermesStreamEvent(t, sessionAConn, "message")
@@ -92,6 +98,9 @@ func TestChatWebSocketHermesBridgeStreamsResponses(t *testing.T) {
 	if messageContent.StreamID != deltaOneContent.StreamID {
 		t.Fatalf("final message stream_id = %q, want %q", messageContent.StreamID, deltaOneContent.StreamID)
 	}
+	if messageContent.ClientRequestID != deltaOneContent.ClientRequestID {
+		t.Fatalf("final message client_request_id = %q, want %q", messageContent.ClientRequestID, deltaOneContent.ClientRequestID)
+	}
 
 	doneEvent, doneContent := readHermesStreamEvent(t, sessionAConn, "done")
 	if doneEvent.Payload.MessageType != "done" {
@@ -99,6 +108,9 @@ func TestChatWebSocketHermesBridgeStreamsResponses(t *testing.T) {
 	}
 	if doneContent.StreamID != deltaOneContent.StreamID {
 		t.Fatalf("done stream_id = %q, want %q", doneContent.StreamID, deltaOneContent.StreamID)
+	}
+	if doneContent.ClientRequestID != deltaOneContent.ClientRequestID {
+		t.Fatalf("done client_request_id = %q, want %q", doneContent.ClientRequestID, deltaOneContent.ClientRequestID)
 	}
 
 	assertNoStreamEvent(t, sessionBConn, 250*time.Millisecond)
@@ -168,6 +180,9 @@ func TestChatWebSocketHermesBridgeFallsBackToChatCompletions(t *testing.T) {
 	if deltaTwoContent.StreamID != deltaOneContent.StreamID {
 		t.Fatalf("fallback delta stream_id = %q, want %q", deltaTwoContent.StreamID, deltaOneContent.StreamID)
 	}
+	if deltaTwoContent.ClientRequestID != "req-fallback" {
+		t.Fatalf("fallback delta client_request_id = %q, want req-fallback", deltaTwoContent.ClientRequestID)
+	}
 
 	messageEvent, messageContent := readHermesStreamEvent(t, sessionConn, "message")
 	if messageEvent.Payload.MessageType != "text" {
@@ -179,6 +194,9 @@ func TestChatWebSocketHermesBridgeFallsBackToChatCompletions(t *testing.T) {
 	if messageContent.StreamID != deltaOneContent.StreamID {
 		t.Fatalf("fallback final stream_id = %q, want %q", messageContent.StreamID, deltaOneContent.StreamID)
 	}
+	if messageContent.ClientRequestID != deltaOneContent.ClientRequestID {
+		t.Fatalf("fallback final client_request_id = %q, want %q", messageContent.ClientRequestID, deltaOneContent.ClientRequestID)
+	}
 
 	doneEvent, doneContent := readHermesStreamEvent(t, sessionConn, "done")
 	if doneEvent.Payload.MessageType != "done" {
@@ -186,6 +204,9 @@ func TestChatWebSocketHermesBridgeFallsBackToChatCompletions(t *testing.T) {
 	}
 	if doneContent.StreamID != deltaOneContent.StreamID {
 		t.Fatalf("fallback done stream_id = %q, want %q", doneContent.StreamID, deltaOneContent.StreamID)
+	}
+	if doneContent.ClientRequestID != deltaOneContent.ClientRequestID {
+		t.Fatalf("fallback done client_request_id = %q, want %q", doneContent.ClientRequestID, deltaOneContent.ClientRequestID)
 	}
 
 	stats := hermesAPI.stats()
@@ -271,7 +292,7 @@ func TestChatWebSocketHermesBridgeDoesNotQueueSameSessionRequests(t *testing.T) 
 	sendChatTextRequest(t, sessionConn, "req-first", "first")
 	sendChatTextRequest(t, sessionConn, "req-second", "second")
 
-	streamIDs := make(map[string]struct{}, 2)
+	clientRequestIDs := make(map[string]struct{}, 2)
 	for {
 		event := readStreamEvent(t, sessionConn)
 		content := decodeHermesStreamContent(t, event.Payload.Content)
@@ -280,8 +301,11 @@ func TestChatWebSocketHermesBridgeDoesNotQueueSameSessionRequests(t *testing.T) 
 			if content.StreamID == "" {
 				t.Fatalf("delta stream_id is empty: payload=%s", string(event.Payload.Content))
 			}
-			streamIDs[content.StreamID] = struct{}{}
-			if len(streamIDs) == 2 {
+			if content.ClientRequestID == "" {
+				t.Fatalf("delta client_request_id is empty: payload=%s", string(event.Payload.Content))
+			}
+			clientRequestIDs[content.ClientRequestID] = struct{}{}
+			if len(clientRequestIDs) == 2 {
 				stats := hermesAPI.stats()
 				if stats.responsesHits != 2 {
 					t.Fatalf("responses hits = %d, want 2 overlapping requests", stats.responsesHits)
@@ -289,8 +313,8 @@ func TestChatWebSocketHermesBridgeDoesNotQueueSameSessionRequests(t *testing.T) 
 				return
 			}
 		case "done":
-			if len(streamIDs) < 2 {
-				t.Fatalf("same-session requests were serialized; saw %d stream(s) before first done", len(streamIDs))
+			if len(clientRequestIDs) < 2 {
+				t.Fatalf("same-session requests were serialized; saw %d request(s) before first done", len(clientRequestIDs))
 			}
 		}
 	}
@@ -459,6 +483,7 @@ func sendChatTextRequest(t *testing.T, conn *websocket.Conn, requestID, text str
 	params, err := json.Marshal(map[string]interface{}{
 		"message_type": "chat",
 		"content": map[string]interface{}{
+			"client_request_id": requestID,
 			"parts": []map[string]string{{
 				"type": "text",
 				"text": text,
@@ -494,8 +519,9 @@ func sendChatTextRequest(t *testing.T, conn *websocket.Conn, requestID, text str
 }
 
 type hermesStreamContent struct {
-	Text     string `json:"text,omitempty"`
-	StreamID string `json:"stream_id,omitempty"`
+	Text            string `json:"text,omitempty"`
+	StreamID        string `json:"stream_id,omitempty"`
+	ClientRequestID string `json:"client_request_id,omitempty"`
 }
 
 func decodeHermesStreamContent(t *testing.T, payload json.RawMessage) hermesStreamContent {

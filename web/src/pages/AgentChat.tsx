@@ -13,6 +13,7 @@ import {
   readChatContentText,
   readStreamingEnvelope,
   type ChatMessage,
+  type ChatMessageTiming,
 } from "../lib/agentChat";
 import {
   agent,
@@ -53,6 +54,12 @@ interface PendingWSRequest {
   resolve: (result: AgentSendResult) => void;
   reject: (error: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
+}
+
+interface PendingTurnTiming {
+  startedAtMs: number;
+  firstTokenMs?: number;
+  completeMs?: number;
 }
 
 type ChatTransport = "connecting" | "websocket" | "fallback" | "failed";
@@ -106,6 +113,22 @@ function deliveryLabel(delivery?: DeliveryMetadata): string | null {
   return delivery.status.replaceAll("_", " ");
 }
 
+function formatLatency(ms?: number): string | null {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return null;
+  if (ms < 1_000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1_000).toFixed(ms < 10_000 ? 1 : 0)}s`;
+}
+
+function timingLabel(timing?: ChatMessageTiming): string | null {
+  if (!timing) return null;
+  const firstToken = formatLatency(timing.firstTokenMs);
+  const complete = formatLatency(timing.completeMs);
+  if (firstToken && complete) return `First token ${firstToken} • Complete ${complete}`;
+  if (firstToken) return `First token ${firstToken}`;
+  if (complete) return `Complete ${complete}`;
+  return null;
+}
+
 export default function AgentChat() {
   const { agentId } = useParams<{ agentId: string }>();
   const navigate = useNavigate();
@@ -134,6 +157,7 @@ export default function AgentChat() {
   const websocketRetryTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const nextWSRequestIDRef = useRef(1);
   const pendingWSRequestsRef = useRef(new Map<string, PendingWSRequest>());
+  const pendingTurnTimingsRef = useRef(new Map<string, PendingTurnTiming>());
   const [websocketRetryToken, setWebsocketRetryToken] = useState(0);
 
   // Fetch agent info.
@@ -187,6 +211,37 @@ export default function AgentChat() {
     }
   });
 
+  const noteFirstTokenTiming = useEffectEvent((clientRequestID?: string): ChatMessageTiming | undefined => {
+    if (!clientRequestID) return undefined;
+    const pending = pendingTurnTimingsRef.current.get(clientRequestID);
+    if (!pending) return undefined;
+    if (pending.firstTokenMs == null) {
+      pending.firstTokenMs = Math.max(0, Date.now() - pending.startedAtMs);
+    }
+    return {
+      firstTokenMs: pending.firstTokenMs,
+      completeMs: pending.completeMs,
+    };
+  });
+
+  const noteCompletionTiming = useEffectEvent((clientRequestID?: string): ChatMessageTiming | undefined => {
+    if (!clientRequestID) return undefined;
+    const pending = pendingTurnTimingsRef.current.get(clientRequestID);
+    if (!pending) return undefined;
+    if (pending.firstTokenMs == null) {
+      pending.firstTokenMs = Math.max(0, Date.now() - pending.startedAtMs);
+    }
+    if (pending.completeMs == null) {
+      pending.completeMs = Math.max(0, Date.now() - pending.startedAtMs);
+    }
+    const timing: ChatMessageTiming = {
+      firstTokenMs: pending.firstTokenMs,
+      completeMs: pending.completeMs,
+    };
+    pendingTurnTimingsRef.current.delete(clientRequestID);
+    return timing;
+  });
+
   const applySendResult = useEffectEvent((userMessageID: string, result: AgentSendResult) => {
     setMessages((prev) =>
       prev.map((message) => (
@@ -222,7 +277,8 @@ export default function AgentChat() {
       return;
     }
     if (msgType === "delta" && envelope.stream_id && envelope.text) {
-      setMessages((prev) => applyStreamingDelta(prev, envelope.stream_id!, envelope.text!, timestamp));
+      const timing = noteFirstTokenTiming(envelope.client_request_id);
+      setMessages((prev) => applyStreamingDelta(prev, envelope.stream_id!, envelope.text!, timestamp, timing));
       return;
     }
 
@@ -234,6 +290,7 @@ export default function AgentChat() {
       type: msgType,
       content: readChatContentText(msg.content),
       timestamp,
+      timing: noteCompletionTiming(envelope.client_request_id),
     };
 
     if (envelope.stream_id && (msgType === "text" || msgType === "error" || msgType === "message")) {
@@ -393,10 +450,11 @@ export default function AgentChat() {
         pending.reject(new Error("Chat page closed"));
       }
       pendingWSRequestsRef.current.clear();
+      pendingTurnTimingsRef.current.clear();
     };
   }, []);
 
-  const sendWebSocketMessage = async (text: string): Promise<AgentSendResult> => {
+  const sendWebSocketMessage = async (text: string, clientRequestID: string): Promise<AgentSendResult> => {
     let socket = websocketRef.current;
     if (socket?.readyState === WebSocket.CONNECTING) {
       socket = await new Promise<WebSocket>((resolve, reject) => {
@@ -464,7 +522,10 @@ export default function AgentChat() {
           method: "message.send",
           params: {
             message_type: "chat",
-            content: { text },
+            content: {
+              text,
+              client_request_id: clientRequestID,
+            },
           },
         }));
       } catch (error) {
@@ -490,11 +551,13 @@ export default function AgentChat() {
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setSending(true);
+    const clientRequestID = uuid();
+    pendingTurnTimingsRef.current.set(clientRequestID, { startedAtMs: Date.now() });
 
     try {
       let result: AgentSendResult;
       try {
-        result = await sendWebSocketMessage(text);
+        result = await sendWebSocketMessage(text, clientRequestID);
       } catch (error) {
         if (!(error instanceof ChatWebSocketUnavailableError) || requiresGuestWebSocket) {
           throw error;
@@ -504,11 +567,15 @@ export default function AgentChat() {
           device_id: agentInfo.device_id,
           session_id: sessionId,
           type: "text",
-          content: { text },
+          content: {
+            text,
+            client_request_id: clientRequestID,
+          },
         });
       }
       applySendResult(userMsg.id, result);
     } catch (e) {
+      pendingTurnTimingsRef.current.delete(clientRequestID);
       clearWaitingState();
       setMessages((prev) => [
         ...prev,
@@ -652,14 +719,21 @@ export default function AgentChat() {
                 ) : (
                   msg.content
                 )}
-                {msg.from === "agent" && msg.streaming && (
-                  <div className="mt-3 flex items-center gap-2 text-[11px] text-secondary">
-                    <div className="flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-secondary/60 animate-bounce" style={{ animationDelay: "0ms" }} />
-                      <span className="w-1.5 h-1.5 rounded-full bg-secondary/60 animate-bounce" style={{ animationDelay: "150ms" }} />
-                      <span className="w-1.5 h-1.5 rounded-full bg-secondary/60 animate-bounce" style={{ animationDelay: "300ms" }} />
-                    </div>
-                    <span>Streaming...</span>
+                {msg.from === "agent" && (msg.streaming || msg.timing) && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-secondary">
+                    {msg.streaming && (
+                      <>
+                        <div className="flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-secondary/60 animate-bounce" style={{ animationDelay: "0ms" }} />
+                          <span className="w-1.5 h-1.5 rounded-full bg-secondary/60 animate-bounce" style={{ animationDelay: "150ms" }} />
+                          <span className="w-1.5 h-1.5 rounded-full bg-secondary/60 animate-bounce" style={{ animationDelay: "300ms" }} />
+                        </div>
+                        <span>Streaming...</span>
+                      </>
+                    )}
+                    {timingLabel(msg.timing) && (
+                      <span>{timingLabel(msg.timing)}</span>
+                    )}
                   </div>
                 )}
               </div>
