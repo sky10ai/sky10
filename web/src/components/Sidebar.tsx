@@ -16,7 +16,6 @@ const UPDATE_REFRESH_EVENTS = [
 ] as const;
 
 const navItems = [
-  { to: "/ai", icon: "auto_awesome", label: "AI Workspace", matchPrefixes: ["/ai"] },
   { to: "/agents", icon: "smart_toy", label: "Agents", matchPrefixes: ["/agents"] },
   {
     to: "/drives",
