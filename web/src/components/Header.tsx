@@ -8,10 +8,17 @@ import { StatusBadge } from "./StatusBadge";
 import { ThemeControl } from "./ThemeControl";
 
 function getRouteMeta(pathname: string) {
+  if (pathname.startsWith("/start")) {
+    return {
+      description: "Choose whether you want to create an agent for yourself or offer one to other people.",
+      title: "Start",
+    };
+  }
+
   if (pathname.startsWith("/ai")) {
     return {
-      description: "Describe the outcome you want and inspect the node through the root assistant's live tool traces.",
-      title: "AI Workspace",
+      description: "Draft the next agent step and inspect the live node signals the assistant used.",
+      title: "Agent Draft",
     };
   }
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 import { RunCard } from "../components/assistant/RunCard";
 import { WorkspaceHero } from "../components/assistant/WorkspaceHero";
 import { WorkspaceSidebar } from "../components/assistant/WorkspaceSidebar";
@@ -14,6 +15,10 @@ import { agent, identity, sandbox, skyfs, skylink } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
 const STORAGE_KEY = "sky10:ai-workspace:runs:v1";
+
+function parseAudience(value: string | null): AgentAudience {
+  return value === "for_others" ? "for_others" : "for_me";
+}
 
 function createRun(prompt: string, audience: AgentAudience): WorkspaceRun {
   return {
@@ -42,7 +47,10 @@ function loadRuns(raw: string | null): WorkspaceRun[] {
 }
 
 export default function AIWorkspace() {
-  const [audience, setAudience] = useState<AgentAudience>("for_me");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [audience, setAudience] = useState<AgentAudience>(() =>
+    parseAudience(searchParams.get("audience"))
+  );
   const [prompt, setPrompt] = useState("");
   const [runs, setRuns] = useState<WorkspaceRun[]>(() =>
     loadRuns(localStorage.getItem(STORAGE_KEY))
@@ -89,6 +97,11 @@ export default function AIWorkspace() {
     item.status.includes("error") || item.status.includes("failed")
   ).length;
   const suggestions = SUGGESTED_PROMPTS[audience];
+
+  useEffect(() => {
+    const nextAudience = parseAudience(searchParams.get("audience"));
+    setAudience((current) => (current === nextAudience ? current : nextAudience));
+  }, [searchParams]);
 
   async function submitPrompt(nextPrompt: string) {
     const trimmed = nextPrompt.trim();
@@ -167,6 +180,7 @@ export default function AIWorkspace() {
             onAudienceChange={(value) => {
               setAudience(value);
               setPrompt("");
+              setSearchParams({ audience: value });
             }}
             onPromptSelect={setPrompt}
             onSubmit={() => void submitPrompt(prompt)}

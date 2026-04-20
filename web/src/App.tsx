@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router";
 import { Layout } from "./components/Layout";
 import AIWorkspace from "./pages/AIWorkspace";
+import Start from "./pages/Start";
 import GettingStarted from "./pages/GettingStarted";
 import Devices from "./pages/Devices";
 import InviteDevice from "./pages/InviteDevice";
@@ -22,7 +23,7 @@ import SettingsApps from "./pages/SettingsApps";
 import SettingsSecrets from "./pages/SettingsSecrets";
 
 function HomeRedirect() {
-  return <Navigate to="/ai" replace />;
+  return <Navigate to="/start" replace />;
 }
 
 function SandboxLegacyRedirect() {
@@ -37,6 +38,7 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<HomeRedirect />} />
+          <Route path="start" element={<Start />} />
           <Route path="ai" element={<AIWorkspace />} />
           <Route path="getting-started" element={<GettingStarted />} />
           <Route path="agents" element={<Agents />} />
