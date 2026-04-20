@@ -199,6 +199,13 @@ export function agentChatWebSocketURL(agentID: string, sessionID: string) {
   return `${protocol}//${window.location.host}/rpc/agents/${agent}/chat?session_id=${session}`;
 }
 
+export function guestAgentChatWebSocketURL(address: string, agentID: string, sessionID: string) {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const agent = encodeURIComponent(agentID);
+  const session = encodeURIComponent(sessionID);
+  return `${protocol}//${address}:9101/rpc/agents/${agent}/chat?session_id=${session}`;
+}
+
 // -- apps --
 export const apps = {
   status: (p: { id: string }) => rpc<AppStatus>("apps.status", p),
@@ -896,6 +903,8 @@ export interface SandboxRecord {
   shell?: string;
   last_error?: string;
   progress?: SandboxProgress;
+  guest_device_id?: string;
+  guest_device_pubkey?: string;
   created_at: string;
   updated_at: string;
   last_log_at?: string;

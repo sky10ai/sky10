@@ -4,7 +4,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Icon } from "../components/Icon";
 import { StatusBadge } from "../components/StatusBadge";
-import { AGENT_EVENT_TYPES, subscribe } from "../lib/events";
+import { AGENT_EVENT_TYPES, SANDBOX_EVENT_TYPES, subscribe } from "../lib/events";
 import {
   appendChatMessage,
   applyStreamingDelta,
@@ -17,9 +17,12 @@ import {
 import {
   agent,
   agentChatWebSocketURL,
+  guestAgentChatWebSocketURL,
+  sandbox,
   type AgentInfo,
   type AgentSendResult,
   type DeliveryMetadata,
+  type SandboxRecord,
 } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
@@ -52,11 +55,11 @@ interface PendingWSRequest {
   timeout: ReturnType<typeof setTimeout>;
 }
 
-type ChatTransport = "connecting" | "websocket" | "fallback";
+type ChatTransport = "connecting" | "websocket" | "fallback" | "failed";
 
 class ChatWebSocketUnavailableError extends Error {
-  constructor() {
-    super("Chat websocket is not connected");
+  constructor(message = "Chat websocket is not connected") {
+    super(message);
     this.name = "ChatWebSocketUnavailableError";
   }
 }
@@ -138,12 +141,29 @@ export default function AgentChat() {
     live: AGENT_EVENT_TYPES,
     refreshIntervalMs: 5_000,
   });
+  const { data: sandboxData, loading: sandboxLoading } = useRPC(() => sandbox.list(), [], {
+    live: SANDBOX_EVENT_TYPES,
+    refreshIntervalMs: 5_000,
+  });
 
   const agentInfo: AgentInfo | undefined = data?.agents?.find(
     (a) => a.id === agentId || a.name === agentId
   );
   const agentName = agentInfo?.name;
   const agentInfoID = agentInfo?.id;
+  const sandboxGuest: SandboxRecord | undefined = agentInfo
+    ? sandboxData?.sandboxes?.find((record) => record.guest_device_id === agentInfo.device_id)
+    : undefined;
+  const sandboxLookupPending = Boolean(agentInfo && sandboxData === null && sandboxLoading);
+  const requiresGuestWebSocket = Boolean(sandboxGuest);
+  const guestChatReady = Boolean(sandboxGuest?.ip_address);
+  const chatWebSocketURL = agentInfoID
+    ? requiresGuestWebSocket
+      ? (guestChatReady
+          ? guestAgentChatWebSocketURL(sandboxGuest!.ip_address!, agentInfoID, sessionId)
+          : undefined)
+      : agentChatWebSocketURL(agentInfoID, sessionId)
+    : undefined;
 
   const clearWaitingState = useEffectEvent(() => {
     clearTimeout(slowWaitingTimerRef.current);
@@ -172,13 +192,15 @@ export default function AgentChat() {
         message.id === userMessageID
           ? {
               ...message,
-              delivered: result.status === "sent" && result.delivery.status === "sent",
-              delivery: result.delivery,
+              delivered: requiresGuestWebSocket
+                ? result.status === "sent"
+                : result.status === "sent" && result.delivery.status === "sent",
+              delivery: requiresGuestWebSocket ? undefined : result.delivery,
             }
           : message
       ))
     );
-    if (result.status === "sent" && result.delivery.status === "sent") {
+    if (requiresGuestWebSocket ? result.status === "sent" : result.status === "sent" && result.delivery.status === "sent") {
       startWaitingState();
       return;
     }
@@ -264,9 +286,18 @@ export default function AgentChat() {
 
   useEffect(() => {
     if (!agentInfoID) return;
+    if (sandboxLookupPending) {
+      setTransport("connecting");
+      return;
+    }
+    if (requiresGuestWebSocket && !chatWebSocketURL) {
+      setTransport("failed");
+      return;
+    }
+    if (!chatWebSocketURL) return;
 
     setTransport("connecting");
-    const socket = new WebSocket(agentChatWebSocketURL(agentInfoID, sessionId));
+    const socket = new WebSocket(chatWebSocketURL);
     websocketRef.current = socket;
     let disposed = false;
 
@@ -289,7 +320,7 @@ export default function AgentChat() {
 
     socket.onerror = () => {
       if (disposed || websocketRef.current !== socket) return;
-      setTransport("fallback");
+      setTransport(requiresGuestWebSocket ? "failed" : "fallback");
     };
 
     socket.onclose = (event) => {
@@ -298,7 +329,7 @@ export default function AgentChat() {
       }
       rejectPendingWebSocketRequests(event.reason || "Chat websocket closed");
       if (disposed || event.code === 1000) return;
-      setTransport("fallback");
+      setTransport(requiresGuestWebSocket ? "failed" : "fallback");
       clearTimeout(websocketRetryTimerRef.current);
       websocketRetryTimerRef.current = setTimeout(() => {
         setWebsocketRetryToken((value) => value + 1);
@@ -313,10 +344,11 @@ export default function AgentChat() {
       }
       socket.close(1000, "chat closed");
     };
-  }, [agentInfoID, sessionId, websocketRetryToken]);
+  }, [agentInfoID, chatWebSocketURL, requiresGuestWebSocket, sandboxLookupPending, websocketRetryToken]);
 
-  // Fall back to the shared SSE connection when the direct chat websocket is unavailable.
+  // Fall back to the shared SSE connection only for non-sandbox agents.
   useEffect(() => {
+    if (requiresGuestWebSocket) return;
     return subscribe((event, data) => {
       if (transport === "websocket") return;
       if (event !== "agent.message") return;
@@ -337,7 +369,7 @@ export default function AgentChat() {
         timestamp: typeof msg.timestamp === "string" ? msg.timestamp : undefined,
       });
     });
-  }, [agentId, agentInfoID, agentName, sessionId, transport]);
+  }, [agentId, agentInfoID, agentName, requiresGuestWebSocket, sessionId, transport]);
 
   // Auto-scroll to bottom + persist.
   useEffect(() => {
@@ -364,9 +396,55 @@ export default function AgentChat() {
   }, []);
 
   const sendWebSocketMessage = async (text: string): Promise<AgentSendResult> => {
-    const socket = websocketRef.current;
+    let socket = websocketRef.current;
+    if (socket?.readyState === WebSocket.CONNECTING) {
+      socket = await new Promise<WebSocket>((resolve, reject) => {
+        const current = socket;
+        if (!current) {
+          reject(new ChatWebSocketUnavailableError(
+            requiresGuestWebSocket
+              ? "Guest chat websocket is unavailable"
+              : "Chat websocket is not connected",
+          ));
+          return;
+        }
+        const timeout = window.setTimeout(() => {
+          cleanup();
+          reject(new ChatWebSocketUnavailableError(
+            requiresGuestWebSocket
+              ? "Guest chat websocket is still connecting"
+              : "Chat websocket is still connecting",
+          ));
+        }, 5_000);
+        const cleanup = () => {
+          window.clearTimeout(timeout);
+          current.removeEventListener("open", handleOpen);
+          current.removeEventListener("error", handleFailure);
+          current.removeEventListener("close", handleFailure);
+        };
+        const handleOpen = () => {
+          cleanup();
+          resolve(current);
+        };
+        const handleFailure = () => {
+          cleanup();
+          reject(new ChatWebSocketUnavailableError(
+            requiresGuestWebSocket
+              ? "Guest chat websocket is unavailable"
+              : "Chat websocket is unavailable",
+          ));
+        };
+        current.addEventListener("open", handleOpen);
+        current.addEventListener("error", handleFailure);
+        current.addEventListener("close", handleFailure);
+      });
+    }
     if (!socket || socket.readyState !== WebSocket.OPEN) {
-      throw new ChatWebSocketUnavailableError();
+      throw new ChatWebSocketUnavailableError(
+        requiresGuestWebSocket
+          ? "Guest chat websocket is unavailable"
+          : "Chat websocket is not connected",
+      );
     }
 
     const requestID = `req-${nextWSRequestIDRef.current++}`;
@@ -399,6 +477,7 @@ export default function AgentChat() {
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || !agentInfo) return;
+    if (sandboxLookupPending) return;
 
     const userMsg: ChatMessage = {
       id: uuid(),
@@ -416,7 +495,7 @@ export default function AgentChat() {
       try {
         result = await sendWebSocketMessage(text);
       } catch (error) {
-        if (!(error instanceof ChatWebSocketUnavailableError)) {
+        if (!(error instanceof ChatWebSocketUnavailableError) || requiresGuestWebSocket) {
           throw error;
         }
         result = await agent.send({
@@ -624,7 +703,7 @@ export default function AgentChat() {
           />
           <button
             onClick={sendMessage}
-            disabled={!input.trim() || sending}
+            disabled={!input.trim() || sending || sandboxLookupPending}
             className="w-10 h-10 rounded-xl bg-primary text-on-primary flex items-center justify-center disabled:opacity-40 transition-opacity hover:shadow-lg active:scale-95"
           >
             <Icon name={sending ? "hourglass_empty" : "send"} className="text-lg" />
