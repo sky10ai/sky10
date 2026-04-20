@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 import { Icon } from "../components/Icon";
 import { PageHeader } from "../components/PageHeader";
 import { StatusBadge } from "../components/StatusBadge";
@@ -21,6 +21,8 @@ interface DraftFile {
 }
 
 export default function SettingsSecrets() {
+  const [searchParams] = useSearchParams();
+  const didPrefillFromQuery = useRef(false);
   const {
     data: listData,
     error: listError,
@@ -82,6 +84,19 @@ export default function SettingsSecrets() {
     () => items.find((item) => item.id === selectedSecretID) ?? items[0] ?? null,
     [items, selectedSecretID],
   );
+
+  useEffect(() => {
+    if (didPrefillFromQuery.current) return;
+    const nextName = searchParams.get("name");
+    const nextKind = searchParams.get("kind");
+    if (!nextName && !nextKind) {
+      didPrefillFromQuery.current = true;
+      return;
+    }
+    if (nextName) setDraftName(nextName);
+    if (nextKind) setDraftKind(nextKind);
+    didPrefillFromQuery.current = true;
+  }, [searchParams]);
 
   useEffect(() => {
     if (!selectedSecret) {
@@ -402,7 +417,10 @@ export default function SettingsSecrets() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.3fr)_380px]">
-        <section className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-8 shadow-sm">
+        <section
+          className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-8 shadow-sm scroll-mt-24"
+          id="store-secret"
+        >
           <div className="space-y-6">
             <div className="space-y-2">
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">

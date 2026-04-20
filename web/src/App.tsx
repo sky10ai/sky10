@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router"
 import { Layout } from "./components/Layout";
 import AIWorkspace from "./pages/AIWorkspace";
 import Start from "./pages/Start";
+import StartSetup from "./pages/StartSetup";
 import GettingStarted from "./pages/GettingStarted";
 import Devices from "./pages/Devices";
 import InviteDevice from "./pages/InviteDevice";
@@ -39,6 +40,7 @@ export default function App() {
         <Route element={<Layout />}>
           <Route index element={<HomeRedirect />} />
           <Route path="start" element={<Start />} />
+          <Route path="start/setup" element={<StartSetup />} />
           <Route path="ai" element={<AIWorkspace />} />
           <Route path="getting-started" element={<GettingStarted />} />
           <Route path="agents" element={<Agents />} />

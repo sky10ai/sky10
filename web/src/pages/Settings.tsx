@@ -446,7 +446,10 @@ export default function Settings() {
           </section>
         )}
 
-        <section className="col-span-12 lg:col-span-4 bg-surface-container-lowest rounded-xl p-8 border border-transparent space-y-6 flex flex-col">
+        <section
+          className="col-span-12 lg:col-span-4 bg-surface-container-lowest rounded-xl p-8 border border-transparent space-y-6 flex flex-col scroll-mt-24"
+          id="wallet"
+        >
           <div className="space-y-1">
             <h3 className="text-xl font-semibold flex items-center gap-2">
               <Icon name="account_balance_wallet" className="text-tertiary" />

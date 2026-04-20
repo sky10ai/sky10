@@ -1,4 +1,5 @@
-import { Link } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { Icon } from "../components/Icon";
 
 const OPTIONS = [
@@ -13,7 +14,7 @@ const OPTIONS = [
     ],
     icon: "person",
     accent: "from-primary/18 via-primary/8 to-transparent",
-    href: "/ai?audience=for_me",
+    href: "/start/setup?audience=for_me",
     label: "Private",
   },
   {
@@ -27,17 +28,62 @@ const OPTIONS = [
     ],
     icon: "groups",
     accent: "from-secondary-container/75 via-primary/8 to-transparent",
-    href: "/ai?audience=for_others",
+    href: "/start/setup?audience=for_others",
     label: "Service",
   },
 ] as const;
 
+function transitionDelayMs() {
+  if (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  ) {
+    return 0;
+  }
+  return 420;
+}
+
 export default function Start() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [leavingFor, setLeavingFor] = useState<string | null>(null);
+  const timerRef = useRef<number | null>(null);
+  const shouldAnimateInReverse = Boolean(
+    location.state &&
+      typeof location.state === "object" &&
+      "fromSetup" in location.state
+  );
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  function handleSelect(option: (typeof OPTIONS)[number]) {
+    if (leavingFor) return;
+    setLeavingFor(option.id);
+    timerRef.current = window.setTimeout(() => {
+      navigate(option.href, {
+        state: { audience: option.id, fromStart: true },
+      });
+    }, transitionDelayMs());
+  }
+
   return (
     <section className="relative flex min-h-screen items-center justify-center overflow-hidden bg-surface px-6 py-10 sm:px-10">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(19,147,123,0.12),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(0,112,235,0.1),transparent_30%)]" />
 
-      <div className="relative w-full max-w-5xl">
+      <div
+        className={`relative w-full max-w-5xl onboarding-stage ${
+          leavingFor
+            ? "onboarding-page-turn-out"
+            : shouldAnimateInReverse
+              ? "onboarding-page-turn-in-reverse"
+              : ""
+        }`}
+      >
         <div className="mx-auto flex w-fit flex-col items-center gap-3">
           <div className="flex h-16 w-16 items-center justify-center rounded-[1.4rem] text-white shadow-lg shadow-primary/15 lithic-gradient">
             <Icon className="text-[34px]" filled name="cloud" />
@@ -53,10 +99,13 @@ export default function Start() {
 
         <div className="mt-10 grid gap-5 lg:grid-cols-2">
           {OPTIONS.map((option) => (
-            <Link
+            <button
               key={option.id}
-              className="group relative overflow-hidden rounded-[2rem] border border-outline-variant/10 bg-surface-container-lowest p-8 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-md sm:p-10"
-              to={option.href}
+              className={`group relative overflow-hidden rounded-[2rem] border border-outline-variant/10 bg-surface-container-lowest p-8 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-md sm:p-10 ${
+                leavingFor && leavingFor !== option.id ? "opacity-60" : ""
+              }`}
+              onClick={() => handleSelect(option)}
+              type="button"
             >
               <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${option.accent} opacity-90 transition-opacity group-hover:opacity-100`} />
 
@@ -90,7 +139,7 @@ export default function Start() {
                   <Icon className="text-base transition-transform group-hover:translate-x-0.5" name="arrow_forward" />
                 </div>
               </div>
-            </Link>
+            </button>
           ))}
         </div>
       </div>
