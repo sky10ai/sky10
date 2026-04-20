@@ -157,6 +157,52 @@ func TestChatWebSocketValidatesRequests(t *testing.T) {
 	}
 }
 
+func TestChatWebSocketResolvesRoutedAgentLists(t *testing.T) {
+	t.Parallel()
+
+	registry := newTestRegistry()
+	handler := newTestRPCHandler(t, registry, nil)
+	hub := NewMessageHub()
+
+	chatHandler := NewChatWebSocketHandler(registry, handler, hub, nil)
+	chatHandler.listAgents = func(context.Context) ([]AgentInfo, error) {
+		return []AgentInfo{{
+			ID:         "A-remote1234567890",
+			Name:       "hermes-guest",
+			DeviceID:   "D-remote1234567890",
+			DeviceName: "lima-hermes-guest",
+			Skills:     []string{"code"},
+			Status:     "connected",
+		}}, nil
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /rpc/agents/{agent}/chat", chatHandler.HandleChat)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/rpc/agents/hermes-guest/chat?session_id=session-remote"
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	if err != nil {
+		t.Fatalf("websocket dial: %v", err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	var ready chatWSEvent
+	if err := wsjson.Read(ctx, conn, &ready); err != nil {
+		t.Fatalf("read ready event: %v", err)
+	}
+	if ready.Event != "session.ready" {
+		t.Fatalf("ready event = %q, want session.ready", ready.Event)
+	}
+}
+
 func registerAgentForChatTest(t *testing.T, handler *RPCHandler) RegisterResult {
 	t.Helper()
 

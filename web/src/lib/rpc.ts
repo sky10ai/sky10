@@ -192,6 +192,13 @@ export function sandboxTerminalURL(slug: string) {
   return `${protocol}//${window.location.host}/rpc/sandboxes/${encodeURIComponent(slug)}/terminal`;
 }
 
+export function agentChatWebSocketURL(agentID: string, sessionID: string) {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const agent = encodeURIComponent(agentID);
+  const session = encodeURIComponent(sessionID);
+  return `${protocol}//${window.location.host}/rpc/agents/${agent}/chat?session_id=${session}`;
+}
+
 // -- apps --
 export const apps = {
   status: (p: { id: string }) => rpc<AppStatus>("apps.status", p),

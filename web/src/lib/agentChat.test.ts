@@ -4,6 +4,8 @@ import {
   applyStreamingDelta,
   dedupeChatMessages,
   finalizeStreamingMessage,
+  readChatContentText,
+  readStreamingEnvelope,
   type ChatMessage,
 } from "./agentChat";
 
@@ -68,5 +70,21 @@ describe("streaming helpers", () => {
 
     const finalized = finalizeStreamingMessage(draft, "stream-2", finalMessage);
     expect(finalized).toEqual([{ ...finalMessage, streaming: false }]);
+  });
+
+  test("readStreamingEnvelope returns stream metadata", () => {
+    expect(readStreamingEnvelope({ stream_id: "stream-3", text: "Hel" })).toEqual({
+      stream_id: "stream-3",
+      text: "Hel",
+    });
+  });
+
+  test("readChatContentText joins text parts from websocket payloads", () => {
+    expect(readChatContentText({
+      parts: [
+        { type: "text", text: "Hel" },
+        { type: "text", text: "lo" },
+      ],
+    })).toBe("Hello");
   });
 });

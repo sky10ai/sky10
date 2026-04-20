@@ -24,6 +24,59 @@ function parseTimestamp(value: unknown): Date {
   return new Date();
 }
 
+function stringifyChatContent(content: unknown): string {
+  if (content == null) return "";
+  try {
+    const text = JSON.stringify(content);
+    return typeof text === "string" ? text : String(content);
+  } catch {
+    return String(content);
+  }
+}
+
+export interface StreamingEnvelope {
+  stream_id?: string;
+  text?: string;
+}
+
+export function readStreamingEnvelope(content: unknown): StreamingEnvelope {
+  if (!content || typeof content !== "object") {
+    return {};
+  }
+  const value = content as Record<string, unknown>;
+  return {
+    stream_id: typeof value.stream_id === "string" ? value.stream_id : undefined,
+    text: typeof value.text === "string" ? value.text : undefined,
+  };
+}
+
+export function readChatContentText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!content || typeof content !== "object") return stringifyChatContent(content);
+
+  const value = content as Record<string, unknown>;
+  if (typeof value.text === "string" && value.text !== "") {
+    return value.text;
+  }
+
+  if (Array.isArray(value.parts)) {
+    const parts = value.parts
+      .map((part) => {
+        if (!part || typeof part !== "object") return "";
+        const item = part as Record<string, unknown>;
+        const partType = typeof item.type === "string" ? item.type : "text";
+        if (partType !== "text") return "";
+        return typeof item.text === "string" ? item.text : "";
+      })
+      .filter((part) => part !== "");
+    if (parts.length > 0) {
+      return parts.join("");
+    }
+  }
+
+  return stringifyChatContent(content);
+}
+
 function normalizeMessage(value: unknown): ChatMessage | null {
   if (!value || typeof value !== "object") return null;
   const msg = value as Partial<ChatMessage>;

@@ -72,20 +72,23 @@ type ChatStreamMessage struct {
 // ChatWebSocketHandler exposes a narrow guest-side chat transport for one
 // session without reopening generic RPC tunneling.
 type ChatWebSocketHandler struct {
-	registry *Registry
-	sender   *RPCHandler
-	hub      *MessageHub
-	logger   *slog.Logger
+	registry   *Registry
+	sender     *RPCHandler
+	hub        *MessageHub
+	logger     *slog.Logger
+	listAgents func(context.Context) ([]AgentInfo, error)
 }
 
 // NewChatWebSocketHandler creates a chat-only guest bridge.
 func NewChatWebSocketHandler(registry *Registry, sender *RPCHandler, hub *MessageHub, logger *slog.Logger) *ChatWebSocketHandler {
-	return &ChatWebSocketHandler{
+	handler := &ChatWebSocketHandler{
 		registry: registry,
 		sender:   sender,
 		hub:      hub,
 		logger:   componentLogger(logger),
 	}
+	handler.listAgents = handler.defaultListAgents
+	return handler
 }
 
 // HandleChat upgrades the request and bridges session-scoped chat traffic.
@@ -100,7 +103,7 @@ func (h *ChatWebSocketHandler) HandleChat(w http.ResponseWriter, r *http.Request
 		http.Error(w, "missing agent", http.StatusBadRequest)
 		return
 	}
-	info := h.registry.Resolve(agentName)
+	info := h.resolveAgent(r.Context(), agentName)
 	if info == nil {
 		http.Error(w, fmt.Sprintf("agent %q not found", agentName), http.StatusNotFound)
 		return
@@ -195,6 +198,43 @@ func (h *ChatWebSocketHandler) HandleChat(w http.ResponseWriter, r *http.Request
 			}
 		}
 	}
+}
+
+func (h *ChatWebSocketHandler) defaultListAgents(ctx context.Context) ([]AgentInfo, error) {
+	if h.sender != nil && h.sender.router != nil && h.sender.router.node != nil {
+		result, err := h.sender.rpcList(ctx, nil)
+		if err == nil {
+			if payload, ok := result.(map[string]interface{}); ok {
+				if agents, ok := payload["agents"].([]AgentInfo); ok {
+					return agents, nil
+				}
+			}
+		}
+	}
+	if h.registry == nil {
+		return nil, nil
+	}
+	return h.registry.List(), nil
+}
+
+func (h *ChatWebSocketHandler) resolveAgent(ctx context.Context, nameOrID string) *AgentInfo {
+	if h.listAgents != nil {
+		agents, err := h.listAgents(ctx)
+		if err == nil {
+			for i := range agents {
+				if agents[i].ID == nameOrID || agents[i].Name == nameOrID {
+					info := agents[i]
+					return &info
+				}
+			}
+		} else if h.logger != nil {
+			h.logger.Debug("agent chat websocket agent list failed", "error", err)
+		}
+	}
+	if h.registry != nil {
+		return h.registry.Resolve(nameOrID)
+	}
+	return nil
 }
 
 func (h *ChatWebSocketHandler) handleRequest(ctx context.Context, agentID, sessionID string, req chatWSRequest) chatWSResponse {

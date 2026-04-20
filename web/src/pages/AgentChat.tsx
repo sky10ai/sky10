@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -10,14 +10,55 @@ import {
   applyStreamingDelta,
   finalizeStreamingMessage,
   loadChatMessages,
+  readChatContentText,
+  readStreamingEnvelope,
   type ChatMessage,
 } from "../lib/agentChat";
-import { agent, type AgentInfo, type AgentSendResult, type DeliveryMetadata } from "../lib/rpc";
+import {
+  agent,
+  agentChatWebSocketURL,
+  type AgentInfo,
+  type AgentSendResult,
+  type DeliveryMetadata,
+} from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
-interface StreamingEnvelope {
-  stream_id?: string;
-  text?: string;
+interface ChatWireMessage {
+  id?: string;
+  session_id?: string;
+  from?: string;
+  to?: string;
+  device_id?: string;
+  message_type?: string;
+  content?: unknown;
+  timestamp?: string;
+}
+
+interface ChatWSFrame {
+  type?: string;
+  id?: string | number;
+  event?: string;
+  payload?: unknown;
+  result?: AgentSendResult;
+  error?: {
+    code?: string;
+    message?: string;
+  };
+}
+
+interface PendingWSRequest {
+  resolve: (result: AgentSendResult) => void;
+  reject: (error: Error) => void;
+  timeout: ReturnType<typeof setTimeout>;
+}
+
+type ChatTransport = "connecting" | "websocket" | "fallback";
+
+class ChatWebSocketUnavailableError extends Error {
+  constructor() {
+    super("Chat websocket is not connected");
+    this.name = "ChatWebSocketUnavailableError";
+  }
 }
 
 // uuid() is only available in secure contexts (HTTPS or
@@ -30,6 +71,16 @@ function uuid(): string {
   b[8]! = (b[8]! & 0x3f) | 0x80;
   const h = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+function parseChatTimestamp(value: unknown): Date {
+  if (typeof value === "string" || typeof value === "number" || value instanceof Date) {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+  return new Date();
 }
 
 function deliveryLabel(delivery?: DeliveryMetadata): string | null {
@@ -52,17 +103,6 @@ function deliveryLabel(delivery?: DeliveryMetadata): string | null {
   return delivery.status.replaceAll("_", " ");
 }
 
-function readStreamingEnvelope(content: unknown): StreamingEnvelope {
-  if (!content || typeof content !== "object") {
-    return {};
-  }
-  const value = content as Record<string, unknown>;
-  return {
-    stream_id: typeof value.stream_id === "string" ? value.stream_id : undefined,
-    text: typeof value.text === "string" ? value.text : undefined,
-  };
-}
-
 export default function AgentChat() {
   const { agentId } = useParams<{ agentId: string }>();
   const navigate = useNavigate();
@@ -76,6 +116,7 @@ export default function AgentChat() {
   const [sending, setSending] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [slowWaiting, setSlowWaiting] = useState(false);
+  const [transport, setTransport] = useState<ChatTransport>("connecting");
   const [sessionId] = useState(() => {
     const existing = localStorage.getItem(sessionKey);
     if (existing) return existing;
@@ -86,6 +127,11 @@ export default function AgentChat() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const slowWaitingTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const websocketRef = useRef<WebSocket | null>(null);
+  const websocketRetryTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const nextWSRequestIDRef = useRef(1);
+  const pendingWSRequestsRef = useRef(new Map<string, PendingWSRequest>());
+  const [websocketRetryToken, setWebsocketRetryToken] = useState(0);
 
   // Fetch agent info.
   const { data, loading } = useRPC(() => agent.list(), [], {
@@ -96,65 +142,202 @@ export default function AgentChat() {
   const agentInfo: AgentInfo | undefined = data?.agents?.find(
     (a) => a.id === agentId || a.name === agentId
   );
+  const agentName = agentInfo?.name;
+  const agentInfoID = agentInfo?.id;
 
-  // Keep a ref so the SSE callback always sees the latest agentInfo.
-  const agentInfoRef = useRef(agentInfo);
+  const clearWaitingState = useEffectEvent(() => {
+    clearTimeout(slowWaitingTimerRef.current);
+    setWaiting(false);
+    setSlowWaiting(false);
+  });
+
+  const startWaitingState = useEffectEvent(() => {
+    setWaiting(true);
+    setSlowWaiting(false);
+    clearTimeout(slowWaitingTimerRef.current);
+    slowWaitingTimerRef.current = setTimeout(() => setSlowWaiting(true), 30_000);
+  });
+
+  const rejectPendingWebSocketRequests = useEffectEvent((reason: string) => {
+    for (const [id, pending] of pendingWSRequestsRef.current) {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error(reason));
+      pendingWSRequestsRef.current.delete(id);
+    }
+  });
+
+  const applySendResult = useEffectEvent((userMessageID: string, result: AgentSendResult) => {
+    setMessages((prev) =>
+      prev.map((message) => (
+        message.id === userMessageID
+          ? {
+              ...message,
+              delivered: result.status === "sent" && result.delivery.status === "sent",
+              delivery: result.delivery,
+            }
+          : message
+      ))
+    );
+    if (result.status === "sent" && result.delivery.status === "sent") {
+      startWaitingState();
+      return;
+    }
+    clearWaitingState();
+  });
+
+  const handleIncomingChatMessage = useEffectEvent((msg: ChatWireMessage) => {
+    if (msg.session_id && msg.session_id !== sessionId) return;
+
+    const msgType = typeof msg.message_type === "string" && msg.message_type !== ""
+      ? msg.message_type
+      : "message";
+    const envelope = readStreamingEnvelope(msg.content);
+    const timestamp = parseChatTimestamp(msg.timestamp);
+
+    if (msgType === "done") {
+      clearWaitingState();
+      return;
+    }
+    if (msgType === "delta" && envelope.stream_id && envelope.text) {
+      setMessages((prev) => applyStreamingDelta(prev, envelope.stream_id!, envelope.text!, timestamp));
+      return;
+    }
+
+    clearWaitingState();
+
+    const nextMessage: ChatMessage = {
+      id: msg.id || uuid(),
+      from: "agent",
+      type: msgType,
+      content: readChatContentText(msg.content),
+      timestamp,
+    };
+
+    if (envelope.stream_id && (msgType === "text" || msgType === "error" || msgType === "message")) {
+      setMessages((prev) => finalizeStreamingMessage(prev, envelope.stream_id!, nextMessage));
+      return;
+    }
+
+    setMessages((prev) => appendChatMessage(prev, nextMessage));
+  });
+
+  const handleWebSocketFrame = useEffectEvent((frame: ChatWSFrame) => {
+    if (frame.type === "event") {
+      if (frame.event === "session.ready") {
+        setTransport("websocket");
+        return;
+      }
+      if (frame.event !== "delta" && frame.event !== "message" && frame.event !== "done" && frame.event !== "error") {
+        return;
+      }
+      if (!frame.payload || typeof frame.payload !== "object") {
+        return;
+      }
+      handleIncomingChatMessage({
+        ...(frame.payload as ChatWireMessage),
+        message_type: frame.event,
+      });
+      return;
+    }
+
+    if (frame.type !== "res" || frame.id == null) {
+      return;
+    }
+    const requestID = String(frame.id);
+    const pending = pendingWSRequestsRef.current.get(requestID);
+    if (!pending) {
+      return;
+    }
+    clearTimeout(pending.timeout);
+    pendingWSRequestsRef.current.delete(requestID);
+
+    if (frame.error) {
+      pending.reject(new Error(frame.error.message || "Chat websocket request failed"));
+      return;
+    }
+    if (!frame.result) {
+      pending.reject(new Error("Chat websocket returned an empty response"));
+      return;
+    }
+    pending.resolve(frame.result);
+  });
+
   useEffect(() => {
-    agentInfoRef.current = agentInfo;
-  }, [agentInfo]);
+    if (!agentInfoID) return;
 
-  // Subscribe to incoming messages via the shared SSE connection.
+    setTransport("connecting");
+    const socket = new WebSocket(agentChatWebSocketURL(agentInfoID, sessionId));
+    websocketRef.current = socket;
+    let disposed = false;
+
+    socket.onopen = () => {
+      if (disposed || websocketRef.current !== socket) return;
+      clearTimeout(websocketRetryTimerRef.current);
+      setTransport("websocket");
+    };
+
+    socket.onmessage = (event) => {
+      if (typeof event.data !== "string") return;
+      let frame: ChatWSFrame;
+      try {
+        frame = JSON.parse(event.data) as ChatWSFrame;
+      } catch {
+        return;
+      }
+      handleWebSocketFrame(frame);
+    };
+
+    socket.onerror = () => {
+      if (disposed || websocketRef.current !== socket) return;
+      setTransport("fallback");
+    };
+
+    socket.onclose = (event) => {
+      if (websocketRef.current === socket) {
+        websocketRef.current = null;
+      }
+      rejectPendingWebSocketRequests(event.reason || "Chat websocket closed");
+      if (disposed || event.code === 1000) return;
+      setTransport("fallback");
+      clearTimeout(websocketRetryTimerRef.current);
+      websocketRetryTimerRef.current = setTimeout(() => {
+        setWebsocketRetryToken((value) => value + 1);
+      }, 3_000);
+    };
+
+    return () => {
+      disposed = true;
+      clearTimeout(websocketRetryTimerRef.current);
+      if (websocketRef.current === socket) {
+        websocketRef.current = null;
+      }
+      socket.close(1000, "chat closed");
+    };
+  }, [agentInfoID, sessionId, websocketRetryToken]);
+
+  // Fall back to the shared SSE connection when the direct chat websocket is unavailable.
   useEffect(() => {
     return subscribe((event, data) => {
+      if (transport === "websocket") return;
       if (event !== "agent.message") return;
       const msg = data as Record<string, unknown> | null;
       if (!msg || !msg.to) return;
-
-      // Only show messages for this session.
       if (msg.session_id !== sessionId) return;
-
-      // Skip echoes — outbound messages have `to` set to the agent.
-      // Check both the URL param (available immediately) and the
-      // resolved agent info (available after first fetch).
       if (msg.to === agentId) return;
-      const ai = agentInfoRef.current;
-      if (ai && (msg.to === ai.id || msg.to === ai.name)) return;
+      if (agentInfoID && (msg.to === agentInfoID || msg.to === agentName)) return;
 
-      const msgType = (msg.type as string) || "text";
-      const envelope = readStreamingEnvelope(msg.content);
-      if (msgType === "done") {
-        clearTimeout(slowWaitingTimerRef.current);
-        setWaiting(false);
-        setSlowWaiting(false);
-        return;
-      }
-      if (msgType === "delta" && envelope.stream_id && envelope.text) {
-        setMessages((prev) => applyStreamingDelta(prev, envelope.stream_id!, envelope.text!, new Date()));
-        return;
-      }
-
-      clearTimeout(slowWaitingTimerRef.current);
-      setWaiting(false);
-      setSlowWaiting(false);
-
-      const nextMessage: ChatMessage = {
-        id: (msg.id as string) || uuid(),
-        from: "agent" as const,
-        type: msgType,
-        content:
-          (msg.content as { text?: string })?.text ||
-          JSON.stringify(msg.content),
-        timestamp: new Date(),
-      };
-
-      if (envelope.stream_id && (msgType === "text" || msgType === "error" || msgType === "message")) {
-        setMessages((prev) => finalizeStreamingMessage(prev, envelope.stream_id!, nextMessage));
-        return;
-      }
-
-      setMessages((prev) => appendChatMessage(prev, nextMessage));
+      handleIncomingChatMessage({
+        id: typeof msg.id === "string" ? msg.id : undefined,
+        session_id: typeof msg.session_id === "string" ? msg.session_id : undefined,
+        from: typeof msg.from === "string" ? msg.from : undefined,
+        to: typeof msg.to === "string" ? msg.to : undefined,
+        device_id: typeof msg.device_id === "string" ? msg.device_id : undefined,
+        message_type: typeof msg.type === "string" ? msg.type : undefined,
+        content: msg.content,
+        timestamp: typeof msg.timestamp === "string" ? msg.timestamp : undefined,
+      });
     });
-  }, [sessionId, agentId]);
+  }, [agentId, agentInfoID, agentName, sessionId, transport]);
 
   // Auto-scroll to bottom + persist.
   useEffect(() => {
@@ -169,8 +352,49 @@ export default function AgentChat() {
   // Focus input on mount, clean up timer on unmount.
   useEffect(() => {
     inputRef.current?.focus();
-    return () => clearTimeout(slowWaitingTimerRef.current);
+    return () => {
+      clearTimeout(slowWaitingTimerRef.current);
+      clearTimeout(websocketRetryTimerRef.current);
+      for (const [, pending] of pendingWSRequestsRef.current) {
+        clearTimeout(pending.timeout);
+        pending.reject(new Error("Chat page closed"));
+      }
+      pendingWSRequestsRef.current.clear();
+    };
   }, []);
+
+  const sendWebSocketMessage = async (text: string): Promise<AgentSendResult> => {
+    const socket = websocketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      throw new ChatWebSocketUnavailableError();
+    }
+
+    const requestID = `req-${nextWSRequestIDRef.current++}`;
+    return await new Promise<AgentSendResult>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        pendingWSRequestsRef.current.delete(requestID);
+        reject(new Error("Chat websocket request timed out"));
+      }, 15_000);
+
+      pendingWSRequestsRef.current.set(requestID, { resolve, reject, timeout });
+
+      try {
+        socket.send(JSON.stringify({
+          type: "req",
+          id: requestID,
+          method: "message.send",
+          params: {
+            message_type: "chat",
+            content: { text },
+          },
+        }));
+      } catch (error) {
+        clearTimeout(timeout);
+        pendingWSRequestsRef.current.delete(requestID);
+        reject(error instanceof Error ? error : new Error("Failed to send over chat websocket"));
+      }
+    });
+  };
 
   const sendMessage = async () => {
     const text = input.trim();
@@ -188,40 +412,24 @@ export default function AgentChat() {
     setSending(true);
 
     try {
-      const result: AgentSendResult = await agent.send({
-        to: agentInfo.id,
-        device_id: agentInfo.device_id,
-        session_id: sessionId,
-        type: "text",
-        content: { text },
-      });
-      // Mark the outbound delivery mode explicitly so queued mailbox fallback is
-      // visible instead of being treated as a normal live send.
-      setMessages((prev) =>
-        prev.map((m) => (
-          m.id === userMsg.id
-            ? {
-                ...m,
-                delivered: result.status === "sent" && result.delivery.status === "sent",
-                delivery: result.delivery,
-              }
-            : m
-        ))
-      );
-      if (result.status === "sent" && result.delivery.status === "sent") {
-        setWaiting(true);
-        setSlowWaiting(false);
-        clearTimeout(slowWaitingTimerRef.current);
-        slowWaitingTimerRef.current = setTimeout(() => setSlowWaiting(true), 30_000);
-      } else {
-        clearTimeout(slowWaitingTimerRef.current);
-        setWaiting(false);
-        setSlowWaiting(false);
+      let result: AgentSendResult;
+      try {
+        result = await sendWebSocketMessage(text);
+      } catch (error) {
+        if (!(error instanceof ChatWebSocketUnavailableError)) {
+          throw error;
+        }
+        result = await agent.send({
+          to: agentInfo.id,
+          device_id: agentInfo.device_id,
+          session_id: sessionId,
+          type: "text",
+          content: { text },
+        });
       }
+      applySendResult(userMsg.id, result);
     } catch (e) {
-      clearTimeout(slowWaitingTimerRef.current);
-      setWaiting(false);
-      setSlowWaiting(false);
+      clearWaitingState();
       setMessages((prev) => [
         ...prev,
         {
