@@ -204,6 +204,98 @@ func TestChatWebSocketHermesBridgeFallsBackToChatCompletions(t *testing.T) {
 	}
 }
 
+func TestChatWebSocketHermesBridgeDoesNotQueueSameSessionRequests(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	host := startChatWebSocketTestServer(t, ctx, "host-hermes-overlap", false)
+	guest := startChatWebSocketTestServer(t, ctx, "guest-hermes-overlap", true)
+	if host.port == guest.port {
+		t.Fatalf("host and guest ports must differ: both = %d", host.port)
+	}
+
+	waitForHTTPHealth(t, host.baseURL)
+	waitForHTTPHealth(t, guest.baseURL)
+
+	firstDeltaSent := make(chan struct{})
+	secondDeltaSent := make(chan struct{})
+	var firstDeltaOnce sync.Once
+	var secondDeltaOnce sync.Once
+	hermesAPI := newFakeHermesServer(t, fakeHermesServerConfig{
+		responsesHandler: func(w http.ResponseWriter, flusher http.Flusher, payload map[string]interface{}) {
+			input, _ := payload["input"].(string)
+			switch input {
+			case "first":
+				writeSSE(w, flusher, "response.output_text.delta", map[string]string{"delta": "one"})
+				firstDeltaOnce.Do(func() { close(firstDeltaSent) })
+				select {
+				case <-secondDeltaSent:
+				case <-time.After(2 * time.Second):
+				}
+				writeSSE(w, flusher, "response.completed", map[string]interface{}{
+					"response": map[string]string{"output_text": "one"},
+				})
+			case "second":
+				select {
+				case <-firstDeltaSent:
+				case <-time.After(2 * time.Second):
+				}
+				writeSSE(w, flusher, "response.output_text.delta", map[string]string{"delta": "two"})
+				secondDeltaOnce.Do(func() { close(secondDeltaSent) })
+				writeSSE(w, flusher, "response.completed", map[string]interface{}{
+					"response": map[string]string{"output_text": "two"},
+				})
+			default:
+				writeSSE(w, flusher, "response.output_text.delta", map[string]string{"delta": input})
+				writeSSE(w, flusher, "response.completed", map[string]interface{}{
+					"response": map[string]string{"output_text": input},
+				})
+			}
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			flusher.Flush()
+		},
+	})
+	bridge := startHermesBridge(t, guest.baseURL, hermesAPI.server.URL, "hermes-overlap")
+
+	waitForAgentRegistered(t, guest, "hermes-overlap", bridge)
+	waitForBridgeSSESubscription(t, guest, bridge)
+
+	sessionConn := dialChatSession(t, guest.baseURL, "hermes-overlap", "session-overlap")
+	defer sessionConn.Close(websocket.StatusNormalClosure, "")
+
+	ready := readReadyEvent(t, sessionConn)
+	if ready.SessionID != "session-overlap" {
+		t.Fatalf("ready session_id = %q, want session-overlap", ready.SessionID)
+	}
+
+	sendChatTextRequest(t, sessionConn, "req-first", "first")
+	sendChatTextRequest(t, sessionConn, "req-second", "second")
+
+	streamIDs := make(map[string]struct{}, 2)
+	for {
+		event := readStreamEvent(t, sessionConn)
+		content := decodeHermesStreamContent(t, event.Payload.Content)
+		switch event.Event {
+		case "delta":
+			if content.StreamID == "" {
+				t.Fatalf("delta stream_id is empty: payload=%s", string(event.Payload.Content))
+			}
+			streamIDs[content.StreamID] = struct{}{}
+			if len(streamIDs) == 2 {
+				stats := hermesAPI.stats()
+				if stats.responsesHits != 2 {
+					t.Fatalf("responses hits = %d, want 2 overlapping requests", stats.responsesHits)
+				}
+				return
+			}
+		case "done":
+			if len(streamIDs) < 2 {
+				t.Fatalf("same-session requests were serialized; saw %d stream(s) before first done", len(streamIDs))
+			}
+		}
+	}
+}
+
 type hermesBridgeProcess struct {
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -406,6 +498,19 @@ type hermesStreamContent struct {
 	StreamID string `json:"stream_id,omitempty"`
 }
 
+func decodeHermesStreamContent(t *testing.T, payload json.RawMessage) hermesStreamContent {
+	t.Helper()
+
+	var content hermesStreamContent
+	if len(payload) == 0 {
+		return content
+	}
+	if err := json.Unmarshal(payload, &content); err != nil {
+		t.Fatalf("unmarshal stream content: %v", err)
+	}
+	return content
+}
+
 func readHermesStreamEvent(t *testing.T, conn *websocket.Conn, wantEvent string) (streamEvent, hermesStreamContent) {
 	t.Helper()
 
@@ -414,19 +519,16 @@ func readHermesStreamEvent(t *testing.T, conn *websocket.Conn, wantEvent string)
 		t.Fatalf("stream event = %q, want %q, payload=%s", event.Event, wantEvent, string(event.Payload.Content))
 	}
 
-	var content hermesStreamContent
-	if len(event.Payload.Content) > 0 {
-		if err := json.Unmarshal(event.Payload.Content, &content); err != nil {
-			t.Fatalf("unmarshal %s content: %v", wantEvent, err)
-		}
-	}
-	return event, content
+	return event, decodeHermesStreamContent(t, event.Payload.Content)
 }
 
+type fakeHermesResponsesHandler func(http.ResponseWriter, http.Flusher, map[string]interface{})
+
 type fakeHermesServerConfig struct {
-	responsesStatus int
-	responsesChunks []string
-	chatChunks      []string
+	responsesStatus  int
+	responsesChunks  []string
+	chatChunks       []string
+	responsesHandler fakeHermesResponsesHandler
 }
 
 type fakeHermesServer struct {
@@ -436,6 +538,7 @@ type fakeHermesServer struct {
 	responsesStatus   int
 	responsesChunks   []string
 	chatChunks        []string
+	responsesHandler  fakeHermesResponsesHandler
 	responsesHits     int
 	chatHits          int
 	lastResponsesBody string
@@ -453,9 +556,10 @@ func newFakeHermesServer(t *testing.T, cfg fakeHermesServerConfig) *fakeHermesSe
 	t.Helper()
 
 	server := &fakeHermesServer{
-		responsesStatus: cfg.responsesStatus,
-		responsesChunks: append([]string(nil), cfg.responsesChunks...),
-		chatChunks:      append([]string(nil), cfg.chatChunks...),
+		responsesStatus:  cfg.responsesStatus,
+		responsesChunks:  append([]string(nil), cfg.responsesChunks...),
+		chatChunks:       append([]string(nil), cfg.chatChunks...),
+		responsesHandler: cfg.responsesHandler,
 	}
 
 	mux := http.NewServeMux()
@@ -479,7 +583,11 @@ func (s *fakeHermesServer) handleResponses(w http.ResponseWriter, r *http.Reques
 	s.lastResponsesBody = string(body)
 	status := s.responsesStatus
 	chunks := append([]string(nil), s.responsesChunks...)
+	handler := s.responsesHandler
 	s.mu.Unlock()
+
+	var payload map[string]interface{}
+	_ = json.Unmarshal(body, &payload)
 
 	if status == 0 {
 		status = http.StatusOK
@@ -495,6 +603,11 @@ func (s *fakeHermesServer) handleResponses(w http.ResponseWriter, r *http.Reques
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	if handler != nil {
+		handler(w, flusher, payload)
 		return
 	}
 

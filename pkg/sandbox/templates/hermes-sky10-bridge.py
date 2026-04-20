@@ -174,6 +174,9 @@ class HermesClient:
         self.use_responses_api = True
         self.history_lock = threading.Lock()
         self.chat_history: dict[str, list[dict[str, str]]] = {}
+        self.chat_pending_turns: dict[str, dict[int, tuple[str, str] | None]] = {}
+        self.chat_next_turn_id: dict[str, int] = {}
+        self.chat_next_commit_id: dict[str, int] = {}
 
     def wait_until_ready(self, stop_event: threading.Event) -> None:
         health_url = strip_trailing_path(self.api_base, "/v1") + "/health"
@@ -237,8 +240,7 @@ class HermesClient:
         return result or "Done."
 
     def _stream_chat_completions(self, session_id: str, text: str, on_delta: Callable[[str], None]) -> str:
-        with self.history_lock:
-            history = list(self.chat_history.get(session_id, []))
+        turn_id, history = self._reserve_chat_turn(session_id)
         history.append({"role": "user", "content": text})
 
         payload = {
@@ -262,16 +264,49 @@ class HermesClient:
                         chunks.append(delta)
                         on_delta(delta)
         except urllib.error.HTTPError as exc:
+            self._skip_chat_turn(session_id, turn_id)
             body = exc.read().decode("utf-8", errors="replace")
             raise BridgeError(f"Hermes API /chat/completions failed with HTTP {exc.code}: {body}") from exc
         except urllib.error.URLError as exc:
+            self._skip_chat_turn(session_id, turn_id)
             raise BridgeError(f"Hermes API /chat/completions failed: {exc.reason}") from exc
+        except Exception:
+            self._skip_chat_turn(session_id, turn_id)
+            raise
 
         answer = "".join(chunks).strip() or "Done."
-        history.append({"role": "assistant", "content": answer})
-        with self.history_lock:
-            self.chat_history[session_id] = history
+        self._commit_chat_turn(session_id, turn_id, text, answer)
         return answer
+
+    def _reserve_chat_turn(self, session_id: str) -> tuple[int, list[dict[str, str]]]:
+        with self.history_lock:
+            history = list(self.chat_history.get(session_id, []))
+            turn_id = self.chat_next_turn_id.get(session_id, 0)
+            self.chat_next_turn_id[session_id] = turn_id + 1
+        return turn_id, history
+
+    def _commit_chat_turn(self, session_id: str, turn_id: int, user_text: str, answer: str) -> None:
+        self._resolve_chat_turn(session_id, turn_id, (user_text, answer))
+
+    def _skip_chat_turn(self, session_id: str, turn_id: int) -> None:
+        self._resolve_chat_turn(session_id, turn_id, None)
+
+    def _resolve_chat_turn(self, session_id: str, turn_id: int, turn: tuple[str, str] | None) -> None:
+        with self.history_lock:
+            pending = self.chat_pending_turns.setdefault(session_id, {})
+            pending[turn_id] = turn
+            next_commit_id = self.chat_next_commit_id.get(session_id, 0)
+            history = self.chat_history.setdefault(session_id, [])
+            while next_commit_id in pending:
+                completed_turn = pending.pop(next_commit_id)
+                if completed_turn is not None:
+                    user_text, answer = completed_turn
+                    history.append({"role": "user", "content": user_text})
+                    history.append({"role": "assistant", "content": answer})
+                next_commit_id += 1
+            self.chat_next_commit_id[session_id] = next_commit_id
+            if not pending:
+                self.chat_pending_turns.pop(session_id, None)
 
     def _request(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = f"{self.api_base}{path}"
@@ -397,8 +432,6 @@ class Bridge:
         self.agent_id = ""
         self.seen_lock = threading.Lock()
         self.seen_messages: OrderedDict[str, float] = OrderedDict()
-        self.session_lock_guard = threading.Lock()
-        self.session_locks: dict[str, threading.Lock] = {}
 
     def run(self) -> None:
         self.hermes.wait_until_ready(self.stop_event)
@@ -478,49 +511,48 @@ class Bridge:
 
     def _handle_message(self, message: dict[str, Any]) -> None:
         session_id = str(message.get("session_id") or "main").strip() or "main"
-        with self._session_lock(session_id):
-            user_text = extract_text(message.get("content"))
-            sender = str(message.get("from") or "").strip()
-            if not sender:
-                log("Skipping inbound message without sender")
-                return
+        user_text = extract_text(message.get("content"))
+        sender = str(message.get("from") or "").strip()
+        if not sender:
+            log("Skipping inbound message without sender")
+            return
 
-            stream_id = uuid.uuid4().hex
-            try:
-                reply = self.hermes.stream(
+        stream_id = uuid.uuid4().hex
+        try:
+            reply = self.hermes.stream(
+                session_id,
+                user_text,
+                lambda chunk: self.sky10.send_delta(sender, session_id, chunk, sender, stream_id),
+            )
+            if reply.strip():
+                self.sky10.send_content(
+                    sender,
                     session_id,
-                    user_text,
-                    lambda chunk: self.sky10.send_delta(sender, session_id, chunk, sender, stream_id),
+                    {
+                        "text": reply,
+                        "stream_id": stream_id,
+                    },
+                    sender,
+                    "text",
                 )
-                if reply.strip():
-                    self.sky10.send_content(
-                        sender,
-                        session_id,
-                        {
-                            "text": reply,
-                            "stream_id": stream_id,
-                        },
-                        sender,
-                        "text",
-                    )
-                    self.sky10.send_done(sender, session_id, sender, stream_id)
-                    log(f"Reply sent for session {session_id}")
-            except Exception as exc:
-                error_text = f"Hermes bridge error: {exc}"
-                log(error_text)
-                try:
-                    self.sky10.send_content(
-                        sender,
-                        session_id,
-                        {
-                            "text": error_text,
-                            "stream_id": stream_id,
-                        },
-                        sender,
-                        "error",
-                    )
-                except Exception as send_exc:
-                    log(f"Failed to send bridge error back to sky10: {send_exc}")
+                self.sky10.send_done(sender, session_id, sender, stream_id)
+                log(f"Reply sent for session {session_id}")
+        except Exception as exc:
+            error_text = f"Hermes bridge error: {exc}"
+            log(error_text)
+            try:
+                self.sky10.send_content(
+                    sender,
+                    session_id,
+                    {
+                        "text": error_text,
+                        "stream_id": stream_id,
+                    },
+                    sender,
+                    "error",
+                )
+            except Exception as send_exc:
+                log(f"Failed to send bridge error back to sky10: {send_exc}")
 
     def _claim_message(self, message_id: str) -> bool:
         now = time.time()
@@ -534,14 +566,6 @@ class Bridge:
                 return False
             self.seen_messages[message_id] = now
         return True
-
-    def _session_lock(self, session_id: str) -> threading.Lock:
-        with self.session_lock_guard:
-            lock = self.session_locks.get(session_id)
-            if lock is None:
-                lock = threading.Lock()
-                self.session_locks[session_id] = lock
-            return lock
 
 def main() -> int:
     config_path = os.environ.get("SKY10_BRIDGE_CONFIG_PATH", "/sandbox-state/bridge.json").strip()
