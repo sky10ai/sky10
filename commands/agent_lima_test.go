@@ -446,8 +446,8 @@ func TestOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	if !strings.Contains(string(indexBody), `createChatChannelPlugin`) {
 		t.Fatalf("plugin index missing OpenClaw chat channel registration: %q", string(indexBody))
 	}
-	if !strings.Contains(string(indexBody), `dispatchInboundDirectDmWithRuntime`) {
-		t.Fatalf("plugin index missing native direct-DM dispatch: %q", string(indexBody))
+	if !strings.Contains(string(indexBody), `createChannelReplyPipeline`) {
+		t.Fatalf("plugin index missing channel reply pipeline: %q", string(indexBody))
 	}
 	if !strings.Contains(string(indexBody), `api.registerChannel({ plugin: sky10ChannelPlugin })`) {
 		t.Fatalf("plugin index missing channel registration: %q", string(indexBody))
@@ -460,6 +460,58 @@ func TestOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	}
 	if strings.Contains(string(indexBody), `/v1/responses`) {
 		t.Fatalf("plugin index should not self-call the gateway responses API: %q", string(indexBody))
+	}
+}
+
+func TestOpenClawBridgeAssetStreamsReplies(t *testing.T) {
+	t.Parallel()
+
+	spec, err := limaTemplateDefinition(sandboxTemplateOpenClaw)
+	if err != nil {
+		t.Fatalf("limaTemplateDefinition(openclaw): %v", err)
+	}
+	dir, err := findLocalLimaTemplateDir(spec)
+	if err != nil {
+		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
+	}
+
+	indexBody, err := os.ReadFile(filepath.Join(dir, agentLimaPluginIndex))
+	if err != nil {
+		t.Fatalf("ReadFile(plugin index) error: %v", err)
+	}
+	indexScript := string(indexBody)
+	if !strings.Contains(indexScript, "createChannelReplyPipeline") {
+		t.Fatalf("plugin index missing reply pipeline creation: %q", indexScript)
+	}
+	if !strings.Contains(indexScript, "dispatchReplyWithBufferedBlockDispatcher") {
+		t.Fatalf("plugin index missing buffered block dispatcher: %q", indexScript)
+	}
+	if !strings.Contains(indexScript, "state.client.sendDelta(") {
+		t.Fatalf("plugin index missing delta send path: %q", indexScript)
+	}
+	if !strings.Contains(indexScript, "state.client.sendContent(") {
+		t.Fatalf("plugin index missing final content send path: %q", indexScript)
+	}
+	if !strings.Contains(indexScript, "stream_id: streamId") {
+		t.Fatalf("plugin index missing stream_id propagation: %q", indexScript)
+	}
+	if !strings.Contains(indexScript, "extractClientRequestID") {
+		t.Fatalf("plugin index missing client_request_id propagation helper: %q", indexScript)
+	}
+
+	clientBody, err := os.ReadFile(filepath.Join(dir, agentLimaPluginClient))
+	if err != nil {
+		t.Fatalf("ReadFile(plugin client) error: %v", err)
+	}
+	clientScript := string(clientBody)
+	if !strings.Contains(clientScript, "async sendContent(") {
+		t.Fatalf("plugin client missing sendContent helper: %q", clientScript)
+	}
+	if !strings.Contains(clientScript, "async sendDelta(") {
+		t.Fatalf("plugin client missing sendDelta helper: %q", clientScript)
+	}
+	if !strings.Contains(clientScript, "stream_id: streamId") {
+		t.Fatalf("plugin client missing stream_id propagation: %q", clientScript)
 	}
 }
 

@@ -9,9 +9,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 import { createChatChannelPlugin } from "/usr/lib/node_modules/openclaw/dist/plugin-sdk/core.js";
-import { dispatchInboundDirectDmWithRuntime } from "/usr/lib/node_modules/openclaw/dist/plugin-sdk/direct-dm.js";
+import { createChannelReplyPipeline } from "/usr/lib/node_modules/openclaw/dist/plugin-sdk/channel-reply-pipeline.js";
 
 import { Sky10Client } from "./sky10.js";
 
@@ -234,6 +235,57 @@ function resolveSessionPeerId(msg) {
   return `${msg.from}:${msg.session_id || "main"}`;
 }
 
+function extractInboundText(content) {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!content || typeof content !== "object") {
+    return content === undefined || content === null ? "" : JSON.stringify(content);
+  }
+  if (typeof content.text === "string" && content.text) {
+    return content.text;
+  }
+  if (Array.isArray(content.parts)) {
+    const joined = content.parts
+      .filter((part) => part && typeof part === "object")
+      .map((part) => (typeof part.text === "string" ? part.text : ""))
+      .filter(Boolean)
+      .join("\n\n");
+    if (joined) {
+      return joined;
+    }
+  }
+  return JSON.stringify(content);
+}
+
+function extractClientRequestID(content) {
+  if (!content || typeof content !== "object") {
+    return "";
+  }
+  return typeof content.client_request_id === "string" ? content.client_request_id.trim() : "";
+}
+
+function resolveReplyText(payload) {
+  if (typeof payload === "string") {
+    return payload;
+  }
+  if (payload && typeof payload === "object" && typeof payload.text === "string") {
+    return payload.text;
+  }
+  return "";
+}
+
+function buildStreamContent(text, streamId, clientRequestID) {
+  const content = {
+    text,
+    stream_id: streamId,
+  };
+  if (clientRequestID) {
+    content.client_request_id = clientRequestID;
+  }
+  return content;
+}
+
 async function ensureRegistered(log, account, setStatus) {
   const state = getBridgeState();
   state.client ??= new Sky10Client(account.rpcUrl);
@@ -248,6 +300,30 @@ async function ensureRegistered(log, account, setStatus) {
     rpcUrl: account.rpcUrl,
   });
   log.info(`sky10: registered as ${state.agentId} (${account.agentName})`);
+}
+
+function resolveInboundRouteEnvelope(runtime, cfg, accountId, peer, conversationLabel, rawBody, timestamp) {
+  const route = runtime.channel.routing.resolveAgentRoute({
+    cfg,
+    channel: CHANNEL_ID,
+    accountId,
+    peer,
+  });
+  const storePath = runtime.channel.session.resolveStorePath(cfg.session?.store, { agentId: route.agentId });
+  const previousTimestamp = runtime.channel.session.readSessionUpdatedAt({
+    storePath,
+    sessionKey: route.sessionKey,
+  });
+  const envelope = runtime.channel.reply.resolveEnvelopeFormatOptions(cfg);
+  const body = runtime.channel.reply.formatAgentEnvelope({
+    channel: CHANNEL_LABEL,
+    from: conversationLabel,
+    timestamp,
+    previousTimestamp,
+    envelope,
+    body: rawBody,
+  });
+  return { route, storePath, body };
 }
 
 function startHeartbeat(log, account, setStatus, abortSignal) {
@@ -276,48 +352,100 @@ function startHeartbeat(log, account, setStatus, abortSignal) {
   return () => clearInterval(timer);
 }
 
-async function dispatchInbound(log, ctx, account, msg, text) {
+async function dispatchInbound(log, ctx, account, msg, rawBody) {
   const state = getBridgeState();
   const runtime = state.pluginRuntime;
   if (!runtime?.channel) {
     throw new Error("sky10 runtime not initialized");
   }
 
-  await dispatchInboundDirectDmWithRuntime({
-    cfg: ctx.cfg,
+  const peer = {
+    kind: "direct",
+    id: resolveSessionPeerId(msg),
+  };
+  const sessionId = msg.session_id || "main";
+  const conversationLabel = `${msg.from} (${sessionId})`;
+  const messageId = resolveMessageId(msg);
+  const timestamp = resolveMessageTimestamp(msg);
+  const { route, storePath, body } = resolveInboundRouteEnvelope(
     runtime,
-    channel: CHANNEL_ID,
-    channelLabel: CHANNEL_LABEL,
-    accountId: account.accountId,
-    peer: {
-      kind: "direct",
-      id: resolveSessionPeerId(msg),
-    },
-    senderId: msg.from,
-    senderAddress: `sky10:${msg.from}`,
-    recipientAddress: `sky10:${state.agentId ?? account.agentName}`,
-    conversationLabel: `${msg.from} (${msg.session_id || "main"})`,
-    rawBody: text,
-    messageId: resolveMessageId(msg),
-    timestamp: resolveMessageTimestamp(msg),
-    commandAuthorized: true,
-    deliver: async (payload) => {
-      const outboundText = payload && typeof payload === "object" && "text" in payload ? payload.text ?? "" : "";
-      if (!outboundText.trim()) {
-        return;
-      }
-      await state.client.send(msg.from, msg.session_id, outboundText, msg.from);
-      log.info("sky10: reply sent");
-    },
+    ctx.cfg,
+    account.accountId,
+    peer,
+    conversationLabel,
+    rawBody,
+    timestamp,
+  );
+  const ctxPayload = runtime.channel.reply.finalizeInboundContext({
+    Body: body,
+    BodyForAgent: rawBody,
+    RawBody: rawBody,
+    CommandBody: rawBody,
+    From: `sky10:${msg.from}`,
+    To: `sky10:${state.agentId ?? account.agentName}`,
+    SessionKey: route.sessionKey,
+    AccountId: route.accountId ?? account.accountId,
+    ChatType: "direct",
+    ConversationLabel: conversationLabel,
+    SenderId: msg.from,
+    Provider: CHANNEL_ID,
+    Surface: CHANNEL_ID,
+    MessageSid: messageId,
+    MessageSidFull: messageId,
+    Timestamp: timestamp,
+    CommandAuthorized: true,
+    OriginatingChannel: CHANNEL_ID,
+    OriginatingTo: `sky10:${state.agentId ?? account.agentName}`,
+    Sky10SessionId: sessionId,
+    Sky10SenderId: msg.from,
+  });
+  await runtime.channel.session.recordInboundSession({
+    storePath,
+    sessionKey: ctxPayload.SessionKey ?? route.sessionKey,
+    ctx: ctxPayload,
     onRecordError: (err) => {
       log.error(`sky10: failed recording inbound session: ${err?.message ?? err}`);
     },
-    onDispatchError: (err, info) => {
-      log.error(`sky10: ${info.kind} reply failed: ${err?.message ?? err}`);
+  });
+
+  const clientRequestID = extractClientRequestID(msg.content);
+  const streamId = randomUUID();
+  const { onModelSelected, ...replyPipeline } = createChannelReplyPipeline({
+    cfg: ctx.cfg,
+    agentId: route.agentId,
+    channel: CHANNEL_ID,
+    accountId: route.accountId ?? account.accountId,
+  });
+  await runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+    ctx: ctxPayload,
+    cfg: ctx.cfg,
+    dispatcherOptions: {
+      ...replyPipeline,
+      deliver: async (payload, meta) => {
+        const kind = meta?.kind ?? "final";
+        const replyText = resolveReplyText(payload);
+        if (kind === "block") {
+          await state.client.sendDelta(msg.from, sessionId, replyText, msg.from, streamId, clientRequestID);
+          return;
+        }
+        if (kind !== "final" || !replyText.trim()) {
+          return;
+        }
+        await state.client.sendContent(
+          msg.from,
+          sessionId,
+          buildStreamContent(replyText, streamId, clientRequestID),
+          msg.from,
+          "text",
+        );
+        log.info("sky10: reply sent");
+      },
+      onError: (err, info) => {
+        log.error(`sky10: ${info.kind} reply failed: ${err?.message ?? err}`);
+      },
     },
-    extraContext: {
-      Sky10SessionId: msg.session_id,
-      Sky10SenderId: msg.from,
+    replyOptions: {
+      onModelSelected,
     },
   });
 }
@@ -364,8 +492,8 @@ function handleAgentMessage(log, ctx, account, data) {
       return;
     }
 
-    const text = msg.content?.text ?? JSON.stringify(msg.content ?? {});
-    void dispatchInbound(log, ctx, account, msg, text).catch((err) => {
+    const rawBody = extractInboundText(msg.content);
+    void dispatchInbound(log, ctx, account, msg, rawBody).catch((err) => {
       log.error(`sky10: inbound dispatch failed: ${err?.message ?? err}`);
     });
   } catch (err) {

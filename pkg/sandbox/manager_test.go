@@ -537,8 +537,8 @@ func TestBundledOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	if !strings.Contains(string(indexBody), `createChatChannelPlugin`) {
 		t.Fatalf("bundled plugin index missing OpenClaw chat channel registration: %q", string(indexBody))
 	}
-	if !strings.Contains(string(indexBody), `dispatchInboundDirectDmWithRuntime`) {
-		t.Fatalf("bundled plugin index missing native direct-DM dispatch: %q", string(indexBody))
+	if !strings.Contains(string(indexBody), `createChannelReplyPipeline`) {
+		t.Fatalf("bundled plugin index missing channel reply pipeline: %q", string(indexBody))
 	}
 	if !strings.Contains(string(indexBody), `api.registerChannel({ plugin: sky10ChannelPlugin })`) {
 		t.Fatalf("bundled plugin index missing channel registration: %q", string(indexBody))
@@ -551,6 +551,49 @@ func TestBundledOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	}
 	if strings.Contains(string(indexBody), `/v1/responses`) {
 		t.Fatalf("bundled plugin index should not self-call the gateway responses API: %q", string(indexBody))
+	}
+}
+
+func TestBundledOpenClawBridgeAssetStreamsReplies(t *testing.T) {
+	t.Parallel()
+
+	indexBody, err := readBundledTemplateAsset(templateOpenClawPluginIndex)
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateOpenClawPluginIndex, err)
+	}
+	indexScript := string(indexBody)
+	if !strings.Contains(indexScript, "createChannelReplyPipeline") {
+		t.Fatalf("bundled plugin index missing reply pipeline creation: %q", indexScript)
+	}
+	if !strings.Contains(indexScript, "dispatchReplyWithBufferedBlockDispatcher") {
+		t.Fatalf("bundled plugin index missing buffered block dispatcher: %q", indexScript)
+	}
+	if !strings.Contains(indexScript, "state.client.sendDelta(") {
+		t.Fatalf("bundled plugin index missing delta send path: %q", indexScript)
+	}
+	if !strings.Contains(indexScript, "state.client.sendContent(") {
+		t.Fatalf("bundled plugin index missing final content send path: %q", indexScript)
+	}
+	if !strings.Contains(indexScript, "stream_id: streamId") {
+		t.Fatalf("bundled plugin index missing stream_id propagation: %q", indexScript)
+	}
+	if !strings.Contains(indexScript, "extractClientRequestID") {
+		t.Fatalf("bundled plugin index missing client_request_id propagation helper: %q", indexScript)
+	}
+
+	clientBody, err := readBundledTemplateAsset(templateOpenClawPluginClient)
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateOpenClawPluginClient, err)
+	}
+	clientScript := string(clientBody)
+	if !strings.Contains(clientScript, "async sendContent(") {
+		t.Fatalf("bundled plugin client missing sendContent helper: %q", clientScript)
+	}
+	if !strings.Contains(clientScript, "async sendDelta(") {
+		t.Fatalf("bundled plugin client missing sendDelta helper: %q", clientScript)
+	}
+	if !strings.Contains(clientScript, "stream_id: streamId") {
+		t.Fatalf("bundled plugin client missing stream_id propagation: %q", clientScript)
 	}
 }
 

@@ -27,13 +27,31 @@ export class Sky10Client {
   }
 
   async send(to, sessionId, text, deviceId) {
+    return this.sendContent(to, sessionId, { text }, deviceId, "text");
+  }
+
+  async sendContent(to, sessionId, content, deviceId, messageType = "text") {
     return this.rpc("agent.send", {
       to,
       device_id: deviceId,
       session_id: sessionId,
-      type: "text",
-      content: { text },
+      type: messageType,
+      content,
     });
+  }
+
+  async sendDelta(to, sessionId, text, deviceId, streamId, clientRequestID = "") {
+    if (!text) {
+      return;
+    }
+    const content = {
+      text,
+      stream_id: streamId,
+    };
+    if (clientRequestID) {
+      content.client_request_id = clientRequestID;
+    }
+    return this.sendContent(to, sessionId, content, deviceId, "delta");
   }
 
   async heartbeat(agentId) {
