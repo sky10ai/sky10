@@ -51,6 +51,8 @@ The implementation plan for this architecture lives in
 - **Draft** — a normalized unsent outbound message
 - **Policy** — rules for inbound, outbound, drafts, approvals, recipients,
   attachments, and timing
+- **Workflow** — the human-facing logical unit for one messaging action chain
+- **ActivityEvent** — the internal atomic audit record attached to a workflow
 - **Broker** — the `sky10` middle layer that owns policy, approvals, routing,
   and storage
 - **Event** — a normalized inbound change from an adapter
@@ -174,6 +176,7 @@ The broker owns:
 - identity discovery and indexing
 - conversation and message storage
 - draft lifecycle
+- workflow aggregation
 - policy evaluation
 - approval workflows
 - audit history
@@ -207,6 +210,8 @@ The first normalized model should include:
 - `Draft`
 - `Policy`
 - `Exposure`
+- `Workflow`
+- `ActivityEvent`
 - `Event`
 - `Capability`
 
@@ -219,6 +224,62 @@ Recommended relationship shape:
 - one `Message` may lead to one or more `Draft`s or approvals
 - one `Connection` has a default `Policy`
 - one `Exposure` narrows a `Policy` for one agent/runtime
+- one inbound-triggered logical action chain becomes one `Workflow`
+- one `Workflow` owns many internal `ActivityEvent` records
+
+## Workflow And Audit Model
+
+The broker should store atomic audit events, but the primary operator-facing
+surface should be one logical workflow row per inbound-triggered action chain.
+
+That means:
+
+- `ActivityEvent` is the internal atomic audit record
+- `Workflow` is the human-facing summarized unit
+
+Example:
+
+- Latisha sends a Slack DM
+- a rule matches
+- a draft is created
+- an operator is notified on Telegram
+- the operator approves
+- the broker sends on Slack
+
+Internally, that may be many `ActivityEvent` records.
+Human-facing, it should usually appear as one `Workflow`.
+
+Recommended workflow state examples:
+
+- `new`
+- `matched`
+- `drafted`
+- `awaiting_approval`
+- `approved`
+- `sending`
+- `sent`
+- `failed`
+- `dismissed`
+
+Recommended workflow timestamps:
+
+- `source_created_at`
+- `broker_received_at`
+- `rule_matched_at`
+- `draft_created_at`
+- `operator_notified_at`
+- `operator_responded_at`
+- `approved_at`
+- `send_requested_at`
+- `source_sent_at`
+- `fulfilled_at`
+- `last_activity_at`
+
+This split allows:
+
+- precise internal auditability
+- one clean human-facing workflow table
+- drill-down from workflow to raw event timeline on demand
 
 ## Capabilities
 
@@ -398,6 +459,8 @@ The broker should persist:
 - conversation index
 - message index
 - drafts
+- workflows
+- activity events
 - policy bindings
 - exposures
 - checkpoints/cursors for polling

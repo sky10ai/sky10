@@ -78,7 +78,8 @@ committing to any one platform adapter.
 
 - [x] Create `pkg/messaging` with the first normalized types:
   `Connection`, `AuthInfo`, `Identity`, `Conversation`, `Participant`,
-  `Message`, `Draft`, `Policy`, `Exposure`, `Event`, `Capability`.
+  `Message`, `Draft`, `Policy`, `Exposure`, `Workflow`, `ActivityEvent`,
+  `Event`, `Capability`.
 - [x] Define stable ID types for connections, identities, conversations,
   messages, drafts, policies, and exposures.
 - [ ] Decide which records are durable truth versus derived cache.
@@ -89,6 +90,8 @@ committing to any one platform adapter.
 - [ ] Persist identities discovered through adapters.
 - [ ] Persist conversation metadata and message indexes.
 - [ ] Persist drafts and their lifecycle state.
+- [ ] Persist human-facing `Workflow` records for logical action chains.
+- [ ] Persist internal `ActivityEvent` records for the full audit trail.
 - [ ] Persist adapter poll checkpoints and webhook verification state.
 - [ ] Persist audit history for inbound, draft, approval, and send events.
 - [ ] Ensure Windows-safe data paths and filenames from the start.
@@ -155,6 +158,7 @@ outbound orchestration, and event fanout.
   sources.
 - [ ] Add outbound operations that always flow through the broker.
 - [ ] Add event fanout to UI and northbound shims.
+- [ ] Aggregate raw activity into human-facing workflow state.
 - [ ] Add deduplication/idempotency for inbound events and outbound send
   results.
 - [ ] Add delivery status and edit/delete state updates when supported.
@@ -276,10 +280,14 @@ internal RPCs.
 ### Checklist
 
 - [ ] Add a `Messaging` section in the UI.
+- [ ] Add a workflow-first messaging activity table instead of a raw event log
+  as the default view.
 - [ ] Add connection list and connection detail views.
 - [ ] Show connection health, auth status, and exposed identities.
 - [ ] Show conversations and message timelines.
 - [ ] Show drafts and approval-needed queues.
+- [ ] Show one logical workflow row per inbound-triggered action chain.
+- [ ] Add drill-down from workflow rows into the raw event timeline.
 - [ ] Show reply permissions and effective policy in plain language.
 - [ ] Show adapter capability differences where they matter to users.
 - [ ] Add operator diagnostics for webhook failures, poll failures, and auth

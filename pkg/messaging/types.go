@@ -16,6 +16,7 @@ type (
 	DraftID        string
 	PolicyID       string
 	ExposureID     string
+	WorkflowID     string
 	EventID        string
 )
 
@@ -136,6 +137,22 @@ const (
 	ExposureSubjectKindRuntime ExposureSubjectKind = "runtime"
 	ExposureSubjectKindUser    ExposureSubjectKind = "user"
 	ExposureSubjectKindService ExposureSubjectKind = "service"
+)
+
+// WorkflowStatus describes the human-facing lifecycle state of one logical
+// messaging action chain.
+type WorkflowStatus string
+
+const (
+	WorkflowStatusNew              WorkflowStatus = "new"
+	WorkflowStatusMatched          WorkflowStatus = "matched"
+	WorkflowStatusDrafted          WorkflowStatus = "drafted"
+	WorkflowStatusAwaitingApproval WorkflowStatus = "awaiting_approval"
+	WorkflowStatusApproved         WorkflowStatus = "approved"
+	WorkflowStatusSending          WorkflowStatus = "sending"
+	WorkflowStatusSent             WorkflowStatus = "sent"
+	WorkflowStatusFailed           WorkflowStatus = "failed"
+	WorkflowStatusDismissed        WorkflowStatus = "dismissed"
 )
 
 // EventType is the normalized class of a broker event.
@@ -523,6 +540,102 @@ func (e Exposure) Validate() error {
 	}
 	if strings.TrimSpace(string(e.SubjectKind)) == "" {
 		return fmt.Errorf("exposure subject_kind is required")
+	}
+	return nil
+}
+
+// Workflow is the operator-facing summary of one logical messaging action
+// chain. Many internal activity events may collapse into one workflow row.
+type Workflow struct {
+	ID                   WorkflowID        `json:"id"`
+	Kind                 string            `json:"kind"`
+	Status               WorkflowStatus    `json:"status"`
+	SourceConnectionID   ConnectionID      `json:"source_connection_id"`
+	SourceIdentityID     IdentityID        `json:"source_identity_id,omitempty"`
+	SourceConversationID ConversationID    `json:"source_conversation_id,omitempty"`
+	SourceMessageID      MessageID         `json:"source_message_id,omitempty"`
+	OperatorConnectionID ConnectionID      `json:"operator_connection_id,omitempty"`
+	OperatorMessageID    MessageID         `json:"operator_message_id,omitempty"`
+	RuleID               string            `json:"rule_id,omitempty"`
+	PolicyID             PolicyID          `json:"policy_id,omitempty"`
+	ExposureID           ExposureID        `json:"exposure_id,omitempty"`
+	Sender               Participant       `json:"sender"`
+	Subject              string            `json:"subject,omitempty"`
+	Summary              string            `json:"summary,omitempty"`
+	DraftID              DraftID           `json:"draft_id,omitempty"`
+	ApprovalID           string            `json:"approval_id,omitempty"`
+	OutboundMessageID    MessageID         `json:"outbound_message_id,omitempty"`
+	SourceCreatedAt      *time.Time        `json:"source_created_at,omitempty"`
+	BrokerReceivedAt     time.Time         `json:"broker_received_at"`
+	RuleMatchedAt        *time.Time        `json:"rule_matched_at,omitempty"`
+	DraftCreatedAt       *time.Time        `json:"draft_created_at,omitempty"`
+	OperatorNotifiedAt   *time.Time        `json:"operator_notified_at,omitempty"`
+	OperatorRespondedAt  *time.Time        `json:"operator_responded_at,omitempty"`
+	ApprovedAt           *time.Time        `json:"approved_at,omitempty"`
+	SendRequestedAt      *time.Time        `json:"send_requested_at,omitempty"`
+	SourceSentAt         *time.Time        `json:"source_sent_at,omitempty"`
+	FulfilledAt          *time.Time        `json:"fulfilled_at,omitempty"`
+	LastActivityAt       time.Time         `json:"last_activity_at"`
+	NeedsAttention       bool              `json:"needs_attention"`
+	AttentionReason      string            `json:"attention_reason,omitempty"`
+	Error                string            `json:"error,omitempty"`
+	Metadata             map[string]string `json:"metadata,omitempty"`
+}
+
+// Validate checks whether a workflow is structurally valid.
+func (w Workflow) Validate() error {
+	if err := requireID(string(w.ID), "workflow id"); err != nil {
+		return err
+	}
+	if err := requireText(w.Kind, "workflow kind"); err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(w.Status)) == "" {
+		return fmt.Errorf("workflow status is required")
+	}
+	if err := requireID(string(w.SourceConnectionID), "workflow source_connection_id"); err != nil {
+		return err
+	}
+	if err := w.Sender.Validate(); err != nil {
+		return fmt.Errorf("workflow sender: %w", err)
+	}
+	if w.BrokerReceivedAt.IsZero() {
+		return fmt.Errorf("workflow broker_received_at is required")
+	}
+	if w.LastActivityAt.IsZero() {
+		return fmt.Errorf("workflow last_activity_at is required")
+	}
+	return nil
+}
+
+// ActivityEvent is the internal atomic audit record attached to a workflow.
+type ActivityEvent struct {
+	ID             EventID           `json:"id"`
+	WorkflowID     WorkflowID        `json:"workflow_id"`
+	Type           EventType         `json:"type"`
+	OccurredAt     time.Time         `json:"occurred_at"`
+	ConnectionID   ConnectionID      `json:"connection_id,omitempty"`
+	ConversationID ConversationID    `json:"conversation_id,omitempty"`
+	MessageID      MessageID         `json:"message_id,omitempty"`
+	DraftID        DraftID           `json:"draft_id,omitempty"`
+	ExposureID     ExposureID        `json:"exposure_id,omitempty"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
+	Error          string            `json:"error,omitempty"`
+}
+
+// Validate checks whether an activity event is structurally valid.
+func (e ActivityEvent) Validate() error {
+	if err := requireID(string(e.ID), "activity event id"); err != nil {
+		return err
+	}
+	if err := requireID(string(e.WorkflowID), "activity event workflow_id"); err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(e.Type)) == "" {
+		return fmt.Errorf("activity event type is required")
+	}
+	if e.OccurredAt.IsZero() {
+		return fmt.Errorf("activity event occurred_at is required")
 	}
 	return nil
 }

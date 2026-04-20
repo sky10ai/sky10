@@ -206,3 +206,34 @@ func TestPolicyExposureAndEventValidate(t *testing.T) {
 		t.Fatalf("event Validate() error = %v", err)
 	}
 }
+
+func TestWorkflowAndActivityEventValidate(t *testing.T) {
+	now := time.Now().UTC()
+	workflow := Workflow{
+		ID:                 WorkflowID("wf-1"),
+		Kind:               "proactive_reply",
+		Status:             WorkflowStatusAwaitingApproval,
+		SourceConnectionID: ConnectionID("slack/board"),
+		Sender: Participant{
+			Kind:        ParticipantKindUser,
+			RemoteID:    "U123",
+			DisplayName: "Latisha",
+		},
+		BrokerReceivedAt: now,
+		LastActivityAt:   now,
+	}
+	if err := workflow.Validate(); err != nil {
+		t.Fatalf("workflow Validate() error = %v", err)
+	}
+
+	activity := ActivityEvent{
+		ID:           EventID("evt-activity-1"),
+		WorkflowID:   workflow.ID,
+		Type:         EventTypeApprovalRequired,
+		OccurredAt:   now,
+		ConnectionID: workflow.SourceConnectionID,
+	}
+	if err := activity.Validate(); err != nil {
+		t.Fatalf("activity Validate() error = %v", err)
+	}
+}
