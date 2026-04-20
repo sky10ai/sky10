@@ -8,6 +8,13 @@ import { StatusBadge } from "./StatusBadge";
 import { ThemeControl } from "./ThemeControl";
 
 function getRouteMeta(pathname: string) {
+  if (pathname.startsWith("/ai")) {
+    return {
+      description: "Describe the outcome you want and inspect the node through the root assistant's live tool traces.",
+      title: "AI Workspace",
+    };
+  }
+
   if (pathname.startsWith("/drives/")) {
     const [, , driveName] = pathname.split("/");
     return {

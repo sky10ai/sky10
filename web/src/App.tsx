@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router";
 import { Layout } from "./components/Layout";
-import { identity } from "./lib/rpc";
-import { useRPC } from "./lib/useRPC";
+import AIWorkspace from "./pages/AIWorkspace";
 import GettingStarted from "./pages/GettingStarted";
 import Devices from "./pages/Devices";
 import InviteDevice from "./pages/InviteDevice";
@@ -23,10 +22,7 @@ import SettingsApps from "./pages/SettingsApps";
 import SettingsSecrets from "./pages/SettingsSecrets";
 
 function HomeRedirect() {
-  const { data } = useRPC(() => identity.deviceList(), []);
-  const deviceCount = data?.devices?.length ?? 0;
-  if (!data) return null;
-  return <Navigate to={deviceCount >= 2 ? "/drives" : "/getting-started"} replace />;
+  return <Navigate to="/ai" replace />;
 }
 
 function SandboxLegacyRedirect() {
@@ -41,6 +37,7 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<HomeRedirect />} />
+          <Route path="ai" element={<AIWorkspace />} />
           <Route path="getting-started" element={<GettingStarted />} />
           <Route path="agents" element={<Agents />} />
           <Route path="agents/create" element={<AgentCreate />} />
