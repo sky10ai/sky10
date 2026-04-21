@@ -493,6 +493,7 @@ RestartSec=5
 WorkingDirectory=/shared/workspace
 EnvironmentFile=-%h/.hermes/.sky10-lima/bridge.env
 Environment=HOME=${HOME}
+Environment=HERMES_PREFER_RESPONSES_API=false
 Environment=PATH=${HOME}/.local/bin:${HOME}/.cargo/bin:${HOME}/.bin:/usr/local/bin:/usr/bin:/bin
 Environment=PYTHONUNBUFFERED=1
 

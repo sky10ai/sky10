@@ -45,6 +45,13 @@ def strip_trailing_path(url: str, suffix: str) -> str:
     return url
 
 
+def env_flag(name: str, default: bool) -> bool:
+    raw = os.environ.get(name, "").strip().lower()
+    if raw == "":
+        return default
+    return raw in {"1", "true", "yes", "on"}
+
+
 def extract_text(content: Any) -> str:
     if isinstance(content, str):
         return content
@@ -404,7 +411,7 @@ class HermesClient:
         self.api_base = strip_trailing_path(api_base, "/")
         self.api_key = os.environ.get("API_SERVER_KEY", "").strip()
         self.model = os.environ.get("API_SERVER_MODEL_NAME", "hermes-agent").strip() or "hermes-agent"
-        self.use_responses_api = True
+        self.use_responses_api = env_flag("HERMES_PREFER_RESPONSES_API", True)
         self.history_lock = threading.Lock()
         self.chat_history: dict[str, list[dict[str, str]]] = {}
         self.chat_pending_turns: dict[str, dict[int, tuple[str, str] | None]] = {}
@@ -436,7 +443,16 @@ class HermesClient:
                     self.use_responses_api = False
                 else:
                     raise
-        return self._stream_chat_completions(session_id, text, on_delta)
+            return self._stream_chat_completions(session_id, text, on_delta)
+        try:
+            return self._stream_chat_completions(session_id, text, on_delta)
+        except BridgeError as exc:
+            if self._chat_completions_api_unsupported(str(exc)):
+                log(f"Hermes chat completions unavailable, falling back to Responses API: {exc}")
+                self.use_responses_api = True
+            else:
+                raise
+        return self._stream_responses(session_id, text, on_delta)
 
     def warm_up(self) -> None:
         start = time.time()
@@ -452,9 +468,24 @@ class HermesClient:
                     self.use_responses_api = False
                 else:
                     raise
-        self._warm_chat_completions()
+            self._warm_chat_completions()
+            elapsed_ms = int((time.time() - start) * 1000)
+            log(f"Hermes API warm-up completed in {elapsed_ms}ms via /chat/completions")
+            return
+        try:
+            self._warm_chat_completions()
+            elapsed_ms = int((time.time() - start) * 1000)
+            log(f"Hermes API warm-up completed in {elapsed_ms}ms via /chat/completions")
+            return
+        except BridgeError as exc:
+            if self._chat_completions_api_unsupported(str(exc)):
+                log(f"Hermes chat completions warm-up unavailable, falling back to Responses API: {exc}")
+                self.use_responses_api = True
+            else:
+                raise
+        self._warm_responses()
         elapsed_ms = int((time.time() - start) * 1000)
-        log(f"Hermes API warm-up completed in {elapsed_ms}ms via /chat/completions")
+        log(f"Hermes API warm-up completed in {elapsed_ms}ms via /responses")
 
     def _warm_responses(self) -> None:
         payload = {
@@ -655,6 +686,11 @@ class HermesClient:
     def _responses_api_unsupported(message: str) -> bool:
         lowered = message.lower()
         return "/responses" in lowered or "previous_response_id" in lowered or "conversation" in lowered or "http 404" in lowered
+
+    @staticmethod
+    def _chat_completions_api_unsupported(message: str) -> bool:
+        lowered = message.lower()
+        return "/chat/completions" in lowered or "http 404" in lowered
 
     @staticmethod
     def _extract_responses_text(payload: dict[str, Any]) -> str:
