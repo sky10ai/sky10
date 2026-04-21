@@ -277,8 +277,8 @@ Initial target layout:
 ```text
 Agents/
   <agent-name-or-id>/
-    soul.md
-    memory.md
+    SOUL.md
+    MEMORY.md
     sky10.md
     notes/
     attachments/
@@ -292,7 +292,7 @@ This content should obey the same FS rules as any other drive:
 
 ## Agent File Contract
 
-### `soul.md`
+### `SOUL.md`
 
 Primary purpose:
 
@@ -303,7 +303,7 @@ Expected ownership:
 - mostly human-authored
 - optionally appended or refined by the agent runtime with explicit user intent
 
-### `memory.md`
+### `MEMORY.md`
 
 Primary purpose:
 

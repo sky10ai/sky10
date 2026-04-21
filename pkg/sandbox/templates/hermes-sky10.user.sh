@@ -321,7 +321,7 @@ shared_agent_file_is_seed() {
 
   base="$(basename "${source}")"
   case "${base}" in
-    memory.md)
+    MEMORY.md)
       grep -Fqx -- "# Memory" "${source}" &&
         grep -Fqx -- "Use this file for durable facts that should survive model, runtime, and machine changes." "${source}" &&
         grep -Fqx -- "- Project conventions worth carrying forward" "${source}" &&
@@ -331,7 +331,7 @@ shared_agent_file_is_seed() {
     USER.md)
       ! grep -q -- '[^[:space:]]' "${source}"
       ;;
-    soul.md)
+    SOUL.md)
       grep -Fqx -- "# Soul" "${source}" &&
         grep -Fq -- "This file defines the durable identity for " "${source}" &&
         grep -Fqx -- "## Role" "${source}" &&
@@ -392,8 +392,8 @@ link_agent_file() {
 
 link_hermes_profile() {
   mkdir -p "${HERMES_HOME}/memories"
-  link_agent_file "${SHARED_DIR}/soul.md" "${HERMES_HOME}/SOUL.md"
-  link_agent_file "${SHARED_DIR}/memory.md" "${HERMES_HOME}/memories/MEMORY.md"
+  link_agent_file "${SHARED_DIR}/SOUL.md" "${HERMES_HOME}/SOUL.md"
+  link_agent_file "${SHARED_DIR}/MEMORY.md" "${HERMES_HOME}/memories/MEMORY.md"
   link_agent_file "${SHARED_DIR}/USER.md" "${HERMES_HOME}/memories/USER.md"
 }
 

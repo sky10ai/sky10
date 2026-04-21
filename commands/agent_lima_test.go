@@ -219,8 +219,8 @@ func TestPrepareLimaSharedDir(t *testing.T) {
 	}
 	if got, err := os.Readlink(filepath.Join(sharedDir, "workspace", "SOUL.md")); err != nil {
 		t.Fatalf("Readlink(workspace/SOUL.md) error: %v", err)
-	} else if got != filepath.Join("..", "soul.md") {
-		t.Fatalf("workspace/SOUL.md -> %q, want ../soul.md", got)
+	} else if got != filepath.Join("..", "SOUL.md") {
+		t.Fatalf("workspace/SOUL.md -> %q, want ../SOUL.md", got)
 	}
 }
 
@@ -583,10 +583,10 @@ func TestHermesUserScriptInstallsHelper(t *testing.T) {
 	if !strings.Contains(script, "/sandbox-state/bridge.json") {
 		t.Fatalf("user script missing bridge config path: %q", script)
 	}
-	if !strings.Contains(script, `link_agent_file "${SHARED_DIR}/soul.md" "${HERMES_HOME}/SOUL.md"`) {
+	if !strings.Contains(script, `link_agent_file "${SHARED_DIR}/SOUL.md" "${HERMES_HOME}/SOUL.md"`) {
 		t.Fatalf("user script missing SOUL.md root link: %q", script)
 	}
-	if !strings.Contains(script, `link_agent_file "${SHARED_DIR}/memory.md" "${HERMES_HOME}/memories/MEMORY.md"`) {
+	if !strings.Contains(script, `link_agent_file "${SHARED_DIR}/MEMORY.md" "${HERMES_HOME}/memories/MEMORY.md"`) {
 		t.Fatalf("user script missing MEMORY.md root link: %q", script)
 	}
 	if strings.Contains(script, "HERMES.md") {

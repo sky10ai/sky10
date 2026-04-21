@@ -9,12 +9,12 @@ import (
 )
 
 const (
-	agentProfileSoulFile      = "soul.md"
-	agentProfileMemoryFile    = "memory.md"
+	agentProfileSoulFile      = "SOUL.md"
+	agentProfileMemoryFile    = "MEMORY.md"
 	agentProfileContractFile  = "sky10.md"
 	agentProfileAgentsFile    = "AGENTS.md"
 	agentProfileBootstrapFile = "BOOTSTRAP.md"
-	agentProfileIdentityFile  = "identity.md"
+	agentProfileIdentityFile  = "IDENTITY.md"
 	agentProfileRuntimeSoul   = "SOUL.md"
 	agentProfileRuntimeMemory = "MEMORY.md"
 	agentProfileToolsFile     = "TOOLS.md"
@@ -40,6 +40,9 @@ type AgentProfileSeed struct {
 
 func EnsureAgentProfileLayout(sharedDir string, seed AgentProfileSeed) error {
 	if err := EnsureAgentHomeLayout(sharedDir); err != nil {
+		return err
+	}
+	if err := normalizeLegacyAgentProfilePaths(sharedDir); err != nil {
 		return err
 	}
 
@@ -145,8 +148,8 @@ model:
 bootstrap:
   working_dir: "workspace"
   prompt_refs:
-    - soul.md
-    - memory.md
+    - SOUL.md
+    - MEMORY.md
     - AGENTS.md
 field_ownership:
   human:
@@ -170,13 +173,13 @@ func agentProfileAgentsTemplate() string {
 
 Treat the files in this agent root as the portable source of truth for this agent:
 
-- `+"`soul.md`"+`: durable identity, tone, and boundaries. Humans own this file.
-- `+"`memory.md`"+`: durable portable memory worth carrying across runtime or machine changes.
+- `+"`SOUL.md`"+`: durable identity, tone, and boundaries. Humans own this file.
+- `+"`MEMORY.md`"+`: durable portable memory worth carrying across runtime or machine changes.
 - `+"`sky10.md`"+`: runtime and migration contract for this sandbox.
 
-If you learn something durable, update `+"`memory.md`"+`.
+If you learn something durable, update `+"`MEMORY.md`"+`.
 If runtime or model details change, update `+"`sky10.md`"+`.
-Do not silently rewrite `+"`soul.md`"+`; propose edits instead.
+Do not silently rewrite `+"`SOUL.md`"+`; propose edits instead.
 `) + "\n"
 }
 
@@ -234,6 +237,92 @@ func ensureRelativeSymlink(path, target string) error {
 	}
 	if err := os.Symlink(target, path); err != nil {
 		return fmt.Errorf("creating symlink %q -> %q: %w", path, target, err)
+	}
+	return nil
+}
+
+var legacyAgentProfilePathRenames = [][2]string{
+	{"soul.md", agentProfileSoulFile},
+	{"memory.md", agentProfileMemoryFile},
+	{"identity.md", agentProfileIdentityFile},
+	{filepath.Join(agentWorkspaceDirName, "identity.md"), filepath.Join(agentWorkspaceDirName, agentProfileIdentityFile)},
+}
+
+func normalizeLegacyAgentProfilePaths(sharedDir string) error {
+	for _, rename := range legacyAgentProfilePathRenames {
+		if err := migrateAgentProfilePath(sharedDir, rename[0], rename[1]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateAgentProfilePath(sharedDir, legacyRel, currentRel string) error {
+	legacyPath := filepath.Join(sharedDir, legacyRel)
+	currentPath := filepath.Join(sharedDir, currentRel)
+
+	hasCurrent, err := hasExactDirEntry(filepath.Dir(currentPath), filepath.Base(currentPath))
+	if err != nil {
+		return err
+	}
+	if hasCurrent {
+		return nil
+	}
+
+	hasLegacy, err := hasExactDirEntry(filepath.Dir(legacyPath), filepath.Base(legacyPath))
+	if err != nil {
+		return err
+	}
+	if !hasLegacy {
+		return nil
+	}
+
+	if err := renamePathUpdatingCase(legacyPath, currentPath); err != nil {
+		return fmt.Errorf("migrating legacy agent profile path %q -> %q: %w", legacyRel, currentRel, err)
+	}
+	return nil
+}
+
+func hasExactDirEntry(dir, base string) (bool, error) {
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("reading directory %q: %w", dir, err)
+	}
+	for _, entry := range entries {
+		if entry.Name() == base {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func renamePathUpdatingCase(source, target string) error {
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return fmt.Errorf("creating parent directory for %q: %w", target, err)
+	}
+	if !strings.EqualFold(source, target) {
+		return os.Rename(source, target)
+	}
+
+	tempFile, err := os.CreateTemp(filepath.Dir(target), "."+filepath.Base(target)+".rename-*")
+	if err != nil {
+		return fmt.Errorf("creating temporary rename placeholder for %q: %w", target, err)
+	}
+	tempPath := tempFile.Name()
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("closing temporary rename placeholder for %q: %w", target, err)
+	}
+	if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("removing temporary rename placeholder for %q: %w", target, err)
+	}
+	if err := os.Rename(source, tempPath); err != nil {
+		return fmt.Errorf("renaming %q -> %q: %w", source, tempPath, err)
+	}
+	if err := os.Rename(tempPath, target); err != nil {
+		return fmt.Errorf("renaming %q -> %q: %w", tempPath, target, err)
 	}
 	return nil
 }

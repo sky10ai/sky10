@@ -79,7 +79,7 @@ workspace under:
 
 OpenClaw runs with `/shared/workspace` as its configured workspace, and the
 bootstrap files it reads there (`SOUL.md`, `AGENTS.md`, `MEMORY.md`,
-`identity.md`, and friends) are linked back to the agent-root files so durable
+`IDENTITY.md`, and friends) are linked back to the agent-root files so durable
 personality and memory edits land in the portable folder.
 
 Provider keys are optional at boot, but the agent will need them before it can

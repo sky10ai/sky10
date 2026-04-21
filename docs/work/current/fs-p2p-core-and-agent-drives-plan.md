@@ -16,7 +16,7 @@ drive:
 
 - one shared drive named `Agents`
 - one folder per agent
-- durable personality/state files such as `soul.md`, `memory.md`, and
+- durable personality/state files such as `SOUL.md`, `MEMORY.md`, and
   `sky10.md`
 
 `sky10.md` is intended to capture enough runtime and setup information to
@@ -94,8 +94,8 @@ Initial target layout for the `Agents` drive:
 ```text
 Agents/
   <agent-name-or-id>/
-    soul.md
-    memory.md
+    SOUL.md
+    MEMORY.md
     sky10.md
     notes/
     attachments/
@@ -144,7 +144,7 @@ Checklist:
 - [x] Define conflict semantics for modify/modify and modify/delete.
 - [x] Define how peer state, local state, and optional S3 state relate.
 - [x] Define the `Agents` drive as a first-class consumer of the FS engine.
-- [x] Define the initial file contract for `soul.md`, `memory.md`, and
+- [x] Define the initial file contract for `SOUL.md`, `MEMORY.md`, and
       `sky10.md`.
 
 Done when:
@@ -263,7 +263,7 @@ Checklist:
 Implementation follow-up checklist:
 
 - [ ] Create/provision an `Agents` drive through normal drive flows.
-- [ ] Seed a new agent folder with `soul.md`, `memory.md`, `sky10.md`,
+- [ ] Seed a new agent folder with `SOUL.md`, `MEMORY.md`, `sky10.md`,
       `notes/`, and `attachments/`.
 - [ ] Wire runtime-side agent/profile creation to the `Agents` drive contract.
 - [ ] Add UI affordances for recognizing and opening the `Agents` drive.

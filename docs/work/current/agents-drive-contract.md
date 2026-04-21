@@ -1,6 +1,6 @@
 ---
 created: 2026-04-14
-updated: 2026-04-14
+updated: 2026-04-20
 model: gpt-5.4
 ---
 
@@ -9,7 +9,7 @@ model: gpt-5.4
 This document is the Milestone 3 design draft for
 [`fs-p2p-core-and-agent-drives-plan.md`](./fs-p2p-core-and-agent-drives-plan.md).
 It defines the intended contract for the `Agents` drive and the first version
-of `soul.md`, `memory.md`, and `sky10.md`.
+of `SOUL.md`, `MEMORY.md`, and `sky10.md`.
 
 ## Purpose
 
@@ -112,8 +112,8 @@ A newly created profile folder should start as:
 ```text
 Agents/
   A-q7m2k9x4/
-    soul.md
-    memory.md
+    SOUL.md
+    MEMORY.md
     sky10.md
     notes/
     attachments/
@@ -121,9 +121,9 @@ Agents/
 
 ### Seeded Files
 
-- `soul.md`
+- `SOUL.md`
   Long-lived identity, purpose, style, and operating principles.
-- `memory.md`
+- `MEMORY.md`
   Durable memory worth carrying between runtimes and machines.
 - `sky10.md`
   Recreation contract and machine-readable metadata.
@@ -144,14 +144,14 @@ The first version should use explicit ownership boundaries.
 
 ### Human-Owned By Default
 
-- `soul.md`
+- `SOUL.md`
 - display name and descriptive notes inside `sky10.md`
 - bootstrap instructions that express user intent
 - notes in `notes/`
 
 ### Runtime-Owned By Default
 
-- most of `memory.md`
+- most of `MEMORY.md`
 - runtime-generated migration notes
 - model-use hints or ephemeral preferences recorded in `sky10.md`
 
@@ -205,8 +205,8 @@ bootstrap:
   repo: sky10
   working_dir: ~/src/sky10
   prompt_refs:
-    - soul.md
-    - memory.md
+    - SOUL.md
+    - MEMORY.md
 tools:
   required:
     - shell
@@ -265,7 +265,7 @@ Useful but not required in v1:
 - migration notes
 - source profile or imported-from provenance
 
-## `soul.md` Contract
+## `SOUL.md` Contract
 
 Purpose:
 
@@ -287,7 +287,7 @@ Rules:
 - if the runtime wants to propose changes, it should append a note or create a
   patch-like suggestion instead of replacing intent
 
-## `memory.md` Contract
+## `MEMORY.md` Contract
 
 Purpose:
 
@@ -332,7 +332,7 @@ A second machine should interpret the folder like this:
 1. Read `sky10.md` and confirm the schema version is understood.
 2. Create or select a compatible runtime family.
 3. Apply the bootstrap instructions and required tools.
-4. Import `soul.md` and `memory.md` into the new runtime.
+4. Import `SOUL.md` and `MEMORY.md` into the new runtime.
 5. Record new local observations in daemon-owned fields without overwriting
    human-owned sections.
 
@@ -350,8 +350,8 @@ not "resume the exact same in-memory process image".
 ```text
 Agents/
   A-q7m2k9x4/
-    soul.md        # human-owned identity and mission
-    memory.md      # portable working memory
+    SOUL.md        # human-owned identity and mission
+    MEMORY.md      # portable working memory
     sky10.md       # machine-readable recreation contract
     notes/
       migration-2026-04-14.md

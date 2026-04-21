@@ -11,7 +11,7 @@ This flow uses the repo's Lima template at
 - Hermes Agent installed inside the guest
 - a durable agent home at `~/Sky10/Drives/Agents/<slug>`
 - portable agent files at the root of `~/Sky10/Drives/Agents/<slug>`
-  wired into Hermes `SOUL.md`, memory, and workspace context
+  wired into Hermes `SOUL.md`, `MEMORY.md`, and workspace context
 - sandbox-local provider env at `~/.sky10/sandboxes/<slug>/state/.env`,
   linked into `~/.hermes/.env` inside the guest
 - automatic host-secret merge for `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,

@@ -1070,7 +1070,7 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(sharedDir, "sky10.md")); err != nil {
 		t.Fatalf("Stat(sky10.md) error: %v", err)
 	}
-	assertSymlinkTarget(t, filepath.Join(sharedDir, "workspace", "SOUL.md"), filepath.Join("..", "soul.md"))
+	assertSymlinkTarget(t, filepath.Join(sharedDir, "workspace", "SOUL.md"), filepath.Join("..", "SOUL.md"))
 
 	envPath := filepath.Join(stateDir, ".env")
 	envData, err := os.ReadFile(envPath)
@@ -1251,10 +1251,10 @@ func TestBundledHermesUserScriptKeepsSharedEnv(t *testing.T) {
 	if !strings.Contains(script, "SKY10_BRIDGE_CONFIG_PATH=/sandbox-state/bridge.json") {
 		t.Fatalf("bundled Hermes user script missing bridge config path: %q", script)
 	}
-	if !strings.Contains(script, `link_agent_file "${SHARED_DIR}/soul.md" "${HERMES_HOME}/SOUL.md"`) {
+	if !strings.Contains(script, `link_agent_file "${SHARED_DIR}/SOUL.md" "${HERMES_HOME}/SOUL.md"`) {
 		t.Fatalf("bundled Hermes user script missing SOUL.md root link: %q", script)
 	}
-	if !strings.Contains(script, `link_agent_file "${SHARED_DIR}/memory.md" "${HERMES_HOME}/memories/MEMORY.md"`) {
+	if !strings.Contains(script, `link_agent_file "${SHARED_DIR}/MEMORY.md" "${HERMES_HOME}/memories/MEMORY.md"`) {
 		t.Fatalf("bundled Hermes user script missing MEMORY.md root link: %q", script)
 	}
 	if !strings.Contains(script, "hermes config set terminal.cwd /shared/workspace") {
@@ -1336,10 +1336,10 @@ Use this file for durable facts that should survive model, runtime, and machine 
 - Useful environment facts
 `) + "\n"
 
-	if err := os.WriteFile(filepath.Join(sharedDir, "soul.md"), []byte(seedSoul), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(sharedDir, "SOUL.md"), []byte(seedSoul), 0o644); err != nil {
 		t.Fatalf("WriteFile(shared soul) error: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(sharedDir, "memory.md"), []byte(seedMemory), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(sharedDir, "MEMORY.md"), []byte(seedMemory), 0o644); err != nil {
 		t.Fatalf("WriteFile(shared memory) error: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(sharedDir, "USER.md"), nil, 0o644); err != nil {
@@ -1378,12 +1378,12 @@ Use this file for durable facts that should survive model, runtime, and machine 
 	}{
 		{
 			target: filepath.Join(hermesHome, "SOUL.md"),
-			source: filepath.Join(sharedDir, "soul.md"),
+			source: filepath.Join(sharedDir, "SOUL.md"),
 			want:   wantSoul,
 		},
 		{
 			target: filepath.Join(hermesHome, "memories", "MEMORY.md"),
-			source: filepath.Join(sharedDir, "memory.md"),
+			source: filepath.Join(sharedDir, "MEMORY.md"),
 			want:   wantMemory,
 		},
 		{
