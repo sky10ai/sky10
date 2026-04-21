@@ -43,6 +43,7 @@ This workstream does not yet commit to:
 - [Architecture](./architecture.md)
 - [User Flow](./user-flow.md)
 - [Implementation Plan](./implementation-plan.md)
+- [OpenAI Codex OAuth Plan](./openai-codex-oauth-plan.md)
 - [Milestones And Checklists](./milestones.md)
 - [Media Dubbing Agent Example](./media-dubbing-agent.md)
 
