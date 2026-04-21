@@ -1,6 +1,6 @@
 ---
 created: 2026-04-18
-updated: 2026-04-18
+updated: 2026-04-21
 model: gpt-5.4
 ---
 
@@ -125,7 +125,7 @@ Define and host external platform adapters as supervised local processes.
 - [x] Define polling checkpoints and retry semantics.
 - [x] Build `pkg/messaging/runtime` or equivalent for adapter process
   supervision.
-- [ ] Support adapter start, stop, restart, health check, and backoff.
+- [x] Support adapter start, stop, restart, health check, and backoff.
 - [x] Support adapter stdout/stderr capture for operator diagnostics.
 - [x] Decide that the first protocol transport is JSON-RPC over stdio.
 - [x] Add protocol compatibility/version negotiation.

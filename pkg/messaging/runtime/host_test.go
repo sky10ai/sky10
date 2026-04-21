@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -108,6 +110,26 @@ func TestHelperMessagingAdapterProcess(t *testing.T) {
 	if mode == "exit-immediately" {
 		fmt.Fprintln(os.Stderr, "helper exiting immediately")
 		os.Exit(23)
+	}
+	if mode == "exit-once-then-serve" {
+		countFile := os.Getenv("SKY10_MESSAGING_HELPER_COUNT_FILE")
+		if countFile == "" {
+			fmt.Fprintln(os.Stderr, "helper count file is required for exit-once-then-serve")
+			os.Exit(24)
+		}
+		count, err := helperReadCountFile(countFile)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(25)
+		}
+		if err := os.WriteFile(countFile, []byte(strconv.Itoa(count+1)), 0o600); err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(26)
+		}
+		if count == 0 {
+			fmt.Fprintln(os.Stderr, "helper exiting on first launch")
+			os.Exit(23)
+		}
 	}
 	if err := runHelperMessagingAdapter(); err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -238,4 +260,19 @@ func mustJSON(v any) json.RawMessage {
 		panic(err)
 	}
 	return body
+}
+
+func helperReadCountFile(path string) (int, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	text := strings.TrimSpace(string(body))
+	if text == "" {
+		return 0, nil
+	}
+	return strconv.Atoi(text)
 }

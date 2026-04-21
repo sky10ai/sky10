@@ -126,6 +126,16 @@ func (h *ProcessHost) Wait() error {
 	return h.waitErr
 }
 
+// Done closes when the process wait loop exits.
+func (h *ProcessHost) Done() <-chan struct{} {
+	if h == nil {
+		ch := make(chan struct{})
+		close(ch)
+		return ch
+	}
+	return h.waitDone
+}
+
 // Close requests process shutdown and waits for completion.
 func (h *ProcessHost) Close() error {
 	if h == nil {
