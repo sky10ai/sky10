@@ -306,6 +306,93 @@ Initial capability set:
 - `edits`
 - `deletes`
 
+Search and lookup should be modeled explicitly rather than hidden inside
+discoverability.
+
+Useful additional capability examples:
+
+- `resolve_identity`
+- `search_identities`
+- `search_conversations`
+- `search_messages`
+- `search_remote`
+- `search_indexed`
+
+## Lookup And Search
+
+`discoverability` and `search` are not the same thing.
+
+- `discoverability` is how someone can find or initiate contact with an identity
+- `lookup/search` is how the broker, UI, or an agent finds people,
+  destinations, or content inside a connected platform
+
+The broker should treat search as a first-class surface with at least four
+shapes:
+
+- `identity lookup`
+  Contacts, usernames, email addresses, phone numbers, handles
+- `destination lookup`
+  Channels, rooms, groups, shared inboxes, bots, mailing lists
+- `content search`
+  Messages, threads, email bodies, attachment metadata
+- `derived search`
+  Broker/index-level queries like “questions from the board”, “messages needing
+  reply”, or “unanswered asks”
+
+This should become a distinct protocol surface, not one vague `Search()`
+method. The likely adapter-facing methods are:
+
+- `ResolveIdentity`
+- `SearchIdentities`
+- `SearchConversations`
+- `SearchMessages`
+
+The architecture split should be:
+
+- adapter-backed search for live platform lookups
+  Good for contacts, usernames, channels, rooms
+- broker/index-backed search for normalized and cross-platform content
+  Good for message search, derived queries, workflow-aware search
+
+That means:
+
+- Slack channel lookup is adapter search
+- Telegram username lookup is adapter search
+- IMAP mailbox/message search is adapter search
+- cross-platform “questions from the board” is broker/index search
+- “messages awaiting reply” is broker/workflow search
+
+IMAP deserves explicit treatment here because it is narrower than chat/workspace
+platforms:
+
+- `imap-smtp` should support `SearchMessages`
+  Sender, recipient, subject, date, flags, and often body/header text via IMAP
+  search
+- `imap-smtp` may support mailbox/folder lookup
+  Useful for folders, labels, shared mailboxes, and similar destinations
+- `imap-smtp` should not be treated as rich contact or channel discovery
+  It is not a directory platform, and it does not naturally support the same
+  people/destination search surface as Slack or Telegram
+
+So the honest capability shape for `imap-smtp` is closer to:
+
+- `search_messages = true`
+- `search_conversations = limited`
+- `search_identities = false`
+
+Search also needs policy. It is not automatically safe just because it is
+read-only.
+
+Important search policy dimensions:
+
+- can search identities
+- can search conversation metadata
+- can search message bodies
+- can search only indexed data
+- can search only approved connections
+- can search only conversations already visible through the current exposure
+- can use remote platform search versus broker/index search
+
 ## Southbound Adapter Protocol
 
 Platform adapters should be external executables speaking a stable protocol to
@@ -336,6 +423,13 @@ Initial method set:
 - `HandleWebhook`
 - `Poll`
 - `Health`
+
+Planned lookup/search additions:
+
+- `ResolveIdentity`
+- `SearchIdentities`
+- `SearchConversations`
+- `SearchMessages`
 
 Design constraints:
 
@@ -537,6 +631,15 @@ Reasonable early first-party priorities:
 - `slack`
 - `telegram`
 - `whatsapp`
+
+Search expectations should differ by platform:
+
+- `email/imap-smtp` is a mailbox/message adapter with limited lookup
+- `gmail` and `microsoft365` should eventually support richer mailbox and
+  provider-native search than plain IMAP
+- `slack` should support identity, destination, and content search
+- `telegram` should support username and bot-oriented lookup, not workspace-style
+  destination search
 
 Reasonable later first-party candidates:
 

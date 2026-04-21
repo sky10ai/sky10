@@ -153,6 +153,8 @@ outbound orchestration, and event fanout.
 - [ ] Add conversation upsert logic.
 - [ ] Add message upsert logic for inbound and outbound records.
 - [ ] Add draft lifecycle management.
+- [ ] Add normalized lookup/search surfaces split between adapter-backed live
+  search and broker/index-backed content search.
 - [ ] Add normalized inbound event ingestion from both webhook and polling
   sources.
 - [ ] Add outbound operations that always flow through the broker.
@@ -182,7 +184,7 @@ meaningful messaging power.
 - [ ] Define broker-enforced policy rules for:
   read inbound, draft replies, send replies, start new conversations,
   attachment handling, allowed identities, allowed connection scopes,
-  allowed time windows.
+  allowed time windows, and search permissions.
 - [ ] Support connection-level default policy.
 - [ ] Support exposure-level narrowed policy for a specific agent/runtime.
 - [ ] Define durable approval request objects for sends and other sensitive
@@ -254,6 +256,9 @@ different messaging shapes.
 - [ ] Implement one webhook-driven adapter.
 - [ ] Implement one polling-driven adapter.
 - [ ] Implement identity discovery for each adapter.
+- [ ] Implement honest platform-specific lookup/search support declarations.
+- [ ] Ensure `imap-smtp` is treated as mailbox/message search, not rich
+  contact/channel discovery.
 - [ ] Implement inbound normalization for each adapter.
 - [ ] Implement draft/send or reply flow for each adapter.
 - [ ] Implement auth refresh and expired-credential handling.
