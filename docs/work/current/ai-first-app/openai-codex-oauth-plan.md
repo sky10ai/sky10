@@ -40,19 +40,23 @@ Today:
 
 - [`web/src/pages/SettingsCodex.tsx`](../../../../web/src/pages/SettingsCodex.tsx)
   exposes `Connect ChatGPT`
-- [`pkg/codex/auth.go`](../../../../pkg/codex/auth.go) runs:
-  - `codex login --device-auth`
-  - `codex login status`
-  - `codex logout`
-- the daemon keeps only pending device-login state in memory
-- actual auth material lives in Codex-managed storage, not in `sky10`
+- [`pkg/codex/service.go`](../../../../pkg/codex/service.go) now owns the
+  browser OAuth state machine
+- [`pkg/codex/oauth.go`](../../../../pkg/codex/oauth.go) builds the authorize
+  URL, runs the localhost callback listener, and exchanges codes for tokens
+- [`pkg/codex/store.go`](../../../../pkg/codex/store.go) stores and refreshes
+  local ChatGPT/Codex credentials under the `sky10` root directory
+- the daemon can still inspect and clear a legacy Codex CLI login as a fallback
+  compatibility path
 
 This plan replaces that implementation over time, but does not require
 removing the CLI-backed path on day one.
 
 ## Current Repo Anchors
 
-- [`pkg/codex/auth.go`](../../../../pkg/codex/auth.go)
+- [`pkg/codex/service.go`](../../../../pkg/codex/service.go)
+- [`pkg/codex/oauth.go`](../../../../pkg/codex/oauth.go)
+- [`pkg/codex/store.go`](../../../../pkg/codex/store.go)
 - [`pkg/codex/rpc.go`](../../../../pkg/codex/rpc.go)
 - [`commands/serve.go`](../../../../commands/serve.go)
 - [`web/src/pages/SettingsCodex.tsx`](../../../../web/src/pages/SettingsCodex.tsx)

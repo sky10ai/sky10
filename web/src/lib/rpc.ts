@@ -269,6 +269,8 @@ export const wallet = {
 export const codex = {
   status: () => rpc<CodexStatus>("codex.status"),
   loginStart: () => rpc<CodexStatus>("codex.loginStart"),
+  loginComplete: (p: { authorization_input: string }) =>
+    rpc<CodexStatus>("codex.loginComplete", p),
   loginCancel: () => rpc<CodexStatus>("codex.loginCancel"),
   logout: () => rpc<CodexStatus>("codex.logout"),
 };
@@ -1082,8 +1084,11 @@ export interface WalletTransfer {
 
 export interface CodexPendingLogin {
   id: string;
+  mode?: string;
   verification_url: string;
-  user_code: string;
+  redirect_uri?: string;
+  callback_listening?: boolean;
+  user_code?: string;
   started_at: string;
   expires_at: string;
 }
@@ -1094,6 +1099,9 @@ export interface CodexStatus {
   linked: boolean;
   auth_mode?: string;
   auth_label?: string;
+  auth_source?: string;
+  email?: string;
+  account_id?: string;
   pending_login?: CodexPendingLogin;
   last_error?: string;
 }

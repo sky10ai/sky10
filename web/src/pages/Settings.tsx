@@ -283,7 +283,7 @@ export default function Settings() {
                 Link Codex sign-in
               </h3>
               <p className="max-w-md text-sm text-secondary">
-                Connect the local Codex CLI with your ChatGPT account so sky10 can broker Codex-backed work.
+                Link ChatGPT directly in sky10 so this device can broker Codex-backed work without a manual API key.
               </p>
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">

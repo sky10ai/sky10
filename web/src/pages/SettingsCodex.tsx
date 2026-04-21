@@ -16,6 +16,19 @@ function parseAudience(value: string | null): AgentAudience | null {
   return null;
 }
 
+function authLabelForStatus(authMode?: string, authLabel?: string) {
+  if (authLabel) return authLabel;
+  if (authMode === "chatgpt") return "ChatGPT";
+  if (authMode === "apikey") return "API key";
+  return "Unknown";
+}
+
+function authSourceLabel(authSource?: string) {
+  if (authSource === "host_oauth") return "sky10 OAuth";
+  if (authSource === "cli_managed") return "Codex CLI";
+  return "Unknown source";
+}
+
 export default function SettingsCodex() {
   const [searchParams] = useSearchParams();
   const audience = parseAudience(searchParams.get("audience"));
@@ -31,22 +44,24 @@ export default function SettingsCodex() {
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"connect" | "cancel" | "logout" | null>(null);
+  const [authorizationInput, setAuthorizationInput] = useState("");
+  const [busy, setBusy] = useState<"connect" | "complete" | "cancel" | "logout" | null>(null);
 
   const pending = status?.pending_login ?? null;
-  const authLabel = status?.auth_label || (status?.auth_mode === "chatgpt" ? "ChatGPT" : status?.auth_mode === "apikey" ? "API key" : "Unknown");
+  const authLabel = authLabelForStatus(status?.auth_mode, status?.auth_label);
+  const sourceLabel = authSourceLabel(status?.auth_source);
   const backHref = audience ? `/start/setup?audience=${audience}` : "/settings";
   const continueHref = audience ? `/ai?audience=${audience}` : "/ai";
   const linkedWithChatGPT = status?.linked && status?.auth_mode === "chatgpt";
 
   const headingDescription = useMemo(() => {
     if (audience === "for_others") {
-      return "Use the local Codex CLI device flow to link ChatGPT-backed Codex access before you publish or automate an agent for other people.";
+      return "Link ChatGPT in sky10, then let your published or automated agents reuse that Codex-backed access on this device.";
     }
     if (audience === "for_me") {
-      return "Use the local Codex CLI device flow to link ChatGPT-backed Codex access for your first personal agent.";
+      return "Link ChatGPT in sky10 so your first personal agent can use Codex-backed access without asking for an API key.";
     }
-    return "Link the local Codex CLI with ChatGPT so sky10 can broker Codex-backed work without asking for an API key first.";
+    return "Link ChatGPT directly in sky10 so the daemon can broker Codex-backed work through a browser OAuth flow.";
   }, [audience]);
 
   const handleConnect = useCallback(async () => {
@@ -58,24 +73,52 @@ export default function SettingsCodex() {
     try {
       const next = await codex.loginStart();
       const verificationURL = next.pending_login?.verification_url;
+      const callbackListening = Boolean(next.pending_login?.callback_listening);
       if (verificationURL) {
         if (popup) {
           popup.location.href = verificationURL;
         } else {
           window.open(verificationURL, "_blank", "noopener,noreferrer");
         }
-        setActionMessage("Opened the Codex device-auth page. Enter the code below to finish linking ChatGPT.");
       } else if (popup) {
         popup.close();
       }
+
+      setActionMessage(
+        callbackListening
+          ? "Opened ChatGPT sign-in. sky10 is listening for the localhost callback and should finish linking automatically."
+          : "Opened ChatGPT sign-in. Paste the final redirect URL or authorization code below after the browser redirects back."
+      );
       refetch({ background: true });
     } catch (error: unknown) {
       if (popup) popup.close();
-      setActionError(error instanceof Error ? error.message : "Could not start Codex login");
+      setActionError(error instanceof Error ? error.message : "Could not start ChatGPT login");
     } finally {
       setBusy(null);
     }
   }, [refetch]);
+
+  const handleComplete = useCallback(async () => {
+    const input = authorizationInput.trim();
+    if (!input) {
+      setActionError("Paste the final redirect URL or authorization code first.");
+      return;
+    }
+
+    setBusy("complete");
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      await codex.loginComplete({ authorization_input: input });
+      setAuthorizationInput("");
+      setActionMessage("Linked ChatGPT with sky10.");
+      refetch({ background: true });
+    } catch (error: unknown) {
+      setActionError(error instanceof Error ? error.message : "Could not finish ChatGPT login");
+    } finally {
+      setBusy(null);
+    }
+  }, [authorizationInput, refetch]);
 
   const handleCancel = useCallback(async () => {
     setBusy("cancel");
@@ -83,10 +126,11 @@ export default function SettingsCodex() {
     setActionMessage(null);
     try {
       await codex.loginCancel();
-      setActionMessage("Cancelled the pending Codex login.");
+      setAuthorizationInput("");
+      setActionMessage("Cancelled the pending ChatGPT login.");
       refetch({ background: true });
     } catch (error: unknown) {
-      setActionError(error instanceof Error ? error.message : "Could not cancel Codex login");
+      setActionError(error instanceof Error ? error.message : "Could not cancel ChatGPT login");
     } finally {
       setBusy(null);
     }
@@ -98,23 +142,18 @@ export default function SettingsCodex() {
     setActionMessage(null);
     try {
       await codex.logout();
-      setActionMessage("Removed the local Codex login.");
+      setAuthorizationInput("");
+      setActionMessage("Removed the saved ChatGPT link from this device.");
       refetch({ background: true });
     } catch (error: unknown) {
-      setActionError(error instanceof Error ? error.message : "Could not remove Codex login");
+      setActionError(error instanceof Error ? error.message : "Could not remove ChatGPT link");
     } finally {
       setBusy(null);
     }
   }, [refetch]);
 
-  const handleCopyCode = useCallback(async () => {
-    if (!pending?.user_code) return;
-    await navigator.clipboard.writeText(pending.user_code);
-    setActionMessage("Copied the device code.");
-  }, [pending?.user_code]);
-
   return (
-    <div className="p-12 max-w-5xl mx-auto space-y-10">
+    <div className="mx-auto max-w-5xl space-y-10 p-12">
       <PageHeader
         eyebrow="ChatGPT"
         title="Connect Codex"
@@ -154,18 +193,18 @@ export default function SettingsCodex() {
                     ChatGPT-backed Codex access
                   </h2>
                   <p className="text-sm text-secondary">
-                    sky10 uses the local `codex` CLI device flow, then keeps checking the linked state through the daemon.
+                    sky10 can now own the browser OAuth flow directly, then keep the linked account local to this device.
                   </p>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge tone={status?.installed ? "success" : "neutral"}>
-                  {status?.installed ? "Codex CLI found" : "Codex CLI missing"}
+                <StatusBadge tone="success">
+                  sky10 OAuth ready
                 </StatusBadge>
                 {pending ? (
                   <StatusBadge pulse tone="processing">
-                    Waiting for device approval
+                    {pending.callback_listening ? "Waiting for browser callback" : "Manual completion required"}
                   </StatusBadge>
                 ) : status?.linked ? (
                   <StatusBadge tone="success">
@@ -176,6 +215,11 @@ export default function SettingsCodex() {
                     Not linked
                   </StatusBadge>
                 )}
+                {status?.auth_source === "cli_managed" && (
+                  <StatusBadge tone="neutral">
+                    Legacy CLI session detected
+                  </StatusBadge>
+                )}
               </div>
             </div>
 
@@ -183,7 +227,7 @@ export default function SettingsCodex() {
               {!pending && (
                 <button
                   className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary shadow-lg transition-colors hover:bg-primary/90 disabled:opacity-50"
-                  disabled={!status?.installed || busy !== null}
+                  disabled={busy !== null}
                   onClick={handleConnect}
                   type="button"
                 >
@@ -229,23 +273,21 @@ export default function SettingsCodex() {
           )}
 
           {pending ? (
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.8fr)]">
               <div className="rounded-2xl border border-outline-variant/10 bg-surface p-6">
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
-                  Device Code
+                  Finish login
                 </p>
-                <div className="mt-3 flex flex-wrap items-center gap-3">
-                  <code className="rounded-2xl bg-surface-container px-4 py-3 text-2xl font-semibold tracking-[0.24em] text-on-surface">
-                    {pending.user_code}
-                  </code>
-                  <button
-                    className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-on-surface transition-colors hover:bg-surface-container"
-                    onClick={handleCopyCode}
-                    type="button"
-                  >
-                    <Icon className="text-base" name="content_copy" />
-                    Copy code
-                  </button>
+                <h3 className="mt-3 text-lg font-semibold text-on-surface">
+                  Browser sign-in is in progress
+                </h3>
+                <p className="mt-2 text-sm text-secondary">
+                  {pending.callback_listening
+                    ? "sky10 is listening for the localhost callback. If the browser reaches it, this page should update on its own."
+                    : "sky10 could not bind the localhost callback on this device, so you need to finish the exchange manually."}
+                </p>
+
+                <div className="mt-4 flex flex-wrap items-center gap-3">
                   <a
                     className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-on-surface transition-colors hover:bg-surface-container"
                     href={pending.verification_url}
@@ -255,34 +297,104 @@ export default function SettingsCodex() {
                     <Icon className="text-base" name="open_in_new" />
                     Open browser
                   </a>
+                  {pending.redirect_uri && (
+                    <StatusBadge tone="neutral">
+                      Redirects to localhost
+                    </StatusBadge>
+                  )}
                 </div>
-                <p className="mt-4 text-sm text-secondary">
-                  Sign in to ChatGPT in the browser, enter the code, and this page will refresh automatically once Codex finishes linking.
+
+                <label className="mt-6 block">
+                  <span className="text-sm font-semibold text-on-surface">
+                    Paste the final redirect URL or raw authorization code
+                  </span>
+                  <textarea
+                    className="mt-3 min-h-28 w-full rounded-2xl border border-outline-variant/20 bg-surface-container-low px-4 py-3 text-sm text-on-surface outline-none transition-colors placeholder:text-outline focus:border-primary/30"
+                    onChange={(event) => setAuthorizationInput(event.target.value)}
+                    placeholder="http://localhost:1455/auth/callback?code=...&state=..."
+                    value={authorizationInput}
+                  />
+                </label>
+                <p className="mt-3 text-sm text-secondary">
+                  If the browser shows a localhost error page, copy the full URL from the address bar and paste it here.
                 </p>
+
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <button
+                    className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary shadow-lg transition-colors hover:bg-primary/90 disabled:opacity-50"
+                    disabled={busy !== null || authorizationInput.trim() === ""}
+                    onClick={handleComplete}
+                    type="button"
+                  >
+                    <Icon className="text-base" name="check_circle" />
+                    Finish linking
+                  </button>
+                  <button
+                    className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-5 py-2.5 text-sm font-semibold text-on-surface transition-colors hover:bg-surface-container disabled:opacity-50"
+                    disabled={busy !== null}
+                    onClick={handleCancel}
+                    type="button"
+                  >
+                    <Icon className="text-base" name="close" />
+                    Cancel
+                  </button>
+                </div>
               </div>
 
               <div className="rounded-2xl border border-outline-variant/10 bg-surface p-6 text-sm text-secondary">
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
                   Session
                 </p>
-                <p className="mt-3">Started {timeAgo(pending.started_at)}</p>
-                <p className="mt-1">Expires {new Date(pending.expires_at).toLocaleTimeString()}</p>
+                <p className="mt-3">
+                  Started {timeAgo(pending.started_at)}
+                </p>
+                <p className="mt-1">
+                  Expires {new Date(pending.expires_at).toLocaleTimeString()}
+                </p>
+                {pending.redirect_uri && (
+                  <p className="mt-4 break-all">
+                    Callback URI: <span className="font-medium text-on-surface">{pending.redirect_uri}</span>
+                  </p>
+                )}
+                <p className="mt-4">
+                  Mode: <span className="font-medium text-on-surface">{pending.mode || "oauth"}</span>
+                </p>
               </div>
             </div>
           ) : (
             <div className="rounded-2xl border border-outline-variant/10 bg-surface p-6 text-sm text-secondary">
-              {!status?.installed && !loading ? (
-                <p>
-                  `codex` is not installed or not visible to the daemon. Install the Codex CLI first, then reload this page.
-                </p>
+              {loading ? (
+                <p>Checking the local ChatGPT/Codex link state.</p>
               ) : status?.linked ? (
-                <p>
-                  This device is currently linked via <span className="font-semibold text-on-surface">{authLabel}</span>.
-                  {status.bin_path ? ` sky10 found the CLI at ${status.bin_path}.` : ""}
-                </p>
+                <div className="space-y-2">
+                  <p>
+                    This device is linked via <span className="font-semibold text-on-surface">{authLabel}</span> and managed by{" "}
+                    <span className="font-semibold text-on-surface">{sourceLabel}</span>.
+                  </p>
+                  {status.email && (
+                    <p>
+                      Account: <span className="font-semibold text-on-surface">{status.email}</span>
+                    </p>
+                  )}
+                  {status.account_id && (
+                    <p>
+                      ChatGPT account id: <span className="font-mono text-xs text-on-surface">{status.account_id}</span>
+                    </p>
+                  )}
+                  {status.auth_source === "cli_managed" && status.bin_path && (
+                    <p>
+                      Legacy CLI path: <span className="font-mono text-xs text-on-surface">{status.bin_path}</span>
+                    </p>
+                  )}
+                  {status.auth_source === "cli_managed" && (
+                    <p>
+                      Reconnect here when you want sky10 to take over token storage and refresh instead of relying on the Codex CLI.
+                    </p>
+                  )}
+                </div>
               ) : (
                 <p>
-                  Start the device flow to open ChatGPT in a browser tab and link the local Codex CLI without pasting an API key.
+                  Start the browser sign-in to link ChatGPT directly in sky10. No API key or visible Codex CLI setup is required for this flow.
                 </p>
               )}
             </div>

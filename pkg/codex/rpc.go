@@ -15,7 +15,7 @@ func NewRPCHandler(service *Service) *RPCHandler {
 	return &RPCHandler{service: service}
 }
 
-func (h *RPCHandler) Dispatch(ctx context.Context, method string, _ json.RawMessage) (interface{}, error, bool) {
+func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.RawMessage) (interface{}, error, bool) {
 	if !strings.HasPrefix(method, "codex.") {
 		return nil, nil, false
 	}
@@ -28,6 +28,14 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, _ json.RawMess
 		result, err = h.service.Status(ctx)
 	case "codex.loginStart":
 		result, err = h.service.StartLogin(ctx)
+	case "codex.loginComplete":
+		var parsed CompleteLoginParams
+		if len(params) > 0 && string(params) != "null" {
+			if decodeErr := json.Unmarshal(params, &parsed); decodeErr != nil {
+				return nil, fmt.Errorf("decode params: %w", decodeErr), true
+			}
+		}
+		result, err = h.service.CompleteLogin(ctx, parsed)
 	case "codex.loginCancel":
 		result, err = h.service.CancelLogin(ctx)
 	case "codex.logout":

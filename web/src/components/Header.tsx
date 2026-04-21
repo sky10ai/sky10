@@ -101,7 +101,7 @@ function getRouteMeta(pathname: string) {
 
   if (pathname.startsWith("/settings/codex")) {
     return {
-      description: "Link a local Codex CLI login so sky10 can use your ChatGPT-backed coding access.",
+      description: "Link ChatGPT directly in sky10 so the daemon can broker Codex-backed access without asking for an API key.",
       title: "Connect ChatGPT",
     };
   }
