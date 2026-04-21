@@ -706,6 +706,28 @@ export interface AgentStatus {
   delivery_policies: Record<string, DeliveryPolicyDescription>;
 }
 
+export interface ChatContentSource {
+  type: string;
+  data?: string;
+  url?: string;
+  filename?: string;
+  media_type?: string;
+}
+
+export interface ChatContentPart {
+  type: string;
+  text?: string;
+  source?: ChatContentSource | null;
+  filename?: string;
+  media_type?: string;
+  caption?: string;
+}
+
+export interface ChatContent {
+  text?: string;
+  parts?: ChatContentPart[];
+}
+
 export interface AgentSendParams {
   to: string;
   device_id?: string;

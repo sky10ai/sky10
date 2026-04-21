@@ -1,5 +1,5 @@
-import { useEffect, useEffectEvent, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router";
+import { useEffect, useEffectEvent, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent } from "react";
+import { useNavigate, useParams } from "react-router";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Icon } from "../components/Icon";
@@ -8,10 +8,12 @@ import { AGENT_EVENT_TYPES, SANDBOX_EVENT_TYPES, subscribe } from "../lib/events
 import {
   appendChatMessage,
   applyStreamingDelta,
+  chatContentText,
   finalizeStreamingMessage,
   loadChatMessages,
-  readChatContentText,
+  normalizeChatContent,
   readStreamingEnvelope,
+  serializeChatMessages,
   type ChatMessage,
   type ChatMessageTiming,
 } from "../lib/agentChat";
@@ -22,10 +24,21 @@ import {
   sandbox,
   type AgentInfo,
   type AgentSendResult,
+  type ChatContent,
+  type ChatContentPart,
   type DeliveryMetadata,
   type SandboxRecord,
 } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
+
+const maxAttachmentBytes = 8 * 1024 * 1024;
+const maxAttachments = 4;
+
+interface DraftAttachment {
+  id: string;
+  size: number;
+  part: ChatContentPart;
+}
 
 interface ChatWireMessage {
   id?: string;
@@ -129,6 +142,243 @@ function timingLabel(timing?: ChatMessageTiming): string | null {
   return null;
 }
 
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  return `${size >= 10 || unitIndex === 0 ? Math.round(size) : size.toFixed(1)} ${units[unitIndex]}`;
+}
+
+function guessMediaType(filename: string): string {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".svg")) return "image/svg+xml";
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".txt")) return "text/plain";
+  if (lower.endsWith(".md")) return "text/markdown";
+  if (lower.endsWith(".json")) return "application/json";
+  return "application/octet-stream";
+}
+
+function inferPartKind(part: ChatContentPart): "image" | "audio" | "video" | "file" {
+  const mediaType = part.media_type || part.source?.media_type || "";
+  if (part.type === "image" || mediaType.startsWith("image/")) return "image";
+  if (part.type === "audio" || mediaType.startsWith("audio/")) return "audio";
+  if (part.type === "video" || mediaType.startsWith("video/")) return "video";
+  return "file";
+}
+
+function iconNameForPart(part: ChatContentPart): string {
+  switch (inferPartKind(part)) {
+    case "image":
+      return "image";
+    case "audio":
+      return "audio_file";
+    case "video":
+      return "videocam";
+    default:
+      return "draft";
+  }
+}
+
+function attachmentHref(part: ChatContentPart): string | null {
+  if (part.source?.type === "url" && part.source.url) {
+    return part.source.url;
+  }
+  if (part.source?.type === "base64" && part.source.data) {
+    const mediaType = part.media_type || part.source.media_type || guessMediaType(part.filename || part.source.filename || "attachment.bin");
+    return `data:${mediaType};base64,${part.source.data}`;
+  }
+  return null;
+}
+
+function attachmentName(part: ChatContentPart): string {
+  return part.filename || part.source?.filename || "attachment";
+}
+
+function readFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        reject(new Error(`Could not read ${file.name}`));
+        return;
+      }
+      resolve(reader.result);
+    };
+    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function fileToDraftAttachment(file: File): Promise<DraftAttachment> {
+  const dataUrl = await readFileAsDataURL(file);
+  const comma = dataUrl.indexOf(",");
+  const data = comma === -1 ? dataUrl : dataUrl.slice(comma + 1);
+  const mediaType = file.type || guessMediaType(file.name);
+  const kind = mediaType.startsWith("image/")
+    ? "image"
+    : mediaType.startsWith("audio/")
+      ? "audio"
+      : mediaType.startsWith("video/")
+        ? "video"
+        : "file";
+
+  return {
+    id: uuid(),
+    size: file.size,
+    part: {
+      type: kind,
+      filename: file.name,
+      media_type: mediaType,
+      source: {
+        type: "base64",
+        data,
+        filename: file.name,
+        media_type: mediaType,
+      },
+    },
+  };
+}
+
+function MessageText({ text }: { text: string }) {
+  if (!text) return null;
+  return (
+    <Markdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+        ul: ({ children }) => <ul className="mb-2 ml-4 list-disc">{children}</ul>,
+        ol: ({ children }) => <ol className="mb-2 ml-4 list-decimal">{children}</ol>,
+        li: ({ children }) => <li className="mb-0.5">{children}</li>,
+        code: ({ children, className }) =>
+          className ? (
+            <pre className="my-2 overflow-x-auto rounded-lg border border-outline-variant/20 bg-surface-container-low px-3 py-2 text-xs text-on-surface">
+              <code>{children}</code>
+            </pre>
+          ) : (
+            <code className="rounded bg-surface-container-low px-1.5 py-0.5 text-xs text-on-surface">{children}</code>
+          ),
+        h1: ({ children }) => <h1 className="mb-2 text-base font-bold">{children}</h1>,
+        h2: ({ children }) => <h2 className="mb-1.5 text-sm font-bold">{children}</h2>,
+        h3: ({ children }) => <h3 className="mb-1 text-sm font-semibold">{children}</h3>,
+        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+        a: ({ href, children }) => (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary underline decoration-primary/40 underline-offset-2"
+          >
+            {children}
+          </a>
+        ),
+      }}
+    >
+      {text}
+    </Markdown>
+  );
+}
+
+function AttachmentView({ part, userBubble }: { part: ChatContentPart; userBubble: boolean }) {
+  const kind = inferPartKind(part);
+  const href = attachmentHref(part);
+  const filename = attachmentName(part);
+  const mediaType = part.media_type || part.source?.media_type || "";
+  const frameTone = userBubble
+    ? "border-white/20 bg-white/10 text-on-primary"
+    : "border-outline-variant/20 bg-surface-container-low text-on-surface";
+
+  if (kind === "image" && href) {
+    return (
+      <a
+        href={href}
+        download={filename}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block overflow-hidden rounded-xl border border-white/10 bg-black/10"
+      >
+        <img src={href} alt={filename} className="max-h-72 w-full object-contain" />
+      </a>
+    );
+  }
+
+  if (kind === "audio" && href) {
+    return (
+      <div className={`rounded-xl border p-3 ${frameTone}`}>
+        <audio controls src={href} className="w-full" />
+        <div className="mt-2 text-xs opacity-80">{filename}</div>
+      </div>
+    );
+  }
+
+  if (kind === "video" && href) {
+    return (
+      <div className={`rounded-xl border p-3 ${frameTone}`}>
+        <video controls src={href} className="max-h-72 w-full rounded-lg" />
+        <div className="mt-2 text-xs opacity-80">{filename}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`rounded-xl border px-3 py-2 ${frameTone}`}>
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5">
+          <Icon name={iconNameForPart(part)} className="text-lg" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium">{filename}</div>
+          <div className="truncate text-xs opacity-70">{mediaType || kind}</div>
+          {part.caption && <div className="mt-1 text-xs opacity-80">{part.caption}</div>}
+        </div>
+        {href && (
+          <a
+            href={href}
+            download={filename}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 rounded-md border border-current/20 px-2 py-1 text-xs font-medium hover:bg-black/5"
+          >
+            Open
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MessageBody({ message }: { message: ChatMessage }) {
+  const text = chatContentText(message.content);
+  const attachments = (message.content.parts ?? []).filter((part) => part.type !== "text");
+  const isUser = message.from === "user";
+
+  return (
+    <div className="space-y-3">
+      {text && (
+        isUser || message.type === "error"
+          ? <div className="whitespace-pre-wrap">{text}</div>
+          : <MessageText text={text} />
+      )}
+      {attachments.map((part, index) => (
+        <AttachmentView
+          key={`${message.id}:${part.type}:${attachmentName(part)}:${index}`}
+          part={part}
+          userBubble={isUser}
+        />
+      ))}
+    </div>
+  );
+}
+
 export default function AgentChat() {
   const { agentId } = useParams<{ agentId: string }>();
   const navigate = useNavigate();
@@ -139,9 +389,12 @@ export default function AgentChat() {
     return loadChatMessages(localStorage.getItem(storageKey));
   });
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
+  const [composerError, setComposerError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [slowWaiting, setSlowWaiting] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [transport, setTransport] = useState<ChatTransport>("connecting");
   const [sessionId] = useState(() => {
     const existing = localStorage.getItem(sessionKey);
@@ -152,6 +405,7 @@ export default function AgentChat() {
   });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const slowWaitingTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const websocketRef = useRef<WebSocket | null>(null);
   const websocketRetryTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -160,7 +414,6 @@ export default function AgentChat() {
   const pendingTurnTimingsRef = useRef(new Map<string, PendingTurnTiming>());
   const [websocketRetryToken, setWebsocketRetryToken] = useState(0);
 
-  // Fetch agent info.
   const { data, loading } = useRPC(() => agent.list(), [], {
     live: AGENT_EVENT_TYPES,
     refreshIntervalMs: 5_000,
@@ -288,12 +541,12 @@ export default function AgentChat() {
       id: msg.id || uuid(),
       from: "agent",
       type: msgType,
-      content: readChatContentText(msg.content),
+      content: normalizeChatContent(msg.content),
       timestamp,
       timing: noteCompletionTiming(envelope.client_request_id),
     };
 
-    if (envelope.stream_id && (msgType === "text" || msgType === "error" || msgType === "message")) {
+    if (envelope.stream_id && msgType !== "delta" && msgType !== "done") {
       setMessages((prev) => finalizeStreamingMessage(prev, envelope.stream_id!, nextMessage));
       return;
     }
@@ -404,7 +657,6 @@ export default function AgentChat() {
     };
   }, [agentInfoID, chatWebSocketURL, requiresGuestWebSocket, sandboxLookupPending, websocketRetryToken]);
 
-  // Fall back to the shared SSE connection only for non-sandbox agents.
   useEffect(() => {
     if (requiresGuestWebSocket) return;
     return subscribe((event, data) => {
@@ -429,17 +681,15 @@ export default function AgentChat() {
     });
   }, [agentId, agentInfoID, agentName, requiresGuestWebSocket, sessionId, transport]);
 
-  // Auto-scroll to bottom + persist.
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     try {
-      localStorage.setItem(storageKey, JSON.stringify(messages));
+      localStorage.setItem(storageKey, serializeChatMessages(messages));
     } catch {
       // storage full or unavailable
     }
   }, [messages, storageKey]);
 
-  // Focus input on mount, clean up timer on unmount.
   useEffect(() => {
     inputRef.current?.focus();
     return () => {
@@ -454,7 +704,61 @@ export default function AgentChat() {
     };
   }, []);
 
-  const sendWebSocketMessage = async (text: string, clientRequestID: string): Promise<AgentSendResult> => {
+  async function queueFiles(files: File[]) {
+    if (files.length === 0) return;
+
+    setComposerError(null);
+    const slotsLeft = maxAttachments - attachments.length;
+    if (slotsLeft <= 0) {
+      setComposerError(`You can attach up to ${maxAttachments} files per message.`);
+      return;
+    }
+
+    const accepted = files.slice(0, slotsLeft);
+    if (files.length > accepted.length) {
+      setComposerError(`Only the first ${slotsLeft} file${slotsLeft === 1 ? "" : "s"} were added.`);
+    }
+
+    const next: DraftAttachment[] = [];
+    for (const file of accepted) {
+      if (file.size > maxAttachmentBytes) {
+        setComposerError(`${file.name} is too large. Limit ${formatBytes(maxAttachmentBytes)}.`);
+        continue;
+      }
+      next.push(await fileToDraftAttachment(file));
+    }
+    if (next.length > 0) {
+      setAttachments((prev) => [...prev, ...next]);
+    }
+  }
+
+  async function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    await queueFiles(files);
+  }
+
+  async function handleDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setDragging(false);
+    const files = Array.from(event.dataTransfer.files ?? []);
+    await queueFiles(files);
+  }
+
+  async function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = Array.from(event.clipboardData?.items ?? [])
+      .map((item) => (item.kind === "file" ? item.getAsFile() : null))
+      .filter((file): file is File => file !== null);
+    if (files.length === 0) return;
+    event.preventDefault();
+    await queueFiles(files);
+  }
+
+  function removeAttachment(id: string) {
+    setAttachments((prev) => prev.filter((item) => item.id !== id));
+  }
+
+  const sendWebSocketMessage = async (content: ChatContent, clientRequestID: string): Promise<AgentSendResult> => {
     let socket = websocketRef.current;
     if (socket?.readyState === WebSocket.CONNECTING) {
       socket = await new Promise<WebSocket>((resolve, reject) => {
@@ -523,7 +827,8 @@ export default function AgentChat() {
           params: {
             message_type: "chat",
             content: {
-              text,
+              text: content.text,
+              parts: content.parts,
               client_request_id: clientRequestID,
             },
           },
@@ -536,20 +841,39 @@ export default function AgentChat() {
     });
   };
 
-  const sendMessage = async () => {
+  async function sendMessage() {
     const text = input.trim();
-    if (!text || !agentInfo) return;
+    if ((!text && attachments.length === 0) || !agentInfo) return;
     if (sandboxLookupPending) return;
 
+    const parts: ChatContentPart[] = [];
+    if (text) {
+      parts.push({ type: "text", text });
+    }
+    for (const attachment of attachments) {
+      parts.push(attachment.part);
+    }
+
+    const content: ChatContent = {
+      text: text || undefined,
+      parts,
+    };
+    const messageType = attachments.length > 0 ? "chat" : "text";
     const userMsg: ChatMessage = {
       id: uuid(),
       from: "user",
-      type: "text",
-      content: text,
+      type: messageType,
+      content,
       timestamp: new Date(),
     };
+
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
+    setAttachments([]);
+    setComposerError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
     setSending(true);
     const clientRequestID = uuid();
     pendingTurnTimingsRef.current.set(clientRequestID, { startedAtMs: Date.now() });
@@ -557,7 +881,7 @@ export default function AgentChat() {
     try {
       let result: AgentSendResult;
       try {
-        result = await sendWebSocketMessage(text, clientRequestID);
+        result = await sendWebSocketMessage(content, clientRequestID);
       } catch (error) {
         if (!(error instanceof ChatWebSocketUnavailableError) || requiresGuestWebSocket) {
           throw error;
@@ -566,24 +890,30 @@ export default function AgentChat() {
           to: agentInfo.id,
           device_id: agentInfo.device_id,
           session_id: sessionId,
-          type: "text",
-          content: {
-            text,
-            client_request_id: clientRequestID,
-          },
+          type: messageType,
+          content: attachments.length > 0
+            ? {
+                ...content,
+                client_request_id: clientRequestID,
+              }
+            : {
+                text,
+                client_request_id: clientRequestID,
+              },
         });
       }
       applySendResult(userMsg.id, result);
-    } catch (e) {
+    } catch (error) {
       pendingTurnTimingsRef.current.delete(clientRequestID);
       clearWaitingState();
+      const message = error instanceof Error ? error.message : "Failed to send";
       setMessages((prev) => [
         ...prev,
         {
           id: uuid(),
           from: "agent",
           type: "error",
-          content: e instanceof Error ? e.message : "Failed to send",
+          content: { text: message, parts: [{ type: "text", text: message }] },
           timestamp: new Date(),
         },
       ]);
@@ -591,12 +921,14 @@ export default function AgentChat() {
       setSending(false);
       inputRef.current?.focus();
     }
-  };
+  }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
+  const canSend = (!!input.trim() || attachments.length > 0) && !sending;
+
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void sendMessage();
     }
   };
 
@@ -633,7 +965,6 @@ export default function AgentChat() {
 
   return (
     <div className="flex flex-1 min-h-0 flex-col bg-surface">
-      {/* Header */}
       <div className="flex items-center gap-4 px-8 py-4 border-b border-outline-variant/10">
         <button
           onClick={() => navigate("/agents")}
@@ -658,7 +989,6 @@ export default function AgentChat() {
         </StatusBadge>
       </div>
 
-      {/* Messages */}
       <div className="flex-1 space-y-4 overflow-y-auto bg-surface-container-low/35 px-8 py-6">
         {messages.length === 0 && (
           <div className="flex-1 flex items-center justify-center text-secondary text-sm h-full">
@@ -674,51 +1004,15 @@ export default function AgentChat() {
               className={`flex ${msg.from === "user" ? "justify-end" : "justify-start"}`}
             >
               <div
-                className={`max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
+                className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
                   msg.from === "user"
-                    ? "bg-primary text-on-primary rounded-br-md whitespace-pre-wrap"
+                    ? "bg-primary text-on-primary rounded-br-md"
                     : msg.type === "error"
-                      ? "bg-error-container/20 text-error rounded-bl-md whitespace-pre-wrap"
+                      ? "bg-error-container/20 text-error rounded-bl-md"
                       : "rounded-bl-md border border-outline-variant/20 bg-surface-container-high text-on-surface shadow-[0_10px_30px_-24px_rgba(0,0,0,0.7)]"
                 }`}
               >
-                {msg.from === "agent" && msg.type !== "error" ? (
-                  <Markdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                      ul: ({ children }) => <ul className="list-disc ml-4 mb-2">{children}</ul>,
-                      ol: ({ children }) => <ol className="list-decimal ml-4 mb-2">{children}</ol>,
-                      li: ({ children }) => <li className="mb-0.5">{children}</li>,
-                      code: ({ children, className }) =>
-                        className ? (
-                          <pre className="my-2 overflow-x-auto rounded-lg border border-outline-variant/20 bg-surface-container-low px-3 py-2 text-xs text-on-surface">
-                            <code>{children}</code>
-                          </pre>
-                        ) : (
-                          <code className="rounded bg-surface-container-low px-1.5 py-0.5 text-xs text-on-surface">{children}</code>
-                        ),
-                      h1: ({ children }) => <h1 className="text-base font-bold mb-2">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-sm font-bold mb-1.5">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1">{children}</h3>,
-                      strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-                      a: ({ href, children }) => (
-                        <a
-                          href={href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary underline decoration-primary/40 underline-offset-2"
-                        >
-                          {children}
-                        </a>
-                      ),
-                    }}
-                  >
-                    {msg.content}
-                  </Markdown>
-                ) : (
-                  msg.content
-                )}
+                <MessageBody message={msg} />
                 {msg.from === "agent" && (msg.streaming || msg.timing) && (
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-secondary">
                     {msg.streaming && (
@@ -773,26 +1067,101 @@ export default function AgentChat() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
       <div className="px-8 py-4 border-t border-outline-variant/10">
-        <div className="flex items-end gap-3 max-w-4xl mx-auto">
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={`Message ${agentInfo.name}...`}
-            rows={1}
-            className="flex-1 resize-none rounded-xl bg-surface-container-lowest ring-1 ring-outline-variant/10 px-4 py-3 text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary/30"
-            style={{ maxHeight: "8rem", overflowY: "auto" }}
+        <div
+          className={`mx-auto max-w-4xl rounded-2xl border border-outline-variant/10 bg-surface-container p-3 transition ${
+            dragging ? "border-primary/50 bg-primary/5 ring-2 ring-primary/20" : ""
+          }`}
+          onDragOver={(event) => {
+            event.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={(event) => {
+            event.preventDefault();
+            if (event.currentTarget === event.target) {
+              setDragging(false);
+            }
+          }}
+          onDrop={(event) => {
+            void handleDrop(event);
+          }}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              void handleFileSelection(event);
+            }}
           />
-          <button
-            onClick={sendMessage}
-            disabled={!input.trim() || sending || sandboxLookupPending}
-            className="w-10 h-10 rounded-xl bg-primary text-on-primary flex items-center justify-center disabled:opacity-40 transition-opacity hover:shadow-lg active:scale-95"
-          >
-            <Icon name={sending ? "hourglass_empty" : "send"} className="text-lg" />
-          </button>
+
+          {attachments.length > 0 && (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {attachments.map((attachment) => (
+                <div
+                  key={attachment.id}
+                  className="flex items-center gap-2 rounded-xl border border-outline-variant/15 bg-surface-container-low px-3 py-2 text-xs text-on-surface"
+                >
+                  <Icon name={iconNameForPart(attachment.part)} className="text-base" />
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{attachmentName(attachment.part)}</div>
+                    <div className="truncate text-[10px] text-secondary">{formatBytes(attachment.size)}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(attachment.id)}
+                    className="rounded-md p-1 text-secondary hover:bg-surface-container-high hover:text-on-surface"
+                  >
+                    <Icon name="close" className="text-sm" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-end gap-3">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-outline-variant/15 bg-surface-container-lowest text-secondary transition hover:text-on-surface"
+              title="Attach files"
+            >
+              <Icon name="attach_file" className="text-lg" />
+            </button>
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              onPaste={(event) => {
+                void handlePaste(event);
+              }}
+              onKeyDown={handleKeyDown}
+              placeholder={`Message ${agentInfo.name}...`}
+              rows={1}
+              className="flex-1 resize-none rounded-xl bg-surface-container-lowest ring-1 ring-outline-variant/10 px-4 py-3 text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary/30"
+              style={{ maxHeight: "8rem", overflowY: "auto" }}
+            />
+            <button
+              onClick={() => {
+                void sendMessage();
+              }}
+              disabled={!canSend || sandboxLookupPending}
+              className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-on-primary transition-opacity hover:shadow-lg active:scale-95 disabled:opacity-40"
+            >
+              <Icon name={sending ? "hourglass_empty" : "send"} className="text-lg" />
+            </button>
+          </div>
+
+          <div className="mt-2 flex items-center justify-between gap-3 px-1 text-[11px] text-secondary">
+            <span>Drag and drop images or files here, or use the attachment button.</span>
+            <span>{maxAttachments} files max, {formatBytes(maxAttachmentBytes)} each</span>
+          </div>
+          {composerError && (
+            <div className="mt-2 rounded-lg bg-error-container/15 px-3 py-2 text-xs text-error">
+              {composerError}
+            </div>
+          )}
         </div>
       </div>
     </div>

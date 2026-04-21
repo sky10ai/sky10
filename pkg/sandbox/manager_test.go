@@ -1446,6 +1446,24 @@ func TestBundledHermesBridgeAssetRegistersWithSky10(t *testing.T) {
 	if !strings.Contains(script, `"stream_id": stream_id`) {
 		t.Fatalf("bundled Hermes bridge missing stream_id propagation: %q", script)
 	}
+	if !strings.Contains(script, "build_inbound_body") {
+		t.Fatalf("bundled Hermes bridge missing structured inbound content builder: %q", script)
+	}
+	if !strings.Contains(script, "stage_base64_part") {
+		t.Fatalf("bundled Hermes bridge missing attachment staging helper: %q", script)
+	}
+	if !strings.Contains(script, "sky10-hermes-media") {
+		t.Fatalf("bundled Hermes bridge missing guest-local media staging root: %q", script)
+	}
+	if !strings.Contains(script, "build_outbound_content") {
+		t.Fatalf("bundled Hermes bridge missing outbound content builder: %q", script)
+	}
+	if !strings.Contains(script, `trimmed.startswith("MEDIA:")`) {
+		t.Fatalf("bundled Hermes bridge missing MEDIA artifact extraction: %q", script)
+	}
+	if !strings.Contains(script, "media_part_from_file") {
+		t.Fatalf("bundled Hermes bridge missing local artifact file encoding: %q", script)
+	}
 }
 
 func TestBuildStartArgsOpenClaw(t *testing.T) {

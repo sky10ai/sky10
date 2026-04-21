@@ -1,4 +1,4 @@
-import type { DeliveryMetadata } from "./rpc";
+import type { ChatContent, ChatContentPart, DeliveryMetadata } from "./rpc";
 
 export interface ChatMessageTiming {
   firstTokenMs?: number;
@@ -9,7 +9,7 @@ export interface ChatMessage {
   id: string;
   from: "user" | "agent";
   type: string;
-  content: string;
+  content: ChatContent;
   timestamp: Date;
   streaming?: boolean;
   delivered?: boolean;
@@ -40,6 +40,77 @@ function stringifyChatContent(content: unknown): string {
   }
 }
 
+function normalizePart(value: unknown): ChatContentPart | null {
+  if (!value || typeof value !== "object") return null;
+  const part = value as Partial<ChatContentPart>;
+  const type = typeof part.type === "string" && part.type.trim()
+    ? part.type.trim()
+    : (typeof part.text === "string" ? "text" : "file");
+  const normalized: ChatContentPart = {
+    type,
+    text: typeof part.text === "string" ? part.text : undefined,
+    filename: typeof part.filename === "string" ? part.filename : undefined,
+    media_type: typeof part.media_type === "string" ? part.media_type : undefined,
+    caption: typeof part.caption === "string" ? part.caption : undefined,
+  };
+  if (part.source && typeof part.source === "object") {
+    normalized.source = {
+      type: typeof part.source.type === "string" ? part.source.type : "",
+      data: typeof part.source.data === "string" ? part.source.data : undefined,
+      url: typeof part.source.url === "string" ? part.source.url : undefined,
+      filename: typeof part.source.filename === "string" ? part.source.filename : undefined,
+      media_type: typeof part.source.media_type === "string" ? part.source.media_type : undefined,
+    };
+  }
+  return normalized;
+}
+
+export function normalizeChatContent(value: unknown): ChatContent {
+  if (typeof value === "string") {
+    return {
+      text: value,
+      parts: [{ type: "text", text: value }],
+    };
+  }
+  if (!value || typeof value !== "object") {
+    if (value == null) {
+      return {};
+    }
+    const serialized = stringifyChatContent(value);
+    return {
+      text: serialized,
+      parts: [{ type: "text", text: serialized }],
+    };
+  }
+
+  const content = value as Partial<ChatContent>;
+  const text = typeof content.text === "string" ? content.text : "";
+  const parts = Array.isArray(content.parts)
+    ? content.parts.map(normalizePart).filter((part): part is ChatContentPart => part !== null)
+    : [];
+
+  if (parts.length === 0 && text) {
+    parts.push({ type: "text", text });
+  }
+  if (parts.length > 0) {
+    return {
+      text: text || undefined,
+      parts,
+    };
+  }
+
+  const keys = Object.keys(content as object);
+  if (keys.length === 0) {
+    return {};
+  }
+
+  const serialized = stringifyChatContent(value);
+  return {
+    text: serialized,
+    parts: [{ type: "text", text: serialized }],
+  };
+}
+
 export interface StreamingEnvelope {
   stream_id?: string;
   text?: string;
@@ -58,52 +129,40 @@ export function readStreamingEnvelope(content: unknown): StreamingEnvelope {
   };
 }
 
-export function readChatContentText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!content || typeof content !== "object") return stringifyChatContent(content);
-
-  const value = content as Record<string, unknown>;
-  if (typeof value.text === "string" && value.text !== "") {
-    return value.text;
+export function chatContentText(content: ChatContent): string {
+  const parts = Array.isArray(content.parts) ? content.parts : [];
+  const texts = parts
+    .filter((part) => part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text ?? "")
+    .filter((text) => text !== "");
+  if (texts.length > 0) {
+    return texts.join("\n\n");
   }
-
-  if (Array.isArray(value.parts)) {
-    const parts = value.parts
-      .map((part) => {
-        if (!part || typeof part !== "object") return "";
-        const item = part as Record<string, unknown>;
-        const partType = typeof item.type === "string" ? item.type : "text";
-        if (partType !== "text") return "";
-        return typeof item.text === "string" ? item.text : "";
-      })
-      .filter((part) => part !== "");
-    if (parts.length > 0) {
-      return parts.join("");
-    }
-  }
-
-  return stringifyChatContent(content);
+  return typeof content.text === "string" ? content.text : "";
 }
 
-function normalizeMessage(value: unknown): ChatMessage | null {
-  if (!value || typeof value !== "object") return null;
-  const msg = value as Partial<ChatMessage>;
-  if (typeof msg.id !== "string" || msg.id === "") return null;
-  if (msg.from !== "user" && msg.from !== "agent") return null;
-  if (typeof msg.type !== "string") return null;
-  if (typeof msg.content !== "string") return null;
-  const timing = normalizeTiming(msg.timing);
+export function readChatContentText(content: unknown): string {
+  return chatContentText(normalizeChatContent(content));
+}
+
+function compactChatContent(content: ChatContent): ChatContent {
+  const normalized = normalizeChatContent(content);
   return {
-    id: msg.id,
-    from: msg.from,
-    type: msg.type,
-    content: msg.content,
-    timestamp: parseTimestamp(msg.timestamp),
-    streaming: msg.streaming,
-    delivered: msg.delivered,
-    delivery: msg.delivery,
-    timing,
+    text: normalized.text,
+    parts: normalized.parts?.map((part) => ({
+      ...part,
+      source: part.source
+        ? {
+            ...part.source,
+            data: undefined,
+          }
+        : part.source,
+    })),
   };
+}
+
+function contentFingerprint(content: ChatContent): string {
+  return JSON.stringify(compactChatContent(content));
 }
 
 function normalizeTiming(value: unknown): ChatMessageTiming | undefined {
@@ -113,6 +172,25 @@ function normalizeTiming(value: unknown): ChatMessageTiming | undefined {
   const completeMs = typeof timing.completeMs === "number" ? timing.completeMs : undefined;
   if (firstTokenMs == null && completeMs == null) return undefined;
   return { firstTokenMs, completeMs };
+}
+
+function normalizeMessage(value: unknown): ChatMessage | null {
+  if (!value || typeof value !== "object") return null;
+  const msg = value as Partial<ChatMessage> & { content?: unknown };
+  if (typeof msg.id !== "string" || msg.id === "") return null;
+  if (msg.from !== "user" && msg.from !== "agent") return null;
+  if (typeof msg.type !== "string") return null;
+  return {
+    id: msg.id,
+    from: msg.from,
+    type: msg.type,
+    content: normalizeChatContent(msg.content),
+    timestamp: parseTimestamp(msg.timestamp),
+    streaming: msg.streaming,
+    delivered: msg.delivered,
+    delivery: msg.delivery,
+    timing: normalizeTiming(msg.timing),
+  };
 }
 
 function mergeTiming(existing?: ChatMessageTiming, next?: ChatMessageTiming): ChatMessageTiming | undefined {
@@ -128,7 +206,7 @@ function isAdjacentDuplicateAgentReply(prev: ChatMessage | undefined, next: Chat
     prev.from === "agent" &&
     next.from === "agent" &&
     prev.type === next.type &&
-    prev.content === next.content;
+    contentFingerprint(prev.content) === contentFingerprint(next.content);
 }
 
 export function dedupeChatMessages(messages: readonly unknown[]): ChatMessage[] {
@@ -142,7 +220,11 @@ export function dedupeChatMessages(messages: readonly unknown[]): ChatMessage[] 
     seenIDs.add(msg.id);
     deduped.push(msg);
   }
-  return deduped;
+  return dedupeChatMessagesStable(deduped);
+}
+
+function dedupeChatMessagesStable(messages: readonly ChatMessage[]): ChatMessage[] {
+  return [...messages];
 }
 
 export function appendChatMessage(messages: readonly ChatMessage[], message: ChatMessage): ChatMessage[] {
@@ -168,7 +250,10 @@ export function applyStreamingDelta(
       id: syntheticID,
       from: "agent",
       type: "delta",
-      content: deltaText,
+      content: {
+        text: deltaText,
+        parts: [{ type: "text", text: deltaText }],
+      },
       timestamp,
       streaming: true,
       timing,
@@ -177,10 +262,14 @@ export function applyStreamingDelta(
   }
 
   const existing = next[index]!;
+  const contentText = `${chatContentText(existing.content)}${deltaText}`;
   next[index] = {
     ...existing,
     type: "delta",
-    content: `${existing.content}${deltaText}`,
+    content: {
+      text: contentText,
+      parts: [{ type: "text", text: contentText }],
+    },
     timestamp,
     streaming: true,
     timing: mergeTiming(existing.timing, timing),
@@ -221,4 +310,11 @@ export function loadChatMessages(raw: string | null): ChatMessage[] {
   } catch {
     return [];
   }
+}
+
+export function serializeChatMessages(messages: readonly ChatMessage[]): string {
+  return JSON.stringify(messages.map((msg) => ({
+    ...msg,
+    content: compactChatContent(msg.content),
+  })));
 }

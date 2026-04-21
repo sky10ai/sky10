@@ -225,6 +225,137 @@ func TestChatWebSocketHermesBridgeFallsBackToChatCompletions(t *testing.T) {
 	}
 }
 
+func TestChatWebSocketHermesBridgeStagesAttachmentsAndReturnsArtifacts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	host := startChatWebSocketTestServer(t, ctx, "host-ha", false)
+	guest := startChatWebSocketTestServer(t, ctx, "guest-ha", true)
+	if host.port == guest.port {
+		t.Fatalf("host and guest ports must differ: both = %d", host.port)
+	}
+
+	waitForHTTPHealth(t, host.baseURL)
+	waitForHTTPHealth(t, guest.baseURL)
+
+	artifactPath := filepath.Join(t.TempDir(), "artifact.png")
+	if err := os.WriteFile(artifactPath, []byte{0x89, 0x50, 0x4e, 0x47}, 0o600); err != nil {
+		t.Fatalf("write artifact file: %v", err)
+	}
+
+	hermesAPI := newFakeHermesServer(t, fakeHermesServerConfig{
+		responsesHandler: func(w http.ResponseWriter, flusher http.Flusher, _payload map[string]interface{}) {
+			writeSSE(w, flusher, "response.completed", map[string]interface{}{
+				"response": map[string]string{
+					"output_text": "artifact ready\nMEDIA:" + artifactPath,
+				},
+			})
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			flusher.Flush()
+		},
+	})
+	bridge := startHermesBridge(t, guest.baseURL, hermesAPI.server.URL, "hermes-attachments")
+
+	waitForAgentRegistered(t, guest, "hermes-attachments", bridge)
+	waitForBridgeSSESubscription(t, guest, bridge)
+
+	sessionConn := dialChatSession(t, guest.baseURL, "hermes-attachments", "session-attachments")
+	defer sessionConn.Close(websocket.StatusNormalClosure, "")
+	hubCtx, hubCancel := context.WithCancel(context.Background())
+	defer hubCancel()
+	hubSub := guest.hub.Subscribe(hubCtx, func(msg Message) bool {
+		return msg.SessionID == "session-attachments"
+	})
+
+	ready := readReadyEvent(t, sessionConn)
+	if ready.SessionID != "session-attachments" {
+		t.Fatalf("ready session_id = %q, want session-attachments", ready.SessionID)
+	}
+
+	sendChatContentRequest(t, sessionConn, "req-attachments", map[string]interface{}{
+		"parts": []map[string]interface{}{
+			{
+				"type": "text",
+				"text": "inspect these",
+			},
+			{
+				"type":       "image",
+				"filename":   "diagram.png",
+				"media_type": "image/png",
+				"source": map[string]string{
+					"type":       "base64",
+					"filename":   "diagram.png",
+					"media_type": "image/png",
+					"data":       "iVBORw0KGgo=",
+				},
+			},
+			{
+				"type":       "file",
+				"filename":   "notes.txt",
+				"media_type": "text/plain",
+				"source": map[string]string{
+					"type":       "base64",
+					"filename":   "notes.txt",
+					"media_type": "text/plain",
+					"data":       "aGVsbG8=",
+				},
+			},
+		},
+	})
+	waitForHubMessage(t, hubSub, bridge)
+
+	messageEvent := readStreamEvent(t, sessionConn)
+	if messageEvent.Event != "message" {
+		t.Fatalf("message event = %q, want message", messageEvent.Event)
+	}
+	if messageEvent.Payload.MessageType != "chat" {
+		t.Fatalf("message type = %q, want chat", messageEvent.Payload.MessageType)
+	}
+	var content ChatContent
+	if err := json.Unmarshal(messageEvent.Payload.Content, &content); err != nil {
+		t.Fatalf("unmarshal message content: %v", err)
+	}
+	if len(content.Parts) != 2 {
+		t.Fatalf("message parts = %d, want 2", len(content.Parts))
+	}
+	if content.Parts[0].Type != "text" || content.Parts[0].Text != "artifact ready" {
+		t.Fatalf("message text part = %+v, want artifact ready", content.Parts[0])
+	}
+	if content.Parts[1].Type != "image" {
+		t.Fatalf("artifact part type = %q, want image", content.Parts[1].Type)
+	}
+	if content.Parts[1].Source == nil || content.Parts[1].Source.Type != "base64" || strings.TrimSpace(content.Parts[1].Source.Data) == "" {
+		t.Fatalf("artifact source = %+v, want populated base64 source", content.Parts[1].Source)
+	}
+	if content.Parts[1].Filename != "artifact.png" {
+		t.Fatalf("artifact filename = %q, want artifact.png", content.Parts[1].Filename)
+	}
+
+	doneEvent, doneContent := readHermesStreamEvent(t, sessionConn, "done")
+	if doneEvent.Payload.MessageType != "done" {
+		t.Fatalf("done message type = %q, want done", doneEvent.Payload.MessageType)
+	}
+	if doneContent.ClientRequestID != "req-attachments" {
+		t.Fatalf("done client_request_id = %q, want req-attachments", doneContent.ClientRequestID)
+	}
+
+	stats := hermesAPI.stats()
+	requestBody := decodeJSONMap(t, stats.lastResponsesBody)
+	input, _ := requestBody["input"].(string)
+	if !strings.Contains(input, "inspect these") {
+		t.Fatalf("responses input missing text body: %q", input)
+	}
+	if !strings.Contains(input, "[Attached image]") || !strings.Contains(input, "filename: diagram.png") {
+		t.Fatalf("responses input missing image attachment prompt: %q", input)
+	}
+	if !strings.Contains(input, "[Attached file]") || !strings.Contains(input, "filename: notes.txt") {
+		t.Fatalf("responses input missing file attachment prompt: %q", input)
+	}
+	if !strings.Contains(input, "path: ") {
+		t.Fatalf("responses input missing staged path: %q", input)
+	}
+}
+
 func TestChatWebSocketHermesBridgeDoesNotQueueSameSessionRequests(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -499,14 +630,23 @@ func waitForHubMessage(t *testing.T, sub <-chan Message, bridge *hermesBridgePro
 func sendChatTextRequest(t *testing.T, conn *websocket.Conn, requestID, text string) {
 	t.Helper()
 
+	sendChatContentRequest(t, conn, requestID, map[string]interface{}{
+		"parts": []map[string]string{{
+			"type": "text",
+			"text": text,
+		}},
+	})
+}
+
+func sendChatContentRequest(t *testing.T, conn *websocket.Conn, requestID string, content map[string]interface{}) {
+	t.Helper()
+
 	params, err := json.Marshal(map[string]interface{}{
 		"message_type": "chat",
 		"content": map[string]interface{}{
 			"client_request_id": requestID,
-			"parts": []map[string]string{{
-				"type": "text",
-				"text": text,
-			}},
+			"text":              content["text"],
+			"parts":             content["parts"],
 		},
 	})
 	if err != nil {

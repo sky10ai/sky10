@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,7 +13,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 )
 
-const chatWebSocketReadLimit = 1 << 20
+const chatWebSocketReadLimit = 64 << 20
 
 type chatWSRequest struct {
 	Type   string          `json:"type"`
@@ -44,17 +43,6 @@ type chatWSEvent struct {
 type chatWSSendParams struct {
 	MessageType string          `json:"message_type,omitempty"`
 	Content     json.RawMessage `json:"content"`
-}
-
-type chatTextContent struct {
-	Text            string             `json:"text,omitempty"`
-	Parts           []chatTextPartJSON `json:"parts,omitempty"`
-	ClientRequestID string             `json:"client_request_id,omitempty"`
-}
-
-type chatTextPartJSON struct {
-	Type string `json:"type,omitempty"`
-	Text string `json:"text,omitempty"`
 }
 
 // ChatStreamMessage is the normalized wire payload emitted by the guest chat
@@ -287,7 +275,28 @@ func (h *ChatWebSocketHandler) handleRequest(ctx context.Context, agentID, sessi
 		}
 	}
 
-	content, err := normalizeTextOnlyContent(params.Content)
+	content, err := ParseChatContent(params.Content)
+	if err != nil {
+		return chatWSResponse{
+			Type: "res",
+			ID:   req.ID,
+			Error: &chatWSError{
+				Code:    "invalid_content",
+				Message: err.Error(),
+			},
+		}
+	}
+	if err := content.Validate(); err != nil {
+		return chatWSResponse{
+			Type: "res",
+			ID:   req.ID,
+			Error: &chatWSError{
+				Code:    "invalid_content",
+				Message: err.Error(),
+			},
+		}
+	}
+	contentRaw, err := content.Marshal()
 	if err != nil {
 		return chatWSResponse{
 			Type: "res",
@@ -303,7 +312,7 @@ func (h *ChatWebSocketHandler) handleRequest(ctx context.Context, agentID, sessi
 		To:        agentID,
 		SessionID: sessionID,
 		Type:      messageType,
-		Content:   content,
+		Content:   contentRaw,
 	})
 	if err != nil {
 		return chatWSResponse{
@@ -343,60 +352,4 @@ func normalizeChatStreamMessage(msg Message) ChatStreamMessage {
 		Content:     msg.Content,
 		Timestamp:   msg.Timestamp,
 	}
-}
-
-func normalizeTextOnlyContent(raw json.RawMessage) (json.RawMessage, error) {
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		return nil, fmt.Errorf("content is required")
-	}
-
-	var text string
-	if err := json.Unmarshal(trimmed, &text); err == nil {
-		text = strings.TrimSpace(text)
-		if text == "" {
-			return nil, fmt.Errorf("content text is required")
-		}
-		return marshalTextParts([]chatTextPartJSON{{Type: "text", Text: text}}, "")
-	}
-
-	var content chatTextContent
-	if err := json.Unmarshal(trimmed, &content); err != nil {
-		return nil, fmt.Errorf("invalid content JSON: %w", err)
-	}
-	clientRequestID := strings.TrimSpace(content.ClientRequestID)
-
-	parts := make([]chatTextPartJSON, 0, len(content.Parts)+1)
-	if text := strings.TrimSpace(content.Text); text != "" {
-		parts = append(parts, chatTextPartJSON{Type: "text", Text: text})
-	}
-	for _, part := range content.Parts {
-		partType := strings.TrimSpace(part.Type)
-		if partType == "" {
-			partType = "text"
-		}
-		if partType != "text" {
-			return nil, fmt.Errorf("unsupported content part type %q", partType)
-		}
-		text := strings.TrimSpace(part.Text)
-		if text == "" {
-			return nil, fmt.Errorf("text part is required")
-		}
-		parts = append(parts, chatTextPartJSON{Type: "text", Text: text})
-	}
-	if len(parts) == 0 {
-		return nil, fmt.Errorf("content is required")
-	}
-	return marshalTextParts(parts, clientRequestID)
-}
-
-func marshalTextParts(parts []chatTextPartJSON, clientRequestID string) (json.RawMessage, error) {
-	body, err := json.Marshal(chatTextContent{
-		Parts:           parts,
-		ClientRequestID: clientRequestID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(body), nil
 }

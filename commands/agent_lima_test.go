@@ -659,6 +659,24 @@ func TestHermesBridgeAssetSubscribesToSky10Events(t *testing.T) {
 	if !strings.Contains(script, `"stream_id": stream_id`) {
 		t.Fatalf("bridge asset missing stream_id propagation: %q", script)
 	}
+	if !strings.Contains(script, "build_inbound_body") {
+		t.Fatalf("bridge asset missing structured inbound content builder: %q", script)
+	}
+	if !strings.Contains(script, "stage_base64_part") {
+		t.Fatalf("bridge asset missing attachment staging helper: %q", script)
+	}
+	if !strings.Contains(script, "sky10-hermes-media") {
+		t.Fatalf("bridge asset missing guest-local media staging root: %q", script)
+	}
+	if !strings.Contains(script, "build_outbound_content") {
+		t.Fatalf("bridge asset missing outbound content builder: %q", script)
+	}
+	if !strings.Contains(script, `trimmed.startswith("MEDIA:")`) {
+		t.Fatalf("bridge asset missing MEDIA artifact extraction: %q", script)
+	}
+	if !strings.Contains(script, "media_part_from_file") {
+		t.Fatalf("bridge asset missing local artifact file encoding: %q", script)
+	}
 	if !strings.Contains(script, "def warm_up(self) -> None:") {
 		t.Fatalf("bridge asset missing Hermes warm-up path: %q", script)
 	}

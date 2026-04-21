@@ -77,7 +77,7 @@ func TestChatWebSocketHostGuestIntegration(t *testing.T) {
 		Type:   "req",
 		ID:     "req-1",
 		Method: "message.send",
-		Params: json.RawMessage(`{"message_type":"chat","content":{"parts":[{"type":"text","text":"hello"}]}}`),
+		Params: json.RawMessage(`{"message_type":"chat","content":{"parts":[{"type":"text","text":"hello"},{"type":"image","filename":"diagram.png","media_type":"image/png","source":{"type":"base64","filename":"diagram.png","media_type":"image/png","data":"iVBORw0KGgo="}}]}}`),
 	}); err != nil {
 		t.Fatalf("write websocket request: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestChatWebSocketHostGuestIntegration(t *testing.T) {
 		ID:        "message-1",
 		SessionID: "session-a",
 		Type:      "message",
-		Content:   json.RawMessage(`{"parts":[{"type":"text","text":"hello"}]}`),
+		Content:   json.RawMessage(`{"parts":[{"type":"text","text":"hello"},{"type":"file","filename":"artifact.txt","media_type":"text/plain","source":{"type":"url","filename":"artifact.txt","media_type":"text/plain","url":"https://example.com/artifact.txt"}}]}`),
 		Timestamp: time.Now().UTC(),
 	})
 	guest.hub.Publish(Message{
@@ -128,6 +128,16 @@ func TestChatWebSocketHostGuestIntegration(t *testing.T) {
 	}
 	if messageEvent.Payload.SessionID != "session-a" {
 		t.Fatalf("message session_id = %q, want session-a", messageEvent.Payload.SessionID)
+	}
+	var messageContent ChatContent
+	if err := json.Unmarshal(messageEvent.Payload.Content, &messageContent); err != nil {
+		t.Fatalf("unmarshal message content: %v", err)
+	}
+	if len(messageContent.Parts) != 2 {
+		t.Fatalf("message parts = %d, want 2", len(messageContent.Parts))
+	}
+	if got := messageContent.Parts[1].Source; got == nil || got.URL != "https://example.com/artifact.txt" {
+		t.Fatalf("message file source = %+v, want artifact URL", got)
 	}
 
 	doneEvent := readStreamEvent(t, sessionAConn)

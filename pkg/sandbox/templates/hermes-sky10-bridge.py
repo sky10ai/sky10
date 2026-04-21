@@ -4,12 +4,17 @@
 from __future__ import annotations
 
 import json
+import base64
+import mimetypes
 import os
+import re
 import signal
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from collections import OrderedDict
@@ -21,6 +26,7 @@ RECONNECT_DELAY_SECONDS = 5
 SEEN_TTL_SECONDS = 30
 DEFAULT_AGENT_SKILLS = ["code", "shell", "web-search", "file-ops"]
 WARMUP_PROMPT = "Reply with exactly OK."
+MEDIA_ROOT = os.path.join(tempfile.gettempdir(), "sky10-hermes-media")
 
 
 class BridgeError(RuntimeError):
@@ -47,6 +53,212 @@ def extract_text(content: Any) -> str:
         if isinstance(text, str):
             return text
     return json.dumps(content, ensure_ascii=True)
+
+
+def sanitize_filename(name: Any, fallback: str = "attachment.bin") -> str:
+    candidate = str(name or "").strip() or fallback
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", candidate).strip("-")
+    return sanitized or fallback
+
+
+def guess_mime_type(value: Any) -> str:
+    guessed, _encoding = mimetypes.guess_type(str(value or ""))
+    return guessed or ""
+
+
+def part_kind(part: dict[str, Any]) -> str:
+    kind = str(part.get("type") or "").strip()
+    if kind in {"image", "audio", "video"}:
+        return kind
+    source = part.get("source") if isinstance(part.get("source"), dict) else {}
+    media_type = str(part.get("media_type") or source.get("media_type") or guess_mime_type(part.get("filename") or source.get("filename") or source.get("url"))).strip()
+    if media_type.startswith("image/"):
+        return "image"
+    if media_type.startswith("audio/"):
+        return "audio"
+    if media_type.startswith("video/"):
+        return "video"
+    return "file"
+
+
+def normalize_content_parts(content: Any) -> list[dict[str, Any]]:
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    if not isinstance(content, dict):
+        if content is None:
+            return []
+        return [{"type": "text", "text": json.dumps(content, ensure_ascii=True)}]
+
+    parts = content.get("parts")
+    if isinstance(parts, list) and parts:
+        normalized: list[dict[str, Any]] = []
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            source = part.get("source") if isinstance(part.get("source"), dict) else {}
+            normalized.append(
+                {
+                    "type": str(part.get("type") or ("text" if isinstance(part.get("text"), str) else "file")).strip(),
+                    "text": part.get("text") if isinstance(part.get("text"), str) else "",
+                    "filename": part.get("filename") if isinstance(part.get("filename"), str) else "",
+                    "media_type": part.get("media_type") if isinstance(part.get("media_type"), str) else "",
+                    "caption": part.get("caption") if isinstance(part.get("caption"), str) else "",
+                    "source": {
+                        "type": source.get("type") if isinstance(source.get("type"), str) else "",
+                        "data": source.get("data") if isinstance(source.get("data"), str) else "",
+                        "url": source.get("url") if isinstance(source.get("url"), str) else "",
+                        "filename": source.get("filename") if isinstance(source.get("filename"), str) else "",
+                        "media_type": source.get("media_type") if isinstance(source.get("media_type"), str) else "",
+                    } if source else None,
+                }
+            )
+        return normalized
+
+    text = content.get("text")
+    if isinstance(text, str) and text:
+        return [{"type": "text", "text": text}]
+    return [{"type": "text", "text": json.dumps(content, ensure_ascii=True)}]
+
+
+def ensure_media_session_dir(session_id: str) -> str:
+    directory = os.path.join(MEDIA_ROOT, urllib.parse.quote(session_id or "main", safe=""))
+    os.makedirs(directory, exist_ok=True)
+    return directory
+
+
+def stage_base64_part(session_id: str, part: dict[str, Any]) -> str:
+    source = part.get("source") if isinstance(part.get("source"), dict) else {}
+    filename = sanitize_filename(part.get("filename") or source.get("filename"), f"{part_kind(part)}.bin")
+    stamp = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
+    path = os.path.join(ensure_media_session_dir(session_id), f"{stamp}-{filename}")
+    data = str(source.get("data") or "").strip()
+    with open(path, "wb") as handle:
+        handle.write(base64.b64decode(data))
+    return path
+
+
+def build_attachment_prompt(part: dict[str, Any], location: str) -> str:
+    kind = part_kind(part)
+    lines = [f"[Attached {kind}]"]
+    source = part.get("source") if isinstance(part.get("source"), dict) else {}
+    filename = str(part.get("filename") or source.get("filename") or "").strip()
+    media_type = str(part.get("media_type") or source.get("media_type") or guess_mime_type(filename or source.get("url") or location)).strip()
+    if filename:
+        lines.append(f"filename: {filename}")
+    if media_type:
+        lines.append(f"mime: {media_type}")
+    if location:
+        if location.startswith("http://") or location.startswith("https://"):
+            lines.append(f"url: {location}")
+        else:
+            lines.append(f"path: {location}")
+    caption = part.get("caption")
+    if isinstance(caption, str) and caption.strip():
+        lines.append(f"caption: {caption.strip()}")
+    return "\n".join(lines)
+
+
+def build_inbound_body(content: Any, session_id: str) -> str:
+    chunks: list[str] = []
+    for part in normalize_content_parts(content):
+        if part.get("type") == "text":
+            text = part.get("text")
+            if isinstance(text, str) and text:
+                chunks.append(text)
+            continue
+        source = part.get("source") if isinstance(part.get("source"), dict) else {}
+        source_type = str(source.get("type") or "").strip()
+        if source_type == "base64" and str(source.get("data") or "").strip():
+            chunks.append(build_attachment_prompt(part, stage_base64_part(session_id, part)))
+            continue
+        if source_type == "url" and str(source.get("url") or "").strip():
+            chunks.append(build_attachment_prompt(part, str(source.get("url")).strip()))
+            continue
+        chunks.append(build_attachment_prompt(part, ""))
+    return "\n\n".join(chunk for chunk in chunks if chunk)
+
+
+def media_part_from_url(ref: str) -> dict[str, Any]:
+    parsed = urllib.parse.urlparse(ref)
+    filename = sanitize_filename(os.path.basename(parsed.path), "attachment.bin")
+    media_type = guess_mime_type(filename or ref)
+    kind = part_kind({"type": "", "filename": filename, "media_type": media_type, "source": {"url": ref, "media_type": media_type}})
+    return {
+        "type": kind,
+        "filename": filename,
+        "media_type": media_type,
+        "source": {
+            "type": "url",
+            "url": ref,
+            "filename": filename,
+            "media_type": media_type,
+        },
+    }
+
+
+def media_part_from_file(ref: str) -> dict[str, Any] | None:
+    if not os.path.isfile(ref):
+        return None
+    filename = sanitize_filename(os.path.basename(ref), "attachment.bin")
+    media_type = guess_mime_type(ref)
+    kind = part_kind({"type": "", "filename": filename, "media_type": media_type, "source": {"filename": filename, "media_type": media_type}})
+    with open(ref, "rb") as handle:
+        data = base64.b64encode(handle.read()).decode("ascii")
+    return {
+        "type": kind,
+        "filename": filename,
+        "media_type": media_type,
+        "source": {
+            "type": "base64",
+            "data": data,
+            "filename": filename,
+            "media_type": media_type,
+        },
+    }
+
+
+def build_outbound_content(payload: Any) -> dict[str, Any] | None:
+    source_text = payload if isinstance(payload, str) else str(payload or "")
+    body_lines: list[str] = []
+    media_parts: list[dict[str, Any]] = []
+    seen_media_refs: set[str] = set()
+
+    def add_media_ref(ref: Any) -> bool:
+        normalized = str(ref or "").strip()
+        if not normalized or normalized in seen_media_refs:
+            return bool(normalized)
+        media_part = media_part_from_url(normalized) if normalized.startswith(("http://", "https://")) else media_part_from_file(normalized)
+        if not media_part:
+            return False
+        seen_media_refs.add(normalized)
+        media_parts.append(media_part)
+        return True
+
+    for line in source_text.splitlines():
+        trimmed = line.strip()
+        if trimmed.startswith("MEDIA:"):
+            ref = trimmed[len("MEDIA:"):].strip()
+            if ref and add_media_ref(ref):
+                continue
+        elif trimmed and (trimmed.startswith(("http://", "https://")) or os.path.isabs(trimmed) or trimmed.startswith("./") or trimmed.startswith("../")):
+            if add_media_ref(trimmed):
+                continue
+        body_lines.append(line)
+
+    body_text = "\n".join(body_lines).strip()
+    if not media_parts:
+        if not body_text:
+            return None
+        return {"text": body_text}
+
+    parts: list[dict[str, Any]] = []
+    if body_text:
+        parts.append({"type": "text", "text": body_text})
+    parts.extend(media_parts)
+    return {
+        "text": body_text or None,
+        "parts": parts,
+    }
 
 
 def extract_client_request_id(content: Any) -> str:
@@ -610,7 +822,7 @@ class Bridge:
     def _handle_message(self, message: dict[str, Any]) -> None:
         session_id = str(message.get("session_id") or "main").strip() or "main"
         content = message.get("content")
-        user_text = extract_text(content)
+        user_text = build_inbound_body(content, session_id)
         client_request_id = extract_client_request_id(content)
         sender = str(message.get("from") or "").strip()
         if not sender:
@@ -624,19 +836,18 @@ class Bridge:
                 user_text,
                 lambda chunk: self.sky10.send_delta(sender, session_id, chunk, sender, stream_id, client_request_id),
             )
-            if reply.strip():
-                reply_content = {
-                    "text": reply,
-                    "stream_id": stream_id,
-                }
+            reply_content = build_outbound_content(reply)
+            if reply_content:
+                reply_content["stream_id"] = stream_id
                 if client_request_id:
                     reply_content["client_request_id"] = client_request_id
+                msg_type = "chat" if isinstance(reply_content.get("parts"), list) and reply_content.get("parts") else "text"
                 self.sky10.send_content(
                     sender,
                     session_id,
                     reply_content,
                     sender,
-                    "text",
+                    msg_type,
                 )
                 self.sky10.send_done(sender, session_id, sender, stream_id, client_request_id)
                 log(f"Reply sent for session {session_id}")

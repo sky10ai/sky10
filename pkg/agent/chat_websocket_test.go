@@ -115,7 +115,18 @@ func TestChatWebSocketValidatesRequests(t *testing.T) {
 				Params: json.RawMessage(`{"content":{"parts":[{"type":"image","text":"hello"}]}}`),
 			},
 			wantCode:   "invalid_content",
-			wantSubstr: "unsupported content part type",
+			wantSubstr: "image part source is required",
+		},
+		{
+			name: "invalid source type",
+			request: chatWSRequest{
+				Type:   "req",
+				ID:     "req-inline",
+				Method: "message.send",
+				Params: json.RawMessage(`{"content":{"parts":[{"type":"file","filename":"notes.txt","source":{"type":"inline","data":"abc"}}]}}`),
+			},
+			wantCode:   "invalid_content",
+			wantSubstr: "unsupported content source type",
 		},
 	}
 
@@ -154,6 +165,21 @@ func TestChatWebSocketValidatesRequests(t *testing.T) {
 	}
 	if okResp.Error != nil {
 		t.Fatalf("valid response error = %+v", okResp.Error)
+	}
+}
+
+func TestParseChatContentStringFallback(t *testing.T) {
+	t.Parallel()
+
+	content, err := ParseChatContent(json.RawMessage(`"hello"`))
+	if err != nil {
+		t.Fatalf("ParseChatContent(string): %v", err)
+	}
+	if content.Text != "hello" {
+		t.Fatalf("content text = %q, want hello", content.Text)
+	}
+	if len(content.Parts) != 1 || content.Parts[0].Type != "text" {
+		t.Fatalf("content parts = %+v, want single text part", content.Parts)
 	}
 }
 
