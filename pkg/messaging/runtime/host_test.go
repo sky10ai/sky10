@@ -85,7 +85,7 @@ func TestProcessHostNotifications(t *testing.T) {
 func TestProcessHostWaitUnexpectedExit(t *testing.T) {
 	t.Parallel()
 
-	exe := helperProcessExecutable(t)
+	exe := helperProcessExecutableForTests()
 	host, err := StartProcess(context.Background(), ProcessSpec{
 		Path: exe,
 		Args: []string{"-test.run=TestHelperMessagingAdapterProcess", "--"},
@@ -119,7 +119,7 @@ func TestHelperMessagingAdapterProcess(t *testing.T) {
 func startHelperProcessHost(t *testing.T, notify NotificationHandler) *ProcessHost {
 	t.Helper()
 
-	exe := helperProcessExecutable(t)
+	exe := helperProcessExecutableForTests()
 	host, err := StartProcess(context.Background(), ProcessSpec{
 		Path: exe,
 		Args: []string{"-test.run=TestHelperMessagingAdapterProcess", "--"},
@@ -131,17 +131,17 @@ func startHelperProcessHost(t *testing.T, notify NotificationHandler) *ProcessHo
 	return host
 }
 
-func helperProcessExecutable(t *testing.T) string {
-	t.Helper()
+func helperProcessExecutableForTests() string {
 	exe, err := os.Executable()
 	if err != nil {
-		t.Fatalf("os.Executable() error = %v", err)
+		panic(err)
 	}
 	return exe
 }
 
 func runHelperMessagingAdapter() error {
 	fmt.Fprintln(os.Stderr, "helper adapter starting")
+	mode := os.Getenv("SKY10_MESSAGING_HELPER_MODE")
 
 	dec := NewDecoder(os.Stdin)
 	enc := NewEncoder(os.Stdout)
@@ -164,16 +164,41 @@ func runHelperMessagingAdapter() error {
 
 		switch req.Method {
 		case string(protocol.MethodDescribe):
+			describeProtocol := protocol.CurrentProtocol()
+			if mode == "protocol-mismatch" {
+				describeProtocol.Version = "v9"
+				describeProtocol.CompatibleVersions = nil
+			}
 			if err := enc.Write(Response{
 				JSONRPC: jsonRPCVersion,
 				ID:      req.ID,
 				Result: mustJSON(protocol.DescribeResult{
-					Protocol: protocol.CurrentProtocol(),
+					Protocol: describeProtocol,
 					Adapter: messaging.Adapter{
 						ID:          "test-adapter",
 						DisplayName: "Test Adapter",
 						AuthMethods: []messaging.AuthMethod{messaging.AuthMethodOAuth2},
 					},
+				}),
+			}); err != nil {
+				return err
+			}
+		case string(protocol.MethodConnect):
+			if err := enc.Write(Response{
+				JSONRPC: jsonRPCVersion,
+				ID:      req.ID,
+				Result: mustJSON(protocol.ConnectResult{
+					Status: messaging.ConnectionStatusConnected,
+					Identities: []messaging.Identity{{
+						ID:           "identity/test",
+						ConnectionID: "slack/work",
+						Kind:         messaging.IdentityKindBot,
+						RemoteID:     "U123",
+						DisplayName:  "Test Bot",
+						CanReceive:   true,
+						CanSend:      true,
+						IsDefault:    true,
+					}},
 				}),
 			}); err != nil {
 				return err

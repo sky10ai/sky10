@@ -128,11 +128,11 @@ Define and host external platform adapters as supervised local processes.
 - [ ] Support adapter start, stop, restart, health check, and backoff.
 - [x] Support adapter stdout/stderr capture for operator diagnostics.
 - [x] Decide that the first protocol transport is JSON-RPC over stdio.
-- [ ] Add protocol compatibility/version negotiation.
+- [x] Add protocol compatibility/version negotiation.
 
 ### Exit Criteria
 
-- [ ] A dummy adapter process can be launched, described, health-checked, and
+- [x] A dummy adapter process can be launched, described, health-checked, and
   called by the broker.
 - [ ] Broker-owned webhooks can be forwarded to an adapter and converted into
   normalized events.
