@@ -311,6 +311,13 @@ Initial capability set:
 Platform adapters should be external executables speaking a stable protocol to
 the broker.
 
+The first transport should be JSON-RPC over stdio:
+
+- broker writes requests to adapter stdin
+- adapter writes responses to stdout
+- adapter logs go to stderr
+- large binary payloads stay out of band as broker-owned blob/staging refs
+
 Initial method set:
 
 - `Describe`
@@ -337,6 +344,14 @@ Design constraints:
 - adapters should not require public network listeners of their own when
   webhooks are involved
 - adapters should not store long-lived policy decisions locally
+
+The current schema lives in `pkg/messaging/protocol` and includes:
+
+- protocol version metadata
+- capability declaration through `Describe`
+- webhook envelopes for broker-owned HTTP ingress
+- polling checkpoints and suggested poll delays
+- staged attachment/blob references for binary payloads
 
 ## Northbound Shim Protocol
 

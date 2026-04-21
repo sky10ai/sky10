@@ -402,10 +402,12 @@ func TestChatWebSocketHermesBridgeDoesNotQueueSameSessionRequests(t *testing.T) 
 
 	firstDeltaSent := make(chan struct{})
 	secondDeltaSent := make(chan struct{})
+	secondRequestStarted := make(chan struct{})
 	firstTimedOutWaitingForSecondDelta := make(chan struct{})
 	var firstDeltaOnce sync.Once
 	var secondDeltaOnce sync.Once
 	var firstTimeoutOnce sync.Once
+	var secondRequestOnce sync.Once
 	hermesAPI := newFakeHermesServer(t, fakeHermesServerConfig{
 		responsesHandler: func(w http.ResponseWriter, flusher http.Flusher, payload map[string]interface{}) {
 			input := fakeHermesInputText(payload)
@@ -413,6 +415,10 @@ func TestChatWebSocketHermesBridgeDoesNotQueueSameSessionRequests(t *testing.T) 
 			case "first":
 				writeSSE(w, flusher, "response.output_text.delta", map[string]string{"delta": "one"})
 				firstDeltaOnce.Do(func() { close(firstDeltaSent) })
+				select {
+				case <-secondRequestStarted:
+				case <-time.After(5 * time.Second):
+				}
 				select {
 				case <-secondDeltaSent:
 				case <-time.After(2 * time.Second):
@@ -422,9 +428,10 @@ func TestChatWebSocketHermesBridgeDoesNotQueueSameSessionRequests(t *testing.T) 
 					"response": map[string]string{"output_text": "one"},
 				})
 			case "second":
+				secondRequestOnce.Do(func() { close(secondRequestStarted) })
 				select {
 				case <-firstDeltaSent:
-				case <-time.After(2 * time.Second):
+				case <-time.After(5 * time.Second):
 				}
 				writeSSE(w, flusher, "response.output_text.delta", map[string]string{"delta": "two"})
 				secondDeltaOnce.Do(func() { close(secondDeltaSent) })
@@ -485,6 +492,12 @@ func TestChatWebSocketHermesBridgeDoesNotQueueSameSessionRequests(t *testing.T) 
 		case "done":
 			if content.StreamID == "" {
 				t.Fatalf("done stream_id is empty: payload=%s", string(event.Payload.Content))
+			}
+			if len(clientRequestIDs) < 2 {
+				stats := hermesAPI.stats()
+				if stats.responsesHits < 2 {
+					t.Fatalf("same-session requests were serialized; saw %d Hermes request(s) before first done", stats.responsesHits)
+				}
 			}
 			if content.ClientRequestID == "" {
 				t.Fatalf("done client_request_id is empty: payload=%s", string(event.Payload.Content))

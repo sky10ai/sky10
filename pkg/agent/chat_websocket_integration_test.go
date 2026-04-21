@@ -358,9 +358,16 @@ func postRPC(t *testing.T, baseURL, method string, params interface{}, out inter
 func waitForHTTPHealth(t *testing.T, baseURL string) {
 	t.Helper()
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
+	if testDeadline, ok := t.Deadline(); ok {
+		guarded := testDeadline.Add(-250 * time.Millisecond)
+		if guarded.Before(deadline) {
+			deadline = guarded
+		}
+	}
+	client := &http.Client{Timeout: 500 * time.Millisecond}
 	for {
-		res, err := http.Get(baseURL + "/health")
+		res, err := client.Get(baseURL + "/health")
 		if err == nil {
 			res.Body.Close()
 			if res.StatusCode == http.StatusOK {

@@ -34,7 +34,7 @@ This plan does not yet cover:
 | --- | --- | --- |
 | 0. Terminology And Architecture | done | Naming and architecture draft exist |
 | 1. Core Domain And Storage | in progress | `pkg/messaging` types and persistence backbone |
-| 2. Adapter Protocol And Runtime Host | not started | External adapter process contract and supervision |
+| 2. Adapter Protocol And Runtime Host | in progress | External adapter process contract and supervision |
 | 3. Broker Core And Event Flows | not started | Normalize inbound/outbound flow through broker |
 | 4. Policy And Approval Engine | not started | Broker-enforced permissions and durable approvals |
 | 5. Agent Shim Protocol | not started | One thin runtime-facing messaging surface |
@@ -113,22 +113,21 @@ Define and host external platform adapters as supervised local processes.
 
 ### Checklist
 
-- [ ] Create `pkg/messaging/protocol` for the southbound adapter contract.
-- [ ] Define `Describe`, `ValidateConfig`, `Connect`, `Refresh`,
+- [x] Create `pkg/messaging/protocol` for the southbound adapter contract.
+- [x] Define `Describe`, `ValidateConfig`, `Connect`, `Refresh`,
   `ListIdentities`, `ListConversations`, `ListMessages`, `GetMessage`,
   `CreateDraft`, `UpdateDraft`, `DeleteDraft`, `SendMessage`, `ReplyMessage`,
   `HandleWebhook`, `Poll`, and `Health`.
-- [ ] Define a capability declaration shape that adapters return from
+- [x] Define a capability declaration shape that adapters return from
   `Describe`.
-- [ ] Define a normalized webhook request envelope so the broker can own public
+- [x] Define a normalized webhook request envelope so the broker can own public
   HTTP ingress.
-- [ ] Define polling checkpoints and retry semantics.
+- [x] Define polling checkpoints and retry semantics.
 - [ ] Build `pkg/messaging/runtime` or equivalent for adapter process
   supervision.
 - [ ] Support adapter start, stop, restart, health check, and backoff.
 - [ ] Support adapter stdout/stderr capture for operator diagnostics.
-- [ ] Decide whether the first protocol transport is stdio, local HTTP, or
-  local JSON-RPC.
+- [x] Decide that the first protocol transport is JSON-RPC over stdio.
 - [ ] Add protocol compatibility/version negotiation.
 
 ### Exit Criteria
