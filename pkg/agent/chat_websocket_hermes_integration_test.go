@@ -890,7 +890,7 @@ func decodeFakeHermesInputString(input string) string {
 		return ""
 	}
 
-	var content chatTextContent
+	var content ChatContent
 	if err := json.Unmarshal([]byte(trimmed), &content); err != nil {
 		return trimmed
 	}
