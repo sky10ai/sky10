@@ -21,6 +21,7 @@ import Bucket from "./pages/Bucket";
 import Activity from "./pages/Activity";
 import Settings from "./pages/Settings";
 import SettingsApps from "./pages/SettingsApps";
+import SettingsCodex from "./pages/SettingsCodex";
 import SettingsSecrets from "./pages/SettingsSecrets";
 import SettingsVisuals from "./pages/SettingsVisuals";
 
@@ -64,6 +65,7 @@ export default function App() {
           <Route path="settings/kv" element={<KVStore />} />
           <Route path="settings/activity" element={<Activity />} />
           <Route path="settings/apps" element={<SettingsApps />} />
+          <Route path="settings/codex" element={<SettingsCodex />} />
           <Route path="settings/secrets" element={<SettingsSecrets />} />
           <Route path="settings/visuals" element={<SettingsVisuals />} />
           <Route path="settings/sandboxes" element={<Sandboxes />} />

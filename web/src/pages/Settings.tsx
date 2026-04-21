@@ -272,6 +272,32 @@ export default function Settings() {
 
         <Link
           className="group rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
+          to="/settings/codex"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
+                ChatGPT
+              </p>
+              <h3 className="text-xl font-semibold text-on-surface">
+                Link Codex sign-in
+              </h3>
+              <p className="max-w-md text-sm text-secondary">
+                Connect the local Codex CLI with your ChatGPT account so sky10 can broker Codex-backed work.
+              </p>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <Icon className="text-2xl" name="chat" />
+            </div>
+          </div>
+          <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary transition-colors group-hover:text-on-surface">
+            Open ChatGPT Link
+            <Icon className="text-base" name="arrow_forward" />
+          </div>
+        </Link>
+
+        <Link
+          className="group rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
           to="/settings/secrets"
         >
           <div className="flex items-start justify-between gap-4">

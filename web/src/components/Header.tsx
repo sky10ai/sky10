@@ -99,6 +99,13 @@ function getRouteMeta(pathname: string) {
     };
   }
 
+  if (pathname.startsWith("/settings/codex")) {
+    return {
+      description: "Link a local Codex CLI login so sky10 can use your ChatGPT-backed coding access.",
+      title: "Connect ChatGPT",
+    };
+  }
+
   if (pathname.startsWith("/settings/secrets")) {
     return {
       description: "Store and rewrap synced secrets without exposing them as raw KV entries.",

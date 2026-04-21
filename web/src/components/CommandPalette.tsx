@@ -90,6 +90,13 @@ const commands: Command[] = [
     section: "System",
   },
   {
+    id: "codex",
+    label: "Connect ChatGPT",
+    icon: "chat",
+    action: "/settings/codex",
+    section: "System",
+  },
+  {
     id: "sandboxes",
     label: "Sandboxes",
     icon: "deployed_code",

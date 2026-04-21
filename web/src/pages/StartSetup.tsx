@@ -64,7 +64,7 @@ export default function StartSetup() {
 
   const links = useMemo(
     () => ({
-      chatgpt: `/settings/secrets?name=openai&kind=api-key&source=chatgpt&audience=${audience}#store-secret`,
+      chatgpt: `/settings/codex?audience=${audience}`,
       lookAround: `/ai?audience=${audience}`,
       apiKey: `/settings/secrets?kind=api-key&audience=${audience}#store-secret`,
       local: `/settings/apps?audience=${audience}`,

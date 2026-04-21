@@ -52,6 +52,10 @@ export const MANAGED_APP_EVENT_TYPES = [
   "apps:install:error",
 ] as const;
 
+export const CODEX_EVENT_TYPES = [
+  "codex:login:updated",
+] as const;
+
 export const UPDATE_EVENT_TYPES = [
   "update:available",
   "update:progress",
@@ -94,6 +98,7 @@ export const KNOWN_EVENT_TYPES = [
     ...AGENT_EVENT_TYPES,
     ...WALLET_EVENT_TYPES,
     ...MANAGED_APP_EVENT_TYPES,
+    ...CODEX_EVENT_TYPES,
     ...UPDATE_EVENT_TYPES,
     ...SANDBOX_EVENT_TYPES,
     ...LEGACY_EVENT_TYPES,

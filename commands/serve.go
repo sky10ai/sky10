@@ -18,6 +18,7 @@ import (
 	skyagent "github.com/sky10/sky10/pkg/agent"
 	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
 	skyapps "github.com/sky10/sky10/pkg/apps"
+	skycodex "github.com/sky10/sky10/pkg/codex"
 	"github.com/sky10/sky10/pkg/config"
 	skydevice "github.com/sky10/sky10/pkg/device"
 	skyfs "github.com/sky10/sky10/pkg/fs"
@@ -194,6 +195,7 @@ func ServeCmd() *cobra.Command {
 
 			secretsStore := secrets.New(backend, bundle, secrets.Config{BootstrapKV: kvStore}, nil)
 			server.RegisterHandler(secrets.NewRPCHandler(secretsStore))
+			server.RegisterHandler(skycodex.NewRPCHandler(skycodex.NewService(server.Emit)))
 			secretsRunErr := make(chan error, 1)
 			go func() {
 				secretsRunErr <- secretsStore.Run(ctx)

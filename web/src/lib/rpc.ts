@@ -265,6 +265,14 @@ export const wallet = {
     rpc<{ max: string; fee: string }>("wallet.maxTransfer", p),
 };
 
+// -- codex --
+export const codex = {
+  status: () => rpc<CodexStatus>("codex.status"),
+  loginStart: () => rpc<CodexStatus>("codex.loginStart"),
+  loginCancel: () => rpc<CodexStatus>("codex.loginCancel"),
+  logout: () => rpc<CodexStatus>("codex.logout"),
+};
+
 // ---- Types matching actual daemon responses ----
 
 export interface HealthResult {
@@ -1070,4 +1078,22 @@ export interface WalletTransfer {
   transaction_hash?: string;
   status: string;
   amount?: string;
+}
+
+export interface CodexPendingLogin {
+  id: string;
+  verification_url: string;
+  user_code: string;
+  started_at: string;
+  expires_at: string;
+}
+
+export interface CodexStatus {
+  installed: boolean;
+  bin_path?: string;
+  linked: boolean;
+  auth_mode?: string;
+  auth_label?: string;
+  pending_login?: CodexPendingLogin;
+  last_error?: string;
 }
