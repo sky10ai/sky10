@@ -226,11 +226,6 @@ func TestChatWebSocketHermesBridgeFallsBackToChatCompletions(t *testing.T) {
 }
 
 func TestChatWebSocketHermesBridgeDoesNotQueueSameSessionRequests(t *testing.T) {
-	// TODO: Unquarantine once same-session prompt delivery to the Hermes bridge
-	// is deterministic enough to assert overlap without depending on event-loop
-	// timing between guest SSE delivery and streamed reply traffic.
-	t.Skip("flaky on CI: same-session Hermes overlap depends on non-deterministic guest/bridge event timing")
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -245,11 +240,13 @@ func TestChatWebSocketHermesBridgeDoesNotQueueSameSessionRequests(t *testing.T) 
 
 	firstDeltaSent := make(chan struct{})
 	secondDeltaSent := make(chan struct{})
+	firstTimedOutWaitingForSecondDelta := make(chan struct{})
 	var firstDeltaOnce sync.Once
 	var secondDeltaOnce sync.Once
+	var firstTimeoutOnce sync.Once
 	hermesAPI := newFakeHermesServer(t, fakeHermesServerConfig{
 		responsesHandler: func(w http.ResponseWriter, flusher http.Flusher, payload map[string]interface{}) {
-			input, _ := payload["input"].(string)
+			input := fakeHermesInputText(payload)
 			switch input {
 			case "first":
 				writeSSE(w, flusher, "response.output_text.delta", map[string]string{"delta": "one"})
@@ -257,6 +254,7 @@ func TestChatWebSocketHermesBridgeDoesNotQueueSameSessionRequests(t *testing.T) 
 				select {
 				case <-secondDeltaSent:
 				case <-time.After(2 * time.Second):
+					firstTimeoutOnce.Do(func() { close(firstTimedOutWaitingForSecondDelta) })
 				}
 				writeSSE(w, flusher, "response.completed", map[string]interface{}{
 					"response": map[string]string{"output_text": "one"},
@@ -297,8 +295,20 @@ func TestChatWebSocketHermesBridgeDoesNotQueueSameSessionRequests(t *testing.T) 
 	sendChatTextRequest(t, sessionConn, "req-first", "first")
 	sendChatTextRequest(t, sessionConn, "req-second", "second")
 
+	select {
+	case <-secondDeltaSent:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for overlapping Hermes second delta")
+	}
+	select {
+	case <-firstTimedOutWaitingForSecondDelta:
+		t.Fatal("same-session requests were serialized before the second Hermes delta started")
+	default:
+	}
+
 	clientRequestIDs := make(map[string]struct{}, 2)
-	for {
+	doneRequestIDs := make(map[string]struct{}, 2)
+	for len(clientRequestIDs) < 2 || len(doneRequestIDs) < 2 {
 		event := readStreamEvent(t, sessionConn)
 		content := decodeHermesStreamContent(t, event.Payload.Content)
 		switch event.Event {
@@ -310,18 +320,21 @@ func TestChatWebSocketHermesBridgeDoesNotQueueSameSessionRequests(t *testing.T) 
 				t.Fatalf("delta client_request_id is empty: payload=%s", string(event.Payload.Content))
 			}
 			clientRequestIDs[content.ClientRequestID] = struct{}{}
-			if len(clientRequestIDs) == 2 {
-				stats := hermesAPI.stats()
-				if stats.responsesHits != 2 {
-					t.Fatalf("responses hits = %d, want 2 overlapping requests", stats.responsesHits)
-				}
-				return
-			}
 		case "done":
-			if len(clientRequestIDs) < 2 {
-				t.Fatalf("same-session requests were serialized; saw %d request(s) before first done", len(clientRequestIDs))
+			if content.StreamID == "" {
+				t.Fatalf("done stream_id is empty: payload=%s", string(event.Payload.Content))
 			}
+			if content.ClientRequestID == "" {
+				t.Fatalf("done client_request_id is empty: payload=%s", string(event.Payload.Content))
+			}
+			clientRequestIDs[content.ClientRequestID] = struct{}{}
+			doneRequestIDs[content.ClientRequestID] = struct{}{}
 		}
+	}
+
+	stats := hermesAPI.stats()
+	if stats.responsesHits != 2 {
+		t.Fatalf("responses hits = %d, want 2 overlapping requests", stats.responsesHits)
 	}
 }
 
@@ -719,6 +732,45 @@ func decodeJSONMap(t *testing.T, body string) map[string]interface{} {
 		t.Fatalf("unmarshal JSON body %q: %v", body, err)
 	}
 	return payload
+}
+
+func fakeHermesInputText(payload map[string]interface{}) string {
+	raw, _ := payload["input"]
+	switch value := raw.(type) {
+	case string:
+		return decodeFakeHermesInputString(value)
+	default:
+		return ""
+	}
+}
+
+func decodeFakeHermesInputString(input string) string {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return ""
+	}
+
+	var content chatTextContent
+	if err := json.Unmarshal([]byte(trimmed), &content); err != nil {
+		return trimmed
+	}
+
+	parts := make([]string, 0, len(content.Parts)+1)
+	if text := strings.TrimSpace(content.Text); text != "" {
+		parts = append(parts, text)
+	}
+	for _, part := range content.Parts {
+		if strings.TrimSpace(part.Type) != "" && strings.TrimSpace(part.Type) != "text" {
+			continue
+		}
+		if text := strings.TrimSpace(part.Text); text != "" {
+			parts = append(parts, text)
+		}
+	}
+	if len(parts) == 0 {
+		return trimmed
+	}
+	return strings.Join(parts, "")
 }
 
 type lockedBuffer struct {
