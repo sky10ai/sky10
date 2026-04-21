@@ -123,10 +123,10 @@ Define and host external platform adapters as supervised local processes.
 - [x] Define a normalized webhook request envelope so the broker can own public
   HTTP ingress.
 - [x] Define polling checkpoints and retry semantics.
-- [ ] Build `pkg/messaging/runtime` or equivalent for adapter process
+- [x] Build `pkg/messaging/runtime` or equivalent for adapter process
   supervision.
 - [ ] Support adapter start, stop, restart, health check, and backoff.
-- [ ] Support adapter stdout/stderr capture for operator diagnostics.
+- [x] Support adapter stdout/stderr capture for operator diagnostics.
 - [x] Decide that the first protocol transport is JSON-RPC over stdio.
 - [ ] Add protocol compatibility/version negotiation.
 
