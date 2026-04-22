@@ -373,15 +373,23 @@ func Install(id ID, info *ReleaseInfo, onProgress ProgressFunc) error {
 
 // Upgrade checks the latest release and installs it if needed.
 func Upgrade(id ID, onProgress ProgressFunc) (*ReleaseInfo, error) {
-	info, err := CheckLatest(id)
+	status, err := StatusFor(id)
 	if err != nil {
 		return nil, err
 	}
-	if !info.Available {
+	info, err := CheckRelease(id, status.Version)
+	if err != nil {
+		return nil, err
+	}
+	shouldInstall := info.Available || !status.Managed
+	if !shouldInstall {
 		return info, nil
 	}
 	if err := Install(id, info, onProgress); err != nil {
 		return nil, err
+	}
+	if !info.Available && !status.Managed {
+		info.Available = true
 	}
 	return info, nil
 }

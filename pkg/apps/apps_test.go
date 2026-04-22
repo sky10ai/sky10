@@ -326,6 +326,92 @@ func TestInstall_DownloadsBinary(t *testing.T) {
 	}
 }
 
+func TestUpgrade_InstallsManagedCopyWhenExternalBinaryIsAlreadyCurrent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script fixture is unix-only")
+	}
+
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+
+	pathDir := t.TempDir()
+	externalPath := filepath.Join(pathDir, "ows")
+	externalContent := "#!/bin/sh\necho 'ows 0.5.0 (external)'\n"
+	if err := os.WriteFile(externalPath, []byte(externalContent), 0o755); err != nil {
+		t.Fatalf("write external binary: %v", err)
+	}
+	t.Setenv("PATH", pathDir)
+
+	managedContent := "#!/bin/sh\necho 'ows 0.5.0 (managed)'\n"
+	downloadSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(managedContent)))
+		_, _ = w.Write([]byte(managedContent))
+	}))
+	defer downloadSrv.Close()
+
+	releaseSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assets := registry[AppOWS].ReleaseAssets("v0.5.0", runtime.GOOS, runtime.GOARCH)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"tag_name": "v0.5.0",
+			"assets": []map[string]string{
+				{"name": assets[0].Name, "browser_download_url": downloadSrv.URL + "/ows"},
+			},
+		})
+	}))
+	defer releaseSrv.Close()
+
+	old := ghReleaseURL
+	ghReleaseURL = func(spec) string {
+		return releaseSrv.URL
+	}
+	defer func() { ghReleaseURL = old }()
+
+	before, err := StatusFor(AppOWS)
+	if err != nil {
+		t.Fatalf("StatusFor(before) error: %v", err)
+	}
+	if !before.Installed || before.Managed {
+		t.Fatalf("before status = %#v, want external installed binary", before)
+	}
+	if before.ActivePath != externalPath {
+		t.Fatalf("before active path = %q, want %q", before.ActivePath, externalPath)
+	}
+
+	info, err := Upgrade(AppOWS, nil)
+	if err != nil {
+		t.Fatalf("Upgrade() error: %v", err)
+	}
+	if !info.Available {
+		t.Fatal("Upgrade() should report work performed when it stages a managed copy")
+	}
+
+	after, err := StatusFor(AppOWS)
+	if err != nil {
+		t.Fatalf("StatusFor(after) error: %v", err)
+	}
+	if !after.Managed {
+		t.Fatalf("after status = %#v, want managed binary", after)
+	}
+	stablePath, err := ManagedPath(AppOWS)
+	if err != nil {
+		t.Fatalf("ManagedPath() error: %v", err)
+	}
+	if after.ActivePath != stablePath {
+		t.Fatalf("after active path = %q, want %q", after.ActivePath, stablePath)
+	}
+	installedPath, err := InstalledPath(AppOWS)
+	if err != nil {
+		t.Fatalf("InstalledPath() error: %v", err)
+	}
+	data, err := os.ReadFile(installedPath)
+	if err != nil {
+		t.Fatalf("read managed binary: %v", err)
+	}
+	if string(data) != managedContent {
+		t.Fatalf("managed content = %q, want %q", string(data), managedContent)
+	}
+}
+
 func TestCheckRelease_LimaUsesDirectAssetURLs(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
