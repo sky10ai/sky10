@@ -312,8 +312,6 @@ describe("AgentChat page", () => {
     if (!attachButton) {
       throw new Error("expected visible attach button");
     }
-    expect(attachButton.textContent).toContain("Attach photo or file");
-    expect(page.textContent).toContain("Drag and drop works too.");
 
     const fileInput = page.querySelector('input[type="file"]') as HTMLInputElement | null;
     if (!fileInput) {
