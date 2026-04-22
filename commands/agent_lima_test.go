@@ -198,8 +198,14 @@ func TestValidateSandboxCreate(t *testing.T) {
 	if err := validateSandboxCreate(sandboxProviderLima, sandboxTemplateOpenClaw); err != nil {
 		t.Fatalf("validateSandboxCreate(valid): %v", err)
 	}
+	if err := validateSandboxCreate(sandboxProviderLima, sandboxTemplateOpenClawDocker); err != nil {
+		t.Fatalf("validateSandboxCreate(openclaw-docker): %v", err)
+	}
 	if err := validateSandboxCreate(sandboxProviderLima, sandboxTemplateHermes); err != nil {
 		t.Fatalf("validateSandboxCreate(hermes): %v", err)
+	}
+	if err := validateSandboxCreate(sandboxProviderLima, sandboxTemplateHermesDocker); err != nil {
+		t.Fatalf("validateSandboxCreate(hermes-docker): %v", err)
 	}
 	if err := validateSandboxCreate("docker", sandboxTemplateOpenClaw); err == nil {
 		t.Fatal("validateSandboxCreate(docker): want error")
@@ -326,6 +332,36 @@ func TestPrepareLimaSharedDirHermes(t *testing.T) {
 		t.Fatalf("Stat(bridge asset) error: %v", err)
 	} else if info.Mode()&0o111 == 0 {
 		t.Fatalf("bridge asset mode = %v, want executable", info.Mode())
+	}
+}
+
+func TestPrepareLimaSharedDirDockerRuntimeAssets(t *testing.T) {
+	t.Parallel()
+
+	sharedDir := t.TempDir()
+	stateDir := filepath.Join(t.TempDir(), "state")
+	if err := prepareLimaSharedDir(sandboxTemplateOpenClawDocker, sharedDir, stateDir, []byte("#!/bin/sh\n"), map[string][]byte{
+		agentLimaPluginManifest:           []byte(`{"id":"sky10"}` + "\n"),
+		agentLimaOpenClawDockerfile:       []byte("FROM ubuntu:24.04\n"),
+		agentLimaOpenClawDockerEntrypoint: []byte("#!/bin/sh\n"),
+	}, map[string]string{
+		"OPENAI_API_KEY": "openai-key",
+	}, nil, skysandbox.AgentProfileSeed{
+		DisplayName: "OpenClaw Docker",
+		Slug:        "openclaw-docker",
+		Template:    sandboxTemplateOpenClawDocker,
+	}); err != nil {
+		t.Fatalf("prepareLimaSharedDir(openclaw-docker) error: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(stateDir, "plugins", agentLimaPluginManifest)); err != nil {
+		t.Fatalf("Stat(plugin manifest) error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "runtime", "openclaw", "Dockerfile")); err != nil {
+		t.Fatalf("Stat(runtime Dockerfile) error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "runtime", "openclaw", "entrypoint.sh")); err != nil {
+		t.Fatalf("Stat(runtime entrypoint) error: %v", err)
 	}
 }
 

@@ -23,38 +23,57 @@ import (
 )
 
 const (
-	agentLimaTemplateName     = "openclaw-sky10"
-	agentLimaTemplateYAML     = "openclaw-sky10.yaml"
-	agentLimaDependencyScript = "openclaw-sky10.dependency.sh"
-	agentLimaSystemScript     = "openclaw-sky10.system.sh"
-	agentLimaUserScript       = "openclaw-sky10.user.sh"
-	agentLimaHermesName       = "hermes-sky10"
-	agentLimaHermesYAML       = "hermes-sky10.yaml"
-	agentLimaHermesDep        = "hermes-sky10.dependency.sh"
-	agentLimaHermesSys        = "hermes-sky10.system.sh"
-	agentLimaHermesUser       = "hermes-sky10.user.sh"
-	agentLimaHermesBridge     = "hermes-sky10-bridge.py"
-	agentLimaHermesBridgeJSON = "bridge.json"
-	agentLimaHostsScript      = "update-lima-hosts.sh"
-	agentLimaPluginDir        = "openclaw-sky10-channel"
-	agentLimaPluginPackage    = agentLimaPluginDir + "/package.json"
-	agentLimaPluginManifest   = agentLimaPluginDir + "/openclaw.plugin.json"
-	agentLimaPluginIndex      = agentLimaPluginDir + "/src/index.js"
-	agentLimaPluginClient     = agentLimaPluginDir + "/src/sky10.js"
-	agentLimaRemoteAssetBase  = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
-	sandboxProviderLima       = "lima"
-	sandboxTemplateOpenClaw   = "openclaw"
-	sandboxTemplateHermes     = "hermes"
-	agentLimaJoinFile         = "join.json"
-	templateNameToken         = "__SKY10_SANDBOX_NAME__"
-	templateSharedToken       = "__SKY10_SHARED_DIR__"
-	templateStateToken        = "__SKY10_STATE_DIR__"
-	agentDriveRootName        = "Agents"
-	agentDriveNamePrefix      = "agent-"
-	openClawReadyTimeout      = 2 * time.Minute
-	guestSky10ReadyURL        = "http://127.0.0.1:9101/health"
-	openClawReadyURL          = "http://127.0.0.1:18789/health"
-	defaultHermesHostRPCURL   = "http://127.0.0.1:9101/rpc"
+	agentLimaTemplateName             = "openclaw-sky10"
+	agentLimaTemplateYAML             = "openclaw-sky10.yaml"
+	agentLimaDependencyScript         = "openclaw-sky10.dependency.sh"
+	agentLimaSystemScript             = "openclaw-sky10.system.sh"
+	agentLimaUserScript               = "openclaw-sky10.user.sh"
+	agentLimaOpenClawDocker           = "openclaw-docker-sky10"
+	agentLimaOpenClawDockerYAML       = "openclaw-docker-sky10.yaml"
+	agentLimaOpenClawDockerDep        = "openclaw-docker-sky10.dependency.sh"
+	agentLimaOpenClawDockerSys        = "openclaw-docker-sky10.system.sh"
+	agentLimaOpenClawDockerUser       = "openclaw-docker-sky10.user.sh"
+	agentLimaHermesName               = "hermes-sky10"
+	agentLimaHermesYAML               = "hermes-sky10.yaml"
+	agentLimaHermesDep                = "hermes-sky10.dependency.sh"
+	agentLimaHermesSys                = "hermes-sky10.system.sh"
+	agentLimaHermesUser               = "hermes-sky10.user.sh"
+	agentLimaHermesDocker             = "hermes-docker-sky10"
+	agentLimaHermesDockerYAML         = "hermes-docker-sky10.yaml"
+	agentLimaHermesDockerDep          = "hermes-docker-sky10.dependency.sh"
+	agentLimaHermesDockerSys          = "hermes-docker-sky10.system.sh"
+	agentLimaHermesDockerUser         = "hermes-docker-sky10.user.sh"
+	agentLimaHermesBridge             = "hermes-sky10-bridge.py"
+	agentLimaHermesBridgeJSON         = "bridge.json"
+	agentLimaHostsScript              = "update-lima-hosts.sh"
+	agentLimaPluginDir                = "openclaw-sky10-channel"
+	agentLimaPluginPackage            = agentLimaPluginDir + "/package.json"
+	agentLimaPluginManifest           = agentLimaPluginDir + "/openclaw.plugin.json"
+	agentLimaPluginIndex              = agentLimaPluginDir + "/src/index.js"
+	agentLimaPluginMedia              = agentLimaPluginDir + "/src/media.js"
+	agentLimaPluginClient             = agentLimaPluginDir + "/src/sky10.js"
+	agentLimaOpenClawDockerRuntimeDir = "openclaw-docker-runtime"
+	agentLimaOpenClawDockerfile       = agentLimaOpenClawDockerRuntimeDir + "/Dockerfile"
+	agentLimaOpenClawDockerEntrypoint = agentLimaOpenClawDockerRuntimeDir + "/entrypoint.sh"
+	agentLimaHermesDockerRuntimeDir   = "hermes-docker-runtime"
+	agentLimaHermesDockerfile         = agentLimaHermesDockerRuntimeDir + "/Dockerfile"
+	agentLimaHermesDockerEntrypoint   = agentLimaHermesDockerRuntimeDir + "/entrypoint.sh"
+	agentLimaRemoteAssetBase          = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
+	sandboxProviderLima               = "lima"
+	sandboxTemplateOpenClaw           = "openclaw"
+	sandboxTemplateOpenClawDocker     = "openclaw-docker"
+	sandboxTemplateHermes             = "hermes"
+	sandboxTemplateHermesDocker       = "hermes-docker"
+	agentLimaJoinFile                 = "join.json"
+	templateNameToken                 = "__SKY10_SANDBOX_NAME__"
+	templateSharedToken               = "__SKY10_SHARED_DIR__"
+	templateStateToken                = "__SKY10_STATE_DIR__"
+	agentDriveRootName                = "Agents"
+	agentDriveNamePrefix              = "agent-"
+	openClawReadyTimeout              = 2 * time.Minute
+	guestSky10ReadyURL                = "http://127.0.0.1:9101/health"
+	openClawReadyURL                  = "http://127.0.0.1:18789/health"
+	defaultHermesHostRPCURL           = "http://127.0.0.1:9101/rpc"
 )
 
 var agentLimaAssetFiles = []string{
@@ -68,11 +87,22 @@ var agentLimaSharedPluginFiles = []string{
 	agentLimaPluginPackage,
 	agentLimaPluginManifest,
 	agentLimaPluginIndex,
+	agentLimaPluginMedia,
 	agentLimaPluginClient,
+}
+
+var agentLimaOpenClawDockerRuntimeFiles = []string{
+	agentLimaOpenClawDockerfile,
+	agentLimaOpenClawDockerEntrypoint,
 }
 
 var agentLimaHermesSharedFiles = []string{
 	agentLimaHermesBridge,
+}
+
+var agentLimaHermesDockerRuntimeFiles = []string{
+	agentLimaHermesDockerfile,
+	agentLimaHermesDockerEntrypoint,
 }
 
 var defaultHermesBridgeSkills = []string{
@@ -185,12 +215,12 @@ func sandboxCreateCmd() *cobra.Command {
 			resolvedEnv := map[string]string{}
 			var hermesBridge *hermesBridgeConfig
 			switch template {
-			case sandboxTemplateOpenClaw:
+			case sandboxTemplateOpenClaw, sandboxTemplateOpenClawDocker:
 				resolvedEnv, err = resolveOpenClawProviderEnvFromDaemon(cmd.Context())
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not resolve host secrets for sandbox env: %v\n", err)
 				}
-			case sandboxTemplateHermes:
+			case sandboxTemplateHermes, sandboxTemplateHermesDocker:
 				resolvedEnv, err = resolveHermesProviderEnvFromDaemon(cmd.Context())
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not resolve host secrets for sandbox env: %v\n", err)
@@ -339,14 +369,22 @@ func printSandboxSummary(cmd *cobra.Command, rec skysandbox.Record) {
 		fmt.Fprintf(cmd.OutOrStdout(), "State dir:  %s\n", stateDir)
 	}
 
-	switch rec.Template {
-	case sandboxTemplateHermes:
+	switch {
+	case isHermesTemplate(rec.Template) && isDockerTemplate(rec.Template):
+		fmt.Fprintf(cmd.OutOrStdout(), "Hermes:     running inside Docker in the guest with host chat routed through guest sky10 and `hermes-shared` launching the containerized TUI\n")
+		fmt.Fprintf(cmd.OutOrStdout(), "Launch:     %s\n", localSandboxShellCommand(preferredLimaShellBinary(), rec.Template, rec.Slug))
+	case isHermesTemplate(rec.Template):
 		fmt.Fprintf(cmd.OutOrStdout(), "Hermes:     installed inside the guest with host chat routed through guest sky10 and a local CLI/TUI via `hermes` and `hermes-shared`\n")
 		fmt.Fprintf(cmd.OutOrStdout(), "Launch:     %s\n", localSandboxShellCommand(preferredLimaShellBinary(), rec.Template, rec.Slug))
 	default:
 		sky10URL, openClawURL := sandboxURLs(rec)
-		fmt.Fprintf(cmd.OutOrStdout(), "Guest sky10: installed inside the guest and serving on http://127.0.0.1:9101\n")
-		fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:    installed inside the guest with Chromium, Xvfb, a local gateway on http://127.0.0.1:18789, and a bundled sky10 channel plugin\n")
+		if isDockerTemplate(rec.Template) {
+			fmt.Fprintf(cmd.OutOrStdout(), "Guest sky10: running inside a guest Docker container and serving on http://127.0.0.1:9101\n")
+			fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:    running inside guest Docker containers with Chromium, Xvfb, a local gateway on http://127.0.0.1:18789, and a bundled sky10 channel plugin\n")
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "Guest sky10: installed inside the guest and serving on http://127.0.0.1:9101\n")
+			fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw:    installed inside the guest with Chromium, Xvfb, a local gateway on http://127.0.0.1:18789, and a bundled sky10 channel plugin\n")
+		}
 
 		if sky10URL != "" {
 			fmt.Fprintf(cmd.OutOrStdout(), "sky10 UI:   %s\n", sky10URL)
@@ -365,7 +403,7 @@ func maybeOpenSandboxUI(cmd *cobra.Command, rec skysandbox.Record, openUI bool) 
 	if !openUI {
 		return
 	}
-	if rec.Template == sandboxTemplateHermes {
+	if isHermesTemplate(rec.Template) {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: --open is not supported for the Hermes template yet\n")
 		return
 	}
@@ -380,7 +418,7 @@ func maybeOpenSandboxUI(cmd *cobra.Command, rec skysandbox.Record, openUI bool) 
 }
 
 func sandboxURLs(rec skysandbox.Record) (string, string) {
-	if rec.Template != sandboxTemplateOpenClaw {
+	if !isOpenClawTemplate(rec.Template) {
 		return "", ""
 	}
 	if strings.TrimSpace(rec.IPAddress) == "" {
@@ -393,7 +431,7 @@ func localSandboxShellCommand(limactl, template, slug string) string {
 	if strings.TrimSpace(limactl) == "" {
 		limactl = preferredLimaShellBinary()
 	}
-	if template == sandboxTemplateHermes {
+	if isHermesTemplate(template) {
 		return fmt.Sprintf("%s shell %s -- bash -lc 'hermes-shared'", shellQuoteForDisplay(limactl), slug)
 	}
 	return fmt.Sprintf("%s shell %s", shellQuoteForDisplay(limactl), slug)
@@ -407,8 +445,8 @@ func validateSandboxCreate(provider, template string) error {
 		return fmt.Errorf("template is required")
 	case provider != sandboxProviderLima:
 		return fmt.Errorf("unsupported sandbox provider %q (supported: %s)", provider, sandboxProviderLima)
-	case template != sandboxTemplateOpenClaw && template != sandboxTemplateHermes:
-		return fmt.Errorf("unsupported sandbox template %q (supported: %s, %s)", template, sandboxTemplateOpenClaw, sandboxTemplateHermes)
+	case !isOpenClawTemplate(template) && !isHermesTemplate(template):
+		return fmt.Errorf("unsupported sandbox template %q (supported: %s, %s, %s, %s)", template, sandboxTemplateOpenClaw, sandboxTemplateOpenClawDocker, sandboxTemplateHermes, sandboxTemplateHermesDocker)
 	default:
 		return nil
 	}
@@ -425,6 +463,20 @@ func limaTemplateDefinition(template string) (limaTemplateSpec, error) {
 			sharedAssetFiles:   append([]string(nil), agentLimaSharedPluginFiles...),
 			includeHostsHelper: true,
 		}, nil
+	case sandboxTemplateOpenClawDocker:
+		return limaTemplateSpec{
+			templateID: template,
+			cacheDir:   agentLimaOpenClawDocker,
+			mainAsset:  agentLimaOpenClawDockerYAML,
+			assets: []string{
+				agentLimaOpenClawDockerYAML,
+				agentLimaOpenClawDockerDep,
+				agentLimaOpenClawDockerSys,
+				agentLimaOpenClawDockerUser,
+			},
+			sharedAssetFiles:   append(append([]string(nil), agentLimaSharedPluginFiles...), agentLimaOpenClawDockerRuntimeFiles...),
+			includeHostsHelper: true,
+		}, nil
 	case sandboxTemplateHermes:
 		return limaTemplateSpec{
 			templateID:       template,
@@ -436,6 +488,19 @@ func limaTemplateDefinition(template string) (limaTemplateSpec, error) {
 				agentLimaHermesDep,
 				agentLimaHermesSys,
 				agentLimaHermesUser,
+			},
+		}, nil
+	case sandboxTemplateHermesDocker:
+		return limaTemplateSpec{
+			templateID:       template,
+			cacheDir:         agentLimaHermesDocker,
+			mainAsset:        agentLimaHermesDockerYAML,
+			sharedAssetFiles: append(append([]string(nil), agentLimaHermesSharedFiles...), agentLimaHermesDockerRuntimeFiles...),
+			assets: []string{
+				agentLimaHermesDockerYAML,
+				agentLimaHermesDockerDep,
+				agentLimaHermesDockerSys,
+				agentLimaHermesDockerUser,
 			},
 		}, nil
 	default:
@@ -648,11 +713,11 @@ func prepareLimaSharedDir(template, sharedDir, stateDir string, hostsScript []by
 		return fmt.Errorf("checking sandbox env file %q: %w", envPath, err)
 	}
 	switch template {
-	case sandboxTemplateOpenClaw:
+	case sandboxTemplateOpenClaw, sandboxTemplateOpenClawDocker:
 		if err := os.WriteFile(envPath, skysandbox.BuildOpenClawSharedEnv(existingEnv, resolvedEnv), 0o600); err != nil {
 			return fmt.Errorf("writing sandbox env file %q: %w", envPath, err)
 		}
-	case sandboxTemplateHermes:
+	case sandboxTemplateHermes, sandboxTemplateHermesDocker:
 		if err := os.WriteFile(envPath, skysandbox.BuildHermesSharedEnv(existingEnv, resolvedEnv), 0o600); err != nil {
 			return fmt.Errorf("writing sandbox env file %q: %w", envPath, err)
 		}
@@ -676,10 +741,7 @@ func prepareLimaSharedDir(template, sharedDir, stateDir string, hostsScript []by
 	}
 
 	for relPath, body := range sharedAssets {
-		targetPath := filepath.Join(stateDir, relPath)
-		if template == sandboxTemplateOpenClaw {
-			targetPath = filepath.Join(stateDir, "plugins", relPath)
-		}
+		targetPath := limaSharedAssetTargetPath(stateDir, relPath)
 		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 			return fmt.Errorf("creating bundled plugin dir %q: %w", filepath.Dir(targetPath), err)
 		}
@@ -693,6 +755,19 @@ func prepareLimaSharedDir(template, sharedDir, stateDir string, hostsScript []by
 	}
 
 	return nil
+}
+
+func limaSharedAssetTargetPath(stateDir, relPath string) string {
+	switch {
+	case strings.HasPrefix(relPath, agentLimaPluginDir+"/"):
+		return filepath.Join(stateDir, "plugins", relPath)
+	case strings.HasPrefix(relPath, agentLimaOpenClawDockerRuntimeDir+"/"):
+		return filepath.Join(stateDir, "runtime", "openclaw", strings.TrimPrefix(relPath, agentLimaOpenClawDockerRuntimeDir+"/"))
+	case strings.HasPrefix(relPath, agentLimaHermesDockerRuntimeDir+"/"):
+		return filepath.Join(stateDir, "runtime", "hermes", strings.TrimPrefix(relPath, agentLimaHermesDockerRuntimeDir+"/"))
+	default:
+		return filepath.Join(stateDir, relPath)
+	}
 }
 
 func ensureLocalAgentHome(slug, sharedDir string) error {
@@ -765,7 +840,7 @@ func waitForHermesReady(ctx context.Context, limactl, name string, timeout time.
 		ctx,
 		limactl,
 		name,
-		`export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"; command -v hermes >/dev/null`,
+		`export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"; command -v hermes >/dev/null 2>&1 || command -v hermes-shared >/dev/null 2>&1`,
 		"Hermes CLI",
 		timeout,
 	)
@@ -773,13 +848,25 @@ func waitForHermesReady(ctx context.Context, limactl, name string, timeout time.
 
 func waitForTemplateReady(ctx context.Context, limactl, name, template string, timeout time.Duration) error {
 	switch template {
-	case sandboxTemplateOpenClaw:
+	case sandboxTemplateOpenClaw, sandboxTemplateOpenClawDocker:
 		return waitForOpenClawReady(ctx, limactl, name, timeout)
-	case sandboxTemplateHermes:
+	case sandboxTemplateHermes, sandboxTemplateHermesDocker:
 		return waitForHermesReady(ctx, limactl, name, timeout)
 	default:
 		return nil
 	}
+}
+
+func isOpenClawTemplate(template string) bool {
+	return template == sandboxTemplateOpenClaw || template == sandboxTemplateOpenClawDocker
+}
+
+func isHermesTemplate(template string) bool {
+	return template == sandboxTemplateHermes || template == sandboxTemplateHermesDocker
+}
+
+func isDockerTemplate(template string) bool {
+	return template == sandboxTemplateOpenClawDocker || template == sandboxTemplateHermesDocker
 }
 
 func waitForGuestHTTPHealth(ctx context.Context, limactl, name, url, label string, timeout time.Duration) error {

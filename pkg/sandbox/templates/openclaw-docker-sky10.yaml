@@ -1,0 +1,73 @@
+minimumLimaVersion: 2.0.0
+
+base:
+- template:_images/ubuntu-24.04
+
+vmType: vz
+
+cpus: 4
+memory: 8GiB
+disk: 30GiB
+
+networks:
+- vzNAT: true
+
+portForwards:
+- guestIP: "0.0.0.0"
+  guestPortRange: [1, 65535]
+  proto: any
+  ignore: true
+
+mounts:
+- location: "__SKY10_SHARED_DIR__"
+  mountPoint: "/shared"
+  writable: true
+- location: "__SKY10_STATE_DIR__"
+  mountPoint: "/sandbox-state"
+  writable: true
+
+provision:
+- mode: dependency
+  file:
+    url: openclaw-docker-sky10.dependency.sh
+- mode: system
+  file:
+    url: openclaw-docker-sky10.system.sh
+- mode: user
+  file:
+    url: openclaw-docker-sky10.user.sh
+
+probes:
+- script: |
+    #!/bin/bash
+    set -eux -o pipefail
+    timeout 180s bash -lc "until curl -fsS http://127.0.0.1:18789/health >/dev/null 2>&1 && curl -fsS http://127.0.0.1:9101/health >/dev/null 2>&1; do sleep 3; done"
+  hint: See "/var/log/cloud-init-output.log" in the guest
+
+message: |
+  OpenClaw is provisioning inside "__SKY10_SANDBOX_NAME__" with Docker in the guest.
+
+  Agent home:
+    __SKY10_SHARED_DIR__
+
+  Sandbox state:
+    __SKY10_STATE_DIR__
+
+  The VM auto-installs:
+  - Docker Engine inside the guest
+  - guest-local sky10 in a Docker container on port 9101
+  - OpenClaw + Chromium + Xvfb in a Docker container
+  - Caddy in a Docker container for guest-local UI access on port 18790
+
+  Open the guest shell with:
+    limactl shell __SKY10_SANDBOX_NAME__
+
+  Open the guest UI URLs by first checking the guest IP:
+    limactl shell __SKY10_SANDBOX_NAME__ -- bash -lc "ip -4 addr show dev lima0"
+
+  Then browse to:
+    http://<guest-ip>:9101
+    http://<guest-ip>:18790/chat?session=main
+
+param:
+  model: anthropic/claude-sonnet-4-6

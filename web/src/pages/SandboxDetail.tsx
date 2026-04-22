@@ -12,6 +12,8 @@ import {
   type SandboxRecord,
 } from "../lib/rpc";
 import {
+  isHermesTemplate,
+  isOpenClawTemplate,
   sandboxCurrentProgress,
   sandboxLabel,
   sandboxLogKey,
@@ -185,8 +187,8 @@ export default function SandboxDetail() {
   const shellCommand = selected?.shell || `limactl shell ${selected?.slug ?? slug}`;
   const terminalEnabled = selected?.provider === "lima" && (selected.status === "ready" || selected.vm_status === "Running");
   const guestIP = selected?.ip_address?.trim() ?? "";
-  const openClawURL = selected?.template === "openclaw" && guestIP ? `http://${guestIP}:18790/chat?session=main` : "";
-  const guestSky10URL = selected?.template === "openclaw" && guestIP ? `http://${guestIP}:9101` : "";
+  const openClawURL = isOpenClawTemplate(selected?.template) && guestIP ? `http://${guestIP}:18790/chat?session=main` : "";
+  const guestSky10URL = isOpenClawTemplate(selected?.template) && guestIP ? `http://${guestIP}:9101` : "";
   const progress = selected ? sandboxCurrentProgress(selected) : null;
   const progressWidth = Math.max(0, Math.min(progress?.percent ?? 0, 100));
 
@@ -461,7 +463,7 @@ export default function SandboxDetail() {
           </div>
 
           <p className="text-sm text-secondary">
-            {selected?.template === "hermes"
+            {isHermesTemplate(selected?.template)
               ? "Open a shell inside the sandbox or copy the host command that launches the Hermes TUI directly."
               : "Open a shell inside the sandbox or copy the host command."}
           </p>

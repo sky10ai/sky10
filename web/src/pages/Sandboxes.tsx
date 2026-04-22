@@ -6,6 +6,9 @@ import { StatusBadge } from "../components/StatusBadge";
 import { SANDBOX_STATE_EVENT_TYPES } from "../lib/events";
 import { sandbox } from "../lib/rpc";
 import {
+  isDockerTemplate,
+  isHermesTemplate,
+  isOpenClawTemplate,
   sandboxCurrentProgress,
   nextSandboxName,
   sandboxTemplateById,
@@ -38,14 +41,14 @@ export default function Sandboxes() {
   const sandboxes = listData?.sandboxes ?? [];
   const templateConfig = sandboxTemplateById(selectedTemplate);
   const draftSlug = sandboxSlug(draftName);
-  const creatingLabel = templateConfig.id === "openclaw"
+  const creatingLabel = isOpenClawTemplate(templateConfig.id)
     ? "Create OpenClaw"
-    : templateConfig.id === "hermes"
+    : isHermesTemplate(templateConfig.id)
       ? "Create Hermes"
       : "Provision Sandbox";
-  const creatingBusyLabel = templateConfig.id === "openclaw"
+  const creatingBusyLabel = isOpenClawTemplate(templateConfig.id)
     ? "Creating OpenClaw..."
-    : templateConfig.id === "hermes"
+    : isHermesTemplate(templateConfig.id)
       ? "Creating Hermes..."
       : "Provisioning...";
 
@@ -76,7 +79,7 @@ export default function Sandboxes() {
       setDraftName(nextSandboxName(templateConfig.id));
       refetchList({ background: true });
       startTransition(() => {
-        const detailPath = templateConfig.id === "hermes"
+        const detailPath = isHermesTemplate(templateConfig.id)
           ? `/settings/sandboxes/${encodeURIComponent(created.slug)}?panel=terminal`
           : `/settings/sandboxes/${encodeURIComponent(created.slug)}`;
         navigate(detailPath);
@@ -195,19 +198,23 @@ export default function Sandboxes() {
               <p>
                 Sandboxes mount a durable agent home from <code>~/Sky10/Drives/Agents/&lt;slug&gt;</code> and keep disposable sandbox-local state under <code>~/.sky10/sandboxes/&lt;slug&gt;/state</code>.
               </p>
-              {templateConfig.id === "openclaw" ? (
+              {isOpenClawTemplate(templateConfig.id) ? (
                 <>
                   <p>
-                    The OpenClaw template installs guest-local <code>sky10</code>, OpenClaw, Chromium, Xvfb, and Caddy inside the guest, with guest UIs on ports <code>9101</code> and <code>18790</code>.
+                    {isDockerTemplate(templateConfig.id)
+                      ? <>The OpenClaw Docker template installs Docker in the guest, then builds and runs guest-local <code>sky10</code>, OpenClaw, Chromium, Xvfb, and Caddy as Docker containers while keeping guest UIs on ports <code>9101</code> and <code>18790</code>.</>
+                      : <>The OpenClaw template installs guest-local <code>sky10</code>, OpenClaw, Chromium, Xvfb, and Caddy inside the guest, with guest UIs on ports <code>9101</code> and <code>18790</code>.</>}
                   </p>
                   <p>
                     It also loads the bundled <code>sky10</code> OpenClaw channel and waits for the guest agent to register on the guest-local daemon. sky10 network join comes later.
                   </p>
                 </>
-              ) : templateConfig.id === "hermes" ? (
+              ) : isHermesTemplate(templateConfig.id) ? (
                 <>
                   <p>
-                    The Hermes template installs Hermes Agent inside the guest, links <code>/sandbox-state/.env</code> into <code>~/.hermes/.env</code>, and keeps the embedded sandbox terminal ready for the native Hermes TUI in <code>/shared/workspace</code>.
+                    {isDockerTemplate(templateConfig.id)
+                      ? <>The Hermes Docker template installs Docker in the guest, then runs guest-local <code>sky10</code>, Hermes Agent, and the host chat bridge inside Docker while keeping <code>hermes-shared</code> available from the sandbox terminal in <code>/shared/workspace</code>.</>
+                      : <>The Hermes template installs Hermes Agent inside the guest, links <code>/sandbox-state/.env</code> into <code>~/.hermes/.env</code>, and keeps the embedded sandbox terminal ready for the native Hermes TUI in <code>/shared/workspace</code>.</>}
                   </p>
                   <p>
                     It also starts a guest-local Hermes gateway plus a sky10 bridge, so the sandbox shows up in the host agent list and can be chatted with from sky10 while still remaining usable from the guest terminal.

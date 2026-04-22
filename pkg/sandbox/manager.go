@@ -29,44 +29,60 @@ import (
 )
 
 const (
-	providerLima                   = "lima"
-	templateUbuntu                 = "ubuntu"
-	templateUbuntuAsset            = "ubuntu-sky10.yaml"
-	templateOpenClaw               = "openclaw"
-	templateOpenClawYAML           = "openclaw-sky10.yaml"
-	templateOpenClawDep            = "openclaw-sky10.dependency.sh"
-	templateOpenClawSys            = "openclaw-sky10.system.sh"
-	templateOpenClawUser           = "openclaw-sky10.user.sh"
-	templateHermes                 = "hermes"
-	templateHermesYAML             = "hermes-sky10.yaml"
-	templateHermesDep              = "hermes-sky10.dependency.sh"
-	templateHermesSys              = "hermes-sky10.system.sh"
-	templateHermesUser             = "hermes-sky10.user.sh"
-	templateHermesBridgeAsset      = "hermes-sky10-bridge.py"
-	templateHermesBridgeConfig     = "bridge.json"
-	templateHostsHelper            = "update-lima-hosts.sh"
-	templateOpenClawPluginDir      = "openclaw-sky10-channel"
-	templateOpenClawPluginPackage  = templateOpenClawPluginDir + "/package.json"
-	templateOpenClawPluginManifest = templateOpenClawPluginDir + "/openclaw.plugin.json"
-	templateOpenClawPluginIndex    = templateOpenClawPluginDir + "/src/index.js"
-	templateOpenClawPluginMedia    = templateOpenClawPluginDir + "/src/media.js"
-	templateOpenClawPluginClient   = templateOpenClawPluginDir + "/src/sky10.js"
-	templateOpenClawInviteFile     = "join.json"
-	templateRemoteBase             = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
-	logFileName                    = "boot.log"
-	templateNameToken              = "__SKY10_SANDBOX_NAME__"
-	templateSharedToken            = "__SKY10_SHARED_DIR__"
-	templateStateToken             = "__SKY10_STATE_DIR__"
-	sandboxStateDirName            = "state"
-	sandboxLogsDirName             = "logs"
-	agentWorkspaceDirName          = "workspace"
-	agentDriveRootName             = "Agents"
-	agentDriveNamePrefix           = "agent-"
-	openClawReadyTimeout           = 2 * time.Minute
-	guestSky10ReadyURL             = "http://127.0.0.1:9101/health"
-	guestSky10LocalRPCURL          = "http://127.0.0.1:9101/rpc"
-	openClawReadyURL               = "http://127.0.0.1:18789/health"
-	progressMarkerPrefix           = "SKY10_PROGRESS "
+	providerLima                     = "lima"
+	templateUbuntu                   = "ubuntu"
+	templateUbuntuAsset              = "ubuntu-sky10.yaml"
+	templateOpenClaw                 = "openclaw"
+	templateOpenClawYAML             = "openclaw-sky10.yaml"
+	templateOpenClawDep              = "openclaw-sky10.dependency.sh"
+	templateOpenClawSys              = "openclaw-sky10.system.sh"
+	templateOpenClawUser             = "openclaw-sky10.user.sh"
+	templateOpenClawDocker           = "openclaw-docker"
+	templateOpenClawDockerYAML       = "openclaw-docker-sky10.yaml"
+	templateOpenClawDockerDep        = "openclaw-docker-sky10.dependency.sh"
+	templateOpenClawDockerSys        = "openclaw-docker-sky10.system.sh"
+	templateOpenClawDockerUser       = "openclaw-docker-sky10.user.sh"
+	templateHermes                   = "hermes"
+	templateHermesYAML               = "hermes-sky10.yaml"
+	templateHermesDep                = "hermes-sky10.dependency.sh"
+	templateHermesSys                = "hermes-sky10.system.sh"
+	templateHermesUser               = "hermes-sky10.user.sh"
+	templateHermesDocker             = "hermes-docker"
+	templateHermesDockerYAML         = "hermes-docker-sky10.yaml"
+	templateHermesDockerDep          = "hermes-docker-sky10.dependency.sh"
+	templateHermesDockerSys          = "hermes-docker-sky10.system.sh"
+	templateHermesDockerUser         = "hermes-docker-sky10.user.sh"
+	templateHermesBridgeAsset        = "hermes-sky10-bridge.py"
+	templateHermesBridgeConfig       = "bridge.json"
+	templateHostsHelper              = "update-lima-hosts.sh"
+	templateOpenClawPluginDir        = "openclaw-sky10-channel"
+	templateOpenClawPluginPackage    = templateOpenClawPluginDir + "/package.json"
+	templateOpenClawPluginManifest   = templateOpenClawPluginDir + "/openclaw.plugin.json"
+	templateOpenClawPluginIndex      = templateOpenClawPluginDir + "/src/index.js"
+	templateOpenClawPluginMedia      = templateOpenClawPluginDir + "/src/media.js"
+	templateOpenClawPluginClient     = templateOpenClawPluginDir + "/src/sky10.js"
+	templateOpenClawDockerRuntimeDir = "openclaw-docker-runtime"
+	templateOpenClawDockerfile       = templateOpenClawDockerRuntimeDir + "/Dockerfile"
+	templateOpenClawDockerEntrypoint = templateOpenClawDockerRuntimeDir + "/entrypoint.sh"
+	templateHermesDockerRuntimeDir   = "hermes-docker-runtime"
+	templateHermesDockerfile         = templateHermesDockerRuntimeDir + "/Dockerfile"
+	templateHermesDockerEntrypoint   = templateHermesDockerRuntimeDir + "/entrypoint.sh"
+	templateOpenClawInviteFile       = "join.json"
+	templateRemoteBase               = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
+	logFileName                      = "boot.log"
+	templateNameToken                = "__SKY10_SANDBOX_NAME__"
+	templateSharedToken              = "__SKY10_SHARED_DIR__"
+	templateStateToken               = "__SKY10_STATE_DIR__"
+	sandboxStateDirName              = "state"
+	sandboxLogsDirName               = "logs"
+	agentWorkspaceDirName            = "workspace"
+	agentDriveRootName               = "Agents"
+	agentDriveNamePrefix             = "agent-"
+	openClawReadyTimeout             = 2 * time.Minute
+	guestSky10ReadyURL               = "http://127.0.0.1:9101/health"
+	guestSky10LocalRPCURL            = "http://127.0.0.1:9101/rpc"
+	openClawReadyURL                 = "http://127.0.0.1:18789/health"
+	progressMarkerPrefix             = "SKY10_PROGRESS "
 )
 
 var openClawSharedAssetFiles = []string{
@@ -77,9 +93,21 @@ var openClawSharedAssetFiles = []string{
 	templateOpenClawPluginClient,
 }
 
+var openClawDockerSharedAssetFiles = append(
+	append([]string(nil), openClawSharedAssetFiles...),
+	templateOpenClawDockerfile,
+	templateOpenClawDockerEntrypoint,
+)
+
 var hermesSharedAssetFiles = []string{
 	templateHermesBridgeAsset,
 }
+
+var hermesDockerSharedAssetFiles = append(
+	append([]string(nil), hermesSharedAssetFiles...),
+	templateHermesDockerfile,
+	templateHermesDockerEntrypoint,
+)
 
 var defaultHermesBridgeSkills = []string{
 	"code",
@@ -121,6 +149,34 @@ var hermesLimaProgressPlan = []progressStep{
 	{ID: "guest.sky10.join", Summary: "Linking guest sky10 identity..."},
 	{ID: "guest.sky10.start", Summary: "Starting guest sky10..."},
 	{ID: "guest.hermes.bridge.start", Summary: "Starting Hermes bridge..."},
+	{ID: "ready.guest.hermes", Summary: "Waiting for Hermes CLI..."},
+	{ID: "ready.guest.sky10", Summary: "Waiting for guest sky10..."},
+	{ID: "ready.guest.identity", Summary: "Confirming guest identity..."},
+	{ID: "ready.guest.agent", Summary: "Waiting for agent registration..."},
+	{ID: "ready.host.connect", Summary: "Connecting host to guest..."},
+}
+
+var openClawDockerLimaProgressPlan = []progressStep{
+	{ID: "sandbox.prepare", Summary: "Preparing sandbox..."},
+	{ID: "vm.start", Summary: "Booting device..."},
+	{ID: "guest.system.packages", Summary: "Installing Docker runtime..."},
+	{ID: "guest.docker.configure", Summary: "Configuring Docker runtime..."},
+	{ID: "guest.docker.build", Summary: "Building OpenClaw container..."},
+	{ID: "guest.docker.start", Summary: "Starting OpenClaw containers..."},
+	{ID: "ready.openclaw.gateway", Summary: "Waiting for OpenClaw gateway..."},
+	{ID: "ready.guest.sky10", Summary: "Waiting for guest sky10..."},
+	{ID: "ready.guest.identity", Summary: "Confirming guest identity..."},
+	{ID: "ready.guest.agent", Summary: "Waiting for agent registration..."},
+	{ID: "ready.host.connect", Summary: "Connecting host to guest..."},
+}
+
+var hermesDockerLimaProgressPlan = []progressStep{
+	{ID: "sandbox.prepare", Summary: "Preparing sandbox..."},
+	{ID: "vm.start", Summary: "Booting device..."},
+	{ID: "guest.system.packages", Summary: "Installing Docker runtime..."},
+	{ID: "guest.docker.configure", Summary: "Configuring Docker runtime..."},
+	{ID: "guest.docker.build", Summary: "Building Hermes container..."},
+	{ID: "guest.docker.start", Summary: "Starting Hermes containers..."},
 	{ID: "ready.guest.hermes", Summary: "Waiting for Hermes CLI..."},
 	{ID: "ready.guest.sky10", Summary: "Waiting for guest sky10..."},
 	{ID: "ready.guest.identity", Summary: "Confirming guest identity..."},
@@ -280,8 +336,12 @@ func sandboxProgressPlan(provider, template string) []progressStep {
 		return ubuntuLimaProgressPlan
 	case templateOpenClaw:
 		return openClawLimaProgressPlan
+	case templateOpenClawDocker:
+		return openClawDockerLimaProgressPlan
 	case templateHermes:
 		return hermesLimaProgressPlan
+	case templateHermesDocker:
+		return hermesDockerLimaProgressPlan
 	default:
 		return nil
 	}
@@ -476,7 +536,7 @@ func (m *Manager) ReconnectRunningOpenClawSandboxes(ctx context.Context) error {
 	m.mu.Lock()
 	items := make([]Record, 0, len(m.records))
 	for _, rec := range m.records {
-		if rec.Template != templateOpenClaw && rec.Template != templateHermes {
+		if !isOpenClawTemplate(rec.Template) && !isHermesTemplate(rec.Template) {
 			continue
 		}
 		if rec.VMStatus != "Running" {
@@ -1241,7 +1301,7 @@ func (m *Manager) buildStartArgs(_ context.Context, rec Record, templatePath str
 		"--progress",
 		"--name", rec.Slug,
 	}
-	if (rec.Template == templateOpenClaw || rec.Template == templateHermes) && strings.TrimSpace(rec.Model) != "" {
+	if (isOpenClawTemplate(rec.Template) || isHermesTemplate(rec.Template)) && strings.TrimSpace(rec.Model) != "" {
 		args = append(args, "--set", fmt.Sprintf(".param.model = %q", strings.TrimSpace(rec.Model)))
 	}
 	args = append(args, templatePath)
@@ -1253,7 +1313,7 @@ func (m *Manager) finishReady(ctx context.Context, name, limactl string) error {
 	if err != nil {
 		return err
 	}
-	if rec.Template == templateOpenClaw {
+	if isOpenClawTemplate(rec.Template) {
 		if err := m.runReadyProgressStep(name, "ready.openclaw.gateway", "Waiting for OpenClaw gateway...", "OpenClaw gateway is ready.", func() error {
 			return waitForOpenClawGateway(ctx, m.outputCmd, limactl, name, openClawReadyTimeout)
 		}); err != nil {
@@ -1263,7 +1323,7 @@ func (m *Manager) finishReady(ctx context.Context, name, limactl string) error {
 			return err
 		}
 	}
-	if rec.Template == templateHermes {
+	if isHermesTemplate(rec.Template) {
 		if err := m.runReadyProgressStep(name, "ready.guest.hermes", "Waiting for Hermes CLI...", "Hermes CLI is ready.", func() error {
 			return waitForGuestHermesCLI(ctx, m.outputCmd, limactl, name, openClawReadyTimeout)
 		}); err != nil {
@@ -1429,8 +1489,12 @@ func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) erro
 		return err
 	}
 	switch rec.Template {
-	case templateHermes:
-		sharedAssets, err := loadSandboxAssets(ctx, hermesSharedAssetFiles)
+	case templateHermes, templateHermesDocker:
+		assetNames := hermesSharedAssetFiles
+		if rec.Template == templateHermesDocker {
+			assetNames = hermesDockerSharedAssetFiles
+		}
+		sharedAssets, err := loadSandboxAssets(ctx, assetNames)
 		if err != nil {
 			return err
 		}
@@ -1467,7 +1531,7 @@ func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) erro
 			Template:    rec.Template,
 			Model:       rec.Model,
 		}, hostRPCURL)
-	case templateOpenClaw:
+	case templateOpenClaw, templateOpenClawDocker:
 	default:
 		if err := os.MkdirAll(rec.SharedDir, 0o755); err != nil {
 			return fmt.Errorf("creating shared directory: %w", err)
@@ -1482,7 +1546,11 @@ func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) erro
 	if err != nil {
 		return err
 	}
-	pluginAssets, err := loadSandboxAssets(ctx, openClawSharedAssetFiles)
+	assetNames := openClawSharedAssetFiles
+	if rec.Template == templateOpenClawDocker {
+		assetNames = openClawDockerSharedAssetFiles
+	}
+	pluginAssets, err := loadSandboxAssets(ctx, assetNames)
 	if err != nil {
 		return err
 	}
@@ -1770,7 +1838,7 @@ func normalizeCreateParams(params CreateParams) (displayName, slug, provider, te
 		err = checkErr
 		return
 	}
-	if (template == templateOpenClaw || template == templateHermes) && runtime.GOOS != "darwin" {
+	if (isOpenClawTemplate(template) || isHermesTemplate(template)) && runtime.GOOS != "darwin" {
 		err = fmt.Errorf("sandbox template %q is macOS-only for now (the current Lima template uses vz)", template)
 		return
 	}
@@ -1823,7 +1891,7 @@ func defaultShellCommand(slug, template string) string {
 			limactl = shellQuote(managedPath)
 		}
 	}
-	if template == templateHermes {
+	if isHermesTemplate(template) {
 		return fmt.Sprintf("%s shell %s -- bash -lc 'hermes-shared'", limactl, slug)
 	}
 	return fmt.Sprintf("%s shell %s", limactl, slug)
@@ -1884,6 +1952,16 @@ func sandboxTemplateDefinition(template string) (templateDefinition, error) {
 				templateOpenClawUser,
 			},
 		}, nil
+	case templateOpenClawDocker:
+		return templateDefinition{
+			mainAsset: templateOpenClawDockerYAML,
+			assets: []string{
+				templateOpenClawDockerYAML,
+				templateOpenClawDockerDep,
+				templateOpenClawDockerSys,
+				templateOpenClawDockerUser,
+			},
+		}, nil
 	case templateHermes:
 		return templateDefinition{
 			mainAsset: templateHermesYAML,
@@ -1894,8 +1972,18 @@ func sandboxTemplateDefinition(template string) (templateDefinition, error) {
 				templateHermesUser,
 			},
 		}, nil
+	case templateHermesDocker:
+		return templateDefinition{
+			mainAsset: templateHermesDockerYAML,
+			assets: []string{
+				templateHermesDockerYAML,
+				templateHermesDockerDep,
+				templateHermesDockerSys,
+				templateHermesDockerUser,
+			},
+		}, nil
 	default:
-		return templateDefinition{}, fmt.Errorf("unsupported sandbox template %q (supported: %s, %s, %s)", template, templateUbuntu, templateOpenClaw, templateHermes)
+		return templateDefinition{}, fmt.Errorf("unsupported sandbox template %q (supported: %s, %s, %s, %s, %s)", template, templateUbuntu, templateOpenClaw, templateOpenClawDocker, templateHermes, templateHermesDocker)
 	}
 }
 
@@ -1930,11 +2018,15 @@ func prepareOpenClawSharedDir(sharedDir, stateDir string, hostsHelper []byte, pl
 	}
 
 	for relPath, body := range pluginAssets {
-		targetPath := filepath.Join(stateDir, "plugins", relPath)
+		targetPath := sandboxSharedAssetTargetPath(stateDir, relPath)
 		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 			return fmt.Errorf("creating bundled plugin dir: %w", err)
 		}
-		if err := os.WriteFile(targetPath, body, 0o644); err != nil {
+		mode := os.FileMode(0o644)
+		if strings.HasSuffix(relPath, ".py") || strings.HasSuffix(relPath, ".sh") {
+			mode = 0o755
+		}
+		if err := os.WriteFile(targetPath, body, mode); err != nil {
 			return fmt.Errorf("writing bundled plugin asset %q: %w", relPath, err)
 		}
 	}
@@ -1977,7 +2069,7 @@ func prepareHermesSharedDir(sharedDir, stateDir string, resolvedEnv map[string]s
 	}
 
 	for relPath, body := range sharedAssets {
-		targetPath := filepath.Join(stateDir, relPath)
+		targetPath := sandboxSharedAssetTargetPath(stateDir, relPath)
 		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 			return fmt.Errorf("creating hermes shared asset dir: %w", err)
 		}
@@ -1991,6 +2083,19 @@ func prepareHermesSharedDir(sharedDir, stateDir string, resolvedEnv map[string]s
 	}
 
 	return nil
+}
+
+func sandboxSharedAssetTargetPath(stateDir, relPath string) string {
+	switch {
+	case strings.HasPrefix(relPath, templateOpenClawPluginDir+"/"):
+		return filepath.Join(stateDir, "plugins", relPath)
+	case strings.HasPrefix(relPath, templateOpenClawDockerRuntimeDir+"/"):
+		return filepath.Join(stateDir, "runtime", "openclaw", strings.TrimPrefix(relPath, templateOpenClawDockerRuntimeDir+"/"))
+	case strings.HasPrefix(relPath, templateHermesDockerRuntimeDir+"/"):
+		return filepath.Join(stateDir, "runtime", "hermes", strings.TrimPrefix(relPath, templateHermesDockerRuntimeDir+"/"))
+	default:
+		return filepath.Join(stateDir, relPath)
+	}
 }
 
 func writeSandboxJoinPayload(stateDir string, invite *IdentityInvite, sandboxSlug, hostRPCURL string) error {
@@ -2791,10 +2896,18 @@ func waitForGuestHermesCLI(
 		outputCmd,
 		limactl,
 		name,
-		`export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"; command -v hermes >/dev/null`,
+		`export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"; command -v hermes >/dev/null 2>&1 || command -v hermes-shared >/dev/null 2>&1`,
 		"Hermes CLI",
 		timeout,
 	)
+}
+
+func isOpenClawTemplate(template string) bool {
+	return template == templateOpenClaw || template == templateOpenClawDocker
+}
+
+func isHermesTemplate(template string) bool {
+	return template == templateHermes || template == templateHermesDocker
 }
 
 func waitForGuestHTTPHealth(

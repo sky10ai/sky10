@@ -11,12 +11,28 @@ const OPTIONS = [
     detail: "Best when you want a sky10-connected agent immediately after provisioning.",
   },
   {
+    id: "openclaw-docker",
+    icon: "deployed_code",
+    title: "OpenClaw + Lima + Docker",
+    description: "Managed Ubuntu VM that installs Docker in the guest, then runs guest-local sky10, OpenClaw, Chromium, and Caddy as Docker containers with the same shared workspace flow.",
+    action: "Create OpenClaw",
+    detail: "Best when you want Docker packaging inside the guest without giving up the existing Lima sandbox model.",
+  },
+  {
     id: "hermes",
     icon: "terminal",
     title: "Hermes + Lima",
     description: "Managed Ubuntu VM with Hermes Agent preconfigured from shared secrets, a host-side sky10 chat bridge, and the native Hermes terminal ready in the sandbox detail view.",
     action: "Create Hermes",
     detail: "Best when you want both host-side sky10 chat and direct access to Hermes's native TUI.",
+  },
+  {
+    id: "hermes-docker",
+    icon: "terminal",
+    title: "Hermes + Lima + Docker",
+    description: "Managed Ubuntu VM that installs Docker in the guest, then runs guest-local sky10, Hermes Agent, and the host chat bridge in Docker while keeping the Hermes TUI reachable from the sandbox terminal.",
+    action: "Create Hermes",
+    detail: "Best when you want the current Hermes flow packaged as a Docker runtime inside Lima.",
   },
 ] as const;
 

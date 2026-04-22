@@ -56,6 +56,46 @@ func TestTerminalCommandHermesLaunchesHermesShared(t *testing.T) {
 	}
 }
 
+func TestTerminalCommandHermesDockerLaunchesHermesShared(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+	t.Setenv("PATH", "")
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+	m.appStatus = func(id skyapps.ID) (*skyapps.Status, error) {
+		return &skyapps.Status{ActivePath: "/tmp/fake/limactl"}, nil
+	}
+
+	args, err := m.terminalCommand(context.Background(), &Record{
+		Provider: providerLima,
+		Template: templateHermesDocker,
+		Slug:     "hermes-dev",
+	})
+	if err != nil {
+		t.Fatalf("terminalCommand() error: %v", err)
+	}
+
+	want := []string{
+		"/tmp/fake/limactl",
+		"shell",
+		"hermes-dev",
+		"--",
+		"bash",
+		"-lc",
+		"hermes-shared",
+	}
+	if len(args) != len(want) {
+		t.Fatalf("terminalCommand() len = %d, want %d (%q)", len(args), len(want), args)
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Fatalf("terminalCommand()[%d] = %q, want %q (%q)", i, args[i], want[i], args)
+		}
+	}
+}
+
 func TestLoadUsesTemplateSpecificShellCommand(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
 

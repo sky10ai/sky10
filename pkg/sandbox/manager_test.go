@@ -333,6 +333,16 @@ func TestDefaultShellCommandHermes(t *testing.T) {
 	}
 }
 
+func TestDefaultShellCommandHermesDocker(t *testing.T) {
+	t.Parallel()
+
+	got := defaultShellCommand("hermes-dev", templateHermesDocker)
+	want := "limactl shell hermes-dev -- bash -lc 'hermes-shared'"
+	if got != want {
+		t.Fatalf("defaultShellCommand() = %q, want %q", got, want)
+	}
+}
+
 func waitForCreateToFinish(t *testing.T, m *Manager, name string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -1132,6 +1142,36 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	}
 }
 
+func TestPrepareOpenClawSharedDirDockerAssets(t *testing.T) {
+	t.Parallel()
+
+	sharedDir := t.TempDir()
+	stateDir := filepath.Join(t.TempDir(), "state")
+	if err := prepareOpenClawSharedDir(sharedDir, stateDir, nil, map[string][]byte{
+		templateOpenClawPluginManifest:   []byte(`{"id":"sky10"}` + "\n"),
+		templateOpenClawDockerfile:       []byte("FROM ubuntu:24.04\n"),
+		templateOpenClawDockerEntrypoint: []byte("#!/bin/sh\n"),
+	}, map[string]string{
+		"OPENAI_API_KEY": "openai-key",
+	}, nil, AgentProfileSeed{
+		DisplayName: "OpenClaw Docker",
+		Slug:        "openclaw-docker",
+		Template:    templateOpenClawDocker,
+	}, "http://host.lima.internal:9101/rpc"); err != nil {
+		t.Fatalf("prepareOpenClawSharedDir(openclaw-docker) error: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(stateDir, "plugins", templateOpenClawPluginManifest)); err != nil {
+		t.Fatalf("Stat(plugin manifest) error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "runtime", "openclaw", "Dockerfile")); err != nil {
+		t.Fatalf("Stat(runtime Dockerfile) error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "runtime", "openclaw", "entrypoint.sh")); err != nil {
+		t.Fatalf("Stat(runtime entrypoint) error: %v", err)
+	}
+}
+
 func TestPrepareHermesSharedDir(t *testing.T) {
 	t.Parallel()
 
@@ -1195,6 +1235,40 @@ func TestPrepareHermesSharedDir(t *testing.T) {
 		t.Fatalf("Stat(bridge asset) error: %v", err)
 	} else if info.Mode()&0o111 == 0 {
 		t.Fatalf("bridge asset mode = %v, want executable", info.Mode())
+	}
+}
+
+func TestPrepareHermesSharedDirDockerAssets(t *testing.T) {
+	t.Parallel()
+
+	sharedDir := t.TempDir()
+	stateDir := filepath.Join(t.TempDir(), "state")
+	if err := prepareHermesSharedDir(sharedDir, stateDir, map[string]string{
+		"ANTHROPIC_API_KEY": "anthropic-key",
+	}, map[string][]byte{
+		templateHermesBridgeAsset:      []byte("#!/usr/bin/env python3\nprint('ok')\n"),
+		templateHermesDockerfile:       []byte("FROM ubuntu:24.04\n"),
+		templateHermesDockerEntrypoint: []byte("#!/bin/sh\n"),
+	}, &hermesBridgeConfig{
+		HostRPCURL:   guestSky10LocalRPCURL,
+		AgentName:    "Hermes Docker",
+		AgentKeyName: "hermes-docker",
+	}, nil, AgentProfileSeed{
+		DisplayName: "Hermes Docker",
+		Slug:        "hermes-docker",
+		Template:    templateHermesDocker,
+	}, "http://host.lima.internal:9101/rpc"); err != nil {
+		t.Fatalf("prepareHermesSharedDir(hermes-docker) error: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(stateDir, templateHermesBridgeAsset)); err != nil {
+		t.Fatalf("Stat(bridge asset) error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "runtime", "hermes", "Dockerfile")); err != nil {
+		t.Fatalf("Stat(runtime Dockerfile) error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "runtime", "hermes", "entrypoint.sh")); err != nil {
+		t.Fatalf("Stat(runtime entrypoint) error: %v", err)
 	}
 }
 

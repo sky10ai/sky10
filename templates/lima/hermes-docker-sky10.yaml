@@ -1,0 +1,69 @@
+minimumLimaVersion: 2.0.0
+
+base:
+- template:_images/ubuntu-24.04
+
+vmType: vz
+
+cpus: 4
+memory: 8GiB
+disk: 30GiB
+
+networks:
+- vzNAT: true
+
+portForwards:
+- guestIP: "0.0.0.0"
+  guestPortRange: [1, 65535]
+  proto: any
+  ignore: true
+
+mounts:
+- location: "__SKY10_SHARED_DIR__"
+  mountPoint: "/shared"
+  writable: true
+- location: "__SKY10_STATE_DIR__"
+  mountPoint: "/sandbox-state"
+  writable: true
+
+provision:
+- mode: dependency
+  file:
+    url: hermes-docker-sky10.dependency.sh
+- mode: system
+  file:
+    url: hermes-docker-sky10.system.sh
+- mode: user
+  file:
+    url: hermes-docker-sky10.user.sh
+
+probes:
+- script: |
+    #!/bin/bash
+    set -eux -o pipefail
+    timeout 180s bash -lc 'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"; until command -v hermes-shared >/dev/null 2>&1; do sleep 3; done'
+  hint: See "/var/log/cloud-init-output.log" in the guest
+
+message: |
+  Hermes is provisioning inside "__SKY10_SANDBOX_NAME__" with Docker in the guest.
+
+  Agent home:
+    __SKY10_SHARED_DIR__
+
+  Sandbox state:
+    __SKY10_STATE_DIR__
+
+  The VM auto-installs:
+  - Docker Engine inside the guest
+  - guest-local sky10 in a Docker container
+  - Hermes Agent and the host chat bridge in a Docker container
+  - the `hermes-shared` helper for launching the Hermes TUI from `/shared/workspace`
+
+  Open the guest shell with:
+    limactl shell __SKY10_SANDBOX_NAME__
+
+  Start Hermes directly from your host with:
+    limactl shell __SKY10_SANDBOX_NAME__ -- bash -lc 'hermes-shared'
+
+param:
+  model: anthropic/claude-sonnet-4-6
