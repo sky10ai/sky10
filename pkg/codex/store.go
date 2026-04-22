@@ -1,15 +1,11 @@
 package codex
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -17,8 +13,6 @@ import (
 )
 
 const credentialVersion = 1
-
-var errCodexNotInstalled = errors.New("codex cli not installed")
 
 type storedCredential struct {
 	Version      int       `json:"version"`
@@ -244,98 +238,4 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func readLegacyCLIStatus(ctx context.Context, findBinary func() (string, error)) (*Status, error) {
-	if findBinary == nil {
-		findBinary = defaultBinaryFinder
-	}
-	binPath, err := findBinary()
-	if err != nil {
-		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, errCodexNotInstalled) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	output, err := exec.CommandContext(ctx, binPath, "login", "status").CombinedOutput()
-	if err != nil {
-		clean := sanitizeOutput(string(output))
-		if strings.Contains(clean, "Not logged in") {
-			return &Status{Installed: true, BinPath: binPath}, nil
-		}
-		return nil, fmt.Errorf("checking codex login status: %w: %s", err, clean)
-	}
-
-	mode, label := parseStatusOutput(string(output))
-	if mode == "" {
-		return &Status{Installed: true, BinPath: binPath}, nil
-	}
-
-	return &Status{
-		Installed:  true,
-		BinPath:    binPath,
-		Linked:     true,
-		AuthMode:   mode,
-		AuthLabel:  label,
-		AuthSource: "cli_managed",
-	}, nil
-}
-
-func logoutLegacyCLI(ctx context.Context, binPath string) error {
-	output, err := exec.CommandContext(ctx, binPath, "logout").CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("logging out of codex cli: %w: %s", err, sanitizeOutput(string(output)))
-	}
-	return nil
-}
-
-func parseStatusOutput(output string) (mode string, label string) {
-	clean := sanitizeOutput(output)
-	switch {
-	case strings.Contains(strings.ToLower(clean), "logged in using chatgpt"):
-		return "chatgpt", "ChatGPT"
-	case strings.Contains(strings.ToLower(clean), "logged in using api key"):
-		return "apikey", "API key"
-	default:
-		return "", ""
-	}
-}
-
-func sanitizeOutput(output string) string {
-	return strings.TrimSpace(output)
-}
-
-func defaultBinaryFinder() (string, error) {
-	if path, err := exec.LookPath("codex"); err == nil {
-		return path, nil
-	}
-
-	home, _ := os.UserHomeDir()
-	name := "codex"
-	if runtime.GOOS == "windows" {
-		name = "codex.exe"
-	}
-
-	candidates := []string{}
-	if home != "" {
-		candidates = append(candidates,
-			filepath.Join(home, ".local", "bin", name),
-			filepath.Join(home, ".bin", name),
-		)
-	}
-	if runtime.GOOS == "darwin" {
-		candidates = append(candidates,
-			filepath.Join(string(filepath.Separator), "opt", "homebrew", "bin", name),
-			filepath.Join(string(filepath.Separator), "usr", "local", "bin", name),
-		)
-	}
-
-	for _, candidate := range candidates {
-		info, err := os.Stat(candidate)
-		if err == nil && !info.IsDir() {
-			return candidate, nil
-		}
-	}
-	return "", exec.ErrNotFound
 }

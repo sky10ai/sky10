@@ -24,12 +24,6 @@ function authLabelForStatus(authMode?: string, authLabel?: string) {
   return "Unknown";
 }
 
-function authSourceLabel(authSource?: string) {
-  if (authSource === "host_oauth") return "sky10 OAuth";
-  if (authSource === "cli_managed") return "Codex CLI";
-  return "Unknown source";
-}
-
 export default function SettingsCodex() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -52,16 +46,15 @@ export default function SettingsCodex() {
 
   const pending = status?.pending_login ?? null;
   const authLabel = authLabelForStatus(status?.auth_mode, status?.auth_label);
-  const sourceLabel = authSourceLabel(status?.auth_source);
   const backHref = audience ? `/start/setup?audience=${audience}` : "/settings";
   const continueHref = "/codex";
-  const linkedWithChatGPT = status?.linked && status?.auth_mode === "chatgpt" && status?.auth_source === "host_oauth";
+  const linkedWithChatGPT = Boolean(status?.linked && status?.auth_mode === "chatgpt");
 
   useEffect(() => {
     if (!redirectOnLinked) return;
-    if (!status?.linked || status.auth_source !== "host_oauth" || pending) return;
+    if (!status?.linked || pending) return;
     navigate("/codex", { replace: true });
-  }, [navigate, pending, redirectOnLinked, status?.auth_source, status?.linked]);
+  }, [navigate, pending, redirectOnLinked, status?.linked]);
 
   const headingDescription = useMemo(() => {
     if (audience === "for_others") {
@@ -120,7 +113,7 @@ export default function SettingsCodex() {
       const next = await codex.loginComplete({ authorization_input: input });
       setAuthorizationInput("");
       setActionMessage("Linked ChatGPT with sky10.");
-      if (next.linked && next.auth_source === "host_oauth") {
+      if (next.linked) {
         navigate("/codex", { replace: true });
         return;
       }
@@ -227,11 +220,6 @@ export default function SettingsCodex() {
                 ) : (
                   <StatusBadge tone="neutral">
                     Not linked
-                  </StatusBadge>
-                )}
-                {status?.auth_source === "cli_managed" && (
-                  <StatusBadge tone="neutral">
-                    Legacy CLI session detected
                   </StatusBadge>
                 )}
               </div>
@@ -393,8 +381,7 @@ export default function SettingsCodex() {
               ) : status?.linked ? (
                 <div className="space-y-2">
                   <p>
-                    This device is linked via <span className="font-semibold text-on-surface">{authLabel}</span> and managed by{" "}
-                    <span className="font-semibold text-on-surface">{sourceLabel}</span>.
+                    This device is linked via <span className="font-semibold text-on-surface">{authLabel}</span> and managed directly by sky10.
                   </p>
                   {status.email && (
                     <p>
@@ -406,20 +393,10 @@ export default function SettingsCodex() {
                       ChatGPT account id: <span className="font-mono text-xs text-on-surface">{status.account_id}</span>
                     </p>
                   )}
-                  {status.auth_source === "cli_managed" && status.bin_path && (
-                    <p>
-                      Legacy CLI path: <span className="font-mono text-xs text-on-surface">{status.bin_path}</span>
-                    </p>
-                  )}
-                  {status.auth_source === "cli_managed" && (
-                    <p>
-                      Reconnect here when you want sky10 to take over token storage and refresh instead of relying on the Codex CLI.
-                    </p>
-                  )}
                 </div>
               ) : (
                 <p>
-                  Start the browser sign-in to link ChatGPT directly in sky10. No API key or visible Codex CLI setup is required for this flow.
+                  Start the browser sign-in to link ChatGPT directly in sky10. No API key or separate Codex install is required for this flow.
                 </p>
               )}
             </div>

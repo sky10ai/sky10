@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -632,7 +631,6 @@ func newTestService(t *testing.T, tokenURL string, now time.Time) *Service {
 	storeDir := t.TempDir()
 	service := NewService(nil)
 	service.now = func() time.Time { return now }
-	service.findBinary = func() (string, error) { return "", exec.ErrNotFound }
 	service.storePath = func() (string, error) {
 		return filepath.Join(storeDir, "codex", "auth.json"), nil
 	}

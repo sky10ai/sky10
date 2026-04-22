@@ -1100,7 +1100,6 @@ export interface CodexPendingLogin {
 
 export interface CodexStatus {
   installed: boolean;
-  bin_path?: string;
   linked: boolean;
   auth_mode?: string;
   auth_label?: string;

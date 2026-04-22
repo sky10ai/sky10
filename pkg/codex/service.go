@@ -20,7 +20,6 @@ type Emitter func(event string, data interface{})
 
 type Status struct {
 	Installed    bool          `json:"installed"`
-	BinPath      string        `json:"bin_path,omitempty"`
 	Linked       bool          `json:"linked"`
 	AuthMode     string        `json:"auth_mode,omitempty"`
 	AuthLabel    string        `json:"auth_label,omitempty"`
@@ -78,7 +77,6 @@ type Service struct {
 	oauth      oauthConfig
 	codexBase  string
 	storePath  func() (string, error)
-	findBinary func() (string, error)
 
 	refreshMu sync.Mutex
 	mu        sync.Mutex
@@ -109,7 +107,6 @@ func NewService(emit Emitter) *Service {
 		oauth:      defaultOAuthConfig(),
 		codexBase:  defaultCodexBaseURL,
 		storePath:  defaultStorePath,
-		findBinary: defaultBinaryFinder,
 	}
 }
 
@@ -146,20 +143,6 @@ func (s *Service) Status(ctx context.Context) (*Status, error) {
 		status.LastError = s.lastError
 		s.mu.Unlock()
 		return status, nil
-	}
-
-	legacyStatus, err := readLegacyCLIStatus(ctx, s.findBinary)
-	if err != nil {
-		return nil, err
-	}
-	if legacyStatus != nil {
-		status.BinPath = legacyStatus.BinPath
-		if legacyStatus.Linked {
-			status.Linked = true
-			status.AuthMode = legacyStatus.AuthMode
-			status.AuthLabel = legacyStatus.AuthLabel
-			status.AuthSource = "cli_managed"
-		}
 	}
 
 	return status, nil
@@ -294,16 +277,6 @@ func (s *Service) Logout(ctx context.Context) (*Status, error) {
 		return nil, err
 	}
 
-	legacyStatus, err := readLegacyCLIStatus(ctx, s.findBinary)
-	if err != nil {
-		return nil, err
-	}
-	if legacyStatus != nil && legacyStatus.Linked {
-		if err := logoutLegacyCLI(ctx, legacyStatus.BinPath); err != nil {
-			return nil, err
-		}
-	}
-
 	s.emitStatus("")
 	return s.Status(ctx)
 }
@@ -384,13 +357,6 @@ func (s *Service) activeCredential(ctx context.Context) (*storedCredential, erro
 		return nil, err
 	}
 	if cred == nil {
-		legacyStatus, legacyErr := readLegacyCLIStatus(ctx, s.findBinary)
-		if legacyErr != nil {
-			return nil, legacyErr
-		}
-		if legacyStatus != nil && legacyStatus.Linked {
-			return nil, fmt.Errorf("this device is linked through the Codex CLI; reconnect in sky10 to use /codex chat")
-		}
 		return nil, fmt.Errorf("no ChatGPT Codex account is linked in sky10")
 	}
 
@@ -531,7 +497,7 @@ func (s *Service) expirePendingLocked() {
 	session.cancel()
 }
 
-func (s *Service) emitStatus(binPath string) {
+func (s *Service) emitStatus(_ string) {
 	if s.emit == nil {
 		return
 	}
@@ -539,9 +505,6 @@ func (s *Service) emitStatus(binPath string) {
 	if err != nil {
 		s.logger.Warn("failed to emit codex status", "error", err)
 		return
-	}
-	if binPath != "" && status.BinPath == "" {
-		status.BinPath = binPath
 	}
 	s.emit("codex:login:updated", status)
 }

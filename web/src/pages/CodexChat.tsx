@@ -62,8 +62,7 @@ export default function CodexChat() {
   const [usageLine, setUsageLine] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  const canChat = Boolean(status?.linked && status?.auth_source === "host_oauth");
-  const hasCliOnlyLink = Boolean(status?.linked && status?.auth_source === "cli_managed");
+  const canChat = Boolean(status?.linked);
 
   useEffect(() => {
     try {
@@ -209,39 +208,21 @@ export default function CodexChat() {
 
         {!canChat && !loading && (
           <div className="mt-6 rounded-3xl border border-outline-variant/10 bg-surface p-8">
-            {hasCliOnlyLink ? (
-              <div className="space-y-3">
-                <h2 className="text-xl font-semibold text-on-surface">
-                  Reconnect in sky10 first
-                </h2>
-                <p className="text-sm text-secondary">
-                  This device is linked through the legacy Codex CLI path. The new `/codex` page only uses sky10-managed ChatGPT OAuth tokens, so reconnect once from the ChatGPT settings page.
-                </p>
-                <Link
-                  className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary shadow-lg transition-colors hover:bg-primary/90"
-                  to="/settings/codex"
-                >
-                  <Icon className="text-base" name="link" />
-                  Reconnect ChatGPT
-                </Link>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <h2 className="text-xl font-semibold text-on-surface">
-                  Connect ChatGPT to continue
-                </h2>
-                <p className="text-sm text-secondary">
-                  Link a ChatGPT Codex account in sky10 first, then this page can send prompts through the Codex responses transport.
-                </p>
-                <Link
-                  className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary shadow-lg transition-colors hover:bg-primary/90"
-                  to="/settings/codex"
-                >
-                  <Icon className="text-base" name="chat" />
-                  Connect ChatGPT
-                </Link>
-              </div>
-            )}
+            <div className="space-y-3">
+              <h2 className="text-xl font-semibold text-on-surface">
+                Connect ChatGPT to continue
+              </h2>
+              <p className="text-sm text-secondary">
+                Link a ChatGPT Codex account in sky10 first, then this page can send prompts through the Codex responses transport.
+              </p>
+              <Link
+                className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary shadow-lg transition-colors hover:bg-primary/90"
+                to="/settings/codex"
+              >
+                <Icon className="text-base" name="chat" />
+                Connect ChatGPT
+              </Link>
+            </div>
           </div>
         )}
 
