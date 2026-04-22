@@ -24,6 +24,7 @@ import SettingsApps from "./pages/SettingsApps";
 import SettingsCodex from "./pages/SettingsCodex";
 import SettingsSecrets from "./pages/SettingsSecrets";
 import SettingsVisuals from "./pages/SettingsVisuals";
+import CodexChat from "./pages/CodexChat";
 
 function HomeRedirect() {
   return <Navigate to="/start" replace />;
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="start" element={<Start />} />
           <Route path="start/setup" element={<StartSetup />} />
           <Route path="ai" element={<AIWorkspace />} />
+          <Route path="codex" element={<CodexChat />} />
           <Route path="getting-started" element={<GettingStarted />} />
           <Route path="agents" element={<Agents />} />
           <Route path="agents/create" element={<AgentCreate />} />

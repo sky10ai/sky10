@@ -1,11 +1,15 @@
 package codex
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +29,30 @@ type Status struct {
 	AccountID    string        `json:"account_id,omitempty"`
 	PendingLogin *PendingLogin `json:"pending_login,omitempty"`
 	LastError    string        `json:"last_error,omitempty"`
+}
+
+type ChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type ChatParams struct {
+	Model        string        `json:"model,omitempty"`
+	SystemPrompt string        `json:"system_prompt,omitempty"`
+	Messages     []ChatMessage `json:"messages"`
+}
+
+type ChatUsage struct {
+	InputTokens  int `json:"input_tokens,omitempty"`
+	OutputTokens int `json:"output_tokens,omitempty"`
+	TotalTokens  int `json:"total_tokens,omitempty"`
+}
+
+type ChatResult struct {
+	Model      string     `json:"model"`
+	ResponseID string     `json:"response_id,omitempty"`
+	Text       string     `json:"text"`
+	Usage      *ChatUsage `json:"usage,omitempty"`
 }
 
 type PendingLogin struct {
@@ -48,6 +76,7 @@ type Service struct {
 	now        func() time.Time
 	httpClient *http.Client
 	oauth      oauthConfig
+	codexBase  string
 	storePath  func() (string, error)
 	findBinary func() (string, error)
 
@@ -76,8 +105,9 @@ func NewService(emit Emitter) *Service {
 			"codex",
 		),
 		now:        time.Now,
-		httpClient: &http.Client{Timeout: 15 * time.Second},
+		httpClient: &http.Client{Timeout: 90 * time.Second},
 		oauth:      defaultOAuthConfig(),
+		codexBase:  defaultCodexBaseURL,
 		storePath:  defaultStorePath,
 		findBinary: defaultBinaryFinder,
 	}
@@ -276,6 +306,131 @@ func (s *Service) Logout(ctx context.Context) (*Status, error) {
 
 	s.emitStatus("")
 	return s.Status(ctx)
+}
+
+func (s *Service) Chat(ctx context.Context, params ChatParams) (*ChatResult, error) {
+	cred, err := s.activeCredential(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	messages, err := buildChatInput(params.Messages)
+	if err != nil {
+		return nil, err
+	}
+
+	model := strings.TrimSpace(params.Model)
+	if model == "" {
+		model = defaultCodexChatModel
+	}
+
+	accountID := strings.TrimSpace(cred.AccountID)
+	if accountID == "" {
+		claims := decodeCodexJWTClaims(cred.AccessToken)
+		if claims != nil {
+			accountID = strings.TrimSpace(claims.ChatGPTAccountID)
+		}
+	}
+	if accountID == "" {
+		return nil, fmt.Errorf("linked ChatGPT account is missing a Codex account id")
+	}
+
+	body := map[string]interface{}{
+		"model":   model,
+		"store":   false,
+		"stream":  false,
+		"input":   messages,
+		"text":    map[string]string{"verbosity": "medium"},
+		"include": []string{"reasoning.encrypted_content"},
+	}
+	if prompt := strings.TrimSpace(params.SystemPrompt); prompt != "" {
+		body["instructions"] = prompt
+	}
+
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("encode codex chat request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, resolveCodexURL(s.codexBase), bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("build codex chat request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+cred.AccessToken)
+	req.Header.Set("chatgpt-account-id", accountID)
+	req.Header.Set("originator", s.oauth.Originator)
+	req.Header.Set("OpenAI-Beta", "responses=experimental")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", userAgent())
+
+	res, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request codex chat: %w", err)
+	}
+	defer res.Body.Close()
+
+	raw, err := io.ReadAll(io.LimitReader(res.Body, 2<<20))
+	if err != nil {
+		return nil, fmt.Errorf("read codex chat response: %w", err)
+	}
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return nil, parseCodexAPIError(res.StatusCode, raw)
+	}
+
+	var response chatAPIResponse
+	if err := json.Unmarshal(raw, &response); err != nil {
+		return nil, fmt.Errorf("decode codex chat response: %w", err)
+	}
+
+	text := extractChatText(response)
+	if strings.TrimSpace(text) == "" {
+		return nil, fmt.Errorf("codex returned an empty response")
+	}
+
+	result := &ChatResult{
+		Model:      model,
+		ResponseID: response.ID,
+		Text:       text,
+	}
+	if response.Usage != nil {
+		result.Usage = &ChatUsage{
+			InputTokens:  response.Usage.InputTokens,
+			OutputTokens: response.Usage.OutputTokens,
+			TotalTokens:  response.Usage.TotalTokens,
+		}
+	}
+	return result, nil
+}
+
+func (s *Service) activeCredential(ctx context.Context) (*storedCredential, error) {
+	cred, err := s.loadCredential()
+	if err != nil {
+		return nil, err
+	}
+	if cred == nil {
+		legacyStatus, legacyErr := readLegacyCLIStatus(ctx, s.findBinary)
+		if legacyErr != nil {
+			return nil, legacyErr
+		}
+		if legacyStatus != nil && legacyStatus.Linked {
+			return nil, fmt.Errorf("this device is linked through the Codex CLI; reconnect in sky10 to use /codex chat")
+		}
+		return nil, fmt.Errorf("no ChatGPT Codex account is linked in sky10")
+	}
+
+	refreshed, refreshErr := s.refreshCredentialIfNeeded(ctx, cred)
+	if refreshErr == nil {
+		cred = refreshed
+	}
+	if !cred.isActive(s.now()) {
+		if refreshErr != nil {
+			return nil, refreshErr
+		}
+		return nil, fmt.Errorf("linked ChatGPT Codex credential is not active")
+	}
+
+	return cred, nil
 }
 
 func (s *Service) awaitCallback(ctx context.Context, session *loginSession) {

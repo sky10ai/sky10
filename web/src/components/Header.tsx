@@ -21,6 +21,13 @@ function getRouteMeta(pathname: string) {
     };
   }
 
+  if (pathname.startsWith("/codex")) {
+    return {
+      description: "Chat with your linked ChatGPT Codex account through sky10's brokered Codex transport.",
+      title: "Codex Chat",
+    };
+  }
+
   if (pathname.startsWith("/drives/")) {
     const [, , driveName] = pathname.split("/");
     return {

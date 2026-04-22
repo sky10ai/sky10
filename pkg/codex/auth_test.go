@@ -127,6 +127,34 @@ func TestParseAuthorizationInput(t *testing.T) {
 	}
 }
 
+func TestBuildChatInput(t *testing.T) {
+	t.Parallel()
+
+	input, err := buildChatInput([]ChatMessage{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "hi there"},
+	})
+	if err != nil {
+		t.Fatalf("buildChatInput: %v", err)
+	}
+	if len(input) != 2 {
+		t.Fatalf("len(input) = %d, want 2", len(input))
+	}
+
+	user := input[0]
+	if user["role"] != "user" {
+		t.Fatalf("user role = %v, want user", user["role"])
+	}
+
+	assistant := input[1]
+	if assistant["type"] != "message" {
+		t.Fatalf("assistant type = %v, want message", assistant["type"])
+	}
+	if assistant["role"] != "assistant" {
+		t.Fatalf("assistant role = %v, want assistant", assistant["role"])
+	}
+}
+
 func TestServiceStartLoginCompletesViaCallback(t *testing.T) {
 	t.Parallel()
 
@@ -369,6 +397,107 @@ func TestServiceLogoutClearsHostCredential(t *testing.T) {
 	}
 }
 
+func TestServiceChatUsesStoredCredential(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 4, 21, 12, 0, 0, 0, time.UTC)
+	var seenAuth string
+	var seenAccount string
+	var seenOriginator string
+	var seenBeta string
+	var body map[string]interface{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/codex/responses" {
+			http.NotFound(w, r)
+			return
+		}
+		seenAuth = r.Header.Get("Authorization")
+		seenAccount = r.Header.Get("chatgpt-account-id")
+		seenOriginator = r.Header.Get("originator")
+		seenBeta = r.Header.Get("OpenAI-Beta")
+
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": "resp_123",
+			"output": []map[string]interface{}{
+				{
+					"type": "message",
+					"role": "assistant",
+					"content": []map[string]interface{}{
+						{
+							"type": "output_text",
+							"text": "hello from codex",
+						},
+					},
+				},
+			},
+			"usage": map[string]int{
+				"input_tokens":  12,
+				"output_tokens": 7,
+				"total_tokens":  19,
+			},
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	service := newTestService(t, server.URL, now)
+	if err := service.saveCredential(&storedCredential{
+		Version:      credentialVersion,
+		Type:         "oauth",
+		Provider:     "openai-codex",
+		AccessToken:  mustJWT(t, now.Add(2*time.Hour), "chat@example.com", "acct_chat"),
+		RefreshToken: "refresh-chat",
+		ExpiresAt:    now.Add(2 * time.Hour),
+		Email:        "chat@example.com",
+		AccountID:    "acct_chat",
+		UpdatedAt:    now,
+	}); err != nil {
+		t.Fatalf("saveCredential: %v", err)
+	}
+
+	result, err := service.Chat(context.Background(), ChatParams{
+		Model: "gpt-5.4",
+		Messages: []ChatMessage{
+			{Role: "user", Content: "say hi"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if result.Text != "hello from codex" {
+		t.Fatalf("result.Text = %q, want hello from codex", result.Text)
+	}
+	if result.ResponseID != "resp_123" {
+		t.Fatalf("response_id = %q, want resp_123", result.ResponseID)
+	}
+	if result.Usage == nil || result.Usage.TotalTokens != 19 {
+		t.Fatalf("usage = %#v, want total 19", result.Usage)
+	}
+	if seenAuth == "" || !strings.HasPrefix(seenAuth, "Bearer ") {
+		t.Fatalf("authorization header = %q, want bearer token", seenAuth)
+	}
+	if seenAccount != "acct_chat" {
+		t.Fatalf("chatgpt-account-id = %q, want acct_chat", seenAccount)
+	}
+	if seenOriginator != "sky10-tests" {
+		t.Fatalf("originator = %q, want sky10-tests", seenOriginator)
+	}
+	if seenBeta != "responses=experimental" {
+		t.Fatalf("OpenAI-Beta = %q, want responses=experimental", seenBeta)
+	}
+	if body["model"] != "gpt-5.4" {
+		t.Fatalf("model = %v, want gpt-5.4", body["model"])
+	}
+	if body["stream"] != false {
+		t.Fatalf("stream = %v, want false", body["stream"])
+	}
+}
+
 type fakeTokenServerConfig struct {
 	authorizeCodeAccessToken string
 	authorizeCodeRefresh     string
@@ -431,6 +560,7 @@ func newTestService(t *testing.T, tokenURL string, now time.Time) *Service {
 		Scope:        defaultOAuthScope,
 		Originator:   "sky10-tests",
 	}
+	service.codexBase = tokenURL
 	return service
 }
 

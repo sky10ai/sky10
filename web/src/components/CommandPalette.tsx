@@ -97,6 +97,13 @@ const commands: Command[] = [
     section: "System",
   },
   {
+    id: "codex-chat",
+    label: "Open Codex Chat",
+    icon: "forum",
+    action: "/codex",
+    section: "System",
+  },
+  {
     id: "sandboxes",
     label: "Sandboxes",
     icon: "deployed_code",

@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { Icon } from "../components/Icon";
 import { PageHeader } from "../components/PageHeader";
 import { StatusBadge } from "../components/StatusBadge";
@@ -30,6 +30,7 @@ function authSourceLabel(authSource?: string) {
 }
 
 export default function SettingsCodex() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const audience = parseAudience(searchParams.get("audience"));
   const {
@@ -46,13 +47,20 @@ export default function SettingsCodex() {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [authorizationInput, setAuthorizationInput] = useState("");
   const [busy, setBusy] = useState<"connect" | "complete" | "cancel" | "logout" | null>(null);
+  const [redirectOnLinked, setRedirectOnLinked] = useState(false);
 
   const pending = status?.pending_login ?? null;
   const authLabel = authLabelForStatus(status?.auth_mode, status?.auth_label);
   const sourceLabel = authSourceLabel(status?.auth_source);
   const backHref = audience ? `/start/setup?audience=${audience}` : "/settings";
-  const continueHref = audience ? `/ai?audience=${audience}` : "/ai";
-  const linkedWithChatGPT = status?.linked && status?.auth_mode === "chatgpt";
+  const continueHref = "/codex";
+  const linkedWithChatGPT = status?.linked && status?.auth_mode === "chatgpt" && status?.auth_source === "host_oauth";
+
+  useEffect(() => {
+    if (!redirectOnLinked) return;
+    if (!status?.linked || status.auth_source !== "host_oauth" || pending) return;
+    navigate("/codex", { replace: true });
+  }, [navigate, pending, redirectOnLinked, status?.auth_source, status?.linked]);
 
   const headingDescription = useMemo(() => {
     if (audience === "for_others") {
@@ -68,6 +76,7 @@ export default function SettingsCodex() {
     setBusy("connect");
     setActionError(null);
     setActionMessage(null);
+    setRedirectOnLinked(true);
 
     const popup = window.open("", "_blank", "noopener,noreferrer");
     try {
@@ -108,10 +117,15 @@ export default function SettingsCodex() {
     setBusy("complete");
     setActionError(null);
     setActionMessage(null);
+    setRedirectOnLinked(true);
     try {
-      await codex.loginComplete({ authorization_input: input });
+      const next = await codex.loginComplete({ authorization_input: input });
       setAuthorizationInput("");
       setActionMessage("Linked ChatGPT with sky10.");
+      if (next.linked && next.auth_source === "host_oauth") {
+        navigate("/codex", { replace: true });
+        return;
+      }
       refetch({ background: true });
     } catch (error: unknown) {
       setActionError(error instanceof Error ? error.message : "Could not finish ChatGPT login");
@@ -124,6 +138,7 @@ export default function SettingsCodex() {
     setBusy("cancel");
     setActionError(null);
     setActionMessage(null);
+    setRedirectOnLinked(false);
     try {
       await codex.loginCancel();
       setAuthorizationInput("");
@@ -140,6 +155,7 @@ export default function SettingsCodex() {
     setBusy("logout");
     setActionError(null);
     setActionMessage(null);
+    setRedirectOnLinked(false);
     try {
       await codex.logout();
       setAuthorizationInput("");
@@ -172,7 +188,7 @@ export default function SettingsCodex() {
                 className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-lg transition-colors hover:bg-primary/90"
                 to={continueHref}
               >
-                Continue
+                Open Codex
                 <Icon className="text-base" name="arrow_forward" />
               </Link>
             )}

@@ -21,6 +21,7 @@ const (
 	defaultAuthorizeURL    = "https://auth.openai.com/oauth/authorize"
 	defaultTokenURL        = "https://auth.openai.com/oauth/token"
 	defaultRedirectURL     = "http://localhost:1455/auth/callback"
+	defaultCodexBaseURL    = "https://chatgpt.com/backend-api"
 	defaultOAuthScope      = "openid profile email offline_access"
 	defaultOAuthOriginator = "sky10"
 )
@@ -104,6 +105,22 @@ func buildAuthorizeURL(cfg oauthConfig, challenge, state string) string {
 	query.Set("originator", cfg.Originator)
 	u.RawQuery = query.Encode()
 	return u.String()
+}
+
+func resolveCodexURL(baseURL string) string {
+	raw := strings.TrimSpace(baseURL)
+	if raw == "" {
+		raw = defaultCodexBaseURL
+	}
+	normalized := strings.TrimRight(raw, "/")
+	switch {
+	case strings.HasSuffix(normalized, "/codex/responses"):
+		return normalized
+	case strings.HasSuffix(normalized, "/codex"):
+		return normalized + "/responses"
+	default:
+		return normalized + "/codex/responses"
+	}
 }
 
 func parseAuthorizationInput(input string) (code string, state string, err error) {

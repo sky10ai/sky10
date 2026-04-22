@@ -40,6 +40,14 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		result, err = h.service.CancelLogin(ctx)
 	case "codex.logout":
 		result, err = h.service.Logout(ctx)
+	case "codex.chat":
+		var parsed ChatParams
+		if len(params) > 0 && string(params) != "null" {
+			if decodeErr := json.Unmarshal(params, &parsed); decodeErr != nil {
+				return nil, fmt.Errorf("decode params: %w", decodeErr), true
+			}
+		}
+		result, err = h.service.Chat(ctx, parsed)
 	default:
 		return nil, fmt.Errorf("unknown method: %s", method), true
 	}

@@ -273,6 +273,11 @@ export const codex = {
     rpc<CodexStatus>("codex.loginComplete", p),
   loginCancel: () => rpc<CodexStatus>("codex.loginCancel"),
   logout: () => rpc<CodexStatus>("codex.logout"),
+  chat: (p: {
+    model?: string;
+    system_prompt?: string;
+    messages: CodexChatMessage[];
+  }) => rpc<CodexChatResult>("codex.chat", p),
 };
 
 // ---- Types matching actual daemon responses ----
@@ -1104,4 +1109,22 @@ export interface CodexStatus {
   account_id?: string;
   pending_login?: CodexPendingLogin;
   last_error?: string;
+}
+
+export interface CodexChatMessage {
+  role: "assistant" | "user";
+  content: string;
+}
+
+export interface CodexChatUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+}
+
+export interface CodexChatResult {
+  model: string;
+  response_id?: string;
+  text: string;
+  usage?: CodexChatUsage;
 }

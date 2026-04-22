@@ -16,6 +16,7 @@ const UPDATE_REFRESH_EVENTS = [
 
 const navItems = [
   { to: "/agents", icon: "smart_toy", label: "Agents", matchPrefixes: ["/agents"] },
+  { to: "/codex", icon: "chat", label: "Codex", matchPrefixes: ["/codex"] },
   {
     to: "/drives",
     icon: "folder_open",
