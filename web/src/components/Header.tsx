@@ -143,7 +143,7 @@ function getRouteMeta(pathname: string) {
 export function Header() {
   const location = useLocation();
   const route = getRouteMeta(location.pathname);
-  const { data: health, refreshing } = useRPC(() => skyfs.health(), [], {
+  const { data: health } = useRPC(() => skyfs.health(), [], {
     live: STORAGE_EVENT_TYPES,
     refreshIntervalMs: 10_000,
   });
@@ -177,11 +177,6 @@ export function Header() {
         ) : (
           <StatusBadge pulse tone="live">
             Live
-          </StatusBadge>
-        )}
-        {refreshing && (
-          <StatusBadge icon="sync" tone="neutral">
-            Refreshing
           </StatusBadge>
         )}
         <button
