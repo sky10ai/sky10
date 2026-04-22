@@ -78,8 +78,8 @@ committing to any one platform adapter.
 
 - [x] Create `pkg/messaging` with the first normalized types:
   `Connection`, `AuthInfo`, `Identity`, `Conversation`, `Participant`,
-  `Message`, `Draft`, `Policy`, `Exposure`, `Workflow`, `ActivityEvent`,
-  `Event`, `Capability`.
+  `Message`, `Draft`, `Approval`, `Policy`, `Exposure`, `Workflow`,
+  `ActivityEvent`, `Event`, `Capability`.
 - [x] Define stable ID types for connections, identities, conversations,
   messages, drafts, policies, and exposures.
 - [ ] Decide which records are durable truth versus derived cache.
@@ -90,6 +90,7 @@ committing to any one platform adapter.
 - [x] Persist identities discovered through adapters.
 - [x] Persist conversation metadata and message indexes.
 - [x] Persist drafts and their lifecycle state.
+- [x] Persist durable approval request records and status transitions.
 - [x] Persist human-facing `Workflow` records for logical action chains.
 - [x] Persist internal `ActivityEvent` records for the full audit trail.
 - [x] Persist adapter poll checkpoints.
@@ -153,15 +154,16 @@ outbound orchestration, and event fanout.
 - [x] Add identity refresh/discovery flow from adapters.
 - [x] Add conversation upsert logic.
 - [x] Add message upsert logic for inbound records.
-- [ ] Add message upsert logic for outbound records.
-- [ ] Add draft lifecycle management.
+- [x] Add message upsert logic for outbound records.
+- [x] Add draft lifecycle management.
 - [ ] Add normalized lookup/search surfaces split between adapter-backed live
   search and broker/index-backed content search.
 - [x] Add normalized inbound event ingestion from polling sources.
 - [x] Add normalized inbound event ingestion from webhook sources.
-- [ ] Add outbound operations that always flow through the broker.
+- [x] Add outbound operations that always flow through the broker.
 - [ ] Add event fanout to UI and northbound shims.
-- [ ] Aggregate raw activity into human-facing workflow state.
+- [x] Aggregate raw activity into human-facing workflow state for draft,
+  approval, and send flows.
 - [ ] Add deduplication/idempotency for inbound events and outbound send
   results.
 - [ ] Add delivery status and edit/delete state updates when supported.
@@ -169,9 +171,9 @@ outbound orchestration, and event fanout.
 ### Exit Criteria
 
 - [ ] Inbound events from an adapter become durable conversation/message state.
-- [ ] Drafts and sends can be created without platform-specific code leaking
+- [x] Drafts and sends can be created without platform-specific code leaking
   into the broker.
-- [ ] The broker is the only place that decides whether a send proceeds.
+- [x] The broker is the only place that decides whether a send proceeds.
 
 ## Milestone 4: Policy And Approval Engine
 
@@ -189,20 +191,20 @@ meaningful messaging power.
 - [ ] Add allowed connection scopes and allowed time windows.
 - [x] Support connection-level default policy.
 - [x] Support exposure-level narrowed policy for a specific agent/runtime.
-- [ ] Define durable approval request objects for sends and other sensitive
+- [x] Define durable approval request objects for sends and other sensitive
   operations.
-- [ ] Reuse or integrate the repo's existing mailbox/approval primitives where
+- [x] Reuse or integrate the repo's existing mailbox/approval primitives where
   practical instead of creating an unrelated second approval engine.
-- [ ] Add approval statuses and audit timeline.
+- [x] Add approval statuses and audit timeline.
 - [x] Add explicit refusal reasons when an operation is denied by policy.
 - [x] Add tests for approval-required, reply-only, no-new-recipient, and
   attachment-blocked paths.
 
 ### Exit Criteria
 
-- [ ] A draft can be blocked, approved, or sent based on policy.
+- [x] A draft can be blocked, approved, or sent based on policy.
 - [ ] Agents cannot bypass broker approval by calling adapters directly.
-- [ ] Operators can inspect why an action was denied or held for approval.
+- [x] Operators can inspect why an action was denied or held for approval.
 
 ## Milestone 5: Agent Shim Protocol
 

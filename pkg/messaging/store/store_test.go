@@ -115,6 +115,22 @@ func TestStoreRoundTripAndListViews(t *testing.T) {
 		t.Fatalf("PutDraft() error = %v", err)
 	}
 
+	approval := messaging.Approval{
+		ID:           "approval/reply",
+		ConnectionID: connection.ID,
+		DraftID:      draft.ID,
+		WorkflowID:   "wf/latisha",
+		PolicyID:     "policy/board",
+		Action:       "send_draft",
+		Summary:      "Send reply to Latisha",
+		Status:       messaging.ApprovalStatusPending,
+		RequestedBy:  "runtime:hermes",
+		RequestedAt:  time.Date(2026, 4, 22, 8, 3, 30, 0, time.UTC),
+	}
+	if err := store.PutApproval(ctx, approval); err != nil {
+		t.Fatalf("PutApproval() error = %v", err)
+	}
+
 	policy := messaging.Policy{
 		ID:   "policy/board",
 		Name: "Board Slack",
@@ -154,6 +170,7 @@ func TestStoreRoundTripAndListViews(t *testing.T) {
 		ExposureID:           exposure.ID,
 		Sender:               messaging.Participant{Kind: messaging.ParticipantKindUser, RemoteID: "U234", DisplayName: "Latisha"},
 		DraftID:              draft.ID,
+		ApprovalID:           approval.ID,
 		BrokerReceivedAt:     time.Date(2026, 4, 22, 8, 1, 5, 0, time.UTC),
 		LastActivityAt:       time.Date(2026, 4, 22, 8, 3, 0, 0, time.UTC),
 	}
@@ -232,6 +249,11 @@ func TestStoreRoundTripAndListViews(t *testing.T) {
 	drafts := reloaded.ListConversationDrafts(conversation.ID)
 	if len(drafts) != 1 || drafts[0].ID != draft.ID {
 		t.Fatalf("ListConversationDrafts() = %+v, want %s", drafts, draft.ID)
+	}
+
+	approvals := reloaded.ListDraftApprovals(draft.ID)
+	if len(approvals) != 1 || approvals[0].ID != approval.ID {
+		t.Fatalf("ListDraftApprovals() = %+v, want %s", approvals, approval.ID)
 	}
 
 	workflows := reloaded.ListWorkflows()

@@ -150,6 +150,21 @@ func (s *Store) PutDraft(ctx context.Context, draft messaging.Draft) error {
 	return nil
 }
 
+// PutApproval persists one normalized approval request.
+func (s *Store) PutApproval(ctx context.Context, approval messaging.Approval) error {
+	if err := approval.Validate(); err != nil {
+		return err
+	}
+	if err := s.backend.PutApproval(ctx, approval); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.ensureIndexLocked()
+	s.index.putApproval(approval)
+	s.mu.Unlock()
+	return nil
+}
+
 // PutPolicy persists one named policy bundle.
 func (s *Store) PutPolicy(ctx context.Context, policy messaging.Policy) error {
 	if err := policy.Validate(); err != nil {
@@ -330,6 +345,16 @@ func (s *Store) GetDraft(draftID messaging.DraftID) (messaging.Draft, bool) {
 	return s.index.getDraft(draftID)
 }
 
+// GetApproval returns one persisted approval request.
+func (s *Store) GetApproval(approvalID messaging.ApprovalID) (messaging.Approval, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.index == nil {
+		return messaging.Approval{}, false
+	}
+	return s.index.getApproval(approvalID)
+}
+
 // ListConversationDrafts returns drafts for one conversation.
 func (s *Store) ListConversationDrafts(conversationID messaging.ConversationID) []messaging.Draft {
 	s.mu.RLock()
@@ -338,6 +363,26 @@ func (s *Store) ListConversationDrafts(conversationID messaging.ConversationID) 
 		return nil
 	}
 	return s.index.listConversationDrafts(conversationID)
+}
+
+// ListDraftApprovals returns approvals associated with one draft.
+func (s *Store) ListDraftApprovals(draftID messaging.DraftID) []messaging.Approval {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.index == nil {
+		return nil
+	}
+	return s.index.listDraftApprovals(draftID)
+}
+
+// ListConnectionApprovals returns approvals scoped to one connection.
+func (s *Store) ListConnectionApprovals(connectionID messaging.ConnectionID) []messaging.Approval {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.index == nil {
+		return nil
+	}
+	return s.index.listConnectionApprovals(connectionID)
 }
 
 // GetPolicy returns one persisted policy.

@@ -55,6 +55,10 @@ func (b *KVBackend) Load(_ context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
+	approvals, err := b.listApprovals()
+	if err != nil {
+		return Snapshot{}, err
+	}
 	policies, err := b.listPolicies()
 	if err != nil {
 		return Snapshot{}, err
@@ -104,6 +108,7 @@ func (b *KVBackend) Load(_ context.Context) (Snapshot, error) {
 		Conversations:  conversations,
 		Messages:       messages,
 		Drafts:         drafts,
+		Approvals:      approvals,
 		Policies:       policies,
 		Exposures:      exposures,
 		Workflows:      workflows,
@@ -167,6 +172,11 @@ func (b *KVBackend) PutMessage(ctx context.Context, message messaging.Message) e
 // PutDraft persists one normalized draft.
 func (b *KVBackend) PutDraft(ctx context.Context, draft messaging.Draft) error {
 	return b.putJSON(ctx, b.draftKey(draft.ID), cloneDraft(draft))
+}
+
+// PutApproval persists one approval request.
+func (b *KVBackend) PutApproval(ctx context.Context, approval messaging.Approval) error {
+	return b.putJSON(ctx, b.approvalKey(approval.ID), cloneApproval(approval))
 }
 
 // PutPolicy persists one policy bundle.
@@ -273,6 +283,19 @@ func (b *KVBackend) listDrafts() ([]messaging.Draft, error) {
 		}
 		if err := value.Validate(); err != nil {
 			return messaging.Draft{}, err
+		}
+		return value, nil
+	})
+}
+
+func (b *KVBackend) listApprovals() ([]messaging.Approval, error) {
+	return listKVCollection(b.store, b.approvalsPrefix(), "approval", func(raw []byte) (messaging.Approval, error) {
+		var value messaging.Approval
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return messaging.Approval{}, err
+		}
+		if err := value.Validate(); err != nil {
+			return messaging.Approval{}, err
 		}
 		return value, nil
 	})
@@ -440,6 +463,14 @@ func (b *KVBackend) draftKey(draftID messaging.DraftID) string {
 
 func (b *KVBackend) policiesPrefix() string {
 	return b.root + "/policies"
+}
+
+func (b *KVBackend) approvalsPrefix() string {
+	return b.root + "/approvals"
+}
+
+func (b *KVBackend) approvalKey(approvalID messaging.ApprovalID) string {
+	return b.approvalsPrefix() + "/" + encodeKeyPart(string(approvalID))
 }
 
 func (b *KVBackend) policyKey(policyID messaging.PolicyID) string {

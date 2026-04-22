@@ -49,6 +49,7 @@ The implementation plan for this architecture lives in
 - **Participant** — one member of a conversation
 - **Message** — a normalized inbound or outbound message record
 - **Draft** — a normalized unsent outbound message
+- **Approval** — a durable approval request for sensitive messaging actions
 - **Policy** — rules for inbound, outbound, drafts, approvals, recipients,
   attachments, and timing
 - **Workflow** — the human-facing logical unit for one messaging action chain
@@ -533,6 +534,10 @@ Messaging approvals should cover operations such as:
 - send as this identity
 - allow attachment delivery
 - allow starting a new conversation
+
+The current broker implementation keeps a normalized messaging approval record
+in `pkg/messaging` and can mirror that request into the repo's durable mailbox
+approval store when a mailbox target is configured.
 
 ## Webhook And Poll Ownership
 

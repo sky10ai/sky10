@@ -15,6 +15,7 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 		Conversations: make([]messaging.Conversation, 0, len(snapshot.Conversations)),
 		Messages:      make([]messaging.Message, 0, len(snapshot.Messages)),
 		Drafts:        make([]messaging.Draft, 0, len(snapshot.Drafts)),
+		Approvals:     make([]messaging.Approval, 0, len(snapshot.Approvals)),
 		Policies:      make([]messaging.Policy, 0, len(snapshot.Policies)),
 		Exposures:     make([]messaging.Exposure, 0, len(snapshot.Exposures)),
 		Workflows:     make([]messaging.Workflow, 0, len(snapshot.Workflows)),
@@ -33,6 +34,9 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 	}
 	for _, draft := range snapshot.Drafts {
 		cloned.Drafts = append(cloned.Drafts, cloneDraft(draft))
+	}
+	for _, approval := range snapshot.Approvals {
+		cloned.Approvals = append(cloned.Approvals, cloneApproval(approval))
 	}
 	for _, policy := range snapshot.Policies {
 		cloned.Policies = append(cloned.Policies, clonePolicy(policy))
@@ -134,6 +138,13 @@ func cloneDraft(draft messaging.Draft) messaging.Draft {
 	draft.Parts = cloneMessageParts(draft.Parts)
 	draft.Metadata = cloneStringMap(draft.Metadata)
 	return draft
+}
+
+func cloneApproval(approval messaging.Approval) messaging.Approval {
+	approval.ResolvedAt = cloneTimePtr(approval.ResolvedAt)
+	approval.Metadata = cloneStringMap(approval.Metadata)
+	approval.RequestedAt = approval.RequestedAt.UTC()
+	return approval
 }
 
 func clonePolicy(policy messaging.Policy) messaging.Policy {

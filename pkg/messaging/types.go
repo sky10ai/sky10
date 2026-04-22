@@ -14,6 +14,7 @@ type (
 	ConversationID string
 	MessageID      string
 	DraftID        string
+	ApprovalID     string
 	PolicyID       string
 	ExposureID     string
 	WorkflowID     string
@@ -115,6 +116,18 @@ const (
 	DraftStatusSent             DraftStatus = "sent"
 	DraftStatusFailed           DraftStatus = "failed"
 	DraftStatusRejected         DraftStatus = "rejected"
+)
+
+// ApprovalStatus describes lifecycle state for one broker-owned approval
+// request.
+type ApprovalStatus string
+
+const (
+	ApprovalStatusPending   ApprovalStatus = "pending"
+	ApprovalStatusApproved  ApprovalStatus = "approved"
+	ApprovalStatusRejected  ApprovalStatus = "rejected"
+	ApprovalStatusExpired   ApprovalStatus = "expired"
+	ApprovalStatusCancelled ApprovalStatus = "cancelled"
 )
 
 // MessagePartKind describes one normalized content fragment inside a message
@@ -450,6 +463,7 @@ type Draft struct {
 	ConnectionID    ConnectionID      `json:"connection_id"`
 	ConversationID  ConversationID    `json:"conversation_id"`
 	LocalIdentityID IdentityID        `json:"local_identity_id"`
+	ApprovalID      ApprovalID        `json:"approval_id,omitempty"`
 	ReplyToRemoteID string            `json:"reply_to_remote_id,omitempty"`
 	Parts           []MessagePart     `json:"parts"`
 	Status          DraftStatus       `json:"status"`
@@ -480,6 +494,56 @@ func (d Draft) Validate() error {
 	}
 	if strings.TrimSpace(string(d.Status)) == "" {
 		return fmt.Errorf("draft status is required")
+	}
+	return nil
+}
+
+// Approval is one durable broker-owned request for human approval before a
+// sensitive messaging operation proceeds.
+type Approval struct {
+	ID            ApprovalID        `json:"id"`
+	ConnectionID  ConnectionID      `json:"connection_id"`
+	DraftID       DraftID           `json:"draft_id"`
+	WorkflowID    WorkflowID        `json:"workflow_id"`
+	PolicyID      PolicyID          `json:"policy_id,omitempty"`
+	ExposureID    ExposureID        `json:"exposure_id,omitempty"`
+	MailboxItemID string            `json:"mailbox_item_id,omitempty"`
+	Action        string            `json:"action"`
+	Summary       string            `json:"summary"`
+	Reason        string            `json:"reason,omitempty"`
+	Status        ApprovalStatus    `json:"status"`
+	RequestedBy   string            `json:"requested_by,omitempty"`
+	RequestedAt   time.Time         `json:"requested_at"`
+	ResolvedBy    string            `json:"resolved_by,omitempty"`
+	ResolvedAt    *time.Time        `json:"resolved_at,omitempty"`
+	Metadata      map[string]string `json:"metadata,omitempty"`
+}
+
+// Validate checks whether an approval is structurally valid.
+func (a Approval) Validate() error {
+	if err := requireID(string(a.ID), "approval id"); err != nil {
+		return err
+	}
+	if err := requireID(string(a.ConnectionID), "approval connection_id"); err != nil {
+		return err
+	}
+	if err := requireID(string(a.DraftID), "approval draft_id"); err != nil {
+		return err
+	}
+	if err := requireID(string(a.WorkflowID), "approval workflow_id"); err != nil {
+		return err
+	}
+	if err := requireText(a.Action, "approval action"); err != nil {
+		return err
+	}
+	if err := requireText(a.Summary, "approval summary"); err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(a.Status)) == "" {
+		return fmt.Errorf("approval status is required")
+	}
+	if a.RequestedAt.IsZero() {
+		return fmt.Errorf("approval requested_at is required")
 	}
 	return nil
 }
@@ -580,7 +644,7 @@ type Workflow struct {
 	Subject              string            `json:"subject,omitempty"`
 	Summary              string            `json:"summary,omitempty"`
 	DraftID              DraftID           `json:"draft_id,omitempty"`
-	ApprovalID           string            `json:"approval_id,omitempty"`
+	ApprovalID           ApprovalID        `json:"approval_id,omitempty"`
 	OutboundMessageID    MessageID         `json:"outbound_message_id,omitempty"`
 	SourceCreatedAt      *time.Time        `json:"source_created_at,omitempty"`
 	BrokerReceivedAt     time.Time         `json:"broker_received_at"`

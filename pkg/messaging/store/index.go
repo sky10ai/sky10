@@ -18,6 +18,9 @@ type recordIndex struct {
 	messagesByConversation  map[messaging.ConversationID][]messaging.MessageID
 	drafts                  map[messaging.DraftID]messaging.Draft
 	draftsByConversation    map[messaging.ConversationID][]messaging.DraftID
+	approvals               map[messaging.ApprovalID]messaging.Approval
+	approvalsByDraft        map[messaging.DraftID][]messaging.ApprovalID
+	approvalsByConnection   map[messaging.ConnectionID][]messaging.ApprovalID
 	policies                map[messaging.PolicyID]messaging.Policy
 	exposures               map[messaging.ExposureID]messaging.Exposure
 	exposuresByConnection   map[messaging.ConnectionID][]messaging.ExposureID
@@ -38,6 +41,9 @@ func newRecordIndex(snapshot Snapshot) *recordIndex {
 		messagesByConversation:  make(map[messaging.ConversationID][]messaging.MessageID),
 		drafts:                  make(map[messaging.DraftID]messaging.Draft, len(snapshot.Drafts)),
 		draftsByConversation:    make(map[messaging.ConversationID][]messaging.DraftID),
+		approvals:               make(map[messaging.ApprovalID]messaging.Approval, len(snapshot.Approvals)),
+		approvalsByDraft:        make(map[messaging.DraftID][]messaging.ApprovalID),
+		approvalsByConnection:   make(map[messaging.ConnectionID][]messaging.ApprovalID),
 		policies:                make(map[messaging.PolicyID]messaging.Policy, len(snapshot.Policies)),
 		exposures:               make(map[messaging.ExposureID]messaging.Exposure, len(snapshot.Exposures)),
 		exposuresByConnection:   make(map[messaging.ConnectionID][]messaging.ExposureID),
@@ -60,6 +66,9 @@ func newRecordIndex(snapshot Snapshot) *recordIndex {
 	}
 	for _, draft := range snapshot.Drafts {
 		idx.putDraft(draft)
+	}
+	for _, approval := range snapshot.Approvals {
+		idx.putApproval(approval)
 	}
 	for _, policy := range snapshot.Policies {
 		idx.putPolicy(policy)
@@ -93,6 +102,7 @@ func (idx *recordIndex) snapshot() Snapshot {
 		Conversations:  make([]messaging.Conversation, 0, len(idx.conversations)),
 		Messages:       make([]messaging.Message, 0, len(idx.messages)),
 		Drafts:         make([]messaging.Draft, 0, len(idx.drafts)),
+		Approvals:      make([]messaging.Approval, 0, len(idx.approvals)),
 		Policies:       make([]messaging.Policy, 0, len(idx.policies)),
 		Exposures:      make([]messaging.Exposure, 0, len(idx.exposures)),
 		Workflows:      make([]messaging.Workflow, 0, len(idx.workflows)),
@@ -132,6 +142,17 @@ func (idx *recordIndex) snapshot() Snapshot {
 	}
 	sort.Slice(snapshot.Drafts, func(i, j int) bool {
 		return snapshot.Drafts[i].ID < snapshot.Drafts[j].ID
+	})
+	for _, approval := range idx.approvals {
+		snapshot.Approvals = append(snapshot.Approvals, cloneApproval(approval))
+	}
+	sort.Slice(snapshot.Approvals, func(i, j int) bool {
+		left := snapshot.Approvals[i]
+		right := snapshot.Approvals[j]
+		if left.RequestedAt.Equal(right.RequestedAt) {
+			return left.ID < right.ID
+		}
+		return left.RequestedAt.Before(right.RequestedAt)
 	})
 	for _, policy := range idx.policies {
 		snapshot.Policies = append(snapshot.Policies, clonePolicy(policy))
@@ -223,6 +244,22 @@ func (idx *recordIndex) putDraft(draft messaging.Draft) {
 	}
 	idx.drafts[draft.ID] = draft
 	idx.draftsByConversation[draft.ConversationID] = appendUnique(idx.draftsByConversation[draft.ConversationID], draft.ID)
+}
+
+func (idx *recordIndex) putApproval(approval messaging.Approval) {
+	approval = cloneApproval(approval)
+	existing, exists := idx.approvals[approval.ID]
+	if exists {
+		if existing.DraftID != approval.DraftID {
+			idx.removeApprovalFromDraft(existing.DraftID, approval.ID)
+		}
+		if existing.ConnectionID != approval.ConnectionID {
+			idx.removeApprovalFromConnection(existing.ConnectionID, approval.ID)
+		}
+	}
+	idx.approvals[approval.ID] = approval
+	idx.approvalsByDraft[approval.DraftID] = appendUnique(idx.approvalsByDraft[approval.DraftID], approval.ID)
+	idx.approvalsByConnection[approval.ConnectionID] = appendUnique(idx.approvalsByConnection[approval.ConnectionID], approval.ID)
 }
 
 func (idx *recordIndex) putPolicy(policy messaging.Policy) {
@@ -388,6 +425,14 @@ func (idx *recordIndex) getDraft(draftID messaging.DraftID) (messaging.Draft, bo
 	return cloneDraft(draft), true
 }
 
+func (idx *recordIndex) getApproval(approvalID messaging.ApprovalID) (messaging.Approval, bool) {
+	approval, ok := idx.approvals[approvalID]
+	if !ok {
+		return messaging.Approval{}, false
+	}
+	return cloneApproval(approval), true
+}
+
 func (idx *recordIndex) listConversationDrafts(conversationID messaging.ConversationID) []messaging.Draft {
 	ids := idx.draftsByConversation[conversationID]
 	drafts := make([]messaging.Draft, 0, len(ids))
@@ -402,6 +447,48 @@ func (idx *recordIndex) listConversationDrafts(conversationID messaging.Conversa
 		return drafts[i].ID < drafts[j].ID
 	})
 	return drafts
+}
+
+func (idx *recordIndex) listDraftApprovals(draftID messaging.DraftID) []messaging.Approval {
+	ids := idx.approvalsByDraft[draftID]
+	approvals := make([]messaging.Approval, 0, len(ids))
+	for _, approvalID := range ids {
+		approval, ok := idx.approvals[approvalID]
+		if !ok {
+			continue
+		}
+		approvals = append(approvals, cloneApproval(approval))
+	}
+	sort.Slice(approvals, func(i, j int) bool {
+		left := approvals[i]
+		right := approvals[j]
+		if left.RequestedAt.Equal(right.RequestedAt) {
+			return left.ID < right.ID
+		}
+		return left.RequestedAt.Before(right.RequestedAt)
+	})
+	return approvals
+}
+
+func (idx *recordIndex) listConnectionApprovals(connectionID messaging.ConnectionID) []messaging.Approval {
+	ids := idx.approvalsByConnection[connectionID]
+	approvals := make([]messaging.Approval, 0, len(ids))
+	for _, approvalID := range ids {
+		approval, ok := idx.approvals[approvalID]
+		if !ok {
+			continue
+		}
+		approvals = append(approvals, cloneApproval(approval))
+	}
+	sort.Slice(approvals, func(i, j int) bool {
+		left := approvals[i]
+		right := approvals[j]
+		if left.RequestedAt.Equal(right.RequestedAt) {
+			return left.ID < right.ID
+		}
+		return left.RequestedAt.After(right.RequestedAt)
+	})
+	return approvals
 }
 
 func (idx *recordIndex) getPolicy(policyID messaging.PolicyID) (messaging.Policy, bool) {
@@ -553,6 +640,38 @@ func (idx *recordIndex) removeDraftFromConversation(conversationID messaging.Con
 		return
 	}
 	idx.draftsByConversation[conversationID] = filtered
+}
+
+func (idx *recordIndex) removeApprovalFromDraft(draftID messaging.DraftID, approvalID messaging.ApprovalID) {
+	ids := idx.approvalsByDraft[draftID]
+	filtered := ids[:0]
+	for _, candidate := range ids {
+		if candidate == approvalID {
+			continue
+		}
+		filtered = append(filtered, candidate)
+	}
+	if len(filtered) == 0 {
+		delete(idx.approvalsByDraft, draftID)
+		return
+	}
+	idx.approvalsByDraft[draftID] = filtered
+}
+
+func (idx *recordIndex) removeApprovalFromConnection(connectionID messaging.ConnectionID, approvalID messaging.ApprovalID) {
+	ids := idx.approvalsByConnection[connectionID]
+	filtered := ids[:0]
+	for _, candidate := range ids {
+		if candidate == approvalID {
+			continue
+		}
+		filtered = append(filtered, candidate)
+	}
+	if len(filtered) == 0 {
+		delete(idx.approvalsByConnection, connectionID)
+		return
+	}
+	idx.approvalsByConnection[connectionID] = filtered
 }
 
 func (idx *recordIndex) removeExposureFromConnection(connectionID messaging.ConnectionID, exposureID messaging.ExposureID) {

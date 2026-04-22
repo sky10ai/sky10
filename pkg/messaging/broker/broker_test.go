@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
 	"github.com/sky10/sky10/pkg/messaging"
 	messagingpolicy "github.com/sky10/sky10/pkg/messaging/policy"
 	"github.com/sky10/sky10/pkg/messaging/protocol"
@@ -388,6 +389,172 @@ func TestBrokerEvaluateSendAndSearch(t *testing.T) {
 	}
 }
 
+func TestBrokerDraftApprovalAndSendFlow(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	rootDir := filepath.Join(t.TempDir(), "messaging-runtime")
+	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	mailboxStore, err := agentmailbox.NewStore(ctx, agentmailbox.NewPrivateKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("mailbox.NewStore() error = %v", err)
+	}
+	approvalTo := agentmailbox.Principal{
+		ID:    "human:alice",
+		Kind:  agentmailbox.PrincipalKindHuman,
+		Scope: agentmailbox.ScopePrivateNetwork,
+	}
+	b, err := New(ctx, Config{
+		Store:           store,
+		RootDir:         rootDir,
+		ApprovalMailbox: mailboxStore,
+		ApprovalTo:      &approvalTo,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = b.Close() }()
+
+	connection := messaging.Connection{
+		ID:              "slack/work",
+		AdapterID:       "slack",
+		Label:           "Work Slack",
+		Status:          messaging.ConnectionStatusConnecting,
+		DefaultPolicyID: "policy/reply-approval",
+	}
+	if err := store.PutPolicy(ctx, messaging.Policy{
+		ID:   "policy/reply-approval",
+		Name: "Reply With Approval",
+		Rules: messaging.PolicyRules{
+			ReadInbound:        true,
+			CreateDrafts:       true,
+			SendMessages:       true,
+			RequireApproval:    true,
+			ReplyOnly:          true,
+			AllowAttachments:   true,
+			AllowedIdentityIDs: []messaging.IdentityID{"identity/test"},
+		},
+	}); err != nil {
+		t.Fatalf("PutPolicy() error = %v", err)
+	}
+	if err := store.PutExposure(ctx, messaging.Exposure{
+		ID:           "exposure/hermes",
+		ConnectionID: connection.ID,
+		SubjectID:    "runtime:hermes",
+		SubjectKind:  messaging.ExposureSubjectKindRuntime,
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("PutExposure() error = %v", err)
+	}
+	if err := b.RegisterConnection(ctx, RegisterConnectionParams{
+		Connection: connection,
+		Process: messagingruntime.ProcessSpec{
+			Path: helperProcessExecutableForTests(),
+			Args: []string{"-test.run=TestBrokerHelperMessagingAdapterProcess", "--"},
+			Env:  []string{"GO_WANT_HELPER_MESSAGING_BROKER_ADAPTER=1"},
+		},
+	}); err != nil {
+		t.Fatalf("RegisterConnection() error = %v", err)
+	}
+	if _, err := b.ConnectConnection(ctx, connection.ID); err != nil {
+		t.Fatalf("ConnectConnection() error = %v", err)
+	}
+
+	conversation := messaging.Conversation{
+		ID:              "conv/latisha",
+		ConnectionID:    connection.ID,
+		LocalIdentityID: "identity/test",
+		Kind:            messaging.ConversationKindDirect,
+		RemoteID:        "D123",
+		Title:           "Latisha",
+		Participants: []messaging.Participant{
+			{Kind: messaging.ParticipantKindBot, IdentityID: "identity/test", IsLocal: true, DisplayName: "Test Bot"},
+			{Kind: messaging.ParticipantKindUser, RemoteID: "U234", DisplayName: "Latisha"},
+		},
+	}
+	if err := store.PutConversation(ctx, conversation); err != nil {
+		t.Fatalf("PutConversation() error = %v", err)
+	}
+
+	draft := messaging.Draft{
+		ID:              "draft/reply",
+		ConnectionID:    connection.ID,
+		ConversationID:  conversation.ID,
+		LocalIdentityID: "identity/test",
+		ReplyToRemoteID: "slack-msg-1",
+		Parts: []messaging.MessagePart{
+			{Kind: messaging.MessagePartKindMarkdown, Text: "I'll take care of it."},
+		},
+		Status: messaging.DraftStatusPending,
+	}
+	draftResult, err := b.CreateDraft(ctx, "exposure/hermes", draft)
+	if err != nil {
+		t.Fatalf("CreateDraft() error = %v", err)
+	}
+	if draftResult.Draft.Status != messaging.DraftStatusPending {
+		t.Fatalf("draft status = %q, want pending", draftResult.Draft.Status)
+	}
+	if draftResult.Workflow.Status != messaging.WorkflowStatusDrafted {
+		t.Fatalf("workflow status = %q, want drafted", draftResult.Workflow.Status)
+	}
+
+	sendResult, err := b.RequestSendDraft(ctx, "exposure/hermes", draft.ID, false)
+	if err != nil {
+		t.Fatalf("RequestSendDraft(approval) error = %v", err)
+	}
+	if sendResult.Approval == nil {
+		t.Fatal("RequestSendDraft() approval = nil, want approval")
+	}
+	if sendResult.Draft.Status != messaging.DraftStatusApprovalRequired {
+		t.Fatalf("draft status after request = %q, want approval_required", sendResult.Draft.Status)
+	}
+	if sendResult.Workflow.Status != messaging.WorkflowStatusAwaitingApproval {
+		t.Fatalf("workflow status after request = %q, want awaiting_approval", sendResult.Workflow.Status)
+	}
+
+	inbox := mailboxStore.ListInbox("human:alice")
+	if len(inbox) != 1 {
+		t.Fatalf("mailbox inbox len = %d, want 1", len(inbox))
+	}
+	if inbox[0].Item.Kind != agentmailbox.ItemKindApprovalRequest {
+		t.Fatalf("mailbox item kind = %q, want approval_request", inbox[0].Item.Kind)
+	}
+
+	approvalResult, err := b.ApproveDraftSend(ctx, sendResult.Approval.ID, "human:alice")
+	if err != nil {
+		t.Fatalf("ApproveDraftSend() error = %v", err)
+	}
+	if approvalResult.Approval.Status != messaging.ApprovalStatusApproved {
+		t.Fatalf("approval status = %q, want approved", approvalResult.Approval.Status)
+	}
+	if approvalResult.Draft.Status != messaging.DraftStatusApproved {
+		t.Fatalf("draft status after approval = %q, want approved", approvalResult.Draft.Status)
+	}
+
+	sendResult, err = b.RequestSendDraft(ctx, "exposure/hermes", draft.ID, false)
+	if err != nil {
+		t.Fatalf("RequestSendDraft(send) error = %v", err)
+	}
+	if sendResult.Message == nil {
+		t.Fatal("RequestSendDraft() message = nil, want outbound message")
+	}
+	if sendResult.Message.Direction != messaging.MessageDirectionOutbound {
+		t.Fatalf("outbound message direction = %q, want outbound", sendResult.Message.Direction)
+	}
+	if sendResult.Draft.Status != messaging.DraftStatusSent {
+		t.Fatalf("draft status after send = %q, want sent", sendResult.Draft.Status)
+	}
+	if sendResult.Workflow.Status != messaging.WorkflowStatusSent {
+		t.Fatalf("workflow status after send = %q, want sent", sendResult.Workflow.Status)
+	}
+	if storedMessage, ok := store.GetMessage(sendResult.Message.ID); !ok || storedMessage.Status != messaging.MessageStatusSent {
+		t.Fatalf("GetMessage() = %+v, %v; want sent message", storedMessage, ok)
+	}
+}
+
 func TestBrokerRuntimePathsForConnection(t *testing.T) {
 	t.Parallel()
 
@@ -477,6 +644,9 @@ func runBrokerHelperMessagingAdapter() error {
 							Polling:           true,
 							ListConversations: true,
 							ListMessages:      true,
+							CreateDrafts:      true,
+							UpdateDrafts:      true,
+							SendMessages:      true,
 						},
 					},
 				}),
@@ -515,6 +685,48 @@ func runBrokerHelperMessagingAdapter() error {
 					}},
 					Checkpoint: &protocol.Checkpoint{
 						Cursor: "cursor-1",
+					},
+				}),
+			}); err != nil {
+				return err
+			}
+		case string(protocol.MethodCreateDraft):
+			var params protocol.CreateDraftParams
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				return err
+			}
+			draft := params.Draft.Draft
+			if draft.Metadata == nil {
+				draft.Metadata = map[string]string{}
+			}
+			draft.Metadata["native_draft"] = "true"
+			if err := enc.Write(messagingruntime.Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result: mustJSON(protocol.CreateDraftResult{
+					Draft: protocol.DraftRecord{
+						Draft: draft,
+					},
+				}),
+			}); err != nil {
+				return err
+			}
+		case string(protocol.MethodUpdateDraft):
+			var params protocol.UpdateDraftParams
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				return err
+			}
+			draft := params.Draft.Draft
+			if draft.Metadata == nil {
+				draft.Metadata = map[string]string{}
+			}
+			draft.Metadata["native_draft"] = "updated"
+			if err := enc.Write(messagingruntime.Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result: mustJSON(protocol.UpdateDraftResult{
+					Draft: protocol.DraftRecord{
+						Draft: draft,
 					},
 				}),
 			}); err != nil {
@@ -605,6 +817,47 @@ func runBrokerHelperMessagingAdapter() error {
 					Message: protocol.MessageRecord{
 						Message: message,
 					},
+				}),
+			}); err != nil {
+				return err
+			}
+		case string(protocol.MethodSendMessage), string(protocol.MethodReplyMessage):
+			var draft protocol.DraftRecord
+			if req.Method == string(protocol.MethodSendMessage) {
+				var params protocol.SendMessageParams
+				if err := json.Unmarshal(req.Params, &params); err != nil {
+					return err
+				}
+				draft = params.Draft
+			} else {
+				var params protocol.ReplyMessageParams
+				if err := json.Unmarshal(req.Params, &params); err != nil {
+					return err
+				}
+				draft = params.Draft
+			}
+			message := messaging.Message{
+				ID:              messaging.MessageID("sent/" + string(draft.Draft.ID)),
+				ConnectionID:    draft.Draft.ConnectionID,
+				ConversationID:  draft.Draft.ConversationID,
+				LocalIdentityID: draft.Draft.LocalIdentityID,
+				Direction:       messaging.MessageDirectionOutbound,
+				Sender: messaging.Participant{
+					Kind:        messaging.ParticipantKindBot,
+					IdentityID:  draft.Draft.LocalIdentityID,
+					IsLocal:     true,
+					DisplayName: "Test Bot",
+				},
+				Parts:     draft.Draft.Parts,
+				CreatedAt: time.Date(2026, 4, 22, 15, 0, 0, 0, time.UTC),
+				Status:    messaging.MessageStatusSent,
+			}
+			if err := enc.Write(messagingruntime.Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result: mustJSON(protocol.SendResult{
+					Message: protocol.MessageRecord{Message: message},
+					Status:  messaging.MessageStatusSent,
 				}),
 			}); err != nil {
 				return err

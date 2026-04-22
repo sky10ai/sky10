@@ -175,6 +175,28 @@ func TestDraftValidate(t *testing.T) {
 	}
 }
 
+func TestApprovalValidate(t *testing.T) {
+	now := time.Now().UTC()
+	approval := Approval{
+		ID:           ApprovalID("approval-1"),
+		ConnectionID: ConnectionID("gmail/work"),
+		DraftID:      DraftID("draft-1"),
+		WorkflowID:   WorkflowID("wf-1"),
+		Action:       "send_draft",
+		Summary:      "Send reply to board thread",
+		Status:       ApprovalStatusPending,
+		RequestedAt:  now,
+	}
+	if err := approval.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+
+	approval.Summary = ""
+	if err := approval.Validate(); err == nil {
+		t.Fatal("Validate() succeeded with blank summary, want error")
+	}
+}
+
 func TestPolicyExposureAndEventValidate(t *testing.T) {
 	policy := Policy{
 		ID:   PolicyID("default-reply-only"),

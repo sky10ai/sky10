@@ -16,6 +16,7 @@ type Backend interface {
 	PutConversation(ctx context.Context, conversation messaging.Conversation) error
 	PutMessage(ctx context.Context, message messaging.Message) error
 	PutDraft(ctx context.Context, draft messaging.Draft) error
+	PutApproval(ctx context.Context, approval messaging.Approval) error
 	PutPolicy(ctx context.Context, policy messaging.Policy) error
 	PutExposure(ctx context.Context, exposure messaging.Exposure) error
 	PutWorkflow(ctx context.Context, workflow messaging.Workflow) error
@@ -31,6 +32,7 @@ type Snapshot struct {
 	Conversations  []messaging.Conversation
 	Messages       []messaging.Message
 	Drafts         []messaging.Draft
+	Approvals      []messaging.Approval
 	Policies       []messaging.Policy
 	Exposures      []messaging.Exposure
 	Workflows      []messaging.Workflow

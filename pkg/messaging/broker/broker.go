@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 
+	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
 	"github.com/sky10/sky10/pkg/messaging"
 	"github.com/sky10/sky10/pkg/messaging/protocol"
 	messagingruntime "github.com/sky10/sky10/pkg/messaging/runtime"
@@ -26,11 +27,14 @@ const defaultInlineWebhookBodyLimit = 32 << 10
 
 // Config configures one broker instance.
 type Config struct {
-	Store   *messagingstore.Store
-	Manager *messagingruntime.Manager
-	RootDir string
-	Now     func() time.Time
-	NewID   func() string
+	Store           *messagingstore.Store
+	Manager         *messagingruntime.Manager
+	RootDir         string
+	ApprovalMailbox ApprovalMailbox
+	ApprovalFrom    agentmailbox.Principal
+	ApprovalTo      *agentmailbox.Principal
+	Now             func() time.Time
+	NewID           func() string
 }
 
 // RegisterConnectionParams describes one connection plus its adapter process.
@@ -83,11 +87,14 @@ type WebhookResult struct {
 
 // Broker orchestrates messaging connections through supervised adapters.
 type Broker struct {
-	store   *messagingstore.Store
-	manager *messagingruntime.Manager
-	rootDir string
-	now     func() time.Time
-	newID   func() string
+	store           *messagingstore.Store
+	manager         *messagingruntime.Manager
+	rootDir         string
+	approvalMailbox ApprovalMailbox
+	approvalFrom    agentmailbox.Principal
+	approvalTo      *agentmailbox.Principal
+	now             func() time.Time
+	newID           func() string
 
 	mu sync.RWMutex
 }
@@ -116,12 +123,28 @@ func New(ctx context.Context, cfg Config) (*Broker, error) {
 	if newID == nil {
 		newID = func() string { return uuid.NewString() }
 	}
+	approvalFrom := cfg.ApprovalFrom
+	if cfg.ApprovalMailbox != nil && strings.TrimSpace(approvalFrom.ID) == "" {
+		approvalFrom = agentmailbox.Principal{
+			ID:    "system:messaging",
+			Kind:  agentmailbox.PrincipalKindLocalAgent,
+			Scope: agentmailbox.ScopePrivateNetwork,
+		}
+	}
+	var approvalTo *agentmailbox.Principal
+	if cfg.ApprovalTo != nil {
+		copy := *cfg.ApprovalTo
+		approvalTo = &copy
+	}
 	return &Broker{
-		store:   cfg.Store,
-		manager: manager,
-		rootDir: rootDir,
-		now:     now,
-		newID:   newID,
+		store:           cfg.Store,
+		manager:         manager,
+		rootDir:         rootDir,
+		approvalMailbox: cfg.ApprovalMailbox,
+		approvalFrom:    approvalFrom,
+		approvalTo:      approvalTo,
+		now:             now,
+		newID:           newID,
 	}, nil
 }
 
