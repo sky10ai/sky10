@@ -49,6 +49,7 @@ const (
 	templateOpenClawPluginPackage  = templateOpenClawPluginDir + "/package.json"
 	templateOpenClawPluginManifest = templateOpenClawPluginDir + "/openclaw.plugin.json"
 	templateOpenClawPluginIndex    = templateOpenClawPluginDir + "/src/index.js"
+	templateOpenClawPluginMedia    = templateOpenClawPluginDir + "/src/media.js"
 	templateOpenClawPluginClient   = templateOpenClawPluginDir + "/src/sky10.js"
 	templateOpenClawInviteFile     = "join.json"
 	templateRemoteBase             = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
@@ -72,6 +73,7 @@ var openClawSharedAssetFiles = []string{
 	templateOpenClawPluginPackage,
 	templateOpenClawPluginManifest,
 	templateOpenClawPluginIndex,
+	templateOpenClawPluginMedia,
 	templateOpenClawPluginClient,
 }
 

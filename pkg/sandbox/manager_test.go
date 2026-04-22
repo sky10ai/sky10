@@ -1053,6 +1053,7 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	pluginAssets := map[string][]byte{
 		templateOpenClawPluginManifest: []byte(`{"id":"sky10"}` + "\n"),
 		templateOpenClawPluginIndex:    []byte("export default function register() {}\n"),
+		templateOpenClawPluginMedia:    []byte("export function helper() {}\n"),
 	}
 	if err := prepareOpenClawSharedDir(sharedDir, stateDir, helper, pluginAssets, map[string]string{
 		"OPENAI_API_KEY": "openai-key",
@@ -1100,6 +1101,15 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	}
 	if string(pluginManifestData) != string(pluginAssets[templateOpenClawPluginManifest]) {
 		t.Fatalf("plugin manifest = %q, want %q", string(pluginManifestData), string(pluginAssets[templateOpenClawPluginManifest]))
+	}
+
+	pluginMediaPath := filepath.Join(stateDir, "plugins", templateOpenClawPluginMedia)
+	pluginMediaData, err := os.ReadFile(pluginMediaPath)
+	if err != nil {
+		t.Fatalf("ReadFile(plugin media helper) error: %v", err)
+	}
+	if string(pluginMediaData) != string(pluginAssets[templateOpenClawPluginMedia]) {
+		t.Fatalf("plugin media helper = %q, want %q", string(pluginMediaData), string(pluginAssets[templateOpenClawPluginMedia]))
 	}
 
 	invitePath := filepath.Join(stateDir, templateOpenClawInviteFile)
