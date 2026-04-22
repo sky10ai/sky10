@@ -2,8 +2,8 @@ import { useState } from "react";
 import { NavLink, useLocation } from "react-router";
 import { STORAGE_EVENT_TYPES } from "../lib/events";
 import { Icon } from "./Icon";
-import { skyfs, skylink, system } from "../lib/rpc";
-import { useRPC, truncAddr } from "../lib/useRPC";
+import { skyfs, system } from "../lib/rpc";
+import { useRPC } from "../lib/useRPC";
 import { VersionOverlay, parseVersionDetails } from "./VersionOverlay";
 
 const UPDATE_REFRESH_EVENTS = [
@@ -31,9 +31,6 @@ export function Sidebar() {
   const [versionOverlayOpen, setVersionOverlayOpen] = useState(false);
   const { data: health } = useRPC(() => skyfs.health(), [], {
     live: STORAGE_EVENT_TYPES,
-    refreshIntervalMs: 10_000,
-  });
-  const { data: linkStatus } = useRPC(() => skylink.status(), [], {
     refreshIntervalMs: 10_000,
   });
   const { data: updateInfo } = useRPC(() => system.update.check(), [], {
@@ -115,25 +112,6 @@ export function Sidebar() {
               );
             })}
           </nav>
-        </div>
-
-        {/* Bottom section */}
-        <div className="mt-auto space-y-4 p-6">
-          <div className="border-t border-outline-variant/10 pt-4">
-            <div className="flex items-center justify-between text-[11px] font-mono text-secondary">
-              <div className="flex items-center gap-2">
-                <Icon name="content_copy" className="text-[14px]" />
-                <span>
-                  {linkStatus?.address
-                    ? truncAddr(linkStatus.address)
-                    : "..."}
-                </span>
-              </div>
-              <span className="font-body font-semibold text-emerald-500">
-                {health ? "Connected" : "..."}
-              </span>
-            </div>
-          </div>
         </div>
       </aside>
       <VersionOverlay
