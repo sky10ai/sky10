@@ -363,8 +363,12 @@ func TestChatWebSocketHermesBridgeStagesAttachmentsAndReturnsArtifacts(t *testin
 		t.Fatalf("chat message content = %T/%d, want 3 items", userMessage["content"], len(contentItems))
 	}
 	firstText, ok := contentItems[0].(map[string]interface{})
-	if !ok || firstText["type"] != "text" || !strings.Contains(fmt.Sprint(firstText["text"]), "inspect these") {
+	if !ok || firstText["type"] != "text" {
 		t.Fatalf("first chat content item = %#v, want text prompt", contentItems[0])
+	}
+	firstPrompt := fmt.Sprint(firstText["text"])
+	if !strings.Contains(firstPrompt, "inspect these") || !strings.Contains(firstPrompt, "[Attached image]") || !strings.Contains(firstPrompt, "filename: diagram.png") || !strings.Contains(firstPrompt, "path: ") {
+		t.Fatalf("first chat text prompt = %#v, want question plus staged image prompt", firstText["text"])
 	}
 	imageItem, ok := contentItems[1].(map[string]interface{})
 	if !ok || imageItem["type"] != "image_url" {

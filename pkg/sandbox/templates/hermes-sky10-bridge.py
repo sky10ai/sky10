@@ -233,7 +233,16 @@ def build_chat_completions_user_content(content: Any, session_id: str) -> list[d
                 push_text(text)
             continue
 
+        source = part.get("source") if isinstance(part.get("source"), dict) else {}
+        source_type = str(source.get("type") or "").strip()
         if part_kind(part) == "image":
+            fallback_location = ""
+            if source_type == "base64" and str(source.get("data") or "").strip():
+                fallback_location = stage_base64_part(session_id, part)
+            elif source_type == "url" and str(source.get("url") or "").strip():
+                fallback_location = str(source.get("url")).strip()
+            if fallback_location:
+                push_text(build_attachment_prompt(part, fallback_location))
             image_url = image_url_for_part(part)
             if image_url:
                 flush_text()
@@ -242,9 +251,9 @@ def build_chat_completions_user_content(content: Any, session_id: str) -> list[d
                 if isinstance(caption, str) and caption.strip():
                     push_text(caption)
                 continue
+            if fallback_location:
+                continue
 
-        source = part.get("source") if isinstance(part.get("source"), dict) else {}
-        source_type = str(source.get("type") or "").strip()
         if source_type == "base64" and str(source.get("data") or "").strip():
             push_text(build_attachment_prompt(part, stage_base64_part(session_id, part)))
             continue

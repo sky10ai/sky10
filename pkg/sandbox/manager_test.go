@@ -1236,6 +1236,9 @@ func TestBundledHermesUserScriptKeepsSharedEnv(t *testing.T) {
 	if !strings.Contains(script, "sky10.service") {
 		t.Fatalf("bundled Hermes user script missing guest sky10 service unit: %q", script)
 	}
+	if !strings.Contains(script, "hermes config set auxiliary.vision.provider main") {
+		t.Fatalf("bundled Hermes user script missing auxiliary vision config: %q", script)
+	}
 	if strings.Contains(script, "sky10 join --role sandbox") {
 		t.Fatalf("bundled Hermes user script should not join the host identity during boot: %q", script)
 	}
