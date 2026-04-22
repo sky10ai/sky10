@@ -384,6 +384,19 @@ describe("AgentChat page", () => {
     await waitFor(() => page.textContent?.includes("Delivered") === true, "delivered state");
   });
 
+  test("rotates a stale chat session when no visible transcript is stored", async () => {
+    localStorage.setItem("sky10:session:agent-1", "session-stale");
+
+    await renderAgentChatPage();
+    await waitFor(() => FakeWebSocket.instances.length > 0, "guest websocket");
+
+    const socket = FakeWebSocket.latest();
+    const sessionID = new URL(socket.url).searchParams.get("session_id");
+    expect(sessionID).toBeTruthy();
+    expect(sessionID).not.toBe("session-stale");
+    expect(localStorage.getItem("sky10:session:agent-1")).toBe(sessionID);
+  });
+
   test("accepts dropped image attachments", async () => {
     localStorage.setItem("sky10:session:agent-1", "session-drop");
     const page = await renderAgentChatPage();
@@ -462,6 +475,10 @@ describe("AgentChat page", () => {
     localStorage.setItem("sky10:session:agent-1", "session-artifact-image");
     const page = await renderAgentChatPage();
     const ws = FakeWebSocket.latest();
+    const sessionID = new URL(ws.url).searchParams.get("session_id");
+    if (!sessionID) {
+      throw new Error("expected websocket session id");
+    }
 
     await act(async () => {
       ws.emitFrame({
@@ -469,7 +486,7 @@ describe("AgentChat page", () => {
         event: "message",
         payload: {
           id: "reply-artifact",
-          session_id: "session-artifact-image",
+          session_id: sessionID,
           message_type: "chat",
           content: {
             text: "artifact ready",
@@ -509,6 +526,10 @@ describe("AgentChat page", () => {
     localStorage.setItem("sky10:session:agent-1", "session-artifact-file");
     const page = await renderAgentChatPage();
     const ws = FakeWebSocket.latest();
+    const sessionID = new URL(ws.url).searchParams.get("session_id");
+    if (!sessionID) {
+      throw new Error("expected websocket session id");
+    }
 
     await act(async () => {
       ws.emitFrame({
@@ -516,7 +537,7 @@ describe("AgentChat page", () => {
         event: "message",
         payload: {
           id: "reply-file",
-          session_id: "session-artifact-file",
+          session_id: sessionID,
           message_type: "chat",
           content: {
             text: "download ready",

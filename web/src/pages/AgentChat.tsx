@@ -384,10 +384,9 @@ export default function AgentChat() {
   const navigate = useNavigate();
   const storageKey = `sky10:chat:${agentId}`;
   const sessionKey = `sky10:session:${agentId}`;
+  const initialMessages = loadChatMessages(localStorage.getItem(storageKey));
 
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    return loadChatMessages(localStorage.getItem(storageKey));
-  });
+  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
   const [composerError, setComposerError] = useState<string | null>(null);
@@ -398,7 +397,7 @@ export default function AgentChat() {
   const [transport, setTransport] = useState<ChatTransport>("connecting");
   const [sessionId] = useState(() => {
     const existing = localStorage.getItem(sessionKey);
-    if (existing) return existing;
+    if (existing && initialMessages.length > 0) return existing;
     const id = uuid();
     localStorage.setItem(sessionKey, id);
     return id;
