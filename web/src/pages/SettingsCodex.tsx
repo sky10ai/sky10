@@ -4,6 +4,7 @@ import { Icon } from "../components/Icon";
 import { PageHeader } from "../components/PageHeader";
 import { StatusBadge } from "../components/StatusBadge";
 import { CODEX_EVENT_TYPES } from "../lib/events";
+import { closeOAuthPopup, navigateOAuthPopup, openOAuthPopup } from "../lib/oauthPopup";
 import { codex } from "../lib/rpc";
 import { timeAgo, useRPC } from "../lib/useRPC";
 
@@ -78,19 +79,15 @@ export default function SettingsCodex() {
     setActionMessage(null);
     setRedirectOnLinked(true);
 
-    const popup = window.open("", "_blank", "noopener,noreferrer");
+    const popup = openOAuthPopup(window);
     try {
       const next = await codex.loginStart();
       const verificationURL = next.pending_login?.verification_url;
       const callbackListening = Boolean(next.pending_login?.callback_listening);
       if (verificationURL) {
-        if (popup) {
-          popup.location.href = verificationURL;
-        } else {
-          window.open(verificationURL, "_blank", "noopener,noreferrer");
-        }
-      } else if (popup) {
-        popup.close();
+        navigateOAuthPopup(window, popup, verificationURL);
+      } else {
+        closeOAuthPopup(popup);
       }
 
       setActionMessage(
@@ -100,7 +97,7 @@ export default function SettingsCodex() {
       );
       refetch({ background: true });
     } catch (error: unknown) {
-      if (popup) popup.close();
+      closeOAuthPopup(popup);
       setActionError(error instanceof Error ? error.message : "Could not start ChatGPT login");
     } finally {
       setBusy(null);
