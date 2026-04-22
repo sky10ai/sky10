@@ -566,8 +566,26 @@ func (idx *recordIndex) listWorkflowActivity(workflowID messaging.WorkflowID) []
 	return cloneActivityEvents(idx.activityByWorkflow[workflowID])
 }
 
+func (idx *recordIndex) hasWorkflowActivityEvent(workflowID messaging.WorkflowID, eventID messaging.EventID) bool {
+	for _, event := range idx.activityByWorkflow[workflowID] {
+		if event.ID == eventID {
+			return true
+		}
+	}
+	return false
+}
+
 func (idx *recordIndex) listConnectionEvents(connectionID messaging.ConnectionID) []messaging.Event {
 	return cloneEvents(idx.eventsByConnection[connectionID])
+}
+
+func (idx *recordIndex) hasConnectionEvent(connectionID messaging.ConnectionID, eventID messaging.EventID) bool {
+	for _, event := range idx.eventsByConnection[connectionID] {
+		if event.ID == eventID {
+			return true
+		}
+	}
+	return false
 }
 
 func (idx *recordIndex) getCheckpoint(connectionID messaging.ConnectionID) (protocol.Checkpoint, bool) {

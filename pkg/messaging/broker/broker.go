@@ -7,8 +7,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -361,7 +363,7 @@ func (b *Broker) persistInboundResult(ctx context.Context, adapterClient *messag
 	for _, rawEvent := range rawEvents {
 		event := cloneEvent(rawEvent)
 		if strings.TrimSpace(string(event.ID)) == "" {
-			event.ID = messaging.EventID(b.newID())
+			event.ID = stableEventID(connection.ID, event)
 		}
 		if strings.TrimSpace(string(event.ConnectionID)) == "" {
 			event.ConnectionID = connection.ID
@@ -662,4 +664,35 @@ func cloneHeaderMap(values map[string][]string) map[string][]string {
 		cloned[key] = slicesClone(items)
 	}
 	return cloned
+}
+
+func stableEventID(connectionID messaging.ConnectionID, event messaging.Event) messaging.EventID {
+	hash := sha256.New()
+	writeEventHashPart(hash, string(connectionID))
+	writeEventHashPart(hash, string(event.Type))
+	writeEventHashPart(hash, string(event.ConnectionID))
+	writeEventHashPart(hash, string(event.ConversationID))
+	writeEventHashPart(hash, string(event.MessageID))
+	writeEventHashPart(hash, string(event.DraftID))
+	writeEventHashPart(hash, string(event.ExposureID))
+	if !event.Timestamp.IsZero() {
+		writeEventHashPart(hash, event.Timestamp.UTC().Format(time.RFC3339Nano))
+	}
+	if len(event.Metadata) > 0 {
+		keys := make([]string, 0, len(event.Metadata))
+		for key := range event.Metadata {
+			keys = append(keys, key)
+		}
+		slices.Sort(keys)
+		for _, key := range keys {
+			writeEventHashPart(hash, key)
+			writeEventHashPart(hash, event.Metadata[key])
+		}
+	}
+	return messaging.EventID("evt/" + hex.EncodeToString(hash.Sum(nil))[:24])
+}
+
+func writeEventHashPart(hash hash.Hash, value string) {
+	_, _ = hash.Write([]byte(value))
+	_, _ = hash.Write([]byte{0})
 }

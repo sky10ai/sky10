@@ -332,6 +332,71 @@ func TestStoreRejectsMismatchedIdentityReplacement(t *testing.T) {
 	}
 }
 
+func TestStoreAppendEventsAreIdempotentByID(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := NewStore(ctx, NewKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+
+	now := time.Date(2026, 4, 22, 8, 0, 0, 0, time.UTC)
+	connection := messaging.Connection{
+		ID:        "conn/1",
+		AdapterID: "slack",
+		Label:     "Slack",
+		Status:    messaging.ConnectionStatusConnected,
+	}
+	if err := store.PutConnection(ctx, connection); err != nil {
+		t.Fatalf("PutConnection() error = %v", err)
+	}
+	workflow := messaging.Workflow{
+		ID:                 "wf/1",
+		Kind:               "draft_send",
+		Status:             messaging.WorkflowStatusDrafted,
+		SourceConnectionID: connection.ID,
+		Sender:             messaging.Participant{Kind: messaging.ParticipantKindUser, RemoteID: "U1", DisplayName: "Latisha"},
+		BrokerReceivedAt:   now,
+		LastActivityAt:     now,
+	}
+	if err := store.PutWorkflow(ctx, workflow); err != nil {
+		t.Fatalf("PutWorkflow() error = %v", err)
+	}
+
+	event := messaging.Event{
+		ID:           "evt/dup",
+		Type:         messaging.EventTypeMessageReceived,
+		ConnectionID: connection.ID,
+		Timestamp:    now,
+	}
+	if err := store.AppendEvent(ctx, event); err != nil {
+		t.Fatalf("AppendEvent(first) error = %v", err)
+	}
+	if err := store.AppendEvent(ctx, event); err != nil {
+		t.Fatalf("AppendEvent(dup) error = %v", err)
+	}
+	if events := store.ListConnectionEvents(connection.ID); len(events) != 1 {
+		t.Fatalf("ListConnectionEvents() len = %d, want 1", len(events))
+	}
+
+	activity := messaging.ActivityEvent{
+		ID:         "act/dup",
+		WorkflowID: workflow.ID,
+		Type:       messaging.EventTypeDraftUpdated,
+		OccurredAt: now,
+	}
+	if err := store.AppendActivityEvent(ctx, activity); err != nil {
+		t.Fatalf("AppendActivityEvent(first) error = %v", err)
+	}
+	if err := store.AppendActivityEvent(ctx, activity); err != nil {
+		t.Fatalf("AppendActivityEvent(dup) error = %v", err)
+	}
+	if activities := store.ListWorkflowActivity(workflow.ID); len(activities) != 1 {
+		t.Fatalf("ListWorkflowActivity() len = %d, want 1", len(activities))
+	}
+}
+
 type memoryKVStore struct {
 	mu   sync.RWMutex
 	data map[string][]byte

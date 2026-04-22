@@ -164,7 +164,7 @@ outbound orchestration, and event fanout.
 - [ ] Add event fanout to UI and northbound shims.
 - [x] Aggregate raw activity into human-facing workflow state for draft,
   approval, and send flows.
-- [ ] Add deduplication/idempotency for inbound events and outbound send
+- [x] Add deduplication/idempotency for inbound events and outbound send
   results.
 - [ ] Add delivery status and edit/delete state updates when supported.
 

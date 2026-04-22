@@ -229,6 +229,47 @@ func TestBrokerHandleWebhookConnectionStagesBinaryBody(t *testing.T) {
 	}
 }
 
+func TestBrokerPollConnectionDeduplicatesStableBlankEvents(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	rootDir := filepath.Join(t.TempDir(), "messaging-runtime")
+	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	b, err := New(ctx, Config{
+		Store:   store,
+		RootDir: rootDir,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = b.Close() }()
+
+	connection := registerHelperConnection(t, ctx, b)
+	if _, err := b.ConnectConnection(ctx, connection.ID); err != nil {
+		t.Fatalf("ConnectConnection() error = %v", err)
+	}
+
+	if _, err := b.PollConnection(ctx, connection.ID, 10); err != nil {
+		t.Fatalf("PollConnection(first) error = %v", err)
+	}
+	if _, err := b.PollConnection(ctx, connection.ID, 10); err != nil {
+		t.Fatalf("PollConnection(second) error = %v", err)
+	}
+
+	receivedEvents := 0
+	for _, event := range store.ListConnectionEvents(connection.ID) {
+		if event.Type == messaging.EventTypeMessageReceived {
+			receivedEvents++
+		}
+	}
+	if receivedEvents != 1 {
+		t.Fatalf("message_received events = %d, want 1", receivedEvents)
+	}
+}
+
 func TestBrokerResolvePolicyUsesExposureOverride(t *testing.T) {
 	t.Parallel()
 
@@ -552,6 +593,18 @@ func TestBrokerDraftApprovalAndSendFlow(t *testing.T) {
 	}
 	if storedMessage, ok := store.GetMessage(sendResult.Message.ID); !ok || storedMessage.Status != messaging.MessageStatusSent {
 		t.Fatalf("GetMessage() = %+v, %v; want sent message", storedMessage, ok)
+	}
+
+	eventsBefore := len(store.ListConnectionEvents(connection.ID))
+	repeatResult, err := b.RequestSendDraft(ctx, "exposure/hermes", draft.ID, false)
+	if err != nil {
+		t.Fatalf("RequestSendDraft(repeat) error = %v", err)
+	}
+	if repeatResult.Message == nil || repeatResult.Message.ID != sendResult.Message.ID {
+		t.Fatalf("repeat send message = %+v, want %s", repeatResult.Message, sendResult.Message.ID)
+	}
+	if got := len(store.ListConnectionEvents(connection.ID)); got != eventsBefore {
+		t.Fatalf("connection events len after repeat send = %d, want %d", got, eventsBefore)
 	}
 }
 

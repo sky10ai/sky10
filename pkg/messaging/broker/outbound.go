@@ -70,6 +70,23 @@ func (b *Broker) RequestSendDraft(ctx context.Context, exposureID messaging.Expo
 	if err != nil {
 		return RequestSendDraftResult{}, err
 	}
+	if draft.Status == messaging.DraftStatusSent && workflow.OutboundMessageID != "" {
+		storedMessage, ok := b.store.GetMessage(workflow.OutboundMessageID)
+		if ok {
+			var approval *messaging.Approval
+			if workflow.ApprovalID != "" {
+				if storedApproval, ok := b.store.GetApproval(workflow.ApprovalID); ok {
+					approval = &storedApproval
+				}
+			}
+			return RequestSendDraftResult{
+				Draft:    draft,
+				Workflow: workflow,
+				Approval: approval,
+				Message:  &storedMessage,
+			}, nil
+		}
+	}
 	decision, err := b.EvaluateSend(draft.ConnectionID, exposureID, draft, newConversation)
 	if err != nil {
 		return RequestSendDraftResult{}, err

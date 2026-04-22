@@ -215,6 +215,12 @@ func (s *Store) AppendActivityEvent(ctx context.Context, event messaging.Activit
 	if err := event.Validate(); err != nil {
 		return err
 	}
+	s.mu.RLock()
+	if s.index != nil && s.index.hasWorkflowActivityEvent(event.WorkflowID, event.ID) {
+		s.mu.RUnlock()
+		return nil
+	}
+	s.mu.RUnlock()
 	if err := s.backend.AppendActivityEvent(ctx, event); err != nil {
 		return err
 	}
@@ -230,6 +236,12 @@ func (s *Store) AppendEvent(ctx context.Context, event messaging.Event) error {
 	if err := event.Validate(); err != nil {
 		return err
 	}
+	s.mu.RLock()
+	if s.index != nil && s.index.hasConnectionEvent(event.ConnectionID, event.ID) {
+		s.mu.RUnlock()
+		return nil
+	}
+	s.mu.RUnlock()
 	if err := s.backend.AppendEvent(ctx, event); err != nil {
 		return err
 	}
