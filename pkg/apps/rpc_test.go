@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	skyrpc "github.com/sky10/sky10/pkg/rpc"
 )
 
 func TestRPCHandler_UnknownNamespaceIsIgnored(t *testing.T) {
@@ -132,6 +134,50 @@ func TestRPCHandler_InstallRejectsConcurrentInstallForSameApp(t *testing.T) {
 	}
 
 	close(release)
+}
+
+func TestRPCHandler_UninstallDispatch(t *testing.T) {
+	h := NewRPCHandler(nil)
+	h.lookup = func(id string) (*AppInfo, error) {
+		return &AppInfo{ID: AppLima, Name: "Lima"}, nil
+	}
+	h.uninstall = func(id ID, audit UninstallAuditInfo) (*UninstallResult, error) {
+		if id != AppLima {
+			t.Fatalf("uninstall id = %q, want %q", id, AppLima)
+		}
+		if audit.Source != "apps.rpc" {
+			t.Fatalf("audit source = %q, want apps.rpc", audit.Source)
+		}
+		if audit.Method != "apps.uninstall" {
+			t.Fatalf("audit method = %q, want apps.uninstall", audit.Method)
+		}
+		if audit.Transport != "http" {
+			t.Fatalf("audit transport = %q, want http", audit.Transport)
+		}
+		if audit.Remote != "127.0.0.1:9101" {
+			t.Fatalf("audit remote = %q, want 127.0.0.1:9101", audit.Remote)
+		}
+		return &UninstallResult{ID: id, Path: "/Users/test/.sky10/bin/limactl", Removed: true}, nil
+	}
+
+	result, err, handled := h.Dispatch(
+		skyrpc.WithCallerInfo(context.Background(), "http", "127.0.0.1:9101"),
+		"apps.uninstall",
+		mustAppsJSON(t, map[string]string{"id": "lima"}),
+	)
+	if err != nil {
+		t.Fatalf("apps.uninstall error: %v", err)
+	}
+	if !handled {
+		t.Fatal("apps.uninstall should be handled")
+	}
+	uninstall, ok := result.(*UninstallResult)
+	if !ok {
+		t.Fatalf("apps.uninstall result has unexpected type %T", result)
+	}
+	if !uninstall.Removed || uninstall.ID != AppLima {
+		t.Fatalf("apps.uninstall result = %#v, want removed Lima uninstall result", uninstall)
+	}
 }
 
 func mustAppsJSON(t *testing.T, value interface{}) json.RawMessage {

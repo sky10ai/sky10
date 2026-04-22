@@ -55,6 +55,7 @@ export default function SettingsApps() {
   const [limaActionError, setLimaActionError] = useState<string | null>(null);
   const [limaActionMessage, setLimaActionMessage] = useState<string | null>(null);
   const [limaInstalling, setLimaInstalling] = useState(false);
+  const [limaUninstalling, setLimaUninstalling] = useState(false);
 
   useEffect(() => {
     return subscribe((event, data) => {
@@ -165,6 +166,26 @@ export default function SettingsApps() {
     }
   }, []);
 
+  const handleLimaDelete = useCallback(async () => {
+    setLimaUninstalling(true);
+    setLimaActionError(null);
+    setLimaActionMessage(null);
+    try {
+      const result = await apps.uninstall({ id: LIMA_APP_ID });
+      refetchLima();
+      refetchLimaRelease();
+      setLimaActionMessage(
+        result.removed
+          ? `Removed managed Lima binary from ${result.path}.`
+          : `No managed Lima binary found at ${result.path}.`,
+      );
+    } catch (e: unknown) {
+      setLimaActionError(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setLimaUninstalling(false);
+    }
+  }, [refetchLima, refetchLimaRelease]);
+
   const walletInstalled = Boolean(walletStatus?.installed);
   const walletManaged = Boolean(walletStatus?.managed);
   const walletUpdateAvailable = Boolean(walletInstalled && walletRelease?.available);
@@ -178,6 +199,7 @@ export default function SettingsApps() {
   const limaBinaryPath = limaStatus?.active_path || "Not installed";
   const limaManagedPath = limaStatus?.managed_path;
   const limaUnsupportedPlatform = Boolean(limaRelease && !limaRelease.asset_url);
+  const limaBusy = limaInstalling || limaUninstalling;
 
   return (
     <div className="p-12 max-w-5xl mx-auto space-y-10">
@@ -398,7 +420,7 @@ export default function SettingsApps() {
             <div className="flex flex-wrap items-center gap-3">
               <button
                 className="inline-flex items-center gap-2 rounded-full bg-tertiary px-5 py-2.5 text-sm font-semibold text-on-tertiary shadow-lg transition-all active:scale-95 disabled:opacity-60"
-                disabled={limaInstalling || limaUnsupportedPlatform}
+                disabled={limaBusy || limaUnsupportedPlatform}
                 onClick={handleLimaInstall}
                 type="button"
               >
@@ -410,6 +432,15 @@ export default function SettingsApps() {
                     : limaInstalled
                       ? "Reinstall"
                       : "Install"}
+              </button>
+              <button
+                className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-5 py-2.5 text-sm font-semibold text-secondary transition-colors disabled:opacity-50"
+                disabled={!limaManaged || limaBusy}
+                onClick={handleLimaDelete}
+                type="button"
+              >
+                <Icon name="delete" />
+                {limaUninstalling ? "Deleting..." : "Delete"}
               </button>
             </div>
           </div>
@@ -516,11 +547,11 @@ export default function SettingsApps() {
                 If no managed Lima binary is active yet, sky10 falls back to `limactl` from `PATH`.
               </p>
               <p className="text-sm text-secondary">
-                Delete is intentionally unavailable for managed Lima until uninstall behavior is understood.
+                Delete removes only the managed Lima binary under sky10 control. It does not touch any unrelated system install on PATH.
               </p>
               {!limaManaged && limaInstalled && (
                 <p className="text-sm text-secondary">
-                  The current Lima binary was discovered on PATH. Installing here stages a managed copy under `~/.sky10/bin/limactl` and sandbox flows will start preferring it.
+                  The current Lima binary was discovered on PATH, so delete is disabled until sky10 is the manager of that binary.
                 </p>
               )}
             </div>

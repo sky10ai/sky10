@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	skyrpc "github.com/sky10/sky10/pkg/rpc"
 )
 
 type Emitter func(event string, data interface{})
@@ -17,10 +19,11 @@ type RPCHandler struct {
 	mu         sync.Mutex
 	installing map[ID]bool
 
-	lookup  func(string) (*AppInfo, error)
-	status  func(ID) (*Status, error)
-	check   func(ID) (*ReleaseInfo, error)
-	upgrade func(ID, ProgressFunc) (*ReleaseInfo, error)
+	lookup    func(string) (*AppInfo, error)
+	status    func(ID) (*Status, error)
+	check     func(ID) (*ReleaseInfo, error)
+	upgrade   func(ID, ProgressFunc) (*ReleaseInfo, error)
+	uninstall func(ID, UninstallAuditInfo) (*UninstallResult, error)
 }
 
 // NewRPCHandler creates an RPC handler for managed helper apps.
@@ -32,11 +35,12 @@ func NewRPCHandler(emit Emitter) *RPCHandler {
 		status:     StatusFor,
 		check:      CheckLatest,
 		upgrade:    Upgrade,
+		uninstall:  UninstallWithAudit,
 	}
 }
 
 // Dispatch implements rpc.Handler.
-func (h *RPCHandler) Dispatch(_ context.Context, method string, params json.RawMessage) (interface{}, error, bool) {
+func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.RawMessage) (interface{}, error, bool) {
 	if !strings.HasPrefix(method, "apps.") {
 		return nil, nil, false
 	}
@@ -49,6 +53,8 @@ func (h *RPCHandler) Dispatch(_ context.Context, method string, params json.RawM
 		result, err = h.rpcStatus(params)
 	case "apps.install":
 		result, err = h.rpcInstall(params)
+	case "apps.uninstall":
+		result, err = h.rpcUninstall(ctx, params)
 	case "apps.checkUpdate":
 		result, err = h.rpcCheckUpdate(params)
 	default:
@@ -75,12 +81,12 @@ func (h *RPCHandler) rpcInstall(params json.RawMessage) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !h.beginInstall(app.ID) {
-		return nil, fmt.Errorf("%s install already in progress", app.ID)
+	if !h.beginOperation(app.ID) {
+		return nil, fmt.Errorf("%s operation already in progress", app.ID)
 	}
 
 	go func() {
-		defer h.finishInstall(app.ID)
+		defer h.finishOperation(app.ID)
 
 		info, err := h.upgrade(app.ID, func(downloaded, total int64) {
 			h.emitEvent("apps:install:progress", map[string]interface{}{
@@ -117,6 +123,27 @@ func (h *RPCHandler) rpcInstall(params json.RawMessage) (interface{}, error) {
 	}, nil
 }
 
+func (h *RPCHandler) rpcUninstall(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	app, err := h.parseApp(params)
+	if err != nil {
+		return nil, err
+	}
+	if !h.beginOperation(app.ID) {
+		return nil, fmt.Errorf("%s operation already in progress", app.ID)
+	}
+	defer h.finishOperation(app.ID)
+
+	audit := UninstallAuditInfo{
+		Source: "apps.rpc",
+		Method: "apps.uninstall",
+	}
+	if info, ok := skyrpc.CallerInfoFromContext(ctx); ok {
+		audit.Transport = info.Transport
+		audit.Remote = info.Remote
+	}
+	return h.uninstall(app.ID, audit)
+}
+
 func (h *RPCHandler) rpcCheckUpdate(params json.RawMessage) (interface{}, error) {
 	app, err := h.parseApp(params)
 	if err != nil {
@@ -137,7 +164,7 @@ func (h *RPCHandler) parseApp(params json.RawMessage) (*AppInfo, error) {
 	return h.lookup(p.ID)
 }
 
-func (h *RPCHandler) beginInstall(id ID) bool {
+func (h *RPCHandler) beginOperation(id ID) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.installing[id] {
@@ -147,7 +174,7 @@ func (h *RPCHandler) beginInstall(id ID) bool {
 	return true
 }
 
-func (h *RPCHandler) finishInstall(id ID) {
+func (h *RPCHandler) finishOperation(id ID) {
 	h.mu.Lock()
 	delete(h.installing, id)
 	h.mu.Unlock()

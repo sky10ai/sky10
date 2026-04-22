@@ -210,6 +210,7 @@ export function guestAgentChatWebSocketURL(address: string, agentID: string, ses
 export const apps = {
   status: (p: { id: string }) => rpc<AppStatus>("apps.status", p),
   install: (p: { id: string }) => rpc<{ id: string; status: string }>("apps.install", p),
+  uninstall: (p: { id: string }) => rpc<AppUninstallResult>("apps.uninstall", p),
   checkUpdate: (p: { id: string }) => rpc<AppReleaseInfo>("apps.checkUpdate", p),
 };
 
@@ -1020,6 +1021,12 @@ export interface AppReleaseInfo {
   available: boolean;
   asset_url?: string;
   extra_asset_urls?: string[];
+}
+
+export interface AppUninstallResult {
+  id: string;
+  path: string;
+  removed: boolean;
 }
 
 // -- Wallet types --
