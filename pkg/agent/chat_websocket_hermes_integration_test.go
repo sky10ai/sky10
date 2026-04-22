@@ -244,15 +244,7 @@ func TestChatWebSocketHermesBridgeStagesAttachmentsAndReturnsArtifacts(t *testin
 	}
 
 	hermesAPI := newFakeHermesServer(t, fakeHermesServerConfig{
-		responsesHandler: func(w http.ResponseWriter, flusher http.Flusher, _payload map[string]interface{}) {
-			writeSSE(w, flusher, "response.completed", map[string]interface{}{
-				"response": map[string]string{
-					"output_text": "artifact ready\nMEDIA:" + artifactPath,
-				},
-			})
-			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
-			flusher.Flush()
-		},
+		chatChunks: []string{"artifact ready\nMEDIA:" + artifactPath},
 	})
 	bridge := startHermesBridge(t, guest.baseURL, hermesAPI.server.URL, "hermes-attachments")
 
@@ -304,6 +296,14 @@ func TestChatWebSocketHermesBridgeStagesAttachmentsAndReturnsArtifacts(t *testin
 	})
 	waitForHubMessage(t, hubSub, bridge)
 
+	deltaEvent, deltaContent := readHermesStreamEvent(t, sessionConn, "delta")
+	if deltaEvent.Payload.MessageType != "delta" {
+		t.Fatalf("delta message type = %q, want delta", deltaEvent.Payload.MessageType)
+	}
+	if !strings.Contains(deltaContent.Text, "artifact ready") {
+		t.Fatalf("delta text = %q, want artifact text", deltaContent.Text)
+	}
+
 	messageEvent := readStreamEvent(t, sessionConn)
 	if messageEvent.Event != "message" {
 		t.Fatalf("message event = %q, want message", messageEvent.Event)
@@ -338,21 +338,48 @@ func TestChatWebSocketHermesBridgeStagesAttachmentsAndReturnsArtifacts(t *testin
 	if doneContent.ClientRequestID != "req-attachments" {
 		t.Fatalf("done client_request_id = %q, want req-attachments", doneContent.ClientRequestID)
 	}
+	if doneContent.StreamID != deltaContent.StreamID {
+		t.Fatalf("done stream_id = %q, want %q", doneContent.StreamID, deltaContent.StreamID)
+	}
 
 	stats := hermesAPI.stats()
-	requestBody := decodeJSONMap(t, stats.lastResponsesBody)
-	input, _ := requestBody["input"].(string)
-	if !strings.Contains(input, "inspect these") {
-		t.Fatalf("responses input missing text body: %q", input)
+	if stats.chatHits == 0 {
+		t.Fatal("expected multimodal request to stream via /chat/completions")
 	}
-	if !strings.Contains(input, "[Attached image]") || !strings.Contains(input, "filename: diagram.png") {
-		t.Fatalf("responses input missing image attachment prompt: %q", input)
+	if stats.responsesHits != 0 {
+		t.Fatalf("responses hits = %d, want 0 for multimodal chat path", stats.responsesHits)
 	}
-	if !strings.Contains(input, "[Attached file]") || !strings.Contains(input, "filename: notes.txt") {
-		t.Fatalf("responses input missing file attachment prompt: %q", input)
+	requestBody := decodeJSONMap(t, stats.lastChatBody)
+	messages, ok := requestBody["messages"].([]interface{})
+	if !ok || len(messages) == 0 {
+		t.Fatalf("chat completions messages = %T, want non-empty []interface{}", requestBody["messages"])
 	}
-	if !strings.Contains(input, "path: ") {
-		t.Fatalf("responses input missing staged path: %q", input)
+	userMessage, ok := messages[len(messages)-1].(map[string]interface{})
+	if !ok {
+		t.Fatalf("last chat message = %T, want map[string]interface{}", messages[len(messages)-1])
+	}
+	contentItems, ok := userMessage["content"].([]interface{})
+	if !ok || len(contentItems) != 3 {
+		t.Fatalf("chat message content = %T/%d, want 3 items", userMessage["content"], len(contentItems))
+	}
+	firstText, ok := contentItems[0].(map[string]interface{})
+	if !ok || firstText["type"] != "text" || !strings.Contains(fmt.Sprint(firstText["text"]), "inspect these") {
+		t.Fatalf("first chat content item = %#v, want text prompt", contentItems[0])
+	}
+	imageItem, ok := contentItems[1].(map[string]interface{})
+	if !ok || imageItem["type"] != "image_url" {
+		t.Fatalf("second chat content item = %#v, want image_url", contentItems[1])
+	}
+	imageURL, _ := imageItem["image_url"].(map[string]interface{})
+	if !strings.HasPrefix(fmt.Sprint(imageURL["url"]), "data:image/png;base64,iVBORw0KGgo=") {
+		t.Fatalf("image_url = %#v, want inline data URL", imageItem["image_url"])
+	}
+	fileText, ok := contentItems[2].(map[string]interface{})
+	if !ok || fileText["type"] != "text" {
+		t.Fatalf("third chat content item = %#v, want file text prompt", contentItems[2])
+	}
+	if !strings.Contains(fmt.Sprint(fileText["text"]), "[Attached file]") || !strings.Contains(fmt.Sprint(fileText["text"]), "filename: notes.txt") || !strings.Contains(fmt.Sprint(fileText["text"]), "path: ") {
+		t.Fatalf("file prompt text = %#v, want staged file prompt", fileText["text"])
 	}
 }
 

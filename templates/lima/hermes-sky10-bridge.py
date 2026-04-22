@@ -185,6 +185,81 @@ def build_inbound_body(content: Any, session_id: str) -> str:
     return "\n\n".join(chunk for chunk in chunks if chunk)
 
 
+def content_has_image_parts(content: Any) -> bool:
+    for part in normalize_content_parts(content):
+        if part_kind(part) != "image":
+            continue
+        source = part.get("source") if isinstance(part.get("source"), dict) else {}
+        source_type = str(source.get("type") or "").strip()
+        if source_type == "base64" and str(source.get("data") or "").strip():
+            return True
+        if source_type == "url" and str(source.get("url") or "").strip():
+            return True
+    return False
+
+
+def image_url_for_part(part: dict[str, Any]) -> str:
+    source = part.get("source") if isinstance(part.get("source"), dict) else {}
+    source_type = str(source.get("type") or "").strip()
+    if source_type == "base64":
+        data = str(source.get("data") or "").strip()
+        if not data:
+            return ""
+        media_type = str(part.get("media_type") or source.get("media_type") or guess_mime_type(part.get("filename") or source.get("filename"))).strip() or "application/octet-stream"
+        return f"data:{media_type};base64,{data}"
+    if source_type == "url":
+        return str(source.get("url") or "").strip()
+    return ""
+
+
+def build_chat_completions_user_content(content: Any, session_id: str) -> list[dict[str, Any]] | str:
+    items: list[dict[str, Any]] = []
+    text_chunks: list[str] = []
+
+    def push_text(value: str) -> None:
+        if value.strip():
+            text_chunks.append(value.strip())
+
+    def flush_text() -> None:
+        if not text_chunks:
+            return
+        items.append({"type": "text", "text": "\n\n".join(text_chunks)})
+        text_chunks.clear()
+
+    for part in normalize_content_parts(content):
+        if part.get("type") == "text":
+            text = part.get("text")
+            if isinstance(text, str) and text:
+                push_text(text)
+            continue
+
+        if part_kind(part) == "image":
+            image_url = image_url_for_part(part)
+            if image_url:
+                flush_text()
+                items.append({"type": "image_url", "image_url": {"url": image_url}})
+                caption = part.get("caption")
+                if isinstance(caption, str) and caption.strip():
+                    push_text(caption)
+                continue
+
+        source = part.get("source") if isinstance(part.get("source"), dict) else {}
+        source_type = str(source.get("type") or "").strip()
+        if source_type == "base64" and str(source.get("data") or "").strip():
+            push_text(build_attachment_prompt(part, stage_base64_part(session_id, part)))
+            continue
+        if source_type == "url" and str(source.get("url") or "").strip():
+            push_text(build_attachment_prompt(part, str(source.get("url")).strip()))
+            continue
+        push_text(build_attachment_prompt(part, ""))
+
+    flush_text()
+    if not items:
+        fallback = build_inbound_body(content, session_id)
+        return fallback or extract_text(content)
+    return items
+
+
 def media_part_from_url(ref: str) -> dict[str, Any]:
     parsed = urllib.parse.urlparse(ref)
     filename = sanitize_filename(os.path.basename(parsed.path), "attachment.bin")
@@ -413,8 +488,8 @@ class HermesClient:
         self.model = os.environ.get("API_SERVER_MODEL_NAME", "hermes-agent").strip() or "hermes-agent"
         self.use_responses_api = env_flag("HERMES_PREFER_RESPONSES_API", True)
         self.history_lock = threading.Lock()
-        self.chat_history: dict[str, list[dict[str, str]]] = {}
-        self.chat_pending_turns: dict[str, dict[int, tuple[str, str] | None]] = {}
+        self.chat_history: dict[str, list[dict[str, Any]]] = {}
+        self.chat_pending_turns: dict[str, dict[int, tuple[dict[str, Any], dict[str, Any]] | None]] = {}
         self.chat_next_turn_id: dict[str, int] = {}
         self.chat_next_commit_id: dict[str, int] = {}
 
@@ -433,26 +508,33 @@ class HermesClient:
             stop_event.wait(RECONNECT_DELAY_SECONDS)
         raise BridgeError("Hermes API did not become ready before shutdown")
 
-    def stream(self, session_id: str, text: str, on_delta: Callable[[str], None]) -> str:
+    def stream(self, session_id: str, content: Any, on_delta: Callable[[str], None]) -> str:
+        user_message = {
+            "role": "user",
+            "content": build_chat_completions_user_content(content, session_id),
+        }
+        if content_has_image_parts(content):
+            return self._stream_chat_completions(session_id, user_message, on_delta)
+        user_text = build_inbound_body(content, session_id)
         if self.use_responses_api:
             try:
-                return self._stream_responses(session_id, text, on_delta)
+                return self._stream_responses(session_id, user_text, on_delta)
             except BridgeError as exc:
                 if self._responses_api_unsupported(str(exc)):
                     log(f"Hermes Responses API unavailable, falling back to chat completions: {exc}")
                     self.use_responses_api = False
                 else:
                     raise
-            return self._stream_chat_completions(session_id, text, on_delta)
+            return self._stream_chat_completions(session_id, user_message, on_delta)
         try:
-            return self._stream_chat_completions(session_id, text, on_delta)
+            return self._stream_chat_completions(session_id, user_message, on_delta)
         except BridgeError as exc:
             if self._chat_completions_api_unsupported(str(exc)):
                 log(f"Hermes chat completions unavailable, falling back to Responses API: {exc}")
                 self.use_responses_api = True
             else:
                 raise
-        return self._stream_responses(session_id, text, on_delta)
+        return self._stream_responses(session_id, user_text, on_delta)
 
     def warm_up(self) -> None:
         start = time.time()
@@ -574,9 +656,9 @@ class HermesClient:
         result = (completed or "".join(chunks)).strip()
         return result or "Done."
 
-    def _stream_chat_completions(self, session_id: str, text: str, on_delta: Callable[[str], None]) -> str:
+    def _stream_chat_completions(self, session_id: str, user_message: dict[str, Any], on_delta: Callable[[str], None]) -> str:
         turn_id, history = self._reserve_chat_turn(session_id)
-        history.append({"role": "user", "content": text})
+        history.append(user_message)
 
         payload = {
             "model": self.model,
@@ -610,23 +692,28 @@ class HermesClient:
             raise
 
         answer = "".join(chunks).strip() or "Done."
-        self._commit_chat_turn(session_id, turn_id, text, answer)
+        self._commit_chat_turn(
+            session_id,
+            turn_id,
+            user_message,
+            {"role": "assistant", "content": answer},
+        )
         return answer
 
-    def _reserve_chat_turn(self, session_id: str) -> tuple[int, list[dict[str, str]]]:
+    def _reserve_chat_turn(self, session_id: str) -> tuple[int, list[dict[str, Any]]]:
         with self.history_lock:
             history = list(self.chat_history.get(session_id, []))
             turn_id = self.chat_next_turn_id.get(session_id, 0)
             self.chat_next_turn_id[session_id] = turn_id + 1
         return turn_id, history
 
-    def _commit_chat_turn(self, session_id: str, turn_id: int, user_text: str, answer: str) -> None:
-        self._resolve_chat_turn(session_id, turn_id, (user_text, answer))
+    def _commit_chat_turn(self, session_id: str, turn_id: int, user_message: dict[str, Any], answer_message: dict[str, Any]) -> None:
+        self._resolve_chat_turn(session_id, turn_id, (user_message, answer_message))
 
     def _skip_chat_turn(self, session_id: str, turn_id: int) -> None:
         self._resolve_chat_turn(session_id, turn_id, None)
 
-    def _resolve_chat_turn(self, session_id: str, turn_id: int, turn: tuple[str, str] | None) -> None:
+    def _resolve_chat_turn(self, session_id: str, turn_id: int, turn: tuple[dict[str, Any], dict[str, Any]] | None) -> None:
         with self.history_lock:
             pending = self.chat_pending_turns.setdefault(session_id, {})
             pending[turn_id] = turn
@@ -635,9 +722,9 @@ class HermesClient:
             while next_commit_id in pending:
                 completed_turn = pending.pop(next_commit_id)
                 if completed_turn is not None:
-                    user_text, answer = completed_turn
-                    history.append({"role": "user", "content": user_text})
-                    history.append({"role": "assistant", "content": answer})
+                    user_message, answer_message = completed_turn
+                    history.append(user_message)
+                    history.append(answer_message)
                 next_commit_id += 1
             self.chat_next_commit_id[session_id] = next_commit_id
             if not pending:
@@ -858,7 +945,6 @@ class Bridge:
     def _handle_message(self, message: dict[str, Any]) -> None:
         session_id = str(message.get("session_id") or "main").strip() or "main"
         content = message.get("content")
-        user_text = build_inbound_body(content, session_id)
         client_request_id = extract_client_request_id(content)
         sender = str(message.get("from") or "").strip()
         if not sender:
@@ -869,7 +955,7 @@ class Bridge:
         try:
             reply = self.hermes.stream(
                 session_id,
-                user_text,
+                content,
                 lambda chunk: self.sky10.send_delta(sender, session_id, chunk, sender, stream_id, client_request_id),
             )
             reply_content = build_outbound_content(reply)
