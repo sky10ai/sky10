@@ -35,7 +35,7 @@ This plan does not yet cover:
 | 0. Terminology And Architecture | done | Naming and architecture draft exist |
 | 1. Core Domain And Storage | in progress | `pkg/messaging` types and persistence backbone |
 | 2. Adapter Protocol And Runtime Host | in progress | External adapter process contract and supervision |
-| 3. Broker Core And Event Flows | not started | Normalize inbound/outbound flow through broker |
+| 3. Broker Core And Event Flows | in progress | Normalize inbound/outbound flow through broker |
 | 4. Policy And Approval Engine | not started | Broker-enforced permissions and durable approvals |
 | 5. Agent Shim Protocol | not started | One thin runtime-facing messaging surface |
 | 6. First-Party Adapters | not started | Initial platform coverage |
@@ -148,16 +148,17 @@ outbound orchestration, and event fanout.
 
 ### Checklist
 
-- [ ] Create `pkg/messaging/broker`.
+- [x] Create `pkg/messaging/broker`.
 - [ ] Add connection lifecycle management: create, refresh, disable, delete.
-- [ ] Add identity refresh/discovery flow from adapters.
-- [ ] Add conversation upsert logic.
-- [ ] Add message upsert logic for inbound and outbound records.
+- [x] Add identity refresh/discovery flow from adapters.
+- [x] Add conversation upsert logic.
+- [x] Add message upsert logic for inbound records.
+- [ ] Add message upsert logic for outbound records.
 - [ ] Add draft lifecycle management.
 - [ ] Add normalized lookup/search surfaces split between adapter-backed live
   search and broker/index-backed content search.
-- [ ] Add normalized inbound event ingestion from both webhook and polling
-  sources.
+- [x] Add normalized inbound event ingestion from polling sources.
+- [ ] Add normalized inbound event ingestion from webhook sources.
 - [ ] Add outbound operations that always flow through the broker.
 - [ ] Add event fanout to UI and northbound shims.
 - [ ] Aggregate raw activity into human-facing workflow state.
