@@ -2,7 +2,9 @@ package broker
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -18,6 +21,8 @@ import (
 	messagingruntime "github.com/sky10/sky10/pkg/messaging/runtime"
 	messagingstore "github.com/sky10/sky10/pkg/messaging/store"
 )
+
+const defaultInlineWebhookBodyLimit = 32 << 10
 
 // Config configures one broker instance.
 type Config struct {
@@ -48,6 +53,32 @@ type PollResult struct {
 	Checkpoint    *protocol.Checkpoint     `json:"checkpoint,omitempty"`
 	Messages      []messaging.Message      `json:"messages,omitempty"`
 	Conversations []messaging.Conversation `json:"conversations,omitempty"`
+}
+
+// WebhookRequest is the broker-owned webhook input before normalization into
+// the adapter protocol envelope.
+type WebhookRequest struct {
+	RequestID  string              `json:"request_id,omitempty"`
+	Method     string              `json:"method"`
+	URL        string              `json:"url"`
+	Headers    map[string][]string `json:"headers,omitempty"`
+	Query      map[string][]string `json:"query,omitempty"`
+	Body       []byte              `json:"body,omitempty"`
+	RemoteAddr string              `json:"remote_addr,omitempty"`
+	ReceivedAt time.Time           `json:"received_at,omitempty"`
+}
+
+// WebhookResult reports the persisted outcome of one webhook adapter call plus
+// the HTTP response details the adapter wants the broker to return.
+type WebhookResult struct {
+	Connection    messaging.Connection     `json:"connection"`
+	Events        []messaging.Event        `json:"events,omitempty"`
+	Checkpoint    *protocol.Checkpoint     `json:"checkpoint,omitempty"`
+	Messages      []messaging.Message      `json:"messages,omitempty"`
+	Conversations []messaging.Conversation `json:"conversations,omitempty"`
+	StatusCode    int                      `json:"status_code,omitempty"`
+	Headers       map[string]string        `json:"headers,omitempty"`
+	Body          string                   `json:"body,omitempty"`
 }
 
 // Broker orchestrates messaging connections through supervised adapters.
@@ -219,47 +250,9 @@ func (b *Broker) PollConnection(ctx context.Context, connectionID messaging.Conn
 		return PollResult{}, err
 	}
 
-	persisted := make([]messaging.Event, 0, len(result.Events))
-	conversations := make([]messaging.Conversation, 0)
-	messages := make([]messaging.Message, 0)
-	for _, rawEvent := range result.Events {
-		event := cloneEvent(rawEvent)
-		if strings.TrimSpace(string(event.ID)) == "" {
-			event.ID = messaging.EventID(b.newID())
-		}
-		if strings.TrimSpace(string(event.ConnectionID)) == "" {
-			event.ConnectionID = connectionID
-		}
-		if event.Timestamp.IsZero() {
-			event.Timestamp = b.now()
-		}
-		if err := b.store.AppendEvent(ctx, event); err != nil {
-			return PollResult{}, err
-		}
-		persisted = append(persisted, event)
-
-		conversation, message, err := b.hydrateEvent(ctx, adapterClient, connection, event)
-		if err != nil {
-			return PollResult{}, err
-		}
-		if conversation.ID != "" {
-			conversations = appendIfConversationMissing(conversations, conversation)
-		}
-		if message.ID != "" {
-			messages = appendIfMessageMissing(messages, message)
-		}
-	}
-
-	var storedCheckpoint *protocol.Checkpoint
-	if result.Checkpoint != nil {
-		checkpointCopy := cloneCheckpoint(*result.Checkpoint)
-		if checkpointCopy.UpdatedAt.IsZero() {
-			checkpointCopy.UpdatedAt = b.now()
-		}
-		if err := b.store.PutCheckpoint(ctx, connectionID, checkpointCopy); err != nil {
-			return PollResult{}, err
-		}
-		storedCheckpoint = &checkpointCopy
+	persisted, conversations, messages, storedCheckpoint, err := b.persistInboundResult(ctx, adapterClient, connection, result.Events, result.Checkpoint)
+	if err != nil {
+		return PollResult{}, err
 	}
 
 	return PollResult{
@@ -268,6 +261,45 @@ func (b *Broker) PollConnection(ctx context.Context, connectionID messaging.Conn
 		Checkpoint:    storedCheckpoint,
 		Messages:      messages,
 		Conversations: conversations,
+	}, nil
+}
+
+// HandleWebhookConnection forwards one broker-owned webhook envelope to the
+// adapter, persists resulting events/checkpoints, and returns the adapter's
+// desired HTTP response details.
+func (b *Broker) HandleWebhookConnection(ctx context.Context, connectionID messaging.ConnectionID, request WebhookRequest) (WebhookResult, error) {
+	connection, adapterClient, paths, _, err := b.prepareAdapterCall(ctx, connectionID)
+	if err != nil {
+		return WebhookResult{}, err
+	}
+	normalized, err := b.normalizeWebhookRequest(paths, connectionID, request)
+	if err != nil {
+		return WebhookResult{}, err
+	}
+	result, err := adapterClient.HandleWebhook(ctx, protocol.HandleWebhookParams{
+		Request: normalized,
+	})
+	if err != nil {
+		return WebhookResult{}, err
+	}
+	persisted, conversations, messages, storedCheckpoint, err := b.persistInboundResult(ctx, adapterClient, connection, result.Events, result.Checkpoint)
+	if err != nil {
+		return WebhookResult{}, err
+	}
+
+	statusCode := result.StatusCode
+	if statusCode == 0 {
+		statusCode = 200
+	}
+	return WebhookResult{
+		Connection:    connection,
+		Events:        persisted,
+		Checkpoint:    storedCheckpoint,
+		Messages:      messages,
+		Conversations: conversations,
+		StatusCode:    statusCode,
+		Headers:       cloneStringMap(result.Headers),
+		Body:          result.Body,
 	}, nil
 }
 
@@ -297,6 +329,52 @@ func (b *Broker) prepareAdapterCall(ctx context.Context, connectionID messaging.
 		return messaging.Connection{}, nil, protocol.RuntimePaths{}, protocol.DescribeResult{}, err
 	}
 	return connection, adapterClient, paths, describe, nil
+}
+
+func (b *Broker) persistInboundResult(ctx context.Context, adapterClient *messagingruntime.AdapterClient, connection messaging.Connection, rawEvents []messaging.Event, checkpoint *protocol.Checkpoint) ([]messaging.Event, []messaging.Conversation, []messaging.Message, *protocol.Checkpoint, error) {
+	persisted := make([]messaging.Event, 0, len(rawEvents))
+	conversations := make([]messaging.Conversation, 0)
+	messages := make([]messaging.Message, 0)
+	for _, rawEvent := range rawEvents {
+		event := cloneEvent(rawEvent)
+		if strings.TrimSpace(string(event.ID)) == "" {
+			event.ID = messaging.EventID(b.newID())
+		}
+		if strings.TrimSpace(string(event.ConnectionID)) == "" {
+			event.ConnectionID = connection.ID
+		}
+		if event.Timestamp.IsZero() {
+			event.Timestamp = b.now()
+		}
+		if err := b.store.AppendEvent(ctx, event); err != nil {
+			return nil, nil, nil, nil, err
+		}
+		persisted = append(persisted, event)
+
+		conversation, message, err := b.hydrateEvent(ctx, adapterClient, connection, event)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		if conversation.ID != "" {
+			conversations = appendIfConversationMissing(conversations, conversation)
+		}
+		if message.ID != "" {
+			messages = appendIfMessageMissing(messages, message)
+		}
+	}
+
+	var storedCheckpoint *protocol.Checkpoint
+	if checkpoint != nil {
+		checkpointCopy := cloneCheckpoint(*checkpoint)
+		if checkpointCopy.UpdatedAt.IsZero() {
+			checkpointCopy.UpdatedAt = b.now()
+		}
+		if err := b.store.PutCheckpoint(ctx, connection.ID, checkpointCopy); err != nil {
+			return nil, nil, nil, nil, err
+		}
+		storedCheckpoint = &checkpointCopy
+	}
+	return persisted, conversations, messages, storedCheckpoint, nil
 }
 
 func (b *Broker) hydrateEvent(ctx context.Context, adapterClient *messagingruntime.AdapterClient, connection messaging.Connection, event messaging.Event) (messaging.Conversation, messaging.Message, error) {
@@ -374,6 +452,40 @@ func (b *Broker) syncMessage(ctx context.Context, adapterClient *messagingruntim
 	return result.Message.Message, nil
 }
 
+func (b *Broker) normalizeWebhookRequest(paths protocol.RuntimePaths, connectionID messaging.ConnectionID, request WebhookRequest) (protocol.WebhookRequest, error) {
+	receivedAt := request.ReceivedAt.UTC()
+	if request.ReceivedAt.IsZero() {
+		receivedAt = b.now()
+	}
+	requestID := strings.TrimSpace(request.RequestID)
+	if requestID == "" {
+		requestID = b.newID()
+	}
+	normalized := protocol.WebhookRequest{
+		RequestID:    requestID,
+		ConnectionID: connectionID,
+		Method:       request.Method,
+		URL:          request.URL,
+		Headers:      cloneHeaderMap(request.Headers),
+		Query:        cloneHeaderMap(request.Query),
+		RemoteAddr:   request.RemoteAddr,
+		ReceivedAt:   receivedAt,
+	}
+	if len(request.Body) == 0 {
+		return normalized, nil
+	}
+	if utf8.Valid(request.Body) && len(request.Body) <= defaultInlineWebhookBodyLimit {
+		normalized.Body = string(request.Body)
+		return normalized, nil
+	}
+	blob, err := stageWebhookBody(paths, requestID, request.Body)
+	if err != nil {
+		return protocol.WebhookRequest{}, err
+	}
+	normalized.BodyBlob = blob
+	return normalized, nil
+}
+
 func (b *Broker) runtimePathsForConnection(connection messaging.Connection) protocol.RuntimePaths {
 	adapterSegment := safePathSegment(string(connection.AdapterID))
 	connectionSegment := encodePathSegment(string(connection.ID))
@@ -428,6 +540,25 @@ func safePathSegment(value string) string {
 
 func encodePathSegment(value string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(value))
+}
+
+func stageWebhookBody(paths protocol.RuntimePaths, requestID string, body []byte) (protocol.BlobRef, error) {
+	webhookDir := filepath.Join(paths.StagingDir, "webhooks")
+	if err := os.MkdirAll(webhookDir, 0o755); err != nil {
+		return protocol.BlobRef{}, fmt.Errorf("create webhook staging dir: %w", err)
+	}
+	fileName := encodePathSegment(requestID) + ".bin"
+	localPath := filepath.Join(webhookDir, fileName)
+	if err := os.WriteFile(localPath, body, 0o600); err != nil {
+		return protocol.BlobRef{}, fmt.Errorf("write staged webhook body: %w", err)
+	}
+	digest := sha256.Sum256(body)
+	return protocol.BlobRef{
+		ID:        "webhook:" + requestID,
+		LocalPath: localPath,
+		SizeBytes: int64(len(body)),
+		SHA256:    hex.EncodeToString(digest[:]),
+	}, nil
 }
 
 func appendIfConversationMissing(items []messaging.Conversation, value messaging.Conversation) []messaging.Conversation {
@@ -497,4 +628,15 @@ func slicesClone[T any](items []T) []T {
 	out := make([]T, len(items))
 	copy(out, items)
 	return out
+}
+
+func cloneHeaderMap(values map[string][]string) map[string][]string {
+	if len(values) == 0 {
+		return nil
+	}
+	cloned := make(map[string][]string, len(values))
+	for key, items := range values {
+		cloned[key] = slicesClone(items)
+	}
+	return cloned
 }

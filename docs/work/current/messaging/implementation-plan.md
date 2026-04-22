@@ -135,7 +135,7 @@ Define and host external platform adapters as supervised local processes.
 
 - [x] A dummy adapter process can be launched, described, health-checked, and
   called by the broker.
-- [ ] Broker-owned webhooks can be forwarded to an adapter and converted into
+- [x] Broker-owned webhooks can be forwarded to an adapter and converted into
   normalized events.
 - [ ] Adapter restart does not corrupt broker state.
 
@@ -158,7 +158,7 @@ outbound orchestration, and event fanout.
 - [ ] Add normalized lookup/search surfaces split between adapter-backed live
   search and broker/index-backed content search.
 - [x] Add normalized inbound event ingestion from polling sources.
-- [ ] Add normalized inbound event ingestion from webhook sources.
+- [x] Add normalized inbound event ingestion from webhook sources.
 - [ ] Add outbound operations that always flow through the broker.
 - [ ] Add event fanout to UI and northbound shims.
 - [ ] Aggregate raw activity into human-facing workflow state.
