@@ -2,6 +2,7 @@
 
 | Date | Entry |
 |------|-------|
+| 22 | [WebSocket File Attachments For Hermes And OpenClaw](22-WebSocket-File-Attachments-For-Hermes-And-OpenClaw.md) — structured websocket chat parts for files/images, host chat composer + transcript persistence updates, Hermes multimodal bridge support, OpenClaw media-context translation, and the guest asset/runtime rollout failures found during live image testing |
 | 20 | [OpenClaw WebSocket Streaming And Guest Upgrade Gotchas](20-OpenClaw-WebSocket-Streaming-And-Guest-Upgrade-Gotchas.md) — OpenClaw guest bridge parity on the April 19 websocket chat path, partial-stream follow-up via `onPartialReply`, guest `sky10` rollout gotchas for existing sandboxes, and the current root-owned OpenClaw install mismatch with self-upgrade expectations |
 | 19 | [Hermes WebSocket Streaming And Web Chat](19-Hermes-WebSocket-Streaming-And-Web-Chat.md) — Hermes guest bridge streaming over the guest chat websocket, host web chat cutover to direct guest sockets, stream-merge/progress/timing UX fixes, same-session queue removal, and cold-start warm-up |
 | 19 | [Device Subsystem Foundation](19-Device-Subsystem-Foundation.md) — Milestone 0-2 device refactor: package boundary contract, extraction of current device snapshot ownership into `pkg/device`, command-layer metadata composition moved into a device service, and restored current-device platform/IP/location in no-S3 P2P mode |
