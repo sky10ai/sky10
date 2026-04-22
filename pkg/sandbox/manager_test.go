@@ -230,7 +230,7 @@ func TestAppendLogProgressMarkerWrappedByCloudInitUpdatesRecord(t *testing.T) {
 	}
 }
 
-func TestManagerEnsureManagedApp_IgnoresManagedLimaInstall(t *testing.T) {
+func TestManagerEnsureManagedApp_UsesManagedLimaInstall(t *testing.T) {
 	t.Setenv("PATH", "")
 	t.Setenv(config.EnvHome, t.TempDir())
 
@@ -247,14 +247,11 @@ func TestManagerEnsureManagedApp_IgnoresManagedLimaInstall(t *testing.T) {
 	}
 
 	got, err := m.ensureManagedApp(context.Background(), skyapps.AppLima, true)
-	if err == nil {
-		t.Fatal("ensureManagedApp() error = nil, want PATH error")
+	if err != nil {
+		t.Fatalf("ensureManagedApp() error = %v", err)
 	}
-	if got != "" {
-		t.Fatalf("ensureManagedApp() path = %q, want empty", got)
-	}
-	if !strings.Contains(err.Error(), "not found on PATH") {
-		t.Fatalf("ensureManagedApp() error = %q, want PATH-specific error", err)
+	if got != "/Users/test/.sky10/bin/limactl" {
+		t.Fatalf("ensureManagedApp() path = %q, want managed limactl", got)
 	}
 }
 

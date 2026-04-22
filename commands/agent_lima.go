@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	skyapps "github.com/sky10/sky10/pkg/apps"
 	"github.com/sky10/sky10/pkg/config"
 	skyfs "github.com/sky10/sky10/pkg/fs"
 	skysandbox "github.com/sky10/sky10/pkg/sandbox"
@@ -80,6 +81,12 @@ var defaultHermesBridgeSkills = []string{
 	"web-search",
 	"file-ops",
 }
+
+var (
+	commandAppStatusFor   = skyapps.StatusFor
+	commandAppUpgrade     = skyapps.Upgrade
+	commandAppManagedPath = skyapps.ManagedPath
+)
 
 type limaTemplateSpec struct {
 	templateID         string
@@ -199,7 +206,7 @@ func sandboxCreateCmd() *cobra.Command {
 				return err
 			}
 
-			limactl, err := requireLimaOnPath()
+			limactl, err := resolveLimaRuntime()
 			if err != nil {
 				return err
 			}
@@ -238,7 +245,7 @@ func sandboxCreateCmd() *cobra.Command {
 				Status:    "ready",
 				SharedDir: sharedDir,
 				IPAddress: ipAddr,
-				Shell:     localSandboxShellCommand(template, slug),
+				Shell:     localSandboxShellCommand(limactl, template, slug),
 			}
 			printSandboxSummary(cmd, rec)
 			maybeOpenSandboxUI(cmd, rec, openUI)
@@ -335,7 +342,7 @@ func printSandboxSummary(cmd *cobra.Command, rec skysandbox.Record) {
 	switch rec.Template {
 	case sandboxTemplateHermes:
 		fmt.Fprintf(cmd.OutOrStdout(), "Hermes:     installed inside the guest with host chat routed through guest sky10 and a local CLI/TUI via `hermes` and `hermes-shared`\n")
-		fmt.Fprintf(cmd.OutOrStdout(), "Launch:     limactl shell %s -- bash -lc 'hermes-shared'\n", rec.Slug)
+		fmt.Fprintf(cmd.OutOrStdout(), "Launch:     %s\n", localSandboxShellCommand(preferredLimaShellBinary(), rec.Template, rec.Slug))
 	default:
 		sky10URL, openClawURL := sandboxURLs(rec)
 		fmt.Fprintf(cmd.OutOrStdout(), "Guest sky10: installed inside the guest and serving on http://127.0.0.1:9101\n")
@@ -344,12 +351,12 @@ func printSandboxSummary(cmd *cobra.Command, rec skysandbox.Record) {
 		if sky10URL != "" {
 			fmt.Fprintf(cmd.OutOrStdout(), "sky10 UI:   %s\n", sky10URL)
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "sky10 UI:   run 'limactl shell %s -- bash -lc \"ip -4 addr show dev lima0\"' to find the host-reachable guest IP\n", rec.Slug)
+			fmt.Fprintf(cmd.OutOrStdout(), "sky10 UI:   run %s to find the host-reachable guest IP\n", limaGuestIPCommand(preferredLimaShellBinary(), rec.Slug))
 		}
 		if openClawURL != "" {
 			fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw UI:%s %s\n", strings.Repeat(" ", 2), openClawURL)
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw UI: run 'limactl shell %s -- bash -lc \"ip -4 addr show dev lima0\"' to find the host-reachable guest IP\n", rec.Slug)
+			fmt.Fprintf(cmd.OutOrStdout(), "OpenClaw UI: run %s to find the host-reachable guest IP\n", limaGuestIPCommand(preferredLimaShellBinary(), rec.Slug))
 		}
 	}
 }
@@ -382,11 +389,14 @@ func sandboxURLs(rec skysandbox.Record) (string, string) {
 	return fmt.Sprintf("http://%s:9101", rec.IPAddress), fmt.Sprintf("http://%s:18790/chat?session=main", rec.IPAddress)
 }
 
-func localSandboxShellCommand(template, slug string) string {
-	if template == sandboxTemplateHermes {
-		return fmt.Sprintf("limactl shell %s -- bash -lc 'hermes-shared'", slug)
+func localSandboxShellCommand(limactl, template, slug string) string {
+	if strings.TrimSpace(limactl) == "" {
+		limactl = preferredLimaShellBinary()
 	}
-	return fmt.Sprintf("limactl shell %s", slug)
+	if template == sandboxTemplateHermes {
+		return fmt.Sprintf("%s shell %s -- bash -lc 'hermes-shared'", shellQuoteForDisplay(limactl), slug)
+	}
+	return fmt.Sprintf("%s shell %s", shellQuoteForDisplay(limactl), slug)
 }
 
 func validateSandboxCreate(provider, template string) error {
@@ -907,10 +917,61 @@ func lookupLimaInstanceIPv4(ctx context.Context, limactl, name string) (string, 
 	return "", nil
 }
 
-func requireLimaOnPath() (string, error) {
-	limactl, err := exec.LookPath("limactl")
-	if err == nil {
-		return limactl, nil
+func resolveLimaRuntime() (string, error) {
+	status, err := commandAppStatusFor(skyapps.AppLima)
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("limactl not found on PATH; managed Lima installs are not used by sandbox flows yet")
+	if status.ActivePath != "" {
+		return status.ActivePath, nil
+	}
+	if _, err := commandAppUpgrade(skyapps.AppLima, nil); err != nil {
+		return "", fmt.Errorf("installing %s: %w", skyapps.AppLima, err)
+	}
+	status, err = commandAppStatusFor(skyapps.AppLima)
+	if err != nil {
+		return "", err
+	}
+	if status.ActivePath == "" {
+		return "", fmt.Errorf("%s installed but no active binary was found", skyapps.AppLima)
+	}
+	return status.ActivePath, nil
+}
+
+func preferredLimaShellBinary() string {
+	status, err := commandAppStatusFor(skyapps.AppLima)
+	if err == nil && status != nil && status.Managed {
+		if managedPath, pathErr := commandAppManagedPath(skyapps.AppLima); pathErr == nil && strings.TrimSpace(managedPath) != "" {
+			return managedPath
+		}
+	}
+	return "limactl"
+}
+
+func limaGuestIPCommand(limactl, slug string) string {
+	return fmt.Sprintf("%s shell %s -- bash -lc %s", shellQuoteForDisplay(limactl), slug, shellQuoteForDisplay(`ip -4 addr show dev lima0`))
+}
+
+func shellQuoteForDisplay(value string) string {
+	if value == "" {
+		return "''"
+	}
+	if isShellSafeToken(value) {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}
+
+func isShellSafeToken(value string) bool {
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '/', r == '.', r == '_', r == '-', r == ':':
+		default:
+			return false
+		}
+	}
+	return value != ""
 }

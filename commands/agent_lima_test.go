@@ -6,10 +6,63 @@ import (
 	"strings"
 	"testing"
 
+	skyapps "github.com/sky10/sky10/pkg/apps"
 	"github.com/sky10/sky10/pkg/config"
 	skyfs "github.com/sky10/sky10/pkg/fs"
 	skysandbox "github.com/sky10/sky10/pkg/sandbox"
 )
+
+func TestResolveLimaRuntimeInstallsManagedCopy(t *testing.T) {
+	origStatusFor := commandAppStatusFor
+	origUpgrade := commandAppUpgrade
+	origManagedPath := commandAppManagedPath
+	t.Cleanup(func() {
+		commandAppStatusFor = origStatusFor
+		commandAppUpgrade = origUpgrade
+		commandAppManagedPath = origManagedPath
+	})
+
+	statusCalls := 0
+	commandAppStatusFor = func(id skyapps.ID) (*skyapps.Status, error) {
+		statusCalls++
+		if id != skyapps.AppLima {
+			t.Fatalf("StatusFor() id = %q, want %q", id, skyapps.AppLima)
+		}
+		if statusCalls == 1 {
+			return &skyapps.Status{}, nil
+		}
+		return &skyapps.Status{
+			Managed:    true,
+			ActivePath: "/Users/test/.sky10/bin/limactl",
+		}, nil
+	}
+
+	upgrades := 0
+	commandAppUpgrade = func(id skyapps.ID, _ skyapps.ProgressFunc) (*skyapps.ReleaseInfo, error) {
+		upgrades++
+		if id != skyapps.AppLima {
+			t.Fatalf("Upgrade() id = %q, want %q", id, skyapps.AppLima)
+		}
+		return &skyapps.ReleaseInfo{ID: id, Latest: "v1.2.3"}, nil
+	}
+	commandAppManagedPath = func(id skyapps.ID) (string, error) {
+		if id != skyapps.AppLima {
+			t.Fatalf("ManagedPath() id = %q, want %q", id, skyapps.AppLima)
+		}
+		return "/Users/test/.sky10/bin/limactl", nil
+	}
+
+	got, err := resolveLimaRuntime()
+	if err != nil {
+		t.Fatalf("resolveLimaRuntime() error = %v", err)
+	}
+	if got != "/Users/test/.sky10/bin/limactl" {
+		t.Fatalf("resolveLimaRuntime() = %q, want managed limactl", got)
+	}
+	if upgrades != 1 {
+		t.Fatalf("upgrade count = %d, want 1", upgrades)
+	}
+}
 
 func TestDefaultLimaSharedDir(t *testing.T) {
 	home := t.TempDir()

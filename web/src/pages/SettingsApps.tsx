@@ -375,7 +375,7 @@ export default function SettingsApps() {
                     Lima Runtime
                   </h2>
                   <p className="text-sm text-secondary">
-                    Install and monitor a sky10-managed Lima bundle without wiring sandbox flows to it yet.
+                    Install and manage the Lima runtime that sky10 sandbox flows use when a managed copy is available.
                   </p>
                 </div>
               </div>
@@ -510,17 +510,17 @@ export default function SettingsApps() {
                 Notes
               </p>
               <p className="text-sm text-secondary">
-                This card is install-only for now so the managed Lima binary can be observed before sandbox runtime flows depend on it.
+                Sandbox create, start, stop, delete, and terminal flows prefer the managed Lima binary when it is installed.
               </p>
               <p className="text-sm text-secondary">
-                Sandbox create, start, stop, and terminal flows still use `limactl` from `PATH`.
+                If no managed Lima binary is active yet, sky10 falls back to `limactl` from `PATH`.
               </p>
               <p className="text-sm text-secondary">
                 Delete is intentionally unavailable for managed Lima until uninstall behavior is understood.
               </p>
               {!limaManaged && limaInstalled && (
                 <p className="text-sm text-secondary">
-                  The current Lima binary was discovered on PATH. Installing here stages a separate managed copy under `~/.sky10/bin/limactl` for monitoring.
+                  The current Lima binary was discovered on PATH. Installing here stages a managed copy under `~/.sky10/bin/limactl` and sandbox flows will start preferring it.
                 </p>
               )}
             </div>

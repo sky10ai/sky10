@@ -130,6 +130,12 @@ var hermesLimaProgressPlan = []progressStep{
 
 var slugWordPattern = regexp.MustCompile(`[a-z0-9]+`)
 
+var (
+	sandboxAppStatusFor   = skyapps.StatusFor
+	sandboxAppUpgrade     = skyapps.Upgrade
+	sandboxAppManagedPath = skyapps.ManagedPath
+)
+
 type Emitter func(event string, data interface{})
 
 type CreateParams struct {
@@ -410,8 +416,8 @@ func NewManager(emit Emitter, logger *slog.Logger) (*Manager, error) {
 		emit:      emit,
 		logger:    componentLogger(logger),
 		running:   map[string]bool{},
-		appStatus: skyapps.StatusFor,
-		appUpgr:   skyapps.Upgrade,
+		appStatus: sandboxAppStatusFor,
+		appUpgr:   sandboxAppUpgrade,
 		runCmd:    defaultRunCommand,
 		outputCmd: defaultOutputCommand,
 		hostRPC:   hostRPCCall,
@@ -821,7 +827,7 @@ func (m *Manager) List(ctx context.Context) (*ListResult, error) {
 	defer m.mu.Unlock()
 	items := make([]Record, 0, len(m.records))
 	for _, rec := range m.records {
-		items = append(items, rec)
+		items = append(items, withCurrentShellCommand(rec))
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
 	return &ListResult{Sandboxes: items}, nil
@@ -845,7 +851,7 @@ func (m *Manager) Get(ctx context.Context, name string) (*Record, error) {
 	if !ok {
 		return nil, fmt.Errorf("sandbox %q not found", key)
 	}
-	copy := rec
+	copy := withCurrentShellCommand(rec)
 	return &copy, nil
 }
 
@@ -1356,23 +1362,6 @@ func (m *Manager) requireRecord(name string) (*Record, error) {
 }
 
 func (m *Manager) ensureManagedApp(_ context.Context, id skyapps.ID, install bool) (string, error) {
-	if id == skyapps.AppLima {
-		if bin, err := exec.LookPath("limactl"); err == nil {
-			return bin, nil
-		}
-		status, err := m.appStatus(id)
-		if err != nil {
-			return "", err
-		}
-		if status.ActivePath != "" && !status.Managed {
-			return status.ActivePath, nil
-		}
-		if !install {
-			return "", nil
-		}
-		return "", fmt.Errorf("limactl not found on PATH; managed Lima installs are not used by sandbox flows yet")
-	}
-
 	status, err := m.appStatus(id)
 	if err != nil {
 		return "", err
@@ -1828,10 +1817,16 @@ func cleanupLimaInstanceDir(name string) error {
 }
 
 func defaultShellCommand(slug, template string) string {
-	if template == templateHermes {
-		return fmt.Sprintf("limactl shell %s -- bash -lc 'hermes-shared'", slug)
+	limactl := "limactl"
+	if status, err := sandboxAppStatusFor(skyapps.AppLima); err == nil && status != nil && status.Managed {
+		if managedPath, pathErr := sandboxAppManagedPath(skyapps.AppLima); pathErr == nil && strings.TrimSpace(managedPath) != "" {
+			limactl = shellQuote(managedPath)
+		}
 	}
-	return fmt.Sprintf("limactl shell %s", slug)
+	if template == templateHermes {
+		return fmt.Sprintf("%s shell %s -- bash -lc 'hermes-shared'", limactl, slug)
+	}
+	return fmt.Sprintf("%s shell %s", limactl, slug)
 }
 
 func renderSandboxTemplate(body []byte, name, sharedDir, stateDir string) []byte {
@@ -1839,6 +1834,37 @@ func renderSandboxTemplate(body []byte, name, sharedDir, stateDir string) []byte
 	rendered = strings.ReplaceAll(rendered, templateSharedToken, sharedDir)
 	rendered = strings.ReplaceAll(rendered, templateStateToken, stateDir)
 	return []byte(rendered)
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	if isShellSafeToken(value) {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}
+
+func withCurrentShellCommand(rec Record) Record {
+	if rec.Provider == providerLima {
+		rec.Shell = defaultShellCommand(rec.Slug, rec.Template)
+	}
+	return rec
+}
+
+func isShellSafeToken(value string) bool {
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '/', r == '.', r == '_', r == '-', r == ':':
+		default:
+			return false
+		}
+	}
+	return value != ""
 }
 
 func sandboxTemplateDefinition(template string) (templateDefinition, error) {
@@ -2345,7 +2371,7 @@ func (m *Manager) emitState(rec Record) {
 	if m.emit == nil {
 		return
 	}
-	m.emit("sandbox:state", rec)
+	m.emit("sandbox:state", withCurrentShellCommand(rec))
 }
 
 func (m *Manager) statePath() string {
