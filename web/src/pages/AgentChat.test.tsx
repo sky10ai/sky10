@@ -308,6 +308,12 @@ describe("AgentChat page", () => {
     const page = await renderAgentChatPage();
     await waitFor(() => FakeWebSocket.instances.length > 0, "guest websocket");
 
+    const attachButton = page.querySelector('button[aria-label="Attach photo or file"]') as HTMLButtonElement | null;
+    if (!attachButton) {
+      throw new Error("expected visible attach button");
+    }
+    expect(attachButton.textContent).toContain("Attach");
+
     const fileInput = page.querySelector('input[type="file"]') as HTMLInputElement | null;
     if (!fileInput) {
       throw new Error("expected hidden file input");

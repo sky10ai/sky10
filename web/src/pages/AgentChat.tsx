@@ -1124,10 +1124,12 @@ export default function AgentChat() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-outline-variant/15 bg-surface-container-lowest text-secondary transition hover:text-on-surface"
-              title="Attach files"
+              aria-label="Attach photo or file"
+              className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-primary/20 bg-surface-container-lowest px-4 text-sm font-semibold text-on-surface shadow-sm transition hover:border-primary/35 hover:bg-surface-container-low"
+              title="Attach photo or file"
             >
               <Icon name="attach_file" className="text-lg" />
+              <span>Attach</span>
             </button>
             <textarea
               ref={inputRef}
@@ -1154,7 +1156,7 @@ export default function AgentChat() {
           </div>
 
           <div className="mt-2 flex items-center justify-between gap-3 px-1 text-[11px] text-secondary">
-            <span>Drag and drop images or files here, or use the attachment button.</span>
+            <span>Attach a photo or file here, or drag and drop it in.</span>
             <span>{maxAttachments} files max, {formatBytes(maxAttachmentBytes)} each</span>
           </div>
           {composerError && (
