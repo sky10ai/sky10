@@ -1,6 +1,6 @@
 ---
 created: 2026-04-18
-updated: 2026-04-21
+updated: 2026-04-22
 model: gpt-5.4
 ---
 
@@ -83,17 +83,18 @@ committing to any one platform adapter.
 - [x] Define stable ID types for connections, identities, conversations,
   messages, drafts, policies, and exposures.
 - [ ] Decide which records are durable truth versus derived cache.
-- [ ] Add a storage package for messaging state, likely under
+- [x] Add a storage package for messaging state, likely under
   `pkg/messaging/store`.
-- [ ] Persist connections and auth metadata references separately from raw
+- [x] Persist connections and auth metadata references separately from raw
   secret material.
-- [ ] Persist identities discovered through adapters.
-- [ ] Persist conversation metadata and message indexes.
-- [ ] Persist drafts and their lifecycle state.
-- [ ] Persist human-facing `Workflow` records for logical action chains.
-- [ ] Persist internal `ActivityEvent` records for the full audit trail.
-- [ ] Persist adapter poll checkpoints and webhook verification state.
-- [ ] Persist audit history for inbound, draft, approval, and send events.
+- [x] Persist identities discovered through adapters.
+- [x] Persist conversation metadata and message indexes.
+- [x] Persist drafts and their lifecycle state.
+- [x] Persist human-facing `Workflow` records for logical action chains.
+- [x] Persist internal `ActivityEvent` records for the full audit trail.
+- [x] Persist adapter poll checkpoints.
+- [ ] Persist webhook verification state.
+- [x] Persist audit history for inbound, draft, approval, and send events.
 - [ ] Ensure Windows-safe data paths and filenames from the start.
 
 ### Exit Criteria
