@@ -5,7 +5,6 @@ import { skyfs } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 import { Icon } from "./Icon";
 import { StatusBadge } from "./StatusBadge";
-import { ThemeControl } from "./ThemeControl";
 
 function getRouteMeta(pathname: string) {
   if (pathname.startsWith("/start")) {
@@ -107,6 +106,13 @@ function getRouteMeta(pathname: string) {
     };
   }
 
+  if (pathname.startsWith("/settings/visuals")) {
+    return {
+      description: "Choose how the interface looks and whether it follows your system theme.",
+      title: "Visuals",
+    };
+  }
+
   if (pathname.startsWith("/settings/activity") || pathname.startsWith("/activity")) {
     return {
       description: "Track recent sync work, pending transfers, and storage activity.",
@@ -189,18 +195,6 @@ export function Header() {
             ⌘K
           </kbd>
         </button>
-        <div className="hidden items-center gap-3 text-secondary md:flex">
-          <button className="cursor-pointer transition-colors hover:text-primary" type="button">
-            <Icon name="notifications" />
-          </button>
-          <button className="cursor-pointer transition-colors hover:text-primary" type="button">
-            <Icon name="terminal" />
-          </button>
-          <button className="cursor-pointer transition-colors hover:text-primary" type="button">
-            <Icon name="account_circle" />
-          </button>
-        </div>
-        <ThemeControl />
       </div>
     </header>
   );

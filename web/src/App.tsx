@@ -22,6 +22,7 @@ import Activity from "./pages/Activity";
 import Settings from "./pages/Settings";
 import SettingsApps from "./pages/SettingsApps";
 import SettingsSecrets from "./pages/SettingsSecrets";
+import SettingsVisuals from "./pages/SettingsVisuals";
 
 function HomeRedirect() {
   return <Navigate to="/start" replace />;
@@ -64,6 +65,7 @@ export default function App() {
           <Route path="settings/activity" element={<Activity />} />
           <Route path="settings/apps" element={<SettingsApps />} />
           <Route path="settings/secrets" element={<SettingsSecrets />} />
+          <Route path="settings/visuals" element={<SettingsVisuals />} />
           <Route path="settings/sandboxes" element={<Sandboxes />} />
           <Route path="settings/sandboxes/:slug" element={<SandboxDetail />} />
           <Route path="settings" element={<Settings />} />

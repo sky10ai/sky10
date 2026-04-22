@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import { Icon } from "./Icon";
 import { useTheme, type ThemePreference } from "./ThemeProvider";
 
@@ -28,94 +27,73 @@ const themeOptions: Array<{
   },
 ];
 
-function themeButtonIcon(preference: ThemePreference) {
-  return themeOptions.find((option) => option.value === preference)?.icon ?? "brightness_auto";
+function themeButtonLabel(preference: ThemePreference) {
+  return themeOptions.find((option) => option.value === preference)?.label ?? "System";
 }
 
-function themeButtonTitle(preference: ThemePreference, resolvedTheme: "light" | "dark") {
+function resolvedThemeLabel(preference: ThemePreference, resolvedTheme: "light" | "dark") {
   if (preference === "system") {
-    return `Theme follows your system appearance. Current appearance: ${resolvedTheme}. Click to choose System, Light, or Dark.`;
+    return `Following system appearance: ${resolvedTheme}`;
   }
 
-  return `Theme is locked to ${preference}. Click to switch themes or return to System.`;
+  return `Locked to ${preference}`;
 }
 
 export function ThemeControl() {
   const { preference, resolvedTheme, setPreference } = useTheme();
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-
-    const onPointerDown = (event: PointerEvent) => {
-      if (!containerRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-
-    const onEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    };
-
-    window.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("keydown", onEscape);
-    return () => {
-      window.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("keydown", onEscape);
-    };
-  }, [open]);
 
   return (
-    <div className="relative" ref={containerRef}>
-      <button
-        aria-label={themeButtonTitle(preference, resolvedTheme)}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        className="inline-flex items-center gap-1 rounded-full border border-outline-variant/20 bg-surface-container-high px-3 py-2 text-xs font-medium text-on-surface transition-colors hover:border-primary/20 hover:bg-surface-container-highest"
-        onClick={() => setOpen((current) => !current)}
-        title={themeButtonTitle(preference, resolvedTheme)}
-        type="button"
-      >
-        <Icon className="text-base text-primary" name={themeButtonIcon(preference)} />
-        <Icon className={`text-sm text-outline transition-transform ${open ? "rotate-180" : ""}`} name="expand_more" />
-      </button>
-
-      {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container-lowest p-1 shadow-2xl">
-          {themeOptions.map((option) => {
-            const selected = preference === option.value;
-            return (
-              <button
-                className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
+    <div className="grid gap-4 md:grid-cols-3">
+      {themeOptions.map((option) => {
+        const selected = preference === option.value;
+        return (
+          <button
+            aria-pressed={selected}
+            className={`group flex min-h-52 flex-col rounded-3xl border p-6 text-left transition-all ${
+              selected
+                ? "border-primary/30 bg-primary/10 shadow-[0_24px_48px_-36px_rgba(37,99,235,0.6)]"
+                : "border-outline-variant/10 bg-surface-container-lowest hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-lg"
+            }`}
+            key={option.value}
+            onClick={() => setPreference(option.value)}
+            type="button"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${
+                selected
+                  ? "bg-primary text-white"
+                  : "bg-surface-container text-primary"
+              }`}>
+                <Icon className="text-2xl" name={option.icon} />
+              </div>
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] ${
                   selected
-                    ? "bg-primary/10 text-on-surface"
-                    : "text-on-surface hover:bg-surface-container-high"
+                    ? "bg-primary text-white"
+                    : "bg-surface-container-high text-outline"
                 }`}
-                key={option.value}
-                onClick={() => {
-                  setPreference(option.value);
-                  setOpen(false);
-                }}
-                type="button"
               >
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-container-high text-primary">
-                  <Icon className="text-lg" name={option.icon} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold">{option.label}</span>
-                    {selected && <Icon className="text-base text-primary" name="check" />}
-                  </div>
-                  <p className="mt-0.5 text-xs text-secondary">{option.description}</p>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      )}
+                {selected ? "Selected" : "Available"}
+              </span>
+            </div>
+
+            <div className="mt-6 space-y-2">
+              <h3 className="text-xl font-semibold text-on-surface">{option.label}</h3>
+              <p className="text-sm text-secondary">{option.description}</p>
+            </div>
+
+            <div className="mt-auto pt-8">
+              <p className="text-xs font-medium text-outline">
+                {option.value === "system"
+                  ? resolvedThemeLabel(option.value, resolvedTheme)
+                  : selected
+                    ? resolvedThemeLabel(option.value, resolvedTheme)
+                    : `Switch from ${themeButtonLabel(preference)} to ${option.label}`}
+              </p>
+            </div>
+          </button>
+        );
+      })}
     </div>
   );
 }

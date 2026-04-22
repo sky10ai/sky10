@@ -217,7 +217,33 @@ export default function Settings() {
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Link
+          className="group rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
+          to="/settings/visuals"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
+                Visuals
+              </p>
+              <h3 className="text-xl font-semibold text-on-surface">
+                Adjust interface appearance
+              </h3>
+              <p className="max-w-md text-sm text-secondary">
+                Choose whether sky10 follows your system theme or stays fixed in light or dark mode.
+              </p>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <Icon className="text-2xl" name="palette" />
+            </div>
+          </div>
+          <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary transition-colors group-hover:text-on-surface">
+            Open Visuals
+            <Icon className="text-base" name="arrow_forward" />
+          </div>
+        </Link>
+
         <Link
           className="group rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
           to="/settings/sandboxes"

@@ -83,6 +83,13 @@ const commands: Command[] = [
     section: "System",
   },
   {
+    id: "visuals",
+    label: "Visuals",
+    icon: "palette",
+    action: "/settings/visuals",
+    section: "System",
+  },
+  {
     id: "sandboxes",
     label: "Sandboxes",
     icon: "deployed_code",
