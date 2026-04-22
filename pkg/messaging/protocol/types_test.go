@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -53,5 +54,53 @@ func TestDescribeResultUsesValidMessagingAdapter(t *testing.T) {
 	}
 	if err := result.Adapter.Validate(); err != nil {
 		t.Fatalf("adapter validate: %v", err)
+	}
+}
+
+func TestConnectParamsCarriesResolvedCredential(t *testing.T) {
+	t.Parallel()
+
+	params := ConnectParams{
+		Connection: messaging.Connection{
+			ID:        "imap/work",
+			AdapterID: "imap-smtp",
+			Label:     "Work Mail",
+		},
+		Paths: RuntimePaths{
+			RootDir:    "/tmp/sky10/messaging",
+			SecretsDir: "/tmp/sky10/messaging/runtime/secrets",
+		},
+		Credential: &ResolvedCredential{
+			Ref:         "secret://imap/work",
+			AuthMethod:  messaging.AuthMethodBasic,
+			ContentType: "application/json",
+			Blob: BlobRef{
+				ID:        "credential:c2VjcmV0",
+				LocalPath: "/tmp/sky10/messaging/runtime/secrets/credential.bin",
+				SizeBytes: 42,
+			},
+		},
+	}
+
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if !json.Valid(raw) {
+		t.Fatalf("marshaled json is invalid: %s", string(raw))
+	}
+
+	var decoded ConnectParams
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if decoded.Credential == nil {
+		t.Fatal("decoded credential = nil, want populated credential")
+	}
+	if decoded.Credential.Ref != "secret://imap/work" {
+		t.Fatalf("decoded credential ref = %q, want secret://imap/work", decoded.Credential.Ref)
+	}
+	if decoded.Paths.SecretsDir == "" {
+		t.Fatal("decoded secrets dir = empty, want staged secret path")
 	}
 }

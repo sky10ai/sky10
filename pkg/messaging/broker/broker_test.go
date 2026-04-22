@@ -112,6 +112,124 @@ func TestBrokerRegisterConnectAndPoll(t *testing.T) {
 	}
 }
 
+func TestBrokerConnectConnectionRequiresCredentialResolver(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	rootDir := filepath.Join(t.TempDir(), "messaging-runtime")
+	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	b, err := New(ctx, Config{
+		Store:   store,
+		RootDir: rootDir,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = b.Close() }()
+
+	connection := messaging.Connection{
+		ID:        "imap/work",
+		AdapterID: "imap-smtp",
+		Label:     "Work Mail",
+		Status:    messaging.ConnectionStatusConnecting,
+		Auth: messaging.AuthInfo{
+			Method:        messaging.AuthMethodBasic,
+			CredentialRef: "secret://imap/work",
+		},
+	}
+	if err := b.RegisterConnection(ctx, RegisterConnectionParams{
+		Connection: connection,
+		Process: messagingruntime.ProcessSpec{
+			Path: helperProcessExecutableForTests(),
+			Args: []string{"-test.run=TestBrokerHelperMessagingAdapterProcess", "--"},
+			Env:  []string{"GO_WANT_HELPER_MESSAGING_BROKER_ADAPTER=1"},
+		},
+	}); err != nil {
+		t.Fatalf("RegisterConnection() error = %v", err)
+	}
+
+	_, err = b.ConnectConnection(ctx, connection.ID)
+	if err == nil || !strings.Contains(err.Error(), "credential resolver") {
+		t.Fatalf("ConnectConnection() error = %v, want credential resolver failure", err)
+	}
+}
+
+func TestBrokerConnectConnectionStagesCredential(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	rootDir := filepath.Join(t.TempDir(), "messaging-runtime")
+	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	b, err := New(ctx, Config{
+		Store:   store,
+		RootDir: rootDir,
+		CredentialResolver: CredentialResolverFunc(func(_ context.Context, ref string) (CredentialMaterial, error) {
+			if ref != "secret://imap/work" {
+				t.Fatalf("resolver ref = %q, want secret://imap/work", ref)
+			}
+			return CredentialMaterial{
+				Ref:         ref,
+				ContentType: "application/json",
+				Payload:     []byte(`{"username":"latisha@example.com","password":"swordfish"}`),
+			}, nil
+		}),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = b.Close() }()
+
+	connection := messaging.Connection{
+		ID:        "imap/work",
+		AdapterID: "imap-smtp",
+		Label:     "Work Mail",
+		Status:    messaging.ConnectionStatusConnecting,
+		Auth: messaging.AuthInfo{
+			Method:        messaging.AuthMethodBasic,
+			CredentialRef: "secret://imap/work",
+		},
+	}
+	if err := b.RegisterConnection(ctx, RegisterConnectionParams{
+		Connection: connection,
+		Process: messagingruntime.ProcessSpec{
+			Path: helperProcessExecutableForTests(),
+			Args: []string{"-test.run=TestBrokerHelperMessagingAdapterProcess", "--"},
+			Env:  []string{"GO_WANT_HELPER_MESSAGING_BROKER_ADAPTER=1"},
+		},
+	}); err != nil {
+		t.Fatalf("RegisterConnection() error = %v", err)
+	}
+
+	connectResult, err := b.ConnectConnection(ctx, connection.ID)
+	if err != nil {
+		t.Fatalf("ConnectConnection() error = %v", err)
+	}
+	if connectResult.Connection.Metadata["credential_ref"] != "secret://imap/work" {
+		t.Fatalf("credential_ref metadata = %q, want secret://imap/work", connectResult.Connection.Metadata["credential_ref"])
+	}
+	if connectResult.Connection.Metadata["credential_path_present"] != "true" {
+		t.Fatalf("credential_path_present = %q, want true", connectResult.Connection.Metadata["credential_path_present"])
+	}
+	if connectResult.Connection.Metadata["credential_content_type"] != "application/json" {
+		t.Fatalf("credential_content_type = %q, want application/json", connectResult.Connection.Metadata["credential_content_type"])
+	}
+
+	stagedPath := filepath.Join(connectResult.Paths.SecretsDir, encodePathSegment("secret://imap/work")+".bin")
+	raw, err := os.ReadFile(stagedPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", stagedPath, err)
+	}
+	if string(raw) != `{"username":"latisha@example.com","password":"swordfish"}` {
+		t.Fatalf("staged credential body = %q", string(raw))
+	}
+}
+
 func TestBrokerHandleWebhookConnection(t *testing.T) {
 	t.Parallel()
 
@@ -635,6 +753,9 @@ func TestBrokerRuntimePathsForConnection(t *testing.T) {
 	if !strings.Contains(paths.RootDir, filepath.Join("adapters", "imap-smtp")) {
 		t.Fatalf("paths.RootDir = %q, want adapter segment", paths.RootDir)
 	}
+	if !strings.Contains(paths.SecretsDir, filepath.Join("runtime", "secrets")) {
+		t.Fatalf("paths.SecretsDir = %q, want runtime secrets dir", paths.SecretsDir)
+	}
 }
 
 func registerHelperConnection(t *testing.T, ctx context.Context, b *Broker) messaging.Connection {
@@ -707,6 +828,18 @@ func runBrokerHelperMessagingAdapter() error {
 				return err
 			}
 		case string(protocol.MethodConnect):
+			var params protocol.ConnectParams
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				return err
+			}
+			metadata := map[string]string{}
+			if params.Credential != nil {
+				metadata["credential_ref"] = params.Credential.Ref
+				metadata["credential_content_type"] = params.Credential.ContentType
+				if params.Credential.Blob.LocalPath != "" {
+					metadata["credential_path_present"] = "true"
+				}
+			}
 			if err := enc.Write(messagingruntime.Response{
 				JSONRPC: "2.0",
 				ID:      req.ID,
@@ -714,7 +847,7 @@ func runBrokerHelperMessagingAdapter() error {
 					Status: messaging.ConnectionStatusConnected,
 					Identities: []messaging.Identity{{
 						ID:           "identity/test",
-						ConnectionID: "slack/work",
+						ConnectionID: params.Connection.ID,
 						Kind:         messaging.IdentityKindBot,
 						RemoteID:     "U123",
 						DisplayName:  "Test Bot",
@@ -722,6 +855,7 @@ func runBrokerHelperMessagingAdapter() error {
 						CanSend:      true,
 						IsDefault:    true,
 					}},
+					Metadata: metadata,
 				}),
 			}); err != nil {
 				return err

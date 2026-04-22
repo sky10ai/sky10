@@ -125,6 +125,9 @@ Define and host external platform adapters as supervised local processes.
 - [x] Define a normalized webhook request envelope so the broker can own public
   HTTP ingress.
 - [x] Define polling checkpoints and retry semantics.
+- [x] Add a broker-owned credential materialization seam so adapters receive
+  staged secret files instead of raw secret bytes embedded in messaging
+  records.
 - [x] Build `pkg/messaging/runtime` or equivalent for adapter process
   supervision.
 - [x] Support adapter start, stop, restart, health check, and backoff.
@@ -161,6 +164,8 @@ outbound orchestration, and event fanout.
 - [x] Add normalized inbound event ingestion from polling sources.
 - [x] Add normalized inbound event ingestion from webhook sources.
 - [x] Add outbound operations that always flow through the broker.
+- [x] Stage adapter credentials into broker-owned runtime paths instead of
+  leaking secret material into persisted messaging records.
 - [ ] Add event fanout to UI and northbound shims.
 - [x] Aggregate raw activity into human-facing workflow state for draft,
   approval, and send flows.

@@ -586,6 +586,10 @@ Secrets should not live directly in the messaging store:
 
 - `AuthInfo` references secret material
 - actual tokens/passwords should live in `pkg/secrets`
+- when an adapter needs credentials, the broker should resolve the
+  `credential_ref` and stage the raw payload into a broker-owned runtime
+  secret file under `~/.sky10/messaging/...`; adapters should receive only the
+  staged file/blob reference, not embedded secret bytes in messaging records
 
 ## Packaging Direction
 

@@ -95,6 +95,7 @@ type RuntimePaths struct {
 	StateDir       string `json:"state_dir,omitempty"`
 	CacheDir       string `json:"cache_dir,omitempty"`
 	RuntimeDir     string `json:"runtime_dir,omitempty"`
+	SecretsDir     string `json:"secrets_dir,omitempty"`
 	CheckpointsDir string `json:"checkpoints_dir,omitempty"`
 	LogDir         string `json:"log_dir,omitempty"`
 	BlobDir        string `json:"blob_dir,omitempty"`
@@ -109,6 +110,17 @@ type BlobRef struct {
 	ContentType string `json:"content_type,omitempty"`
 	SizeBytes   int64  `json:"size_bytes,omitempty"`
 	SHA256      string `json:"sha256,omitempty"`
+}
+
+// ResolvedCredential is broker-owned secret material staged for one adapter
+// process. Durable messaging records should keep only `credential_ref`; the
+// adapter receives a local file/blob reference for the current invocation.
+type ResolvedCredential struct {
+	Ref         string               `json:"ref,omitempty"`
+	AuthMethod  messaging.AuthMethod `json:"auth_method,omitempty"`
+	ContentType string               `json:"content_type,omitempty"`
+	Blob        BlobRef              `json:"blob"`
+	Metadata    map[string]string    `json:"metadata,omitempty"`
 }
 
 // Attachment describes one file/image payload passed alongside a message or
@@ -225,6 +237,7 @@ type DescribeResult struct {
 type ValidateConfigParams struct {
 	Connection messaging.Connection `json:"connection"`
 	Paths      RuntimePaths         `json:"paths,omitempty"`
+	Credential *ResolvedCredential  `json:"credential,omitempty"`
 }
 
 // ValidateConfigResult reports connection config issues.
@@ -236,6 +249,7 @@ type ValidateConfigResult struct {
 type ConnectParams struct {
 	Connection messaging.Connection `json:"connection"`
 	Paths      RuntimePaths         `json:"paths"`
+	Credential *ResolvedCredential  `json:"credential,omitempty"`
 }
 
 // ConnectResult reports the adapter's initial view of the connection.
@@ -250,6 +264,7 @@ type ConnectResult struct {
 type RefreshParams struct {
 	Connection messaging.Connection `json:"connection"`
 	Paths      RuntimePaths         `json:"paths,omitempty"`
+	Credential *ResolvedCredential  `json:"credential,omitempty"`
 }
 
 // RefreshResult is identical to ConnectResult.

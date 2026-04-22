@@ -29,14 +29,15 @@ const defaultInlineWebhookBodyLimit = 32 << 10
 
 // Config configures one broker instance.
 type Config struct {
-	Store           *messagingstore.Store
-	Manager         *messagingruntime.Manager
-	RootDir         string
-	ApprovalMailbox ApprovalMailbox
-	ApprovalFrom    agentmailbox.Principal
-	ApprovalTo      *agentmailbox.Principal
-	Now             func() time.Time
-	NewID           func() string
+	Store              *messagingstore.Store
+	Manager            *messagingruntime.Manager
+	RootDir            string
+	CredentialResolver CredentialResolver
+	ApprovalMailbox    ApprovalMailbox
+	ApprovalFrom       agentmailbox.Principal
+	ApprovalTo         *agentmailbox.Principal
+	Now                func() time.Time
+	NewID              func() string
 }
 
 // RegisterConnectionParams describes one connection plus its adapter process.
@@ -89,14 +90,15 @@ type WebhookResult struct {
 
 // Broker orchestrates messaging connections through supervised adapters.
 type Broker struct {
-	store           *messagingstore.Store
-	manager         *messagingruntime.Manager
-	rootDir         string
-	approvalMailbox ApprovalMailbox
-	approvalFrom    agentmailbox.Principal
-	approvalTo      *agentmailbox.Principal
-	now             func() time.Time
-	newID           func() string
+	store              *messagingstore.Store
+	manager            *messagingruntime.Manager
+	rootDir            string
+	credentialResolver CredentialResolver
+	approvalMailbox    ApprovalMailbox
+	approvalFrom       agentmailbox.Principal
+	approvalTo         *agentmailbox.Principal
+	now                func() time.Time
+	newID              func() string
 
 	mu sync.RWMutex
 }
@@ -139,14 +141,15 @@ func New(ctx context.Context, cfg Config) (*Broker, error) {
 		approvalTo = &copy
 	}
 	return &Broker{
-		store:           cfg.Store,
-		manager:         manager,
-		rootDir:         rootDir,
-		approvalMailbox: cfg.ApprovalMailbox,
-		approvalFrom:    approvalFrom,
-		approvalTo:      approvalTo,
-		now:             now,
-		newID:           newID,
+		store:              cfg.Store,
+		manager:            manager,
+		rootDir:            rootDir,
+		credentialResolver: cfg.CredentialResolver,
+		approvalMailbox:    cfg.ApprovalMailbox,
+		approvalFrom:       approvalFrom,
+		approvalTo:         approvalTo,
+		now:                now,
+		newID:              newID,
 	}, nil
 }
 
@@ -197,10 +200,15 @@ func (b *Broker) ConnectConnection(ctx context.Context, connectionID messaging.C
 	if err != nil {
 		return ConnectResult{}, err
 	}
+	credential, err := b.resolveConnectionCredential(ctx, connection, paths)
+	if err != nil {
+		return ConnectResult{}, err
+	}
 
 	result, err := adapterClient.Connect(ctx, protocol.ConnectParams{
 		Connection: connection,
 		Paths:      paths,
+		Credential: credential,
 	})
 	if err != nil {
 		return ConnectResult{}, err
@@ -520,6 +528,7 @@ func (b *Broker) runtimePathsForConnection(connection messaging.Connection) prot
 		StateDir:       filepath.Join(connectionRoot, "state"),
 		CacheDir:       filepath.Join(connectionRoot, "cache"),
 		RuntimeDir:     filepath.Join(connectionRoot, "runtime"),
+		SecretsDir:     filepath.Join(connectionRoot, "runtime", "secrets"),
 		CheckpointsDir: filepath.Join(connectionRoot, "checkpoints"),
 		LogDir:         filepath.Join(connectionRoot, "logs"),
 		BlobDir:        filepath.Join(b.rootDir, "blobs", connectionSegment),
@@ -543,6 +552,11 @@ func ensureRuntimePaths(paths protocol.RuntimePaths) error {
 		}
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("create runtime path %s: %w", dir, err)
+		}
+	}
+	if strings.TrimSpace(paths.SecretsDir) != "" {
+		if err := os.MkdirAll(paths.SecretsDir, 0o700); err != nil {
+			return fmt.Errorf("create runtime path %s: %w", paths.SecretsDir, err)
 		}
 	}
 	return nil
