@@ -43,10 +43,12 @@ This workstream does not yet commit to:
 - [Architecture](./architecture.md)
 - [User Flow](./user-flow.md)
 - [Implementation Plan](./implementation-plan.md)
-- [OpenAI Codex OAuth Plan](./openai-codex-oauth-plan.md)
-- [OpenAI Codex OAuth Checklist](./openai-codex-oauth-checklist.md)
 - [Milestones And Checklists](./milestones.md)
 - [Media Dubbing Agent Example](./media-dubbing-agent.md)
+
+## Related Shipped Work
+
+- [ChatGPT Codex Integration](../../past/2026/04/22-ChatGPT-Codex-Integration.md)
 
 ## Current Repo Anchors
 

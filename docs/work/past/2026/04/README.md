@@ -2,6 +2,7 @@
 
 | Date | Entry |
 |------|-------|
+| 22 | [ChatGPT Codex Integration](22-ChatGPT-Codex-Integration.md) — sky10-owned ChatGPT/Codex OAuth, local device credential storage, a minimal `/codex` chat surface on the ChatGPT Codex responses transport, popup/new-tab auth UX hardening, and the removal of the Codex CLI fallback |
 | 22 | [WebSocket File Attachments For Hermes And OpenClaw](22-WebSocket-File-Attachments-For-Hermes-And-OpenClaw.md) — structured websocket chat parts for files/images, host chat composer + transcript persistence updates, Hermes multimodal bridge support, OpenClaw media-context translation, and the guest asset/runtime rollout failures found during live image testing |
 | 20 | [OpenClaw WebSocket Streaming And Guest Upgrade Gotchas](20-OpenClaw-WebSocket-Streaming-And-Guest-Upgrade-Gotchas.md) — OpenClaw guest bridge parity on the April 19 websocket chat path, partial-stream follow-up via `onPartialReply`, guest `sky10` rollout gotchas for existing sandboxes, and the current root-owned OpenClaw install mismatch with self-upgrade expectations |
 | 19 | [Hermes WebSocket Streaming And Web Chat](19-Hermes-WebSocket-Streaming-And-Web-Chat.md) — Hermes guest bridge streaming over the guest chat websocket, host web chat cutover to direct guest sockets, stream-merge/progress/timing UX fixes, same-session queue removal, and cold-start warm-up |
