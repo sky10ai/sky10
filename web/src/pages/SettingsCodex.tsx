@@ -4,7 +4,7 @@ import { Icon } from "../components/Icon";
 import { PageHeader } from "../components/PageHeader";
 import { StatusBadge } from "../components/StatusBadge";
 import { CODEX_EVENT_TYPES } from "../lib/events";
-import { closeOAuthPopup, navigateOAuthPopup, openOAuthPopup } from "../lib/oauthPopup";
+import { closeOAuthPopup, navigateOAuthPopup, openOAuthPopup, openOAuthTab } from "../lib/oauthPopup";
 import { codex } from "../lib/rpc";
 import { timeAgo, useRPC } from "../lib/useRPC";
 
@@ -73,13 +73,13 @@ export default function SettingsCodex() {
     return "Link ChatGPT directly in sky10 so the daemon can broker Codex-backed work through a browser OAuth flow.";
   }, [audience]);
 
-  const handleConnect = useCallback(async () => {
+  const handleConnect = useCallback(async (mode: "popup" | "tab") => {
     setBusy("connect");
     setActionError(null);
     setActionMessage(null);
     setRedirectOnLinked(true);
 
-    const popup = openOAuthPopup(window);
+    const popup = mode === "popup" ? openOAuthPopup(window) : openOAuthTab(window);
     try {
       const next = await codex.loginStart();
       const verificationURL = next.pending_login?.verification_url;
@@ -90,10 +90,11 @@ export default function SettingsCodex() {
         closeOAuthPopup(popup);
       }
 
+      const launchLabel = mode === "popup" ? "popup window" : "new tab";
       setActionMessage(
         callbackListening
-          ? "Opened ChatGPT sign-in. sky10 is listening for the localhost callback and should finish linking automatically."
-          : "Opened ChatGPT sign-in. Paste the final redirect URL or authorization code below after the browser redirects back."
+          ? `Opened ChatGPT sign-in in a ${launchLabel}. sky10 is listening for the localhost callback and should finish linking automatically.`
+          : `Opened ChatGPT sign-in in a ${launchLabel}. Paste the final redirect URL or authorization code below after the browser redirects back.`
       );
       refetch({ background: true });
     } catch (error: unknown) {
@@ -238,15 +239,26 @@ export default function SettingsCodex() {
 
             <div className="flex flex-wrap items-center gap-3">
               {!pending && (
-                <button
-                  className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary shadow-lg transition-colors hover:bg-primary/90 disabled:opacity-50"
-                  disabled={busy !== null}
-                  onClick={handleConnect}
-                  type="button"
-                >
-                  <Icon className="text-base" name="link" />
-                  {status?.linked ? "Reconnect ChatGPT" : "Connect ChatGPT"}
-                </button>
+                <>
+                  <button
+                    className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary shadow-lg transition-colors hover:bg-primary/90 disabled:opacity-50"
+                    disabled={busy !== null}
+                    onClick={() => void handleConnect("popup")}
+                    type="button"
+                  >
+                    <Icon className="text-base" name="link" />
+                    {status?.linked ? "Reconnect ChatGPT" : "Connect ChatGPT"}
+                  </button>
+                  <button
+                    className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-5 py-2.5 text-sm font-semibold text-on-surface transition-colors hover:bg-surface-container disabled:opacity-50"
+                    disabled={busy !== null}
+                    onClick={() => void handleConnect("tab")}
+                    type="button"
+                  >
+                    <Icon className="text-base" name="open_in_new" />
+                    Open in new tab
+                  </button>
+                </>
               )}
               {pending && (
                 <button

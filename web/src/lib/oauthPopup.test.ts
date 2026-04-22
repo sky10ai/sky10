@@ -3,6 +3,7 @@ import {
   closeOAuthPopup,
   navigateOAuthPopup,
   openOAuthPopup,
+  openOAuthTab,
 } from "./oauthPopup";
 
 describe("oauth popup helpers", () => {
@@ -64,5 +65,43 @@ describe("oauth popup helpers", () => {
     expect(handle).toBe(popup);
     expect(replacedURL).toBe("https://auth.openai.com/oauth/authorize?code=456");
     expect(closeCalls).toBe(1);
+  });
+
+  test("opens a comparison flow in a normal tab without popup window features", () => {
+    let seenFeatures: string | undefined;
+    let seenTarget = "";
+    let wrotePlaceholder = false;
+    const tab = {
+      closed: false,
+      opener: null,
+      close: () => {},
+      document: {
+        open: () => {},
+        write: () => {
+          wrotePlaceholder = true;
+        },
+        close: () => {},
+      },
+      location: {
+        replace: (_url: string) => {},
+      },
+    };
+    const browser = {
+      open: (_url?: string, target?: string, features?: string) => {
+        seenTarget = target ?? "";
+        seenFeatures = features;
+        return tab;
+      },
+      location: {
+        assign: (_url: string) => {},
+      },
+    } as unknown as Window;
+
+    const handle = openOAuthTab(browser);
+
+    expect(handle).toBe(tab);
+    expect(seenTarget).toBe("_blank");
+    expect(seenFeatures).toBeUndefined();
+    expect(wrotePlaceholder).toBe(true);
   });
 });

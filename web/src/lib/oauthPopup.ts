@@ -1,4 +1,5 @@
 const CONNECT_POPUP_FEATURES = "popup=yes,width=560,height=760";
+const CONNECT_TAB_FEATURES = undefined;
 
 const CONNECT_POPUP_HTML = `<!doctype html>
 <html lang="en">
@@ -83,8 +84,11 @@ type PopupLike = Pick<Window, "close" | "document" | "location"> & {
 
 type WindowLike = Pick<Window, "open" | "location">;
 
-export function openOAuthPopup(browser: WindowLike): PopupLike | null {
-  const popup = browser.open("about:blank", "_blank", CONNECT_POPUP_FEATURES) as PopupLike | null;
+type OAuthWindowMode = "popup" | "tab";
+
+function openOAuthWindow(browser: WindowLike, mode: OAuthWindowMode): PopupLike | null {
+  const features = mode === "popup" ? CONNECT_POPUP_FEATURES : CONNECT_TAB_FEATURES;
+  const popup = browser.open("about:blank", "_blank", features) as PopupLike | null;
   if (!popup) return null;
 
   try {
@@ -102,6 +106,14 @@ export function openOAuthPopup(browser: WindowLike): PopupLike | null {
   }
 
   return popup;
+}
+
+export function openOAuthPopup(browser: WindowLike): PopupLike | null {
+  return openOAuthWindow(browser, "popup");
+}
+
+export function openOAuthTab(browser: WindowLike): PopupLike | null {
+  return openOAuthWindow(browser, "tab");
 }
 
 export function navigateOAuthPopup(browser: Pick<Window, "location">, popup: PopupLike | null, url: string) {
