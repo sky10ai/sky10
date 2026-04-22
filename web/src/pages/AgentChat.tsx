@@ -1119,17 +1119,24 @@ export default function AgentChat() {
             </div>
           )}
 
-          <div className="flex items-end gap-3">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               aria-label="Attach photo or file"
-              className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-primary/20 bg-surface-container-lowest px-4 text-sm font-semibold text-on-surface shadow-sm transition hover:border-primary/35 hover:bg-surface-container-low"
+              className="inline-flex h-11 shrink-0 items-center gap-2 rounded-xl border border-primary/25 bg-primary/10 px-4 text-sm font-semibold text-on-surface shadow-sm transition hover:border-primary/40 hover:bg-primary/15"
               title="Attach photo or file"
             >
               <Icon name="attach_file" className="text-lg" />
-              <span>Attach</span>
+              <span>Attach photo or file</span>
             </button>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[11px] text-secondary">
+              <span>Drag and drop works too.</span>
+              <span>{maxAttachments} files max, {formatBytes(maxAttachmentBytes)} each</span>
+            </div>
+          </div>
+
+          <div className="flex items-end gap-3">
             <textarea
               ref={inputRef}
               value={input}
@@ -1152,11 +1159,6 @@ export default function AgentChat() {
             >
               <Icon name={sending ? "hourglass_empty" : "send"} className="text-lg" />
             </button>
-          </div>
-
-          <div className="mt-2 flex items-center justify-between gap-3 px-1 text-[11px] text-secondary">
-            <span>Attach a photo or file here, or drag and drop it in.</span>
-            <span>{maxAttachments} files max, {formatBytes(maxAttachmentBytes)} each</span>
           </div>
           {composerError && (
             <div className="mt-2 rounded-lg bg-error-container/15 px-3 py-2 text-xs text-error">
