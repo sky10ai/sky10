@@ -232,6 +232,15 @@ func (s *callbackServer) close() {
 }
 
 func writeOAuthPage(w http.ResponseWriter, status int, title string, body string) {
+	accent := "#10a37f"
+	accentBackground := "rgba(16, 163, 127, 0.10)"
+	accentLabel := "ChatGPT linked"
+	if status >= http.StatusBadRequest {
+		accent = "#c2410c"
+		accentBackground = "rgba(194, 65, 12, 0.10)"
+		accentLabel = "Action needed"
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	_, _ = io.WriteString(w, fmt.Sprintf(`<!doctype html>
@@ -241,19 +250,84 @@ func writeOAuthPage(w http.ResponseWriter, status int, title string, body string
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>%s</title>
   <style>
-    body { font-family: ui-sans-serif, system-ui, sans-serif; background: #f4f1ea; color: #1d1a17; padding: 40px; }
-    main { max-width: 640px; margin: 0 auto; background: #fffdf8; border: 1px solid #ded7cb; border-radius: 20px; padding: 32px; box-shadow: 0 12px 32px rgba(61, 47, 34, 0.08); }
-    h1 { margin: 0 0 12px; font-size: 28px; }
-    p { margin: 0; line-height: 1.5; color: #5a5148; }
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+	      background:
+	        radial-gradient(circle at top, %s, transparent 32%%),
+	        linear-gradient(180deg, #f7f7f8 0%%, #efeff1 100%%);
+      color: #202123;
+    }
+    main {
+      width: min(100%%, 560px);
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.94);
+      border: 1px solid rgba(32, 33, 35, 0.08);
+      box-shadow:
+        0 24px 64px rgba(15, 23, 42, 0.10),
+        0 2px 12px rgba(15, 23, 42, 0.04);
+      padding: 32px;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 18px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: %s;
+      color: %s;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: %s;
+      box-shadow: 0 0 0 6px %s;
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: 30px;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+    }
+    p {
+      margin: 0;
+      line-height: 1.6;
+      color: #5f6368;
+      font-size: 15px;
+    }
   </style>
 </head>
 <body>
   <main>
+    <div class="eyebrow"><span class="dot"></span>%s</div>
     <h1>%s</h1>
     <p>%s</p>
   </main>
 </body>
-</html>`, htmlEscape(title), htmlEscape(title), htmlEscape(body)))
+</html>`,
+		htmlEscape(title),
+		htmlEscape(accentBackground),
+		htmlEscape(accentBackground),
+		htmlEscape(accent),
+		htmlEscape(accent),
+		htmlEscape(accentBackground),
+		htmlEscape(accentLabel),
+		htmlEscape(title),
+		htmlEscape(body),
+	))
 }
 
 func htmlEscape(value string) string {

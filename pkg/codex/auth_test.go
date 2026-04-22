@@ -421,25 +421,21 @@ func TestServiceChatUsesStoredCredential(t *testing.T) {
 			t.Fatalf("decode request body: %v", err)
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"id": "resp_123",
-			"output": []map[string]interface{}{
-				{
-					"type": "message",
-					"role": "assistant",
-					"content": []map[string]interface{}{
-						{
-							"type": "output_text",
-							"text": "hello from codex",
-						},
-					},
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEEvent(t, w, "response.output_text.delta", map[string]interface{}{
+			"type":  "response.output_text.delta",
+			"delta": "hello from codex",
+		})
+		writeSSEEvent(t, w, "response.completed", map[string]interface{}{
+			"type": "response.completed",
+			"response": map[string]interface{}{
+				"id":    "resp_123",
+				"model": "gpt-5.4",
+				"usage": map[string]int{
+					"input_tokens":  12,
+					"output_tokens": 7,
+					"total_tokens":  19,
 				},
-			},
-			"usage": map[string]int{
-				"input_tokens":  12,
-				"output_tokens": 7,
-				"total_tokens":  19,
 			},
 		})
 	}))
@@ -493,8 +489,96 @@ func TestServiceChatUsesStoredCredential(t *testing.T) {
 	if body["model"] != "gpt-5.4" {
 		t.Fatalf("model = %v, want gpt-5.4", body["model"])
 	}
-	if body["stream"] != false {
-		t.Fatalf("stream = %v, want false", body["stream"])
+	if body["stream"] != true {
+		t.Fatalf("stream = %v, want true", body["stream"])
+	}
+	if body["instructions"] != defaultCodexInstructions {
+		t.Fatalf("instructions = %v, want %q", body["instructions"], defaultCodexInstructions)
+	}
+}
+
+func TestServiceChatBackfillsMetadataFromNestedJWTClaims(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 4, 21, 12, 0, 0, 0, time.UTC)
+	var seenAccount string
+	var seenAuth string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenAuth = r.Header.Get("Authorization")
+		seenAccount = r.Header.Get("chatgpt-account-id")
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEEvent(t, w, "response.output_text.delta", map[string]interface{}{
+			"type":  "response.output_text.delta",
+			"delta": "nested claims ok",
+		})
+		writeSSEEvent(t, w, "response.completed", map[string]interface{}{
+			"type": "response.completed",
+			"response": map[string]interface{}{
+				"id":    "resp_nested",
+				"model": "gpt-5.4",
+			},
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	service := newTestService(t, server.URL, now)
+	if err := service.saveCredential(&storedCredential{
+		Version:      credentialVersion,
+		Type:         "oauth",
+		Provider:     "openai-codex",
+		AccessToken:  mustJWTWithNestedClaims(t, now.Add(2*time.Hour), "nested@example.com", "acct_nested", "user_nested"),
+		IDToken:      mustJWTWithPayload(t, map[string]interface{}{"exp": now.Add(2 * time.Hour).Unix(), "email": "nested@example.com"}),
+		RefreshToken: "refresh-nested",
+		ExpiresAt:    now.Add(2 * time.Hour),
+		UpdatedAt:    now,
+	}); err != nil {
+		t.Fatalf("saveCredential: %v", err)
+	}
+
+	status, err := service.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if status.Email != "nested@example.com" {
+		t.Fatalf("status email = %q, want nested@example.com", status.Email)
+	}
+	if status.AccountID != "acct_nested" {
+		t.Fatalf("status account_id = %q, want acct_nested", status.AccountID)
+	}
+
+	result, err := service.Chat(context.Background(), ChatParams{
+		Model: "gpt-5.4",
+		Messages: []ChatMessage{
+			{Role: "user", Content: "say hi"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if result.Text != "nested claims ok" {
+		t.Fatalf("result.Text = %q, want nested claims ok", result.Text)
+	}
+	if seenAccount != "acct_nested" {
+		t.Fatalf("chatgpt-account-id = %q, want acct_nested", seenAccount)
+	}
+	if seenAuth == "" || !strings.HasPrefix(seenAuth, "Bearer ") {
+		t.Fatalf("authorization header = %q, want bearer token", seenAuth)
+	}
+}
+
+func writeSSEEvent(t *testing.T, w http.ResponseWriter, name string, payload map[string]interface{}) {
+	t.Helper()
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal sse payload: %v", err)
+	}
+	if _, err := fmt.Fprintf(w, "event: %s\n", name); err != nil {
+		t.Fatalf("write sse event: %v", err)
+	}
+	if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+		t.Fatalf("write sse data: %v", err)
 	}
 }
 
@@ -581,18 +665,49 @@ func freeRedirectURL(t *testing.T) string {
 func mustJWT(t *testing.T, exp time.Time, email string, accountID string) string {
 	t.Helper()
 
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
-	payloadBytes, err := json.Marshal(map[string]interface{}{
+	return mustJWTWithPayload(t, map[string]interface{}{
 		"exp":                                  exp.Unix(),
 		"email":                                email,
+		"https://api.openai.com/profile":       map[string]interface{}{"email": email, "email_verified": true},
 		"https://api.openai.com/profile.email": email,
+		"https://api.openai.com/auth": map[string]interface{}{
+			"chatgpt_account_id": accountID,
+			"chatgpt_user_id":    "user_" + accountID,
+			"chatgpt_plan_type":  "plus",
+			"user_id":            "user_" + accountID,
+		},
 		"https://api.openai.com/auth.chatgpt_account_id": accountID,
 	})
+}
+
+func mustJWTWithNestedClaims(t *testing.T, exp time.Time, email string, accountID string, userID string) string {
+	t.Helper()
+
+	return mustJWTWithPayload(t, map[string]interface{}{
+		"exp": exp.Unix(),
+		"https://api.openai.com/auth": map[string]interface{}{
+			"chatgpt_account_id": accountID,
+			"chatgpt_user_id":    userID,
+			"chatgpt_plan_type":  "pro",
+			"user_id":            userID,
+		},
+		"https://api.openai.com/profile": map[string]interface{}{
+			"email":          email,
+			"email_verified": true,
+		},
+		"sub": "auth0|nested",
+	})
+}
+
+func mustJWTWithPayload(t *testing.T, payload map[string]interface{}) string {
+	t.Helper()
+
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("marshal jwt payload: %v", err)
 	}
-	payload := base64.RawURLEncoding.EncodeToString(payloadBytes)
-	return header + "." + payload + ".signature"
+	return header + "." + base64.RawURLEncoding.EncodeToString(payloadBytes) + ".signature"
 }
 
 func waitFor(t *testing.T, timeout time.Duration, fn func() bool) {

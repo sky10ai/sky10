@@ -326,10 +326,7 @@ func (s *Service) Chat(ctx context.Context, params ChatParams) (*ChatResult, err
 
 	accountID := strings.TrimSpace(cred.AccountID)
 	if accountID == "" {
-		claims := decodeCodexJWTClaims(cred.AccessToken)
-		if claims != nil {
-			accountID = strings.TrimSpace(claims.ChatGPTAccountID)
-		}
+		accountID = accountIDFromClaims(decodeCodexJWTClaims(cred.AccessToken))
 	}
 	if accountID == "" {
 		return nil, fmt.Errorf("linked ChatGPT account is missing a Codex account id")
@@ -338,11 +335,12 @@ func (s *Service) Chat(ctx context.Context, params ChatParams) (*ChatResult, err
 	body := map[string]interface{}{
 		"model":   model,
 		"store":   false,
-		"stream":  false,
+		"stream":  true,
 		"input":   messages,
 		"text":    map[string]string{"verbosity": "medium"},
 		"include": []string{"reasoning.encrypted_content"},
 	}
+	body["instructions"] = defaultCodexInstructions
 	if prompt := strings.TrimSpace(params.SystemPrompt); prompt != "" {
 		body["instructions"] = prompt
 	}
@@ -360,7 +358,7 @@ func (s *Service) Chat(ctx context.Context, params ChatParams) (*ChatResult, err
 	req.Header.Set("chatgpt-account-id", accountID)
 	req.Header.Set("originator", s.oauth.Originator)
 	req.Header.Set("OpenAI-Beta", "responses=experimental")
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", userAgent())
 
@@ -370,37 +368,14 @@ func (s *Service) Chat(ctx context.Context, params ChatParams) (*ChatResult, err
 	}
 	defer res.Body.Close()
 
-	raw, err := io.ReadAll(io.LimitReader(res.Body, 2<<20))
-	if err != nil {
-		return nil, fmt.Errorf("read codex chat response: %w", err)
-	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		raw, err := io.ReadAll(io.LimitReader(res.Body, 2<<20))
+		if err != nil {
+			return nil, fmt.Errorf("read codex chat error response: %w", err)
+		}
 		return nil, parseCodexAPIError(res.StatusCode, raw)
 	}
-
-	var response chatAPIResponse
-	if err := json.Unmarshal(raw, &response); err != nil {
-		return nil, fmt.Errorf("decode codex chat response: %w", err)
-	}
-
-	text := extractChatText(response)
-	if strings.TrimSpace(text) == "" {
-		return nil, fmt.Errorf("codex returned an empty response")
-	}
-
-	result := &ChatResult{
-		Model:      model,
-		ResponseID: response.ID,
-		Text:       text,
-	}
-	if response.Usage != nil {
-		result.Usage = &ChatUsage{
-			InputTokens:  response.Usage.InputTokens,
-			OutputTokens: response.Usage.OutputTokens,
-			TotalTokens:  response.Usage.TotalTokens,
-		}
-	}
-	return result, nil
+	return parseCodexAPIStream(io.LimitReader(res.Body, 4<<20), model)
 }
 
 func (s *Service) activeCredential(ctx context.Context) (*storedCredential, error) {

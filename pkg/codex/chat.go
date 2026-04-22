@@ -1,16 +1,23 @@
 package codex
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
-	"runtime"
+	"io"
 	"strings"
 )
 
+import (
+	"runtime"
+)
+
 const defaultCodexChatModel = "gpt-5.4"
+const defaultCodexInstructions = "You are Codex inside sky10. Help with coding tasks and answer directly."
 
 type chatAPIResponse struct {
 	ID         string              `json:"id"`
+	Model      string              `json:"model,omitempty"`
 	OutputText string              `json:"output_text,omitempty"`
 	Output     []chatAPIOutputItem `json:"output,omitempty"`
 	Usage      *chatAPIUsage       `json:"usage,omitempty"`
@@ -43,6 +50,14 @@ type chatAPIErrorBody struct {
 	Code    string `json:"code,omitempty"`
 	Type    string `json:"type,omitempty"`
 	Message string `json:"message,omitempty"`
+}
+
+type chatAPIStreamEvent struct {
+	Type     string            `json:"type,omitempty"`
+	Delta    string            `json:"delta,omitempty"`
+	Text     string            `json:"text,omitempty"`
+	Response *chatAPIResponse  `json:"response,omitempty"`
+	Error    *chatAPIErrorBody `json:"error,omitempty"`
 }
 
 func buildChatInput(messages []ChatMessage) ([]map[string]interface{}, error) {
@@ -134,6 +149,100 @@ func parseCodexAPIError(status int, raw []byte) error {
 	}
 
 	return fmt.Errorf("codex request failed (%d): %s", status, message)
+}
+
+func parseCodexAPIStream(raw io.Reader, fallbackModel string) (*ChatResult, error) {
+	scanner := bufio.NewScanner(raw)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4<<20)
+
+	result := &ChatResult{Model: fallbackModel}
+	var textBuilder strings.Builder
+	var eventName string
+	var dataLines []string
+
+	flush := func() error {
+		if len(dataLines) == 0 {
+			eventName = ""
+			return nil
+		}
+
+		payload := strings.TrimSpace(strings.Join(dataLines, "\n"))
+		eventName = ""
+		dataLines = nil
+
+		if payload == "" || payload == "[DONE]" {
+			return nil
+		}
+
+		var event chatAPIStreamEvent
+		if err := json.Unmarshal([]byte(payload), &event); err != nil {
+			return fmt.Errorf("decode codex stream event: %w", err)
+		}
+
+		switch event.Type {
+		case "response.output_text.delta":
+			textBuilder.WriteString(event.Delta)
+		case "response.output_text.done":
+			if textBuilder.Len() == 0 && strings.TrimSpace(event.Text) != "" {
+				textBuilder.WriteString(event.Text)
+			}
+		case "response.completed":
+			if event.Response != nil {
+				result.ResponseID = event.Response.ID
+				if strings.TrimSpace(event.Response.Model) != "" {
+					result.Model = event.Response.Model
+				}
+				if event.Response.Usage != nil {
+					result.Usage = &ChatUsage{
+						InputTokens:  event.Response.Usage.InputTokens,
+						OutputTokens: event.Response.Usage.OutputTokens,
+						TotalTokens:  event.Response.Usage.TotalTokens,
+					}
+				}
+			}
+		case "response.failed", "response.error", "error":
+			if event.Error != nil {
+				return fmt.Errorf("codex stream failed: %s", strings.TrimSpace(event.Error.Message))
+			}
+			if event.Response != nil && event.Response.Error != nil {
+				return fmt.Errorf("codex stream failed: %s", strings.TrimSpace(event.Response.Error.Message))
+			}
+			if eventName != "" {
+				return fmt.Errorf("codex stream failed during %s", eventName)
+			}
+			return fmt.Errorf("codex stream failed")
+		}
+
+		return nil
+	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			if err := flush(); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "event:"):
+			eventName = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		case strings.HasPrefix(line, "data:"):
+			dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read codex stream: %w", err)
+	}
+	if err := flush(); err != nil {
+		return nil, err
+	}
+
+	result.Text = strings.TrimSpace(textBuilder.String())
+	if result.Text == "" {
+		return nil, fmt.Errorf("codex returned an empty response")
+	}
+	return result, nil
 }
 
 func userAgent() string {

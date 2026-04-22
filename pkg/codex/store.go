@@ -33,11 +33,26 @@ type storedCredential struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+type codexJWTAuthClaims struct {
+	ChatGPTAccountID     string `json:"chatgpt_account_id"`
+	ChatGPTAccountUserID string `json:"chatgpt_account_user_id"`
+	ChatGPTUserID        string `json:"chatgpt_user_id"`
+	ChatGPTPlanType      string `json:"chatgpt_plan_type"`
+	UserID               string `json:"user_id"`
+}
+
+type codexJWTProfileClaims struct {
+	Email string `json:"email"`
+}
+
 type codexJWTClaims struct {
-	Exp              int64  `json:"exp"`
-	Email            string `json:"email"`
-	ProfileEmail     string `json:"https://api.openai.com/profile.email"`
-	ChatGPTAccountID string `json:"https://api.openai.com/auth.chatgpt_account_id"`
+	Exp              int64                 `json:"exp"`
+	Sub              string                `json:"sub"`
+	Email            string                `json:"email"`
+	ProfileEmail     string                `json:"https://api.openai.com/profile.email"`
+	ChatGPTAccountID string                `json:"https://api.openai.com/auth.chatgpt_account_id"`
+	Auth             codexJWTAuthClaims    `json:"https://api.openai.com/auth"`
+	Profile          codexJWTProfileClaims `json:"https://api.openai.com/profile"`
 }
 
 func defaultStorePath() (string, error) {
@@ -67,6 +82,7 @@ func (s *Service) loadCredential() (*storedCredential, error) {
 	if cred.Version == 0 {
 		cred.Version = credentialVersion
 	}
+	hydrateCredentialMetadata(&cred)
 	return &cred, nil
 }
 
@@ -117,21 +133,20 @@ func (s *Service) clearCredential() error {
 }
 
 func newStoredCredentialFromToken(token tokenResponse, now time.Time) *storedCredential {
-	claims := decodeCodexJWTClaims(token.AccessToken)
-	accountID := ""
-	if claims != nil {
-		accountID = claims.ChatGPTAccountID
-	}
-	email := ""
-	switch {
-	case claims != nil && strings.TrimSpace(claims.ProfileEmail) != "":
-		email = strings.TrimSpace(claims.ProfileEmail)
-	case claims != nil && strings.TrimSpace(claims.Email) != "":
-		email = strings.TrimSpace(claims.Email)
-	}
+	accessClaims := decodeCodexJWTClaims(token.AccessToken)
+	idClaims := decodeCodexJWTClaims(token.IDToken)
+
+	accountID := firstNonEmpty(
+		accountIDFromClaims(accessClaims),
+		accountIDFromClaims(idClaims),
+	)
+	email := firstNonEmpty(
+		emailFromClaims(accessClaims),
+		emailFromClaims(idClaims),
+	)
 	expiresAt := now.UTC().Add(time.Duration(token.ExpiresIn) * time.Second)
-	if claims != nil && claims.Exp > 0 {
-		expiresAt = time.Unix(claims.Exp, 0).UTC()
+	if accessClaims != nil && accessClaims.Exp > 0 {
+		expiresAt = time.Unix(accessClaims.Exp, 0).UTC()
 	}
 	return &storedCredential{
 		Version:      credentialVersion,
@@ -144,6 +159,28 @@ func newStoredCredentialFromToken(token tokenResponse, now time.Time) *storedCre
 		AccountID:    accountID,
 		Email:        email,
 		UpdatedAt:    now.UTC(),
+	}
+}
+
+func hydrateCredentialMetadata(cred *storedCredential) {
+	if cred == nil {
+		return
+	}
+
+	accessClaims := decodeCodexJWTClaims(cred.AccessToken)
+	idClaims := decodeCodexJWTClaims(cred.IDToken)
+
+	if strings.TrimSpace(cred.AccountID) == "" {
+		cred.AccountID = firstNonEmpty(
+			accountIDFromClaims(accessClaims),
+			accountIDFromClaims(idClaims),
+		)
+	}
+	if strings.TrimSpace(cred.Email) == "" {
+		cred.Email = firstNonEmpty(
+			emailFromClaims(accessClaims),
+			emailFromClaims(idClaims),
+		)
 	}
 }
 
@@ -175,6 +212,38 @@ func decodeCodexJWTClaims(accessToken string) *codexJWTClaims {
 		return nil
 	}
 	return &claims
+}
+
+func accountIDFromClaims(claims *codexJWTClaims) string {
+	if claims == nil {
+		return ""
+	}
+	return firstNonEmpty(
+		strings.TrimSpace(claims.ChatGPTAccountID),
+		strings.TrimSpace(claims.Auth.ChatGPTAccountID),
+		strings.TrimSpace(claims.Auth.UserID),
+		strings.TrimSpace(claims.Auth.ChatGPTUserID),
+	)
+}
+
+func emailFromClaims(claims *codexJWTClaims) string {
+	if claims == nil {
+		return ""
+	}
+	return firstNonEmpty(
+		strings.TrimSpace(claims.ProfileEmail),
+		strings.TrimSpace(claims.Profile.Email),
+		strings.TrimSpace(claims.Email),
+	)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func readLegacyCLIStatus(ctx context.Context, findBinary func() (string, error)) (*Status, error) {
