@@ -1469,6 +1469,41 @@ func TestBundledHermesBridgeAssetRegistersWithSky10(t *testing.T) {
 	}
 }
 
+func TestBundledOpenClawChannelAssetSupportsStructuredAttachments(t *testing.T) {
+	t.Parallel()
+
+	body, err := readBundledTemplateAsset(filepath.Join(templateOpenClawPluginDir, "src", "index.js"))
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset(openclaw index) error: %v", err)
+	}
+
+	script := string(body)
+	if !strings.Contains(script, `extractInboundMediaContext`) {
+		t.Fatalf("bundled OpenClaw channel missing inbound media extraction: %q", script)
+	}
+	if !strings.Contains(script, `MediaPaths`) {
+		t.Fatalf("bundled OpenClaw channel missing MediaPaths propagation: %q", script)
+	}
+	if !strings.Contains(script, `buildOutboundChatContent`) {
+		t.Fatalf("bundled OpenClaw channel missing outbound chat content builder: %q", script)
+	}
+	if !strings.Contains(script, `hasMedia ? "chat" : "text"`) {
+		t.Fatalf("bundled OpenClaw channel missing chat reply type selection: %q", script)
+	}
+
+	mediaBody, err := readBundledTemplateAsset(filepath.Join(templateOpenClawPluginDir, "src", "media.js"))
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset(openclaw media helper) error: %v", err)
+	}
+	mediaScript := string(mediaBody)
+	if !strings.Contains(mediaScript, `trimmed.startsWith("MEDIA:")`) {
+		t.Fatalf("bundled OpenClaw media helper missing MEDIA artifact handling: %q", mediaScript)
+	}
+	if !strings.Contains(mediaScript, `.openclaw", "media", "inbound", "sky10"`) {
+		t.Fatalf("bundled OpenClaw media helper missing guest media staging root: %q", mediaScript)
+	}
+}
+
 func TestBuildStartArgsOpenClaw(t *testing.T) {
 	t.Parallel()
 

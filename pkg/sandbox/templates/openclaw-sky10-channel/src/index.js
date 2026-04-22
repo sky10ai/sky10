@@ -15,6 +15,7 @@ import { createChatChannelPlugin } from "/usr/lib/node_modules/openclaw/dist/plu
 import { createChannelReplyPipeline } from "/usr/lib/node_modules/openclaw/dist/plugin-sdk/channel-reply-pipeline.js";
 
 import { Sky10Client } from "./sky10.js";
+import { buildOutboundChatContent, extractInboundMediaContext } from "./media.js";
 
 const CHANNEL_ID = "sky10";
 const CHANNEL_LABEL = "Sky10";
@@ -235,29 +236,6 @@ function resolveSessionPeerId(msg) {
   return `${msg.from}:${msg.session_id || "main"}`;
 }
 
-function extractInboundText(content) {
-  if (typeof content === "string") {
-    return content;
-  }
-  if (!content || typeof content !== "object") {
-    return content === undefined || content === null ? "" : JSON.stringify(content);
-  }
-  if (typeof content.text === "string" && content.text) {
-    return content.text;
-  }
-  if (Array.isArray(content.parts)) {
-    const joined = content.parts
-      .filter((part) => part && typeof part === "object")
-      .map((part) => (typeof part.text === "string" ? part.text : ""))
-      .filter(Boolean)
-      .join("\n\n");
-    if (joined) {
-      return joined;
-    }
-  }
-  return JSON.stringify(content);
-}
-
 function extractClientRequestID(content) {
   if (!content || typeof content !== "object") {
     return "";
@@ -365,7 +343,7 @@ function startHeartbeat(log, account, setStatus, abortSignal) {
   return () => clearInterval(timer);
 }
 
-async function dispatchInbound(log, ctx, account, msg, rawBody) {
+async function dispatchInbound(log, ctx, account, msg, inbound) {
   const state = getBridgeState();
   const runtime = state.pluginRuntime;
   if (!runtime?.channel) {
@@ -380,6 +358,7 @@ async function dispatchInbound(log, ctx, account, msg, rawBody) {
   const conversationLabel = `${msg.from} (${sessionId})`;
   const messageId = resolveMessageId(msg);
   const timestamp = resolveMessageTimestamp(msg);
+  const rawBody = inbound.bodyText || "";
   const { route, storePath, body } = resolveInboundRouteEnvelope(
     runtime,
     ctx.cfg,
@@ -411,6 +390,12 @@ async function dispatchInbound(log, ctx, account, msg, rawBody) {
     OriginatingTo: `sky10:${state.agentId ?? account.agentName}`,
     Sky10SessionId: sessionId,
     Sky10SenderId: msg.from,
+    ...(inbound.mediaPath ? { MediaPath: inbound.mediaPath } : {}),
+    ...(inbound.mediaUrl ? { MediaUrl: inbound.mediaUrl } : {}),
+    ...(inbound.mediaType ? { MediaType: inbound.mediaType } : {}),
+    ...(inbound.mediaPaths.length > 0 ? { MediaPaths: inbound.mediaPaths } : {}),
+    ...(inbound.mediaUrls.length > 0 ? { MediaUrls: inbound.mediaUrls } : {}),
+    ...(inbound.mediaTypes.length > 0 ? { MediaTypes: inbound.mediaTypes } : {}),
   });
   await runtime.channel.session.recordInboundSession({
     storePath,
@@ -450,12 +435,20 @@ async function dispatchInbound(log, ctx, account, msg, rawBody) {
         if (kind !== "final" || !replyText.trim()) {
           return;
         }
+        const replyContent = buildOutboundChatContent(replyText);
+        const hasMedia = replyContent.parts.some((part) => part.type !== "text");
         await state.client.sendContent(
           msg.from,
           sessionId,
-          buildStreamContent(replyText, streamId, clientRequestID),
+          hasMedia
+            ? {
+                ...replyContent,
+                stream_id: streamId,
+                client_request_id: clientRequestID || undefined,
+              }
+            : buildStreamContent(replyText, streamId, clientRequestID),
           msg.from,
-          "text",
+          hasMedia ? "chat" : "text",
         );
         log.info("sky10: reply sent");
       },
@@ -523,8 +516,8 @@ function handleAgentMessage(log, ctx, account, data) {
       return;
     }
 
-    const rawBody = extractInboundText(msg.content);
-    void dispatchInbound(log, ctx, account, msg, rawBody).catch((err) => {
+    const inbound = extractInboundMediaContext(msg.content, msg.session_id || "main");
+    void dispatchInbound(log, ctx, account, msg, inbound).catch((err) => {
       log.error(`sky10: inbound dispatch failed: ${err?.message ?? err}`);
     });
   } catch (err) {
