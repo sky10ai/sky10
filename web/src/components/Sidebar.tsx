@@ -4,7 +4,6 @@ import { STORAGE_EVENT_TYPES } from "../lib/events";
 import { Icon } from "./Icon";
 import { skyfs, skylink, system } from "../lib/rpc";
 import { useRPC, truncAddr } from "../lib/useRPC";
-import { StatusBadge } from "./StatusBadge";
 import { VersionOverlay, parseVersionDetails } from "./VersionOverlay";
 
 const UPDATE_REFRESH_EVENTS = [
@@ -30,7 +29,7 @@ const navItems = [
 export function Sidebar() {
   const location = useLocation();
   const [versionOverlayOpen, setVersionOverlayOpen] = useState(false);
-  const { data: health, refreshing } = useRPC(() => skyfs.health(), [], {
+  const { data: health } = useRPC(() => skyfs.health(), [], {
     live: STORAGE_EVENT_TYPES,
     refreshIntervalMs: 10_000,
   });
@@ -44,8 +43,6 @@ export function Sidebar() {
     live: UPDATE_REFRESH_EVENTS,
     refreshIntervalMs: 30_000,
   });
-  const pending = (health?.outbox_pending ?? 0) + (health?.transfer_pending ?? 0);
-  const syncing = pending > 0;
   const versionInfo = parseVersionDetails(health?.version ?? "");
   const versionLabel = versionInfo.version || health?.version?.split(" ")[0] || "...";
   const commitLabel = versionInfo.commit || "";
@@ -122,37 +119,6 @@ export function Sidebar() {
 
         {/* Bottom section */}
         <div className="mt-auto space-y-4 p-6">
-          <div className="rounded-xl border border-outline-variant/10 bg-surface-container-lowest px-4 py-3">
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
-                Node Status
-              </p>
-              {syncing ? (
-                <StatusBadge icon="sync" pulse tone="processing">
-                  Syncing
-                </StatusBadge>
-              ) : (
-                <StatusBadge pulse tone="live">
-                  Ready
-                </StatusBadge>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div>
-                <p className="text-outline">Drives</p>
-                <p className="mt-1 font-semibold text-on-surface">
-                  {health?.drives_running ?? 0}/{health?.drives ?? 0}
-                </p>
-              </div>
-              <div>
-                <p className="text-outline">Queue</p>
-                <p className="mt-1 font-semibold text-on-surface">
-                  {pending}
-                  {refreshing ? " ..." : ""}
-                </p>
-              </div>
-            </div>
-          </div>
           <div className="border-t border-outline-variant/10 pt-4">
             <div className="flex items-center justify-between text-[11px] font-mono text-secondary">
               <div className="flex items-center gap-2">
