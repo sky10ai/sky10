@@ -137,6 +137,7 @@ func cloneDraft(draft messaging.Draft) messaging.Draft {
 }
 
 func clonePolicy(policy messaging.Policy) messaging.Policy {
+	policy.Rules.AllowedIdentityIDs = slices.Clone(policy.Rules.AllowedIdentityIDs)
 	policy.Metadata = cloneStringMap(policy.Metadata)
 	return policy
 }

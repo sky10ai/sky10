@@ -487,14 +487,28 @@ func (d Draft) Validate() error {
 // PolicyRules is the broker-enforced allow/deny surface attached to a
 // connection or exposure.
 type PolicyRules struct {
-	ReadInbound           bool `json:"read_inbound"`
-	CreateDrafts          bool `json:"create_drafts"`
-	SendMessages          bool `json:"send_messages"`
-	RequireApproval       bool `json:"require_approval"`
-	ReplyOnly             bool `json:"reply_only"`
-	AllowNewConversations bool `json:"allow_new_conversations"`
-	AllowAttachments      bool `json:"allow_attachments"`
-	MarkRead              bool `json:"mark_read"`
+	ReadInbound           bool         `json:"read_inbound"`
+	CreateDrafts          bool         `json:"create_drafts"`
+	SendMessages          bool         `json:"send_messages"`
+	RequireApproval       bool         `json:"require_approval"`
+	ReplyOnly             bool         `json:"reply_only"`
+	AllowNewConversations bool         `json:"allow_new_conversations"`
+	AllowAttachments      bool         `json:"allow_attachments"`
+	MarkRead              bool         `json:"mark_read"`
+	SearchIdentities      bool         `json:"search_identities"`
+	SearchConversations   bool         `json:"search_conversations"`
+	SearchMessages        bool         `json:"search_messages"`
+	AllowedIdentityIDs    []IdentityID `json:"allowed_identity_ids,omitempty"`
+}
+
+// Validate checks whether policy rules are structurally valid.
+func (r PolicyRules) Validate() error {
+	for idx, identityID := range r.AllowedIdentityIDs {
+		if err := requireID(string(identityID), fmt.Sprintf("policy rules allowed_identity_ids[%d]", idx)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Policy is a named bundle of messaging permission rules.
@@ -511,6 +525,9 @@ func (p Policy) Validate() error {
 		return err
 	}
 	if err := requireText(p.Name, "policy name"); err != nil {
+		return err
+	}
+	if err := p.Rules.Validate(); err != nil {
 		return err
 	}
 	return nil

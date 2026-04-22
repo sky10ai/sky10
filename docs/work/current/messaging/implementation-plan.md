@@ -36,7 +36,7 @@ This plan does not yet cover:
 | 1. Core Domain And Storage | in progress | `pkg/messaging` types and persistence backbone |
 | 2. Adapter Protocol And Runtime Host | in progress | External adapter process contract and supervision |
 | 3. Broker Core And Event Flows | in progress | Normalize inbound/outbound flow through broker |
-| 4. Policy And Approval Engine | not started | Broker-enforced permissions and durable approvals |
+| 4. Policy And Approval Engine | in progress | Broker-enforced permissions and durable approvals |
 | 5. Agent Shim Protocol | not started | One thin runtime-facing messaging surface |
 | 6. First-Party Adapters | not started | Initial platform coverage |
 | 7. UI And Operator Surfaces | not started | Connections, conversations, drafts, approvals |
@@ -182,20 +182,20 @@ meaningful messaging power.
 
 ### Checklist
 
-- [ ] Create `pkg/messaging/policy`.
-- [ ] Define broker-enforced policy rules for:
+- [x] Create `pkg/messaging/policy`.
+- [x] Define broker-enforced policy rules for:
   read inbound, draft replies, send replies, start new conversations,
-  attachment handling, allowed identities, allowed connection scopes,
-  allowed time windows, and search permissions.
-- [ ] Support connection-level default policy.
-- [ ] Support exposure-level narrowed policy for a specific agent/runtime.
+  attachment handling, allowed identities, and search permissions.
+- [ ] Add allowed connection scopes and allowed time windows.
+- [x] Support connection-level default policy.
+- [x] Support exposure-level narrowed policy for a specific agent/runtime.
 - [ ] Define durable approval request objects for sends and other sensitive
   operations.
 - [ ] Reuse or integrate the repo's existing mailbox/approval primitives where
   practical instead of creating an unrelated second approval engine.
 - [ ] Add approval statuses and audit timeline.
-- [ ] Add explicit refusal reasons when an operation is denied by policy.
-- [ ] Add tests for approval-required, reply-only, no-new-recipient, and
+- [x] Add explicit refusal reasons when an operation is denied by policy.
+- [x] Add tests for approval-required, reply-only, no-new-recipient, and
   attachment-blocked paths.
 
 ### Exit Criteria

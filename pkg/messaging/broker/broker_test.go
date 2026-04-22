@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sky10/sky10/pkg/messaging"
+	messagingpolicy "github.com/sky10/sky10/pkg/messaging/policy"
 	"github.com/sky10/sky10/pkg/messaging/protocol"
 	messagingruntime "github.com/sky10/sky10/pkg/messaging/runtime"
 	messagingstore "github.com/sky10/sky10/pkg/messaging/store"
@@ -224,6 +225,166 @@ func TestBrokerHandleWebhookConnectionStagesBinaryBody(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected staged webhook body file")
+	}
+}
+
+func TestBrokerResolvePolicyUsesExposureOverride(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	b, err := New(ctx, Config{
+		Store:   store,
+		RootDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = b.Close() }()
+
+	connection := messaging.Connection{
+		ID:              "slack/work",
+		AdapterID:       "slack",
+		Label:           "Work Slack",
+		Status:          messaging.ConnectionStatusConnected,
+		DefaultPolicyID: "policy/default",
+	}
+	if err := store.PutConnection(ctx, connection); err != nil {
+		t.Fatalf("PutConnection() error = %v", err)
+	}
+	defaultPolicy := messaging.Policy{
+		ID:   "policy/default",
+		Name: "Default",
+		Rules: messaging.PolicyRules{
+			ReadInbound: true,
+		},
+	}
+	overridePolicy := messaging.Policy{
+		ID:   "policy/exposure",
+		Name: "Exposure",
+		Rules: messaging.PolicyRules{
+			SendMessages: true,
+		},
+	}
+	if err := store.PutPolicy(ctx, defaultPolicy); err != nil {
+		t.Fatalf("PutPolicy(default) error = %v", err)
+	}
+	if err := store.PutPolicy(ctx, overridePolicy); err != nil {
+		t.Fatalf("PutPolicy(override) error = %v", err)
+	}
+	exposure := messaging.Exposure{
+		ID:           "exposure/runtime",
+		ConnectionID: connection.ID,
+		SubjectID:    "runtime:hermes",
+		SubjectKind:  messaging.ExposureSubjectKindRuntime,
+		PolicyID:     overridePolicy.ID,
+		Enabled:      true,
+	}
+	if err := store.PutExposure(ctx, exposure); err != nil {
+		t.Fatalf("PutExposure() error = %v", err)
+	}
+
+	effective, err := b.ResolvePolicy(connection.ID, exposure.ID)
+	if err != nil {
+		t.Fatalf("ResolvePolicy() error = %v", err)
+	}
+	if effective.Policy.ID != overridePolicy.ID {
+		t.Fatalf("effective policy = %q, want %q", effective.Policy.ID, overridePolicy.ID)
+	}
+}
+
+func TestBrokerEvaluateSendAndSearch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	b, err := New(ctx, Config{
+		Store:   store,
+		RootDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = b.Close() }()
+
+	connection := messaging.Connection{
+		ID:              "gmail/work",
+		AdapterID:       "gmail",
+		Label:           "Work Gmail",
+		Status:          messaging.ConnectionStatusConnected,
+		DefaultPolicyID: "policy/reply-only",
+	}
+	if err := store.PutConnection(ctx, connection); err != nil {
+		t.Fatalf("PutConnection() error = %v", err)
+	}
+	policy := messaging.Policy{
+		ID:   "policy/reply-only",
+		Name: "Reply Only",
+		Rules: messaging.PolicyRules{
+			ReadInbound:        true,
+			CreateDrafts:       true,
+			SendMessages:       true,
+			RequireApproval:    true,
+			ReplyOnly:          true,
+			AllowAttachments:   false,
+			SearchMessages:     true,
+			AllowedIdentityIDs: []messaging.IdentityID{"identity/work"},
+		},
+	}
+	if err := store.PutPolicy(ctx, policy); err != nil {
+		t.Fatalf("PutPolicy() error = %v", err)
+	}
+
+	decision, err := b.EvaluateSend(connection.ID, "", messaging.Draft{
+		ID:              "draft/reply",
+		ConnectionID:    connection.ID,
+		ConversationID:  "conv/thread",
+		LocalIdentityID: "identity/work",
+		Parts:           []messaging.MessagePart{{Kind: messaging.MessagePartKindText, Text: "reply"}},
+		Status:          messaging.DraftStatusPending,
+	}, false)
+	if err != nil {
+		t.Fatalf("EvaluateSend() error = %v", err)
+	}
+	if decision.Outcome != messagingpolicy.OutcomeRequireApproval {
+		t.Fatalf("EvaluateSend() outcome = %q, want require_approval", decision.Outcome)
+	}
+
+	decision, err = b.EvaluateSend(connection.ID, "", messaging.Draft{
+		ID:              "draft/new",
+		ConnectionID:    connection.ID,
+		ConversationID:  "conv/new",
+		LocalIdentityID: "identity/work",
+		Parts:           []messaging.MessagePart{{Kind: messaging.MessagePartKindText, Text: "new"}},
+		Status:          messaging.DraftStatusPending,
+	}, true)
+	if err != nil {
+		t.Fatalf("EvaluateSend(new) error = %v", err)
+	}
+	if decision.Outcome != messagingpolicy.OutcomeDeny {
+		t.Fatalf("EvaluateSend(new) outcome = %q, want deny", decision.Outcome)
+	}
+
+	decision, err = b.EvaluateSearch(connection.ID, "", messagingpolicy.SearchScopeMessages)
+	if err != nil {
+		t.Fatalf("EvaluateSearch(messages) error = %v", err)
+	}
+	if decision.Outcome != messagingpolicy.OutcomeAllow {
+		t.Fatalf("EvaluateSearch(messages) outcome = %q, want allow", decision.Outcome)
+	}
+
+	decision, err = b.EvaluateSearch(connection.ID, "", messagingpolicy.SearchScopeConversations)
+	if err != nil {
+		t.Fatalf("EvaluateSearch(conversations) error = %v", err)
+	}
+	if decision.Outcome != messagingpolicy.OutcomeDeny {
+		t.Fatalf("EvaluateSearch(conversations) outcome = %q, want deny", decision.Outcome)
 	}
 }
 

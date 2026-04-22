@@ -205,6 +205,11 @@ func TestPolicyExposureAndEventValidate(t *testing.T) {
 	if err := event.Validate(); err != nil {
 		t.Fatalf("event Validate() error = %v", err)
 	}
+
+	policy.Rules.AllowedIdentityIDs = []IdentityID{""}
+	if err := policy.Validate(); err == nil {
+		t.Fatal("policy Validate() succeeded with blank allowed identity, want error")
+	}
 }
 
 func TestWorkflowAndActivityEventValidate(t *testing.T) {
