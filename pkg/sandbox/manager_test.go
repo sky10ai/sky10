@@ -1021,6 +1021,74 @@ func TestEnsureLocalAgentDriveConfigReplacesLegacyPerAgentDrive(t *testing.T) {
 	}
 }
 
+func TestEnsureAgentHomeUsesHostDriveRoot(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	driveHome := t.TempDir()
+	sharedDir := filepath.Join(driveHome, "Sky10", "Drives", "Agents", "devbox")
+
+	var calls []string
+	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
+		switch method {
+		case "skyfs.driveList":
+			calls = append(calls, "list")
+			body, err := json.Marshal(map[string]interface{}{
+				"drives": []map[string]string{{
+					"id":         "legacy-devbox",
+					"name":       legacyAgentDriveName("devbox"),
+					"local_path": sharedDir,
+				}},
+			})
+			if err != nil {
+				t.Fatalf("json.Marshal(driveList) error: %v", err)
+			}
+			return json.Unmarshal(body, out)
+		case "skyfs.driveRemove":
+			calls = append(calls, "remove")
+			removeParams, ok := params.(map[string]string)
+			if !ok {
+				t.Fatalf("driveRemove params type = %T, want map[string]string", params)
+			}
+			if removeParams["id"] != "legacy-devbox" {
+				t.Fatalf("driveRemove id = %q, want legacy-devbox", removeParams["id"])
+			}
+			return nil
+		case "skyfs.driveCreate":
+			calls = append(calls, "create")
+			createParams, ok := params.(map[string]string)
+			if !ok {
+				t.Fatalf("driveCreate params type = %T, want map[string]string", params)
+			}
+			if createParams["name"] != agentDriveRootName {
+				t.Fatalf("driveCreate name = %q, want %q", createParams["name"], agentDriveRootName)
+			}
+			if createParams["namespace"] != agentDriveRootName {
+				t.Fatalf("driveCreate namespace = %q, want %q", createParams["namespace"], agentDriveRootName)
+			}
+			if createParams["path"] != filepath.Join(driveHome, "Sky10", "Drives", "Agents") {
+				t.Fatalf("driveCreate path = %q, want root agent drive", createParams["path"])
+			}
+			return nil
+		default:
+			t.Fatalf("unexpected host RPC method %q", method)
+			return nil
+		}
+	}
+
+	if err := m.ensureAgentHome(context.Background(), "devbox", sharedDir); err != nil {
+		t.Fatalf("ensureAgentHome() error: %v", err)
+	}
+
+	if strings.Join(calls, "\n") != strings.Join([]string{"list", "remove", "create"}, "\n") {
+		t.Fatalf("calls = %v, want [list remove create]", calls)
+	}
+}
+
 func TestRenderSandboxTemplate(t *testing.T) {
 	t.Parallel()
 
