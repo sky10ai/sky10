@@ -7,7 +7,7 @@
 #   -ldflags         inject version at compile time, strip symbol table
 
 VERSION  := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-COMMIT   := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+COMMIT   := $(shell git rev-parse --short=8 HEAD 2>/dev/null || echo "unknown")
 DATE     := $(shell TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "unknown")
 GOFLAGS  := -trimpath -buildvcs=false
 LDFLAGS  := -s -w \

@@ -45,7 +45,7 @@ jobs:
       - name: Build from source
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          COMMIT="$(git rev-parse --short HEAD)"
+          COMMIT="$(git rev-parse --short=8 HEAD)"
           DATE="$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ)"
           CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -trimpath -buildvcs=false \
             -ldflags "-s -w -X 'main.version=v${VERSION}' -X 'main.commit=${COMMIT}' -X 'main.buildDate=${DATE}'" \
