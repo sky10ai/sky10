@@ -21,9 +21,7 @@ export default function SettingsApps() {
     data: walletRelease,
     error: walletReleaseError,
     refetch: refetchWalletRelease,
-  } = useRPC(() => wallet.checkUpdate(), [], {
-    refreshIntervalMs: 30_000,
-  });
+  } = useRPC(() => wallet.checkUpdate());
   const {
     data: limaStatus,
     error: limaError,
@@ -35,9 +33,7 @@ export default function SettingsApps() {
     data: limaRelease,
     error: limaReleaseError,
     refetch: refetchLimaRelease,
-  } = useRPC(() => apps.checkUpdate({ id: LIMA_APP_ID }), [], {
-    refreshIntervalMs: 30_000,
-  });
+  } = useRPC(() => apps.checkUpdate({ id: LIMA_APP_ID }));
 
   const [walletInstallProgress, setWalletInstallProgress] = useState<{
     downloaded: number;
