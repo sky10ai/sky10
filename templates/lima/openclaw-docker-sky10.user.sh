@@ -15,6 +15,7 @@ mkdir -p "${WORKSPACE_DIR}"
 mkdir -p "${SANDBOX_STATE_DIR}"
 mkdir -p "${RUNTIME_DIR}"
 mkdir -p "${STATE_DIR}"
+mkdir -p "${SANDBOX_STATE_DIR}/sky10-home"
 mkdir -p "${SANDBOX_STATE_DIR}/openclaw-home"
 mkdir -p "${SANDBOX_STATE_DIR}/caddy-data"
 mkdir -p "${SANDBOX_STATE_DIR}/caddy-config"
@@ -79,6 +80,7 @@ services:
     volumes:
       - /shared:/shared
       - /sandbox-state:/sandbox-state
+      - /sandbox-state/sky10-home:/root/.sky10
       - /sandbox-state/openclaw-home:/root/.openclaw
 
   caddy:

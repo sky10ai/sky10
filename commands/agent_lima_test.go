@@ -365,6 +365,58 @@ func TestPrepareLimaSharedDirDockerRuntimeAssets(t *testing.T) {
 	}
 }
 
+func TestOpenClawDockerUserScriptPersistsGuestSky10State(t *testing.T) {
+	t.Parallel()
+
+	spec, err := limaTemplateDefinition(sandboxTemplateOpenClawDocker)
+	if err != nil {
+		t.Fatalf("limaTemplateDefinition(openclaw-docker): %v", err)
+	}
+	dir, err := findLocalLimaTemplateDir(spec)
+	if err != nil {
+		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(dir, agentLimaOpenClawDockerUser))
+	if err != nil {
+		t.Fatalf("ReadFile(docker user script) error: %v", err)
+	}
+
+	script := string(body)
+	if !strings.Contains(script, `mkdir -p "${SANDBOX_STATE_DIR}/sky10-home"`) {
+		t.Fatalf("docker user script missing guest sky10 state dir: %q", script)
+	}
+	if !strings.Contains(script, `- /sandbox-state/sky10-home:/root/.sky10`) {
+		t.Fatalf("docker user script missing guest sky10 volume mount: %q", script)
+	}
+}
+
+func TestHermesDockerUserScriptPersistsGuestSky10State(t *testing.T) {
+	t.Parallel()
+
+	spec, err := limaTemplateDefinition(sandboxTemplateHermesDocker)
+	if err != nil {
+		t.Fatalf("limaTemplateDefinition(hermes-docker): %v", err)
+	}
+	dir, err := findLocalLimaTemplateDir(spec)
+	if err != nil {
+		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(dir, agentLimaHermesDockerUser))
+	if err != nil {
+		t.Fatalf("ReadFile(docker user script) error: %v", err)
+	}
+
+	script := string(body)
+	if !strings.Contains(script, `mkdir -p "${SANDBOX_STATE_DIR}/sky10-home"`) {
+		t.Fatalf("docker user script missing guest sky10 state dir: %q", script)
+	}
+	if !strings.Contains(script, `- /sandbox-state/sky10-home:/root/.sky10`) {
+		t.Fatalf("docker user script missing guest sky10 volume mount: %q", script)
+	}
+}
+
 func TestOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	t.Parallel()
 

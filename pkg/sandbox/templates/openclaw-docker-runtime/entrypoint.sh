@@ -90,7 +90,7 @@ if [ -z "${host_rpc_url}" ] || [ -z "${sandbox_slug}" ]; then
   exit 0
 fi
 
-guest_ip="$(ip -4 addr show dev lima0 | awk '/inet / {sub(/\/.*/, "", $2); print $2; exit}')"
+guest_ip="${SKY10_GUEST_IP:-}"
 
 for _ in $(seq 1 20); do
   payload="$(
@@ -101,23 +101,29 @@ import json
 import sys
 
 slug = sys.argv[1]
-guest_ip = sys.argv[2]
-resp = json.load(sys.stdin)
+guest_ip = (sys.argv[2] or "").strip()
+try:
+    resp = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
 result = resp.get("result") or {}
 peer_id = (result.get("peer_id") or "").strip()
 addrs = result.get("addrs") or []
 if not peer_id or not addrs:
     raise SystemExit(1)
 
+params = {
+    "slug": slug,
+    "peer_id": peer_id,
+    "multiaddrs": addrs,
+}
+if guest_ip:
+    params["ip_address"] = guest_ip
+
 print(json.dumps({
     "jsonrpc": "2.0",
     "method": "sandbox.reconnectGuest",
-    "params": {
-        "slug": slug,
-        "ip_address": guest_ip,
-        "peer_id": peer_id,
-        "multiaddrs": addrs,
-    },
+    "params": params,
     "id": 1,
 }))
 PY

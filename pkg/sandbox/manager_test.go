@@ -1272,6 +1272,40 @@ func TestPrepareHermesSharedDirDockerAssets(t *testing.T) {
 	}
 }
 
+func TestBundledOpenClawDockerUserScriptPersistsGuestSky10State(t *testing.T) {
+	t.Parallel()
+
+	body, err := readBundledTemplateAsset(templateOpenClawDockerUser)
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateOpenClawDockerUser, err)
+	}
+
+	script := string(body)
+	if !strings.Contains(script, `mkdir -p "${SANDBOX_STATE_DIR}/sky10-home"`) {
+		t.Fatalf("bundled OpenClaw Docker user script missing guest sky10 state dir: %q", script)
+	}
+	if !strings.Contains(script, `- /sandbox-state/sky10-home:/root/.sky10`) {
+		t.Fatalf("bundled OpenClaw Docker user script missing guest sky10 volume mount: %q", script)
+	}
+}
+
+func TestBundledHermesDockerUserScriptPersistsGuestSky10State(t *testing.T) {
+	t.Parallel()
+
+	body, err := readBundledTemplateAsset(templateHermesDockerUser)
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateHermesDockerUser, err)
+	}
+
+	script := string(body)
+	if !strings.Contains(script, `mkdir -p "${SANDBOX_STATE_DIR}/sky10-home"`) {
+		t.Fatalf("bundled Hermes Docker user script missing guest sky10 state dir: %q", script)
+	}
+	if !strings.Contains(script, `- /sandbox-state/sky10-home:/root/.sky10`) {
+		t.Fatalf("bundled Hermes Docker user script missing guest sky10 volume mount: %q", script)
+	}
+}
+
 func TestBundledHermesUserScriptKeepsSharedEnv(t *testing.T) {
 	t.Parallel()
 
