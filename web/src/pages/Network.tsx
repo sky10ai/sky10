@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Icon } from "../components/Icon";
 import { RelativeTime } from "../components/RelativeTime";
+import { SettingsPage } from "../components/SettingsPage";
 import { STORAGE_EVENT_TYPES } from "../lib/events";
 import {
   identity,
@@ -82,7 +83,9 @@ function describeTransportReason(reason?: string) {
     case "udp_mapping_varies":
       return "UDP NAT mapping varies by server, so direct QUIC is unreliable.";
     default:
-      return reason ? `Transport issue: ${reason}` : "Live transport is healthy.";
+      return reason
+        ? `Transport issue: ${reason}`
+        : "Live transport is healthy.";
   }
 }
 
@@ -95,7 +98,9 @@ function describeDeliveryReason(reason?: string) {
     case "mailbox_queue_pending":
       return "Durable mailbox delivery is queued for later retry.";
     default:
-      return reason ? `Delivery issue: ${reason}` : "Mailbox delivery is clear.";
+      return reason
+        ? `Delivery issue: ${reason}`
+        : "Mailbox delivery is clear.";
   }
 }
 
@@ -108,7 +113,9 @@ function describeCoordinationReason(reason?: string) {
     case "nostr_subscription_quorum":
       return "One or more live Nostr coordination subscriptions are only partially connected.";
     default:
-      return reason ? `Coordination issue: ${reason}` : "Coordination is healthy.";
+      return reason
+        ? `Coordination issue: ${reason}`
+        : "Coordination is healthy.";
   }
 }
 
@@ -116,18 +123,26 @@ function healthIssueLines(health?: LinkNetworkHealth) {
   if (!health) return [];
   const lines: string[] = [];
   if (health.transport_degraded_reason) {
-    lines.push(`Transport: ${describeTransportReason(health.transport_degraded_reason)}`);
+    lines.push(
+      `Transport: ${describeTransportReason(health.transport_degraded_reason)}`,
+    );
   }
   if (health.delivery_degraded_reason) {
-    lines.push(`Delivery: ${describeDeliveryReason(health.delivery_degraded_reason)}`);
+    lines.push(
+      `Delivery: ${describeDeliveryReason(health.delivery_degraded_reason)}`,
+    );
   }
   if (health.coordination_degraded_reason) {
-    lines.push(`Coordination: ${describeCoordinationReason(health.coordination_degraded_reason)}`);
+    lines.push(
+      `Coordination: ${describeCoordinationReason(health.coordination_degraded_reason)}`,
+    );
   }
   return lines;
 }
 
-function networkStatusSummary(health?: LinkNetworkHealth): NetworkStatusSummary | null {
+function networkStatusSummary(
+  health?: LinkNetworkHealth,
+): NetworkStatusSummary | null {
   if (!health) return null;
   if (health.transport_degraded_reason) {
     return {
@@ -165,13 +180,15 @@ function networkStatusSummary(health?: LinkNetworkHealth): NetworkStatusSummary 
     tone: "bg-emerald-500/15 text-emerald-900 border-emerald-700/15 dark:text-emerald-100 dark:border-emerald-300/20",
     badge: "Healthy",
     title: "Live transport and coordination are healthy.",
-    detail: "Direct or relay-backed skylink delivery is available and coordination is in sync.",
+    detail:
+      "Direct or relay-backed skylink delivery is available and coordination is in sync.",
   };
 }
 
 function liveRelayTone(liveRelay?: LinkLiveRelayHealth) {
   if (!liveRelay) return "bg-surface-container text-secondary";
-  if (liveRelay.active_peers > 0) return "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200";
+  if (liveRelay.active_peers > 0)
+    return "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200";
   if (liveRelay.configured_peers > 0 || liveRelay.cached_peers > 0) {
     return "bg-amber-500/15 text-amber-800 dark:text-amber-200";
   }
@@ -181,7 +198,8 @@ function liveRelayTone(liveRelay?: LinkLiveRelayHealth) {
 function liveRelayLabel(liveRelay?: LinkLiveRelayHealth) {
   if (!liveRelay) return "Unknown";
   if (liveRelay.active_peers > 0) return "Active";
-  if (liveRelay.configured_peers > 0 || liveRelay.cached_peers > 0) return "Configured";
+  if (liveRelay.configured_peers > 0 || liveRelay.cached_peers > 0)
+    return "Configured";
   return "None";
 }
 
@@ -236,7 +254,10 @@ function relayLabel(relay: LinkRelayHealth) {
 
 function subscriptionLabel(subscription: LinkNostrSubscriptionHealth) {
   if (subscription.active_relays === 0) return "Down";
-  if (subscription.required_relays > 0 && subscription.active_relays < subscription.required_relays) {
+  if (
+    subscription.required_relays > 0 &&
+    subscription.active_relays < subscription.required_relays
+  ) {
     return "Partial";
   }
   return "Live";
@@ -280,81 +301,86 @@ export default function Network() {
   }
 
   return (
-    <div className="p-12 max-w-7xl mx-auto space-y-12">
-      <section className="flex flex-col md:flex-row justify-between items-start gap-8">
-        <div className="space-y-2">
-          <h2 className="text-4xl font-bold tracking-tight text-on-surface">
-            Network Dashboard
-          </h2>
-          <p className="text-secondary text-lg">
-            Live transport, durable fallback, and Nostr coordination are shown separately.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-4">
-          {linkStatus && (
-            <>
-              <div className="px-6 py-4 bg-surface-container-low rounded-xl flex flex-col gap-1 min-w-[160px]">
-                <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">
-                  Peer ID
-                </span>
-                <span className="font-mono text-sm text-primary truncate max-w-[180px]">
-                  {linkStatus.peer_id.slice(0, 16)}...
-                </span>
-              </div>
-              <div className="px-6 py-4 bg-surface-container-low rounded-xl flex flex-col gap-1 min-w-[120px]">
-                <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">
-                  Mode
-                </span>
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 bg-primary rounded-full" />
-                  <span className="font-semibold text-sm capitalize">
-                    {linkStatus.mode}
-                  </span>
-                </div>
-              </div>
-              <div className="px-6 py-4 bg-surface-container-low rounded-xl flex flex-col gap-1 min-w-[140px]">
-                <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">
-                  Transport
-                </span>
-                <span className={`inline-flex w-fit rounded-full px-2 py-1 text-xs font-bold ${transportTone(networkHealth)}`}>
-                  {transportLabel(networkHealth)}
-                </span>
-              </div>
-              <div className="px-6 py-4 bg-surface-container-low rounded-xl flex flex-col gap-1 min-w-[150px]">
-                <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">
-                  Fallback
-                </span>
-                <span className={`inline-flex w-fit rounded-full px-2 py-1 text-xs font-bold ${fallbackTone(networkHealth?.mailbox)}`}>
-                  {fallbackLabel(networkHealth?.mailbox)}
-                </span>
-              </div>
-              <div className="px-6 py-4 bg-surface-container-low rounded-xl flex flex-col gap-1 min-w-[150px]">
-                <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">
-                  Coordination
-                </span>
-                <span className={`inline-flex w-fit rounded-full px-2 py-1 text-xs font-bold ${coordinationTone(networkHealth)}`}>
-                  {coordinationLabel(networkHealth)}
-                </span>
-              </div>
-              <div className="px-6 py-4 bg-surface-container-low rounded-xl flex flex-col gap-1 min-w-[150px]">
-                <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">
-                  Live Relay
-                </span>
-                <span className={`inline-flex w-fit rounded-full px-2 py-1 text-xs font-bold ${liveRelayTone(networkHealth?.live_relay)}`}>
-                  {liveRelayLabel(networkHealth?.live_relay)}
-                </span>
-              </div>
-            </>
-          )}
-          {health && (
-            <div className="px-6 py-4 bg-surface-container-low rounded-xl flex flex-col gap-1 min-w-[120px]">
-              <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">
-                Uptime
+    <SettingsPage
+      backHref="/settings"
+      description="Track peers, relays, and delivery health."
+      title="Network"
+      width="wide"
+    >
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
+        {linkStatus && (
+          <>
+            <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest px-5 py-4 shadow-sm">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-secondary">
+                Peer ID
               </span>
-              <span className="font-semibold text-sm">{health.uptime}</span>
+              <span className="mt-2 block truncate font-mono text-sm text-primary">
+                {linkStatus.peer_id.slice(0, 16)}...
+              </span>
             </div>
-          )}
-        </div>
+            <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest px-5 py-4 shadow-sm">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-secondary">
+                Mode
+              </span>
+              <div className="mt-2 flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-primary" />
+                <span className="text-sm font-semibold capitalize text-on-surface">
+                  {linkStatus.mode}
+                </span>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest px-5 py-4 shadow-sm">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-secondary">
+                Transport
+              </span>
+              <span
+                className={`mt-2 inline-flex w-fit rounded-full px-2 py-1 text-xs font-bold ${transportTone(networkHealth)}`}
+              >
+                {transportLabel(networkHealth)}
+              </span>
+            </div>
+            <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest px-5 py-4 shadow-sm">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-secondary">
+                Fallback
+              </span>
+              <span
+                className={`mt-2 inline-flex w-fit rounded-full px-2 py-1 text-xs font-bold ${fallbackTone(networkHealth?.mailbox)}`}
+              >
+                {fallbackLabel(networkHealth?.mailbox)}
+              </span>
+            </div>
+            <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest px-5 py-4 shadow-sm">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-secondary">
+                Coordination
+              </span>
+              <span
+                className={`mt-2 inline-flex w-fit rounded-full px-2 py-1 text-xs font-bold ${coordinationTone(networkHealth)}`}
+              >
+                {coordinationLabel(networkHealth)}
+              </span>
+            </div>
+            <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest px-5 py-4 shadow-sm">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-secondary">
+                Live Relay
+              </span>
+              <span
+                className={`mt-2 inline-flex w-fit rounded-full px-2 py-1 text-xs font-bold ${liveRelayTone(networkHealth?.live_relay)}`}
+              >
+                {liveRelayLabel(networkHealth?.live_relay)}
+              </span>
+            </div>
+          </>
+        )}
+        {health && (
+          <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest px-5 py-4 shadow-sm">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-secondary">
+              Uptime
+            </span>
+            <span className="mt-2 block text-sm font-semibold text-on-surface">
+              {health.uptime}
+            </span>
+          </div>
+        )}
       </section>
 
       <div className="flex items-center gap-3">
@@ -377,7 +403,9 @@ export default function Network() {
               await skylink.connect({ address: connectAddr.trim() });
               setConnectAddr("");
             } catch (e: unknown) {
-              setConnectError(e instanceof Error ? e.message : "Failed to connect");
+              setConnectError(
+                e instanceof Error ? e.message : "Failed to connect",
+              );
             } finally {
               setConnecting(false);
             }
@@ -397,7 +425,9 @@ export default function Network() {
           <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
             <div>
               <div className="text-sm font-semibold">{statusSummary.title}</div>
-              <div className="mt-1 text-sm opacity-90">{statusSummary.detail}</div>
+              <div className="mt-1 text-sm opacity-90">
+                {statusSummary.detail}
+              </div>
             </div>
             <span className="inline-flex w-fit rounded-full bg-surface-container-high/80 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-on-surface">
               {statusSummary.badge}
@@ -412,7 +442,8 @@ export default function Network() {
           <div className="relative w-full h-full flex items-center justify-center">
             <svg className="absolute inset-0 h-full w-full text-emerald-500/40 dark:text-emerald-300/30">
               {peers.map((_, i) => {
-                const angle = (i / Math.max(peers.length, 1)) * 2 * Math.PI - Math.PI / 2;
+                const angle =
+                  (i / Math.max(peers.length, 1)) * 2 * Math.PI - Math.PI / 2;
                 const x2 = 50 + 30 * Math.cos(angle);
                 const y2 = 50 + 30 * Math.sin(angle);
                 return (
@@ -437,7 +468,8 @@ export default function Network() {
               </div>
             </div>
             {peers.map((peer, i) => {
-              const angle = (i / Math.max(peers.length, 1)) * 2 * Math.PI - Math.PI / 2;
+              const angle =
+                (i / Math.max(peers.length, 1)) * 2 * Math.PI - Math.PI / 2;
               const x = 50 + 30 * Math.cos(angle);
               const y = 50 + 30 * Math.sin(angle);
               const device = deviceByPeerID.get(peer.peer_id);
@@ -445,7 +477,11 @@ export default function Network() {
                 <div
                   key={peer.peer_id}
                   className="absolute flex flex-col items-center gap-2"
-                  style={{ left: `${x}%`, top: `${y}%`, transform: "translate(-50%, -50%)" }}
+                  style={{
+                    left: `${x}%`,
+                    top: `${y}%`,
+                    transform: "translate(-50%, -50%)",
+                  }}
                 >
                   <div className="flex h-12 w-12 items-center justify-center rounded-full border border-emerald-500/20 bg-surface-container-lowest shadow-lg">
                     <Icon name="laptop_mac" className="text-secondary" />
@@ -468,7 +504,10 @@ export default function Network() {
           <div className="bg-surface-container-low rounded-xl p-8 relative overflow-hidden">
             <div className="flex items-center gap-4 mb-4">
               <div className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center">
-                <Icon name="sensors" className="text-emerald-700 dark:text-emerald-300" />
+                <Icon
+                  name="sensors"
+                  className="text-emerald-700 dark:text-emerald-300"
+                />
               </div>
               <div>
                 <h3 className="font-bold text-2xl">
@@ -520,7 +559,9 @@ export default function Network() {
                     UDP
                   </div>
                   <div className="mt-1 font-semibold text-on-surface">
-                    {networkHealth.netcheck.udp ? "Reachable" : "Blocked or unknown"}
+                    {networkHealth.netcheck.udp
+                      ? "Reachable"
+                      : "Blocked or unknown"}
                   </div>
                 </div>
                 <div>
@@ -552,7 +593,8 @@ export default function Network() {
                     Nostr Publish
                   </div>
                   <div className="mt-1 font-semibold text-on-surface">
-                    {networkHealth.nostr.last_publish.successes || 0}/{networkHealth.nostr.last_publish.quorum || 0}
+                    {networkHealth.nostr.last_publish.successes || 0}/
+                    {networkHealth.nostr.last_publish.quorum || 0}
                   </div>
                 </div>
                 <div>
@@ -568,7 +610,10 @@ export default function Network() {
                     Live Relay
                   </div>
                   <div className="mt-1 font-semibold text-on-surface">
-                    {networkHealth.live_relay.active_peers}/{networkHealth.live_relay.configured_peers || networkHealth.live_relay.cached_peers || 0}
+                    {networkHealth.live_relay.active_peers}/
+                    {networkHealth.live_relay.configured_peers ||
+                      networkHealth.live_relay.cached_peers ||
+                      0}
                   </div>
                 </div>
                 <div>
@@ -590,18 +635,30 @@ export default function Network() {
             </div>
           )}
 
-          {(networkHealth?.live_relay?.configured_peers || networkHealth?.live_relay?.cached_peers || networkHealth?.live_relay?.active_peers) ? (
+          {networkHealth?.live_relay?.configured_peers ||
+          networkHealth?.live_relay?.cached_peers ||
+          networkHealth?.live_relay?.active_peers ? (
             <div className="bg-surface-container-lowest rounded-xl p-6 border border-outline-variant/10 shadow-sm space-y-4">
               <h4 className="text-sm font-bold text-on-surface uppercase tracking-widest">
                 Live Relay
               </h4>
               <div className="rounded-lg bg-surface-container-low px-4 py-3 text-[11px] text-secondary space-y-1">
-                <div>Configured peers: {networkHealth?.live_relay?.configured_peers ?? 0}</div>
-                <div>Cached peers: {networkHealth?.live_relay?.cached_peers ?? 0}</div>
-                <div>Active peers: {networkHealth?.live_relay?.active_peers ?? 0}</div>
+                <div>
+                  Configured peers:{" "}
+                  {networkHealth?.live_relay?.configured_peers ?? 0}
+                </div>
+                <div>
+                  Cached peers: {networkHealth?.live_relay?.cached_peers ?? 0}
+                </div>
+                <div>
+                  Active peers: {networkHealth?.live_relay?.active_peers ?? 0}
+                </div>
                 {networkHealth?.live_relay?.last_bootstrap_at && (
                   <div>
-                    Cache updated <RelativeTime value={networkHealth.live_relay.last_bootstrap_at} />
+                    Cache updated{" "}
+                    <RelativeTime
+                      value={networkHealth.live_relay.last_bootstrap_at}
+                    />
                   </div>
                 )}
               </div>
@@ -626,12 +683,18 @@ export default function Network() {
                   <div className="mt-2 space-y-1 text-[11px] text-secondary">
                     {networkHealth.live_relay.preferred_at && (
                       <div>
-                        Preferred <RelativeTime value={networkHealth.live_relay.preferred_at} />
+                        Preferred{" "}
+                        <RelativeTime
+                          value={networkHealth.live_relay.preferred_at}
+                        />
                       </div>
                     )}
                     {networkHealth.live_relay.last_switch_at && (
                       <div>
-                        Last switch <RelativeTime value={networkHealth.live_relay.last_switch_at} />
+                        Last switch{" "}
+                        <RelativeTime
+                          value={networkHealth.live_relay.last_switch_at}
+                        />
                       </div>
                     )}
                   </div>
@@ -639,11 +702,16 @@ export default function Network() {
               )}
               {(networkHealth?.live_relay?.active_addrs ?? []).length > 0 && (
                 <div className="space-y-2">
-                  {(networkHealth?.live_relay?.active_addrs ?? []).map((addr) => (
-                    <div key={addr} className="rounded-lg bg-surface-container-low px-4 py-3 font-mono text-[11px] text-on-surface break-all">
-                      {addr}
-                    </div>
-                  ))}
+                  {(networkHealth?.live_relay?.active_addrs ?? []).map(
+                    (addr) => (
+                      <div
+                        key={addr}
+                        className="rounded-lg bg-surface-container-low px-4 py-3 font-mono text-[11px] text-on-surface break-all"
+                      >
+                        {addr}
+                      </div>
+                    ),
+                  )}
                 </div>
               )}
             </div>
@@ -667,36 +735,53 @@ export default function Network() {
                         </div>
                         <div className="mt-1 text-[11px] text-secondary">
                           ok {relay.successes} · fail {relay.failures}
-                          {relay.average_latency_ms ? ` · avg ${relay.average_latency_ms}ms` : ""}
-                          {relay.active_subscriptions ? ` · subs ${relay.active_subscriptions}` : ""}
+                          {relay.average_latency_ms
+                            ? ` · avg ${relay.average_latency_ms}ms`
+                            : ""}
+                          {relay.active_subscriptions
+                            ? ` · subs ${relay.active_subscriptions}`
+                            : ""}
                         </div>
                       </div>
-                      <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${relayTone(relay)}`}>
+                      <span
+                        className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${relayTone(relay)}`}
+                      >
                         {relayLabel(relay)}
                       </span>
                     </div>
-                    {(relay.last_error || relay.last_success_at || relay.last_failure_at || relay.last_subscription_at || relay.last_subscription_error) && (
+                    {(relay.last_error ||
+                      relay.last_success_at ||
+                      relay.last_failure_at ||
+                      relay.last_subscription_at ||
+                      relay.last_subscription_error) && (
                       <div className="mt-3 space-y-1 text-[11px] text-secondary">
                         {relay.last_success_at && (
                           <div>
-                            Last ok <RelativeTime value={relay.last_success_at} />
+                            Last ok{" "}
+                            <RelativeTime value={relay.last_success_at} />
                           </div>
                         )}
                         {relay.last_failure_at && (
                           <div>
-                            Last fail <RelativeTime value={relay.last_failure_at} />
+                            Last fail{" "}
+                            <RelativeTime value={relay.last_failure_at} />
                           </div>
                         )}
                         {relay.last_error && (
-                          <div className="truncate">Error: {relay.last_error}</div>
+                          <div className="truncate">
+                            Error: {relay.last_error}
+                          </div>
                         )}
                         {relay.last_subscription_at && (
                           <div>
-                            Last sub <RelativeTime value={relay.last_subscription_at} />
+                            Last sub{" "}
+                            <RelativeTime value={relay.last_subscription_at} />
                           </div>
                         )}
                         {relay.last_subscription_error && (
-                          <div className="truncate">Sub error: {relay.last_subscription_error}</div>
+                          <div className="truncate">
+                            Sub error: {relay.last_subscription_error}
+                          </div>
                         )}
                       </div>
                     )}
@@ -705,10 +790,11 @@ export default function Network() {
               </div>
               {networkHealth?.nostr?.last_publish?.at && (
                 <div className="rounded-lg bg-surface-container-low px-4 py-3 text-[11px] text-secondary">
-                  Last multi-relay publish {networkHealth.nostr.last_publish.operation || "unknown"} hit{" "}
-                  {networkHealth.nostr.last_publish.successes}/{networkHealth.nostr.last_publish.quorum || 0}
-                  {" "}
-                  relays <RelativeTime value={networkHealth.nostr.last_publish.at} />
+                  Last multi-relay publish{" "}
+                  {networkHealth.nostr.last_publish.operation || "unknown"} hit{" "}
+                  {networkHealth.nostr.last_publish.successes}/
+                  {networkHealth.nostr.last_publish.quorum || 0} relays{" "}
+                  <RelativeTime value={networkHealth.nostr.last_publish.at} />
                 </div>
               )}
               {coordinationSubscriptions.length > 0 && (
@@ -724,33 +810,50 @@ export default function Network() {
                             {subscription.label}
                           </div>
                           <div className="mt-1 text-[11px] text-secondary">
-                            active {subscription.active_relays}/{subscription.required_relays || networkHealth?.nostr?.configured_relays || 0}
+                            active {subscription.active_relays}/
+                            {subscription.required_relays ||
+                              networkHealth?.nostr?.configured_relays ||
+                              0}
                           </div>
                         </div>
-                        <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${
-                          subscription.active_relays === 0
-                            ? "bg-error-container/30 text-error"
-                            : subscription.required_relays > 0 && subscription.active_relays < subscription.required_relays
-                              ? "bg-amber-500/15 text-amber-800 dark:text-amber-200"
-                              : "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200"
-                        }`}>
+                        <span
+                          className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                            subscription.active_relays === 0
+                              ? "bg-error-container/30 text-error"
+                              : subscription.required_relays > 0 &&
+                                  subscription.active_relays <
+                                    subscription.required_relays
+                                ? "bg-amber-500/15 text-amber-800 dark:text-amber-200"
+                                : "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200"
+                          }`}
+                        >
                           {subscriptionLabel(subscription)}
                         </span>
                       </div>
-                      {(subscription.last_event_at || subscription.last_disconnect_at || subscription.last_error) && (
+                      {(subscription.last_event_at ||
+                        subscription.last_disconnect_at ||
+                        subscription.last_error) && (
                         <div className="mt-3 space-y-1 text-[11px] text-secondary">
                           {subscription.last_event_at && (
                             <div>
-                              Last event <RelativeTime value={subscription.last_event_at} />
+                              Last event{" "}
+                              <RelativeTime
+                                value={subscription.last_event_at}
+                              />
                             </div>
                           )}
                           {subscription.last_disconnect_at && (
                             <div>
-                              Last disconnect <RelativeTime value={subscription.last_disconnect_at} />
+                              Last disconnect{" "}
+                              <RelativeTime
+                                value={subscription.last_disconnect_at}
+                              />
                             </div>
                           )}
                           {subscription.last_error && (
-                            <div className="truncate">Error: {subscription.last_error}</div>
+                            <div className="truncate">
+                              Error: {subscription.last_error}
+                            </div>
                           )}
                         </div>
                       )}
@@ -790,7 +893,8 @@ export default function Network() {
                       </div>
                       {device && (
                         <div className="text-[10px] text-secondary">
-                          {device.platform} &middot; {device.location || device.ip} &middot; seen{" "}
+                          {device.platform} &middot;{" "}
+                          {device.location || device.ip} &middot; seen{" "}
                           <RelativeTime value={device.last_seen} />
                         </div>
                       )}
@@ -835,7 +939,8 @@ export default function Network() {
               </h4>
               {networkHealth?.last_published_at && (
                 <div className="text-xs text-secondary">
-                  Last publish <RelativeTime value={networkHealth.last_published_at} />
+                  Last publish{" "}
+                  <RelativeTime value={networkHealth.last_published_at} />
                 </div>
               )}
             </div>
@@ -875,6 +980,6 @@ export default function Network() {
           </div>
         </div>
       </div>
-    </div>
+    </SettingsPage>
   );
 }

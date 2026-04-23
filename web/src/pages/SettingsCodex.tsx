@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { Icon } from "../components/Icon";
-import { PageHeader } from "../components/PageHeader";
+import { SettingsPage } from "../components/SettingsPage";
 import { StatusBadge } from "../components/StatusBadge";
 import { CODEX_EVENT_TYPES } from "../lib/events";
-import { closeOAuthPopup, navigateOAuthPopup, openOAuthPopup, openOAuthTab } from "../lib/oauthPopup";
+import {
+  closeOAuthPopup,
+  navigateOAuthPopup,
+  openOAuthPopup,
+  openOAuthTab,
+} from "../lib/oauthPopup";
 import { codex } from "../lib/rpc";
 import { timeAgo, useRPC } from "../lib/useRPC";
 
@@ -41,14 +46,18 @@ export default function SettingsCodex() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [authorizationInput, setAuthorizationInput] = useState("");
-  const [busy, setBusy] = useState<"connect" | "complete" | "cancel" | "logout" | null>(null);
+  const [busy, setBusy] = useState<
+    "connect" | "complete" | "cancel" | "logout" | null
+  >(null);
   const [redirectOnLinked, setRedirectOnLinked] = useState(false);
 
   const pending = status?.pending_login ?? null;
   const authLabel = authLabelForStatus(status?.auth_mode, status?.auth_label);
   const backHref = audience ? `/start/setup?audience=${audience}` : "/settings";
   const continueHref = "/codex";
-  const linkedWithChatGPT = Boolean(status?.linked && status?.auth_mode === "chatgpt");
+  const linkedWithChatGPT = Boolean(
+    status?.linked && status?.auth_mode === "chatgpt",
+  );
 
   useEffect(() => {
     if (!redirectOnLinked) return;
@@ -58,50 +67,62 @@ export default function SettingsCodex() {
 
   const headingDescription = useMemo(() => {
     if (audience === "for_others") {
-      return "Link ChatGPT in sky10, then let your published or automated agents reuse that Codex-backed access on this device.";
+      return "Link ChatGPT so published or automated agents can reuse this device's Codex access.";
     }
     if (audience === "for_me") {
-      return "Link ChatGPT in sky10 so your first personal agent can use Codex-backed access without asking for an API key.";
+      return "Link ChatGPT so your first personal agent can use Codex access without an API key.";
     }
-    return "Link ChatGPT directly in sky10 so the daemon can broker Codex-backed work through a browser OAuth flow.";
+    return "Link ChatGPT so this device can broker Codex access.";
   }, [audience]);
 
-  const handleConnect = useCallback(async (mode: "popup" | "tab") => {
-    setBusy("connect");
-    setActionError(null);
-    setActionMessage(null);
-    setRedirectOnLinked(true);
+  const handleConnect = useCallback(
+    async (mode: "popup" | "tab") => {
+      setBusy("connect");
+      setActionError(null);
+      setActionMessage(null);
+      setRedirectOnLinked(true);
 
-    const popup = mode === "popup" ? openOAuthPopup(window) : openOAuthTab(window);
-    try {
-      const next = await codex.loginStart();
-      const verificationURL = next.pending_login?.verification_url;
-      const callbackListening = Boolean(next.pending_login?.callback_listening);
-      if (verificationURL) {
-        navigateOAuthPopup(window, popup, verificationURL);
-      } else {
+      const popup =
+        mode === "popup" ? openOAuthPopup(window) : openOAuthTab(window);
+      try {
+        const next = await codex.loginStart();
+        const verificationURL = next.pending_login?.verification_url;
+        const callbackListening = Boolean(
+          next.pending_login?.callback_listening,
+        );
+        if (verificationURL) {
+          navigateOAuthPopup(window, popup, verificationURL);
+        } else {
+          closeOAuthPopup(popup);
+        }
+
+        const launchLabel = mode === "popup" ? "popup window" : "new tab";
+        setActionMessage(
+          callbackListening
+            ? `Opened ChatGPT sign-in in a ${launchLabel}. sky10 is listening for the localhost callback and should finish linking automatically.`
+            : `Opened ChatGPT sign-in in a ${launchLabel}. Paste the final redirect URL or authorization code below after the browser redirects back.`,
+        );
+        refetch({ background: true });
+      } catch (error: unknown) {
         closeOAuthPopup(popup);
+        setActionError(
+          error instanceof Error
+            ? error.message
+            : "Could not start ChatGPT login",
+        );
+      } finally {
+        setBusy(null);
       }
-
-      const launchLabel = mode === "popup" ? "popup window" : "new tab";
-      setActionMessage(
-        callbackListening
-          ? `Opened ChatGPT sign-in in a ${launchLabel}. sky10 is listening for the localhost callback and should finish linking automatically.`
-          : `Opened ChatGPT sign-in in a ${launchLabel}. Paste the final redirect URL or authorization code below after the browser redirects back.`
-      );
-      refetch({ background: true });
-    } catch (error: unknown) {
-      closeOAuthPopup(popup);
-      setActionError(error instanceof Error ? error.message : "Could not start ChatGPT login");
-    } finally {
-      setBusy(null);
-    }
-  }, [refetch]);
+    },
+    [refetch],
+  );
 
   const handleComplete = useCallback(async () => {
     const input = authorizationInput.trim();
     if (!input) {
-      setActionError("Paste the final redirect URL or authorization code first.");
+      setActionError(
+        "Paste the final redirect URL or authorization code first.",
+      );
       return;
     }
 
@@ -119,7 +140,11 @@ export default function SettingsCodex() {
       }
       refetch({ background: true });
     } catch (error: unknown) {
-      setActionError(error instanceof Error ? error.message : "Could not finish ChatGPT login");
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "Could not finish ChatGPT login",
+      );
     } finally {
       setBusy(null);
     }
@@ -136,7 +161,11 @@ export default function SettingsCodex() {
       setActionMessage("Cancelled the pending ChatGPT login.");
       refetch({ background: true });
     } catch (error: unknown) {
-      setActionError(error instanceof Error ? error.message : "Could not cancel ChatGPT login");
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "Could not cancel ChatGPT login",
+      );
     } finally {
       setBusy(null);
     }
@@ -153,40 +182,35 @@ export default function SettingsCodex() {
       setActionMessage("Removed the saved ChatGPT link from this device.");
       refetch({ background: true });
     } catch (error: unknown) {
-      setActionError(error instanceof Error ? error.message : "Could not remove ChatGPT link");
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "Could not remove ChatGPT link",
+      );
     } finally {
       setBusy(null);
     }
   }, [refetch]);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-10 p-12">
-      <PageHeader
-        eyebrow="ChatGPT"
-        title="Connect Codex"
-        description={headingDescription}
-        actions={(
-          <>
-            <Link
-              className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary transition-colors hover:text-on-surface"
-              to={backHref}
-            >
-              <Icon className="text-base" name="arrow_back" />
-              {audience ? "Back to setup" : "Back to Settings"}
-            </Link>
-            {linkedWithChatGPT && (
-              <Link
-                className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-lg transition-colors hover:bg-primary/90"
-                to={continueHref}
-              >
-                Open Codex
-                <Icon className="text-base" name="arrow_forward" />
-              </Link>
-            )}
-          </>
-        )}
-      />
-
+    <SettingsPage
+      actions={
+        linkedWithChatGPT ? (
+          <Link
+            className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-lg transition-colors hover:bg-primary/90"
+            to={continueHref}
+          >
+            Open Codex
+            <Icon className="text-base" name="arrow_forward" />
+          </Link>
+        ) : undefined
+      }
+      backHref={backHref}
+      backLabel={audience ? "Setup" : "Settings"}
+      description={headingDescription}
+      title="Connect ChatGPT"
+      width="narrow"
+    >
       <section className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-8 shadow-sm">
         <div className="flex flex-col gap-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
@@ -200,27 +224,26 @@ export default function SettingsCodex() {
                     ChatGPT-backed Codex access
                   </h2>
                   <p className="text-sm text-secondary">
-                    sky10 can now own the browser OAuth flow directly, then keep the linked account local to this device.
+                    sky10 can now own the browser OAuth flow directly, then keep
+                    the linked account local to this device.
                   </p>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge tone="success">
-                  sky10 OAuth ready
-                </StatusBadge>
+                <StatusBadge tone="success">sky10 OAuth ready</StatusBadge>
                 {pending ? (
                   <StatusBadge pulse tone="processing">
-                    {pending.callback_listening ? "Waiting for browser callback" : "Manual completion required"}
+                    {pending.callback_listening
+                      ? "Waiting for browser callback"
+                      : "Manual completion required"}
                   </StatusBadge>
                 ) : status?.linked ? (
                   <StatusBadge tone="success">
                     Linked via {authLabel}
                   </StatusBadge>
                 ) : (
-                  <StatusBadge tone="neutral">
-                    Not linked
-                  </StatusBadge>
+                  <StatusBadge tone="neutral">Not linked</StatusBadge>
                 )}
               </div>
             </div>
@@ -323,13 +346,16 @@ export default function SettingsCodex() {
                   </span>
                   <textarea
                     className="mt-3 min-h-28 w-full rounded-2xl border border-outline-variant/20 bg-surface-container-low px-4 py-3 text-sm text-on-surface outline-none transition-colors placeholder:text-outline focus:border-primary/30"
-                    onChange={(event) => setAuthorizationInput(event.target.value)}
+                    onChange={(event) =>
+                      setAuthorizationInput(event.target.value)
+                    }
                     placeholder="http://localhost:1455/auth/callback?code=...&state=..."
                     value={authorizationInput}
                   />
                 </label>
                 <p className="mt-3 text-sm text-secondary">
-                  If the browser shows a localhost error page, copy the full URL from the address bar and paste it here.
+                  If the browser shows a localhost error page, copy the full URL
+                  from the address bar and paste it here.
                 </p>
 
                 <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -358,19 +384,23 @@ export default function SettingsCodex() {
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
                   Session
                 </p>
-                <p className="mt-3">
-                  Started {timeAgo(pending.started_at)}
-                </p>
+                <p className="mt-3">Started {timeAgo(pending.started_at)}</p>
                 <p className="mt-1">
                   Expires {new Date(pending.expires_at).toLocaleTimeString()}
                 </p>
                 {pending.redirect_uri && (
                   <p className="mt-4 break-all">
-                    Callback URI: <span className="font-medium text-on-surface">{pending.redirect_uri}</span>
+                    Callback URI:{" "}
+                    <span className="font-medium text-on-surface">
+                      {pending.redirect_uri}
+                    </span>
                   </p>
                 )}
                 <p className="mt-4">
-                  Mode: <span className="font-medium text-on-surface">{pending.mode || "oauth"}</span>
+                  Mode:{" "}
+                  <span className="font-medium text-on-surface">
+                    {pending.mode || "oauth"}
+                  </span>
                 </p>
               </div>
             </div>
@@ -381,28 +411,40 @@ export default function SettingsCodex() {
               ) : status?.linked ? (
                 <div className="space-y-2">
                   <p>
-                    This device is linked via <span className="font-semibold text-on-surface">{authLabel}</span> and managed directly by sky10.
+                    This device is linked via{" "}
+                    <span className="font-semibold text-on-surface">
+                      {authLabel}
+                    </span>{" "}
+                    and managed directly by sky10.
                   </p>
                   {status.email && (
                     <p>
-                      Account: <span className="font-semibold text-on-surface">{status.email}</span>
+                      Account:{" "}
+                      <span className="font-semibold text-on-surface">
+                        {status.email}
+                      </span>
                     </p>
                   )}
                   {status.account_id && (
                     <p>
-                      ChatGPT account id: <span className="font-mono text-xs text-on-surface">{status.account_id}</span>
+                      ChatGPT account id:{" "}
+                      <span className="font-mono text-xs text-on-surface">
+                        {status.account_id}
+                      </span>
                     </p>
                   )}
                 </div>
               ) : (
                 <p>
-                  Start the browser sign-in to link ChatGPT directly in sky10. No API key or separate Codex install is required for this flow.
+                  Start the browser sign-in to link ChatGPT directly in sky10.
+                  No API key or separate Codex install is required for this
+                  flow.
                 </p>
               )}
             </div>
           )}
         </div>
       </section>
-    </div>
+    </SettingsPage>
   );
 }

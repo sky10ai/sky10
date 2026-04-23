@@ -1,5 +1,5 @@
 import { Icon } from "../components/Icon";
-import { PageHeader } from "../components/PageHeader";
+import { SettingsPage } from "../components/SettingsPage";
 import { ThemeControl } from "../components/ThemeControl";
 import { useTheme, type ThemePreference } from "../components/ThemeProvider";
 
@@ -15,13 +15,11 @@ export default function SettingsVisuals() {
   const { preference, resolvedTheme } = useTheme();
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 p-12">
-      <PageHeader
-        eyebrow="Settings"
-        title="Visuals"
-        description="Choose whether sky10 follows your system theme or stays fixed in light or dark mode."
-      />
-
+    <SettingsPage
+      backHref="/settings"
+      description="Choose how sky10 follows system, light, or dark mode."
+      title="Visuals"
+    >
       <section className="grid gap-6 xl:grid-cols-[minmax(0,2.2fr)_minmax(20rem,1fr)]">
         <div className="space-y-6 rounded-[2rem] border border-outline-variant/10 bg-surface-container/40 p-8 shadow-sm">
           <div className="space-y-2">
@@ -32,7 +30,8 @@ export default function SettingsVisuals() {
               Theme mode
             </h2>
             <p className="max-w-2xl text-sm text-secondary">
-              Pick a fixed appearance for sky10, or leave it on System to mirror the OS-level light or dark preference automatically.
+              Pick a fixed appearance for sky10, or leave it on System to mirror
+              the OS-level light or dark preference automatically.
             </p>
           </div>
 
@@ -52,18 +51,23 @@ export default function SettingsVisuals() {
               {preferenceSummary(preference)}
             </h2>
             <p className="text-sm text-secondary">
-              The interface is currently rendering in <span className="font-semibold text-on-surface">{resolvedTheme}</span> mode.
+              The interface is currently rendering in{" "}
+              <span className="font-semibold text-on-surface">
+                {resolvedTheme}
+              </span>{" "}
+              mode.
             </p>
           </div>
 
           <div className="rounded-2xl border border-outline-variant/10 bg-surface-container p-5">
             <p className="text-sm font-semibold text-on-surface">Behavior</p>
             <p className="mt-2 text-sm text-secondary">
-              System mode switches automatically with your OS preference. Light and Dark stay fixed until you change them here.
+              System mode switches automatically with your OS preference. Light
+              and Dark stay fixed until you change them here.
             </p>
           </div>
         </aside>
       </section>
-    </div>
+    </SettingsPage>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
-import { PageHeader } from "../components/PageHeader";
+import { SettingsPage } from "../components/SettingsPage";
 import { StatusBadge } from "../components/StatusBadge";
 import { STORAGE_EVENT_TYPES, subscribe } from "../lib/events";
 import {
@@ -99,7 +99,8 @@ function transferSourceLabel(source?: string) {
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
@@ -150,18 +151,17 @@ export default function Activity() {
   const pathIssues: SyncPathIssueEntry[] = activity?.path_issues ?? [];
 
   return (
-    <section className="mx-auto flex flex-1 w-full max-w-7xl flex-col gap-8 p-12">
-      <PageHeader
-        actions={
-          <StatusBadge pulse tone="live">
-            Streaming
-          </StatusBadge>
-        }
-        description="Real-time sync events and pending operations."
-        eyebrow="Monitoring"
-        title="Activity"
-      />
-
+    <SettingsPage
+      actions={
+        <StatusBadge pulse tone="live">
+          Streaming
+        </StatusBadge>
+      }
+      backHref="/settings"
+      description="Track live sync events and pending transfers."
+      title="Activity"
+      width="wide"
+    >
       {/* Pending operations */}
       {pending.length > 0 && (
         <div className="space-y-2">
@@ -197,7 +197,9 @@ export default function Activity() {
                       {progress}
                     </span>
                   )}
-                  <span className="text-xs text-outline">{entry.drive_name}</span>
+                  <span className="text-xs text-outline">
+                    {entry.drive_name}
+                  </span>
                 </div>
               );
             })}
@@ -216,7 +218,10 @@ export default function Activity() {
                 key={entry.drive_id}
                 className="flex items-center gap-4 px-4 py-3 text-sm"
               >
-                <Icon className="text-lg text-secondary" name="source_environment" />
+                <Icon
+                  className="text-lg text-secondary"
+                  name="source_environment"
+                />
                 <span className="w-24 truncate text-xs font-bold uppercase text-secondary">
                   {entry.drive_name}
                 </span>
@@ -224,7 +229,10 @@ export default function Activity() {
                   {readSourceLabel(entry.last_read_source)}
                 </StatusBadge>
                 {sourceHealthBadges(entry).map((badge) => (
-                  <StatusBadge key={`${entry.drive_id}-${badge.label}`} tone={badge.tone}>
+                  <StatusBadge
+                    key={`${entry.drive_id}-${badge.label}`}
+                    tone={badge.tone}
+                  >
                     {badge.label}
                   </StatusBadge>
                 ))}
@@ -284,12 +292,16 @@ export default function Activity() {
                   {entry.drive_name}
                 </span>
                 <StatusBadge tone="danger">
-                  {entry.kind === "windows_case_collision" ? "Case collision" : "Invalid path"}
+                  {entry.kind === "windows_case_collision"
+                    ? "Case collision"
+                    : "Invalid path"}
                 </StatusBadge>
                 <span className="flex-1 truncate font-mono text-xs text-on-surface">
                   {entry.paths.join(" • ")}
                 </span>
-                <span className="text-xs text-on-surface-variant">{entry.reason}</span>
+                <span className="text-xs text-on-surface-variant">
+                  {entry.reason}
+                </span>
               </div>
             ))}
           </div>
@@ -333,6 +345,6 @@ export default function Activity() {
           )}
         </div>
       </div>
-    </section>
+    </SettingsPage>
   );
 }

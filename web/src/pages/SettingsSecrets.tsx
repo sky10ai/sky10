@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { useSearchParams } from "react-router";
 import { Icon } from "../components/Icon";
-import { PageHeader } from "../components/PageHeader";
+import { SettingsPage } from "../components/SettingsPage";
 import { StatusBadge } from "../components/StatusBadge";
 import {
   secrets,
@@ -81,7 +81,8 @@ export default function SettingsSecrets() {
     [devices],
   );
   const selectedSecret = useMemo(
-    () => items.find((item) => item.id === selectedSecretID) ?? items[0] ?? null,
+    () =>
+      items.find((item) => item.id === selectedSecretID) ?? items[0] ?? null,
     [items, selectedSecretID],
   );
 
@@ -117,9 +118,9 @@ export default function SettingsSecrets() {
     }
     setRewrapScope(selectedSecret.scope);
     setRewrapRecipients(selectedSecret.recipient_device_ids);
-    setActiveSecret((previous) => (
-      previous && previous.id === selectedSecret.id ? previous : null
-    ));
+    setActiveSecret((previous) =>
+      previous && previous.id === selectedSecret.id ? previous : null,
+    );
   }, [selectedSecret]);
 
   const devicesByID = useMemo(() => {
@@ -130,9 +131,12 @@ export default function SettingsSecrets() {
     return next;
   }, [devices]);
 
-  const visibleRecipientLabels = useCallback((recipientIDs: string[]) => {
-    return recipientIDs.map((id) => devicesByID.get(id)?.name || id);
-  }, [devicesByID]);
+  const visibleRecipientLabels = useCallback(
+    (recipientIDs: string[]) => {
+      return recipientIDs.map((id) => devicesByID.get(id)?.name || id);
+    },
+    [devicesByID],
+  );
 
   const clearDraftPayload = useCallback(() => {
     setDraftValue("");
@@ -146,22 +150,25 @@ export default function SettingsSecrets() {
     refetchStatus({ background: true });
   }, [refetchDevices, refetchList, refetchStatus]);
 
-  const handleFileChange = useCallback(async (file: File | null) => {
-    if (!file) {
-      setDraftFile(null);
-      return;
-    }
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    setDraftFile({
-      bytes,
-      contentType: file.type || "application/octet-stream",
-      name: file.name,
-    });
-    setDraftSource("file");
-    if (!draftContentType) {
-      setDraftContentType(file.type || "application/octet-stream");
-    }
-  }, [draftContentType]);
+  const handleFileChange = useCallback(
+    async (file: File | null) => {
+      if (!file) {
+        setDraftFile(null);
+        return;
+      }
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      setDraftFile({
+        bytes,
+        contentType: file.type || "application/octet-stream",
+        name: file.name,
+      });
+      setDraftSource("file");
+      if (!draftContentType) {
+        setDraftContentType(file.type || "application/octet-stream");
+      }
+    },
+    [draftContentType],
+  );
 
   const handleStore = useCallback(async () => {
     const trimmedName = draftName.trim();
@@ -193,7 +200,9 @@ export default function SettingsSecrets() {
     }
 
     if (draftScope === "explicit" && draftRecipients.length === 0) {
-      setActionError("Select at least one recipient device for explicit scope.");
+      setActionError(
+        "Select at least one recipient device for explicit scope.",
+      );
       return;
     }
 
@@ -207,11 +216,10 @@ export default function SettingsSecrets() {
         content_type: contentType,
         scope: draftScope,
         payload: bytesToBase64(payload),
-        recipient_devices: draftScope === "explicit" ? draftRecipients : undefined,
+        recipient_devices:
+          draftScope === "explicit" ? draftRecipients : undefined,
       });
-      setActionMessage(
-        `Stored ${stored.name} with ${stored.scope} scope.`,
-      );
+      setActionMessage(`Stored ${stored.name} with ${stored.scope} scope.`);
       setSelectedSecretID(stored.id);
       if (draftSource === "value") {
         setDraftValue("");
@@ -255,14 +263,18 @@ export default function SettingsSecrets() {
     const bytes = base64ToBytes(activeSecret.payload);
     const contentType = activeSecret.content_type || "application/octet-stream";
     const extension = inferFileExtension(activeSecret);
-    const filename = extension ? `${activeSecret.name}.${extension}` : activeSecret.name;
+    const filename = extension
+      ? `${activeSecret.name}.${extension}`
+      : activeSecret.name;
     downloadBytes(bytes, filename, contentType);
   }, [activeSecret]);
 
   const handleRewrap = useCallback(async () => {
     if (!selectedSecret) return;
     if (rewrapScope === "explicit" && rewrapRecipients.length === 0) {
-      setActionError("Select at least one recipient device for explicit scope.");
+      setActionError(
+        "Select at least one recipient device for explicit scope.",
+      );
       return;
     }
 
@@ -273,9 +285,12 @@ export default function SettingsSecrets() {
       const updated = await secrets.rewrap({
         id_or_name: selectedSecret.id,
         scope: rewrapScope,
-        recipient_devices: rewrapScope === "explicit" ? rewrapRecipients : undefined,
+        recipient_devices:
+          rewrapScope === "explicit" ? rewrapRecipients : undefined,
       });
-      setActionMessage(`Updated ${updated.name} recipient scope to ${updated.scope}.`);
+      setActionMessage(
+        `Updated ${updated.name} recipient scope to ${updated.scope}.`,
+      );
       setSelectedSecretID(updated.id);
       refetchAll();
       if (activeSecret?.id === updated.id) {
@@ -286,7 +301,13 @@ export default function SettingsSecrets() {
     } finally {
       setRewrapping(false);
     }
-  }, [activeSecret?.id, refetchAll, rewrapRecipients, rewrapScope, selectedSecret]);
+  }, [
+    activeSecret?.id,
+    refetchAll,
+    rewrapRecipients,
+    rewrapScope,
+    selectedSecret,
+  ]);
 
   const handleSync = useCallback(async () => {
     setSyncing(true);
@@ -305,7 +326,11 @@ export default function SettingsSecrets() {
 
   const handleDelete = useCallback(async () => {
     if (!selectedSecret) return;
-    if (!window.confirm(`Delete secret "${selectedSecret.name}"? This removes it from synced secrets storage.`)) {
+    if (
+      !window.confirm(
+        `Delete secret "${selectedSecret.name}"? This removes it from synced secrets storage.`,
+      )
+    ) {
       return;
     }
 
@@ -337,37 +362,32 @@ export default function SettingsSecrets() {
       ...(draftScope === "explicit" ? draftRecipients : []),
       ...(rewrapScope === "explicit" ? rewrapRecipients : []),
     ]);
-    return devices.filter((device) => ids.has(device.id) && device.role === "sandbox");
+    return devices.filter(
+      (device) => ids.has(device.id) && device.role === "sandbox",
+    );
   }, [devices, draftRecipients, draftScope, rewrapRecipients, rewrapScope]);
 
   return (
-    <section className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 p-12">
-      <PageHeader
-        eyebrow="Settings"
-        title="Secrets"
-        description="Store API keys, tokens, certs, and small private artifacts in the encrypted secrets namespace. Trusted scope follows trusted-device membership; sandbox recipients are always explicit."
-        actions={(
-          <>
-            <button
-              className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-lg transition-all active:scale-95 disabled:opacity-60"
-              disabled={syncing}
-              onClick={() => void handleSync()}
-              type="button"
-            >
-              <Icon className={syncing ? "animate-spin text-base" : "text-base"} name="sync" />
-              {syncing ? "Syncing..." : "Sync Now"}
-            </button>
-            <Link
-              className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary transition-colors hover:text-on-surface"
-              to="/settings"
-            >
-              <Icon className="text-base" name="arrow_back" />
-              Back to Settings
-            </Link>
-          </>
-        )}
-      />
-
+    <SettingsPage
+      actions={
+        <button
+          className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-lg transition-all active:scale-95 disabled:opacity-60"
+          disabled={syncing}
+          onClick={() => void handleSync()}
+          type="button"
+        >
+          <Icon
+            className={syncing ? "animate-spin text-base" : "text-base"}
+            name="sync"
+          />
+          {syncing ? "Syncing..." : "Sync Now"}
+        </button>
+      }
+      backHref="/settings"
+      description="Manage encrypted secrets and device access."
+      title="Secrets"
+      width="wide"
+    >
       {(actionError || listError || devicesError || statusError) && (
         <div className="rounded-2xl bg-error-container/20 p-4 text-sm text-error">
           {actionError ?? listError ?? devicesError ?? statusError}
@@ -382,8 +402,7 @@ export default function SettingsSecrets() {
 
       {sandboxRecipientWarning.length > 0 && (
         <div className="rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning">
-          Sandbox recipients can decrypt the plaintext secret directly:
-          {" "}
+          Sandbox recipients can decrypt the plaintext secret directly:{" "}
           {sandboxRecipientWarning.map((device) => device.name).join(", ")}.
         </div>
       )}
@@ -430,7 +449,8 @@ export default function SettingsSecrets() {
                 Add a new value or roll a new version by name
               </h2>
               <p className="max-w-2xl text-sm text-secondary">
-                Reusing the same secret name writes a new version. Names and payloads stay out of raw KV keys and visible values.
+                Reusing the same secret name writes a new version. Names and
+                payloads stay out of raw KV keys and visible values.
               </p>
             </div>
 
@@ -528,11 +548,17 @@ export default function SettingsSecrets() {
 
             <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
               <label className="space-y-2 text-sm text-secondary">
-                <span className="font-medium text-on-surface">Content Type Override</span>
+                <span className="font-medium text-on-surface">
+                  Content Type Override
+                </span>
                 <input
                   className="w-full rounded-2xl border border-outline-variant/20 bg-surface-container px-4 py-3 text-sm text-on-surface outline-none transition-colors focus:border-primary/40"
                   onChange={(event) => setDraftContentType(event.target.value)}
-                  placeholder={draftSource === "value" ? "text/plain; charset=utf-8" : "application/octet-stream"}
+                  placeholder={
+                    draftSource === "value"
+                      ? "text/plain; charset=utf-8"
+                      : "application/octet-stream"
+                  }
                   value={draftContentType}
                 />
               </label>
@@ -543,7 +569,10 @@ export default function SettingsSecrets() {
                   onClick={() => void handleStore()}
                   type="button"
                 >
-                  <Icon name={storing ? "sync" : "save"} className={storing ? "animate-spin text-base" : "text-base"} />
+                  <Icon
+                    name={storing ? "sync" : "save"}
+                    className={storing ? "animate-spin text-base" : "text-base"}
+                  />
                   {storing ? "Storing..." : "Store Secret"}
                 </button>
               </div>
@@ -558,7 +587,9 @@ export default function SettingsSecrets() {
                 <Icon className="text-sm" name="ink_eraser" />
                 Clear payload
               </button>
-              <span>Trusted scope automatically follows trusted-device joins.</span>
+              <span>
+                Trusted scope automatically follows trusted-device joins.
+              </span>
             </div>
           </div>
         </section>
@@ -575,13 +606,16 @@ export default function SettingsSecrets() {
             </div>
             <div className="space-y-3 text-sm text-secondary">
               <p>
-                <strong className="text-on-surface">Current</strong> keeps the secret pinned to this device only.
+                <strong className="text-on-surface">Current</strong> keeps the
+                secret pinned to this device only.
               </p>
               <p>
-                <strong className="text-on-surface">Trusted</strong> includes current and future trusted devices after reconciliation.
+                <strong className="text-on-surface">Trusted</strong> includes
+                current and future trusted devices after reconciliation.
               </p>
               <p>
-                <strong className="text-on-surface">Explicit</strong> pins custody to the exact devices you select.
+                <strong className="text-on-surface">Explicit</strong> pins
+                custody to the exact devices you select.
               </p>
             </div>
 
@@ -608,7 +642,11 @@ export default function SettingsSecrets() {
                           </p>
                           <p className="text-xs text-secondary">{device.id}</p>
                         </div>
-                        <StatusBadge tone={device.role === "sandbox" ? "neutral" : "success"}>
+                        <StatusBadge
+                          tone={
+                            device.role === "sandbox" ? "neutral" : "success"
+                          }
+                        >
                           {device.role}
                         </StatusBadge>
                       </div>
@@ -649,7 +687,8 @@ export default function SettingsSecrets() {
           </div>
         ) : items.length === 0 ? (
           <div className="rounded-2xl bg-surface-container p-6 text-sm text-secondary">
-            No secrets yet. Store one above to start syncing API keys or small private files across your trusted devices.
+            No secrets yet. Store one above to start syncing API keys or small
+            private files across your trusted devices.
           </div>
         ) : (
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_420px]">
@@ -670,8 +709,12 @@ export default function SettingsSecrets() {
                     <div className="flex flex-wrap items-start justify-between gap-4">
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-lg font-semibold text-on-surface">{item.name}</h3>
-                          <StatusBadge tone="processing">{item.scope}</StatusBadge>
+                          <h3 className="text-lg font-semibold text-on-surface">
+                            {item.name}
+                          </h3>
+                          <StatusBadge tone="processing">
+                            {item.scope}
+                          </StatusBadge>
                           <StatusBadge tone="neutral">{item.kind}</StatusBadge>
                         </div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-secondary">
@@ -680,7 +723,10 @@ export default function SettingsSecrets() {
                           <span>Updated {timeAgo(item.updated_at)}</span>
                         </div>
                         <p className="text-xs text-secondary">
-                          Recipients: {visibleRecipientLabels(item.recipient_device_ids).join(", ")}
+                          Recipients:{" "}
+                          {visibleRecipientLabels(
+                            item.recipient_device_ids,
+                          ).join(", ")}
                         </p>
                       </div>
                       <div className="text-xs text-secondary">
@@ -697,8 +743,12 @@ export default function SettingsSecrets() {
                 <div className="space-y-6">
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-2xl font-semibold text-on-surface">{selectedSecret.name}</h3>
-                      <StatusBadge tone="processing">{selectedSecret.scope}</StatusBadge>
+                      <h3 className="text-2xl font-semibold text-on-surface">
+                        {selectedSecret.name}
+                      </h3>
+                      <StatusBadge tone="processing">
+                        {selectedSecret.scope}
+                      </StatusBadge>
                     </div>
                     <p className="text-sm text-secondary">
                       {selectedSecret.kind} • {selectedSecret.content_type}
@@ -706,10 +756,23 @@ export default function SettingsSecrets() {
                   </div>
 
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <InfoTile label="Size" value={formatBytes(selectedSecret.size)} />
-                    <InfoTile label="Updated" value={timeAgo(selectedSecret.updated_at)} />
-                    <InfoTile label="Recipients" value={String(selectedSecret.recipient_device_ids.length)} />
-                    <InfoTile label="SHA-256" mono value={truncateSHA(selectedSecret.sha256)} />
+                    <InfoTile
+                      label="Size"
+                      value={formatBytes(selectedSecret.size)}
+                    />
+                    <InfoTile
+                      label="Updated"
+                      value={timeAgo(selectedSecret.updated_at)}
+                    />
+                    <InfoTile
+                      label="Recipients"
+                      value={String(selectedSecret.recipient_device_ids.length)}
+                    />
+                    <InfoTile
+                      label="SHA-256"
+                      mono
+                      value={truncateSHA(selectedSecret.sha256)}
+                    />
                   </div>
 
                   <div className="space-y-3">
@@ -720,8 +783,19 @@ export default function SettingsSecrets() {
                         onClick={() => void handleReveal()}
                         type="button"
                       >
-                        <Icon className={loadingSecret ? "animate-spin text-base" : "text-base"} name={loadingSecret ? "sync" : "visibility"} />
-                        {loadingSecret ? "Loading..." : activeSecret?.id === selectedSecret.id ? "Refresh Value" : "Reveal Value"}
+                        <Icon
+                          className={
+                            loadingSecret
+                              ? "animate-spin text-base"
+                              : "text-base"
+                          }
+                          name={loadingSecret ? "sync" : "visibility"}
+                        />
+                        {loadingSecret
+                          ? "Loading..."
+                          : activeSecret?.id === selectedSecret.id
+                            ? "Refresh Value"
+                            : "Reveal Value"}
                       </button>
                       <button
                         className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary transition-colors disabled:opacity-50"
@@ -738,7 +812,12 @@ export default function SettingsSecrets() {
                         onClick={() => void handleDelete()}
                         type="button"
                       >
-                        <Icon className={deleting ? "animate-spin text-base" : "text-base"} name={deleting ? "sync" : "delete"} />
+                        <Icon
+                          className={
+                            deleting ? "animate-spin text-base" : "text-base"
+                          }
+                          name={deleting ? "sync" : "delete"}
+                        />
                         {deleting ? "Deleting..." : "Delete Secret"}
                       </button>
                     </div>
@@ -750,12 +829,14 @@ export default function SettingsSecrets() {
                         </pre>
                       ) : (
                         <div className="rounded-3xl bg-surface-container-high p-5 text-sm text-secondary">
-                          Binary payload loaded. Use Download to write the bytes locally.
+                          Binary payload loaded. Use Download to write the bytes
+                          locally.
                         </div>
                       )
                     ) : (
                       <div className="rounded-3xl bg-surface-container-high p-5 text-sm text-secondary">
-                        Reveal only loads the selected secret into this browser session on demand.
+                        Reveal only loads the selected secret into this browser
+                        session on demand.
                       </div>
                     )}
                   </div>
@@ -787,7 +868,12 @@ export default function SettingsSecrets() {
                       onClick={() => void handleRewrap()}
                       type="button"
                     >
-                      <Icon className={rewrapping ? "animate-spin text-base" : "text-base"} name="sync_lock" />
+                      <Icon
+                        className={
+                          rewrapping ? "animate-spin text-base" : "text-base"
+                        }
+                        name="sync_lock"
+                      />
                       {rewrapping ? "Updating..." : "Update Recipients"}
                     </button>
                   </div>
@@ -801,7 +887,7 @@ export default function SettingsSecrets() {
           </div>
         )}
       </section>
-    </section>
+    </SettingsPage>
   );
 }
 
@@ -818,11 +904,12 @@ function MetricCard({
   tone: "neutral" | "processing" | "success";
   value: string;
 }) {
-  const iconTone = tone === "success"
-    ? "bg-primary-fixed/60 text-on-primary-fixed-variant"
-    : tone === "processing"
-      ? "bg-primary/10 text-primary"
-      : "bg-surface-container text-secondary";
+  const iconTone =
+    tone === "success"
+      ? "bg-primary-fixed/60 text-on-primary-fixed-variant"
+      : tone === "processing"
+        ? "bg-primary/10 text-primary"
+        : "bg-surface-container text-secondary";
 
   return (
     <div className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-5 shadow-sm">
@@ -831,10 +918,14 @@ function MetricCard({
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
             {label}
           </p>
-          <p className="text-3xl font-semibold tracking-tight text-on-surface">{value}</p>
+          <p className="text-3xl font-semibold tracking-tight text-on-surface">
+            {value}
+          </p>
           {detail && <p className="text-xs text-secondary">{detail}</p>}
         </div>
-        <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${iconTone}`}>
+        <div
+          className={`flex h-12 w-12 items-center justify-center rounded-2xl ${iconTone}`}
+        >
           <Icon className="text-2xl" name={icon} />
         </div>
       </div>
@@ -919,7 +1010,9 @@ function DevicePicker({
                     {device.name}
                     {device.current ? " (current)" : ""}
                   </span>
-                  <StatusBadge tone={device.role === "sandbox" ? "neutral" : "success"}>
+                  <StatusBadge
+                    tone={device.role === "sandbox" ? "neutral" : "success"}
+                  >
                     {device.role}
                   </StatusBadge>
                 </div>
@@ -983,7 +1076,9 @@ function InfoTile({
       <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
         {label}
       </p>
-      <p className={`mt-2 text-sm text-on-surface ${mono ? "font-mono" : "font-semibold"}`}>
+      <p
+        className={`mt-2 text-sm text-on-surface ${mono ? "font-mono" : "font-semibold"}`}
+      >
         {value}
       </p>
     </div>
@@ -1011,7 +1106,8 @@ function base64ToBytes(value: string) {
 
 function maybeDecodeText(bytes: Uint8Array, contentType: string) {
   const normalized = contentType.toLowerCase();
-  const likelyText = normalized.startsWith("text/") ||
+  const likelyText =
+    normalized.startsWith("text/") ||
     normalized.includes("json") ||
     normalized.includes("xml") ||
     normalized.includes("yaml") ||
@@ -1053,7 +1149,11 @@ function inferFileExtension(secret: SecretSummary) {
   return "";
 }
 
-function downloadBytes(bytes: Uint8Array, filename: string, contentType: string) {
+function downloadBytes(
+  bytes: Uint8Array,
+  filename: string,
+  contentType: string,
+) {
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
   const blob = new Blob([copy.buffer], { type: contentType });

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { SandboxTerminal } from "../components/SandboxTerminal";
 import { Icon } from "../components/Icon";
-import { PageHeader } from "../components/PageHeader";
+import { SettingsPage } from "../components/SettingsPage";
 import { StatusBadge } from "../components/StatusBadge";
 import { subscribe } from "../lib/events";
 import {
@@ -26,12 +26,17 @@ export default function SandboxDetail() {
   const params = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const slug = decodeURIComponent(params.slug ?? params.name ?? "");
-  const requestedPanel = useMemo<"logs" | "terminal">(() => (
-    searchParams.get("panel") === "terminal" ? "terminal" : "logs"
-  ), [searchParams]);
+  const requestedPanel = useMemo<"logs" | "terminal">(
+    () => (searchParams.get("panel") === "terminal" ? "terminal" : "logs"),
+    [searchParams],
+  );
   const [logs, setLogs] = useState<SandboxLogEntry[]>([]);
-  const [activePanel, setActivePanel] = useState<"logs" | "terminal">(requestedPanel);
-  const [hasOpenedTerminal, setHasOpenedTerminal] = useState(requestedPanel === "terminal");
+  const [activePanel, setActivePanel] = useState<"logs" | "terminal">(
+    requestedPanel,
+  );
+  const [hasOpenedTerminal, setHasOpenedTerminal] = useState(
+    requestedPanel === "terminal",
+  );
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
@@ -61,7 +66,9 @@ export default function SandboxDetail() {
 
   useEffect(() => {
     if (!selected?.slug || selected.slug === slug) return;
-    navigate(`/settings/sandboxes/${encodeURIComponent(selected.slug)}`, { replace: true });
+    navigate(`/settings/sandboxes/${encodeURIComponent(selected.slug)}`, {
+      replace: true,
+    });
   }, [navigate, selected?.slug, slug]);
 
   useEffect(() => {
@@ -71,19 +78,22 @@ export default function SandboxDetail() {
     }
   }, [requestedPanel]);
 
-  const switchPanel = useCallback((nextPanel: "logs" | "terminal") => {
-    setActivePanel(nextPanel);
-    if (nextPanel === "terminal") {
-      setHasOpenedTerminal(true);
-    }
-    const nextParams = new URLSearchParams(searchParams);
-    if (nextPanel === "terminal") {
-      nextParams.set("panel", "terminal");
-    } else {
-      nextParams.delete("panel");
-    }
-    setSearchParams(nextParams, { replace: true });
-  }, [searchParams, setSearchParams]);
+  const switchPanel = useCallback(
+    (nextPanel: "logs" | "terminal") => {
+      setActivePanel(nextPanel);
+      if (nextPanel === "terminal") {
+        setHasOpenedTerminal(true);
+      }
+      const nextParams = new URLSearchParams(searchParams);
+      if (nextPanel === "terminal") {
+        nextParams.set("panel", "terminal");
+      } else {
+        nextParams.delete("panel");
+      }
+      setSearchParams(nextParams, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
 
   const loadLogs = useCallback(async () => {
     if (!slug) {
@@ -126,33 +136,39 @@ export default function SandboxDetail() {
     });
   }, [slug]);
 
-  const runAction = useCallback(async (action: "start" | "stop" | "delete") => {
-    if (!slug) return;
+  const runAction = useCallback(
+    async (action: "start" | "stop" | "delete") => {
+      if (!slug) return;
 
-    setBusyAction(action);
-    setActionError(null);
-    try {
-      if (action === "start") {
-        await sandbox.start({ slug });
-        refetchSelected({ background: true });
-        return;
+      setBusyAction(action);
+      setActionError(null);
+      try {
+        if (action === "start") {
+          await sandbox.start({ slug });
+          refetchSelected({ background: true });
+          return;
+        }
+        if (action === "stop") {
+          await sandbox.stop({ slug });
+          refetchSelected({ background: true });
+          return;
+        }
+        await sandbox.delete({ slug });
+        navigate("/settings/sandboxes");
+      } catch (error: unknown) {
+        setActionError(
+          error instanceof Error ? error.message : `${action} failed`,
+        );
+      } finally {
+        setBusyAction(null);
       }
-      if (action === "stop") {
-        await sandbox.stop({ slug });
-        refetchSelected({ background: true });
-        return;
-      }
-      await sandbox.delete({ slug });
-      navigate("/settings/sandboxes");
-    } catch (error: unknown) {
-      setActionError(error instanceof Error ? error.message : `${action} failed`);
-    } finally {
-      setBusyAction(null);
-    }
-  }, [navigate, refetchSelected, slug]);
+    },
+    [navigate, refetchSelected, slug],
+  );
 
   const handleCopyTerminal = useCallback(async () => {
-    const command = selected?.shell || `limactl shell ${selected?.slug ?? slug}`;
+    const command =
+      selected?.shell || `limactl shell ${selected?.slug ?? slug}`;
     try {
       await navigator.clipboard.writeText(command);
       setCopyMessage("Shell command copied.");
@@ -165,50 +181,41 @@ export default function SandboxDetail() {
 
   if (!slug) {
     return (
-      <section className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 p-12">
-        <PageHeader
-          eyebrow="Settings"
-          title="Sandbox"
-          description="No sandbox identifier was provided."
-          actions={(
-            <Link
-              className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary transition-colors hover:text-on-surface"
-              to="/settings/sandboxes"
-            >
-              <Icon className="text-base" name="arrow_back" />
-              Back to Sandboxes
-            </Link>
-          )}
-        />
-      </section>
+      <SettingsPage
+        backHref="/settings/sandboxes"
+        backLabel="Sandboxes"
+        description="No sandbox identifier was provided."
+        title="Sandbox"
+        width="narrow"
+      />
     );
   }
 
-  const shellCommand = selected?.shell || `limactl shell ${selected?.slug ?? slug}`;
-  const terminalEnabled = selected?.provider === "lima" && (selected.status === "ready" || selected.vm_status === "Running");
+  const shellCommand =
+    selected?.shell || `limactl shell ${selected?.slug ?? slug}`;
+  const terminalEnabled =
+    selected?.provider === "lima" &&
+    (selected.status === "ready" || selected.vm_status === "Running");
   const guestIP = selected?.ip_address?.trim() ?? "";
-  const openClawURL = isOpenClawTemplate(selected?.template) && guestIP ? `http://${guestIP}:18790/chat?session=main` : "";
-  const guestSky10URL = isOpenClawTemplate(selected?.template) && guestIP ? `http://${guestIP}:9101` : "";
+  const openClawURL =
+    isOpenClawTemplate(selected?.template) && guestIP
+      ? `http://${guestIP}:18790/chat?session=main`
+      : "";
+  const guestSky10URL =
+    isOpenClawTemplate(selected?.template) && guestIP
+      ? `http://${guestIP}:9101`
+      : "";
   const progress = selected ? sandboxCurrentProgress(selected) : null;
   const progressWidth = Math.max(0, Math.min(progress?.percent ?? 0, 100));
 
   return (
-    <section className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 p-12">
-      <PageHeader
-        eyebrow="Settings"
-        title={selected?.name ?? slug}
-        description="Detailed runtime status for this sandbox, including lifecycle actions, boot logs, and terminal access."
-        actions={(
-          <Link
-            className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary transition-colors hover:text-on-surface"
-            to="/settings/sandboxes"
-          >
-            <Icon className="text-base" name="arrow_back" />
-            Back to Sandboxes
-          </Link>
-        )}
-      />
-
+    <SettingsPage
+      backHref="/settings/sandboxes"
+      backLabel="Sandboxes"
+      description="Manage runtime status, logs, and terminal access."
+      title={selected?.name ?? slug}
+      width="wide"
+    >
       {(actionError || selectedError) && (
         <div className="rounded-2xl bg-error-container/20 p-4 text-sm text-error">
           {actionError ?? selectedError}
@@ -222,7 +229,10 @@ export default function SandboxDetail() {
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center gap-3">
                   <StatusBadge
-                    pulse={selected.status === "creating" || selected.status === "starting"}
+                    pulse={
+                      selected.status === "creating" ||
+                      selected.status === "starting"
+                    }
                     tone={sandboxTone(selected.status)}
                   >
                     {sandboxLabel(selected.status)}
@@ -239,19 +249,27 @@ export default function SandboxDetail() {
                   </p>
                   <p className="text-xs text-secondary">
                     Updated {timeAgo(selected.updated_at)}
-                    {selected.last_log_at ? ` • last log ${timeAgo(selected.last_log_at)}` : ""}
+                    {selected.last_log_at
+                      ? ` • last log ${timeAgo(selected.last_log_at)}`
+                      : ""}
                   </p>
                 </div>
                 {progress && (
                   <div className="w-full max-w-xl space-y-2 pt-1">
                     <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="font-medium text-on-surface">{progress.summary}</span>
-                      <span className="font-semibold text-secondary">{progress.percent}%</span>
+                      <span className="font-medium text-on-surface">
+                        {progress.summary}
+                      </span>
+                      <span className="font-semibold text-secondary">
+                        {progress.percent}%
+                      </span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-surface-container">
                       <div
                         className={`h-full rounded-full transition-[width] duration-300 ${
-                          selected.status === "error" ? "bg-error" : "bg-primary"
+                          selected.status === "error"
+                            ? "bg-error"
+                            : "bg-primary"
                         }`}
                         style={{ width: `${progressWidth}%` }}
                       />
@@ -295,15 +313,33 @@ export default function SandboxDetail() {
               <InfoCard label="Runtime ID" mono value={selected.slug} />
               <InfoCard label="Provider" value={selected.provider} />
               <InfoCard label="Template" value={selected.template} />
-              <InfoCard label="Guest IP" mono value={selected.ip_address || "Waiting..."} />
+              <InfoCard
+                label="Guest IP"
+                mono
+                value={selected.ip_address || "Waiting..."}
+              />
               <InfoCard label="Created" mono value={selected.created_at} />
               <InfoCard label="Updated" mono value={selected.updated_at} />
-              <InfoCard label="Last Log" mono value={selected.last_log_at || "Waiting..."} />
+              <InfoCard
+                label="Last Log"
+                mono
+                value={selected.last_log_at || "Waiting..."}
+              />
               {openClawURL && (
-                <InfoCard label="OpenClaw UI" mono value={openClawURL} href={openClawURL} />
+                <InfoCard
+                  label="OpenClaw UI"
+                  mono
+                  value={openClawURL}
+                  href={openClawURL}
+                />
               )}
               {guestSky10URL && (
-                <InfoCard label="Guest sky10 UI" mono value={guestSky10URL} href={guestSky10URL} />
+                <InfoCard
+                  label="Guest sky10 UI"
+                  mono
+                  value={guestSky10URL}
+                  href={guestSky10URL}
+                />
               )}
               <InfoCard
                 className="md:col-span-2 xl:col-span-3"
@@ -324,7 +360,8 @@ export default function SandboxDetail() {
               Sandbox not available
             </p>
             <p className="text-sm text-secondary">
-              The runtime could not be loaded. It may have been deleted or the daemon state is stale.
+              The runtime could not be loaded. It may have been deleted or the
+              daemon state is stale.
             </p>
           </div>
         ) : (
@@ -341,7 +378,9 @@ export default function SandboxDetail() {
               Sandbox Console
             </p>
             <h2 className="text-2xl font-semibold text-on-surface">
-              {activePanel === "logs" ? "Boot and runtime output" : "Interactive shell"}
+              {activePanel === "logs"
+                ? "Boot and runtime output"
+                : "Interactive shell"}
             </h2>
             <p className="text-sm text-secondary">
               {activePanel === "logs"
@@ -405,13 +444,20 @@ export default function SandboxDetail() {
             {logs.length ? (
               <div className="space-y-1">
                 {logs.map((entry, index) => (
-                  <div key={sandboxLogKey(entry, index)} className="whitespace-pre-wrap break-words">
-                    <span className="text-[#7f8c98]">{entry.time}</span>
-                    {" "}
-                    <span className={entry.stream === "stderr" ? "text-[#ffbf69]" : "text-[#8bd3dd]"}>
+                  <div
+                    key={sandboxLogKey(entry, index)}
+                    className="whitespace-pre-wrap break-words"
+                  >
+                    <span className="text-[#7f8c98]">{entry.time}</span>{" "}
+                    <span
+                      className={
+                        entry.stream === "stderr"
+                          ? "text-[#ffbf69]"
+                          : "text-[#8bd3dd]"
+                      }
+                    >
                       [{entry.stream}]
-                    </span>
-                    {" "}
+                    </span>{" "}
                     <span>{entry.line}</span>
                   </div>
                 ))}
@@ -432,10 +478,7 @@ export default function SandboxDetail() {
         >
           {selected ? (
             hasOpenedTerminal ? (
-              <SandboxTerminal
-                enabled={terminalEnabled}
-                slug={selected.slug}
-              />
+              <SandboxTerminal enabled={terminalEnabled} slug={selected.slug} />
             ) : (
               <div className="rounded-2xl bg-surface-container p-4 text-sm text-secondary">
                 Open the terminal tab to connect to the sandbox shell.
@@ -473,7 +516,7 @@ export default function SandboxDetail() {
           )}
         </div>
       </section>
-    </section>
+    </SettingsPage>
   );
 }
 
@@ -505,7 +548,9 @@ function InfoCard({
           {value}
         </a>
       ) : (
-        <p className={`mt-2 break-all text-sm text-secondary ${mono ? "font-mono" : ""}`}>
+        <p
+          className={`mt-2 break-all text-sm text-secondary ${mono ? "font-mono" : ""}`}
+        >
           {value}
         </p>
       )}

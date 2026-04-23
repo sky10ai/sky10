@@ -1,0 +1,73 @@
+import type { ReactNode } from "react";
+import { Link } from "react-router";
+import { Icon } from "./Icon";
+import { PageHeader } from "./PageHeader";
+
+const widthClasses = {
+  default: "max-w-6xl",
+  narrow: "max-w-5xl",
+  wide: "max-w-7xl",
+} as const;
+
+type SettingsPageWidth = keyof typeof widthClasses;
+
+interface SettingsPageProps {
+  actions?: ReactNode;
+  backHref?: string;
+  backLabel?: string;
+  children?: ReactNode;
+  description: ReactNode;
+  title: ReactNode;
+  width?: SettingsPageWidth;
+}
+
+export function SettingsPage({
+  actions,
+  backHref,
+  backLabel = "Settings",
+  children,
+  description,
+  title,
+  width = "default",
+}: SettingsPageProps) {
+  const headerActions =
+    actions || backHref ? (
+      <>
+        {actions}
+        {backHref && <SettingsGhostLink label={backLabel} to={backHref} />}
+      </>
+    ) : undefined;
+
+  return (
+    <section
+      className={`mx-auto flex w-full flex-1 flex-col gap-8 px-6 pb-12 pt-6 sm:px-8 sm:pt-7 lg:px-10 ${widthClasses[width]}`}
+    >
+      <PageHeader
+        actions={headerActions}
+        description={description}
+        title={title}
+      />
+      {children}
+    </section>
+  );
+}
+
+interface SettingsGhostLinkProps {
+  label?: string;
+  to: string;
+}
+
+export function SettingsGhostLink({
+  label = "Settings",
+  to,
+}: SettingsGhostLinkProps) {
+  return (
+    <Link
+      className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 bg-surface-container-lowest px-4 py-2 text-sm font-semibold text-secondary transition-colors hover:border-primary/20 hover:bg-surface-container-low hover:text-on-surface"
+      to={to}
+    >
+      <Icon className="text-base" name="arrow_back" />
+      {label}
+    </Link>
+  );
+}

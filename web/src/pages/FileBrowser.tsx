@@ -5,7 +5,10 @@ import {
   BrowserContextMenu,
   type BrowserContextMenuState,
 } from "../components/files/BrowserContextMenu";
-import { BrowserTable, type BrowserRow } from "../components/files/BrowserTable";
+import {
+  BrowserTable,
+  type BrowserRow,
+} from "../components/files/BrowserTable";
 import { NewFolderForm } from "../components/files/NewFolderForm";
 import { Icon } from "../components/Icon";
 import { PageHeader } from "../components/PageHeader";
@@ -17,7 +20,7 @@ import { useRPC } from "../lib/useRPC";
 async function uploadFiles(
   files: FileList,
   driveID: string,
-  currentPath: string
+  currentPath: string,
 ) {
   const results: { name: string; ok: boolean; error?: string }[] = [];
   for (const file of Array.from(files)) {
@@ -27,7 +30,7 @@ async function uploadFiles(
     try {
       const res = await fetch(
         `/upload?drive=${encodeURIComponent(driveID)}&path=${encodeURIComponent(filePath)}`,
-        { method: "POST", body: form }
+        { method: "POST", body: form },
       );
       if (!res.ok) {
         const text = await res.text();
@@ -84,7 +87,7 @@ export default function FileBrowser() {
     {
       live: STORAGE_EVENT_TYPES,
       refreshIntervalMs: 10_000,
-    }
+    },
   );
   const { data, loading, error, mutate, refreshing, refetch } = useRPC(
     () => skyfs.list(listPrefix ? { prefix: listPrefix } : undefined),
@@ -92,7 +95,7 @@ export default function FileBrowser() {
     {
       live: [...STORAGE_EVENT_TYPES, "file.changed"],
       refreshIntervalMs: 10_000,
-    }
+    },
   );
 
   const [ctx, setCtx] = useState<BrowserContextMenuState | null>(null);
@@ -104,7 +107,7 @@ export default function FileBrowser() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentDrive = (driveList?.drives ?? []).find(
-    (drive) => drive.name === driveName
+    (drive) => drive.name === driveName,
   );
 
   useEffect(() => {
@@ -148,7 +151,7 @@ export default function FileBrowser() {
       event.preventDefault();
       setCtx({ x: event.clientX, y: event.clientY, row });
     },
-    []
+    [],
   );
 
   const closeMenu = useCallback(() => setCtx(null), []);
@@ -158,10 +161,10 @@ export default function FileBrowser() {
       navigate(
         path
           ? `/drives/${encodeURIComponent(driveName)}/${encodePathSegments(path)}`
-          : `/drives/${encodeURIComponent(driveName)}`
+          : `/drives/${encodeURIComponent(driveName)}`,
       );
     },
-    [driveName, navigate]
+    [driveName, navigate],
   );
 
   const handleDelete = useCallback(
@@ -176,10 +179,10 @@ export default function FileBrowser() {
         return {
           ...previous,
           dirs: (previous.dirs ?? []).filter(
-            (dir) => dir.path !== path && !dir.path.startsWith(`${path}/`)
+            (dir) => dir.path !== path && !dir.path.startsWith(`${path}/`),
           ),
           files: previous.files.filter(
-            (file) => file.path !== path && !file.path.startsWith(`${path}/`)
+            (file) => file.path !== path && !file.path.startsWith(`${path}/`),
           ),
         };
       });
@@ -192,7 +195,7 @@ export default function FileBrowser() {
         refetch();
       }
     },
-    [currentDrive?.id, driveName, mutate, refetch]
+    [currentDrive?.id, driveName, mutate, refetch],
   );
 
   const handleNewFolder = useCallback(() => {
@@ -234,7 +237,7 @@ export default function FileBrowser() {
       refetch({ background: true });
     } catch (e: unknown) {
       setActionError(
-        e instanceof Error ? e.message : "Failed to create folder"
+        e instanceof Error ? e.message : "Failed to create folder",
       );
       refetch();
     }
@@ -258,12 +261,12 @@ export default function FileBrowser() {
         const results = await uploadFiles(
           files,
           currentDrive?.id ?? driveName,
-          currentPath
+          currentPath,
         );
         const failed = results.filter((r) => !r.ok);
         if (failed.length > 0) {
           setActionError(
-            `Failed to upload: ${failed.map((f) => `${f.name} (${f.error})`).join(", ")}`
+            `Failed to upload: ${failed.map((f) => `${f.name} (${f.error})`).join(", ")}`,
           );
         }
         refetch({ background: true });
@@ -272,7 +275,7 @@ export default function FileBrowser() {
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     },
-    [currentDrive?.id, currentPath, driveName, refetch]
+    [currentDrive?.id, currentPath, driveName, refetch],
   );
 
   const handleDownload = useCallback(
@@ -283,7 +286,7 @@ export default function FileBrowser() {
       const url = `/download?drive=${encodeURIComponent(driveID)}&path=${encodeURIComponent(row.entry.path)}`;
       window.open(url, "_blank");
     },
-    [currentDrive?.id, driveName]
+    [currentDrive?.id, driveName],
   );
 
   return (
@@ -336,7 +339,6 @@ export default function FileBrowser() {
                 ? `${folderCount} folder${folderCount === 1 ? "" : "s"} and ${fileCount} file${fileCount === 1 ? "" : "s"} in ${currentPath || "the drive root"}.`
                 : "Loading drive details..."
             }
-            eyebrow={currentDrive?.namespace ?? "Drive Browser"}
             title={driveName}
           />
 

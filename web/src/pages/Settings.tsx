@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Icon } from "../components/Icon";
-import { STORAGE_EVENT_TYPES, WALLET_EVENT_TYPES, subscribe } from "../lib/events";
+import { SettingsPage } from "../components/SettingsPage";
+import {
+  STORAGE_EVENT_TYPES,
+  WALLET_EVENT_TYPES,
+  subscribe,
+} from "../lib/events";
 import { identity, skylink, wallet } from "../lib/rpc";
 import { useRPC, truncAddr } from "../lib/useRPC";
 
@@ -50,25 +55,29 @@ function walletExplorerHref(chain: WalletTab, address: string) {
 
 const settingsTools = [
   {
-    description: "Inspect durable queues, approvals, retries, and delivery history.",
+    description:
+      "Inspect durable queues, approvals, retries, and delivery history.",
     icon: "inbox",
     label: "Mailbox",
     to: "/settings/mailbox",
   },
   {
-    description: "Watch peers, relays, mailbox delivery health, and network events.",
+    description:
+      "Watch peers, relays, mailbox delivery health, and network events.",
     icon: "hub",
     label: "Network",
     to: "/settings/network",
   },
   {
-    description: "Inspect replicated keys and edit the live distributed key-value store.",
+    description:
+      "Inspect replicated keys and edit the live distributed key-value store.",
     icon: "database",
     label: "Key-Value",
     to: "/settings/kv",
   },
   {
-    description: "Track pending sync work and recent storage activity across drives.",
+    description:
+      "Track pending sync work and recent storage activity across drives.",
     icon: "monitor_heart",
     label: "Activity",
     to: "/settings/activity",
@@ -158,14 +167,17 @@ export default function Settings() {
   );
   const firstWallet = walletList?.wallets?.[0]?.name;
   const { data: solanaWalletAddr } = useRPC(
-    () => (firstWallet ? wallet.address({ wallet: firstWallet, chain: SOLANA_CHAIN }) : Promise.resolve(null)),
+    () =>
+      firstWallet
+        ? wallet.address({ wallet: firstWallet, chain: SOLANA_CHAIN })
+        : Promise.resolve(null),
     [firstWallet],
   );
-  const {
-    data: baseWalletAddr,
-    error: baseWalletError,
-  } = useRPC(
-    () => (firstWallet ? wallet.address({ wallet: firstWallet, chain: BASE_CHAIN }) : Promise.resolve(null)),
+  const { data: baseWalletAddr, error: baseWalletError } = useRPC(
+    () =>
+      firstWallet
+        ? wallet.address({ wallet: firstWallet, chain: BASE_CHAIN })
+        : Promise.resolve(null),
     [firstWallet],
   );
   const {
@@ -174,7 +186,10 @@ export default function Settings() {
     pause: pauseSolanaBalance,
     resume: resumeSolanaBalance,
   } = useRPC(
-    () => (firstWallet ? wallet.balance({ wallet: firstWallet, chain: SOLANA_CHAIN }) : Promise.resolve(null)),
+    () =>
+      firstWallet
+        ? wallet.balance({ wallet: firstWallet, chain: SOLANA_CHAIN })
+        : Promise.resolve(null),
     [firstWallet],
     { refreshIntervalMs: 30_000 },
   );
@@ -185,7 +200,10 @@ export default function Settings() {
     pause: pauseBaseBalance,
     resume: resumeBaseBalance,
   } = useRPC(
-    () => (firstWallet ? wallet.balance({ wallet: firstWallet, chain: BASE_CHAIN }) : Promise.resolve(null)),
+    () =>
+      firstWallet
+        ? wallet.balance({ wallet: firstWallet, chain: BASE_CHAIN })
+        : Promise.resolve(null),
     [firstWallet],
     { refreshIntervalMs: 30_000 },
   );
@@ -202,21 +220,19 @@ export default function Settings() {
   const handleCopyWalletAddress = useCallback((address: string) => {
     navigator.clipboard.writeText(address);
     setCopiedAddress(address);
-    setTimeout(() => setCopiedAddress((current) => (current === address ? null : current)), 2000);
+    setTimeout(
+      () =>
+        setCopiedAddress((current) => (current === address ? null : current)),
+      2000,
+    );
   }, []);
 
   return (
-    <div className="p-12 max-w-6xl mx-auto space-y-12">
-      <div className="flex flex-col gap-2">
-        <h2 className="text-5xl font-bold tracking-tight text-on-surface">
-          Settings
-        </h2>
-        <p className="text-secondary max-w-md">
-          Configure your vault identity, storage parameters, and network
-          visibility.
-        </p>
-      </div>
-
+    <SettingsPage
+      description="Manage your local node, integrations, runtimes, and operational tools."
+      title="Settings"
+      width="wide"
+    >
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Link
           className="group rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
@@ -231,7 +247,8 @@ export default function Settings() {
                 Adjust interface appearance
               </h3>
               <p className="max-w-md text-sm text-secondary">
-                Choose whether sky10 follows your system theme or stays fixed in light or dark mode.
+                Choose whether sky10 follows your system theme or stays fixed in
+                light or dark mode.
               </p>
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -257,7 +274,8 @@ export default function Settings() {
                 Provision isolated Linux runtimes
               </h3>
               <p className="max-w-md text-sm text-secondary">
-                Start a Lima-backed Ubuntu VM, watch provisioning logs, and manage each sandbox from its own detail page.
+                Start a Lima-backed Ubuntu VM, watch provisioning logs, and
+                manage each sandbox from its own detail page.
               </p>
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -283,7 +301,8 @@ export default function Settings() {
                 Link Codex sign-in
               </h3>
               <p className="max-w-md text-sm text-secondary">
-                Link ChatGPT directly in sky10 so this device can broker Codex-backed work without a manual API key.
+                Link ChatGPT directly in sky10 so this device can broker
+                Codex-backed work without a manual API key.
               </p>
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -309,7 +328,8 @@ export default function Settings() {
                 Share private values across devices
               </h3>
               <p className="max-w-md text-sm text-secondary">
-                Store API keys, tokens, certs, and small encrypted artifacts with trusted or explicit device scope.
+                Store API keys, tokens, certs, and small encrypted artifacts
+                with trusted or explicit device scope.
               </p>
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-fixed/60 text-on-primary-fixed-variant">
@@ -335,7 +355,8 @@ export default function Settings() {
                 Install helper binaries
               </h3>
               <p className="max-w-md text-sm text-secondary">
-                Review and manage tools sky10 installs locally, like wallet binaries and future sandbox dependencies.
+                Review and manage tools sky10 installs locally, like wallet
+                binaries and future sandbox dependencies.
               </p>
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-tertiary/10 text-tertiary">
@@ -358,7 +379,8 @@ export default function Settings() {
             Open runtime dashboards from Settings
           </h3>
           <p className="max-w-2xl text-sm text-secondary">
-            Mailbox, networking, KV inspection, and sync activity now live under the settings area instead of the primary sidebar.
+            Mailbox, networking, KV inspection, and sync activity now live under
+            the settings area instead of the primary sidebar.
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -373,9 +395,7 @@ export default function Settings() {
                   <h4 className="text-lg font-semibold text-on-surface">
                     {tool.label}
                   </h4>
-                  <p className="text-sm text-secondary">
-                    {tool.description}
-                  </p>
+                  <p className="text-sm text-secondary">{tool.description}</p>
                 </div>
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-surface-container text-primary transition-colors group-hover:bg-primary/10">
                   <Icon className="text-xl" name={tool.icon} />
@@ -465,7 +485,10 @@ export default function Settings() {
                 Control how this vault interacts with the decentralized cloud.
               </p>
             </div>
-            <div className="relative z-10 flex bg-on-primary-fixed-variant/40 p-1 rounded-full" title="Mode is set at daemon startup via sky10 serve flags">
+            <div
+              className="relative z-10 flex bg-on-primary-fixed-variant/40 p-1 rounded-full"
+              title="Mode is set at daemon startup via sky10 serve flags"
+            >
               <div
                 className={`flex-1 py-2 text-xs font-bold rounded-full text-center ${linkStatus.mode === "private" ? "bg-on-primary text-primary" : "text-primary-fixed-dim"}`}
               >
@@ -508,43 +531,60 @@ export default function Settings() {
               Wallet
             </h3>
             <p className="text-sm text-secondary">
-              Agent payments powered by <a href="https://openwallet.sh" target="_blank" rel="noopener noreferrer" className="underline hover:text-on-surface transition-colors">OWS</a>.
+              Agent payments powered by{" "}
+              <a
+                href="https://openwallet.sh"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-on-surface transition-colors"
+              >
+                OWS
+              </a>
+              .
             </p>
           </div>
 
-          {((walletStatus && !walletStatus.installed) || walletError) && !installing && (
-            <div className="flex-1 flex flex-col items-center justify-center gap-4 py-4">
-              <div className="w-12 h-12 rounded-full bg-tertiary/10 flex items-center justify-center">
-                <Icon name="download" className="text-tertiary text-2xl" />
+          {((walletStatus && !walletStatus.installed) || walletError) &&
+            !installing && (
+              <div className="flex-1 flex flex-col items-center justify-center gap-4 py-4">
+                <div className="w-12 h-12 rounded-full bg-tertiary/10 flex items-center justify-center">
+                  <Icon name="download" className="text-tertiary text-2xl" />
+                </div>
+                <p className="text-sm text-secondary text-center">
+                  Install the Open Wallet Standard to enable wallet access for
+                  Solana and Base.
+                </p>
+                <button
+                  onClick={handleInstall}
+                  className="bg-tertiary text-on-tertiary px-6 py-2.5 rounded-full text-sm font-semibold shadow-lg hover:shadow-xl transition-all active:scale-95"
+                >
+                  Install Wallet
+                </button>
+                {installError && (
+                  <p className="text-xs text-error text-center">
+                    {installError}
+                  </p>
+                )}
               </div>
-              <p className="text-sm text-secondary text-center">
-                Install the Open Wallet Standard to enable wallet access for Solana and Base.
-              </p>
-              <button
-                onClick={handleInstall}
-                className="bg-tertiary text-on-tertiary px-6 py-2.5 rounded-full text-sm font-semibold shadow-lg hover:shadow-xl transition-all active:scale-95"
-              >
-                Install Wallet
-              </button>
-              {installError && (
-                <p className="text-xs text-error text-center">{installError}</p>
-              )}
-            </div>
-          )}
+            )}
 
           {installing && (
             <div className="flex-1 flex flex-col items-center justify-center gap-4 py-4">
               <div className="w-12 h-12 rounded-full bg-tertiary/10 flex items-center justify-center">
-                <Icon name="downloading" className="text-tertiary text-2xl animate-pulse" />
+                <Icon
+                  name="downloading"
+                  className="text-tertiary text-2xl animate-pulse"
+                />
               </div>
               <p className="text-sm text-secondary">Installing OWS...</p>
               <div className="w-full bg-surface-container rounded-full h-2 overflow-hidden">
                 <div
                   className="h-full bg-tertiary rounded-full transition-all duration-300"
                   style={{
-                    width: installProgress && installProgress.total > 0
-                      ? `${Math.round((installProgress.downloaded / installProgress.total) * 100)}%`
-                      : "0%",
+                    width:
+                      installProgress && installProgress.total > 0
+                        ? `${Math.round((installProgress.downloaded / installProgress.total) * 100)}%`
+                        : "0%",
                   }}
                 />
               </div>
@@ -577,7 +617,11 @@ export default function Settings() {
                     await wallet.create({ name: "default" });
                     refetchWallet();
                   } catch (e: unknown) {
-                    setInstallError(e instanceof Error ? e.message : "Failed to create wallet");
+                    setInstallError(
+                      e instanceof Error
+                        ? e.message
+                        : "Failed to create wallet",
+                    );
                   }
                 }}
                 className="bg-primary text-on-primary px-6 py-2.5 rounded-full text-sm font-semibold shadow-lg hover:shadow-xl transition-all active:scale-95"
@@ -644,7 +688,10 @@ export default function Settings() {
                   <WalletAddressCard
                     address={solanaWalletAddr.address}
                     copied={copiedAddress === solanaWalletAddr.address}
-                    explorerHref={walletExplorerHref("solana", solanaWalletAddr.address)}
+                    explorerHref={walletExplorerHref(
+                      "solana",
+                      solanaWalletAddr.address,
+                    )}
                     label="Solana Address"
                     onCopy={handleCopyWalletAddress}
                   />
@@ -655,9 +702,14 @@ export default function Settings() {
                     Balances
                   </label>
                   {(() => {
-                    const tokens = solanaWalletBal?.tokens && solanaWalletBal.tokens.length > 0
-                      ? solanaWalletBal.tokens
-                      : [{ symbol: "SOL", balance: "0" }, { symbol: "USDC", balance: "0" }];
+                    const tokens =
+                      solanaWalletBal?.tokens &&
+                      solanaWalletBal.tokens.length > 0
+                        ? solanaWalletBal.tokens
+                        : [
+                            { symbol: "SOL", balance: "0" },
+                            { symbol: "USDC", balance: "0" },
+                          ];
                     return (
                       <div className="space-y-2">
                         <WalletBalanceList tokens={tokens} />
@@ -697,17 +749,29 @@ export default function Settings() {
                             if (!firstWallet) return;
                             if (withdrawToken === "SOL") {
                               try {
-                                const result = await wallet.maxTransfer({ wallet: firstWallet, chain: SOLANA_CHAIN });
+                                const result = await wallet.maxTransfer({
+                                  wallet: firstWallet,
+                                  chain: SOLANA_CHAIN,
+                                });
                                 setWithdrawAmount(result.max);
-                                setFeeHint(`Balance minus ${result.fee} SOL gas`);
+                                setFeeHint(
+                                  `Balance minus ${result.fee} SOL gas`,
+                                );
                                 setTimeout(() => setFeeHint(null), 3000);
                               } catch {
-                                const tok = solanaWalletBal?.tokens?.find((t) => t.symbol === "SOL");
+                                const tok = solanaWalletBal?.tokens?.find(
+                                  (t) => t.symbol === "SOL",
+                                );
                                 const bal = parseFloat(tok?.balance ?? "0");
-                                if (bal > 0) setWithdrawAmount(String(Math.max(0, bal - 0.00001)));
+                                if (bal > 0)
+                                  setWithdrawAmount(
+                                    String(Math.max(0, bal - 0.00001)),
+                                  );
                               }
                             } else {
-                              const tok = solanaWalletBal?.tokens?.find((t) => t.symbol === withdrawToken);
+                              const tok = solanaWalletBal?.tokens?.find(
+                                (t) => t.symbol === withdrawToken,
+                              );
                               setWithdrawAmount(tok?.balance ?? "0");
                             }
                           }}
@@ -735,7 +799,10 @@ export default function Settings() {
                     )}
                     <div className="flex gap-2 justify-end">
                       <button
-                        onClick={() => { setShowWithdraw(false); setWithdrawError(null); }}
+                        onClick={() => {
+                          setShowWithdraw(false);
+                          setWithdrawError(null);
+                        }}
                         className="text-xs font-semibold text-secondary hover:text-on-surface px-3 py-1.5 rounded-full transition-colors"
                       >
                         Cancel
@@ -749,7 +816,10 @@ export default function Settings() {
                           pauseSolanaBalance();
                           try {
                             const sentToken = withdrawToken;
-                            const { fee: feeStr } = await wallet.maxTransfer({ wallet: firstWallet, chain: SOLANA_CHAIN });
+                            const { fee: feeStr } = await wallet.maxTransfer({
+                              wallet: firstWallet,
+                              chain: SOLANA_CHAIN,
+                            });
                             await wallet.transfer({
                               wallet: firstWallet,
                               chain: SOLANA_CHAIN,
@@ -769,12 +839,30 @@ export default function Settings() {
                                 const decimals = t.symbol === "SOL" ? 9 : 6;
                                 if (t.symbol === "SOL") {
                                   const deduct = isSol
-                                    ? addDecimal(withdrawAmount, feeStr, decimals)
+                                    ? addDecimal(
+                                        withdrawAmount,
+                                        feeStr,
+                                        decimals,
+                                      )
                                     : feeStr;
-                                  return { ...t, balance: subDecimal(t.balance, deduct, decimals) };
+                                  return {
+                                    ...t,
+                                    balance: subDecimal(
+                                      t.balance,
+                                      deduct,
+                                      decimals,
+                                    ),
+                                  };
                                 }
                                 if (!isSol && t.symbol === sentToken) {
-                                  return { ...t, balance: subDecimal(t.balance, withdrawAmount, decimals) };
+                                  return {
+                                    ...t,
+                                    balance: subDecimal(
+                                      t.balance,
+                                      withdrawAmount,
+                                      decimals,
+                                    ),
+                                  };
                                 }
                                 return t;
                               });
@@ -782,7 +870,11 @@ export default function Settings() {
                             });
                             setTimeout(resumeSolanaBalance, 15_000);
                           } catch (e: unknown) {
-                            setWithdrawError(e instanceof Error ? e.message : "Transfer failed");
+                            setWithdrawError(
+                              e instanceof Error
+                                ? e.message
+                                : "Transfer failed",
+                            );
                             resumeSolanaBalance();
                           } finally {
                             setWithdrawing(false);
@@ -798,7 +890,9 @@ export default function Settings() {
 
                 <div className="flex items-center justify-between pt-2">
                   {walletStatus.version && (
-                    <p className="text-[10px] text-secondary">{walletStatus.version}</p>
+                    <p className="text-[10px] text-secondary">
+                      {walletStatus.version}
+                    </p>
                   )}
                   <div className="flex items-center gap-3">
                     <button
@@ -812,7 +906,10 @@ export default function Settings() {
                       onClick={async () => {
                         if (!firstWallet) return;
                         try {
-                          const result = await wallet.deposit({ wallet: firstWallet, chain: SOLANA_CHAIN });
+                          const result = await wallet.deposit({
+                            wallet: firstWallet,
+                            chain: SOLANA_CHAIN,
+                          });
                           if (result.url) window.open(result.url, "_blank");
                         } catch {
                           // deposit may not return a URL on all platforms
@@ -837,13 +934,17 @@ export default function Settings() {
                   <WalletAddressCard
                     address={baseWalletAddr.address}
                     copied={copiedAddress === baseWalletAddr.address}
-                    explorerHref={walletExplorerHref("base", baseWalletAddr.address)}
+                    explorerHref={walletExplorerHref(
+                      "base",
+                      baseWalletAddr.address,
+                    )}
                     label="Base Address"
                     onCopy={handleCopyWalletAddress}
                   />
                 ) : (
                   <div className="rounded-lg bg-surface-container p-4 text-sm text-secondary">
-                    {baseWalletError || "No Base address is available for this wallet yet."}
+                    {baseWalletError ||
+                      "No Base address is available for this wallet yet."}
                   </div>
                 )}
 
@@ -852,9 +953,13 @@ export default function Settings() {
                     Balances
                   </label>
                   {(() => {
-                    const tokens = baseWalletBal?.tokens && baseWalletBal.tokens.length > 0
-                      ? baseWalletBal.tokens
-                      : [{ symbol: "ETH", balance: "0" }, { symbol: "USDC", balance: "0" }];
+                    const tokens =
+                      baseWalletBal?.tokens && baseWalletBal.tokens.length > 0
+                        ? baseWalletBal.tokens
+                        : [
+                            { symbol: "ETH", balance: "0" },
+                            { symbol: "USDC", balance: "0" },
+                          ];
                     return (
                       <div className="space-y-2">
                         <WalletBalanceList tokens={tokens} />
@@ -898,16 +1003,25 @@ export default function Settings() {
                             if (!firstWallet) return;
                             if (withdrawToken === "ETH") {
                               try {
-                                const result = await wallet.maxTransfer({ wallet: firstWallet, chain: BASE_CHAIN });
+                                const result = await wallet.maxTransfer({
+                                  wallet: firstWallet,
+                                  chain: BASE_CHAIN,
+                                });
                                 setWithdrawAmount(result.max);
-                                setFeeHint(`Balance minus ${result.fee} ETH gas`);
+                                setFeeHint(
+                                  `Balance minus ${result.fee} ETH gas`,
+                                );
                                 setTimeout(() => setFeeHint(null), 3000);
                               } catch {
-                                const tok = baseWalletBal?.tokens?.find((t) => t.symbol === "ETH");
+                                const tok = baseWalletBal?.tokens?.find(
+                                  (t) => t.symbol === "ETH",
+                                );
                                 setWithdrawAmount(tok?.balance ?? "0");
                               }
                             } else {
-                              const tok = baseWalletBal?.tokens?.find((t) => t.symbol === withdrawToken);
+                              const tok = baseWalletBal?.tokens?.find(
+                                (t) => t.symbol === withdrawToken,
+                              );
                               setWithdrawAmount(tok?.balance ?? "0");
                             }
                           }}
@@ -935,7 +1049,10 @@ export default function Settings() {
                     )}
                     <div className="flex gap-2 justify-end">
                       <button
-                        onClick={() => { setShowWithdraw(false); setWithdrawError(null); }}
+                        onClick={() => {
+                          setShowWithdraw(false);
+                          setWithdrawError(null);
+                        }}
                         className="text-xs font-semibold text-secondary hover:text-on-surface px-3 py-1.5 rounded-full transition-colors"
                       >
                         Cancel
@@ -949,7 +1066,10 @@ export default function Settings() {
                           pauseBaseBalance();
                           try {
                             const sentToken = withdrawToken;
-                            const { fee: feeStr } = await wallet.maxTransfer({ wallet: firstWallet, chain: BASE_CHAIN });
+                            const { fee: feeStr } = await wallet.maxTransfer({
+                              wallet: firstWallet,
+                              chain: BASE_CHAIN,
+                            });
                             await wallet.transfer({
                               wallet: firstWallet,
                               chain: BASE_CHAIN,
@@ -969,12 +1089,30 @@ export default function Settings() {
                                 const decimals = t.symbol === "ETH" ? 18 : 6;
                                 if (t.symbol === "ETH") {
                                   const deduct = isEth
-                                    ? addDecimal(withdrawAmount, feeStr, decimals)
+                                    ? addDecimal(
+                                        withdrawAmount,
+                                        feeStr,
+                                        decimals,
+                                      )
                                     : feeStr;
-                                  return { ...t, balance: subDecimal(t.balance, deduct, decimals) };
+                                  return {
+                                    ...t,
+                                    balance: subDecimal(
+                                      t.balance,
+                                      deduct,
+                                      decimals,
+                                    ),
+                                  };
                                 }
                                 if (!isEth && t.symbol === sentToken) {
-                                  return { ...t, balance: subDecimal(t.balance, withdrawAmount, decimals) };
+                                  return {
+                                    ...t,
+                                    balance: subDecimal(
+                                      t.balance,
+                                      withdrawAmount,
+                                      decimals,
+                                    ),
+                                  };
                                 }
                                 return t;
                               });
@@ -982,7 +1120,11 @@ export default function Settings() {
                             });
                             setTimeout(resumeBaseBalance, 15_000);
                           } catch (e: unknown) {
-                            setWithdrawError(e instanceof Error ? e.message : "Transfer failed");
+                            setWithdrawError(
+                              e instanceof Error
+                                ? e.message
+                                : "Transfer failed",
+                            );
                             resumeBaseBalance();
                           } finally {
                             setWithdrawing(false);
@@ -998,7 +1140,9 @@ export default function Settings() {
 
                 <div className="flex items-center justify-between pt-2">
                   {walletStatus.version && (
-                    <p className="text-[10px] text-secondary">{walletStatus.version}</p>
+                    <p className="text-[10px] text-secondary">
+                      {walletStatus.version}
+                    </p>
                   )}
                   <div className="flex items-center gap-3">
                     <button
@@ -1012,7 +1156,10 @@ export default function Settings() {
                       onClick={async () => {
                         if (!firstWallet) return;
                         try {
-                          const result = await wallet.deposit({ wallet: firstWallet, chain: BASE_CHAIN });
+                          const result = await wallet.deposit({
+                            wallet: firstWallet,
+                            chain: BASE_CHAIN,
+                          });
                           if (result.url) window.open(result.url, "_blank");
                         } catch {
                           // deposit may not return a URL on all platforms
@@ -1059,9 +1206,7 @@ export default function Settings() {
                 <div className="flex items-center gap-3">
                   <Icon
                     name={dev.current ? "laptop_mac" : "devices_other"}
-                    className={
-                      dev.current ? "text-primary" : "text-secondary"
-                    }
+                    className={dev.current ? "text-primary" : "text-secondary"}
                   />
                   <div>
                     <p className="text-sm font-medium">
@@ -1090,7 +1235,7 @@ export default function Settings() {
           </div>
         </section>
       </div>
-    </div>
+    </SettingsPage>
   );
 }
 
@@ -1102,7 +1247,10 @@ function WalletBalanceList({
   return (
     <>
       {tokens.map((t) => (
-        <div key={t.symbol} className="flex justify-between items-center bg-surface-container p-3 rounded-lg">
+        <div
+          key={t.symbol}
+          className="flex justify-between items-center bg-surface-container p-3 rounded-lg"
+        >
           <span className="text-sm font-medium">{t.symbol}</span>
           <span className="text-sm font-semibold font-mono">{t.balance}</span>
         </div>
@@ -1129,9 +1277,7 @@ function WalletAddressCard({
       <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
         {label}
       </label>
-      <div
-        className="flex items-center gap-2 bg-surface-container p-3 rounded-lg"
-      >
+      <div className="flex items-center gap-2 bg-surface-container p-3 rounded-lg">
         <code className="text-xs font-mono text-primary flex-1 truncate">
           {address}
         </code>

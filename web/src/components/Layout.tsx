@@ -12,7 +12,9 @@ export function Layout() {
     if (!location.hash) return;
     const id = decodeURIComponent(location.hash.slice(1));
     const frame = window.requestAnimationFrame(() => {
-      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document
+        .getElementById(id)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
     return () => window.cancelAnimationFrame(frame);
   }, [location.hash, location.pathname]);
@@ -30,11 +32,19 @@ export function Layout() {
 
   return (
     <>
-      <Sidebar />
-      <main className="ml-64 flex min-h-screen flex-col bg-surface text-on-surface">
-        <Header />
-        <Outlet />
-      </main>
+      <div className="flex min-h-screen bg-surface text-on-surface">
+        <Sidebar />
+        <div className="relative flex min-h-screen min-w-0 flex-1 flex-col">
+          <div className="pointer-events-none absolute right-6 top-5 z-30 sm:right-8 lg:right-10">
+            <div className="pointer-events-auto">
+              <Header />
+            </div>
+          </div>
+          <main className="flex min-h-0 flex-1 flex-col">
+            <Outlet />
+          </main>
+        </div>
+      </div>
       <CommandPalette />
     </>
   );

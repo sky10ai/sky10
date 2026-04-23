@@ -19,7 +19,11 @@ interface LocalChatMessage extends CodexChatMessage {
 const STORAGE_KEY = "sky10:codex:chat:v1";
 const DEFAULT_MODEL = "gpt-5.4";
 
-function createMessage(role: "assistant" | "user", content: string, extra: Partial<LocalChatMessage> = {}): LocalChatMessage {
+function createMessage(
+  role: "assistant" | "user",
+  content: string,
+  extra: Partial<LocalChatMessage> = {},
+): LocalChatMessage {
   return {
     id:
       typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -55,7 +59,9 @@ export default function CodexChat() {
   });
 
   const [model, setModel] = useState(DEFAULT_MODEL);
-  const [messages, setMessages] = useState<LocalChatMessage[]>(() => loadStoredMessages());
+  const [messages, setMessages] = useState<LocalChatMessage[]>(() =>
+    loadStoredMessages(),
+  );
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -106,13 +112,19 @@ export default function CodexChat() {
       if (result.usage) {
         const usageParts = [
           result.usage.input_tokens ? `${result.usage.input_tokens} in` : null,
-          result.usage.output_tokens ? `${result.usage.output_tokens} out` : null,
-          result.usage.total_tokens ? `${result.usage.total_tokens} total` : null,
+          result.usage.output_tokens
+            ? `${result.usage.output_tokens} out`
+            : null,
+          result.usage.total_tokens
+            ? `${result.usage.total_tokens} total`
+            : null,
         ].filter(Boolean);
         setUsageLine(usageParts.length > 0 ? usageParts.join(" · ") : null);
       }
     } catch (sendError: unknown) {
-      setError(sendError instanceof Error ? sendError.message : "Codex chat failed");
+      setError(
+        sendError instanceof Error ? sendError.message : "Codex chat failed",
+      );
     } finally {
       setBusy(false);
       refetch({ background: true });
@@ -140,10 +152,9 @@ export default function CodexChat() {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 p-12">
       <PageHeader
-        eyebrow="Codex"
         title="Codex Chat"
         description="Use your linked ChatGPT Codex session from inside sky10. This is a minimal local chat surface backed by the ChatGPT Codex responses transport."
-        actions={(
+        actions={
           <>
             <Link
               className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary transition-colors hover:text-on-surface"
@@ -162,7 +173,7 @@ export default function CodexChat() {
               Clear chat
             </button>
           </>
-        )}
+        }
       />
 
       <section className="rounded-[2rem] border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm">
@@ -171,13 +182,9 @@ export default function CodexChat() {
             <StatusBadge tone={canChat ? "success" : "neutral"}>
               {canChat ? "Ready" : loading ? "Checking" : "Not ready"}
             </StatusBadge>
-            <StatusBadge tone="neutral">
-              {model}
-            </StatusBadge>
+            <StatusBadge tone="neutral">{model}</StatusBadge>
             {status?.email && (
-              <StatusBadge tone="neutral">
-                {status.email}
-              </StatusBadge>
+              <StatusBadge tone="neutral">{status.email}</StatusBadge>
             )}
           </div>
           <div className="flex items-center gap-3 text-sm text-secondary">
@@ -213,7 +220,8 @@ export default function CodexChat() {
                 Connect ChatGPT to continue
               </h2>
               <p className="text-sm text-secondary">
-                Link a ChatGPT Codex account in sky10 first, then this page can send prompts through the Codex responses transport.
+                Link a ChatGPT Codex account in sky10 first, then this page can
+                send prompts through the Codex responses transport.
               </p>
               <Link
                 className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary shadow-lg transition-colors hover:bg-primary/90"
@@ -237,7 +245,9 @@ export default function CodexChat() {
                   Start a Codex conversation
                 </h2>
                 <p className="mt-2 max-w-md text-sm text-secondary">
-                  Ask a coding question, request a patch outline, or sanity-check an implementation idea. This transcript stays local in your browser.
+                  Ask a coding question, request a patch outline, or
+                  sanity-check an implementation idea. This transcript stays
+                  local in your browser.
                 </p>
               </div>
             ) : (
@@ -253,7 +263,13 @@ export default function CodexChat() {
                   >
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <StatusBadge tone={message.role === "assistant" ? "success" : "processing"}>
+                        <StatusBadge
+                          tone={
+                            message.role === "assistant"
+                              ? "success"
+                              : "processing"
+                          }
+                        >
                           {message.role}
                         </StatusBadge>
                         {message.model && (
@@ -287,7 +303,9 @@ export default function CodexChat() {
                       <StatusBadge pulse tone="processing">
                         assistant
                       </StatusBadge>
-                      <p className="text-sm text-secondary">Codex is thinking…</p>
+                      <p className="text-sm text-secondary">
+                        Codex is thinking…
+                      </p>
                     </div>
                   </div>
                 )}
@@ -305,7 +323,9 @@ export default function CodexChat() {
               disabled={!canChat || busy}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={canChat ? "Ask Codex anything..." : "Connect ChatGPT first"}
+              placeholder={
+                canChat ? "Ask Codex anything..." : "Connect ChatGPT first"
+              }
               value={input}
             />
             <p className="mt-3 text-xs text-secondary">
@@ -324,10 +344,13 @@ export default function CodexChat() {
             <div className="mt-6 rounded-2xl border border-outline-variant/10 bg-surface-container-low px-4 py-4 text-sm text-secondary">
               <p className="font-semibold text-on-surface">Session</p>
               <p className="mt-2">
-                {status?.email ? `Linked as ${status.email}.` : "No linked email available yet."}
+                {status?.email
+                  ? `Linked as ${status.email}.`
+                  : "No linked email available yet."}
               </p>
               <p className="mt-2">
-                This page sends your full visible transcript on each turn. There is no separate daemon-side thread state yet.
+                This page sends your full visible transcript on each turn. There
+                is no separate daemon-side thread state yet.
               </p>
             </div>
           </div>

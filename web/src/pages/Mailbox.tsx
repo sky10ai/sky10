@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { EmptyState } from "../components/EmptyState";
 import { Icon } from "../components/Icon";
-import { PageHeader } from "../components/PageHeader";
+import { SettingsPage } from "../components/SettingsPage";
 import { RelativeTime } from "../components/RelativeTime";
 import { StatusBadge } from "../components/StatusBadge";
 import { AGENT_EVENT_TYPES } from "../lib/events";
@@ -32,7 +32,9 @@ const tabLabels: Record<TabKey, string> = {
   sent: "Sent",
 };
 
-function stateTone(state: string): "danger" | "live" | "neutral" | "processing" | "success" {
+function stateTone(
+  state: string,
+): "danger" | "live" | "neutral" | "processing" | "success" {
   switch (state) {
     case "failed":
     case "dead_lettered":
@@ -49,7 +51,9 @@ function stateTone(state: string): "danger" | "live" | "neutral" | "processing" 
   }
 }
 
-function policyTone(policy: string): "danger" | "live" | "neutral" | "processing" | "success" {
+function policyTone(
+  policy: string,
+): "danger" | "live" | "neutral" | "processing" | "success" {
   switch (policy) {
     case "mailbox_backed":
       return "processing";
@@ -105,16 +109,29 @@ function eventIcon(type: string): string {
 
 function recordTitle(record: MailboxRecord): string {
   const payload = payloadObject(record);
-  if (record.item.kind === "approval_request" && typeof payload.summary === "string") {
+  if (
+    record.item.kind === "approval_request" &&
+    typeof payload.summary === "string"
+  ) {
     return payload.summary;
   }
-  if (record.item.kind === "task_request" && typeof payload.summary === "string") {
+  if (
+    record.item.kind === "task_request" &&
+    typeof payload.summary === "string"
+  ) {
     return payload.summary;
   }
-  if (record.item.kind === "task_request" && typeof payload.method === "string") {
+  if (
+    record.item.kind === "task_request" &&
+    typeof payload.method === "string"
+  ) {
     return payload.method;
   }
-  if (record.item.kind === "payment_required" && typeof payload.amount === "string" && typeof payload.asset === "string") {
+  if (
+    record.item.kind === "payment_required" &&
+    typeof payload.amount === "string" &&
+    typeof payload.asset === "string"
+  ) {
     return `${payload.amount} ${payload.asset}`;
   }
   if (record.item.kind === "message") {
@@ -126,10 +143,16 @@ function recordTitle(record: MailboxRecord): string {
 
 function recordSubtitle(record: MailboxRecord): string {
   const payload = payloadObject(record);
-  if (record.item.kind === "approval_request" && typeof payload.action === "string") {
+  if (
+    record.item.kind === "approval_request" &&
+    typeof payload.action === "string"
+  ) {
     return payload.action;
   }
-  if (record.item.kind === "payment_required" && typeof payload.chain === "string") {
+  if (
+    record.item.kind === "payment_required" &&
+    typeof payload.chain === "string"
+  ) {
     return payload.chain;
   }
   if (record.item.kind === "task_request" && record.item.target_skill) {
@@ -142,7 +165,10 @@ function recordSubtitle(record: MailboxRecord): string {
 }
 
 function payloadObject(record: MailboxRecord): Record<string, unknown> {
-  if (!record.item.payload_inline || typeof record.item.payload_inline !== "object") {
+  if (
+    !record.item.payload_inline ||
+    typeof record.item.payload_inline !== "object"
+  ) {
     return {};
   }
   return record.item.payload_inline as Record<string, unknown>;
@@ -153,7 +179,11 @@ function extractMessageText(record: MailboxRecord): string {
   if ("text" in payload && typeof payload.text === "string") {
     return payload.text;
   }
-  if ("content" in payload && payload.content && typeof payload.content === "object") {
+  if (
+    "content" in payload &&
+    payload.content &&
+    typeof payload.content === "object"
+  ) {
     const content = payload.content as Record<string, unknown>;
     if ("text" in content && typeof content.text === "string") {
       return content.text;
@@ -174,7 +204,10 @@ function latestTimestamp(record: MailboxRecord): string {
   return lastEvent?.timestamp || record.item.created_at;
 }
 
-function latestEventOfType(record: MailboxRecord, type: string): MailboxEvent | undefined {
+function latestEventOfType(
+  record: MailboxRecord,
+  type: string,
+): MailboxEvent | undefined {
   for (let i = record.events.length - 1; i >= 0; i -= 1) {
     const event = record.events[i];
     if (event && event.type === type) {
@@ -211,7 +244,10 @@ function recordScope(record: MailboxRecord): string {
 function recordDurableTransport(record: MailboxRecord): string {
   const scope = recordScope(record);
   if (scope === "sky10_network") {
-    if (record.item.to?.kind === "capability_queue" || record.item.target_skill) {
+    if (
+      record.item.to?.kind === "capability_queue" ||
+      record.item.target_skill
+    ) {
       return "nostr_queue";
     }
     return "nostr_dropbox";
@@ -226,7 +262,9 @@ function isLiveTransport(transport?: string): boolean {
 function fallbackDeliveryMetadata(record: MailboxRecord): DeliveryMetadata {
   const latest = latestDeliveryEvent(record);
   const attempted = deliveryAttempts(record);
-  const liveTransport = attempted.find((event) => isLiveTransport(event.meta?.transport))?.meta?.transport;
+  const liveTransport = attempted.find((event) =>
+    isLiveTransport(event.meta?.transport),
+  )?.meta?.transport;
   let status = "queued";
   switch (record.state) {
     case "delivered":
@@ -268,7 +306,10 @@ function fallbackDeliveryMetadata(record: MailboxRecord): DeliveryMetadata {
     status,
     live_transport: liveTransport,
     durable_transport: recordDurableTransport(record),
-    last_transport: latest?.meta?.transport || liveTransport || recordDurableTransport(record),
+    last_transport:
+      latest?.meta?.transport ||
+      liveTransport ||
+      recordDurableTransport(record),
     mailbox_item_id: record.item.id,
     mailbox_state: record.state,
     last_event: latest?.type,
@@ -287,12 +328,20 @@ function titleCaseWords(value: string): string {
     .join(" ");
 }
 
-function relatedRecords(record: MailboxRecord, records: MailboxRecord[]): MailboxRecord[] {
+function relatedRecords(
+  record: MailboxRecord,
+  records: MailboxRecord[],
+): MailboxRecord[] {
   return records.filter((candidate) => {
     if (candidate.item.id === record.item.id) return false;
-    if (record.item.request_id && candidate.item.request_id === record.item.request_id) return true;
+    if (
+      record.item.request_id &&
+      candidate.item.request_id === record.item.request_id
+    )
+      return true;
     if (candidate.item.reply_to === record.item.id) return true;
-    if (record.item.reply_to && candidate.item.id === record.item.reply_to) return true;
+    if (record.item.reply_to && candidate.item.id === record.item.reply_to)
+      return true;
     return false;
   });
 }
@@ -319,11 +368,17 @@ function isSenderForView(record: MailboxRecord, view?: MailboxView): boolean {
   return Boolean(view && record.item.from.id === view.principal.id);
 }
 
-function isRecipientForView(record: MailboxRecord, view?: MailboxView): boolean {
+function isRecipientForView(
+  record: MailboxRecord,
+  view?: MailboxView,
+): boolean {
   return Boolean(view && record.item.to?.id === view.principal.id);
 }
 
-function queueEligibleForView(record: MailboxRecord, view?: MailboxView): boolean {
+function queueEligibleForView(
+  record: MailboxRecord,
+  view?: MailboxView,
+): boolean {
   if (!view || view.role !== "agent") return false;
   if (record.claim?.holder === view.principal.id) return true;
   if (!record.item.target_skill) return false;
@@ -331,24 +386,34 @@ function queueEligibleForView(record: MailboxRecord, view?: MailboxView): boolea
 }
 
 function canApproveRecord(record: MailboxRecord, view?: MailboxView): boolean {
-  return record.item.kind === "approval_request" &&
+  return (
+    record.item.kind === "approval_request" &&
     record.state !== "approved" &&
     record.state !== "rejected" &&
-    isRecipientForView(record, view);
+    isRecipientForView(record, view)
+  );
 }
 
 function canClaimRecord(record: MailboxRecord, view?: MailboxView): boolean {
-  return record.item.kind === "task_request" &&
+  return (
+    record.item.kind === "task_request" &&
     !record.claim &&
-    queueEligibleForView(record, view);
+    queueEligibleForView(record, view)
+  );
 }
 
 function canReleaseRecord(record: MailboxRecord, view?: MailboxView): boolean {
-  return Boolean(record.claim && view && record.claim.holder === view.principal.id);
+  return Boolean(
+    record.claim && view && record.claim.holder === view.principal.id,
+  );
 }
 
 function canCompleteRecord(record: MailboxRecord, view?: MailboxView): boolean {
-  if (!view || record.item.kind !== "task_request" || record.state === "completed") {
+  if (
+    !view ||
+    record.item.kind !== "task_request" ||
+    record.state === "completed"
+  ) {
     return false;
   }
   if (record.claim) {
@@ -358,10 +423,19 @@ function canCompleteRecord(record: MailboxRecord, view?: MailboxView): boolean {
 }
 
 function canRetryRecord(record: MailboxRecord, view?: MailboxView): boolean {
-  if (!view || (record.state !== "queued" && record.state !== "failed" && record.state !== "dead_lettered")) {
+  if (
+    !view ||
+    (record.state !== "queued" &&
+      record.state !== "failed" &&
+      record.state !== "dead_lettered")
+  ) {
     return false;
   }
-  return isSenderForView(record, view) || isRecipientForView(record, view) || record.claim?.holder === view.principal.id;
+  return (
+    isSenderForView(record, view) ||
+    isRecipientForView(record, view) ||
+    record.claim?.holder === view.principal.id
+  );
 }
 
 function canAckRecord(record: MailboxRecord, view?: MailboxView): boolean {
@@ -381,7 +455,9 @@ export default function Mailbox() {
   const availableViews = views.data?.views ?? [];
   const currentView =
     availableViews.find((view) => view.view_id === selectedViewId) ??
-    availableViews.find((view) => view.view_id === views.data?.default_view_id) ??
+    availableViews.find(
+      (view) => view.view_id === views.data?.default_view_id,
+    ) ??
     availableViews[0];
   const params = viewParams(currentView, {
     queue: queueFilter,
@@ -390,7 +466,8 @@ export default function Mailbox() {
   });
 
   const inbox = useRPC(
-    async () => currentView ? agent.mailbox.listInbox(params) : { items: [], count: 0 },
+    async () =>
+      currentView ? agent.mailbox.listInbox(params) : { items: [], count: 0 },
     [currentView?.view_id, queueFilter, replyToFilter, requestFilter],
     {
       live: mailboxLiveEvents,
@@ -398,7 +475,8 @@ export default function Mailbox() {
     },
   );
   const outbox = useRPC(
-    async () => currentView ? agent.mailbox.listOutbox(params) : { items: [], count: 0 },
+    async () =>
+      currentView ? agent.mailbox.listOutbox(params) : { items: [], count: 0 },
     [currentView?.view_id, queueFilter, replyToFilter, requestFilter],
     {
       live: mailboxLiveEvents,
@@ -406,7 +484,8 @@ export default function Mailbox() {
     },
   );
   const queue = useRPC(
-    async () => currentView ? agent.mailbox.listQueue(params) : { items: [], count: 0 },
+    async () =>
+      currentView ? agent.mailbox.listQueue(params) : { items: [], count: 0 },
     [currentView?.view_id, queueFilter, replyToFilter, requestFilter],
     {
       live: mailboxLiveEvents,
@@ -414,7 +493,8 @@ export default function Mailbox() {
     },
   );
   const failed = useRPC(
-    async () => currentView ? agent.mailbox.listFailed(params) : { items: [], count: 0 },
+    async () =>
+      currentView ? agent.mailbox.listFailed(params) : { items: [], count: 0 },
     [currentView?.view_id, queueFilter, replyToFilter, requestFilter],
     {
       live: mailboxLiveEvents,
@@ -422,7 +502,8 @@ export default function Mailbox() {
     },
   );
   const sent = useRPC(
-    async () => currentView ? agent.mailbox.listSent(params) : { items: [], count: 0 },
+    async () =>
+      currentView ? agent.mailbox.listSent(params) : { items: [], count: 0 },
     [currentView?.view_id, queueFilter, replyToFilter, requestFilter],
     {
       live: mailboxLiveEvents,
@@ -440,14 +521,22 @@ export default function Mailbox() {
   const queueItems = queue.data?.items ?? [];
   const failedItems = failed.data?.items ?? [];
   const sentItems = sent.data?.items ?? [];
-  const approvalItems = inboxItems.filter((item) => item.item.kind === "approval_request");
+  const approvalItems = inboxItems.filter(
+    (item) => item.item.kind === "approval_request",
+  );
   const availableTabs: TabKey[] =
     currentView?.role === "agent"
       ? ["inbox", "approvals", "queue", "outbox", "failed", "sent"]
       : ["inbox", "approvals", "outbox", "failed", "sent"];
 
   const allRecords = new Map<string, MailboxRecord>();
-  for (const list of [inboxItems, outboxItems, queueItems, failedItems, sentItems]) {
+  for (const list of [
+    inboxItems,
+    outboxItems,
+    queueItems,
+    failedItems,
+    sentItems,
+  ]) {
     for (const record of list) {
       allRecords.set(record.item.id, record);
     }
@@ -463,7 +552,8 @@ export default function Mailbox() {
   };
 
   const currentItems = tabItems[tab];
-  const selected = (selectedId ? allRecords.get(selectedId) : undefined) ?? currentItems[0];
+  const selected =
+    (selectedId ? allRecords.get(selectedId) : undefined) ?? currentItems[0];
   const selectedDetail = useRPC(
     async () => {
       if (!currentView || !selected) return null;
@@ -473,25 +563,42 @@ export default function Mailbox() {
         principal_kind: currentView.principal.kind,
       });
     },
-    [currentView?.view_id, currentView?.principal.id, currentView?.principal.kind, selected?.item.id],
+    [
+      currentView?.view_id,
+      currentView?.principal.id,
+      currentView?.principal.kind,
+      selected?.item.id,
+    ],
     {
       keepPreviousData: false,
       live: mailboxLiveEvents,
       refreshIntervalMs: 5_000,
     },
   );
-  const selectedRecord = selectedDetail.data?.found ? selectedDetail.data.item : selected;
+  const selectedRecord = selectedDetail.data?.found
+    ? selectedDetail.data.item
+    : selected;
   const selectedDelivery =
     selectedDetail.data?.found && selectedDetail.data.delivery
       ? selectedDetail.data.delivery
       : selectedRecord
         ? fallbackDeliveryMetadata(selectedRecord)
         : undefined;
-  const selectedAttemptEvents = selectedRecord ? deliveryAttempts(selectedRecord) : [];
-  const lastDeliveryFailure = selectedRecord ? latestEventOfType(selectedRecord, "delivery_failed") : undefined;
-  const lastHandoff = selectedRecord ? latestEventOfType(selectedRecord, "handed_off") : undefined;
-  const related = selectedRecord ? relatedRecords(selectedRecord, Array.from(allRecords.values())) : [];
-  const filtersActive = Boolean(requestFilter.trim() || replyToFilter.trim() || queueFilter.trim());
+  const selectedAttemptEvents = selectedRecord
+    ? deliveryAttempts(selectedRecord)
+    : [];
+  const lastDeliveryFailure = selectedRecord
+    ? latestEventOfType(selectedRecord, "delivery_failed")
+    : undefined;
+  const lastHandoff = selectedRecord
+    ? latestEventOfType(selectedRecord, "handed_off")
+    : undefined;
+  const related = selectedRecord
+    ? relatedRecords(selectedRecord, Array.from(allRecords.values()))
+    : [];
+  const filtersActive = Boolean(
+    requestFilter.trim() || replyToFilter.trim() || queueFilter.trim(),
+  );
   const status = useRPC(() => agent.status(), [], {
     live: AGENT_EVENT_TYPES,
     refreshIntervalMs: 5_000,
@@ -539,7 +646,9 @@ export default function Mailbox() {
       await fn();
       refetchAll();
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Mailbox action failed");
+      setActionError(
+        error instanceof Error ? error.message : "Mailbox action failed",
+      );
     } finally {
       setBusyAction(null);
     }
@@ -554,31 +663,30 @@ export default function Mailbox() {
     sent.loading;
 
   return (
-    <section className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 p-12">
-      <PageHeader
-        eyebrow="Async Control Plane"
-        title={currentView ? `Mailbox: ${currentView.label}` : "Mailbox"}
-        description={
-          currentView
-            ? `Durable mailbox state projected for ${currentView.label}, with actions and queue visibility scoped to that principal.`
-            : "Durable mailbox state projected per principal instead of one ambiguous global inbox."
-        }
-        actions={
-          <>
-            <StatusBadge pulse tone="live">
-              Live
-            </StatusBadge>
-            <button
-              onClick={refetchAll}
-              className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 bg-surface-container-lowest px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-secondary hover:bg-surface-container-low"
-            >
-              <Icon name="refresh" className="text-sm" />
-              Refresh
-            </button>
-          </>
-        }
-      />
-
+    <SettingsPage
+      backHref="/settings"
+      title="Mailbox"
+      description={
+        currentView
+          ? `Inspect durable queues and delivery history for ${currentView.label}.`
+          : "Inspect durable queues, approvals, and delivery history."
+      }
+      actions={
+        <>
+          <StatusBadge pulse tone="live">
+            Live
+          </StatusBadge>
+          <button
+            onClick={refetchAll}
+            className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 bg-surface-container-lowest px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-secondary hover:bg-surface-container-low"
+          >
+            <Icon name="refresh" className="text-sm" />
+            Refresh
+          </button>
+        </>
+      }
+      width="wide"
+    >
       <div className="flex flex-wrap gap-2">
         {availableViews.map((view) => (
           <button
@@ -654,8 +762,20 @@ export default function Mailbox() {
 
       <div className="grid gap-4 md:grid-cols-4">
         <SummaryCard label="Inbox" value={inboxItems.length} icon="inbox" />
-        <SummaryCard label="Approvals" value={approvalItems.length} icon="approval" />
-        <SummaryCard label={currentView?.role === "agent" ? "Queue" : "Failed"} value={currentView?.role === "agent" ? queueItems.length : failedItems.length} icon={currentView?.role === "agent" ? "assignment" : "error"} />
+        <SummaryCard
+          label="Approvals"
+          value={approvalItems.length}
+          icon="approval"
+        />
+        <SummaryCard
+          label={currentView?.role === "agent" ? "Queue" : "Failed"}
+          value={
+            currentView?.role === "agent"
+              ? queueItems.length
+              : failedItems.length
+          }
+          icon={currentView?.role === "agent" ? "assignment" : "error"}
+        />
         <SummaryCard label="Outbox" value={outboxItems.length} icon="outbox" />
       </div>
 
@@ -694,9 +814,7 @@ export default function Mailbox() {
                 </h2>
                 <div className="flex items-center gap-2">
                   {filtersActive && (
-                    <StatusBadge tone="processing">
-                      filtered
-                    </StatusBadge>
+                    <StatusBadge tone="processing">filtered</StatusBadge>
                   )}
                   <StatusBadge tone="neutral">
                     {tabItems[tab].length} items
@@ -711,7 +829,11 @@ export default function Mailbox() {
                   <EmptyState
                     icon={tab === "queue" ? "assignment" : "inbox"}
                     title={`No ${tabLabels[tab].toLowerCase()} items`}
-                    description={currentView ? `Mailbox state for ${currentView.label} will appear here once that principal participates in durable async work.` : "Mailbox state will appear here once agents or humans create durable async work."}
+                    description={
+                      currentView
+                        ? `Mailbox state for ${currentView.label} will appear here once that principal participates in durable async work.`
+                        : "Mailbox state will appear here once agents or humans create durable async work."
+                    }
                   />
                 </div>
               ) : (
@@ -723,11 +845,16 @@ export default function Mailbox() {
                         key={record.item.id}
                         onClick={() => setSelectedId(record.item.id)}
                         className={`flex w-full items-start gap-4 px-6 py-5 text-left transition-colors ${
-                          isSelected ? "bg-primary/5" : "hover:bg-surface-container-low"
+                          isSelected
+                            ? "bg-primary/5"
+                            : "hover:bg-surface-container-low"
                         }`}
                       >
                         <div className="mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface-container-high text-primary">
-                          <Icon name={itemIcon(record.item.kind)} className="text-2xl" />
+                          <Icon
+                            name={itemIcon(record.item.kind)}
+                            className="text-2xl"
+                          />
                         </div>
                         <div className="min-w-0 flex-1 space-y-2">
                           <div className="flex items-start justify-between gap-3">
@@ -869,7 +996,11 @@ export default function Mailbox() {
                   {canRetryRecord(selectedRecord, currentView) && (
                     <ActionButton
                       busy={busyAction === "retry"}
-                      label={selectedRecord.state === "dead_lettered" ? "Replay" : "Retry"}
+                      label={
+                        selectedRecord.state === "dead_lettered"
+                          ? "Replay"
+                          : "Retry"
+                      }
                       icon="refresh"
                       onClick={() =>
                         runAction("retry", async () => {
@@ -904,37 +1035,102 @@ export default function Mailbox() {
 
               <div className="grid gap-6 px-6 py-6">
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <DetailField label="Request ID" value={selectedRecord.item.request_id || "-"} />
-                  <DetailField label="Reply To" value={selectedRecord.item.reply_to || "-"} />
-                  <DetailField label="From" value={selectedRecord.item.from.id} />
-                  <DetailField label="To" value={selectedRecord.item.to?.id || selectedRecord.item.target_skill || "-"} />
-                  <DetailField label="Created" value={selectedRecord.item.created_at} />
-                  <DetailField label="Expires" value={selectedRecord.item.expires_at || "-"} />
+                  <DetailField
+                    label="Request ID"
+                    value={selectedRecord.item.request_id || "-"}
+                  />
+                  <DetailField
+                    label="Reply To"
+                    value={selectedRecord.item.reply_to || "-"}
+                  />
+                  <DetailField
+                    label="From"
+                    value={selectedRecord.item.from.id}
+                  />
+                  <DetailField
+                    label="To"
+                    value={
+                      selectedRecord.item.to?.id ||
+                      selectedRecord.item.target_skill ||
+                      "-"
+                    }
+                  />
+                  <DetailField
+                    label="Created"
+                    value={selectedRecord.item.created_at}
+                  />
+                  <DetailField
+                    label="Expires"
+                    value={selectedRecord.item.expires_at || "-"}
+                  />
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-3">
-                  <DetailField label="Delivery Attempts" value={String(selectedAttemptEvents.length)} />
-                  <DetailField label="Last Event" value={selectedDelivery?.last_event || "-"} />
-                  <DetailField label="Last Error" value={selectedDelivery?.last_error || lastDeliveryFailure?.error || "-"} />
+                  <DetailField
+                    label="Delivery Attempts"
+                    value={String(selectedAttemptEvents.length)}
+                  />
+                  <DetailField
+                    label="Last Event"
+                    value={selectedDelivery?.last_event || "-"}
+                  />
+                  <DetailField
+                    label="Last Error"
+                    value={
+                      selectedDelivery?.last_error ||
+                      lastDeliveryFailure?.error ||
+                      "-"
+                    }
+                  />
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-3">
-                  <DetailField label="Delivery Policy" value={titleCaseWords(selectedDelivery?.policy || "-")} />
-                  <DetailField label="Delivery Status" value={titleCaseWords(selectedDelivery?.status || "-")} />
-                  <DetailField label="Mailbox State" value={titleCaseWords(selectedDelivery?.mailbox_state || selectedRecord.state || "-")} />
+                  <DetailField
+                    label="Delivery Policy"
+                    value={titleCaseWords(selectedDelivery?.policy || "-")}
+                  />
+                  <DetailField
+                    label="Delivery Status"
+                    value={titleCaseWords(selectedDelivery?.status || "-")}
+                  />
+                  <DetailField
+                    label="Mailbox State"
+                    value={titleCaseWords(
+                      selectedDelivery?.mailbox_state ||
+                        selectedRecord.state ||
+                        "-",
+                    )}
+                  />
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-3">
-                  <DetailField label="Live Transport" value={selectedDelivery?.live_transport || "-"} />
-                  <DetailField label="Durable Transport" value={selectedDelivery?.durable_transport || "-"} />
-                  <DetailField label="Last Transport" value={selectedDelivery?.last_transport || lastHandoff?.meta?.transport || selectedAttemptEvents[selectedAttemptEvents.length - 1]?.meta?.transport || "-"} />
+                  <DetailField
+                    label="Live Transport"
+                    value={selectedDelivery?.live_transport || "-"}
+                  />
+                  <DetailField
+                    label="Durable Transport"
+                    value={selectedDelivery?.durable_transport || "-"}
+                  />
+                  <DetailField
+                    label="Last Transport"
+                    value={
+                      selectedDelivery?.last_transport ||
+                      lastHandoff?.meta?.transport ||
+                      selectedAttemptEvents[selectedAttemptEvents.length - 1]
+                        ?.meta?.transport ||
+                      "-"
+                    }
+                  />
                 </div>
 
                 {selectedRecord.claim && (
                   <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-low p-4">
                     <div className="mb-2 flex items-center gap-2">
                       <Icon name="bolt" className="text-primary" />
-                      <p className="text-sm font-semibold text-on-surface">Active Claim</p>
+                      <p className="text-sm font-semibold text-on-surface">
+                        Active Claim
+                      </p>
                     </div>
                     <div className="grid gap-2 text-sm text-secondary">
                       <div>Holder: {selectedRecord.claim.holder}</div>
@@ -948,7 +1144,9 @@ export default function Mailbox() {
                   <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-low p-4">
                     <div className="mb-2 flex items-center gap-2">
                       <Icon name="attachment" className="text-primary" />
-                      <p className="text-sm font-semibold text-on-surface">Payload Ref</p>
+                      <p className="text-sm font-semibold text-on-surface">
+                        Payload Ref
+                      </p>
                     </div>
                     <pre className="overflow-auto rounded-xl bg-[#111315] p-3 text-[11px] leading-5 text-[#d2d7dc]">
                       {debugText(selectedRecord.item.payload_ref)}
@@ -960,7 +1158,9 @@ export default function Mailbox() {
                   <div className="space-y-3">
                     <div className="flex items-center gap-2">
                       <Icon name="account_tree" className="text-secondary" />
-                      <p className="text-sm font-semibold text-on-surface">Related Items</p>
+                      <p className="text-sm font-semibold text-on-surface">
+                        Related Items
+                      </p>
                     </div>
                     <div className="space-y-2">
                       {related.map((record) => (
@@ -974,7 +1174,9 @@ export default function Mailbox() {
                               {recordTitle(record)}
                             </p>
                             <p className="truncate text-xs text-secondary">
-                              {record.item.request_id || record.item.reply_to || record.item.id}
+                              {record.item.request_id ||
+                                record.item.reply_to ||
+                                record.item.id}
                             </p>
                           </div>
                           <StatusBadge tone={stateTone(record.state)}>
@@ -989,7 +1191,9 @@ export default function Mailbox() {
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
                     <Icon name="code" className="text-secondary" />
-                    <p className="text-sm font-semibold text-on-surface">Payload</p>
+                    <p className="text-sm font-semibold text-on-surface">
+                      Payload
+                    </p>
                   </div>
                   <pre className="max-h-64 overflow-auto rounded-2xl bg-[#111315] p-4 text-xs leading-6 text-[#d2d7dc]">
                     {payloadText(selectedRecord)}
@@ -999,14 +1203,21 @@ export default function Mailbox() {
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
                     <Icon name="timeline" className="text-secondary" />
-                    <p className="text-sm font-semibold text-on-surface">Timeline</p>
+                    <p className="text-sm font-semibold text-on-surface">
+                      Timeline
+                    </p>
                   </div>
                   <div className="space-y-3">
                     {selectedRecord.events.length === 0 ? (
                       <p className="text-sm text-secondary">No events yet.</p>
                     ) : (
                       selectedRecord.events.map((event) => (
-                        <TimelineRow key={event.event_id || `${event.type}-${event.timestamp}`} event={event} />
+                        <TimelineRow
+                          key={
+                            event.event_id || `${event.type}-${event.timestamp}`
+                          }
+                          event={event}
+                        />
                       ))
                     )}
                   </div>
@@ -1063,7 +1274,8 @@ export default function Mailbox() {
                 Live vs durable behavior
               </h2>
               <p className="mt-1 text-sm text-secondary">
-                These are the explicit delivery rules the daemon is advertising right now.
+                These are the explicit delivery rules the daemon is advertising
+                right now.
               </p>
             </div>
             <StatusBadge tone="neutral">
@@ -1093,15 +1305,21 @@ export default function Mailbox() {
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   <DetailField label="Scope" value={policy.scope || "-"} />
-                  <DetailField label="Live Transport" value={policy.live_transport || "-"} />
-                  <DetailField label="Durable Transport" value={policy.durable_transport || "-"} />
+                  <DetailField
+                    label="Live Transport"
+                    value={policy.live_transport || "-"}
+                  />
+                  <DetailField
+                    label="Durable Transport"
+                    value={policy.durable_transport || "-"}
+                  />
                 </div>
               </div>
             ))}
           </div>
         </div>
       )}
-    </section>
+    </SettingsPage>
   );
 }
 
@@ -1181,11 +1399,20 @@ function TimelineRow({ event }: { event: MailboxEvent }) {
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-sm font-semibold text-on-surface">{event.type.replaceAll("_", " ")}</p>
-          {event.timestamp && <RelativeTime className="text-xs text-outline" value={event.timestamp} />}
+          <p className="text-sm font-semibold text-on-surface">
+            {event.type.replaceAll("_", " ")}
+          </p>
+          {event.timestamp && (
+            <RelativeTime
+              className="text-xs text-outline"
+              value={event.timestamp}
+            />
+          )}
         </div>
         <p className="mt-1 text-xs text-secondary">Actor: {event.actor.id}</p>
-        {event.error && <p className="mt-2 text-xs text-error">{event.error}</p>}
+        {event.error && (
+          <p className="mt-2 text-xs text-error">{event.error}</p>
+        )}
         {event.meta && Object.keys(event.meta).length > 0 && (
           <pre className="mt-3 overflow-auto rounded-xl bg-[#111315] p-3 text-[11px] leading-5 text-[#d2d7dc]">
             {JSON.stringify(event.meta, null, 2)}

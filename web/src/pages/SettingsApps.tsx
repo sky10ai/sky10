@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router";
 import { Icon } from "../components/Icon";
-import { PageHeader } from "../components/PageHeader";
+import { SettingsPage } from "../components/SettingsPage";
 import { StatusBadge } from "../components/StatusBadge";
 import { subscribe } from "../lib/events";
 import { apps, wallet } from "../lib/rpc";
@@ -39,8 +38,12 @@ export default function SettingsApps() {
     downloaded: number;
     total: number;
   } | null>(null);
-  const [walletActionError, setWalletActionError] = useState<string | null>(null);
-  const [walletActionMessage, setWalletActionMessage] = useState<string | null>(null);
+  const [walletActionError, setWalletActionError] = useState<string | null>(
+    null,
+  );
+  const [walletActionMessage, setWalletActionMessage] = useState<string | null>(
+    null,
+  );
   const [walletInstalling, setWalletInstalling] = useState(false);
   const [walletUninstalling, setWalletUninstalling] = useState(false);
 
@@ -49,7 +52,9 @@ export default function SettingsApps() {
     total: number;
   } | null>(null);
   const [limaActionError, setLimaActionError] = useState<string | null>(null);
-  const [limaActionMessage, setLimaActionMessage] = useState<string | null>(null);
+  const [limaActionMessage, setLimaActionMessage] = useState<string | null>(
+    null,
+  );
   const [limaInstalling, setLimaInstalling] = useState(false);
   const [limaUninstalling, setLimaUninstalling] = useState(false);
 
@@ -184,7 +189,9 @@ export default function SettingsApps() {
 
   const walletInstalled = Boolean(walletStatus?.installed);
   const walletManaged = Boolean(walletStatus?.managed);
-  const walletUpdateAvailable = Boolean(walletInstalled && walletRelease?.available);
+  const walletUpdateAvailable = Boolean(
+    walletInstalled && walletRelease?.available,
+  );
   const walletBinaryPath = walletStatus?.bin_path || "Not installed";
   const walletManagedPath = walletStatus?.managed_path;
   const walletBusy = walletInstalling || walletUninstalling;
@@ -194,26 +201,18 @@ export default function SettingsApps() {
   const limaUpdateAvailable = Boolean(limaInstalled && limaRelease?.available);
   const limaBinaryPath = limaStatus?.active_path || "Not installed";
   const limaManagedPath = limaStatus?.managed_path;
-  const limaUnsupportedPlatform = Boolean(limaRelease && !limaRelease.asset_url);
+  const limaUnsupportedPlatform = Boolean(
+    limaRelease && !limaRelease.asset_url,
+  );
   const limaBusy = limaInstalling || limaUninstalling;
 
   return (
-    <div className="p-12 max-w-5xl mx-auto space-y-10">
-      <PageHeader
-        eyebrow="Power User"
-        title="Managed Apps"
-        description="Binary management only. Wallet creation, balances, funding, and transfers stay on the main Settings page."
-        actions={(
-          <Link
-            className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary transition-colors hover:text-on-surface"
-            to="/settings"
-          >
-            <Icon className="text-base" name="arrow_back" />
-            Back to Settings
-          </Link>
-        )}
-      />
-
+    <SettingsPage
+      backHref="/settings"
+      description="Manage helper binaries installed by sky10."
+      title="Managed Apps"
+      width="narrow"
+    >
       <section className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-8 shadow-sm">
         <div className="flex flex-col gap-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
@@ -227,17 +226,34 @@ export default function SettingsApps() {
                     OWS Binary
                   </h2>
                   <p className="text-sm text-secondary">
-                    Installation and update state for the Open Wallet Standard executable.
+                    Installation and update state for the Open Wallet Standard
+                    executable.
                   </p>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge
-                  icon={walletInstalling ? "downloading" : walletInstalled ? "check_circle" : "download"}
+                  icon={
+                    walletInstalling
+                      ? "downloading"
+                      : walletInstalled
+                        ? "check_circle"
+                        : "download"
+                  }
                   pulse={walletInstalling}
-                  tone={walletInstalling ? "processing" : walletInstalled ? "success" : "neutral"}
+                  tone={
+                    walletInstalling
+                      ? "processing"
+                      : walletInstalled
+                        ? "success"
+                        : "neutral"
+                  }
                 >
-                  {walletInstalling ? "Installing" : walletInstalled ? "Installed" : "Not Installed"}
+                  {walletInstalling
+                    ? "Installing"
+                    : walletInstalled
+                      ? "Installed"
+                      : "Not Installed"}
                 </StatusBadge>
                 {walletUpdateAvailable && (
                   <StatusBadge icon="system_update_alt" tone="processing">
@@ -254,7 +270,11 @@ export default function SettingsApps() {
                 onClick={handleWalletInstall}
                 type="button"
               >
-                <Icon name={walletUpdateAvailable ? "system_update_alt" : "download"} />
+                <Icon
+                  name={
+                    walletUpdateAvailable ? "system_update_alt" : "download"
+                  }
+                />
                 {walletInstalling
                   ? "Installing..."
                   : walletUpdateAvailable
@@ -281,7 +301,9 @@ export default function SettingsApps() {
                 Current Version
               </p>
               <p className="mt-2 text-sm font-semibold text-on-surface">
-                {walletStatus?.version || walletRelease?.current || "Not installed"}
+                {walletStatus?.version ||
+                  walletRelease?.current ||
+                  "Not installed"}
               </p>
             </div>
             <div className="rounded-xl bg-surface-container p-4">
@@ -297,7 +319,11 @@ export default function SettingsApps() {
                 Management Mode
               </p>
               <p className="mt-2 text-sm font-semibold text-on-surface">
-                {walletManaged ? "Managed by sky10" : walletInstalled ? "External PATH install" : "Not installed"}
+                {walletManaged
+                  ? "Managed by sky10"
+                  : walletInstalled
+                    ? "External PATH install"
+                    : "Not installed"}
               </p>
             </div>
             <div className="rounded-xl bg-surface-container p-4 md:col-span-2">
@@ -330,9 +356,10 @@ export default function SettingsApps() {
                   <div
                     className="h-full rounded-full bg-tertiary transition-all duration-300"
                     style={{
-                      width: walletInstallProgress && walletInstallProgress.total > 0
-                        ? `${Math.round((walletInstallProgress.downloaded / walletInstallProgress.total) * 100)}%`
-                        : "0%",
+                      width:
+                        walletInstallProgress && walletInstallProgress.total > 0
+                          ? `${Math.round((walletInstallProgress.downloaded / walletInstallProgress.total) * 100)}%`
+                          : "0%",
                     }}
                   />
                 </div>
@@ -361,18 +388,20 @@ export default function SettingsApps() {
 
           <div className="rounded-xl bg-surface-container p-5">
             <div className="space-y-2">
-              <p className="text-sm font-medium text-on-surface">
-                Notes
+              <p className="text-sm font-medium text-on-surface">Notes</p>
+              <p className="text-sm text-secondary">
+                This page is intentionally about the binary only: install state,
+                path, version checks, and updates.
               </p>
               <p className="text-sm text-secondary">
-                This page is intentionally about the binary only: install state, path, version checks, and updates.
-              </p>
-              <p className="text-sm text-secondary">
-                Delete removes only the managed binary under sky10 control. It does not touch OWS wallet data or any unrelated system install on PATH.
+                Delete removes only the managed binary under sky10 control. It
+                does not touch OWS wallet data or any unrelated system install
+                on PATH.
               </p>
               {!walletManaged && walletInstalled && (
                 <p className="text-sm text-secondary">
-                  The current OWS binary was discovered on PATH, so delete is disabled until sky10 is the manager of that binary.
+                  The current OWS binary was discovered on PATH, so delete is
+                  disabled until sky10 is the manager of that binary.
                 </p>
               )}
             </div>
@@ -393,17 +422,36 @@ export default function SettingsApps() {
                     Lima Runtime
                   </h2>
                   <p className="text-sm text-secondary">
-                    Install and manage the Lima runtime that sky10 sandbox flows use when a managed copy is available.
+                    Install and manage the Lima runtime that sky10 sandbox flows
+                    use when a managed copy is available.
                   </p>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge
-                  icon={limaInstalling ? "downloading" : limaInstalled ? "check_circle" : "download"}
+                  icon={
+                    limaInstalling
+                      ? "downloading"
+                      : limaInstalled
+                        ? "check_circle"
+                        : "download"
+                  }
                   pulse={limaInstalling}
-                  tone={limaInstalling ? "processing" : limaInstalled ? "success" : "neutral"}
+                  tone={
+                    limaInstalling
+                      ? "processing"
+                      : limaInstalled
+                        ? "success"
+                        : "neutral"
+                  }
                 >
-                  {limaInstalling ? (limaUpdateAvailable ? "Updating" : "Installing") : limaInstalled ? "Installed" : "Not Installed"}
+                  {limaInstalling
+                    ? limaUpdateAvailable
+                      ? "Updating"
+                      : "Installing"
+                    : limaInstalled
+                      ? "Installed"
+                      : "Not Installed"}
                 </StatusBadge>
                 {limaUpdateAvailable && (
                   <StatusBadge icon="system_update_alt" tone="processing">
@@ -420,9 +468,13 @@ export default function SettingsApps() {
                 onClick={handleLimaInstall}
                 type="button"
               >
-                <Icon name={limaUpdateAvailable ? "system_update_alt" : "download"} />
+                <Icon
+                  name={limaUpdateAvailable ? "system_update_alt" : "download"}
+                />
                 {limaInstalling
-                  ? (limaUpdateAvailable ? "Updating..." : "Installing...")
+                  ? limaUpdateAvailable
+                    ? "Updating..."
+                    : "Installing..."
                   : limaUpdateAvailable
                     ? "Update"
                     : limaInstalled
@@ -463,7 +515,11 @@ export default function SettingsApps() {
                 Management Mode
               </p>
               <p className="mt-2 text-sm font-semibold text-on-surface">
-                {limaManaged ? "Managed by sky10" : limaInstalled ? "External PATH install" : "Not installed"}
+                {limaManaged
+                  ? "Managed by sky10"
+                  : limaInstalled
+                    ? "External PATH install"
+                    : "Not installed"}
               </p>
             </div>
             <div className="rounded-xl bg-surface-container p-4 md:col-span-2">
@@ -496,9 +552,10 @@ export default function SettingsApps() {
                   <div
                     className="h-full rounded-full bg-tertiary transition-all duration-300"
                     style={{
-                      width: limaInstallProgress && limaInstallProgress.total > 0
-                        ? `${Math.round((limaInstallProgress.downloaded / limaInstallProgress.total) * 100)}%`
-                        : "0%",
+                      width:
+                        limaInstallProgress && limaInstallProgress.total > 0
+                          ? `${Math.round((limaInstallProgress.downloaded / limaInstallProgress.total) * 100)}%`
+                          : "0%",
                     }}
                   />
                 </div>
@@ -519,11 +576,14 @@ export default function SettingsApps() {
             </div>
           )}
 
-          {!limaActionError && !limaError && !limaReleaseError && limaUnsupportedPlatform && (
-            <div className="rounded-xl bg-error-container/20 p-4 text-sm text-error">
-              A managed Lima bundle is not available for this platform yet.
-            </div>
-          )}
+          {!limaActionError &&
+            !limaError &&
+            !limaReleaseError &&
+            limaUnsupportedPlatform && (
+              <div className="rounded-xl bg-error-container/20 p-4 text-sm text-error">
+                A managed Lima bundle is not available for this platform yet.
+              </div>
+            )}
 
           {limaActionMessage && (
             <div className="rounded-xl bg-primary/10 p-4 text-sm text-primary">
@@ -533,27 +593,29 @@ export default function SettingsApps() {
 
           <div className="rounded-xl bg-surface-container p-5">
             <div className="space-y-2">
-              <p className="text-sm font-medium text-on-surface">
-                Notes
+              <p className="text-sm font-medium text-on-surface">Notes</p>
+              <p className="text-sm text-secondary">
+                Sandbox create, start, stop, delete, and terminal flows prefer
+                the managed Lima binary when it is installed.
               </p>
               <p className="text-sm text-secondary">
-                Sandbox create, start, stop, delete, and terminal flows prefer the managed Lima binary when it is installed.
+                If no managed Lima binary is active yet, sky10 falls back to
+                `limactl` from `PATH`.
               </p>
               <p className="text-sm text-secondary">
-                If no managed Lima binary is active yet, sky10 falls back to `limactl` from `PATH`.
-              </p>
-              <p className="text-sm text-secondary">
-                Delete removes only the managed Lima binary under sky10 control. It does not touch any unrelated system install on PATH.
+                Delete removes only the managed Lima binary under sky10 control.
+                It does not touch any unrelated system install on PATH.
               </p>
               {!limaManaged && limaInstalled && (
                 <p className="text-sm text-secondary">
-                  The current Lima binary was discovered on PATH, so delete is disabled until sky10 is the manager of that binary.
+                  The current Lima binary was discovered on PATH, so delete is
+                  disabled until sky10 is the manager of that binary.
                 </p>
               )}
             </div>
           </div>
         </div>
       </section>
-    </div>
+    </SettingsPage>
   );
 }

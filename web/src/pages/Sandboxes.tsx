@@ -1,7 +1,7 @@
 import { startTransition, useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { Icon } from "../components/Icon";
-import { PageHeader } from "../components/PageHeader";
+import { SettingsPage } from "../components/SettingsPage";
 import { StatusBadge } from "../components/StatusBadge";
 import { SANDBOX_STATE_EVENT_TYPES } from "../lib/events";
 import { sandbox } from "../lib/rpc";
@@ -22,9 +22,15 @@ import { timeAgo, useRPC } from "../lib/useRPC";
 export default function Sandboxes() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const requestedTemplate = sandboxTemplateById(searchParams.get("template") ?? undefined);
-  const [draftName, setDraftName] = useState(() => nextSandboxName(requestedTemplate.id));
-  const [selectedTemplate, setSelectedTemplate] = useState<string>(requestedTemplate.id);
+  const requestedTemplate = sandboxTemplateById(
+    searchParams.get("template") ?? undefined,
+  );
+  const [draftName, setDraftName] = useState(() =>
+    nextSandboxName(requestedTemplate.id),
+  );
+  const [selectedTemplate, setSelectedTemplate] = useState<string>(
+    requestedTemplate.id,
+  );
   const [actionError, setActionError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -57,12 +63,15 @@ export default function Sandboxes() {
     setSelectedTemplate(requestedTemplate.id);
   }, [requestedTemplate.id, selectedTemplate]);
 
-  const handleTemplateSelect = useCallback((templateId: string) => {
-    setSelectedTemplate(templateId);
-    const nextParams = new URLSearchParams(searchParams);
-    nextParams.set("template", templateId);
-    setSearchParams(nextParams, { replace: true });
-  }, [searchParams, setSearchParams]);
+  const handleTemplateSelect = useCallback(
+    (templateId: string) => {
+      setSelectedTemplate(templateId);
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.set("template", templateId);
+      setSearchParams(nextParams, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
 
   const handleCreate = useCallback(async () => {
     const name = draftName.trim();
@@ -89,25 +98,22 @@ export default function Sandboxes() {
     } finally {
       setCreating(false);
     }
-  }, [creating, draftName, navigate, refetchList, templateConfig.id, templateConfig.provider]);
+  }, [
+    creating,
+    draftName,
+    navigate,
+    refetchList,
+    templateConfig.id,
+    templateConfig.provider,
+  ]);
 
   return (
-    <section className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 p-12">
-      <PageHeader
-        eyebrow="Settings"
-        title="Sandboxes"
-        description="Provision isolated runtimes on this machine, track their status, and drill into each sandbox for logs, terminal access, and runtime details."
-        actions={(
-          <Link
-            className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary transition-colors hover:text-on-surface"
-            to="/settings"
-          >
-            <Icon className="text-base" name="arrow_back" />
-            Back to Settings
-          </Link>
-        )}
-      />
-
+    <SettingsPage
+      backHref="/settings"
+      description="Provision and manage isolated runtimes on this machine."
+      title="Sandboxes"
+      width="wide"
+    >
       {(actionError || listError) && (
         <div className="rounded-2xl bg-error-container/20 p-4 text-sm text-error">
           {actionError ?? listError}
@@ -125,7 +131,10 @@ export default function Sandboxes() {
                 Provision from a template
               </h2>
               <p className="max-w-2xl text-sm text-secondary">
-                Pick a template, choose a name, and sky10 will create the runtime asynchronously so this screen stays responsive while Lima boots the guest. Display names stay intact, while runtime IDs and filesystem paths are slugified automatically.
+                Pick a template, choose a name, and sky10 will create the
+                runtime asynchronously so this screen stays responsive while
+                Lima boots the guest. Display names stay intact, while runtime
+                IDs and filesystem paths are slugified automatically.
               </p>
             </div>
 
@@ -145,12 +154,20 @@ export default function Sandboxes() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="space-y-1">
-                        <p className="font-semibold text-on-surface">{template.label}</p>
-                        <p className="text-xs text-secondary">{template.summary}</p>
+                        <p className="font-semibold text-on-surface">
+                          {template.label}
+                        </p>
+                        <p className="text-xs text-secondary">
+                          {template.summary}
+                        </p>
                       </div>
-                      {active && <StatusBadge tone="processing">Selected</StatusBadge>}
+                      {active && (
+                        <StatusBadge tone="processing">Selected</StatusBadge>
+                      )}
                     </div>
-                    <p className="mt-3 text-sm text-secondary">{template.description}</p>
+                    <p className="mt-3 text-sm text-secondary">
+                      {template.description}
+                    </p>
                     <p className="mt-3 text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
                       Provider: {template.provider}
                     </p>
@@ -177,9 +194,14 @@ export default function Sandboxes() {
               </button>
             </div>
             <p className="text-xs text-secondary">
-              {draftSlug
-                ? <>Runtime ID: <code>{draftSlug}</code> • Agent home <code>~/Sky10/Drives/Agents/{draftSlug}</code></>
-                : "Names must include at least one letter or number."}
+              {draftSlug ? (
+                <>
+                  Runtime ID: <code>{draftSlug}</code> • Agent home{" "}
+                  <code>~/Sky10/Drives/Agents/{draftSlug}</code>
+                </>
+              ) : (
+                "Names must include at least one letter or number."
+              )}
             </p>
           </div>
         </section>
@@ -196,37 +218,74 @@ export default function Sandboxes() {
             </div>
             <div className="space-y-3 text-sm text-secondary">
               <p>
-                Sandboxes mount a durable agent home from <code>~/Sky10/Drives/Agents/&lt;slug&gt;</code> and keep disposable sandbox-local state under <code>~/.sky10/sandboxes/&lt;slug&gt;/state</code>.
+                Sandboxes mount a durable agent home from{" "}
+                <code>~/Sky10/Drives/Agents/&lt;slug&gt;</code> and keep
+                disposable sandbox-local state under{" "}
+                <code>~/.sky10/sandboxes/&lt;slug&gt;/state</code>.
               </p>
               {isOpenClawTemplate(templateConfig.id) ? (
                 <>
                   <p>
-                    {isDockerTemplate(templateConfig.id)
-                      ? <>The OpenClaw Docker template installs Docker in the guest, then builds and runs guest-local <code>sky10</code>, OpenClaw, Chromium, Xvfb, and Caddy as Docker containers while keeping guest UIs on ports <code>9101</code> and <code>18790</code>.</>
-                      : <>The OpenClaw template installs guest-local <code>sky10</code>, OpenClaw, Chromium, Xvfb, and Caddy inside the guest, with guest UIs on ports <code>9101</code> and <code>18790</code>.</>}
+                    {isDockerTemplate(templateConfig.id) ? (
+                      <>
+                        The OpenClaw Docker template installs Docker in the
+                        guest, then builds and runs guest-local{" "}
+                        <code>sky10</code>, OpenClaw, Chromium, Xvfb, and Caddy
+                        as Docker containers while keeping guest UIs on ports{" "}
+                        <code>9101</code> and <code>18790</code>.
+                      </>
+                    ) : (
+                      <>
+                        The OpenClaw template installs guest-local{" "}
+                        <code>sky10</code>, OpenClaw, Chromium, Xvfb, and Caddy
+                        inside the guest, with guest UIs on ports{" "}
+                        <code>9101</code> and <code>18790</code>.
+                      </>
+                    )}
                   </p>
                   <p>
-                    It also loads the bundled <code>sky10</code> OpenClaw channel and waits for the guest agent to register on the guest-local daemon. sky10 network join comes later.
+                    It also loads the bundled <code>sky10</code> OpenClaw
+                    channel and waits for the guest agent to register on the
+                    guest-local daemon. sky10 network join comes later.
                   </p>
                 </>
               ) : isHermesTemplate(templateConfig.id) ? (
                 <>
                   <p>
-                    {isDockerTemplate(templateConfig.id)
-                      ? <>The Hermes Docker template installs Docker in the guest, then runs guest-local <code>sky10</code>, Hermes Agent, and the host chat bridge inside Docker while keeping <code>hermes-shared</code> available from the sandbox terminal in <code>/shared/workspace</code>.</>
-                      : <>The Hermes template installs Hermes Agent inside the guest, links <code>/sandbox-state/.env</code> into <code>~/.hermes/.env</code>, and keeps the embedded sandbox terminal ready for the native Hermes TUI in <code>/shared/workspace</code>.</>}
+                    {isDockerTemplate(templateConfig.id) ? (
+                      <>
+                        The Hermes Docker template installs Docker in the guest,
+                        then runs guest-local <code>sky10</code>, Hermes Agent,
+                        and the host chat bridge inside Docker while keeping{" "}
+                        <code>hermes-shared</code> available from the sandbox
+                        terminal in <code>/shared/workspace</code>.
+                      </>
+                    ) : (
+                      <>
+                        The Hermes template installs Hermes Agent inside the
+                        guest, links <code>/sandbox-state/.env</code> into{" "}
+                        <code>~/.hermes/.env</code>, and keeps the embedded
+                        sandbox terminal ready for the native Hermes TUI in{" "}
+                        <code>/shared/workspace</code>.
+                      </>
+                    )}
                   </p>
                   <p>
-                    It also starts a guest-local Hermes gateway plus a sky10 bridge, so the sandbox shows up in the host agent list and can be chatted with from sky10 while still remaining usable from the guest terminal.
+                    It also starts a guest-local Hermes gateway plus a sky10
+                    bridge, so the sandbox shows up in the host agent list and
+                    can be chatted with from sky10 while still remaining usable
+                    from the guest terminal.
                   </p>
                 </>
               ) : (
                 <>
                   <p>
-                    Provisioning logs stream live once the sandbox detail page opens, so boot failures stay visible.
+                    Provisioning logs stream live once the sandbox detail page
+                    opens, so boot failures stay visible.
                   </p>
                   <p>
-                    Each sandbox gets its own detail page for lifecycle actions, runtime metadata, logs, and terminal access.
+                    Each sandbox gets its own detail page for lifecycle actions,
+                    runtime metadata, logs, and terminal access.
                   </p>
                 </>
               )}
@@ -261,7 +320,10 @@ export default function Sandboxes() {
           <div className="space-y-3">
             {sandboxes.map((item) => {
               const progress = sandboxCurrentProgress(item);
-              const progressWidth = Math.max(0, Math.min(progress?.percent ?? 0, 100));
+              const progressWidth = Math.max(
+                0,
+                Math.min(progress?.percent ?? 0, 100),
+              );
 
               return (
                 <Link
@@ -271,7 +333,9 @@ export default function Sandboxes() {
                 >
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-center gap-3">
-                      <h3 className="text-lg font-semibold text-on-surface">{item.name}</h3>
+                      <h3 className="text-lg font-semibold text-on-surface">
+                        {item.name}
+                      </h3>
                       <StatusBadge tone={sandboxTone(item.status)}>
                         {sandboxLabel(item.status)}
                       </StatusBadge>
@@ -282,7 +346,9 @@ export default function Sandboxes() {
                       )}
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-secondary">
-                      <span>{item.provider} / {item.template}</span>
+                      <span>
+                        {item.provider} / {item.template}
+                      </span>
                       <span>ID {item.slug}</span>
                       <span>Updated {timeAgo(item.updated_at)}</span>
                       {item.ip_address && <span>{item.ip_address}</span>}
@@ -290,13 +356,19 @@ export default function Sandboxes() {
                     {progress && (
                       <div className="space-y-2">
                         <div className="flex items-center justify-between gap-3 text-sm">
-                          <span className="font-medium text-on-surface">{progress.summary}</span>
-                          <span className="font-semibold text-secondary">{progress.percent}%</span>
+                          <span className="font-medium text-on-surface">
+                            {progress.summary}
+                          </span>
+                          <span className="font-semibold text-secondary">
+                            {progress.percent}%
+                          </span>
                         </div>
                         <div className="h-2 overflow-hidden rounded-full bg-surface-container-high">
                           <div
                             className={`h-full rounded-full transition-[width] duration-300 ${
-                              item.status === "error" ? "bg-error" : "bg-primary"
+                              item.status === "error"
+                                ? "bg-error"
+                                : "bg-primary"
                             }`}
                             style={{ width: `${progressWidth}%` }}
                           />
@@ -321,6 +393,6 @@ export default function Sandboxes() {
           </div>
         )}
       </section>
-    </section>
+    </SettingsPage>
   );
 }

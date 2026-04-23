@@ -15,15 +15,30 @@ const UPDATE_REFRESH_EVENTS = [
 ] as const;
 
 const navItems = [
-  { to: "/agents", icon: "smart_toy", label: "Agents", matchPrefixes: ["/agents"] },
+  {
+    to: "/agents",
+    icon: "smart_toy",
+    label: "Agents",
+    matchPrefixes: ["/agents"],
+  },
   {
     to: "/drives",
     icon: "folder_open",
     label: "Drives",
     matchPrefixes: ["/drives", "/bucket"],
   },
-  { to: "/devices", icon: "devices", label: "Devices", matchPrefixes: ["/devices"] },
-  { to: "/settings", icon: "settings", label: "Settings", matchPrefixes: ["/settings"] },
+  {
+    to: "/devices",
+    icon: "devices",
+    label: "Devices",
+    matchPrefixes: ["/devices"],
+  },
+  {
+    to: "/settings",
+    icon: "settings",
+    label: "Settings",
+    matchPrefixes: ["/settings"],
+  },
 ];
 
 export function Sidebar() {
@@ -41,29 +56,37 @@ export function Sidebar() {
     refreshIntervalMs: 30_000,
   });
   const versionInfo = parseVersionDetails(health?.version ?? "");
-  const versionLabel = versionInfo.version || health?.version?.split(" ")[0] || "...";
+  const versionLabel =
+    versionInfo.version || health?.version?.split(" ")[0] || "...";
   const commitLabel = versionInfo.commit || "";
-  const hasUpdateHighlight = Boolean(stagedUpdate?.ready) || Boolean(updateInfo?.available);
+  const hasUpdateHighlight =
+    Boolean(stagedUpdate?.ready) || Boolean(updateInfo?.available);
   const versionButtonClassName = hasUpdateHighlight
     ? "version-pill-attention mt-1 inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[10px] text-emerald-900 shadow-[0_0_0_1px_rgba(16,185,129,0.08),0_10px_24px_-18px_rgba(16,185,129,0.9)] transition-colors hover:border-emerald-500/55 hover:bg-emerald-500/14 dark:text-emerald-100"
     : "mt-1 inline-flex items-center gap-2 rounded-full border border-outline-variant/20 bg-surface-container-lowest px-2.5 py-1 text-[10px] text-secondary transition-colors hover:border-primary/20 hover:text-on-surface";
 
   return (
     <>
-      <aside className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col bg-surface-container-low font-body tracking-tight antialiased">
-        <div className="px-6 py-8">
+      <aside className="sticky top-0 z-40 flex h-screen w-64 shrink-0 flex-col border-r border-outline-variant/10 bg-surface-container-low font-body tracking-tight antialiased">
+        <div className="flex h-full flex-col px-6 py-7">
           {/* Brand */}
-          <div className="mb-10 flex items-center gap-2">
+          <div className="mb-8 flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg text-white lithic-gradient">
               <Icon name="cloud" filled className="text-lg" />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tighter text-on-surface">sky10</h1>
+              <h1 className="text-xl font-bold tracking-tighter text-on-surface">
+                sky10
+              </h1>
               <button
                 aria-label="Open build details"
                 className={`relative overflow-hidden ${versionButtonClassName}`}
                 onClick={() => setVersionOverlayOpen(true)}
-                title={commitLabel ? `${versionLabel} / ${commitLabel}` : versionLabel}
+                title={
+                  commitLabel
+                    ? `${versionLabel} / ${commitLabel}`
+                    : versionLabel
+                }
                 type="button"
               >
                 {hasUpdateHighlight && (
@@ -76,7 +99,9 @@ export function Sidebar() {
                   {versionLabel}
                 </span>
                 {commitLabel && (
-                  <span className={`relative font-mono text-[10px] ${hasUpdateHighlight ? "text-emerald-800/90 dark:text-emerald-100/90" : "text-outline"}`}>
+                  <span
+                    className={`relative font-mono text-[10px] ${hasUpdateHighlight ? "text-emerald-800/90 dark:text-emerald-100/90" : "text-outline"}`}
+                  >
                     {commitLabel}
                   </span>
                 )}
@@ -84,12 +109,12 @@ export function Sidebar() {
             </div>
           </div>
           {/* Navigation */}
-          <nav className="space-y-1.5">
+          <nav className="flex-1 space-y-1.5">
             {navItems.map((item) => {
               const isActive = item.matchPrefixes.some(
                 (prefix) =>
                   location.pathname === prefix ||
-                  location.pathname.startsWith(`${prefix}/`)
+                  location.pathname.startsWith(`${prefix}/`),
               );
 
               return (
@@ -97,9 +122,9 @@ export function Sidebar() {
                   key={item.to}
                   to={item.to}
                   className={() =>
-                    `flex items-center gap-3 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                    `flex items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors ${
                       isActive
-                        ? "bg-surface-container-lowest text-primary shadow-sm"
+                        ? "bg-surface-container-lowest text-primary shadow-sm ring-1 ring-outline-variant/10"
                         : "text-secondary hover:bg-surface-container-high hover:text-on-surface"
                     }`
                   }

@@ -14,14 +14,16 @@ import { useRPC } from "../lib/useRPC";
 export default function Drives() {
   const navigate = useNavigate();
   const [showNewDrive, setShowNewDrive] = useState(false);
-  const { data: driveList, loading, error, refreshing, refetch } = useRPC(
-    () => skyfs.driveList(),
-    [],
-    {
-      live: STORAGE_EVENT_TYPES,
-      refreshIntervalMs: 10_000,
-    }
-  );
+  const {
+    data: driveList,
+    loading,
+    error,
+    refreshing,
+    refetch,
+  } = useRPC(() => skyfs.driveList(), [], {
+    live: STORAGE_EVENT_TYPES,
+    refreshIntervalMs: 10_000,
+  });
   const { data: health } = useRPC(() => skyfs.health(), [], {
     live: STORAGE_EVENT_TYPES,
     refreshIntervalMs: 10_000,
@@ -94,7 +96,6 @@ export default function Drives() {
             ? "No drives are configured yet. Create a drive to start syncing files."
             : `Managing ${drives.length} encrypted volume${drives.length === 1 ? "" : "s"} with live sync status.`
         }
-        eyebrow="Encrypted Storage"
         title="Drives"
       />
 

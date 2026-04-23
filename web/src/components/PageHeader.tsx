@@ -3,35 +3,22 @@ import type { ReactNode } from "react";
 interface PageHeaderProps {
   actions?: ReactNode;
   description: ReactNode;
-  eyebrow?: ReactNode;
   title: ReactNode;
 }
 
-export function PageHeader({
-  actions,
-  description,
-  eyebrow,
-  title,
-}: PageHeaderProps) {
+export function PageHeader({ actions, description, title }: PageHeaderProps) {
   return (
-    <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
-      <div className="space-y-2">
-        {eyebrow && (
-          <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-outline">
-            {eyebrow}
-          </p>
-        )}
-        <div className="space-y-2">
-          <h1 className="text-4xl font-bold tracking-tight text-on-surface sm:text-[3.25rem]">
-            {title}
-          </h1>
-          <p className="max-w-2xl text-sm text-secondary sm:text-base">
-            {description}
-          </p>
-        </div>
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
+      <div className="min-w-0 flex-1 space-y-2">
+        <h1 className="text-4xl font-semibold tracking-tight text-on-surface sm:text-[3.25rem]">
+          {title}
+        </h1>
+        <p className="max-w-3xl text-base text-secondary sm:text-lg">
+          {description}
+        </p>
       </div>
       {actions && (
-        <div className="flex flex-wrap items-center gap-3 md:justify-end">
+        <div className="flex shrink-0 flex-wrap items-center gap-3 lg:justify-end lg:pt-10 xl:pt-12">
           {actions}
         </div>
       )}
