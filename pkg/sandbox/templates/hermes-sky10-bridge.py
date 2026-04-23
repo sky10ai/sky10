@@ -872,12 +872,11 @@ class Bridge:
 
     def run(self) -> None:
         self.hermes.wait_until_ready(self.stop_event)
-        if not self.skip_warmup:
-            try:
-                self.hermes.warm_up()
-            except Exception as exc:
-                log(f"Hermes API warm-up failed: {exc}")
         self.ensure_registered()
+        warmup_thread = None
+        if not self.skip_warmup:
+            warmup_thread = threading.Thread(target=self._warm_up_background, name="sky10-hermes-warmup", daemon=True)
+            warmup_thread.start()
 
         heartbeat_thread = threading.Thread(target=self._heartbeat_loop, name="sky10-hermes-heartbeat", daemon=True)
         heartbeat_thread.start()
@@ -887,6 +886,8 @@ class Bridge:
         finally:
             self.stop_event.set()
             heartbeat_thread.join(timeout=2)
+            if warmup_thread is not None:
+                warmup_thread.join(timeout=2)
 
     def shutdown(self, *_args: Any) -> None:
         self.stop_event.set()
@@ -894,6 +895,13 @@ class Bridge:
     def ensure_registered(self) -> None:
         self.agent_id = self.sky10.register(self.agent_name, self.agent_key_name, self.skills)
         log(f"Registered Hermes bridge as {self.agent_id} ({self.agent_name})")
+
+    def _warm_up_background(self) -> None:
+        try:
+            self.hermes.warm_up()
+        except Exception as exc:
+            if not self.stop_event.is_set():
+                log(f"Hermes API warm-up failed: {exc}")
 
     def _heartbeat_loop(self) -> None:
         while not self.stop_event.wait(HEARTBEAT_INTERVAL_SECONDS):
