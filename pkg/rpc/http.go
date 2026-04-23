@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"time"
@@ -31,8 +32,12 @@ func (s *Server) ServeHTTP(ctx context.Context, port int) error {
 
 	// Serve embedded web UI if assets are available, otherwise
 	// keep the JSON info endpoint at root for API-only mode.
-	if _, err := WebDist.ReadFile("web/dist/index.html"); err == nil {
-		mux.Handle("/", webUIHandler())
+	if WebDist != nil {
+		if _, err := fs.ReadFile(WebDist, "web/dist/index.html"); err == nil {
+			mux.Handle("/", webUIHandler())
+		} else {
+			mux.HandleFunc("GET /{$}", s.handleHTTPRoot)
+		}
 	} else {
 		mux.HandleFunc("GET /{$}", s.handleHTTPRoot)
 	}
