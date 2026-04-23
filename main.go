@@ -51,6 +51,7 @@ func main() {
 	root.AddCommand(commands.AppsCmd())
 	root.AddCommand(commands.UpdateCmd())
 	root.AddCommand(commands.DaemonCmd())
+	root.AddCommand(commands.MessagingCmd())
 
 	root.CompletionOptions.HiddenDefaultCmd = true
 	root.PersistentFlags().StringVar(&homeOverride, "home", "", "Root directory for local sky10 state")

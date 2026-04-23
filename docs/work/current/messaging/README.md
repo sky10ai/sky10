@@ -596,7 +596,11 @@ Secrets should not live directly in the messaging store:
 The recommended packaging split is:
 
 - broker built into `sky10`
-- platform adapters shipped as external binaries
+- official built-in adapters implemented in Go under
+  `pkg/messengers/adapters/*` and launched by self-exec of the main binary via
+  `sky10 messaging <adapter>`
+- optional third-party or extra official adapters can still ship as separate
+  binaries
 - agent shims shipped as external binaries or MCP-compatible local servers
 
 This gives:
@@ -621,7 +625,10 @@ The first package layout should center on:
 - `pkg/messaging/webhook`
 - `pkg/messaging/runtime`
 - `pkg/messaging/approval`
-- `pkg/messaging/adapters`
+- `pkg/messengers/adapters`
+- `pkg/messengers/adapters/imapsmtp`
+- `pkg/messengers/adapters/slack`
+- `pkg/messengers/adapters/telegram`
 
 This keeps the messaging domain independent from the current `pkg/agent`
 layout, which is important because messaging should still make sense if the

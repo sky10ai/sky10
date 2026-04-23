@@ -1,0 +1,57 @@
+package adapters
+
+import (
+	"fmt"
+	"sort"
+
+	"github.com/sky10/sky10/pkg/messengers/adapters/imapsmtp"
+	"github.com/sky10/sky10/pkg/messengers/adapters/shared"
+	"github.com/sky10/sky10/pkg/messengers/adapters/slack"
+	"github.com/sky10/sky10/pkg/messengers/adapters/telegram"
+)
+
+type Definition = shared.Definition
+
+var builtins = []Definition{
+	imapsmtp.Definition,
+	slack.Definition,
+	telegram.Definition,
+}
+
+// Builtins returns the built-in adapter definitions in stable name order.
+func Builtins() []Definition {
+	items := append([]Definition(nil), builtins...)
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Name < items[j].Name
+	})
+	return items
+}
+
+// Lookup finds one built-in adapter by name.
+func Lookup(name string) (Definition, bool) {
+	for _, definition := range builtins {
+		if definition.Name == name {
+			return definition, true
+		}
+	}
+	return Definition{}, false
+}
+
+// Names returns the sorted built-in adapter names.
+func Names() []string {
+	items := Builtins()
+	names := make([]string, 0, len(items))
+	for _, item := range items {
+		names = append(names, item.Name)
+	}
+	return names
+}
+
+// MustLookup returns one built-in adapter or panics when it is missing.
+func MustLookup(name string) Definition {
+	definition, ok := Lookup(name)
+	if !ok {
+		panic(fmt.Sprintf("messaging adapter %q is not registered", name))
+	}
+	return definition
+}

@@ -260,6 +260,9 @@ different messaging shapes.
 ### Checklist
 
 - [ ] Pick the first two adapters for MVP and keep the rest behind them.
+- [ ] Keep official built-in adapter code under `pkg/messengers/adapters/*`
+  and dispatch it through `sky10 messaging <adapter>` so `sky10` can self-exec
+  a child adapter process without shipping many binaries.
 - [ ] Implement a thread-oriented adapter (`gmail` or `slack`).
 - [ ] Implement a mailbox-oriented adapter (`gmail` or `imap-smtp`).
 - [ ] Implement one webhook-driven adapter.
