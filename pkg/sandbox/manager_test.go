@@ -343,6 +343,36 @@ func TestDefaultShellCommandHermesDocker(t *testing.T) {
 	}
 }
 
+func TestBuildStartArgsTemplateModelOverride(t *testing.T) {
+	t.Parallel()
+
+	m := &Manager{}
+
+	hermesArgs, err := m.buildStartArgs(context.Background(), Record{
+		Slug:     "hermes-dev",
+		Template: templateHermes,
+		Model:    "gpt-5.4",
+	}, "/tmp/hermes.yaml")
+	if err != nil {
+		t.Fatalf("buildStartArgs(hermes) error: %v", err)
+	}
+	if !strings.Contains(strings.Join(hermesArgs, "\n"), `.param.model = "gpt-5.4"`) {
+		t.Fatalf("buildStartArgs(hermes) = %v, want model override", hermesArgs)
+	}
+
+	ubuntuArgs, err := m.buildStartArgs(context.Background(), Record{
+		Slug:     "ubuntu-dev",
+		Template: templateUbuntu,
+		Model:    "gpt-5.4",
+	}, "/tmp/ubuntu.yaml")
+	if err != nil {
+		t.Fatalf("buildStartArgs(ubuntu) error: %v", err)
+	}
+	if strings.Contains(strings.Join(ubuntuArgs, "\n"), `.param.model = "gpt-5.4"`) {
+		t.Fatalf("buildStartArgs(ubuntu) = %v, want no model override", ubuntuArgs)
+	}
+}
+
 func waitForCreateToFinish(t *testing.T, m *Manager, name string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
