@@ -26,6 +26,10 @@ wait_for_openclaw_agent() {
   timeout 120s bash -lc "until curl -fsS http://127.0.0.1:9101/rpc -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"agent.list\",\"params\":{},\"id\":1}' | grep -F '\"name\":\"${OPENCLAW_AGENT_NAME}\"' >/dev/null; do sleep 2; done"
 }
 
+wait_for_openclaw_gateway() {
+  timeout 120s bash -lc 'until openclaw gateway status --require-rpc --timeout 2000 >/dev/null 2>&1; do sleep 2; done'
+}
+
 bootstrap_local_cli_pairing() {
   local list_json pending_id
 
@@ -137,6 +141,8 @@ EOF
 }
 
 cleanup() {
+  openclaw gateway stop >/dev/null 2>&1 || true
+  pkill -x sky10 >/dev/null 2>&1 || true
   if [ -n "${openclaw_pid:-}" ]; then
     kill "${openclaw_pid}" >/dev/null 2>&1 || true
   fi
@@ -239,7 +245,22 @@ xvfb_pid=$!
 
 openclaw gateway run >/tmp/openclaw-gateway.log 2>&1 &
 openclaw_pid=$!
+wait_for_openclaw_gateway
 wait_for_openclaw_agent
 bootstrap_local_cli_pairing
 
-wait -n "${sky10_pid}" "${xvfb_pid}" "${openclaw_pid}"
+while true; do
+  if ! curl -fsS http://127.0.0.1:9101/health >/dev/null 2>&1; then
+    echo >&2 "sky10 is not healthy"
+    exit 1
+  fi
+  if ! kill -0 "${xvfb_pid}" >/dev/null 2>&1; then
+    echo >&2 "Xvfb exited unexpectedly"
+    exit 1
+  fi
+  if ! openclaw gateway status --require-rpc --timeout 2000 >/dev/null 2>&1; then
+    echo >&2 "OpenClaw gateway is not healthy"
+    exit 1
+  fi
+  sleep 2
+done
