@@ -2,6 +2,7 @@
 
 | Date | Entry |
 |------|-------|
+| 22 | [Getting Docker Setup With Lima](22-Getting-Docker-Setup-With-Lima.md) — keep Lima as the VM substrate, add `openclaw-docker` and `hermes-docker` guest runtimes, move OpenClaw/Hermes packaging into Docker assets, and harden live rollout issues around UI cache, runtime state, service watchdogs, and Hermes bridge/image startup |
 | 22 | [ChatGPT Codex Integration](22-ChatGPT-Codex-Integration.md) — sky10-owned ChatGPT/Codex OAuth, local device credential storage, a minimal `/codex` chat surface on the ChatGPT Codex responses transport, popup/new-tab auth UX hardening, and the removal of the Codex CLI fallback |
 | 22 | [WebSocket File Attachments For Hermes And OpenClaw](22-WebSocket-File-Attachments-For-Hermes-And-OpenClaw.md) — structured websocket chat parts for files/images, host chat composer + transcript persistence updates, Hermes multimodal bridge support, OpenClaw media-context translation, and the guest asset/runtime rollout failures found during live image testing |
 | 20 | [OpenClaw WebSocket Streaming And Guest Upgrade Gotchas](20-OpenClaw-WebSocket-Streaming-And-Guest-Upgrade-Gotchas.md) — OpenClaw guest bridge parity on the April 19 websocket chat path, partial-stream follow-up via `onPartialReply`, guest `sky10` rollout gotchas for existing sandboxes, and the current root-owned OpenClaw install mismatch with self-upgrade expectations |

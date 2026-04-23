@@ -13,7 +13,6 @@
 
 - See [`todo/`](todo/) for follow-up work that is no longer active branch planning.
 - Device subsystem follow-up: [`todo/device-subsystem-followup.md`](todo/device-subsystem-followup.md)
-- VM runtime follow-up: [`todo/vm-runtime-colima-docker-consideration.md`](todo/vm-runtime-colima-docker-consideration.md)
 
 ## Past
 
