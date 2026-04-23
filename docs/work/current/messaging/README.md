@@ -627,8 +627,6 @@ The first package layout should center on:
 - `pkg/messaging/approval`
 - `pkg/messengers/adapters`
 - `pkg/messengers/adapters/imapsmtp`
-- `pkg/messengers/adapters/slack`
-- `pkg/messengers/adapters/telegram`
 
 This keeps the messaging domain independent from the current `pkg/agent`
 layout, which is important because messaging should still make sense if the

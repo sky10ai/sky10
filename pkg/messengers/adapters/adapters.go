@@ -2,29 +2,20 @@ package adapters
 
 import (
 	"fmt"
-	"sort"
 
 	"github.com/sky10/sky10/pkg/messengers/adapters/imapsmtp"
 	"github.com/sky10/sky10/pkg/messengers/adapters/shared"
-	"github.com/sky10/sky10/pkg/messengers/adapters/slack"
-	"github.com/sky10/sky10/pkg/messengers/adapters/telegram"
 )
 
 type Definition = shared.Definition
 
 var builtins = []Definition{
 	imapsmtp.Definition,
-	slack.Definition,
-	telegram.Definition,
 }
 
 // Builtins returns the built-in adapter definitions in stable name order.
 func Builtins() []Definition {
-	items := append([]Definition(nil), builtins...)
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].Name < items[j].Name
-	})
-	return items
+	return append([]Definition(nil), builtins...)
 }
 
 // Lookup finds one built-in adapter by name.

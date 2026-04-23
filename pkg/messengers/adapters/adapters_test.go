@@ -9,7 +9,7 @@ func TestBuiltinsReturnsStableSortedNames(t *testing.T) {
 	t.Parallel()
 
 	names := Names()
-	want := []string{"imap-smtp", "slack", "telegram"}
+	want := []string{"imap-smtp"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("Names() = %v, want %v", names, want)
 	}
