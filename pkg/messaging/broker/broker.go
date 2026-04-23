@@ -193,6 +193,43 @@ func (b *Broker) RegisterConnection(ctx context.Context, params RegisterConnecti
 	return nil
 }
 
+// UpsertConnection persists one connection and ensures a supervised adapter
+// process exists for it. Existing managed adapters for the same connection are
+// replaced so updated process specs take effect immediately.
+func (b *Broker) UpsertConnection(ctx context.Context, params RegisterConnectionParams) error {
+	if err := params.Connection.Validate(); err != nil {
+		return err
+	}
+	if err := params.Process.Validate(); err != nil {
+		return err
+	}
+
+	connection := cloneConnection(params.Connection)
+	if strings.TrimSpace(string(connection.Status)) == "" {
+		connection.Status = messaging.ConnectionStatusUnknown
+	}
+	if connection.UpdatedAt.IsZero() {
+		connection.UpdatedAt = b.now()
+	}
+
+	if _, ok := b.manager.Get(string(connection.ID)); ok {
+		if err := b.manager.Remove(string(connection.ID)); err != nil {
+			return err
+		}
+	}
+	if _, err := b.manager.Add(messagingruntime.ManagedAdapterSpec{
+		Key:     string(connection.ID),
+		Process: params.Process,
+	}); err != nil {
+		return err
+	}
+	if err := b.store.PutConnection(ctx, connection); err != nil {
+		_ = b.manager.Remove(string(connection.ID))
+		return err
+	}
+	return nil
+}
+
 // ConnectConnection waits for the adapter, computes runtime paths, and persists
 // the adapter's initial connection + identity state.
 func (b *Broker) ConnectConnection(ctx context.Context, connectionID messaging.ConnectionID) (ConnectResult, error) {

@@ -613,6 +613,26 @@ This gives:
 If JavaScript is attractive for adapters or shims, a self-contained sidecar
 runtime such as Bun-compiled executables is a plausible packaging option.
 
+## Current Daemon Integration
+
+The current `sky10 serve` path now:
+
+- instantiates a messaging broker over a KV-backed messaging store
+- resolves adapter credentials through `pkg/secrets`
+- mirrors approvals through the durable mailbox store when configured
+- restores persisted built-in connections on startup
+- re-launches built-in adapters through `sky10 messaging <adapter>`
+- runs a basic background poll loop for connected polling-based adapters
+- exposes a minimal RPC surface:
+  - `messaging.adapters`
+  - `messaging.connections`
+  - `messaging.connectBuiltin`
+  - `messaging.connectConnection`
+  - `messaging.pollConnection`
+
+This is not yet the full operator UX, but it means messaging now exists in the
+running daemon, not only in isolated package tests.
+
 ## Package Layout
 
 The first package layout should center on:

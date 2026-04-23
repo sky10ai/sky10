@@ -166,6 +166,13 @@ outbound orchestration, and event fanout.
 - [x] Add outbound operations that always flow through the broker.
 - [x] Stage adapter credentials into broker-owned runtime paths instead of
   leaking secret material into persisted messaging records.
+- [x] Instantiate the messaging broker in the daemon with the real
+  `pkg/secrets` resolver and mailbox-backed approval plumbing.
+- [x] Restore persisted built-in messaging connections on daemon startup and
+  reattach them to supervised adapter processes.
+- [x] Expose a minimal daemon RPC surface for built-in connection registration,
+  connect, list, and manual poll flows.
+- [x] Add a background poll loop for connected polling-based adapters.
 - [ ] Add event fanout to UI and northbound shims.
 - [x] Aggregate raw activity into human-facing workflow state for draft,
   approval, and send flows.
@@ -175,7 +182,7 @@ outbound orchestration, and event fanout.
 
 ### Exit Criteria
 
-- [ ] Inbound events from an adapter become durable conversation/message state.
+- [x] Inbound events from an adapter become durable conversation/message state.
 - [x] Drafts and sends can be created without platform-specific code leaking
   into the broker.
 - [x] The broker is the only place that decides whether a send proceeds.
@@ -260,13 +267,13 @@ different messaging shapes.
 ### Checklist
 
 - [ ] Pick the first two adapters for MVP and keep the rest behind them.
-- [ ] Keep official built-in adapter code under `pkg/messengers/adapters/*`
+- [x] Keep official built-in adapter code under `pkg/messengers/adapters/*`
   and dispatch it through `sky10 messaging <adapter>` so `sky10` can self-exec
   a child adapter process without shipping many binaries.
 - [ ] Implement a thread-oriented adapter (`gmail` or `slack`).
-- [ ] Implement a mailbox-oriented adapter (`gmail` or `imap-smtp`).
+- [x] Implement a mailbox-oriented adapter (`gmail` or `imap-smtp`).
 - [ ] Implement one webhook-driven adapter.
-- [ ] Implement one polling-driven adapter.
+- [x] Implement one polling-driven adapter.
 - [ ] Implement identity discovery for each adapter.
 - [ ] Implement honest platform-specific lookup/search support declarations.
 - [ ] Ensure `imap-smtp` is treated as mailbox/message search, not rich
@@ -274,7 +281,7 @@ different messaging shapes.
 - [ ] Implement inbound normalization for each adapter.
 - [ ] Implement draft/send or reply flow for each adapter.
 - [ ] Implement auth refresh and expired-credential handling.
-- [ ] Implement adapter-specific config validation.
+- [x] Implement adapter-specific config validation.
 - [ ] Add end-to-end tests for each first-party adapter path using mocks or
   deterministic fixtures.
 

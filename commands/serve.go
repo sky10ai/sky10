@@ -200,6 +200,9 @@ func ServeCmd() *cobra.Command {
 			go func() {
 				secretsRunErr <- secretsStore.Run(ctx)
 			}()
+			if err := setupMessaging(ctx, server, kvStore, mailboxStore, secretsStore, logger); err != nil {
+				return err
+			}
 			reconcileTrustedSecrets := func(reason string) {
 				reconcileCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 				defer cancel()
