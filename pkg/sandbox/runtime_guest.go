@@ -1,0 +1,183 @@
+package sandbox
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	skyid "github.com/sky10/sky10/pkg/id"
+)
+
+func (m *Manager) ensureGuestJoinedHostIdentity(ctx context.Context, rec Record, limactl string) (string, error) {
+	if m.hostIdentity == nil || m.issueIdentityInvite == nil {
+		return "", nil
+	}
+
+	hostIdentity, err := m.hostIdentity(ctx)
+	if err != nil {
+		return "", fmt.Errorf("resolving host identity for sandbox %q: %w", rec.Name, err)
+	}
+	hostIdentity = strings.TrimSpace(hostIdentity)
+	if hostIdentity == "" {
+		return "", fmt.Errorf("resolving host identity for sandbox %q: empty identity", rec.Name)
+	}
+
+	ipAddr, err := lookupLimaInstanceIPv4(ctx, m.outputCmd, limactl, rec.Slug)
+	if err != nil {
+		return "", fmt.Errorf("resolving guest IP for sandbox %q: %w", rec.Name, err)
+	}
+	if strings.TrimSpace(ipAddr) == "" {
+		return "", fmt.Errorf("resolving guest IP for sandbox %q: guest IP unavailable", rec.Name)
+	}
+	if err := m.updateIPAddress(rec.Slug, ipAddr); err != nil {
+		return "", err
+	}
+
+	guest, err := m.readGuestIdentity(ctx, rec, ipAddr)
+	if err != nil {
+		return "", err
+	}
+	if err := m.recordGuestIdentity(rec.Slug, guest); err != nil {
+		return "", err
+	}
+	guestIdentity := strings.TrimSpace(guest.Address)
+	if strings.EqualFold(guestIdentity, hostIdentity) {
+		m.appendLog(rec.Slug, "stdout", "guest sky10 already joined to host identity")
+		return hostIdentity, nil
+	}
+	if guest.DeviceCount > 1 {
+		return "", fmt.Errorf("guest sky10 in sandbox %q is already linked to identity %q", rec.Name, guestIdentity)
+	}
+
+	invite, err := m.issueIdentityInvite(ctx)
+	if err != nil {
+		return "", fmt.Errorf("creating host invite for sandbox %q: %w", rec.Name, err)
+	}
+	if invite == nil {
+		return "", fmt.Errorf("creating host invite for sandbox %q: no invite returned", rec.Name)
+	}
+	if strings.TrimSpace(invite.Code) == "" {
+		return "", fmt.Errorf("creating host invite for sandbox %q: empty invite code", rec.Name)
+	}
+	m.appendLog(rec.Slug, "stdout", "joining guest sky10 to host identity")
+
+	params := map[string]string{
+		"code": strings.TrimSpace(invite.Code),
+		"role": skyid.DeviceRoleSandbox,
+	}
+	var joinResult struct {
+		DeviceID     string `json:"device_id"`
+		DevicePubKey string `json:"device_pubkey"`
+	}
+	if err := m.guestRPC(ctx, ipAddr, "identity.join", params, &joinResult); err != nil {
+		return "", fmt.Errorf("joining guest sky10 for sandbox %q: %w", rec.Name, err)
+	}
+	if err := waitForGuestSky10(ctx, m.outputCmd, limactl, rec.Slug, openClawReadyTimeout); err != nil {
+		return "", fmt.Errorf("waiting for guest sky10 after join: %w", err)
+	}
+	if err := m.recordGuestDevice(rec.Slug, joinResult.DeviceID, joinResult.DevicePubKey); err != nil {
+		return "", err
+	}
+	m.appendLog(rec.Slug, "stdout", "guest sky10 joined host identity")
+	return hostIdentity, nil
+}
+
+func (m *Manager) ensureHostConnectedGuestAgent(ctx context.Context, rec Record, hostIdentity string) error {
+	if m.hostRPC == nil {
+		return nil
+	}
+	hostIdentity = strings.TrimSpace(hostIdentity)
+	if hostIdentity == "" {
+		return nil
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, openClawReadyTimeout)
+	defer cancel()
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	var lastErr error
+	for {
+		attemptedDirect := false
+		if m.guestRPC != nil && strings.TrimSpace(rec.IPAddress) != "" {
+			var guest guestSkylinkStatus
+			if err := m.guestRPC(waitCtx, rec.IPAddress, "skylink.status", nil, &guest); err != nil {
+				lastErr = fmt.Errorf("reading guest skylink status for sandbox %q: %w", rec.Name, err)
+			} else if strings.TrimSpace(guest.PeerID) != "" && len(guest.Addrs) > 0 {
+				attemptedDirect = true
+				if err := m.connectHostToGuestPeer(waitCtx, rec, guest); err != nil {
+					lastErr = fmt.Errorf("connecting host sky10 directly to guest peer %q: %w", guest.PeerID, err)
+				}
+			}
+		}
+		if !attemptedDirect {
+			if err := m.hostRPC(waitCtx, "skylink.connect", map[string]string{"address": hostIdentity}, nil); err != nil {
+				lastErr = fmt.Errorf("connecting host sky10 to guest identity %q: %w", hostIdentity, err)
+			}
+		}
+
+		if err := m.waitForHostAgentVisible(waitCtx, rec); err != nil {
+			lastErr = err
+		} else {
+			m.appendLog(rec.Slug, "stdout", "host sky10 connected to guest peer")
+			return nil
+		}
+
+		select {
+		case <-waitCtx.Done():
+			if lastErr != nil {
+				return lastErr
+			}
+			return fmt.Errorf("timed out waiting for host sky10 to connect to sandbox %q", rec.Name)
+		case <-ticker.C:
+		}
+	}
+}
+
+func (m *Manager) connectHostToGuestPeer(ctx context.Context, rec Record, guest guestSkylinkStatus) error {
+	if m.hostRPC == nil {
+		return nil
+	}
+	peerID := strings.TrimSpace(guest.PeerID)
+	if peerID == "" {
+		return fmt.Errorf("guest peer id is required")
+	}
+	multiaddrs := filterGuestMultiaddrsForIPAddress(guest.Addrs, rec.IPAddress)
+	if len(multiaddrs) == 0 {
+		return fmt.Errorf("no guest multiaddrs match sandbox ip %q", rec.IPAddress)
+	}
+	params := map[string]interface{}{
+		"peer_id":    peerID,
+		"multiaddrs": multiaddrs,
+	}
+	return m.hostRPC(ctx, "skylink.connectPeer", params, nil)
+}
+
+func (m *Manager) waitForHostAgentVisible(ctx context.Context, rec Record) error {
+	type agentListResult struct {
+		Agents []struct {
+			Name string `json:"name"`
+		} `json:"agents"`
+	}
+
+	var listed agentListResult
+	if err := m.hostRPC(ctx, "agent.list", nil, &listed); err != nil {
+		return fmt.Errorf("listing host agents after guest join: %w", err)
+	}
+	for _, agent := range listed.Agents {
+		if agent.Name == rec.Name || agent.Name == rec.Slug {
+			return nil
+		}
+	}
+	return fmt.Errorf("guest agent %q not yet visible on host", rec.Name)
+}
+
+func (m *Manager) readGuestIdentity(ctx context.Context, rec Record, ipAddr string) (guestIdentity, error) {
+	var guest guestIdentity
+	if err := m.guestRPC(ctx, ipAddr, "identity.show", nil, &guest); err != nil {
+		return guestIdentity{}, fmt.Errorf("reading guest identity for sandbox %q: %w", rec.Name, err)
+	}
+	return guest, nil
+}
