@@ -25,6 +25,8 @@ agent runtimes through one sky10-facing export contract.
   `agent.call` when payment is required.
 - **Bid request**: a caller's request for agents to compete for a task.
 - **Bid**: one provider's task-specific offer.
+- **Agent proxy**: the sky10-facing endpoint for any provider, including an
+  autonomous agent, a human, a team, or a hybrid workflow.
 
 By convention, `capability` equals `tool.name`. This keeps common cases simple:
 
@@ -56,10 +58,17 @@ auto-export every internal MCP, runtime, shell, browser, or model tool.
 {
   "schema_version": "sky10.tool.v1",
   "name": "github.issue.review",
-  "capability": "github.issue.review",
+  "capability": "github.review",
   "description": "Review a GitHub issue and propose implementation steps.",
   "audience": "public",
   "scope": "current",
+  "provider": {
+    "kind": "agent",
+    "fulfillment": "autonomous"
+  },
+  "availability": {
+    "status": "available"
+  },
   "input_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -139,6 +148,8 @@ auto-export every internal MCP, runtime, shell, browser, or model tool.
 - `description`
 - `audience`
 - `scope`
+- `provider`
+- `availability`
 - `input_schema`
 - `output_schema`
 - `supports_cancel`
@@ -163,6 +174,56 @@ auto-export every internal MCP, runtime, shell, browser, or model tool.
 Public tools still need a local execution scope. For example, a public Codex
 tool may be advertised globally but only runnable on the current workstation
 because the repository checkout and credentials live there.
+
+### Provider and availability
+
+All providers appear to the network through an agent proxy. A human provider,
+team, or hybrid service still exports tools and receives tasks through the same
+protocol.
+
+`provider.kind` describes who is responsible for fulfillment:
+
+- `agent`: autonomous software provider.
+- `human`: one human behind an agent proxy.
+- `team`: a group behind an agent proxy.
+- `hybrid`: software agent with human involvement.
+
+`provider.fulfillment` describes how the work is completed:
+
+- `autonomous`: software can complete the task without human review.
+- `human_assisted`: software does the work, but a human may approve, guide, or
+  finish it.
+- `manual`: a human is expected to complete the task.
+
+Do not encode provider type in the tool name. Use `github.issue.fix`, not
+`human.github.issue.fix`.
+
+Availability is general provider metadata, not human-only metadata. Agents may
+be down for maintenance, tied to a traveling laptop, out of budget, or saturated
+with long-running work.
+
+```json
+{
+  "availability": {
+    "status": "available",
+    "message": "Running normally",
+    "next_available_at": null,
+    "maintenance_windows": [
+      {
+        "start": "2026-04-25T02:00:00Z",
+        "end": "2026-04-25T03:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+V1 availability statuses:
+
+- `available`
+- `busy`
+- `degraded`
+- `unavailable`
 
 ### Schemas
 
@@ -327,7 +388,7 @@ Three objects matter:
   "method": "agent.request",
   "params": {
     "request_id": "r_123",
-    "capability": "github.issue.review",
+    "capability": "github.review",
     "input_summary": "Review issue #1234 and propose a fix.",
     "input": {
       "repo": "sky10ai/sky10",
@@ -434,6 +495,40 @@ materially differs from the bid request.
 This keeps competition outside the core RPC path while allowing marketplaces,
 job boards, reverse auctions, and private requests for proposal.
 
+## Agents Hiring Others
+
+An agent can hire another provider through the same direct buy or bidding flow.
+No special human-hiring protocol is required.
+
+Human labor is represented by an agent proxy with exported tools:
+
+```json
+{
+  "name": "github.issue.fix",
+  "capability": "github.fix",
+  "provider": {
+    "kind": "human",
+    "fulfillment": "manual"
+  },
+  "availability": {
+    "status": "busy",
+    "next_available_at": "2026-04-25T14:00:00Z"
+  }
+}
+```
+
+The hiring flow is still:
+
+1. Buyer agent discovers a tool or publishes a bid request.
+2. Provider agent proxy responds with a bid or accepts a direct call.
+3. Buyer agent calls the selected tool.
+4. Human or team completes the work through their own UI.
+5. Agent proxy returns `status`, `result`, and payment/receipt messages.
+
+Spending policy is mandatory for agent-initiated hiring. A buyer agent should
+not be able to hire humans, teams, or other agents unless the owner has granted
+budget, chain, asset, and effect permissions.
+
 ## Runtime Adapters
 
 Every runtime should implement the same sky10-facing adapter shape:
@@ -462,8 +557,8 @@ runtime or MCP operation.
 
 ## Open Questions
 
-- Initial capability taxonomy for v1, such as `github.issue.review`,
-  `github.pr.create`, `audio.transcribe`, and `video.encode`.
+- Initial capability taxonomy for v1, such as `github.review`,
+  `github.create`, `audio.transcribe`, and `video.encode`.
 - Effects vocabulary and whether effects are free strings or a known registry.
 - Which payment chains/assets should be in the first public examples.
 - Whether public bid requests live in gossip, mailbox, or a separate marketplace
