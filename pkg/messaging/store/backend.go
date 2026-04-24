@@ -11,6 +11,7 @@ import (
 type Backend interface {
 	Load(ctx context.Context) (Snapshot, error)
 	PutConnection(ctx context.Context, connection messaging.Connection) error
+	DeleteConnection(ctx context.Context, connectionID messaging.ConnectionID) error
 	PutIdentity(ctx context.Context, identity messaging.Identity) error
 	ReplaceConnectionIdentities(ctx context.Context, connectionID messaging.ConnectionID, identities []messaging.Identity) error
 	PutConversation(ctx context.Context, conversation messaging.Conversation) error

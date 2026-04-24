@@ -678,13 +678,18 @@ The current `sky10 serve` path now:
 - resolves adapter credentials through `pkg/secrets`
 - mirrors approvals through the durable mailbox store when configured
 - restores persisted built-in connections on startup
+- skips disabled connections during startup restore
 - re-launches built-in adapters through `sky10 messaging <adapter>`
 - runs a basic background poll loop for connected polling-based adapters
 - exposes a minimal RPC surface:
   - `messaging.adapters`
   - `messaging.connections`
+  - `messaging.createConnection`
   - `messaging.connectBuiltin`
   - `messaging.connectConnection`
+  - `messaging.refreshConnection`
+  - `messaging.disableConnection`
+  - `messaging.deleteConnection`
   - `messaging.pollConnection`
   - `messaging.listContainers`
   - `messaging.moveMessages`

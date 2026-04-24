@@ -226,6 +226,69 @@ func (idx *recordIndex) putConnection(connection messaging.Connection) {
 	idx.connections[connection.ID] = cloneConnection(connection)
 }
 
+func (idx *recordIndex) deleteConnection(connectionID messaging.ConnectionID) {
+	delete(idx.connections, connectionID)
+
+	for identityID, identity := range idx.identities {
+		if identity.ConnectionID != connectionID {
+			continue
+		}
+		delete(idx.identities, identityID)
+		idx.removeIdentityFromConnection(connectionID, identityID)
+	}
+	for key, placement := range idx.placements {
+		if placement.ConnectionID != connectionID {
+			continue
+		}
+		idx.deletePlacement(key.MessageID, key.ContainerID)
+	}
+	for messageID, message := range idx.messages {
+		if message.ConnectionID != connectionID {
+			continue
+		}
+		delete(idx.messages, messageID)
+		idx.removeMessageFromConversation(message.ConversationID, messageID)
+	}
+	for conversationID, conversation := range idx.conversations {
+		if conversation.ConnectionID != connectionID {
+			continue
+		}
+		delete(idx.conversations, conversationID)
+		idx.removeConversationFromConnection(connectionID, conversationID)
+	}
+	for containerID, container := range idx.containers {
+		if container.ConnectionID != connectionID {
+			continue
+		}
+		delete(idx.containers, containerID)
+		idx.removeContainerFromConnection(connectionID, containerID)
+	}
+	for approvalID, approval := range idx.approvals {
+		if approval.ConnectionID != connectionID {
+			continue
+		}
+		delete(idx.approvals, approvalID)
+		idx.removeApprovalFromDraft(approval.DraftID, approvalID)
+		idx.removeApprovalFromConnection(connectionID, approvalID)
+	}
+	for draftID, draft := range idx.drafts {
+		if draft.ConnectionID != connectionID {
+			continue
+		}
+		delete(idx.drafts, draftID)
+		idx.removeDraftFromConversation(draft.ConversationID, draftID)
+	}
+	for exposureID, exposure := range idx.exposures {
+		if exposure.ConnectionID != connectionID {
+			continue
+		}
+		delete(idx.exposures, exposureID)
+		idx.removeExposureFromConnection(connectionID, exposureID)
+	}
+	delete(idx.eventsByConnection, connectionID)
+	delete(idx.checkpointsByConnection, connectionID)
+}
+
 func (idx *recordIndex) putIdentity(identity messaging.Identity) {
 	identity = cloneIdentity(identity)
 	existing, exists := idx.identities[identity.ID]

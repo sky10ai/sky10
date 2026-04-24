@@ -53,6 +53,12 @@ type ConnectResult struct {
 	Paths      protocol.RuntimePaths `json:"paths"`
 }
 
+// DeleteConnectionResult reports a completed broker-side connection deletion.
+type DeleteConnectionResult struct {
+	ConnectionID messaging.ConnectionID `json:"connection_id"`
+	Deleted      bool                   `json:"deleted"`
+}
+
 // PollResult reports the broker's persisted poll outcome.
 type PollResult struct {
 	Connection    messaging.Connection     `json:"connection"`
@@ -165,43 +171,25 @@ func (b *Broker) Close() error {
 // process. The adapter process is described during startup by the runtime
 // manager, but broker-level connect happens separately.
 func (b *Broker) RegisterConnection(ctx context.Context, params RegisterConnectionParams) error {
-	if err := params.Connection.Validate(); err != nil {
-		return err
-	}
-	if err := params.Process.Validate(); err != nil {
-		return err
-	}
-
-	connection := cloneConnection(params.Connection)
-	if strings.TrimSpace(string(connection.Status)) == "" {
-		connection.Status = messaging.ConnectionStatusUnknown
-	}
-	if connection.UpdatedAt.IsZero() {
-		connection.UpdatedAt = b.now()
-	}
-
-	if _, err := b.manager.Add(messagingruntime.ManagedAdapterSpec{
-		Key:     string(connection.ID),
-		Process: params.Process,
-	}); err != nil {
-		return err
-	}
-	if err := b.store.PutConnection(ctx, connection); err != nil {
-		_ = b.manager.Remove(string(connection.ID))
-		return err
-	}
-	return nil
+	_, err := b.createManagedConnection(ctx, params, false)
+	return err
 }
 
-// UpsertConnection persists one connection and ensures a supervised adapter
-// process exists for it. Existing managed adapters for the same connection are
-// replaced so updated process specs take effect immediately.
-func (b *Broker) UpsertConnection(ctx context.Context, params RegisterConnectionParams) error {
+// CreateConnection persists one new connection and starts supervising its
+// adapter process without connecting it. Duplicate connection IDs are rejected.
+func (b *Broker) CreateConnection(ctx context.Context, params RegisterConnectionParams) (messaging.Connection, error) {
+	return b.createManagedConnection(ctx, params, false)
+}
+
+func (b *Broker) createManagedConnection(ctx context.Context, params RegisterConnectionParams, replace bool) (messaging.Connection, error) {
 	if err := params.Connection.Validate(); err != nil {
-		return err
+		return messaging.Connection{}, err
+	}
+	if _, exists := b.store.GetConnection(params.Connection.ID); exists && !replace {
+		return messaging.Connection{}, fmt.Errorf("messaging connection %s already exists", params.Connection.ID)
 	}
 	if err := params.Process.Validate(); err != nil {
-		return err
+		return messaging.Connection{}, err
 	}
 
 	connection := cloneConnection(params.Connection)
@@ -213,21 +201,120 @@ func (b *Broker) UpsertConnection(ctx context.Context, params RegisterConnection
 	}
 
 	if _, ok := b.manager.Get(string(connection.ID)); ok {
+		if !replace {
+			return messaging.Connection{}, fmt.Errorf("managed adapter %q already exists", connection.ID)
+		}
 		if err := b.manager.Remove(string(connection.ID)); err != nil {
-			return err
+			return messaging.Connection{}, err
 		}
 	}
-	if _, err := b.manager.Add(messagingruntime.ManagedAdapterSpec{
-		Key:     string(connection.ID),
-		Process: params.Process,
-	}); err != nil {
-		return err
+
+	if connection.Status != messaging.ConnectionStatusDisabled {
+		if _, err := b.manager.Add(messagingruntime.ManagedAdapterSpec{
+			Key:     string(connection.ID),
+			Process: params.Process,
+		}); err != nil {
+			return messaging.Connection{}, err
+		}
 	}
 	if err := b.store.PutConnection(ctx, connection); err != nil {
-		_ = b.manager.Remove(string(connection.ID))
-		return err
+		_ = b.removeManagedAdapterIfPresent(string(connection.ID))
+		return messaging.Connection{}, err
 	}
-	return nil
+	return connection, nil
+}
+
+// UpsertConnection persists one connection and ensures a supervised adapter
+// process exists for it. Existing managed adapters for the same connection are
+// replaced so updated process specs take effect immediately.
+func (b *Broker) UpsertConnection(ctx context.Context, params RegisterConnectionParams) error {
+	_, err := b.createManagedConnection(ctx, params, true)
+	return err
+}
+
+// RefreshConnection refreshes adapter-owned auth/session state and persists
+// any updated connection metadata and identities.
+func (b *Broker) RefreshConnection(ctx context.Context, connectionID messaging.ConnectionID) (ConnectResult, error) {
+	connection, adapterClient, paths, describe, err := b.prepareAdapterCall(ctx, connectionID)
+	if err != nil {
+		return ConnectResult{}, err
+	}
+	credential, err := b.resolveConnectionCredential(ctx, connection, paths)
+	if err != nil {
+		return ConnectResult{}, err
+	}
+
+	result, err := adapterClient.Refresh(ctx, protocol.RefreshParams{
+		Connection: connection,
+		Paths:      paths,
+		Credential: credential,
+	})
+	if err != nil {
+		return ConnectResult{}, err
+	}
+	return b.persistConnectionResult(ctx, connection, paths, describe, result, result.Identities != nil)
+}
+
+// DisableConnection stops broker supervision for one connection and persists a
+// disabled status. Disabled connections are not restored or polled.
+func (b *Broker) DisableConnection(ctx context.Context, connectionID messaging.ConnectionID) (messaging.Connection, error) {
+	connection, ok := b.store.GetConnection(connectionID)
+	if !ok {
+		return messaging.Connection{}, fmt.Errorf("messaging connection %s not found", connectionID)
+	}
+	paths := b.runtimePathsForConnection(connection)
+	if err := b.removeManagedAdapterIfPresent(string(connectionID)); err != nil {
+		return messaging.Connection{}, err
+	}
+	now := b.now()
+	connection.Status = messaging.ConnectionStatusDisabled
+	connection.UpdatedAt = now
+	if err := b.store.PutConnection(ctx, connection); err != nil {
+		return messaging.Connection{}, err
+	}
+	if err := b.store.AppendEvent(ctx, messaging.Event{
+		ID:           messaging.EventID(b.newID()),
+		Type:         messaging.EventTypeConnectionUpdated,
+		ConnectionID: connection.ID,
+		Timestamp:    now,
+		Metadata: map[string]string{
+			"status": string(connection.Status),
+		},
+	}); err != nil {
+		return messaging.Connection{}, err
+	}
+	if err := removeRuntimePaths(paths.SecretsDir); err != nil {
+		return messaging.Connection{}, err
+	}
+	return connection, nil
+}
+
+// DeleteConnection stops broker supervision and removes the connection's live
+// broker-owned state. Operator workflow summaries are retained by the store as
+// audit history.
+func (b *Broker) DeleteConnection(ctx context.Context, connectionID messaging.ConnectionID) (DeleteConnectionResult, error) {
+	connection, ok := b.store.GetConnection(connectionID)
+	if !ok {
+		return DeleteConnectionResult{}, fmt.Errorf("messaging connection %s not found", connectionID)
+	}
+	paths := b.runtimePathsForConnection(connection)
+	if err := b.removeManagedAdapterIfPresent(string(connectionID)); err != nil {
+		return DeleteConnectionResult{}, err
+	}
+	if err := b.store.DeleteConnection(ctx, connectionID); err != nil {
+		return DeleteConnectionResult{}, err
+	}
+	if err := removeRuntimePaths(paths.RootDir, paths.BlobDir, paths.StagingDir); err != nil {
+		return DeleteConnectionResult{}, err
+	}
+	return DeleteConnectionResult{ConnectionID: connectionID, Deleted: true}, nil
+}
+
+func (b *Broker) removeManagedAdapterIfPresent(key string) error {
+	if _, ok := b.manager.Get(key); !ok {
+		return nil
+	}
+	return b.manager.Remove(key)
 }
 
 // ConnectConnection waits for the adapter, computes runtime paths, and persists
@@ -251,6 +338,10 @@ func (b *Broker) ConnectConnection(ctx context.Context, connectionID messaging.C
 		return ConnectResult{}, err
 	}
 
+	return b.persistConnectionResult(ctx, connection, paths, describe, result, true)
+}
+
+func (b *Broker) persistConnectionResult(ctx context.Context, connection messaging.Connection, paths protocol.RuntimePaths, describe protocol.DescribeResult, result protocol.ConnectResult, replaceIdentities bool) (ConnectResult, error) {
 	now := b.now()
 	if result.Auth.Configured() {
 		connection.Auth = result.Auth
@@ -261,33 +352,43 @@ func (b *Broker) ConnectConnection(ctx context.Context, connectionID messaging.C
 	if strings.TrimSpace(string(result.Status)) != "" {
 		connection.Status = result.Status
 	}
+	if connection.Status == messaging.ConnectionStatusConnected && connection.ConnectedAt.IsZero() {
+		connection.ConnectedAt = now
+	}
 	connection.UpdatedAt = now
 
 	if err := b.store.PutConnection(ctx, connection); err != nil {
 		return ConnectResult{}, err
 	}
-	if err := b.store.ReplaceConnectionIdentities(ctx, connection.ID, result.Identities); err != nil {
-		return ConnectResult{}, err
+	if replaceIdentities {
+		if err := b.store.ReplaceConnectionIdentities(ctx, connection.ID, result.Identities); err != nil {
+			return ConnectResult{}, err
+		}
 	}
 	if err := b.store.AppendEvent(ctx, messaging.Event{
 		ID:           messaging.EventID(b.newID()),
 		Type:         messaging.EventTypeConnectionUpdated,
 		ConnectionID: connection.ID,
 		Timestamp:    now,
+		Metadata: map[string]string{
+			"status": string(connection.Status),
+		},
 	}); err != nil {
 		return ConnectResult{}, err
 	}
-	for _, identity := range result.Identities {
-		if err := b.store.AppendEvent(ctx, messaging.Event{
-			ID:           messaging.EventID(b.newID()),
-			Type:         messaging.EventTypeIdentityDiscovered,
-			ConnectionID: connection.ID,
-			Timestamp:    now,
-			Metadata: map[string]string{
-				"identity_id": string(identity.ID),
-			},
-		}); err != nil {
-			return ConnectResult{}, err
+	if replaceIdentities {
+		for _, identity := range result.Identities {
+			if err := b.store.AppendEvent(ctx, messaging.Event{
+				ID:           messaging.EventID(b.newID()),
+				Type:         messaging.EventTypeIdentityDiscovered,
+				ConnectionID: connection.ID,
+				Timestamp:    now,
+				Metadata: map[string]string{
+					"identity_id": string(identity.ID),
+				},
+			}); err != nil {
+				return ConnectResult{}, err
+			}
 		}
 	}
 
@@ -377,6 +478,9 @@ func (b *Broker) prepareAdapterCall(ctx context.Context, connectionID messaging.
 	connection, ok := b.store.GetConnection(connectionID)
 	if !ok {
 		return messaging.Connection{}, nil, protocol.RuntimePaths{}, protocol.DescribeResult{}, fmt.Errorf("messaging connection %s not found", connectionID)
+	}
+	if connection.Status == messaging.ConnectionStatusDisabled {
+		return messaging.Connection{}, nil, protocol.RuntimePaths{}, protocol.DescribeResult{}, fmt.Errorf("messaging connection %s is disabled", connectionID)
 	}
 	paths := b.runtimePathsForConnection(connection)
 	if err := ensureRuntimePaths(paths); err != nil {
@@ -605,6 +709,23 @@ func ensureRuntimePaths(paths protocol.RuntimePaths) error {
 	if strings.TrimSpace(paths.SecretsDir) != "" {
 		if err := os.MkdirAll(paths.SecretsDir, 0o700); err != nil {
 			return fmt.Errorf("create runtime path %s: %w", paths.SecretsDir, err)
+		}
+	}
+	return nil
+}
+
+func removeRuntimePaths(paths ...string) error {
+	seen := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("remove runtime path %s: %w", path, err)
 		}
 	}
 	return nil

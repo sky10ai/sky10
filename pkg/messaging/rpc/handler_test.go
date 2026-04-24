@@ -134,6 +134,86 @@ func TestHandlerConnectBuiltinAndPoll(t *testing.T) {
 	}
 }
 
+func TestHandlerConnectionLifecycleMethods(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	handler := newTestHandler(t, func(adapterID string) (messagingruntime.ProcessSpec, error) {
+		if adapterID != "imap-smtp" {
+			t.Fatalf("resolver adapterID = %q, want imap-smtp", adapterID)
+		}
+		return messagingruntime.ProcessSpec{
+			Path: helperProcessExecutableForTests(),
+			Args: []string{"-test.run=TestMessagingRPCHandlerHelperProcess", "--"},
+			Env:  []string{"GO_WANT_HELPER_MESSAGING_RPC_ADAPTER=1"},
+		}, nil
+	})
+
+	connection := messaging.Connection{
+		ID:        "imap/work",
+		AdapterID: "imap-smtp",
+		Label:     "Work Mail",
+		Status:    messaging.ConnectionStatusConnecting,
+	}
+	result, err, handled := handler.Dispatch(ctx, "messaging.createConnection", mustJSON(t, connectBuiltinParams{Connection: connection}))
+	if err != nil {
+		t.Fatalf("Dispatch(createConnection) error = %v", err)
+	}
+	if !handled {
+		t.Fatal("Dispatch(createConnection) handled = false, want true")
+	}
+	if result.(messaging.Connection).ID != connection.ID {
+		t.Fatalf("created connection = %+v, want %s", result, connection.ID)
+	}
+
+	result, err, handled = handler.Dispatch(ctx, "messaging.connectConnection", mustJSON(t, connectionParams{ConnectionID: connection.ID}))
+	if err != nil {
+		t.Fatalf("Dispatch(connectConnection) error = %v", err)
+	}
+	if !handled {
+		t.Fatal("Dispatch(connectConnection) handled = false, want true")
+	}
+	if result.(messagingbroker.ConnectResult).Connection.Status != messaging.ConnectionStatusConnected {
+		t.Fatalf("connect result = %+v, want connected", result)
+	}
+
+	result, err, handled = handler.Dispatch(ctx, "messaging.refreshConnection", mustJSON(t, connectionParams{ConnectionID: connection.ID}))
+	if err != nil {
+		t.Fatalf("Dispatch(refreshConnection) error = %v", err)
+	}
+	if !handled {
+		t.Fatal("Dispatch(refreshConnection) handled = false, want true")
+	}
+	if result.(messagingbroker.ConnectResult).Connection.Metadata["refreshed"] != "true" {
+		t.Fatalf("refresh result = %+v, want refreshed metadata", result)
+	}
+
+	result, err, handled = handler.Dispatch(ctx, "messaging.disableConnection", mustJSON(t, connectionParams{ConnectionID: connection.ID}))
+	if err != nil {
+		t.Fatalf("Dispatch(disableConnection) error = %v", err)
+	}
+	if !handled {
+		t.Fatal("Dispatch(disableConnection) handled = false, want true")
+	}
+	if result.(messaging.Connection).Status != messaging.ConnectionStatusDisabled {
+		t.Fatalf("disable result = %+v, want disabled", result)
+	}
+
+	result, err, handled = handler.Dispatch(ctx, "messaging.deleteConnection", mustJSON(t, connectionParams{ConnectionID: connection.ID}))
+	if err != nil {
+		t.Fatalf("Dispatch(deleteConnection) error = %v", err)
+	}
+	if !handled {
+		t.Fatal("Dispatch(deleteConnection) handled = false, want true")
+	}
+	if !result.(messagingbroker.DeleteConnectionResult).Deleted {
+		t.Fatalf("delete result = %+v, want deleted", result)
+	}
+	if got := handler.store.ListConnections(); len(got) != 0 {
+		t.Fatalf("ListConnections() = %+v, want empty", got)
+	}
+}
+
 func TestHandlerConnectBuiltinRequiresResolver(t *testing.T) {
 	t.Parallel()
 
@@ -260,6 +340,19 @@ func runMessagingRPCHandlerHelperProcess() error {
 						CanSend:      true,
 						IsDefault:    true,
 					}},
+				}),
+			}); err != nil {
+				return err
+			}
+		case string(protocol.MethodRefresh):
+			if err := enc.Write(messagingruntime.Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result: mustJSONRaw(protocol.RefreshResult{
+					Status: messaging.ConnectionStatusConnected,
+					Metadata: map[string]string{
+						"refreshed": "true",
+					},
 				}),
 			}); err != nil {
 				return err

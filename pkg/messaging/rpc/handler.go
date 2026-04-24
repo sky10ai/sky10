@@ -54,11 +54,23 @@ func (h *Handler) Dispatch(ctx context.Context, method string, params json.RawMe
 		return h.rpcAdapters(), nil, true
 	case "messaging.connections":
 		return h.rpcConnections(), nil, true
+	case "messaging.createConnection":
+		result, err := h.rpcCreateConnection(ctx, params)
+		return result, err, true
 	case "messaging.connectBuiltin":
 		result, err := h.rpcConnectBuiltin(ctx, params)
 		return result, err, true
 	case "messaging.connectConnection":
 		result, err := h.rpcConnectConnection(ctx, params)
+		return result, err, true
+	case "messaging.refreshConnection":
+		result, err := h.rpcRefreshConnection(ctx, params)
+		return result, err, true
+	case "messaging.disableConnection":
+		result, err := h.rpcDisableConnection(ctx, params)
+		return result, err, true
+	case "messaging.deleteConnection":
+		result, err := h.rpcDeleteConnection(ctx, params)
 		return result, err, true
 	case "messaging.pollConnection":
 		result, err := h.rpcPollConnection(ctx, params)
@@ -171,6 +183,29 @@ func (h *Handler) rpcConnections() map[string]interface{} {
 	}
 }
 
+func (h *Handler) rpcCreateConnection(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	if h.processResolver == nil {
+		return nil, fmt.Errorf("messaging builtin process resolver is not configured")
+	}
+
+	var p connectBuiltinParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if err := p.Connection.Validate(); err != nil {
+		return nil, err
+	}
+
+	process, err := h.processResolver(string(p.Connection.AdapterID))
+	if err != nil {
+		return nil, err
+	}
+	return h.broker.CreateConnection(ctx, messagingbroker.RegisterConnectionParams{
+		Connection: p.Connection,
+		Process:    process,
+	})
+}
+
 func (h *Handler) rpcConnectBuiltin(ctx context.Context, params json.RawMessage) (interface{}, error) {
 	if h.processResolver == nil {
 		return nil, fmt.Errorf("messaging builtin process resolver is not configured")
@@ -203,6 +238,30 @@ func (h *Handler) rpcConnectConnection(ctx context.Context, params json.RawMessa
 		return nil, err
 	}
 	return h.broker.ConnectConnection(ctx, p.ConnectionID)
+}
+
+func (h *Handler) rpcRefreshConnection(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	p, err := parseConnectionParams(params)
+	if err != nil {
+		return nil, err
+	}
+	return h.broker.RefreshConnection(ctx, p.ConnectionID)
+}
+
+func (h *Handler) rpcDisableConnection(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	p, err := parseConnectionParams(params)
+	if err != nil {
+		return nil, err
+	}
+	return h.broker.DisableConnection(ctx, p.ConnectionID)
+}
+
+func (h *Handler) rpcDeleteConnection(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	p, err := parseConnectionParams(params)
+	if err != nil {
+		return nil, err
+	}
+	return h.broker.DeleteConnection(ctx, p.ConnectionID)
 }
 
 func (h *Handler) rpcPollConnection(ctx context.Context, params json.RawMessage) (interface{}, error) {

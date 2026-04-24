@@ -89,6 +89,10 @@ func restoreMessagingConnections(
 		return fmt.Errorf("messaging restore requires broker and store")
 	}
 	for _, connection := range store.ListConnections() {
+		if connection.Status == messaging.ConnectionStatusDisabled {
+			logger.Info("skipping disabled messaging connection restore", "connection_id", connection.ID, "adapter_id", connection.AdapterID)
+			continue
+		}
 		process, err := processResolver(string(connection.AdapterID))
 		if err != nil {
 			logger.Warn("skipping messaging connection restore", "connection_id", connection.ID, "adapter_id", connection.AdapterID, "error", err)

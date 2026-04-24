@@ -133,6 +133,66 @@ func (b *KVBackend) PutConnection(ctx context.Context, connection messaging.Conn
 	return b.putJSON(ctx, b.connectionKey(connection.ID), cloneConnection(connection))
 }
 
+// DeleteConnection removes one connection and the broker-owned live state that
+// is scoped to it. Operator workflows are intentionally retained as audit
+// summaries even after the underlying connection is deleted.
+func (b *KVBackend) DeleteConnection(ctx context.Context, connectionID messaging.ConnectionID) error {
+	if b == nil || b.store == nil {
+		return fmt.Errorf("messaging backend store is required")
+	}
+	if strings.TrimSpace(string(connectionID)) == "" {
+		return fmt.Errorf("connection id is required")
+	}
+	snapshot, err := b.Load(ctx)
+	if err != nil {
+		return err
+	}
+
+	keys := []string{b.connectionKey(connectionID), b.checkpointKey(connectionID)}
+	for _, identity := range snapshot.Identities {
+		if identity.ConnectionID == connectionID {
+			keys = append(keys, b.identityKey(identity.ID))
+		}
+	}
+	for _, conversation := range snapshot.Conversations {
+		if conversation.ConnectionID == connectionID {
+			keys = append(keys, b.conversationKey(conversation.ID))
+		}
+	}
+	for _, container := range snapshot.Containers {
+		if container.ConnectionID == connectionID {
+			keys = append(keys, b.containerKey(container.ID))
+		}
+	}
+	for _, placement := range snapshot.Placements {
+		if placement.ConnectionID == connectionID {
+			keys = append(keys, b.placementKey(placement.MessageID, placement.ContainerID))
+		}
+	}
+	for _, message := range snapshot.Messages {
+		if message.ConnectionID == connectionID {
+			keys = append(keys, b.messageKey(message.ID))
+		}
+	}
+	for _, draft := range snapshot.Drafts {
+		if draft.ConnectionID == connectionID {
+			keys = append(keys, b.draftKey(draft.ID))
+		}
+	}
+	for _, approval := range snapshot.Approvals {
+		if approval.ConnectionID == connectionID {
+			keys = append(keys, b.approvalKey(approval.ID))
+		}
+	}
+	for _, exposure := range snapshot.Exposures {
+		if exposure.ConnectionID == connectionID {
+			keys = append(keys, b.exposureKey(exposure.ID))
+		}
+	}
+	keys = append(keys, b.store.List(b.eventLogPrefix(connectionID)+"/")...)
+	return b.deleteKeys(ctx, keys)
+}
+
 // PutIdentity persists one normalized identity.
 func (b *KVBackend) PutIdentity(ctx context.Context, identity messaging.Identity) error {
 	return b.putJSON(ctx, b.identityKey(identity.ID), cloneIdentity(identity))
@@ -453,6 +513,23 @@ func (b *KVBackend) putJSON(ctx context.Context, key string, value any) error {
 		return err
 	}
 	return b.store.Set(ctx, key, body)
+}
+
+func (b *KVBackend) deleteKeys(ctx context.Context, keys []string) error {
+	seen := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		if err := b.store.Delete(ctx, key); err != nil {
+			return fmt.Errorf("delete %s: %w", key, err)
+		}
+	}
+	return nil
 }
 
 func listKVCollection[T any](store collections.KVStore, prefix, label string, decode func([]byte) (T, error)) ([]T, error) {

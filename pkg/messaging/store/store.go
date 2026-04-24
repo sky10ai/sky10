@@ -66,6 +66,22 @@ func (s *Store) PutConnection(ctx context.Context, connection messaging.Connecti
 	return nil
 }
 
+// DeleteConnection removes one connection and the broker-owned live state that
+// is scoped to it.
+func (s *Store) DeleteConnection(ctx context.Context, connectionID messaging.ConnectionID) error {
+	if string(connectionID) == "" {
+		return fmt.Errorf("connection id is required")
+	}
+	if err := s.backend.DeleteConnection(ctx, connectionID); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.ensureIndexLocked()
+	s.index.deleteConnection(connectionID)
+	s.mu.Unlock()
+	return nil
+}
+
 // PutIdentity persists one normalized identity.
 func (s *Store) PutIdentity(ctx context.Context, identity messaging.Identity) error {
 	if err := identity.Validate(); err != nil {

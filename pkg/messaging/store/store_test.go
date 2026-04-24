@@ -397,6 +397,137 @@ func TestStoreReplaceConnectionIdentitiesRemovesStaleEntries(t *testing.T) {
 	}
 }
 
+func TestStoreDeleteConnectionRemovesLiveConnectionState(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	backend := NewKVBackend(newMemoryKVStore(), "")
+	store, err := NewStore(ctx, backend)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+
+	now := time.Date(2026, 4, 24, 9, 0, 0, 0, time.UTC)
+	connection := messaging.Connection{ID: "imap/work", AdapterID: "imap-smtp", Label: "Work Mail", Status: messaging.ConnectionStatusConnected}
+	identity := messaging.Identity{ID: "identity/work", ConnectionID: connection.ID, Kind: messaging.IdentityKindEmail, Address: "me@example.com", CanReceive: true, CanSend: true, IsDefault: true}
+	conversation := messaging.Conversation{ID: "conv/thread", ConnectionID: connection.ID, LocalIdentityID: identity.ID, Kind: messaging.ConversationKindEmailThread, RemoteID: "thread-1", Participants: []messaging.Participant{{Kind: messaging.ParticipantKindUser, Address: "latisha@example.com"}}}
+	container := messaging.Container{ID: "container/inbox", ConnectionID: connection.ID, Kind: messaging.ContainerKindInbox, Name: "INBOX", RemoteID: "INBOX"}
+	message := messaging.Message{
+		ID:              "msg/1",
+		ConnectionID:    connection.ID,
+		ConversationID:  conversation.ID,
+		LocalIdentityID: identity.ID,
+		Direction:       messaging.MessageDirectionInbound,
+		Sender:          messaging.Participant{Kind: messaging.ParticipantKindUser, Address: "latisha@example.com"},
+		Parts:           []messaging.MessagePart{{Kind: messaging.MessagePartKindText, Text: "hello"}},
+		CreatedAt:       now,
+		Status:          messaging.MessageStatusReceived,
+	}
+	draft := messaging.Draft{ID: "draft/1", ConnectionID: connection.ID, ConversationID: conversation.ID, LocalIdentityID: identity.ID, Parts: []messaging.MessagePart{{Kind: messaging.MessagePartKindText, Text: "reply"}}, Status: messaging.DraftStatusPending}
+	approval := messaging.Approval{ID: "approval/1", ConnectionID: connection.ID, DraftID: draft.ID, WorkflowID: "wf/1", Action: "send_draft", Summary: "Send draft", Status: messaging.ApprovalStatusPending, RequestedAt: now}
+	policy := messaging.Policy{ID: "policy/keep", Name: "Keep Policy"}
+	exposure := messaging.Exposure{ID: "exposure/1", ConnectionID: connection.ID, SubjectID: "runtime:hermes", SubjectKind: messaging.ExposureSubjectKindRuntime, Enabled: true}
+	workflow := messaging.Workflow{
+		ID:                 "wf/1",
+		Kind:               "proactive_reply",
+		Status:             messaging.WorkflowStatusAwaitingApproval,
+		SourceConnectionID: connection.ID,
+		Sender:             messaging.Participant{Kind: messaging.ParticipantKindUser, Address: "latisha@example.com"},
+		BrokerReceivedAt:   now,
+		LastActivityAt:     now,
+		ApprovalID:         approval.ID,
+		DraftID:            draft.ID,
+	}
+
+	if err := store.PutConnection(ctx, connection); err != nil {
+		t.Fatalf("PutConnection() error = %v", err)
+	}
+	if err := store.ReplaceConnectionIdentities(ctx, connection.ID, []messaging.Identity{identity}); err != nil {
+		t.Fatalf("ReplaceConnectionIdentities() error = %v", err)
+	}
+	if err := store.PutConversation(ctx, conversation); err != nil {
+		t.Fatalf("PutConversation() error = %v", err)
+	}
+	if err := store.PutContainer(ctx, container); err != nil {
+		t.Fatalf("PutContainer() error = %v", err)
+	}
+	if err := store.PutMessage(ctx, message); err != nil {
+		t.Fatalf("PutMessage() error = %v", err)
+	}
+	if err := store.PutPlacement(ctx, messaging.Placement{MessageID: message.ID, ConnectionID: connection.ID, ContainerID: container.ID, RemoteID: "101"}); err != nil {
+		t.Fatalf("PutPlacement() error = %v", err)
+	}
+	if err := store.PutDraft(ctx, draft); err != nil {
+		t.Fatalf("PutDraft() error = %v", err)
+	}
+	if err := store.PutApproval(ctx, approval); err != nil {
+		t.Fatalf("PutApproval() error = %v", err)
+	}
+	if err := store.PutPolicy(ctx, policy); err != nil {
+		t.Fatalf("PutPolicy() error = %v", err)
+	}
+	if err := store.PutExposure(ctx, exposure); err != nil {
+		t.Fatalf("PutExposure() error = %v", err)
+	}
+	if err := store.PutWorkflow(ctx, workflow); err != nil {
+		t.Fatalf("PutWorkflow() error = %v", err)
+	}
+	if err := store.AppendEvent(ctx, messaging.Event{ID: "evt/1", Type: messaging.EventTypeMessageReceived, ConnectionID: connection.ID, Timestamp: now}); err != nil {
+		t.Fatalf("AppendEvent() error = %v", err)
+	}
+	if err := store.PutCheckpoint(ctx, connection.ID, protocol.Checkpoint{Cursor: "cursor-1", UpdatedAt: now}); err != nil {
+		t.Fatalf("PutCheckpoint() error = %v", err)
+	}
+
+	if err := store.DeleteConnection(ctx, connection.ID); err != nil {
+		t.Fatalf("DeleteConnection() error = %v", err)
+	}
+	reloaded, err := NewStore(ctx, backend)
+	if err != nil {
+		t.Fatalf("NewStore(reload) error = %v", err)
+	}
+
+	if _, ok := reloaded.GetConnection(connection.ID); ok {
+		t.Fatal("GetConnection() = present, want removed")
+	}
+	if got := reloaded.ListConnectionIdentities(connection.ID); len(got) != 0 {
+		t.Fatalf("ListConnectionIdentities() = %+v, want empty", got)
+	}
+	if _, ok := reloaded.GetConversation(conversation.ID); ok {
+		t.Fatal("GetConversation() = present, want removed")
+	}
+	if _, ok := reloaded.GetContainer(container.ID); ok {
+		t.Fatal("GetContainer() = present, want removed")
+	}
+	if _, ok := reloaded.GetPlacement(message.ID, container.ID); ok {
+		t.Fatal("GetPlacement() = present, want removed")
+	}
+	if _, ok := reloaded.GetMessage(message.ID); ok {
+		t.Fatal("GetMessage() = present, want removed")
+	}
+	if _, ok := reloaded.GetDraft(draft.ID); ok {
+		t.Fatal("GetDraft() = present, want removed")
+	}
+	if _, ok := reloaded.GetApproval(approval.ID); ok {
+		t.Fatal("GetApproval() = present, want removed")
+	}
+	if got := reloaded.ListConnectionExposures(connection.ID); len(got) != 0 {
+		t.Fatalf("ListConnectionExposures() = %+v, want empty", got)
+	}
+	if got := reloaded.ListConnectionEvents(connection.ID); len(got) != 0 {
+		t.Fatalf("ListConnectionEvents() = %+v, want empty", got)
+	}
+	if _, ok := reloaded.GetCheckpoint(connection.ID); ok {
+		t.Fatal("GetCheckpoint() = present, want removed")
+	}
+	if _, ok := reloaded.GetPolicy(policy.ID); !ok {
+		t.Fatal("GetPolicy() = missing, want retained")
+	}
+	if got := reloaded.ListWorkflows(); len(got) != 1 || got[0].ID != workflow.ID {
+		t.Fatalf("ListWorkflows() = %+v, want retained workflow", got)
+	}
+}
+
 func TestStoreRejectsMismatchedIdentityReplacement(t *testing.T) {
 	t.Parallel()
 

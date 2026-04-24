@@ -156,7 +156,7 @@ outbound orchestration, and event fanout.
 ### Checklist
 
 - [x] Create `pkg/messaging/broker`.
-- [ ] Add connection lifecycle management: create, refresh, disable, delete.
+- [x] Add connection lifecycle management: create, refresh, disable, delete.
 - [x] Add identity refresh/discovery flow from adapters.
 - [x] Add conversation upsert logic.
 - [x] Add message upsert logic for inbound records.
@@ -175,8 +175,9 @@ outbound orchestration, and event fanout.
   `pkg/secrets` resolver and mailbox-backed approval plumbing.
 - [x] Restore persisted built-in messaging connections on daemon startup and
   reattach them to supervised adapter processes.
-- [x] Expose a minimal daemon RPC surface for built-in connection registration,
-  connect, list, manual poll, container listing, and message management flows.
+- [x] Expose a minimal daemon RPC surface for built-in connection lifecycle,
+  registration, connect, list, manual poll, container listing, and message
+  management flows.
 - [x] Add a background poll loop for connected polling-based adapters.
 - [ ] Add event fanout to UI and northbound shims.
 - [x] Aggregate raw activity into human-facing workflow state for draft,

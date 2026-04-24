@@ -228,6 +228,116 @@ func TestBrokerConnectConnectionStagesCredential(t *testing.T) {
 	if string(raw) != `{"username":"latisha@example.com","password":"swordfish"}` {
 		t.Fatalf("staged credential body = %q", string(raw))
 	}
+
+	if _, err := b.DisableConnection(ctx, connection.ID); err != nil {
+		t.Fatalf("DisableConnection() error = %v", err)
+	}
+	if _, err := os.Stat(stagedPath); !os.IsNotExist(err) {
+		t.Fatalf("staged credential stat after disable = %v, want not exist", err)
+	}
+}
+
+func TestBrokerConnectionLifecycleRefreshDisableDelete(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	rootDir := filepath.Join(t.TempDir(), "messaging-runtime")
+	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	b, err := New(ctx, Config{
+		Store:   store,
+		RootDir: rootDir,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = b.Close() }()
+
+	connection := messaging.Connection{
+		ID:        "slack/work",
+		AdapterID: "slack",
+		Label:     "Work Slack",
+		Status:    messaging.ConnectionStatusConnecting,
+	}
+	created, err := b.CreateConnection(ctx, RegisterConnectionParams{
+		Connection: connection,
+		Process: messagingruntime.ProcessSpec{
+			Path: helperProcessExecutableForTests(),
+			Args: []string{"-test.run=TestBrokerHelperMessagingAdapterProcess", "--"},
+			Env:  []string{"GO_WANT_HELPER_MESSAGING_BROKER_ADAPTER=1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+	if created.ID != connection.ID {
+		t.Fatalf("created connection ID = %q, want %q", created.ID, connection.ID)
+	}
+	if _, err := b.CreateConnection(ctx, RegisterConnectionParams{
+		Connection: connection,
+		Process: messagingruntime.ProcessSpec{
+			Path: helperProcessExecutableForTests(),
+			Args: []string{"-test.run=TestBrokerHelperMessagingAdapterProcess", "--"},
+			Env:  []string{"GO_WANT_HELPER_MESSAGING_BROKER_ADAPTER=1"},
+		},
+	}); err == nil {
+		t.Fatal("CreateConnection(duplicate) error = nil, want duplicate failure")
+	}
+
+	connect, err := b.ConnectConnection(ctx, connection.ID)
+	if err != nil {
+		t.Fatalf("ConnectConnection() error = %v", err)
+	}
+	if got := store.ListConnectionIdentities(connection.ID); len(got) != 1 || got[0].ID != "identity/test" {
+		t.Fatalf("ListConnectionIdentities() after connect = %+v, want identity/test", got)
+	}
+
+	refresh, err := b.RefreshConnection(ctx, connection.ID)
+	if err != nil {
+		t.Fatalf("RefreshConnection() error = %v", err)
+	}
+	if refresh.Connection.Metadata["refreshed"] != "true" {
+		t.Fatalf("RefreshConnection() metadata = %+v, want refreshed=true", refresh.Connection.Metadata)
+	}
+	if refresh.Connection.Auth.Method != messaging.AuthMethodNone || refresh.Connection.Auth.ExternalAccount != "refreshed@example.test" {
+		t.Fatalf("RefreshConnection() auth = %+v, want refreshed auth info", refresh.Connection.Auth)
+	}
+	if got := store.ListConnectionIdentities(connection.ID); len(got) != 1 || got[0].ID != "identity/test" {
+		t.Fatalf("ListConnectionIdentities() after refresh = %+v, want preserved identity/test", got)
+	}
+
+	disabled, err := b.DisableConnection(ctx, connection.ID)
+	if err != nil {
+		t.Fatalf("DisableConnection() error = %v", err)
+	}
+	if disabled.Status != messaging.ConnectionStatusDisabled {
+		t.Fatalf("disabled status = %q, want disabled", disabled.Status)
+	}
+	if _, err := b.PollConnection(ctx, connection.ID, 10); err == nil || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("PollConnection(disabled) error = %v, want disabled failure", err)
+	}
+
+	deleted, err := b.DeleteConnection(ctx, connection.ID)
+	if err != nil {
+		t.Fatalf("DeleteConnection() error = %v", err)
+	}
+	if !deleted.Deleted || deleted.ConnectionID != connection.ID {
+		t.Fatalf("DeleteConnection() = %+v, want deleted connection", deleted)
+	}
+	if _, ok := store.GetConnection(connection.ID); ok {
+		t.Fatal("GetConnection() = present after delete, want removed")
+	}
+	if _, err := os.Stat(connect.Paths.RootDir); !os.IsNotExist(err) {
+		t.Fatalf("runtime root stat after delete = %v, want not exist", err)
+	}
+	if got := store.ListConnectionIdentities(connection.ID); len(got) != 0 {
+		t.Fatalf("ListConnectionIdentities() after delete = %+v, want empty", got)
+	}
+	if _, err := b.ConnectConnection(ctx, connection.ID); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("ConnectConnection(deleted) error = %v, want not found", err)
+	}
 }
 
 func TestBrokerHandleWebhookConnection(t *testing.T) {
@@ -963,6 +1073,23 @@ func runBrokerHelperMessagingAdapter() error {
 						IsDefault:    true,
 					}},
 					Metadata: metadata,
+				}),
+			}); err != nil {
+				return err
+			}
+		case string(protocol.MethodRefresh):
+			if err := enc.Write(messagingruntime.Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result: mustJSON(protocol.RefreshResult{
+					Status: messaging.ConnectionStatusConnected,
+					Auth: messaging.AuthInfo{
+						Method:          messaging.AuthMethodNone,
+						ExternalAccount: "refreshed@example.test",
+					},
+					Metadata: map[string]string{
+						"refreshed": "true",
+					},
 				}),
 			}); err != nil {
 				return err
