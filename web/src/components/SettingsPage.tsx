@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { Icon } from "./Icon";
-import { PageHeader } from "./PageHeader";
+import { PageDescription, PageHeader, PageTitle } from "./PageHeader";
 
 const widthClasses = {
   default: "max-w-6xl",
@@ -42,11 +42,10 @@ export function SettingsPage({
     <section
       className={`mx-auto flex w-full flex-1 flex-col gap-8 px-6 pb-12 pt-6 sm:px-8 sm:pt-7 lg:px-10 ${widthClasses[width]}`}
     >
-      <PageHeader
-        actions={headerActions}
-        description={description}
-        title={title}
-      />
+      <PageHeader actions={headerActions}>
+        <PageTitle>{title}</PageTitle>
+        <PageDescription>{description}</PageDescription>
+      </PageHeader>
       {children}
     </section>
   );

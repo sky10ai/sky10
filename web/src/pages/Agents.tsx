@@ -1,5 +1,10 @@
 import { useNavigate } from "react-router";
 import { Icon } from "../components/Icon";
+import {
+  PageDescription,
+  PageHeader,
+  PageTitle,
+} from "../components/PageHeader";
 import { RelativeTime } from "../components/RelativeTime";
 import { StatusBadge } from "../components/StatusBadge";
 import { AGENT_EVENT_TYPES } from "../lib/events";
@@ -22,7 +27,8 @@ export default function Agents() {
           <Icon name="smart_toy" className="text-5xl text-secondary" />
           <h1 className="text-2xl font-bold text-on-surface">No Agents</h1>
           <p className="text-secondary">
-            Connect an AI agent to your sky10 network, or spin up OpenClaw or Hermes in an isolated Lima VM first.
+            Connect an AI agent to your sky10 network, or spin up OpenClaw or
+            Hermes in an isolated Lima VM first.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
             <button
@@ -49,41 +55,41 @@ export default function Agents() {
   const deviceSet = new Set(agents.map((a) => a.device_id));
 
   return (
-    <div className="p-12 max-w-7xl mx-auto">
+    <section className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-6 pb-12 pt-6 sm:px-8 sm:pt-7 lg:px-10">
       {error && (
-        <div className="mb-8 p-4 bg-error-container/20 text-error rounded-xl text-sm">
+        <div className="rounded-xl bg-error-container/20 p-4 text-sm text-error">
           {error}
         </div>
       )}
 
-      {/* My Agents */}
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-4xl font-bold tracking-tight text-on-surface mb-2">
-            My Agents
-          </h1>
-          <p className="text-secondary font-medium">
-            {agents.length} agent{agents.length !== 1 ? "s" : ""} across{" "}
-            {deviceSet.size} device{deviceSet.size !== 1 ? "s" : ""}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={() => navigate("/agents/create")}
-            className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary shadow-lg transition-all active:scale-95"
-          >
-            <Icon name="deployed_code" className="text-base" />
-            Create...
-          </button>
-          <button
-            onClick={() => navigate("/agents/connect")}
-            className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-5 py-2.5 text-sm font-semibold text-on-surface transition-colors hover:bg-surface-container"
-          >
-            <Icon name="add" className="text-base" />
-            Connect Existing...
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        actions={
+          <>
+            <button
+              onClick={() => navigate("/agents/create")}
+              className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary shadow-lg transition-all active:scale-95"
+              type="button"
+            >
+              <Icon name="deployed_code" className="text-base" />
+              Create...
+            </button>
+            <button
+              onClick={() => navigate("/agents/connect")}
+              className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-5 py-2.5 text-sm font-semibold text-on-surface transition-colors hover:bg-surface-container"
+              type="button"
+            >
+              <Icon name="add" className="text-base" />
+              Connect Existing...
+            </button>
+          </>
+        }
+      >
+        <PageTitle>My Agents</PageTitle>
+        <PageDescription>
+          {agents.length} agent{agents.length !== 1 ? "s" : ""} across{" "}
+          {deviceSet.size} device{deviceSet.size !== 1 ? "s" : ""}
+        </PageDescription>
+      </PageHeader>
 
       {loading && agents.length === 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -174,6 +180,6 @@ export default function Agents() {
           Browse agents on the sky10 network. Coming soon.
         </p>
       </div>
-    </div>
+    </section>
   );
 }

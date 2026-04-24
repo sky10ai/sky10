@@ -5,7 +5,11 @@ import { DriveCard } from "../components/drives/DriveCard";
 import { NewDriveForm } from "../components/drives/NewDriveForm";
 import { EmptyState } from "../components/EmptyState";
 import { Icon } from "../components/Icon";
-import { PageHeader } from "../components/PageHeader";
+import {
+  PageDescription,
+  PageHeader,
+  PageTitle,
+} from "../components/PageHeader";
 import { StatusBadge } from "../components/StatusBadge";
 import { STORAGE_EVENT_TYPES } from "../lib/events";
 import { skyfs } from "../lib/rpc";
@@ -38,7 +42,7 @@ export default function Drives() {
   const conflicts = health?.conflict_drives ?? 0;
 
   return (
-    <section className="mx-auto flex flex-1 w-full max-w-7xl flex-col gap-10 p-12">
+    <section className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-6 pb-12 pt-6 sm:px-8 sm:pt-7 lg:px-10">
       <PageHeader
         actions={
           <>
@@ -91,13 +95,14 @@ export default function Drives() {
             </button>
           </>
         }
-        description={
-          drives.length === 0
+      >
+        <PageTitle>Drives</PageTitle>
+        <PageDescription>
+          {drives.length === 0
             ? "No drives are configured yet. Create a drive to start syncing files."
-            : `Managing ${drives.length} encrypted volume${drives.length === 1 ? "" : "s"} with live sync status.`
-        }
-        title="Drives"
-      />
+            : `Managing ${drives.length} encrypted volume${drives.length === 1 ? "" : "s"} with live sync status.`}
+        </PageDescription>
+      </PageHeader>
 
       {error && (
         <div className="rounded-xl bg-error-container/20 p-4 text-sm text-error">

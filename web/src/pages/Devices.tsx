@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { Icon } from "../components/Icon";
+import {
+  PageDescription,
+  PageHeader,
+  PageTitle,
+} from "../components/PageHeader";
 import { RelativeTime } from "../components/RelativeTime";
 import { STORAGE_EVENT_TYPES } from "../lib/events";
 import { identity } from "../lib/rpc";
@@ -9,41 +14,48 @@ import { useRPC } from "../lib/useRPC";
 export default function Devices() {
   const navigate = useNavigate();
   const [actionError, setActionError] = useState<string | null>(null);
-  const { data, loading, error, refetch } = useRPC(() => identity.deviceList(), [], {
-    live: STORAGE_EVENT_TYPES,
-    refreshIntervalMs: 10_000,
-  });
+  const { data, loading, error, refetch } = useRPC(
+    () => identity.deviceList(),
+    [],
+    {
+      live: STORAGE_EVENT_TYPES,
+      refreshIntervalMs: 10_000,
+    },
+  );
 
   const devices = data?.devices ?? [];
   const thisDevice = data?.this_device ?? "";
 
   return (
-    <div className="p-12 max-w-7xl mx-auto">
-      <div className="flex justify-between items-end mb-12">
-        <div>
-          <h1 className="text-4xl font-bold tracking-tight text-on-surface mb-2">
-            Connected Devices
-          </h1>
-          <p className="text-secondary font-medium">
-            {devices.length === 0
-              ? "No devices registered yet."
-              : `You have ${devices.length} device${devices.length !== 1 ? "s" : ""} in your network.`}
-          </p>
-        </div>
-        <button
-          onClick={() => navigate("/devices/invite")}
-          className="bg-primary text-on-primary px-6 py-2.5 rounded-full font-semibold flex items-center gap-2 text-sm shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-all active:scale-95"
-        >
-          <Icon name="person_add" />
-          Invite Device
-        </button>
-      </div>
+    <section className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-6 pb-12 pt-6 sm:px-8 sm:pt-7 lg:px-10">
+      <PageHeader
+        actions={
+          <button
+            onClick={() => navigate("/devices/invite")}
+            className="bg-primary text-on-primary px-6 py-2.5 rounded-full font-semibold flex items-center gap-2 text-sm shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-all active:scale-95"
+            type="button"
+          >
+            <Icon name="person_add" />
+            Invite Device
+          </button>
+        }
+      >
+        <PageTitle>Connected Devices</PageTitle>
+        <PageDescription>
+          {devices.length === 0
+            ? "No devices registered yet."
+            : `${devices.length} device${devices.length !== 1 ? "s" : ""} in your network.`}
+        </PageDescription>
+      </PageHeader>
 
       {(error || actionError) && (
-        <div className="mb-8 p-4 bg-error-container/20 text-error rounded-xl text-sm flex justify-between">
+        <div className="flex justify-between rounded-xl bg-error-container/20 p-4 text-sm text-error">
           <span>{actionError ?? error}</span>
           {actionError && (
-            <button className="text-xs hover:underline" onClick={() => setActionError(null)}>
+            <button
+              className="text-xs hover:underline"
+              onClick={() => setActionError(null)}
+            >
               dismiss
             </button>
           )}
@@ -154,7 +166,11 @@ export default function Devices() {
                       await identity.deviceRemove({ pubkey: device.pubkey });
                       refetch();
                     } catch (e: unknown) {
-                      setActionError(e instanceof Error ? e.message : "Failed to remove device");
+                      setActionError(
+                        e instanceof Error
+                          ? e.message
+                          : "Failed to remove device",
+                      );
                     }
                   }}
                   type="button"
@@ -167,6 +183,6 @@ export default function Devices() {
           );
         })}
       </div>
-    </div>
+    </section>
   );
 }
