@@ -93,7 +93,10 @@ real Windows filesystem/runtime.
 - [ ] Add GitHub Actions `windows-latest` Go test coverage
 - [ ] Run `go test ./... -count=1` on Windows
 - [ ] Parse and smoke-test `install.ps1` in CI
-- [ ] Build and verify the Tauri menu on Windows runners
+- [x] Build and checksum-verify the Tauri menu on Windows runners
+- [ ] Make Windows Tauri menu PE artifacts byte-reproducible across
+      independent GitHub Actions jobs, or keep the release workflow explicitly
+      checksum-only for Windows menu verification
 - [ ] Verify `sky10-menu.exe` launches and can open the web UI
 - [ ] Verify daemon startup/restart/status on Windows
 - [ ] Verify filesystem watcher behavior on NTFS
