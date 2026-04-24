@@ -552,6 +552,12 @@ func TestHermesDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T) {
 func assertDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T, script string) {
 	t.Helper()
 
+	if strings.Contains(script, "set -eux") {
+		t.Fatalf("docker runtime entrypoint enables default xtrace: %q", script)
+	}
+	if !strings.Contains(script, `SKY10_DOCKER_DEBUG`) {
+		t.Fatalf("docker runtime entrypoint missing opt-in debug xtrace guard: %q", script)
+	}
 	for _, want := range []string{
 		`export SKY10_HOME="${HOME}/.sky10"`,
 		`export SKY10_RUNTIME_DIR="/run/sky10"`,
@@ -560,6 +566,36 @@ func assertDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T, script 
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("docker runtime entrypoint missing %q: %q", want, script)
+		}
+	}
+}
+
+func TestHermesDockerRuntimeEntrypointDoesNotTraceSecrets(t *testing.T) {
+	t.Parallel()
+
+	spec, err := limaTemplateDefinition(sandboxTemplateHermesDocker)
+	if err != nil {
+		t.Fatalf("limaTemplateDefinition(hermes-docker): %v", err)
+	}
+	dir, err := findLocalLimaTemplateDir(spec)
+	if err != nil {
+		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(dir, agentLimaHermesDockerEntrypoint))
+	if err != nil {
+		t.Fatalf("ReadFile(docker runtime entrypoint) error: %v", err)
+	}
+
+	script := string(body)
+	for _, want := range []string{
+		"source_env_file()",
+		`source_env_file "${HERMES_HOME}/.env"`,
+		`source_env_file "${BRIDGE_ENV}"`,
+		"set +x",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("Hermes Docker runtime entrypoint missing %q: %q", want, script)
 		}
 	}
 }

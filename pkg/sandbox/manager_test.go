@@ -1769,6 +1769,12 @@ func TestBundledHermesDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing
 func assertBundledDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T, script string) {
 	t.Helper()
 
+	if strings.Contains(script, "set -eux") {
+		t.Fatalf("bundled Docker runtime entrypoint enables default xtrace: %q", script)
+	}
+	if !strings.Contains(script, `SKY10_DOCKER_DEBUG`) {
+		t.Fatalf("bundled Docker runtime entrypoint missing opt-in debug xtrace guard: %q", script)
+	}
 	for _, want := range []string{
 		`export SKY10_HOME="${HOME}/.sky10"`,
 		`export SKY10_RUNTIME_DIR="/run/sky10"`,
@@ -1777,6 +1783,27 @@ func assertBundledDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T, 
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("bundled Docker runtime entrypoint missing %q: %q", want, script)
+		}
+	}
+}
+
+func TestBundledHermesDockerRuntimeEntrypointDoesNotTraceSecrets(t *testing.T) {
+	t.Parallel()
+
+	body, err := readBundledTemplateAsset(templateHermesDockerEntrypoint)
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateHermesDockerEntrypoint, err)
+	}
+
+	script := string(body)
+	for _, want := range []string{
+		"source_env_file()",
+		`source_env_file "${HERMES_HOME}/.env"`,
+		`source_env_file "${BRIDGE_ENV}"`,
+		"set +x",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("bundled Hermes Docker runtime entrypoint missing %q: %q", want, script)
 		}
 	}
 }

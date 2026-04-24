@@ -1,5 +1,9 @@
 #!/bin/bash
-set -eux -o pipefail
+set -euo pipefail
+
+if [ "${SKY10_DOCKER_DEBUG:-}" = "1" ]; then
+  set -x
+fi
 
 export HOME=/root
 export PATH="${HOME}/.bin:/usr/local/bin:/usr/bin:/bin:${PATH}"

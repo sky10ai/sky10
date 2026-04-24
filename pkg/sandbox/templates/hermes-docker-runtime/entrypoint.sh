@@ -1,5 +1,9 @@
 #!/bin/bash
-set -eux -o pipefail
+set -euo pipefail
+
+if [ "${SKY10_DOCKER_DEBUG:-}" = "1" ]; then
+  set -x
+fi
 
 export HOME=/root
 export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${HOME}/.bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
@@ -36,6 +40,28 @@ wait_for_sky10() {
 
 wait_for_hermes_api() {
   timeout 180s bash -lc 'until curl -fsS http://127.0.0.1:8642/health >/dev/null 2>&1; do sleep 2; done'
+}
+
+source_env_file() {
+  local env_file="$1"
+  local restore_xtrace=0
+
+  if [ ! -f "${env_file}" ]; then
+    return 0
+  fi
+
+  case "$-" in
+    *x*)
+      restore_xtrace=1
+      set +x
+      ;;
+  esac
+
+  . "${env_file}"
+
+  if [ "${restore_xtrace}" -eq 1 ]; then
+    set -x
+  fi
 }
 
 install_guest_reconnect_helper() {
@@ -195,12 +221,8 @@ PY
 
 load_env_files() {
   set -a
-  if [ -f "${HERMES_HOME}/.env" ]; then
-    . "${HERMES_HOME}/.env"
-  fi
-  if [ -f "${BRIDGE_ENV}" ]; then
-    . "${BRIDGE_ENV}"
-  fi
+  source_env_file "${HERMES_HOME}/.env"
+  source_env_file "${BRIDGE_ENV}"
   set +a
   export MESSAGING_CWD=/shared/workspace
 }
