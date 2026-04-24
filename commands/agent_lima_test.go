@@ -279,6 +279,10 @@ func assertLocalManagedLimaTemplateForwardsGuestSky10(t *testing.T, text string)
 		`hostIP: "127.0.0.1"`,
 		"hostPort: __SKY10_GUEST_FORWARD_PORT__",
 		"proto: tcp",
+		"guestIP: \"127.0.0.1\"\n  guestPortRange: [1, 65535]",
+		"guestIP: \"0.0.0.0\"\n  guestPortRange: [1, 65535]",
+		"proto: any",
+		"ignore: true",
 		"http://127.0.0.1:__SKY10_GUEST_FORWARD_PORT__",
 	} {
 		if !strings.Contains(text, want) {
@@ -287,8 +291,6 @@ func assertLocalManagedLimaTemplateForwardsGuestSky10(t *testing.T, text string)
 	}
 	for _, disallowed := range []string{
 		"vzNAT: true",
-		"ignore: true",
-		"guestPortRange: [1, 65535]",
 		"http://<guest-ip>",
 		"ip -4 addr show dev lima0",
 	} {
@@ -477,6 +479,61 @@ func TestHermesDockerUserScriptPersistsGuestSky10State(t *testing.T) {
 	}
 	if !strings.Contains(script, `- /sandbox-state/sky10-home:/root/.sky10`) {
 		t.Fatalf("docker user script missing guest sky10 volume mount: %q", script)
+	}
+}
+
+func TestOpenClawDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T) {
+	t.Parallel()
+
+	spec, err := limaTemplateDefinition(sandboxTemplateOpenClawDocker)
+	if err != nil {
+		t.Fatalf("limaTemplateDefinition(openclaw-docker): %v", err)
+	}
+	dir, err := findLocalLimaTemplateDir(spec)
+	if err != nil {
+		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(dir, agentLimaOpenClawDockerEntrypoint))
+	if err != nil {
+		t.Fatalf("ReadFile(docker runtime entrypoint) error: %v", err)
+	}
+
+	assertDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t, string(body))
+}
+
+func TestHermesDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T) {
+	t.Parallel()
+
+	spec, err := limaTemplateDefinition(sandboxTemplateHermesDocker)
+	if err != nil {
+		t.Fatalf("limaTemplateDefinition(hermes-docker): %v", err)
+	}
+	dir, err := findLocalLimaTemplateDir(spec)
+	if err != nil {
+		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(dir, agentLimaHermesDockerEntrypoint))
+	if err != nil {
+		t.Fatalf("ReadFile(docker runtime entrypoint) error: %v", err)
+	}
+
+	assertDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t, string(body))
+}
+
+func assertDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T, script string) {
+	t.Helper()
+
+	for _, want := range []string{
+		`export SKY10_HOME="${HOME}/.sky10"`,
+		`export SKY10_RUNTIME_DIR="/run/sky10"`,
+		`mkdir -p "${SKY10_RUNTIME_DIR}"`,
+		`rm -f "${SKY10_RUNTIME_DIR}/daemon.pid" "${SKY10_RUNTIME_DIR}/sky10.sock"`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("docker runtime entrypoint missing %q: %q", want, script)
+		}
 	}
 }
 

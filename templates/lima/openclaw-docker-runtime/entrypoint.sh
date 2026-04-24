@@ -3,6 +3,8 @@ set -eux -o pipefail
 
 export HOME=/root
 export PATH="${HOME}/.bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
+export SKY10_HOME="${HOME}/.sky10"
+export SKY10_RUNTIME_DIR="/run/sky10"
 export DISPLAY=:99
 export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 
@@ -15,8 +17,13 @@ SKY10_RECONNECT_HELPER="/usr/local/bin/sky10-managed-reconnect"
 export PLUGIN_DIR
 
 mkdir -p "${OPENCLAW_DIR}/agents/main/sessions"
+mkdir -p "${SKY10_HOME}"
+mkdir -p "${SKY10_RUNTIME_DIR}"
 mkdir -p "${WORKSPACE_DIR}"
 mkdir -p "${SANDBOX_STATE_DIR}"
+
+# Container restarts can leave runtime files whose PIDs collide with new processes.
+rm -f "${SKY10_RUNTIME_DIR}/daemon.pid" "${SKY10_RUNTIME_DIR}/sky10.sock"
 
 wait_for_sky10() {
   timeout 120s bash -lc 'until curl -fsS http://127.0.0.1:9101/health >/dev/null 2>&1; do sleep 2; done'

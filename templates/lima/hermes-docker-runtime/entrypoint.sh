@@ -4,6 +4,8 @@ set -eux -o pipefail
 export HOME=/root
 export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${HOME}/.bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
 export HERMES_HOME="${HOME}/.hermes"
+export SKY10_HOME="${HOME}/.sky10"
+export SKY10_RUNTIME_DIR="/run/sky10"
 
 SHARED_DIR="/shared"
 WORKSPACE_DIR="${SHARED_DIR}/workspace"
@@ -18,10 +20,15 @@ SKY10_RECONNECT_HELPER="/usr/local/bin/sky10-managed-reconnect"
 mkdir -p "${STATE_DIR}"
 mkdir -p "${HOME}/.bin"
 mkdir -p "${HOME}/.local/bin"
+mkdir -p "${SKY10_HOME}"
+mkdir -p "${SKY10_RUNTIME_DIR}"
 mkdir -p "${SHARED_DIR}"
 mkdir -p "${WORKSPACE_DIR}"
 mkdir -p "${SANDBOX_STATE_DIR}"
 mkdir -p "${HERMES_HOME}/memories"
+
+# Container restarts can leave runtime files whose PIDs collide with new processes.
+rm -f "${SKY10_RUNTIME_DIR}/daemon.pid" "${SKY10_RUNTIME_DIR}/sky10.sock"
 
 wait_for_sky10() {
   timeout 120s bash -lc 'until curl -fsS http://127.0.0.1:9101/health >/dev/null 2>&1; do sleep 2; done'

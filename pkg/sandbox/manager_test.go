@@ -1340,6 +1340,10 @@ func assertManagedLimaTemplateForwardsGuestSky10(t *testing.T, text string) {
 		`hostIP: "127.0.0.1"`,
 		"hostPort: __SKY10_GUEST_FORWARD_PORT__",
 		"proto: tcp",
+		"guestIP: \"127.0.0.1\"\n  guestPortRange: [1, 65535]",
+		"guestIP: \"0.0.0.0\"\n  guestPortRange: [1, 65535]",
+		"proto: any",
+		"ignore: true",
 		"http://127.0.0.1:__SKY10_GUEST_FORWARD_PORT__",
 	} {
 		if !strings.Contains(text, want) {
@@ -1348,8 +1352,6 @@ func assertManagedLimaTemplateForwardsGuestSky10(t *testing.T, text string) {
 	}
 	for _, disallowed := range []string{
 		"vzNAT: true",
-		"ignore: true",
-		"guestPortRange: [1, 65535]",
 		"http://<guest-ip>",
 		"ip -4 addr show dev lima0",
 	} {
@@ -1611,6 +1613,43 @@ func TestBundledHermesDockerUserScriptPersistsGuestSky10State(t *testing.T) {
 	}
 	if !strings.Contains(script, `- /sandbox-state/sky10-home:/root/.sky10`) {
 		t.Fatalf("bundled Hermes Docker user script missing guest sky10 volume mount: %q", script)
+	}
+}
+
+func TestBundledOpenClawDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T) {
+	t.Parallel()
+
+	body, err := readBundledTemplateAsset(templateOpenClawDockerEntrypoint)
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateOpenClawDockerEntrypoint, err)
+	}
+
+	assertBundledDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t, string(body))
+}
+
+func TestBundledHermesDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T) {
+	t.Parallel()
+
+	body, err := readBundledTemplateAsset(templateHermesDockerEntrypoint)
+	if err != nil {
+		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateHermesDockerEntrypoint, err)
+	}
+
+	assertBundledDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t, string(body))
+}
+
+func assertBundledDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T, script string) {
+	t.Helper()
+
+	for _, want := range []string{
+		`export SKY10_HOME="${HOME}/.sky10"`,
+		`export SKY10_RUNTIME_DIR="/run/sky10"`,
+		`mkdir -p "${SKY10_RUNTIME_DIR}"`,
+		`rm -f "${SKY10_RUNTIME_DIR}/daemon.pid" "${SKY10_RUNTIME_DIR}/sky10.sock"`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("bundled Docker runtime entrypoint missing %q: %q", want, script)
+		}
 	}
 }
 

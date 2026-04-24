@@ -18,6 +18,14 @@ portForwards:
   hostIP: "127.0.0.1"
   hostPort: __SKY10_GUEST_FORWARD_PORT__
   proto: tcp
+- guestIP: "127.0.0.1"
+  guestPortRange: [1, 65535]
+  proto: any
+  ignore: true
+- guestIP: "0.0.0.0"
+  guestPortRange: [1, 65535]
+  proto: any
+  ignore: true
 
 mounts:
 - location: "__SKY10_SHARED_DIR__"
