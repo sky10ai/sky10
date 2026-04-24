@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -276,6 +277,86 @@ func filterGuestMultiaddrsForIPAddress(addrs []string, ipAddr string) []string {
 		}
 	}
 	return filtered
+}
+
+func filterHostMultiaddrsForGuest(addrs []string, guestIP string) []string {
+	ports := tcpPortsFromMultiaddrs(addrs)
+	if len(ports) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]bool)
+	filtered := make([]string, 0, len(ports)*2+len(addrs))
+	add := func(addr string) {
+		addr = strings.TrimSpace(addr)
+		if addr == "" || seen[addr] {
+			return
+		}
+		seen[addr] = true
+		filtered = append(filtered, addr)
+	}
+
+	gatewayIP := limaHostGatewayIPForGuestIP(guestIP)
+	for _, port := range ports {
+		add("/dns4/host.lima.internal/tcp/" + port)
+		if gatewayIP != "" {
+			add("/ip4/" + gatewayIP + "/tcp/" + port)
+		}
+	}
+	for _, addr := range addrs {
+		if hostMultiaddrReachableFromGuest(addr) {
+			add(addr)
+		}
+	}
+	return filtered
+}
+
+func tcpPortsFromMultiaddrs(addrs []string) []string {
+	seen := make(map[string]bool)
+	ports := make([]string, 0, len(addrs))
+	for _, addr := range addrs {
+		parts := strings.Split(strings.TrimSpace(addr), "/")
+		for i := 0; i < len(parts)-1; i++ {
+			if parts[i] != "tcp" {
+				continue
+			}
+			port := strings.TrimSpace(parts[i+1])
+			n, err := strconv.Atoi(port)
+			if err != nil || n <= 0 || n > 65535 || seen[port] {
+				continue
+			}
+			seen[port] = true
+			ports = append(ports, port)
+		}
+	}
+	return ports
+}
+
+func hostMultiaddrReachableFromGuest(addr string) bool {
+	addr = strings.TrimSpace(addr)
+	if !strings.Contains(addr, "/tcp/") {
+		return false
+	}
+	switch {
+	case strings.Contains(addr, "/ip4/127."):
+		return false
+	case strings.Contains(addr, "/ip4/0.0.0.0/"):
+		return false
+	case strings.Contains(addr, "/ip6/::1/"):
+		return false
+	case strings.Contains(addr, "/ip6/0:0:0:0:0:0:0:1/"):
+		return false
+	default:
+		return true
+	}
+}
+
+func limaHostGatewayIPForGuestIP(guestIP string) string {
+	ip := net.ParseIP(strings.TrimSpace(guestIP)).To4()
+	if ip == nil {
+		return ""
+	}
+	return net.IPv4(ip[0], ip[1], ip[2], 2).String()
 }
 
 func defaultRunCommand(ctx context.Context, bin string, args []string, onLine func(stream, line string)) error {

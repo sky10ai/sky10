@@ -100,19 +100,22 @@ func (m *Manager) ensureHostConnectedGuestAgent(ctx context.Context, rec Record,
 
 	var lastErr error
 	for {
-		attemptedDirect := false
+		attemptedPeerConnect := false
 		if m.guestRPC != nil && strings.TrimSpace(rec.IPAddress) != "" {
 			var guest guestSkylinkStatus
 			if err := m.guestRPC(waitCtx, rec.IPAddress, "skylink.status", nil, &guest); err != nil {
 				lastErr = fmt.Errorf("reading guest skylink status for sandbox %q: %w", rec.Name, err)
 			} else if strings.TrimSpace(guest.PeerID) != "" && len(guest.Addrs) > 0 {
-				attemptedDirect = true
-				if err := m.connectHostToGuestPeer(waitCtx, rec, guest); err != nil {
-					lastErr = fmt.Errorf("connecting host sky10 directly to guest peer %q: %w", guest.PeerID, err)
+				attemptedPeerConnect = true
+				if err := m.connectGuestToHostPeer(waitCtx, rec); err != nil {
+					lastErr = fmt.Errorf("connecting guest sky10 back to host peer: %w", err)
+					if err := m.connectHostToGuestPeer(waitCtx, rec, guest); err != nil {
+						lastErr = fmt.Errorf("connecting host sky10 directly to guest peer %q: %w", guest.PeerID, err)
+					}
 				}
 			}
 		}
-		if !attemptedDirect {
+		if !attemptedPeerConnect {
 			if err := m.hostRPC(waitCtx, "skylink.connect", map[string]string{"address": hostIdentity}, nil); err != nil {
 				lastErr = fmt.Errorf("connecting host sky10 to guest identity %q: %w", hostIdentity, err)
 			}
@@ -134,6 +137,33 @@ func (m *Manager) ensureHostConnectedGuestAgent(ctx context.Context, rec Record,
 		case <-ticker.C:
 		}
 	}
+}
+
+func (m *Manager) connectGuestToHostPeer(ctx context.Context, rec Record) error {
+	if m.hostRPC == nil || m.guestRPC == nil {
+		return nil
+	}
+	if strings.TrimSpace(rec.IPAddress) == "" {
+		return fmt.Errorf("sandbox ip address is required")
+	}
+
+	var host guestSkylinkStatus
+	if err := m.hostRPC(ctx, "skylink.status", nil, &host); err != nil {
+		return fmt.Errorf("reading host skylink status: %w", err)
+	}
+	peerID := strings.TrimSpace(host.PeerID)
+	if peerID == "" {
+		return fmt.Errorf("host peer id is required")
+	}
+	multiaddrs := filterHostMultiaddrsForGuest(host.Addrs, rec.IPAddress)
+	if len(multiaddrs) == 0 {
+		return fmt.Errorf("no host multiaddrs are reachable from sandbox ip %q", rec.IPAddress)
+	}
+	params := map[string]interface{}{
+		"peer_id":    peerID,
+		"multiaddrs": multiaddrs,
+	}
+	return m.guestRPC(ctx, rec.IPAddress, "skylink.connectPeer", params, nil)
 }
 
 func (m *Manager) connectHostToGuestPeer(ctx context.Context, rec Record, guest guestSkylinkStatus) error {
