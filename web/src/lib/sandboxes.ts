@@ -1,4 +1,4 @@
-import type { SandboxLogEntry, SandboxProgress, SandboxRecord } from "./rpc";
+import type { SandboxForwardedEndpoint, SandboxLogEntry, SandboxProgress, SandboxRecord } from "./rpc";
 
 export const SANDBOX_TEMPLATES = [
   {
@@ -63,6 +63,35 @@ export function isHermesTemplate(templateId?: string) {
 
 export function isDockerTemplate(templateId?: string) {
   return templateId === "openclaw-docker" || templateId === "hermes-docker";
+}
+
+export function sandboxForwardedEndpoint(
+  record: SandboxRecord | null | undefined,
+  name: "sky10" | "openclaw_gateway",
+): SandboxForwardedEndpoint | null {
+  const endpoint = record?.forwarded_endpoints?.find(
+    (item) => item.name === name && item.host && item.host_port && item.host_port > 0,
+  );
+  if (endpoint) return endpoint;
+
+  const host = record?.forwarded_host?.trim();
+  const basePort = record?.forwarded_port;
+  if (!host || !basePort || basePort <= 0) return null;
+  if (name === "sky10") return { name, host, host_port: basePort };
+  if (name === "openclaw_gateway" && isOpenClawTemplate(record?.template)) {
+    return { name, host, host_port: basePort + 1 };
+  }
+  return null;
+}
+
+export function sandboxForwardedURL(
+  record: SandboxRecord | null | undefined,
+  name: "sky10" | "openclaw_gateway",
+  path = "",
+) {
+  const endpoint = sandboxForwardedEndpoint(record, name);
+  if (!endpoint?.host || !endpoint.host_port) return "";
+  return `http://${endpoint.host}:${endpoint.host_port}${path}`;
 }
 
 export function sandboxSlug(name: string) {

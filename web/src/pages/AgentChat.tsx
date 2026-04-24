@@ -29,6 +29,7 @@ import {
   type DeliveryMetadata,
   type SandboxRecord,
 } from "../lib/rpc";
+import { sandboxForwardedEndpoint } from "../lib/sandboxes";
 import { useRPC } from "../lib/useRPC";
 
 const maxAttachmentBytes = 8 * 1024 * 1024;
@@ -432,11 +433,14 @@ export default function AgentChat() {
     : undefined;
   const sandboxLookupPending = Boolean(agentInfo && sandboxData === null && sandboxLoading);
   const requiresGuestWebSocket = Boolean(sandboxGuest);
-  const guestChatReady = Boolean(sandboxGuest?.ip_address);
+  const guestSky10Endpoint = sandboxForwardedEndpoint(sandboxGuest, "sky10");
+  const guestChatReady = Boolean(guestSky10Endpoint || sandboxGuest?.ip_address);
   const chatWebSocketURL = agentInfoID
     ? requiresGuestWebSocket
       ? (guestChatReady
-          ? guestAgentChatWebSocketURL(sandboxGuest!.ip_address!, agentInfoID, sessionId)
+          ? guestSky10Endpoint?.host && guestSky10Endpoint.host_port
+            ? guestAgentChatWebSocketURL(guestSky10Endpoint.host, guestSky10Endpoint.host_port, agentInfoID, sessionId)
+            : guestAgentChatWebSocketURL(sandboxGuest!.ip_address!, 9101, agentInfoID, sessionId)
           : undefined)
       : agentChatWebSocketURL(agentInfoID, sessionId)
     : undefined;

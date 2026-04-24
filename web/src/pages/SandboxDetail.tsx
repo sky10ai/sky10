@@ -15,6 +15,7 @@ import {
   isHermesTemplate,
   isOpenClawTemplate,
   sandboxCurrentProgress,
+  sandboxForwardedURL,
   sandboxLabel,
   sandboxLogKey,
   sandboxTone,
@@ -198,13 +199,15 @@ export default function SandboxDetail() {
     (selected.status === "ready" || selected.vm_status === "Running");
   const guestIP = selected?.ip_address?.trim() ?? "";
   const openClawURL =
-    isOpenClawTemplate(selected?.template) && guestIP
+    sandboxForwardedURL(selected, "openclaw_gateway", "/chat?session=main") ||
+    (isOpenClawTemplate(selected?.template) && guestIP
       ? `http://${guestIP}:18790/chat?session=main`
-      : "";
+      : "");
   const guestSky10URL =
-    isOpenClawTemplate(selected?.template) && guestIP
+    sandboxForwardedURL(selected, "sky10") ||
+    (isOpenClawTemplate(selected?.template) && guestIP
       ? `http://${guestIP}:9101`
-      : "";
+      : "");
   const progress = selected ? sandboxCurrentProgress(selected) : null;
   const progressWidth = Math.max(0, Math.min(progress?.percent ?? 0, 100));
 

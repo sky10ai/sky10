@@ -199,11 +199,11 @@ export function agentChatWebSocketURL(agentID: string, sessionID: string) {
   return `${protocol}//${window.location.host}/rpc/agents/${agent}/chat?session_id=${session}`;
 }
 
-export function guestAgentChatWebSocketURL(address: string, agentID: string, sessionID: string) {
+export function guestAgentChatWebSocketURL(address: string, port: number, agentID: string, sessionID: string) {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const agent = encodeURIComponent(agentID);
   const session = encodeURIComponent(sessionID);
-  return `${protocol}//${address}:9101/rpc/agents/${agent}/chat?session_id=${session}`;
+  return `${protocol}//${address}:${port}/rpc/agents/${agent}/chat?session_id=${session}`;
 }
 
 // -- apps --
@@ -938,6 +938,9 @@ export interface SandboxRecord {
   vm_status?: string;
   shared_dir?: string;
   ip_address?: string;
+  forwarded_host?: string;
+  forwarded_port?: number;
+  forwarded_endpoints?: SandboxForwardedEndpoint[];
   shell?: string;
   last_error?: string;
   progress?: SandboxProgress;
@@ -946,6 +949,16 @@ export interface SandboxRecord {
   created_at: string;
   updated_at: string;
   last_log_at?: string;
+}
+
+export interface SandboxForwardedEndpoint {
+  name: string;
+  host?: string;
+  host_port?: number;
+  guest_host?: string;
+  guest_port?: number;
+  offset?: number;
+  protocol?: string;
 }
 
 export interface SandboxProgress {

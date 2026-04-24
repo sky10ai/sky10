@@ -64,18 +64,26 @@ const (
 	templateSharedToken              = "__SKY10_SHARED_DIR__"
 	templateStateToken               = "__SKY10_STATE_DIR__"
 	templateForwardedGuestPortToken  = "__SKY10_GUEST_FORWARD_PORT__"
+	templateOpenClawGatewayPortToken = "__SKY10_OPENCLAW_GATEWAY_FORWARD_PORT__"
 	sandboxStateDirName              = "state"
 	sandboxLogsDirName               = "logs"
 	agentWorkspaceDirName            = "workspace"
 	agentDriveRootName               = "Agents"
 	agentDriveNamePrefix             = "agent-"
 	openClawReadyTimeout             = 2 * time.Minute
+	guestSky10Port                   = 9101
 	guestSky10ReadyURL               = "http://127.0.0.1:9101/health"
 	guestSky10LocalRPCURL            = "http://127.0.0.1:9101/rpc"
 	defaultForwardedGuestHost        = "127.0.0.1"
 	defaultForwardedGuestPortStart   = 39101
+	openClawGatewayGuestPort         = 18789
 	openClawReadyURL                 = "http://127.0.0.1:18789/health"
 	progressMarkerPrefix             = "SKY10_PROGRESS "
+)
+
+const (
+	ForwardedEndpointSky10           = "sky10"
+	ForwardedEndpointOpenClawGateway = "openclaw_gateway"
 )
 
 var slugWordPattern = regexp.MustCompile(`[a-z0-9]+`)
@@ -107,25 +115,36 @@ type LogsParams struct {
 }
 
 type Record struct {
-	Name              string    `json:"name"`
-	Slug              string    `json:"slug"`
-	Provider          string    `json:"provider"`
-	Template          string    `json:"template"`
-	Model             string    `json:"model,omitempty"`
-	Status            string    `json:"status"`
-	VMStatus          string    `json:"vm_status,omitempty"`
-	SharedDir         string    `json:"shared_dir,omitempty"`
-	IPAddress         string    `json:"ip_address,omitempty"`
-	ForwardedHost     string    `json:"forwarded_host,omitempty"`
-	ForwardedPort     int       `json:"forwarded_port,omitempty"`
-	Shell             string    `json:"shell,omitempty"`
-	LastError         string    `json:"last_error,omitempty"`
-	Progress          *Progress `json:"progress,omitempty"`
-	GuestDeviceID     string    `json:"guest_device_id,omitempty"`
-	GuestDevicePubKey string    `json:"guest_device_pubkey,omitempty"`
-	CreatedAt         string    `json:"created_at"`
-	UpdatedAt         string    `json:"updated_at"`
-	LastLogAt         string    `json:"last_log_at,omitempty"`
+	Name               string              `json:"name"`
+	Slug               string              `json:"slug"`
+	Provider           string              `json:"provider"`
+	Template           string              `json:"template"`
+	Model              string              `json:"model,omitempty"`
+	Status             string              `json:"status"`
+	VMStatus           string              `json:"vm_status,omitempty"`
+	SharedDir          string              `json:"shared_dir,omitempty"`
+	IPAddress          string              `json:"ip_address,omitempty"`
+	ForwardedHost      string              `json:"forwarded_host,omitempty"`
+	ForwardedPort      int                 `json:"forwarded_port,omitempty"`
+	ForwardedEndpoints []ForwardedEndpoint `json:"forwarded_endpoints,omitempty"`
+	Shell              string              `json:"shell,omitempty"`
+	LastError          string              `json:"last_error,omitempty"`
+	Progress           *Progress           `json:"progress,omitempty"`
+	GuestDeviceID      string              `json:"guest_device_id,omitempty"`
+	GuestDevicePubKey  string              `json:"guest_device_pubkey,omitempty"`
+	CreatedAt          string              `json:"created_at"`
+	UpdatedAt          string              `json:"updated_at"`
+	LastLogAt          string              `json:"last_log_at,omitempty"`
+}
+
+type ForwardedEndpoint struct {
+	Name      string `json:"name"`
+	Host      string `json:"host"`
+	HostPort  int    `json:"host_port"`
+	GuestHost string `json:"guest_host"`
+	GuestPort int    `json:"guest_port"`
+	Offset    int    `json:"offset"`
+	Protocol  string `json:"protocol,omitempty"`
 }
 
 type LogEntry struct {

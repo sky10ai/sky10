@@ -218,10 +218,10 @@ func TestValidateSandboxCreate(t *testing.T) {
 func TestRenderLimaTemplate(t *testing.T) {
 	t.Parallel()
 
-	body := []byte(`name=__SKY10_SANDBOX_NAME__ path=__SKY10_SHARED_DIR__ state=__SKY10_STATE_DIR__ port=__SKY10_GUEST_FORWARD_PORT__`)
+	body := []byte(`name=__SKY10_SANDBOX_NAME__ path=__SKY10_SHARED_DIR__ state=__SKY10_STATE_DIR__ port=__SKY10_GUEST_FORWARD_PORT__ gateway=__SKY10_OPENCLAW_GATEWAY_FORWARD_PORT__`)
 	got := string(renderLimaTemplate(body, "bobs-burgers", "/Users/bf/Sky10/Drives/Agents/bobs-burgers", "/Users/bf/.sky10/sandboxes/bobs-burgers/state", 39123))
 
-	if strings.Contains(got, templateNameToken) || strings.Contains(got, templateSharedToken) || strings.Contains(got, templateStateToken) || strings.Contains(got, templateForwardedGuestPortToken) {
+	if strings.Contains(got, templateNameToken) || strings.Contains(got, templateSharedToken) || strings.Contains(got, templateStateToken) || strings.Contains(got, templateForwardedGuestPortToken) || strings.Contains(got, templateOpenClawGatewayPortToken) {
 		t.Fatalf("renderLimaTemplate() left placeholder tokens behind: %q", got)
 	}
 	if !strings.Contains(got, "bobs-burgers") {
@@ -236,34 +236,47 @@ func TestRenderLimaTemplate(t *testing.T) {
 	if !strings.Contains(got, "39123") {
 		t.Fatalf("renderLimaTemplate() missing forwarded port: %q", got)
 	}
+	if !strings.Contains(got, "39124") {
+		t.Fatalf("renderLimaTemplate() missing OpenClaw gateway forwarded port: %q", got)
+	}
 }
 
-func TestLocalManagedLimaTemplatesForwardGuestSky10Only(t *testing.T) {
+func TestLocalManagedLimaTemplatesForwardGuestEndpoints(t *testing.T) {
 	t.Parallel()
 
-	for _, template := range []string{
-		sandboxTemplateOpenClaw,
-		sandboxTemplateOpenClawDocker,
-		sandboxTemplateHermes,
-		sandboxTemplateHermesDocker,
-	} {
-		template := template
-		t.Run(template, func(t *testing.T) {
+	tests := []struct {
+		template            string
+		wantOpenClawGateway bool
+	}{
+		{template: sandboxTemplateOpenClaw, wantOpenClawGateway: true},
+		{template: sandboxTemplateOpenClawDocker, wantOpenClawGateway: true},
+		{template: sandboxTemplateHermes},
+		{template: sandboxTemplateHermesDocker},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.template, func(t *testing.T) {
 			t.Parallel()
 
-			spec, err := limaTemplateDefinition(template)
+			spec, err := limaTemplateDefinition(tc.template)
 			if err != nil {
-				t.Fatalf("limaTemplateDefinition(%q): %v", template, err)
+				t.Fatalf("limaTemplateDefinition(%q): %v", tc.template, err)
 			}
 			dir, err := findLocalLimaTemplateDir(spec)
 			if err != nil {
-				t.Fatalf("findLocalLimaTemplateDir(%q): %v", template, err)
+				t.Fatalf("findLocalLimaTemplateDir(%q): %v", tc.template, err)
 			}
 			body, err := os.ReadFile(filepath.Join(dir, spec.mainAsset))
 			if err != nil {
 				t.Fatalf("ReadFile(%q): %v", spec.mainAsset, err)
 			}
-			assertLocalManagedLimaTemplateForwardsGuestSky10(t, string(body))
+			text := string(body)
+			assertLocalManagedLimaTemplateForwardsGuestSky10(t, text)
+			if tc.wantOpenClawGateway {
+				assertLocalManagedLimaTemplateForwardsOpenClawGateway(t, text)
+			} else if strings.Contains(text, templateOpenClawGatewayPortToken) {
+				t.Fatalf("managed Lima template unexpectedly forwards OpenClaw gateway")
+			}
 		})
 	}
 }
@@ -296,6 +309,20 @@ func assertLocalManagedLimaTemplateForwardsGuestSky10(t *testing.T, text string)
 	} {
 		if strings.Contains(text, disallowed) {
 			t.Fatalf("managed Lima template still contains %q", disallowed)
+		}
+	}
+}
+
+func assertLocalManagedLimaTemplateForwardsOpenClawGateway(t *testing.T, text string) {
+	t.Helper()
+
+	for _, want := range []string{
+		"guestPort: 18789",
+		"hostPort: __SKY10_OPENCLAW_GATEWAY_FORWARD_PORT__",
+		"http://127.0.0.1:__SKY10_OPENCLAW_GATEWAY_FORWARD_PORT__",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("managed Lima template missing %q", want)
 		}
 	}
 }

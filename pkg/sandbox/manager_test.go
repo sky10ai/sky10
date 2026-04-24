@@ -98,7 +98,8 @@ func TestManagerCreateAllocatesForwardedEndpoint(t *testing.T) {
 	m.hostRPC = nil
 	m.forwardedPortStart = defaultForwardedGuestPortStart
 	m.localPortAvailable = func(host string, port int) bool {
-		return host == defaultForwardedGuestHost && port == defaultForwardedGuestPortStart
+		return host == defaultForwardedGuestHost &&
+			(port == defaultForwardedGuestPortStart || port == defaultForwardedGuestPortStart+1)
 	}
 	m.appStatus = func(id skyapps.ID) (*skyapps.Status, error) {
 		return &skyapps.Status{ActivePath: "/tmp/fake/" + string(id)}, nil
@@ -134,6 +135,26 @@ func TestManagerCreateAllocatesForwardedEndpoint(t *testing.T) {
 	if rec.ForwardedPort != defaultForwardedGuestPortStart {
 		t.Fatalf("forwarded port = %d, want %d", rec.ForwardedPort, defaultForwardedGuestPortStart)
 	}
+	assertRecordForwardedEndpoints(t, *rec, []ForwardedEndpoint{
+		{
+			Name:      ForwardedEndpointSky10,
+			Host:      defaultForwardedGuestHost,
+			HostPort:  defaultForwardedGuestPortStart,
+			GuestHost: defaultForwardedGuestHost,
+			GuestPort: guestSky10Port,
+			Offset:    0,
+			Protocol:  "tcp",
+		},
+		{
+			Name:      ForwardedEndpointOpenClawGateway,
+			Host:      defaultForwardedGuestHost,
+			HostPort:  defaultForwardedGuestPortStart + 1,
+			GuestHost: defaultForwardedGuestHost,
+			GuestPort: openClawGatewayGuestPort,
+			Offset:    1,
+			Protocol:  "tcp",
+		},
+	})
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -164,6 +185,7 @@ func TestManagerCreateAllocatesForwardedEndpoint(t *testing.T) {
 		t.Fatalf("persisted forwarded endpoint = %s:%d, want %s:%d",
 			persisted.ForwardedHost, persisted.ForwardedPort, defaultForwardedGuestHost, defaultForwardedGuestPortStart)
 	}
+	assertRecordForwardedEndpoints(t, persisted, rec.ForwardedEndpoints)
 }
 
 func TestAssignForwardedEndpointSkipsAssignedAndUnavailablePorts(t *testing.T) {
@@ -207,6 +229,58 @@ func TestAssignForwardedEndpointSkipsAssignedAndUnavailablePorts(t *testing.T) {
 	}
 }
 
+func TestAssignForwardedEndpointAllocatesContiguousOpenClawBlock(t *testing.T) {
+	t.Parallel()
+
+	m := &Manager{
+		records:            map[string]Record{},
+		forwardedPortStart: defaultForwardedGuestPortStart,
+		localPortAvailable: func(host string, port int) bool {
+			if host != defaultForwardedGuestHost {
+				t.Fatalf("localPortAvailable host = %q, want %q", host, defaultForwardedGuestHost)
+			}
+			return port != defaultForwardedGuestPortStart+1
+		},
+	}
+	rec := Record{
+		Slug:     "openclaw-m1",
+		Provider: providerLima,
+		Template: templateOpenClaw,
+	}
+
+	changed, err := m.assignForwardedEndpointLocked(&rec)
+	if err != nil {
+		t.Fatalf("assignForwardedEndpointLocked() error: %v", err)
+	}
+	if !changed {
+		t.Fatal("assignForwardedEndpointLocked() changed = false, want true")
+	}
+	wantPort := defaultForwardedGuestPortStart + 2
+	if rec.ForwardedPort != wantPort {
+		t.Fatalf("forwarded port = %d, want %d", rec.ForwardedPort, wantPort)
+	}
+	assertRecordForwardedEndpoints(t, rec, []ForwardedEndpoint{
+		{
+			Name:      ForwardedEndpointSky10,
+			Host:      defaultForwardedGuestHost,
+			HostPort:  wantPort,
+			GuestHost: defaultForwardedGuestHost,
+			GuestPort: guestSky10Port,
+			Offset:    0,
+			Protocol:  "tcp",
+		},
+		{
+			Name:      ForwardedEndpointOpenClawGateway,
+			Host:      defaultForwardedGuestHost,
+			HostPort:  wantPort + 1,
+			GuestHost: defaultForwardedGuestHost,
+			GuestPort: openClawGatewayGuestPort,
+			Offset:    1,
+			Protocol:  "tcp",
+		},
+	})
+}
+
 func TestEnsureForwardedEndpointPreservesExistingPort(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
 
@@ -243,6 +317,30 @@ func TestEnsureForwardedEndpointPreservesExistingPort(t *testing.T) {
 	}
 	if rec.ForwardedPort != 40123 {
 		t.Fatalf("forwarded port = %d, want 40123", rec.ForwardedPort)
+	}
+	assertRecordForwardedEndpoints(t, *rec, []ForwardedEndpoint{
+		{
+			Name:      ForwardedEndpointSky10,
+			Host:      defaultForwardedGuestHost,
+			HostPort:  40123,
+			GuestHost: defaultForwardedGuestHost,
+			GuestPort: guestSky10Port,
+			Offset:    0,
+			Protocol:  "tcp",
+		},
+	})
+}
+
+func assertRecordForwardedEndpoints(t *testing.T, rec Record, want []ForwardedEndpoint) {
+	t.Helper()
+
+	if len(rec.ForwardedEndpoints) != len(want) {
+		t.Fatalf("forwarded endpoints = %#v, want %#v", rec.ForwardedEndpoints, want)
+	}
+	for i := range want {
+		if rec.ForwardedEndpoints[i] != want[i] {
+			t.Fatalf("forwarded endpoint %d = %#v, want %#v", i, rec.ForwardedEndpoints[i], want[i])
+		}
 	}
 }
 
@@ -1249,10 +1347,10 @@ func TestEnsureAgentHomeUsesHostDriveRoot(t *testing.T) {
 func TestRenderSandboxTemplate(t *testing.T) {
 	t.Parallel()
 
-	body := []byte(`name=__SKY10_SANDBOX_NAME__ path=__SKY10_SHARED_DIR__ state=__SKY10_STATE_DIR__ port=__SKY10_GUEST_FORWARD_PORT__`)
+	body := []byte(`name=__SKY10_SANDBOX_NAME__ path=__SKY10_SHARED_DIR__ state=__SKY10_STATE_DIR__ port=__SKY10_GUEST_FORWARD_PORT__ gateway=__SKY10_OPENCLAW_GATEWAY_FORWARD_PORT__`)
 	got := string(renderSandboxTemplate(body, "devbox", "/Users/bf/Sky10/Drives/Agents/devbox", "/Users/bf/.sky10/sandboxes/devbox/state", 39123))
 
-	if strings.Contains(got, templateNameToken) || strings.Contains(got, templateSharedToken) || strings.Contains(got, templateStateToken) || strings.Contains(got, templateForwardedGuestPortToken) {
+	if strings.Contains(got, templateNameToken) || strings.Contains(got, templateSharedToken) || strings.Contains(got, templateStateToken) || strings.Contains(got, templateForwardedGuestPortToken) || strings.Contains(got, templateOpenClawGatewayPortToken) {
 		t.Fatalf("renderSandboxTemplate() left placeholder tokens behind: %q", got)
 	}
 	if !strings.Contains(got, "devbox") {
@@ -1266,6 +1364,9 @@ func TestRenderSandboxTemplate(t *testing.T) {
 	}
 	if !strings.Contains(got, "39123") {
 		t.Fatalf("renderSandboxTemplate() missing forwarded port: %q", got)
+	}
+	if !strings.Contains(got, "39124") {
+		t.Fatalf("renderSandboxTemplate() missing OpenClaw gateway forwarded port: %q", got)
 	}
 }
 
@@ -1305,26 +1406,37 @@ func TestReadBundledOpenClawTemplateProbeUsesHealthChecks(t *testing.T) {
 		t.Fatalf("openclaw template probe missing OpenClaw health check")
 	}
 	assertManagedLimaTemplateForwardsGuestSky10(t, text)
+	assertManagedLimaTemplateForwardsOpenClawGateway(t, text)
 }
 
-func TestBundledManagedLimaTemplatesForwardGuestSky10Only(t *testing.T) {
+func TestBundledManagedLimaTemplatesForwardGuestEndpoints(t *testing.T) {
 	t.Parallel()
 
-	for _, asset := range []string{
-		templateOpenClawYAML,
-		templateOpenClawDockerYAML,
-		templateHermesYAML,
-		templateHermesDockerYAML,
-	} {
-		asset := asset
-		t.Run(asset, func(t *testing.T) {
+	tests := []struct {
+		asset               string
+		wantOpenClawGateway bool
+	}{
+		{asset: templateOpenClawYAML, wantOpenClawGateway: true},
+		{asset: templateOpenClawDockerYAML, wantOpenClawGateway: true},
+		{asset: templateHermesYAML},
+		{asset: templateHermesDockerYAML},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.asset, func(t *testing.T) {
 			t.Parallel()
 
-			body, err := readBundledTemplateAsset(asset)
+			body, err := readBundledTemplateAsset(tc.asset)
 			if err != nil {
-				t.Fatalf("readBundledTemplateAsset(%q) error: %v", asset, err)
+				t.Fatalf("readBundledTemplateAsset(%q) error: %v", tc.asset, err)
 			}
-			assertManagedLimaTemplateForwardsGuestSky10(t, string(body))
+			text := string(body)
+			assertManagedLimaTemplateForwardsGuestSky10(t, text)
+			if tc.wantOpenClawGateway {
+				assertManagedLimaTemplateForwardsOpenClawGateway(t, text)
+			} else if strings.Contains(text, templateOpenClawGatewayPortToken) {
+				t.Fatalf("managed Lima template unexpectedly forwards OpenClaw gateway")
+			}
 		})
 	}
 }
@@ -1357,6 +1469,20 @@ func assertManagedLimaTemplateForwardsGuestSky10(t *testing.T, text string) {
 	} {
 		if strings.Contains(text, disallowed) {
 			t.Fatalf("managed Lima template still contains %q", disallowed)
+		}
+	}
+}
+
+func assertManagedLimaTemplateForwardsOpenClawGateway(t *testing.T, text string) {
+	t.Helper()
+
+	for _, want := range []string{
+		"guestPort: 18789",
+		"hostPort: __SKY10_OPENCLAW_GATEWAY_FORWARD_PORT__",
+		"http://127.0.0.1:__SKY10_OPENCLAW_GATEWAY_FORWARD_PORT__",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("managed Lima template missing %q", want)
 		}
 	}
 }

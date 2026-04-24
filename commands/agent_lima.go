@@ -71,6 +71,7 @@ const (
 	templateSharedToken               = "__SKY10_SHARED_DIR__"
 	templateStateToken                = "__SKY10_STATE_DIR__"
 	templateForwardedGuestPortToken   = "__SKY10_GUEST_FORWARD_PORT__"
+	templateOpenClawGatewayPortToken  = "__SKY10_OPENCLAW_GATEWAY_FORWARD_PORT__"
 	defaultForwardedGuestHost         = "127.0.0.1"
 	defaultForwardedGuestPortStart    = 39101
 	agentDriveRootName                = "Agents"
@@ -209,7 +210,7 @@ func sandboxCreateCmd() *cobra.Command {
 				return err
 			}
 
-			forwardedPort, err := allocateStandaloneForwardedGuestPort()
+			forwardedPort, err := allocateStandaloneForwardedGuestPortBlock(skysandbox.ForwardedPortBlockSize(template))
 			if err != nil {
 				return err
 			}
@@ -287,7 +288,12 @@ func sandboxCreateCmd() *cobra.Command {
 				IPAddress:     ipAddr,
 				ForwardedHost: defaultForwardedGuestHost,
 				ForwardedPort: forwardedPort,
-				Shell:         localSandboxShellCommand(limactl, template, slug),
+				ForwardedEndpoints: skysandbox.ForwardedEndpointsForTemplate(
+					template,
+					defaultForwardedGuestHost,
+					forwardedPort,
+				),
+				Shell: localSandboxShellCommand(limactl, template, slug),
 			}
 			printSandboxSummary(cmd, rec)
 			maybeOpenSandboxUI(cmd, rec, openUI)
@@ -433,10 +439,42 @@ func sandboxURLs(rec skysandbox.Record) (string, string) {
 	if !isOpenClawTemplate(rec.Template) {
 		return "", ""
 	}
+	sky10URL := sandboxForwardedURL(rec, skysandbox.ForwardedEndpointSky10, "")
+	openClawURL := sandboxForwardedURL(rec, skysandbox.ForwardedEndpointOpenClawGateway, "/chat?session=main")
+	if sky10URL != "" || openClawURL != "" {
+		return sky10URL, openClawURL
+	}
 	if strings.TrimSpace(rec.IPAddress) == "" {
 		return "", ""
 	}
 	return fmt.Sprintf("http://%s:9101", rec.IPAddress), fmt.Sprintf("http://%s:18790/chat?session=main", rec.IPAddress)
+}
+
+func sandboxForwardedURL(rec skysandbox.Record, endpointName, path string) string {
+	if endpoint, ok := sandboxForwardedEndpoint(rec, endpointName); ok {
+		return fmt.Sprintf("http://%s:%d%s", endpoint.Host, endpoint.HostPort, path)
+	}
+	return ""
+}
+
+func sandboxForwardedEndpoint(rec skysandbox.Record, endpointName string) (skysandbox.ForwardedEndpoint, bool) {
+	for _, endpoint := range rec.ForwardedEndpoints {
+		if endpoint.Name == endpointName && strings.TrimSpace(endpoint.Host) != "" && endpoint.HostPort > 0 {
+			return endpoint, true
+		}
+	}
+	if strings.TrimSpace(rec.ForwardedHost) == "" || rec.ForwardedPort <= 0 {
+		return skysandbox.ForwardedEndpoint{}, false
+	}
+	hostPort := skysandbox.ForwardedHostPortForTemplate(rec.Template, endpointName, rec.ForwardedPort)
+	if hostPort <= 0 {
+		return skysandbox.ForwardedEndpoint{}, false
+	}
+	return skysandbox.ForwardedEndpoint{
+		Name:     endpointName,
+		Host:     rec.ForwardedHost,
+		HostPort: hostPort,
+	}, true
 }
 
 func localSandboxShellCommand(limactl, template, slug string) string {
@@ -631,17 +669,34 @@ func renderLimaTemplate(body []byte, name, sharedDir, stateDir string, forwarded
 	rendered = strings.ReplaceAll(rendered, templateStateToken, stateDir)
 	if forwardedPort > 0 {
 		rendered = strings.ReplaceAll(rendered, templateForwardedGuestPortToken, strconv.Itoa(forwardedPort))
+		rendered = strings.ReplaceAll(rendered, templateOpenClawGatewayPortToken, strconv.Itoa(forwardedPort+1))
 	}
 	return []byte(rendered)
 }
 
 func allocateStandaloneForwardedGuestPort() (int, error) {
-	for port := defaultForwardedGuestPortStart; port <= 65535; port++ {
-		if standaloneForwardedGuestPortAvailable(defaultForwardedGuestHost, port) {
+	return allocateStandaloneForwardedGuestPortBlock(1)
+}
+
+func allocateStandaloneForwardedGuestPortBlock(blockSize int) (int, error) {
+	if blockSize <= 0 {
+		blockSize = 1
+	}
+	for port := defaultForwardedGuestPortStart; port <= 65535-blockSize+1; port++ {
+		if standaloneForwardedGuestPortBlockAvailable(defaultForwardedGuestHost, port, blockSize) {
 			return port, nil
 		}
 	}
 	return 0, fmt.Errorf("no available forwarded host port starting at %d", defaultForwardedGuestPortStart)
+}
+
+func standaloneForwardedGuestPortBlockAvailable(host string, basePort, blockSize int) bool {
+	for offset := 0; offset < blockSize; offset++ {
+		if !standaloneForwardedGuestPortAvailable(host, basePort+offset) {
+			return false
+		}
+	}
+	return true
 }
 
 func standaloneForwardedGuestPortAvailable(host string, port int) bool {

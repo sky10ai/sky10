@@ -19,6 +19,11 @@ portForwards:
   hostPort: __SKY10_GUEST_FORWARD_PORT__
   proto: tcp
 - guestIP: "127.0.0.1"
+  guestPort: 18789
+  hostIP: "127.0.0.1"
+  hostPort: __SKY10_OPENCLAW_GATEWAY_FORWARD_PORT__
+  proto: tcp
+- guestIP: "127.0.0.1"
   guestPortRange: [1, 65535]
   proto: any
   ignore: true
@@ -77,6 +82,9 @@ message: |
 
   Host-forwarded guest sky10:
     http://127.0.0.1:__SKY10_GUEST_FORWARD_PORT__
+
+  Host-forwarded OpenClaw gateway:
+    http://127.0.0.1:__SKY10_OPENCLAW_GATEWAY_FORWARD_PORT__
 
   OpenClaw's Caddy UI remains guest-local on port 18790 in this phase.
 

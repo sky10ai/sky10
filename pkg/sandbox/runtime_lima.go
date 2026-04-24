@@ -126,6 +126,7 @@ func renderSandboxTemplate(body []byte, name, sharedDir, stateDir string, forwar
 	rendered = strings.ReplaceAll(rendered, templateStateToken, stateDir)
 	if forwardedPort > 0 {
 		rendered = strings.ReplaceAll(rendered, templateForwardedGuestPortToken, strconv.Itoa(forwardedPort))
+		rendered = strings.ReplaceAll(rendered, templateOpenClawGatewayPortToken, strconv.Itoa(forwardedPort+1))
 	}
 	return []byte(rendered)
 }
