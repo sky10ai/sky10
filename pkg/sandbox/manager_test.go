@@ -87,6 +87,165 @@ func TestManagerCreateTransitionsToReady(t *testing.T) {
 	t.Fatalf("sandbox did not reach ready state, final status=%q", got.Status)
 }
 
+func TestManagerCreateAllocatesForwardedEndpoint(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	m.hostRPC = nil
+	m.forwardedPortStart = defaultForwardedGuestPortStart
+	m.localPortAvailable = func(host string, port int) bool {
+		return host == defaultForwardedGuestHost && port == defaultForwardedGuestPortStart
+	}
+	m.appStatus = func(id skyapps.ID) (*skyapps.Status, error) {
+		return &skyapps.Status{ActivePath: "/tmp/fake/" + string(id)}, nil
+	}
+	m.runCmd = func(ctx context.Context, bin string, args []string, onLine func(stream, line string)) error {
+		return nil
+	}
+	m.outputCmd = func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "shell" {
+			script := args[len(args)-1]
+			if strings.Contains(script, "ip -4") {
+				return []byte("192.168.64.10\n"), nil
+			}
+			return []byte("ok"), nil
+		}
+		if len(args) > 0 && args[0] == "list" {
+			return []byte(`{"name":"openclaw-m1","status":"Running"}` + "\n"), nil
+		}
+		return nil, nil
+	}
+
+	rec, err := m.Create(context.Background(), CreateParams{
+		Name:     "openclaw-m1",
+		Provider: providerLima,
+		Template: templateOpenClaw,
+	})
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	if rec.ForwardedHost != defaultForwardedGuestHost {
+		t.Fatalf("forwarded host = %q, want %q", rec.ForwardedHost, defaultForwardedGuestHost)
+	}
+	if rec.ForwardedPort != defaultForwardedGuestPortStart {
+		t.Fatalf("forwarded port = %d, want %d", rec.ForwardedPort, defaultForwardedGuestPortStart)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		got, err := m.Get(context.Background(), "openclaw-m1")
+		if err != nil {
+			t.Fatalf("Get() error: %v", err)
+		}
+		if got.Status == "ready" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	waitForCreateToFinish(t, m, "openclaw-m1")
+
+	data, err := os.ReadFile(m.statePath())
+	if err != nil {
+		t.Fatalf("ReadFile(state) error: %v", err)
+	}
+	var state stateFile
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatalf("Unmarshal(state) error: %v", err)
+	}
+	if len(state.Sandboxes) != 1 {
+		t.Fatalf("state sandboxes = %d, want 1", len(state.Sandboxes))
+	}
+	persisted := state.Sandboxes[0]
+	if persisted.ForwardedHost != defaultForwardedGuestHost || persisted.ForwardedPort != defaultForwardedGuestPortStart {
+		t.Fatalf("persisted forwarded endpoint = %s:%d, want %s:%d",
+			persisted.ForwardedHost, persisted.ForwardedPort, defaultForwardedGuestHost, defaultForwardedGuestPortStart)
+	}
+}
+
+func TestAssignForwardedEndpointSkipsAssignedAndUnavailablePorts(t *testing.T) {
+	t.Parallel()
+
+	m := &Manager{
+		records: map[string]Record{
+			"existing": {
+				Slug:          "existing",
+				Provider:      providerLima,
+				Template:      templateHermes,
+				ForwardedHost: defaultForwardedGuestHost,
+				ForwardedPort: defaultForwardedGuestPortStart,
+			},
+		},
+		forwardedPortStart: defaultForwardedGuestPortStart,
+		localPortAvailable: func(host string, port int) bool {
+			if host != defaultForwardedGuestHost {
+				t.Fatalf("localPortAvailable host = %q, want %q", host, defaultForwardedGuestHost)
+			}
+			return port != defaultForwardedGuestPortStart+1
+		},
+	}
+	rec := Record{
+		Slug:     "hermes-m1",
+		Provider: providerLima,
+		Template: templateHermes,
+	}
+
+	changed, err := m.assignForwardedEndpointLocked(&rec)
+	if err != nil {
+		t.Fatalf("assignForwardedEndpointLocked() error: %v", err)
+	}
+	if !changed {
+		t.Fatal("assignForwardedEndpointLocked() changed = false, want true")
+	}
+	wantPort := defaultForwardedGuestPortStart + 2
+	if rec.ForwardedHost != defaultForwardedGuestHost || rec.ForwardedPort != wantPort {
+		t.Fatalf("forwarded endpoint = %s:%d, want %s:%d",
+			rec.ForwardedHost, rec.ForwardedPort, defaultForwardedGuestHost, wantPort)
+	}
+}
+
+func TestEnsureForwardedEndpointPreservesExistingPort(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+	m.localPortAvailable = func(host string, port int) bool {
+		t.Fatalf("localPortAvailable should not be called for existing forwarded port %s:%d", host, port)
+		return false
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["hermes-m1"] = Record{
+		Name:          "Hermes M1",
+		Slug:          "hermes-m1",
+		Provider:      providerLima,
+		Template:      templateHermes,
+		Status:        "stopped",
+		ForwardedPort: 40123,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := m.saveLocked(); err != nil {
+		t.Fatalf("saveLocked() error: %v", err)
+	}
+
+	rec, err := m.ensureForwardedEndpoint("hermes-m1")
+	if err != nil {
+		t.Fatalf("ensureForwardedEndpoint() error: %v", err)
+	}
+	if rec.ForwardedHost != defaultForwardedGuestHost {
+		t.Fatalf("forwarded host = %q, want %q", rec.ForwardedHost, defaultForwardedGuestHost)
+	}
+	if rec.ForwardedPort != 40123 {
+		t.Fatalf("forwarded port = %d, want 40123", rec.ForwardedPort)
+	}
+}
+
 func TestAppendLogProgressMarkerUpdatesRecordAndSuppressesMarker(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
 

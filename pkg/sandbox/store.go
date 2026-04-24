@@ -393,6 +393,11 @@ func (m *Manager) load() error {
 			rec.Shell = shell
 			changed = true
 		}
+		if endpointChanged, err := m.assignForwardedEndpointLocked(&rec); err != nil {
+			return err
+		} else if endpointChanged {
+			changed = true
+		}
 		m.records[rec.Slug] = rec
 	}
 	if changed {

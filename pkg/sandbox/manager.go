@@ -71,6 +71,8 @@ const (
 	openClawReadyTimeout             = 2 * time.Minute
 	guestSky10ReadyURL               = "http://127.0.0.1:9101/health"
 	guestSky10LocalRPCURL            = "http://127.0.0.1:9101/rpc"
+	defaultForwardedGuestHost        = "127.0.0.1"
+	defaultForwardedGuestPortStart   = 39101
 	openClawReadyURL                 = "http://127.0.0.1:18789/health"
 	progressMarkerPrefix             = "SKY10_PROGRESS "
 )
@@ -113,6 +115,8 @@ type Record struct {
 	VMStatus          string    `json:"vm_status,omitempty"`
 	SharedDir         string    `json:"shared_dir,omitempty"`
 	IPAddress         string    `json:"ip_address,omitempty"`
+	ForwardedHost     string    `json:"forwarded_host,omitempty"`
+	ForwardedPort     int       `json:"forwarded_port,omitempty"`
 	Shell             string    `json:"shell,omitempty"`
 	LastError         string    `json:"last_error,omitempty"`
 	Progress          *Progress `json:"progress,omitempty"`
@@ -326,6 +330,8 @@ type Manager struct {
 	issueIdentityInvite      func(context.Context) (*IdentityInvite, error)
 	hostRPC                  func(context.Context, string, interface{}, interface{}) error
 	guestRPC                 func(context.Context, string, string, interface{}, interface{}) error
+	forwardedPortStart       int
+	localPortAvailable       func(host string, port int) bool
 	reconnectInterval        time.Duration
 	reconnectSweepTimeout    time.Duration
 }
@@ -336,18 +342,20 @@ func NewManager(emit Emitter, logger *slog.Logger) (*Manager, error) {
 		return nil, err
 	}
 	m := &Manager{
-		records:   map[string]Record{},
-		progress:  map[string]*progressTracker{},
-		rootDir:   filepath.Join(root, "sandboxes"),
-		emit:      emit,
-		logger:    componentLogger(logger),
-		running:   map[string]bool{},
-		appStatus: sandboxAppStatusFor,
-		appUpgr:   sandboxAppUpgrade,
-		runCmd:    defaultRunCommand,
-		outputCmd: defaultOutputCommand,
-		hostRPC:   hostRPCCall,
-		guestRPC:  guestRPCCall,
+		records:            map[string]Record{},
+		progress:           map[string]*progressTracker{},
+		rootDir:            filepath.Join(root, "sandboxes"),
+		emit:               emit,
+		logger:             componentLogger(logger),
+		running:            map[string]bool{},
+		appStatus:          sandboxAppStatusFor,
+		appUpgr:            sandboxAppUpgrade,
+		runCmd:             defaultRunCommand,
+		outputCmd:          defaultOutputCommand,
+		hostRPC:            hostRPCCall,
+		guestRPC:           guestRPCCall,
+		forwardedPortStart: defaultForwardedGuestPortStart,
+		localPortAvailable: localForwardedPortAvailable,
 	}
 	if err := os.MkdirAll(m.rootDir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating sandbox state dir: %w", err)
@@ -571,6 +579,10 @@ func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, err
 		m.mu.Unlock()
 		return nil, fmt.Errorf("sandbox %q is already being created", displayName)
 	}
+	if _, err := m.assignForwardedEndpointLocked(&rec); err != nil {
+		m.mu.Unlock()
+		return nil, err
+	}
 	m.records[slug] = rec
 	m.running[slug] = true
 	if tracker != nil {
@@ -611,6 +623,13 @@ func (m *Manager) Ensure(ctx context.Context, params CreateParams) (*Record, err
 	m.mu.Unlock()
 
 	if recordExists {
+		updated, err := m.ensureForwardedEndpoint(slug)
+		if err != nil {
+			return nil, err
+		}
+		if updated != nil {
+			rec = *updated
+		}
 		if running || rec.Status == "creating" || rec.Status == "starting" {
 			copy := rec
 			return &copy, nil
@@ -669,6 +688,10 @@ func (m *Manager) Ensure(ctx context.Context, params CreateParams) (*Record, err
 		}
 
 		m.mu.Lock()
+		if _, err := m.assignForwardedEndpointLocked(&rec); err != nil {
+			m.mu.Unlock()
+			return nil, err
+		}
 		m.records[slug] = rec
 		err = m.saveLocked()
 		m.mu.Unlock()
@@ -688,6 +711,10 @@ func (m *Manager) Ensure(ctx context.Context, params CreateParams) (*Record, err
 
 func (m *Manager) Start(ctx context.Context, name string) (*Record, error) {
 	rec, err := m.requireRecord(name)
+	if err != nil {
+		return nil, err
+	}
+	rec, err = m.ensureForwardedEndpoint(rec.Slug)
 	if err != nil {
 		return nil, err
 	}
