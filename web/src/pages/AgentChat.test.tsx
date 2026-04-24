@@ -59,6 +59,10 @@ let container: HTMLDivElement | null = null;
 let root: Root | null = null;
 let fetchCalls: FetchCall[] = [];
 
+type FetchSetupOptions = {
+  sandboxList?: "ready" | "pending";
+};
+
 class FakeEventSource {
   onmessage: ((event: MessageEvent) => void) | null = null;
 
@@ -180,7 +184,7 @@ function rpcResult(id: number, result: unknown) {
   );
 }
 
-function setupFetch() {
+function setupFetch(options: FetchSetupOptions = {}) {
   fetchCalls = [];
   globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body ?? "{}")) as {
@@ -205,6 +209,9 @@ function setupFetch() {
           count: 1,
         });
       case "sandbox.list":
+        if (options.sandboxList === "pending") {
+          return await new Promise<Response>(() => {});
+        }
         return rpcResult(body.id, {
           sandboxes: [{
             name: "hermes-dev",
@@ -381,6 +388,47 @@ describe("AgentChat page", () => {
     expect(fetchCalls.some((call) => call.method === "agent.send")).toBe(false);
 
     await waitFor(() => page.textContent?.includes("Delivered") === true, "delivered state");
+  });
+
+  test("allows sending while sandbox lookup is still pending", async () => {
+    setupFetch({ sandboxList: "pending" });
+    const page = await renderAgentChatPage();
+
+    const fileInput = page.querySelector('input[type="file"]') as HTMLInputElement | null;
+    if (!fileInput) {
+      throw new Error("expected hidden file input");
+    }
+    const sendButton = page.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
+    if (!sendButton) {
+      throw new Error("expected send button");
+    }
+
+    const file = new File(["pending sandbox lookup"], "pending.txt", { type: "text/plain" });
+    Object.defineProperty(fileInput, "files", {
+      configurable: true,
+      value: [file],
+    });
+    await act(async () => {
+      fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await waitFor(() => sendButton.disabled === false, "send button enabled before sandbox lookup");
+
+    await act(async () => {
+      sendButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    await waitFor(
+      () => FakeWebSocket.instances.some((socket) => socket.sentFrames.length > 0),
+      "host websocket request",
+    );
+
+    const sentSocket = FakeWebSocket.instances.find((socket) => socket.sentFrames.length > 0);
+    if (!sentSocket) {
+      throw new Error("expected websocket request frame");
+    }
+    expect(sentSocket.url).toContain("/rpc/agents/A-agent/chat");
+    expect(sentSocket.url).not.toContain("10.0.0.2");
+    expect(fetchCalls.filter((call) => call.method === "sandbox.list")).toHaveLength(1);
   });
 
   test("rotates a stale chat session when no visible transcript is stored", async () => {

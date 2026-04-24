@@ -34,6 +34,8 @@ import { useRPC } from "../lib/useRPC";
 
 const maxAttachmentBytes = 8 * 1024 * 1024;
 const maxAttachments = 4;
+const waitingNoticeDelayMs = 8_000;
+const slowWaitingDelayMs = 30_000;
 
 interface DraftAttachment {
   id: string;
@@ -393,9 +395,11 @@ export default function AgentChat() {
   const [composerError, setComposerError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [waiting, setWaiting] = useState(false);
+  const [waitingNotice, setWaitingNotice] = useState(false);
   const [slowWaiting, setSlowWaiting] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [transport, setTransport] = useState<ChatTransport>("connecting");
+  const [activeChatWebSocketURL, setActiveChatWebSocketURL] = useState<string | undefined>();
   const [sessionId] = useState(() => {
     const existing = localStorage.getItem(sessionKey);
     if (existing && initialMessages.length > 0) return existing;
@@ -406,6 +410,7 @@ export default function AgentChat() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const waitingNoticeTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const slowWaitingTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const websocketRef = useRef<WebSocket | null>(null);
   const websocketRetryTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -432,31 +437,41 @@ export default function AgentChat() {
     ? sandboxData?.sandboxes?.find((record) => record.guest_device_id === agentInfo.device_id)
     : undefined;
   const sandboxLookupPending = Boolean(agentInfo && sandboxData === null && sandboxLoading);
-  const requiresGuestWebSocket = Boolean(sandboxGuest);
   const guestSky10Endpoint = sandboxForwardedEndpoint(sandboxGuest, "sky10");
   const guestChatReady = Boolean(guestSky10Endpoint || sandboxGuest?.ip_address);
-  const chatWebSocketURL = agentInfoID
-    ? requiresGuestWebSocket
-      ? (guestChatReady
-          ? guestSky10Endpoint?.host && guestSky10Endpoint.host_port
-            ? guestAgentChatWebSocketURL(guestSky10Endpoint.host, guestSky10Endpoint.host_port, agentInfoID, sessionId)
-            : guestAgentChatWebSocketURL(sandboxGuest!.ip_address!, 9101, agentInfoID, sessionId)
-          : undefined)
-      : agentChatWebSocketURL(agentInfoID, sessionId)
+  const hostChatWebSocketURL = agentInfoID ? agentChatWebSocketURL(agentInfoID, sessionId) : undefined;
+  const guestChatWebSocketURL = agentInfoID && sandboxGuest && guestChatReady
+    ? guestSky10Endpoint?.host && guestSky10Endpoint.host_port
+      ? guestAgentChatWebSocketURL(guestSky10Endpoint.host, guestSky10Endpoint.host_port, agentInfoID, sessionId)
+      : guestAgentChatWebSocketURL(sandboxGuest.ip_address!, 9101, agentInfoID, sessionId)
     : undefined;
+  const desiredChatWebSocketURL = guestChatWebSocketURL ?? hostChatWebSocketURL;
+  const usingGuestWebSocket = Boolean(
+    activeChatWebSocketURL &&
+    guestChatWebSocketURL &&
+    activeChatWebSocketURL === guestChatWebSocketURL,
+  );
   const showGlobalWaiting = waiting && !messages.some((message) => message.streaming);
 
   const clearWaitingState = useEffectEvent(() => {
+    clearTimeout(waitingNoticeTimerRef.current);
     clearTimeout(slowWaitingTimerRef.current);
     setWaiting(false);
+    setWaitingNotice(false);
     setSlowWaiting(false);
   });
 
   const startWaitingState = useEffectEvent(() => {
     setWaiting(true);
+    setWaitingNotice(false);
     setSlowWaiting(false);
+    clearTimeout(waitingNoticeTimerRef.current);
     clearTimeout(slowWaitingTimerRef.current);
-    slowWaitingTimerRef.current = setTimeout(() => setSlowWaiting(true), 30_000);
+    waitingNoticeTimerRef.current = setTimeout(() => setWaitingNotice(true), waitingNoticeDelayMs);
+    slowWaitingTimerRef.current = setTimeout(() => {
+      setWaitingNotice(true);
+      setSlowWaiting(true);
+    }, slowWaitingDelayMs);
   });
 
   const rejectPendingWebSocketRequests = useEffectEvent((reason: string) => {
@@ -504,15 +519,15 @@ export default function AgentChat() {
         message.id === userMessageID
           ? {
               ...message,
-              delivered: requiresGuestWebSocket
+              delivered: usingGuestWebSocket
                 ? result.status === "sent"
                 : result.status === "sent" && result.delivery.status === "sent",
-              delivery: requiresGuestWebSocket ? undefined : result.delivery,
+              delivery: usingGuestWebSocket ? undefined : result.delivery,
             }
           : message
       ))
     );
-    if (requiresGuestWebSocket ? result.status === "sent" : result.status === "sent" && result.delivery.status === "sent") {
+    if (usingGuestWebSocket ? result.status === "sent" : result.status === "sent" && result.delivery.status === "sent") {
       startWaitingState();
       return;
     }
@@ -600,18 +615,29 @@ export default function AgentChat() {
 
   useEffect(() => {
     if (!agentInfoID) return;
-    if (sandboxLookupPending) {
+    if (!desiredChatWebSocketURL) {
+      setTransport(agentInfoID ? "failed" : "connecting");
+      return;
+    }
+    if (activeChatWebSocketURL === desiredChatWebSocketURL) return;
+    if (
+      activeChatWebSocketURL &&
+      (sending || waiting || pendingWSRequestsRef.current.size > 0)
+    ) {
+      return;
+    }
+    setActiveChatWebSocketURL(desiredChatWebSocketURL);
+  }, [activeChatWebSocketURL, agentInfoID, desiredChatWebSocketURL, sending, waiting]);
+
+  useEffect(() => {
+    if (!agentInfoID) return;
+    if (!activeChatWebSocketURL) {
       setTransport("connecting");
       return;
     }
-    if (requiresGuestWebSocket && !chatWebSocketURL) {
-      setTransport("failed");
-      return;
-    }
-    if (!chatWebSocketURL) return;
 
     setTransport("connecting");
-    const socket = new WebSocket(chatWebSocketURL);
+    const socket = new WebSocket(activeChatWebSocketURL);
     websocketRef.current = socket;
     let disposed = false;
 
@@ -634,7 +660,7 @@ export default function AgentChat() {
 
     socket.onerror = () => {
       if (disposed || websocketRef.current !== socket) return;
-      setTransport(requiresGuestWebSocket ? "failed" : "fallback");
+      setTransport("fallback");
     };
 
     socket.onclose = (event) => {
@@ -643,7 +669,7 @@ export default function AgentChat() {
       }
       rejectPendingWebSocketRequests(event.reason || "Chat websocket closed");
       if (disposed || event.code === 1000) return;
-      setTransport(requiresGuestWebSocket ? "failed" : "fallback");
+      setTransport("fallback");
       clearTimeout(websocketRetryTimerRef.current);
       websocketRetryTimerRef.current = setTimeout(() => {
         setWebsocketRetryToken((value) => value + 1);
@@ -658,12 +684,11 @@ export default function AgentChat() {
       }
       socket.close(1000, "chat closed");
     };
-  }, [agentInfoID, chatWebSocketURL, requiresGuestWebSocket, sandboxLookupPending, websocketRetryToken]);
+  }, [activeChatWebSocketURL, agentInfoID, websocketRetryToken]);
 
   useEffect(() => {
-    if (requiresGuestWebSocket) return;
     return subscribe((event, data) => {
-      if (transport === "websocket") return;
+      if (transport === "websocket" && !waiting) return;
       if (event !== "agent.message") return;
       const msg = data as Record<string, unknown> | null;
       if (!msg || !msg.to) return;
@@ -682,7 +707,7 @@ export default function AgentChat() {
         timestamp: typeof msg.timestamp === "string" ? msg.timestamp : undefined,
       });
     });
-  }, [agentId, agentInfoID, agentName, requiresGuestWebSocket, sessionId, transport]);
+  }, [agentId, agentInfoID, agentName, sessionId, transport, waiting]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -696,6 +721,7 @@ export default function AgentChat() {
   useEffect(() => {
     inputRef.current?.focus();
     return () => {
+      clearTimeout(waitingNoticeTimerRef.current);
       clearTimeout(slowWaitingTimerRef.current);
       clearTimeout(websocketRetryTimerRef.current);
       for (const [, pending] of pendingWSRequestsRef.current) {
@@ -768,18 +794,14 @@ export default function AgentChat() {
         const current = socket;
         if (!current) {
           reject(new ChatWebSocketUnavailableError(
-            requiresGuestWebSocket
-              ? "Guest chat websocket is unavailable"
-              : "Chat websocket is not connected",
+            "Chat websocket is not connected",
           ));
           return;
         }
         const timeout = window.setTimeout(() => {
           cleanup();
           reject(new ChatWebSocketUnavailableError(
-            requiresGuestWebSocket
-              ? "Guest chat websocket is still connecting"
-              : "Chat websocket is still connecting",
+            "Chat websocket is still connecting",
           ));
         }, 5_000);
         const cleanup = () => {
@@ -795,9 +817,7 @@ export default function AgentChat() {
         const handleFailure = () => {
           cleanup();
           reject(new ChatWebSocketUnavailableError(
-            requiresGuestWebSocket
-              ? "Guest chat websocket is unavailable"
-              : "Chat websocket is unavailable",
+            "Chat websocket is unavailable",
           ));
         };
         current.addEventListener("open", handleOpen);
@@ -807,9 +827,7 @@ export default function AgentChat() {
     }
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       throw new ChatWebSocketUnavailableError(
-        requiresGuestWebSocket
-          ? "Guest chat websocket is unavailable"
-          : "Chat websocket is not connected",
+        "Chat websocket is not connected",
       );
     }
 
@@ -847,7 +865,6 @@ export default function AgentChat() {
   async function sendMessage() {
     const text = input.trim();
     if ((!text && attachments.length === 0) || !agentInfo) return;
-    if (sandboxLookupPending) return;
 
     const parts: ChatContentPart[] = [];
     if (text) {
@@ -886,7 +903,7 @@ export default function AgentChat() {
       try {
         result = await sendWebSocketMessage(content, clientRequestID);
       } catch (error) {
-        if (!(error instanceof ChatWebSocketUnavailableError) || requiresGuestWebSocket) {
+        if (!(error instanceof ChatWebSocketUnavailableError)) {
           throw error;
         }
         result = await agent.send({
@@ -927,6 +944,19 @@ export default function AgentChat() {
   }
 
   const canSend = (!!input.trim() || attachments.length > 0) && !sending;
+  const chatStatusLabel = sending
+    ? "Sending"
+    : waiting
+      ? slowWaiting
+        ? "Still waiting"
+        : "Waiting for reply"
+      : transport === "websocket"
+        ? usingGuestWebSocket
+          ? "Direct chat"
+          : "Routed chat"
+        : transport === "connecting" || sandboxLookupPending
+          ? "Connecting chat"
+          : "Routed fallback";
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -1054,18 +1084,20 @@ export default function AgentChat() {
         {showGlobalWaiting && (
           <div className="flex justify-start">
             <div className="rounded-2xl rounded-bl-md border border-outline-variant/20 bg-surface-container-high px-4 py-3 shadow-sm">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-              </div>
-              {slowWaiting && (
-                <p className="mt-2 text-xs text-secondary">
-                  Still working. Some agent requests can take close to a minute.
-                </p>
-              )}
-            </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+            <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+            <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
           </div>
+          {waitingNotice && (
+            <p className="mt-2 text-xs text-secondary">
+              {slowWaiting
+                ? "Still waiting. The agent may be retrying the model request."
+                : "Message delivered. Waiting for the agent."}
+            </p>
+          )}
+        </div>
+      </div>
         )}
         <div ref={messagesEndRef} />
       </div>
@@ -1150,11 +1182,16 @@ export default function AgentChat() {
               onClick={() => {
                 void sendMessage();
               }}
-              disabled={!canSend || sandboxLookupPending}
+              disabled={!canSend}
+              aria-label="Send message"
+              title={chatStatusLabel}
               className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-on-primary transition-opacity hover:shadow-lg active:scale-95 disabled:opacity-40"
             >
               <Icon name={sending ? "hourglass_empty" : "send"} className="text-lg" />
             </button>
+          </div>
+          <div className="mt-2 flex items-center justify-end text-[11px] text-secondary" aria-live="polite">
+            {chatStatusLabel}
           </div>
           {composerError && (
             <div className="mt-2 rounded-lg bg-error-container/15 px-3 py-2 text-xs text-error">
