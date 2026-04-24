@@ -10,13 +10,14 @@ memory: 8GiB
 disk: 30GiB
 
 networks:
-- vzNAT: true
+- lima: user-v2
 
 portForwards:
-- guestIP: "0.0.0.0"
-  guestPortRange: [1, 65535]
-  proto: any
-  ignore: true
+- guestIP: "127.0.0.1"
+  guestPort: 9101
+  hostIP: "127.0.0.1"
+  hostPort: __SKY10_GUEST_FORWARD_PORT__
+  proto: tcp
 
 mounts:
 - location: "__SKY10_SHARED_DIR__"
@@ -66,12 +67,10 @@ message: |
   Open the guest shell with:
     limactl shell __SKY10_SANDBOX_NAME__
 
-  Open the guest UI URLs by first checking the guest IP:
-    limactl shell __SKY10_SANDBOX_NAME__ -- bash -lc "ip -4 addr show dev lima0"
+  Host-forwarded guest sky10:
+    http://127.0.0.1:__SKY10_GUEST_FORWARD_PORT__
 
-  Then browse to:
-    http://<guest-ip>:9101
-    http://<guest-ip>:18790/chat?session=main
+  OpenClaw's Caddy UI remains guest-local on port 18790 in this phase.
 
 param:
   model: anthropic/claude-sonnet-4-6

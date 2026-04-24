@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -68,6 +70,9 @@ const (
 	templateNameToken                 = "__SKY10_SANDBOX_NAME__"
 	templateSharedToken               = "__SKY10_SHARED_DIR__"
 	templateStateToken                = "__SKY10_STATE_DIR__"
+	templateForwardedGuestPortToken   = "__SKY10_GUEST_FORWARD_PORT__"
+	defaultForwardedGuestHost         = "127.0.0.1"
+	defaultForwardedGuestPortStart    = 39101
 	agentDriveRootName                = "Agents"
 	agentDriveNamePrefix              = "agent-"
 	openClawReadyTimeout              = 2 * time.Minute
@@ -204,7 +209,12 @@ func sandboxCreateCmd() *cobra.Command {
 				return err
 			}
 
-			templatePath, hostsScript, err := materializeLimaAssets(cmd.Context(), slug, sharedDir, stateDir, spec)
+			forwardedPort, err := allocateStandaloneForwardedGuestPort()
+			if err != nil {
+				return err
+			}
+
+			templatePath, hostsScript, err := materializeLimaAssets(cmd.Context(), slug, sharedDir, stateDir, forwardedPort, spec)
 			if err != nil {
 				return err
 			}
@@ -267,15 +277,17 @@ func sandboxCreateCmd() *cobra.Command {
 
 			ipAddr, _ := lookupLimaInstanceIPv4(cmd.Context(), limactl, slug)
 			rec := skysandbox.Record{
-				Name:      displayName,
-				Slug:      slug,
-				Provider:  provider,
-				Template:  template,
-				Model:     strings.TrimSpace(model),
-				Status:    "ready",
-				SharedDir: sharedDir,
-				IPAddress: ipAddr,
-				Shell:     localSandboxShellCommand(limactl, template, slug),
+				Name:          displayName,
+				Slug:          slug,
+				Provider:      provider,
+				Template:      template,
+				Model:         strings.TrimSpace(model),
+				Status:        "ready",
+				SharedDir:     sharedDir,
+				IPAddress:     ipAddr,
+				ForwardedHost: defaultForwardedGuestHost,
+				ForwardedPort: forwardedPort,
+				Shell:         localSandboxShellCommand(limactl, template, slug),
 			}
 			printSandboxSummary(cmd, rec)
 			maybeOpenSandboxUI(cmd, rec, openUI)
@@ -530,7 +542,7 @@ func slugifySandboxName(name string) string {
 	return strings.Join(parts, "-")
 }
 
-func materializeLimaAssets(ctx context.Context, sandboxName, sharedDir, stateDir string, spec limaTemplateSpec) (string, []byte, error) {
+func materializeLimaAssets(ctx context.Context, sandboxName, sharedDir, stateDir string, forwardedPort int, spec limaTemplateSpec) (string, []byte, error) {
 	root, err := config.RootDir()
 	if err != nil {
 		return "", nil, err
@@ -554,7 +566,7 @@ func materializeLimaAssets(ctx context.Context, sandboxName, sharedDir, stateDir
 				mode = 0o755
 			}
 			if assetName == spec.mainAsset {
-				if err := copyAndRenderTemplate(src, templatePath, mode, sandboxName, sharedDir, stateDir); err != nil {
+				if err := copyAndRenderTemplate(src, templatePath, mode, sandboxName, sharedDir, stateDir, forwardedPort); err != nil {
 					return "", nil, err
 				}
 				continue
@@ -585,7 +597,7 @@ func materializeLimaAssets(ctx context.Context, sandboxName, sharedDir, stateDir
 		dst := filepath.Join(destDir, assetName)
 		if assetName == spec.mainAsset {
 			dst = templatePath
-			body = renderLimaTemplate(body, sandboxName, sharedDir, stateDir)
+			body = renderLimaTemplate(body, sandboxName, sharedDir, stateDir, forwardedPort)
 		}
 		if err := os.WriteFile(dst, body, mode); err != nil {
 			return "", nil, fmt.Errorf("writing Lima asset %q: %w", assetName, err)
@@ -602,22 +614,44 @@ func materializeLimaAssets(ctx context.Context, sandboxName, sharedDir, stateDir
 	return templatePath, helper, nil
 }
 
-func copyAndRenderTemplate(src, dst string, mode os.FileMode, name, sharedDir, stateDir string) error {
+func copyAndRenderTemplate(src, dst string, mode os.FileMode, name, sharedDir, stateDir string, forwardedPort int) error {
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return fmt.Errorf("reading Lima asset %q: %w", src, err)
 	}
-	if err := os.WriteFile(dst, renderLimaTemplate(data, name, sharedDir, stateDir), mode); err != nil {
+	if err := os.WriteFile(dst, renderLimaTemplate(data, name, sharedDir, stateDir, forwardedPort), mode); err != nil {
 		return fmt.Errorf("writing Lima asset %q: %w", dst, err)
 	}
 	return nil
 }
 
-func renderLimaTemplate(body []byte, name, sharedDir, stateDir string) []byte {
+func renderLimaTemplate(body []byte, name, sharedDir, stateDir string, forwardedPort int) []byte {
 	rendered := strings.ReplaceAll(string(body), templateNameToken, name)
 	rendered = strings.ReplaceAll(rendered, templateSharedToken, sharedDir)
 	rendered = strings.ReplaceAll(rendered, templateStateToken, stateDir)
+	if forwardedPort > 0 {
+		rendered = strings.ReplaceAll(rendered, templateForwardedGuestPortToken, strconv.Itoa(forwardedPort))
+	}
 	return []byte(rendered)
+}
+
+func allocateStandaloneForwardedGuestPort() (int, error) {
+	for port := defaultForwardedGuestPortStart; port <= 65535; port++ {
+		if standaloneForwardedGuestPortAvailable(defaultForwardedGuestHost, port) {
+			return port, nil
+		}
+	}
+	return 0, fmt.Errorf("no available forwarded host port starting at %d", defaultForwardedGuestPortStart)
+}
+
+func standaloneForwardedGuestPortAvailable(host string, port int) bool {
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return false
+	}
+	_ = ln.Close()
+	return true
 }
 
 func findLocalLimaTemplateDir(spec limaTemplateSpec) (string, error) {

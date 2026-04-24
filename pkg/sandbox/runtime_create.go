@@ -170,6 +170,9 @@ func (m *Manager) materializeTemplate(ctx context.Context, rec Record) (string, 
 	if err != nil {
 		return "", err
 	}
+	if sandboxNeedsForwardedGuestEndpoint(rec) && rec.ForwardedPort <= 0 {
+		return "", fmt.Errorf("sandbox %q is missing a forwarded guest port", rec.Slug)
+	}
 	cacheDir := filepath.Join(m.rootDir, "templates", rec.Slug)
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return "", fmt.Errorf("creating sandbox template dir: %w", err)
@@ -194,7 +197,7 @@ func (m *Manager) materializeTemplate(ctx context.Context, rec Record) (string, 
 		}
 		if assetName == spec.mainAsset {
 			targetPath = renderedPath
-			data = renderSandboxTemplate(body, rec.Slug, rec.SharedDir, stateDir)
+			data = renderSandboxTemplate(body, rec.Slug, rec.SharedDir, stateDir, rec.ForwardedPort)
 		}
 		if err := os.WriteFile(targetPath, data, mode); err != nil {
 			return "", fmt.Errorf("writing sandbox template asset %q: %w", assetName, err)

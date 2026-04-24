@@ -63,6 +63,7 @@ const (
 	templateNameToken                = "__SKY10_SANDBOX_NAME__"
 	templateSharedToken              = "__SKY10_SHARED_DIR__"
 	templateStateToken               = "__SKY10_STATE_DIR__"
+	templateForwardedGuestPortToken  = "__SKY10_GUEST_FORWARD_PORT__"
 	sandboxStateDirName              = "state"
 	sandboxLogsDirName               = "logs"
 	agentWorkspaceDirName            = "workspace"

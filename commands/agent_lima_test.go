@@ -218,10 +218,10 @@ func TestValidateSandboxCreate(t *testing.T) {
 func TestRenderLimaTemplate(t *testing.T) {
 	t.Parallel()
 
-	body := []byte(`name=__SKY10_SANDBOX_NAME__ path=__SKY10_SHARED_DIR__ state=__SKY10_STATE_DIR__`)
-	got := string(renderLimaTemplate(body, "bobs-burgers", "/Users/bf/Sky10/Drives/Agents/bobs-burgers", "/Users/bf/.sky10/sandboxes/bobs-burgers/state"))
+	body := []byte(`name=__SKY10_SANDBOX_NAME__ path=__SKY10_SHARED_DIR__ state=__SKY10_STATE_DIR__ port=__SKY10_GUEST_FORWARD_PORT__`)
+	got := string(renderLimaTemplate(body, "bobs-burgers", "/Users/bf/Sky10/Drives/Agents/bobs-burgers", "/Users/bf/.sky10/sandboxes/bobs-burgers/state", 39123))
 
-	if strings.Contains(got, templateNameToken) || strings.Contains(got, templateSharedToken) || strings.Contains(got, templateStateToken) {
+	if strings.Contains(got, templateNameToken) || strings.Contains(got, templateSharedToken) || strings.Contains(got, templateStateToken) || strings.Contains(got, templateForwardedGuestPortToken) {
 		t.Fatalf("renderLimaTemplate() left placeholder tokens behind: %q", got)
 	}
 	if !strings.Contains(got, "bobs-burgers") {
@@ -232,6 +232,69 @@ func TestRenderLimaTemplate(t *testing.T) {
 	}
 	if !strings.Contains(got, "/Users/bf/.sky10/sandboxes/bobs-burgers/state") {
 		t.Fatalf("renderLimaTemplate() missing state dir: %q", got)
+	}
+	if !strings.Contains(got, "39123") {
+		t.Fatalf("renderLimaTemplate() missing forwarded port: %q", got)
+	}
+}
+
+func TestLocalManagedLimaTemplatesForwardGuestSky10Only(t *testing.T) {
+	t.Parallel()
+
+	for _, template := range []string{
+		sandboxTemplateOpenClaw,
+		sandboxTemplateOpenClawDocker,
+		sandboxTemplateHermes,
+		sandboxTemplateHermesDocker,
+	} {
+		template := template
+		t.Run(template, func(t *testing.T) {
+			t.Parallel()
+
+			spec, err := limaTemplateDefinition(template)
+			if err != nil {
+				t.Fatalf("limaTemplateDefinition(%q): %v", template, err)
+			}
+			dir, err := findLocalLimaTemplateDir(spec)
+			if err != nil {
+				t.Fatalf("findLocalLimaTemplateDir(%q): %v", template, err)
+			}
+			body, err := os.ReadFile(filepath.Join(dir, spec.mainAsset))
+			if err != nil {
+				t.Fatalf("ReadFile(%q): %v", spec.mainAsset, err)
+			}
+			assertLocalManagedLimaTemplateForwardsGuestSky10(t, string(body))
+		})
+	}
+}
+
+func assertLocalManagedLimaTemplateForwardsGuestSky10(t *testing.T, text string) {
+	t.Helper()
+
+	for _, want := range []string{
+		"portForwards:",
+		"- lima: user-v2",
+		`guestIP: "127.0.0.1"`,
+		"guestPort: 9101",
+		`hostIP: "127.0.0.1"`,
+		"hostPort: __SKY10_GUEST_FORWARD_PORT__",
+		"proto: tcp",
+		"http://127.0.0.1:__SKY10_GUEST_FORWARD_PORT__",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("managed Lima template missing %q", want)
+		}
+	}
+	for _, disallowed := range []string{
+		"vzNAT: true",
+		"ignore: true",
+		"guestPortRange: [1, 65535]",
+		"http://<guest-ip>",
+		"ip -4 addr show dev lima0",
+	} {
+		if strings.Contains(text, disallowed) {
+			t.Fatalf("managed Lima template still contains %q", disallowed)
+		}
 	}
 }
 

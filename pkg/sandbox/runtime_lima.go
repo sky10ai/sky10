@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -119,10 +120,13 @@ func cleanupLimaInstanceDir(name string) error {
 	return nil
 }
 
-func renderSandboxTemplate(body []byte, name, sharedDir, stateDir string) []byte {
+func renderSandboxTemplate(body []byte, name, sharedDir, stateDir string, forwardedPort int) []byte {
 	rendered := strings.ReplaceAll(string(body), templateNameToken, name)
 	rendered = strings.ReplaceAll(rendered, templateSharedToken, sharedDir)
 	rendered = strings.ReplaceAll(rendered, templateStateToken, stateDir)
+	if forwardedPort > 0 {
+		rendered = strings.ReplaceAll(rendered, templateForwardedGuestPortToken, strconv.Itoa(forwardedPort))
+	}
 	return []byte(rendered)
 }
 

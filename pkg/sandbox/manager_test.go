@@ -815,9 +815,7 @@ func TestBundledHermesTemplateProbeUsesHermesCLI(t *testing.T) {
 	if !strings.Contains(text, `hermes-shared`) {
 		t.Fatalf("hermes template message missing helper command")
 	}
-	if !strings.Contains(text, "portForwards:") || !strings.Contains(text, "ignore: true") {
-		t.Fatalf("hermes template should disable Lima host port forwarding")
-	}
+	assertManagedLimaTemplateForwardsGuestSky10(t, text)
 }
 
 func TestBundledHermesScriptsEmitProgressMarkers(t *testing.T) {
@@ -1251,10 +1249,10 @@ func TestEnsureAgentHomeUsesHostDriveRoot(t *testing.T) {
 func TestRenderSandboxTemplate(t *testing.T) {
 	t.Parallel()
 
-	body := []byte(`name=__SKY10_SANDBOX_NAME__ path=__SKY10_SHARED_DIR__ state=__SKY10_STATE_DIR__`)
-	got := string(renderSandboxTemplate(body, "devbox", "/Users/bf/Sky10/Drives/Agents/devbox", "/Users/bf/.sky10/sandboxes/devbox/state"))
+	body := []byte(`name=__SKY10_SANDBOX_NAME__ path=__SKY10_SHARED_DIR__ state=__SKY10_STATE_DIR__ port=__SKY10_GUEST_FORWARD_PORT__`)
+	got := string(renderSandboxTemplate(body, "devbox", "/Users/bf/Sky10/Drives/Agents/devbox", "/Users/bf/.sky10/sandboxes/devbox/state", 39123))
 
-	if strings.Contains(got, templateNameToken) || strings.Contains(got, templateSharedToken) || strings.Contains(got, templateStateToken) {
+	if strings.Contains(got, templateNameToken) || strings.Contains(got, templateSharedToken) || strings.Contains(got, templateStateToken) || strings.Contains(got, templateForwardedGuestPortToken) {
 		t.Fatalf("renderSandboxTemplate() left placeholder tokens behind: %q", got)
 	}
 	if !strings.Contains(got, "devbox") {
@@ -1265,6 +1263,9 @@ func TestRenderSandboxTemplate(t *testing.T) {
 	}
 	if !strings.Contains(got, "/Users/bf/.sky10/sandboxes/devbox/state") {
 		t.Fatalf("renderSandboxTemplate() missing state dir: %q", got)
+	}
+	if !strings.Contains(got, "39123") {
+		t.Fatalf("renderSandboxTemplate() missing forwarded port: %q", got)
 	}
 }
 
@@ -1303,8 +1304,58 @@ func TestReadBundledOpenClawTemplateProbeUsesHealthChecks(t *testing.T) {
 	if !strings.Contains(text, "http://127.0.0.1:18789/health") {
 		t.Fatalf("openclaw template probe missing OpenClaw health check")
 	}
-	if !strings.Contains(text, "portForwards:") || !strings.Contains(text, "ignore: true") {
-		t.Fatalf("openclaw template should disable Lima host port forwarding")
+	assertManagedLimaTemplateForwardsGuestSky10(t, text)
+}
+
+func TestBundledManagedLimaTemplatesForwardGuestSky10Only(t *testing.T) {
+	t.Parallel()
+
+	for _, asset := range []string{
+		templateOpenClawYAML,
+		templateOpenClawDockerYAML,
+		templateHermesYAML,
+		templateHermesDockerYAML,
+	} {
+		asset := asset
+		t.Run(asset, func(t *testing.T) {
+			t.Parallel()
+
+			body, err := readBundledTemplateAsset(asset)
+			if err != nil {
+				t.Fatalf("readBundledTemplateAsset(%q) error: %v", asset, err)
+			}
+			assertManagedLimaTemplateForwardsGuestSky10(t, string(body))
+		})
+	}
+}
+
+func assertManagedLimaTemplateForwardsGuestSky10(t *testing.T, text string) {
+	t.Helper()
+
+	for _, want := range []string{
+		"portForwards:",
+		"- lima: user-v2",
+		`guestIP: "127.0.0.1"`,
+		"guestPort: 9101",
+		`hostIP: "127.0.0.1"`,
+		"hostPort: __SKY10_GUEST_FORWARD_PORT__",
+		"proto: tcp",
+		"http://127.0.0.1:__SKY10_GUEST_FORWARD_PORT__",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("managed Lima template missing %q", want)
+		}
+	}
+	for _, disallowed := range []string{
+		"vzNAT: true",
+		"ignore: true",
+		"guestPortRange: [1, 65535]",
+		"http://<guest-ip>",
+		"ip -4 addr show dev lima0",
+	} {
+		if strings.Contains(text, disallowed) {
+			t.Fatalf("managed Lima template still contains %q", disallowed)
+		}
 	}
 }
 
