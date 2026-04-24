@@ -229,6 +229,91 @@ func TestChatWebSocketResolvesRoutedAgentLists(t *testing.T) {
 	}
 }
 
+func TestChatWebSocketPassesRemoteDeviceHint(t *testing.T) {
+	t.Parallel()
+
+	registry := newTestRegistry()
+	emitted := make(chan Message, 1)
+	handler := newTestRPCHandler(t, registry, func(event string, data interface{}) {
+		if event != "agent.message" {
+			return
+		}
+		msg, ok := data.(Message)
+		if !ok {
+			t.Errorf("emitted data type = %T, want Message", data)
+			return
+		}
+		emitted <- msg
+	})
+	hub := NewMessageHub()
+
+	chatHandler := NewChatWebSocketHandler(registry, handler, hub, nil)
+	chatHandler.listAgents = func(context.Context) ([]AgentInfo, error) {
+		return []AgentInfo{{
+			ID:         "A-remote1234567890",
+			Name:       "hermes-guest",
+			DeviceID:   "D-remote1234567890",
+			DeviceName: "lima-hermes-guest",
+			Skills:     []string{"code"},
+			Status:     "connected",
+		}}, nil
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /rpc/agents/{agent}/chat", chatHandler.HandleChat)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/rpc/agents/hermes-guest/chat?session_id=session-remote"
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	if err != nil {
+		t.Fatalf("websocket dial: %v", err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	var ready chatWSEvent
+	if err := wsjson.Read(ctx, conn, &ready); err != nil {
+		t.Fatalf("read ready event: %v", err)
+	}
+	if ready.Event != "session.ready" {
+		t.Fatalf("ready event = %q, want session.ready", ready.Event)
+	}
+
+	if err := wsjson.Write(ctx, conn, chatWSRequest{
+		Type:   "req",
+		ID:     "req-remote",
+		Method: "message.send",
+		Params: json.RawMessage(`{"message_type":"chat","content":{"parts":[{"type":"text","text":"hello"}]}}`),
+	}); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+	var okResp chatWSResponse
+	if err := wsjson.Read(ctx, conn, &okResp); err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	if okResp.Error != nil {
+		t.Fatalf("response error = %+v", okResp.Error)
+	}
+
+	select {
+	case msg := <-emitted:
+		if msg.To != "A-remote1234567890" {
+			t.Fatalf("message to = %q, want remote agent ID", msg.To)
+		}
+		if msg.DeviceID != "D-remote1234567890" {
+			t.Fatalf("message device_id = %q, want remote device hint", msg.DeviceID)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for emitted message")
+	}
+}
+
 func registerAgentForChatTest(t *testing.T, handler *RPCHandler) RegisterResult {
 	t.Helper()
 

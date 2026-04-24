@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -195,6 +196,7 @@ func startChatWebSocketTestServer(t *testing.T, ctx context.Context, name string
 	go func() {
 		httpErrCh <- server.ServeHTTP(ctx, port)
 	}()
+	port = waitForHTTPBind(t, server)
 	t.Cleanup(func() {
 		select {
 		case err := <-rpcErrCh:
@@ -220,6 +222,30 @@ func startChatWebSocketTestServer(t *testing.T, ctx context.Context, name string
 		server:   server,
 		hub:      hub,
 		registry: registry,
+	}
+}
+
+func waitForHTTPBind(t *testing.T, server *skyrpc.Server) int {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		addr := server.HTTPAddr()
+		if addr != "" {
+			_, portText, err := net.SplitHostPort(addr)
+			if err != nil {
+				t.Fatalf("parse HTTP server address %q: %v", addr, err)
+			}
+			port, err := strconv.Atoi(portText)
+			if err != nil {
+				t.Fatalf("parse HTTP server port %q: %v", portText, err)
+			}
+			return port
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for HTTP server bind")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

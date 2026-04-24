@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -3265,6 +3266,151 @@ func TestRunManagedReconnectLoopRetriesAfterLaterGuestRecovery(t *testing.T) {
 	}
 	if connectCalls != 1 {
 		t.Fatalf("connectPeer calls = %d, want 1", connectCalls)
+	}
+}
+
+func TestReconnectRunningOpenClawSandboxesDoesNotBlockBehindSlowGuest(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["slow-openclaw"] = Record{
+		Name:          "slow-openclaw",
+		Slug:          "slow-openclaw",
+		Provider:      providerLima,
+		Template:      templateOpenClaw,
+		Status:        "error",
+		VMStatus:      "Running",
+		ForwardedHost: "127.0.0.1",
+		ForwardedPort: 39101,
+		SharedDir:     filepath.Join(t.TempDir(), "slow-openclaw"),
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	m.records["fast-hermes"] = Record{
+		Name:          "fast-hermes",
+		Slug:          "fast-hermes",
+		Provider:      providerLima,
+		Template:      templateHermes,
+		Status:        "error",
+		VMStatus:      "Running",
+		ForwardedHost: "127.0.0.1",
+		ForwardedPort: 39103,
+		SharedDir:     filepath.Join(t.TempDir(), "fast-hermes"),
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+
+	m.appStatus = func(id skyapps.ID) (*skyapps.Status, error) {
+		return &skyapps.Status{ActivePath: "/tmp/fake/" + string(id)}, nil
+	}
+	m.outputCmd = func(ctx context.Context, bin string, args []string) ([]byte, error) {
+		switch {
+		case len(args) >= 2 && args[0] == "list" && args[1] == "--json":
+			return []byte(
+				`{"name":"slow-openclaw","status":"Running"}` + "\n" +
+					`{"name":"fast-hermes","status":"Running"}` + "\n",
+			), nil
+		case len(args) >= 2 && args[0] == "shell":
+			switch args[1] {
+			case "slow-openclaw":
+				return []byte("192.168.104.4\n"), nil
+			case "fast-hermes":
+				return []byte("192.168.104.5\n"), nil
+			}
+		}
+		return nil, fmt.Errorf("unexpected outputCmd args: %v", args)
+	}
+	m.hostIdentity = func(context.Context) (string, error) {
+		return "sky10-host", nil
+	}
+
+	connected := make(chan struct{})
+	var closeConnected sync.Once
+	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
+		switch method {
+		case "skylink.status":
+			return writeTestHostSkylinkStatus(t, out)
+		case "agent.list":
+			agents := []map[string]string{}
+			select {
+			case <-connected:
+				agents = append(agents, map[string]string{"name": "fast-hermes"})
+			default:
+			}
+			body, err := json.Marshal(map[string]interface{}{"agents": agents})
+			if err != nil {
+				t.Fatalf("marshal host agent list: %v", err)
+			}
+			return json.Unmarshal(body, out)
+		default:
+			t.Fatalf("unexpected host RPC method %q", method)
+			return nil
+		}
+	}
+	m.guestRPC = func(ctx context.Context, address, method string, params interface{}, out interface{}) error {
+		switch address {
+		case "http://127.0.0.1:39101":
+			if method == "identity.show" {
+				<-ctx.Done()
+				return ctx.Err()
+			}
+			return fmt.Errorf("unexpected slow guest RPC method %q", method)
+		case "http://127.0.0.1:39103":
+			switch method {
+			case "identity.show":
+				body, err := json.Marshal(map[string]interface{}{"address": "sky10-host"})
+				if err != nil {
+					t.Fatalf("marshal guest identity show: %v", err)
+				}
+				return json.Unmarshal(body, out)
+			case "skylink.status":
+				body, err := json.Marshal(map[string]interface{}{
+					"peer_id": "12D3KooWfast",
+					"addrs": []string{
+						"/ip4/127.0.0.1/tcp/4201",
+						"/ip4/192.168.104.5/tcp/4201",
+					},
+				})
+				if err != nil {
+					t.Fatalf("marshal guest skylink status: %v", err)
+				}
+				return json.Unmarshal(body, out)
+			case "skylink.connectPeer":
+				assertGuestConnectsToHostPeer(t, params, "192.168.104.5")
+				closeConnected.Do(func() { close(connected) })
+				return nil
+			default:
+				return fmt.Errorf("unexpected fast guest RPC method %q", method)
+			}
+		default:
+			return fmt.Errorf("guest RPC address = %q", address)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+	if err := m.ReconnectRunningOpenClawSandboxes(ctx); err != nil {
+		t.Fatalf("ReconnectRunningOpenClawSandboxes() error: %v", err)
+	}
+
+	fast, err := m.Get(context.Background(), "fast-hermes")
+	if err != nil {
+		t.Fatalf("Get(fast-hermes) error: %v", err)
+	}
+	if fast.Status != "ready" {
+		t.Fatalf("fast status = %q, want ready", fast.Status)
+	}
+	slow, err := m.Get(context.Background(), "slow-openclaw")
+	if err != nil {
+		t.Fatalf("Get(slow-openclaw) error: %v", err)
+	}
+	if slow.Status != "error" {
+		t.Fatalf("slow status = %q, want error", slow.Status)
 	}
 }
 

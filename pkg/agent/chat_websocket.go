@@ -181,7 +181,7 @@ func (h *ChatWebSocketHandler) HandleChat(w http.ResponseWriter, r *http.Request
 			if !ok {
 				return
 			}
-			resp := h.handleRequest(ctx, info.ID, sessionID, req)
+			resp := h.handleRequest(ctx, info.ID, info.DeviceID, sessionID, req)
 			if err := wsjson.Write(ctx, conn, resp); err != nil {
 				return
 			}
@@ -226,7 +226,7 @@ func (h *ChatWebSocketHandler) resolveAgent(ctx context.Context, nameOrID string
 	return nil
 }
 
-func (h *ChatWebSocketHandler) handleRequest(ctx context.Context, agentID, sessionID string, req chatWSRequest) chatWSResponse {
+func (h *ChatWebSocketHandler) handleRequest(ctx context.Context, agentID, deviceID, sessionID string, req chatWSRequest) chatWSResponse {
 	if strings.TrimSpace(req.Type) != "req" {
 		return chatWSResponse{
 			Type: "res",
@@ -310,6 +310,7 @@ func (h *ChatWebSocketHandler) handleRequest(ctx context.Context, agentID, sessi
 
 	result, err := h.sender.SendMessage(ctx, SendParams{
 		To:        agentID,
+		DeviceID:  deviceID,
 		SessionID: sessionID,
 		Type:      messageType,
 		Content:   contentRaw,

@@ -866,6 +866,8 @@ class Bridge:
         self.hermes = HermesClient()
         self.skip_warmup = env_truthy("HERMES_BRIDGE_SKIP_WARMUP")
         self.stop_event = threading.Event()
+        self.active_response_lock = threading.Lock()
+        self.active_response: Any = None
         self.agent_id = ""
         self.seen_lock = threading.Lock()
         self.seen_messages: OrderedDict[str, float] = OrderedDict()
@@ -891,6 +893,13 @@ class Bridge:
 
     def shutdown(self, *_args: Any) -> None:
         self.stop_event.set()
+        with self.active_response_lock:
+            response = self.active_response
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
 
     def ensure_registered(self) -> None:
         self.agent_id = self.sky10.register(self.agent_name, self.agent_key_name, self.skills)
@@ -926,21 +935,28 @@ class Bridge:
                     method="GET",
                 )
                 with urllib.request.urlopen(request, timeout=3600) as response:
-                    log(f"Listening for sky10 events from {self.sky10.events_url}")
-                    for event_name, data in iter_sse(response):
-                        if self.stop_event.is_set():
-                            return
-                        if event_name != "agent.message":
-                            continue
-                        try:
-                            payload = json.loads(data)
-                        except json.JSONDecodeError:
-                            log("Skipping malformed sky10 SSE payload")
-                            continue
-                        message = payload.get("data") if isinstance(payload, dict) else None
-                        if not isinstance(message, dict):
-                            continue
-                        self._dispatch_message(message)
+                    with self.active_response_lock:
+                        self.active_response = response
+                    try:
+                        log(f"Listening for sky10 events from {self.sky10.events_url}")
+                        for event_name, data in iter_sse(response):
+                            if self.stop_event.is_set():
+                                return
+                            if event_name != "agent.message":
+                                continue
+                            try:
+                                payload = json.loads(data)
+                            except json.JSONDecodeError:
+                                log("Skipping malformed sky10 SSE payload")
+                                continue
+                            message = payload.get("data") if isinstance(payload, dict) else None
+                            if not isinstance(message, dict):
+                                continue
+                            self._dispatch_message(message)
+                    finally:
+                        with self.active_response_lock:
+                            if self.active_response is response:
+                                self.active_response = None
             except Exception as exc:
                 if self.stop_event.is_set():
                     return

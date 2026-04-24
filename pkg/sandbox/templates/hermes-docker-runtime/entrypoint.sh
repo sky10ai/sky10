@@ -226,6 +226,16 @@ cleanup() {
   if [ -n "${sky10_pid:-}" ]; then
     kill "${sky10_pid}" >/dev/null 2>&1 || true
   fi
+  sleep 2
+  if [ -n "${bridge_pid:-}" ] && kill -0 "${bridge_pid}" >/dev/null 2>&1; then
+    kill -9 "${bridge_pid}" >/dev/null 2>&1 || true
+  fi
+  if [ -n "${gateway_pid:-}" ] && kill -0 "${gateway_pid}" >/dev/null 2>&1; then
+    kill -9 "${gateway_pid}" >/dev/null 2>&1 || true
+  fi
+  if [ -n "${sky10_pid:-}" ] && kill -0 "${sky10_pid}" >/dev/null 2>&1; then
+    kill -9 "${sky10_pid}" >/dev/null 2>&1 || true
+  fi
 }
 
 trap cleanup EXIT INT TERM

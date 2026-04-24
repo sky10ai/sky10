@@ -473,6 +473,8 @@ Wants=network-online.target
 ExecStart=/usr/bin/env hermes gateway run
 Restart=always
 RestartSec=5
+TimeoutStopSec=10
+KillMode=mixed
 WorkingDirectory=/shared/workspace
 EnvironmentFile=-%h/.hermes/.env
 EnvironmentFile=-%h/.hermes/.sky10-lima/bridge.env
@@ -496,6 +498,8 @@ Wants=network-online.target sky10-hermes-gateway.service
 ExecStart=%h/.local/bin/hermes-sky10-bridge
 Restart=always
 RestartSec=5
+TimeoutStopSec=10
+KillMode=mixed
 WorkingDirectory=/shared/workspace
 EnvironmentFile=-%h/.hermes/.sky10-lima/bridge.env
 Environment=HOME=${HOME}

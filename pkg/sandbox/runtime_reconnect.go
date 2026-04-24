@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	skyapps "github.com/sky10/sky10/pkg/apps"
@@ -47,42 +48,63 @@ func (m *Manager) ReconnectRunningOpenClawSandboxes(ctx context.Context) error {
 	}
 	m.mu.Unlock()
 
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(items))
 	for _, rec := range items {
-		ipAddr, err := lookupLimaInstanceIPv4(ctx, m.outputCmd, limactl, rec.Slug)
-		if err != nil {
-			m.logger.Warn("sandbox reconnect skipped: guest IP lookup failed", "sandbox", rec.Slug, "error", err)
-			continue
-		}
-		if strings.TrimSpace(ipAddr) == "" {
-			m.logger.Warn("sandbox reconnect skipped: guest IP unavailable", "sandbox", rec.Slug)
-			continue
-		}
-		ipAddr = strings.TrimSpace(ipAddr)
-		if rec.IPAddress != ipAddr {
-			rec.IPAddress = ipAddr
-			if err := m.updateIPAddress(rec.Slug, rec.IPAddress); err != nil {
-				return err
+		rec := rec
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := m.reconnectRunningSandbox(ctx, limactl, hostIdentity, rec); err != nil {
+				errCh <- err
 			}
-		}
-
-		reconnectCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		err = m.waitForGuestIdentityMatch(reconnectCtx, rec, hostIdentity)
-		if err == nil {
-			err = m.ensureHostConnectedGuestAgent(reconnectCtx, rec, hostIdentity)
-		}
-		cancel()
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
 		if err != nil {
-			m.logger.Warn("sandbox reconnect failed", "sandbox", rec.Slug, "error", err)
-			continue
-		}
-		if err := m.updateVMStatus(rec.Slug, "Running"); err != nil {
-			return err
-		}
-		if err := m.updateStatus(rec.Slug, "ready", ""); err != nil {
 			return err
 		}
 	}
 
+	return nil
+}
+
+func (m *Manager) reconnectRunningSandbox(ctx context.Context, limactl, hostIdentity string, rec Record) error {
+	ipAddr, err := lookupLimaInstanceIPv4(ctx, m.outputCmd, limactl, rec.Slug)
+	if err != nil {
+		m.logger.Warn("sandbox reconnect skipped: guest IP lookup failed", "sandbox", rec.Slug, "error", err)
+		return nil
+	}
+	if strings.TrimSpace(ipAddr) == "" {
+		m.logger.Warn("sandbox reconnect skipped: guest IP unavailable", "sandbox", rec.Slug)
+		return nil
+	}
+	ipAddr = strings.TrimSpace(ipAddr)
+	if rec.IPAddress != ipAddr {
+		rec.IPAddress = ipAddr
+		if err := m.updateIPAddress(rec.Slug, rec.IPAddress); err != nil {
+			return err
+		}
+	}
+
+	reconnectCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	err = m.waitForGuestIdentityMatch(reconnectCtx, rec, hostIdentity)
+	if err == nil {
+		err = m.ensureHostConnectedGuestAgent(reconnectCtx, rec, hostIdentity)
+	}
+	cancel()
+	if err != nil {
+		m.logger.Warn("sandbox reconnect failed", "sandbox", rec.Slug, "error", err)
+		return nil
+	}
+	if err := m.updateVMStatus(rec.Slug, "Running"); err != nil {
+		return err
+	}
+	if err := m.updateStatus(rec.Slug, "ready", ""); err != nil {
+		return err
+	}
 	return nil
 }
 
