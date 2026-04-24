@@ -101,8 +101,9 @@ func httpRequest(ctx context.Context, url string) ([]byte, error) {
 
 func lookupLimaInstanceIPv4(ctx context.Context, outputCmd func(context.Context, string, []string) ([]byte, error), limactl, name string) (string, error) {
 	commands := []string{
-		`ip -4 addr show dev lima0 | awk '/inet / {sub(/\/.*/, "", $2); print $2; exit}'`,
-		`ip -4 route get 1.1.1.1 | awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}'`,
+		`ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}'`,
+		`ip -4 -o addr show scope global | awk '{split($4, a, "/"); if (a[1] !~ /^127\./) {print a[1]; exit}}'`,
+		`ip -4 addr show dev lima0 2>/dev/null | awk '/inet / {sub(/\/.*/, "", $2); print $2; exit}'`,
 	}
 	var lastErr error
 	for _, script := range commands {
@@ -119,6 +120,14 @@ func lookupLimaInstanceIPv4(ctx context.Context, outputCmd func(context.Context,
 		return "", fmt.Errorf("querying guest IP: %w", lastErr)
 	}
 	return "", nil
+}
+
+func guestSky10RPCAddress(rec Record) string {
+	host := strings.TrimSpace(rec.ForwardedHost)
+	if host != "" && rec.ForwardedPort > 0 {
+		return "http://" + net.JoinHostPort(host, strconv.Itoa(rec.ForwardedPort))
+	}
+	return strings.TrimSpace(rec.IPAddress)
 }
 
 func guestRPCCall(ctx context.Context, address, method string, params interface{}, out interface{}) error {

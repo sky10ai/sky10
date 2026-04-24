@@ -30,11 +30,12 @@ func (m *Manager) ensureGuestJoinedHostIdentity(ctx context.Context, rec Record,
 	if strings.TrimSpace(ipAddr) == "" {
 		return "", fmt.Errorf("resolving guest IP for sandbox %q: guest IP unavailable", rec.Name)
 	}
+	rec.IPAddress = strings.TrimSpace(ipAddr)
 	if err := m.updateIPAddress(rec.Slug, ipAddr); err != nil {
 		return "", err
 	}
 
-	guest, err := m.readGuestIdentity(ctx, rec, ipAddr)
+	guest, err := m.readGuestIdentity(ctx, rec)
 	if err != nil {
 		return "", err
 	}
@@ -70,7 +71,7 @@ func (m *Manager) ensureGuestJoinedHostIdentity(ctx context.Context, rec Record,
 		DeviceID     string `json:"device_id"`
 		DevicePubKey string `json:"device_pubkey"`
 	}
-	if err := m.guestRPC(ctx, ipAddr, "identity.join", params, &joinResult); err != nil {
+	if err := m.guestRPC(ctx, guestSky10RPCAddress(rec), "identity.join", params, &joinResult); err != nil {
 		return "", fmt.Errorf("joining guest sky10 for sandbox %q: %w", rec.Name, err)
 	}
 	if err := waitForGuestSky10(ctx, m.outputCmd, limactl, rec.Slug, openClawReadyTimeout); err != nil {
@@ -101,9 +102,10 @@ func (m *Manager) ensureHostConnectedGuestAgent(ctx context.Context, rec Record,
 	var lastErr error
 	for {
 		attemptedPeerConnect := false
-		if m.guestRPC != nil && strings.TrimSpace(rec.IPAddress) != "" {
+		guestRPCAddress := guestSky10RPCAddress(rec)
+		if m.guestRPC != nil && guestRPCAddress != "" && strings.TrimSpace(rec.IPAddress) != "" {
 			var guest guestSkylinkStatus
-			if err := m.guestRPC(waitCtx, rec.IPAddress, "skylink.status", nil, &guest); err != nil {
+			if err := m.guestRPC(waitCtx, guestRPCAddress, "skylink.status", nil, &guest); err != nil {
 				lastErr = fmt.Errorf("reading guest skylink status for sandbox %q: %w", rec.Name, err)
 			} else if strings.TrimSpace(guest.PeerID) != "" && len(guest.Addrs) > 0 {
 				attemptedPeerConnect = true
@@ -163,7 +165,7 @@ func (m *Manager) connectGuestToHostPeer(ctx context.Context, rec Record) error 
 		"peer_id":    peerID,
 		"multiaddrs": multiaddrs,
 	}
-	return m.guestRPC(ctx, rec.IPAddress, "skylink.connectPeer", params, nil)
+	return m.guestRPC(ctx, guestSky10RPCAddress(rec), "skylink.connectPeer", params, nil)
 }
 
 func (m *Manager) connectHostToGuestPeer(ctx context.Context, rec Record, guest guestSkylinkStatus) error {
@@ -204,9 +206,9 @@ func (m *Manager) waitForHostAgentVisible(ctx context.Context, rec Record) error
 	return fmt.Errorf("guest agent %q not yet visible on host", rec.Name)
 }
 
-func (m *Manager) readGuestIdentity(ctx context.Context, rec Record, ipAddr string) (guestIdentity, error) {
+func (m *Manager) readGuestIdentity(ctx context.Context, rec Record) (guestIdentity, error) {
 	var guest guestIdentity
-	if err := m.guestRPC(ctx, ipAddr, "identity.show", nil, &guest); err != nil {
+	if err := m.guestRPC(ctx, guestSky10RPCAddress(rec), "identity.show", nil, &guest); err != nil {
 		return guestIdentity{}, fmt.Errorf("reading guest identity for sandbox %q: %w", rec.Name, err)
 	}
 	return guest, nil

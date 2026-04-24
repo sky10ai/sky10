@@ -48,24 +48,25 @@ func (m *Manager) ReconnectRunningOpenClawSandboxes(ctx context.Context) error {
 	m.mu.Unlock()
 
 	for _, rec := range items {
-		if rec.IPAddress == "" {
-			ipAddr, err := lookupLimaInstanceIPv4(ctx, m.outputCmd, limactl, rec.Slug)
-			if err != nil {
-				m.logger.Warn("sandbox reconnect skipped: guest IP lookup failed", "sandbox", rec.Slug, "error", err)
-				continue
-			}
-			if strings.TrimSpace(ipAddr) == "" {
-				m.logger.Warn("sandbox reconnect skipped: guest IP unavailable", "sandbox", rec.Slug)
-				continue
-			}
-			rec.IPAddress = strings.TrimSpace(ipAddr)
+		ipAddr, err := lookupLimaInstanceIPv4(ctx, m.outputCmd, limactl, rec.Slug)
+		if err != nil {
+			m.logger.Warn("sandbox reconnect skipped: guest IP lookup failed", "sandbox", rec.Slug, "error", err)
+			continue
+		}
+		if strings.TrimSpace(ipAddr) == "" {
+			m.logger.Warn("sandbox reconnect skipped: guest IP unavailable", "sandbox", rec.Slug)
+			continue
+		}
+		ipAddr = strings.TrimSpace(ipAddr)
+		if rec.IPAddress != ipAddr {
+			rec.IPAddress = ipAddr
 			if err := m.updateIPAddress(rec.Slug, rec.IPAddress); err != nil {
 				return err
 			}
 		}
 
 		reconnectCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		err := m.waitForGuestIdentityMatch(reconnectCtx, rec, hostIdentity)
+		err = m.waitForGuestIdentityMatch(reconnectCtx, rec, hostIdentity)
 		if err == nil {
 			err = m.ensureHostConnectedGuestAgent(reconnectCtx, rec, hostIdentity)
 		}
@@ -132,7 +133,7 @@ func (m *Manager) waitForGuestIdentityMatch(ctx context.Context, rec Record, hos
 
 	var lastErr error
 	for {
-		guest, err := m.readGuestIdentity(ctx, rec, rec.IPAddress)
+		guest, err := m.readGuestIdentity(ctx, rec)
 		if err != nil {
 			lastErr = err
 		} else {

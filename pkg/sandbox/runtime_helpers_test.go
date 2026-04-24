@@ -86,10 +86,10 @@ func TestLookupLimaInstanceIPv4FallsBackToRouteSource(t *testing.T) {
 			t.Fatalf("args = %v, want limactl shell bash invocation", args)
 		}
 		scripts = append(scripts, args[5])
-		if strings.Contains(args[5], "addr show dev lima0") {
-			return nil, fmt.Errorf("lima0 unavailable")
-		}
 		if strings.Contains(args[5], "route get 1.1.1.1") {
+			return []byte("\n"), nil
+		}
+		if strings.Contains(args[5], "addr show scope global") {
 			return []byte("192.168.64.33\n"), nil
 		}
 		return nil, fmt.Errorf("unexpected script: %s", args[5])
@@ -102,6 +102,24 @@ func TestLookupLimaInstanceIPv4FallsBackToRouteSource(t *testing.T) {
 	}
 	if len(scripts) != 2 {
 		t.Fatalf("lookup scripts = %d, want 2", len(scripts))
+	}
+}
+
+func TestGuestSky10RPCAddressPrefersForwardedEndpoint(t *testing.T) {
+	t.Parallel()
+
+	got := guestSky10RPCAddress(Record{
+		IPAddress:     "192.168.64.33",
+		ForwardedHost: "127.0.0.1",
+		ForwardedPort: 39101,
+	})
+	if got != "http://127.0.0.1:39101" {
+		t.Fatalf("guestSky10RPCAddress() = %q, want forwarded URL", got)
+	}
+
+	got = guestSky10RPCAddress(Record{IPAddress: "192.168.64.33"})
+	if got != "192.168.64.33" {
+		t.Fatalf("guestSky10RPCAddress() = %q, want guest IP fallback", got)
 	}
 }
 
@@ -126,7 +144,7 @@ func TestCaptureGuestDeviceIdentityLooksUpIPAndPersistsGuest(t *testing.T) {
 	}
 	m.records[rec.Slug] = rec
 	m.outputCmd = func(ctx context.Context, bin string, args []string) ([]byte, error) {
-		if len(args) == 6 && strings.Contains(args[5], "addr show dev lima0") {
+		if len(args) == 6 && strings.Contains(args[5], "route get 1.1.1.1") {
 			return []byte("192.168.64.44\n"), nil
 		}
 		return nil, fmt.Errorf("unexpected outputCmd args: %v", args)

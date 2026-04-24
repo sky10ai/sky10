@@ -254,7 +254,7 @@ func (m *Manager) captureGuestDeviceIdentity(ctx context.Context, rec *Record, l
 		return &copy
 	}
 
-	guest, err := m.readGuestIdentity(ctx, copy, ipAddr)
+	guest, err := m.readGuestIdentity(ctx, copy)
 	if err != nil {
 		m.logger.Debug("sandbox guest identity capture skipped", "sandbox", copy.Slug, "error", err)
 		return &copy

@@ -2371,7 +2371,7 @@ func TestFinishReadyHermesConnectsGuestSky10Agent(t *testing.T) {
 			case strings.Contains(script, `"method":"agent.list"`):
 				steps = append(steps, "guest-agent-list")
 				return []byte("ok"), nil
-			case strings.Contains(script, "ip -4 addr show dev lima0"):
+			case strings.Contains(script, "route get 1.1.1.1"):
 				steps = append(steps, "lookup-ip")
 				return []byte("192.168.64.24\n"), nil
 			}
@@ -2515,7 +2515,7 @@ func TestFinishReadyOpenClawJoinsGuestSky10Identity(t *testing.T) {
 			case strings.Contains(script, `"method":"agent.list"`):
 				steps = append(steps, "agent-list")
 				return []byte("ok"), nil
-			case strings.Contains(script, "ip -4 addr show dev lima0"):
+			case strings.Contains(script, "route get 1.1.1.1"):
 				steps = append(steps, "lookup-ip")
 				return []byte("192.168.64.14\n"), nil
 			}
@@ -2702,7 +2702,7 @@ func TestFinishReadyOpenClawSkipsJoinWhenGuestAlreadyJoined(t *testing.T) {
 				return []byte("ok"), nil
 			case strings.Contains(script, `"method":"agent.list"`):
 				return []byte("ok"), nil
-			case strings.Contains(script, "ip -4 addr show dev lima0"):
+			case strings.Contains(script, "route get 1.1.1.1"):
 				return []byte("192.168.64.14\n"), nil
 			}
 		}
@@ -2806,15 +2806,18 @@ func TestReconnectRunningOpenClawSandboxes(t *testing.T) {
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	m.records["openclaw-m8"] = Record{
-		Name:      "openclaw-m8",
-		Slug:      "openclaw-m8",
-		Provider:  providerLima,
-		Template:  templateOpenClaw,
-		Status:    "ready",
-		VMStatus:  "Running",
-		SharedDir: filepath.Join(t.TempDir(), "openclaw-m8"),
-		CreatedAt: now,
-		UpdatedAt: now,
+		Name:          "openclaw-m8",
+		Slug:          "openclaw-m8",
+		Provider:      providerLima,
+		Template:      templateOpenClaw,
+		Status:        "ready",
+		VMStatus:      "Running",
+		IPAddress:     "192.168.64.99",
+		ForwardedHost: "127.0.0.1",
+		ForwardedPort: 39101,
+		SharedDir:     filepath.Join(t.TempDir(), "openclaw-m8"),
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 	m.records["ubuntu-devbox"] = Record{
 		Name:      "ubuntu-devbox",
@@ -2898,8 +2901,8 @@ func TestReconnectRunningOpenClawSandboxes(t *testing.T) {
 	}
 	m.guestRPC = func(ctx context.Context, address, method string, params interface{}, out interface{}) error {
 		steps = append(steps, method)
-		if address != "192.168.64.17" {
-			t.Fatalf("guest RPC address = %q, want 192.168.64.17", address)
+		if address != "http://127.0.0.1:39101" {
+			t.Fatalf("guest RPC address = %q, want forwarded URL", address)
 		}
 		switch method {
 		case "identity.show":
@@ -3168,6 +3171,8 @@ func TestRunManagedReconnectLoopRetriesAfterLaterGuestRecovery(t *testing.T) {
 		switch {
 		case len(args) >= 2 && args[0] == "list" && args[1] == "--json":
 			return []byte(`{"name":"openclaw-m8","status":"Running"}` + "\n"), nil
+		case len(args) >= 2 && args[0] == "shell":
+			return []byte("192.168.64.17\n"), nil
 		default:
 			return nil, fmt.Errorf("unexpected outputCmd args: %v", args)
 		}
