@@ -217,7 +217,7 @@ fn open_ui() {
     #[cfg(target_os = "windows")]
     {
         let _ = Command::new("cmd")
-            .args(["/C", "start", "http://localhost:9101"])
+            .args(["/C", "start", "", "http://localhost:9101"])
             .spawn();
     }
 }

@@ -22,6 +22,8 @@ Tracking all work needed to run sky10 on Windows.
 
 **Required for `sky10 serve` to run as a background service.**
 
+- [x] Add a per-user Windows daemon bootstrap path using the `Run` registry key
+      so the PowerShell installer can start `sky10 serve` now
 - [ ] Create `commands/daemon_windows.go` using `golang.org/x/sys/windows/svc`
 - [ ] Implement install (register service with SC Manager)
 - [ ] Implement uninstall (remove service)
@@ -55,15 +57,15 @@ Tracking all work needed to run sky10 on Windows.
 - [x] Update `checksums.txt` generation to include Windows binaries
 - [x] Update `pkg/update/update.go` if asset naming needs adjustment
 - [x] Update `pkg/update` staged/install paths for Windows binary naming and menu entrypoint naming (`sky10.exe`, `sky10-menu.exe`)
-- [ ] Add Windows `sky10-menu` release assets, or make the updater explicitly skip menu updates on Windows until the tray app is supported there
+- [x] Add Windows `sky10-menu` release assets, or make the updater explicitly skip menu updates on Windows until the tray app is supported there
 - [x] Test cross-compilation from macOS (`make platforms`); tag-time Linux verification covers Windows release assets
 
 ## 6. Installer
 
-- [ ] Create PowerShell install script (equivalent of `install.sh`)
-- [ ] `install.sh` already rejects Windows (lines 14-17) — add pointer to Windows installer
-- [ ] Decide install location (`%LOCALAPPDATA%\sky10` or `%PROGRAMFILES%\sky10`)
-- [ ] Add to PATH or create shell shim
+- [x] Create PowerShell install script (equivalent of `install.sh`)
+- [x] `install.sh` already rejects Windows (lines 14-17) — add pointer to Windows installer
+- [x] Decide install location (`%LOCALAPPDATA%\sky10\bin`)
+- [x] Add to PATH or create shell shim
 
 ## 7. Browser open
 

@@ -10,6 +10,11 @@ OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 case "$OS" in
   darwin) OS="darwin" ;;
   linux)  OS="linux" ;;
+  mingw*|msys*|cygwin*)
+    echo "Use the Windows PowerShell installer instead:"
+    echo '  powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/sky10ai/sky10/main/install.ps1 | iex"'
+    exit 1
+    ;;
   *)
     echo "Unsupported OS: $OS"
     exit 1

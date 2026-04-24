@@ -69,6 +69,12 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
             asset: sky10-menu-linux-arm64
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            asset: sky10-menu-windows-amd64.exe
+          - target: aarch64-pc-windows-msvc
+            runner: windows-latest
+            asset: sky10-menu-windows-arm64.exe
 
     steps:
       - uses: actions/checkout@v5
@@ -105,10 +111,18 @@ jobs:
         run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Package binary
+        shell: bash
         run: |
-          cp menu/src-tauri/target/${{ matrix.target }}/release/sky10-menu ${{ matrix.asset }} 2>/dev/null || \
-          cp menu/src-tauri/target/${{ matrix.target }}/release/sky10-menu.exe ${{ matrix.asset }} 2>/dev/null || \
-          echo "Binary not found"
+          binary="menu/src-tauri/target/${{ matrix.target }}/release/sky10-menu"
+          if [[ -f "${binary}.exe" ]]; then
+            binary="${binary}.exe"
+          fi
+          if [[ ! -f "${binary}" ]]; then
+            echo "::error::Binary not found for ${{ matrix.target }}"
+            find "menu/src-tauri/target/${{ matrix.target }}/release" -maxdepth 1 -type f -print 2>/dev/null || true
+            exit 1
+          fi
+          cp "${binary}" "${{ matrix.asset }}"
           chmod +x ${{ matrix.asset }} 2>/dev/null || true
           ls -la ${{ matrix.asset }}
 
@@ -120,6 +134,7 @@ jobs:
 
       - name: Wait for target release
         if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
         run: |
           for i in $(seq 1 60); do
             if gh release view "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
@@ -135,6 +150,7 @@ jobs:
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
         run: |
           gh release upload "${GITHUB_REF_NAME}" "${{ matrix.asset }}" --clobber
         env:
@@ -195,6 +211,12 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
             asset: sky10-menu-linux-arm64
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            asset: sky10-menu-windows-amd64.exe
+          - target: aarch64-pc-windows-msvc
+            runner: windows-latest
+            asset: sky10-menu-windows-arm64.exe
 
     steps:
       - uses: actions/checkout@v5
@@ -227,12 +249,27 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Build from source
+        shell: bash
         run: |
           cargo build --release --locked --manifest-path menu/src-tauri/Cargo.toml --target ${{ matrix.target }}
-          cp menu/src-tauri/target/${{ matrix.target }}/release/sky10-menu sky10-menu-rebuilt
-          shasum -a 256 sky10-menu-rebuilt
+          binary="menu/src-tauri/target/${{ matrix.target }}/release/sky10-menu"
+          if [[ -f "${binary}.exe" ]]; then
+            binary="${binary}.exe"
+          fi
+          if [[ ! -f "${binary}" ]]; then
+            echo "::error::Binary not found for ${{ matrix.target }}"
+            find "menu/src-tauri/target/${{ matrix.target }}/release" -maxdepth 1 -type f -print 2>/dev/null || true
+            exit 1
+          fi
+          cp "${binary}" sky10-menu-rebuilt
+          if command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 sky10-menu-rebuilt
+          else
+            sha256sum sky10-menu-rebuilt
+          fi
 
       - name: Download published release assets
+        shell: bash
         run: |
           for i in $(seq 1 12); do
             rm -rf release
@@ -252,12 +289,38 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify release checksum
-        run: cd release && grep "${{ matrix.asset }}" checksums-menu.txt | shasum -a 256 -c -
+        shell: bash
+        run: |
+          cd release
+          expected="$(awk -v asset="${{ matrix.asset }}" '$2 == asset { print $1 }' checksums-menu.txt)"
+          if [[ -z "${expected}" ]]; then
+            echo "::error::${{ matrix.asset }} not found in checksums-menu.txt"
+            exit 1
+          fi
+          if command -v shasum >/dev/null 2>&1; then
+            actual="$(shasum -a 256 "${{ matrix.asset }}" | awk '{ print $1 }')"
+          else
+            actual="$(sha256sum "${{ matrix.asset }}" | awk '{ print $1 }')"
+          fi
+          if [[ "${actual}" != "${expected}" ]]; then
+            echo "::error::Checksum mismatch for ${{ matrix.asset }}"
+            echo "Expected: ${expected}"
+            echo "Actual:   ${actual}"
+            exit 1
+          fi
 
       - name: Compare binaries
+        shell: bash
         run: |
-          HASH_REBUILT="$(shasum -a 256 sky10-menu-rebuilt | awk '{print $1}')"
-          HASH_RELEASE="$(shasum -a 256 release/${{ matrix.asset }} | awk '{print $1}')"
+          hash_file() {
+            if command -v shasum >/dev/null 2>&1; then
+              shasum -a 256 "$1" | awk '{ print $1 }'
+            else
+              sha256sum "$1" | awk '{ print $1 }'
+            fi
+          }
+          HASH_REBUILT="$(hash_file sky10-menu-rebuilt)"
+          HASH_RELEASE="$(hash_file release/${{ matrix.asset }})"
           echo "Rebuilt:  ${HASH_REBUILT}"
           echo "Release:  ${HASH_RELEASE}"
           if [ "${HASH_REBUILT}" != "${HASH_RELEASE}" ]; then
