@@ -9,5 +9,6 @@ func SandboxCmd() *cobra.Command {
 		Short: "Sandboxed agent environments",
 	}
 	cmd.AddCommand(sandboxCreateCmd())
+	cmd.AddCommand(sandboxSmokeCmd())
 	return cmd
 }

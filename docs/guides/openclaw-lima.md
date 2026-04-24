@@ -11,7 +11,10 @@ This flow uses the repo's Lima template at
 - guest-local `sky10` installed inside the VM
 - OpenClaw installed with Chromium + Xvfb browser automation
 - the sky10 web UI reachable on guest port `9101`
-- Caddy reverse proxy for guest-local UI access on port `18790`
+- OpenClaw gateway health and chat API reachable on guest port `18789`
+- Caddy reverse proxy for guest-local UI access on guest port `18790`
+- host forwarded ports allocated as a contiguous block: guest `sky10` on the
+  sandbox base port, then OpenClaw gateway on base port + 1
 - a durable agent home at `~/Sky10/Drives/Agents/<slug>`
 - portable agent files at the root of `~/Sky10/Drives/Agents/<slug>`
   wired into the OpenClaw workspace bootstrap files
@@ -112,14 +115,25 @@ EOF
 
 This milestone sets up guest-local `sky10` and OpenClaw inside the guest,
 loads the bundled `sky10` OpenClaw channel plugin, and auto-registers the VM
-as an agent on the guest-local daemon.
-
-It does not yet join the guest to your existing sky10 network.
+as an agent on the guest-local daemon. The host and guest daemons are also
+connected over the private sky10 network so the host can list the guest agent
+and route chat to it.
 
 ## Open The UIs
 
 Guest-local `sky10` listens on guest port `9101`.
-OpenClaw listens on guest port `18790`.
+OpenClaw's gateway listens on guest port `18789`.
+OpenClaw's Caddy UI listens on guest port `18790`.
+
+For Lima templates managed by `sky10`, the host forwarded port block starts at
+the sandbox's `forwarded_port`. OpenClaw templates reserve two host ports:
+
+- base port: guest-local `sky10` (`9101`)
+- base port + 1: OpenClaw gateway (`18789`)
+
+For example, a sandbox with base port `39101` exposes guest `sky10` at
+`http://127.0.0.1:39101` and the OpenClaw gateway at
+`http://127.0.0.1:39102`.
 
 Find the guest IP:
 
@@ -133,6 +147,16 @@ Then open:
 http://<guest-ip>:9101
 http://<guest-ip>:18790/chat?session=main
 ```
+
+Or use the host forwarded endpoints shown in `sandbox.list`:
+
+```bash
+sky10 sandbox smoke my-agent
+```
+
+The smoke command checks the forwarded endpoint `/health` URLs, opens the
+agent chat websocket through the host daemon, sends a test message, and reports
+ready, send acknowledgement, first-token, and final-response timings.
 
 Confirm the guest-local agent registration:
 
