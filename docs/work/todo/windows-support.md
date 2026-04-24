@@ -5,107 +5,131 @@ updated: 2026-04-24
 
 # Windows Support
 
-Tracking all work needed to run sky10 on Windows.
+Tracking remaining work needed to run sky10 well on Windows.
 
-## 1. RPC transport — Unix sockets on Windows
+The completed April 23 readiness checkpoint is documented in
+[`../past/2026/04/23-Windows-Support-Readiness.md`](../past/2026/04/23-Windows-Support-Readiness.md).
+This file now tracks the gaps left after that checkpoint rather than repeating
+the completed work log.
 
-**Blocker: nothing works without this.**
+## Completed In The April 23 Checkpoint
 
-- [ ] Decide transport: Go 1.23 native Unix sockets (requires Win10 1803+), Named Pipes (`go-winio`), or TCP localhost
-- [ ] Update `pkg/rpc/server.go` — `net.Listen("unix", ...)` path
-- [ ] Update `commands/rpc.go` — `net.Dial("unix", ...)` path
-- [ ] Update `pkg/fs/pidfile.go` — socket path logic
-- [ ] Update all RPC tests (`pkg/fs/rpc_test.go`, `pkg/fs/rpc_drive_test.go`)
-- [ ] Verify socket cleanup on crash (no stale socket files)
+- [x] Windows CLI release artifacts: `sky10-windows-amd64.exe` and
+      `sky10-windows-arm64.exe`
+- [x] Windows executable naming in update check, staging, and install paths:
+      `sky10.exe` and `sky10-menu.exe`
+- [x] Windows assets in release checksums and release verification
+- [x] PowerShell installer: `install.ps1`
+- [x] User install location: `%LOCALAPPDATA%\sky10\bin`
+- [x] User PATH update from the PowerShell installer
+- [x] `install.sh` points Windows users to the PowerShell installer
+- [x] Windows tray/menu release assets:
+      `sky10-menu-windows-amd64.exe` and `sky10-menu-windows-arm64.exe`
+- [x] Start Menu shortcut and per-user tray autostart from the PowerShell
+      installer
+- [x] Per-user daemon bootstrap via the Windows `Run` registry key
+- [x] `sky10 ui open` Windows browser launch
+- [x] Platform-specific shutdown signal handling
+- [x] Platform-specific stale daemon process cleanup
+- [x] macOS-hosted Windows cross-build validation:
+      `GOOS=windows GOARCH=amd64 go build ./...`, `make -B platforms`, and
+      `make checksums`
 
-## 2. Windows Service daemon management
+## 1. Agent Hypervisor And Runtime — Not Implemented
 
-**Required for `sky10 serve` to run as a background service.**
+**This is the largest remaining product gap.**
 
-- [x] Add a per-user Windows daemon bootstrap path using the `Run` registry key
-      so the PowerShell installer can start `sky10 serve` now
-- [ ] Create `commands/daemon_windows.go` using `golang.org/x/sys/windows/svc`
-- [ ] Implement install (register service with SC Manager)
-- [ ] Implement uninstall (remove service)
-- [ ] Implement start/stop/restart
-- [ ] Implement status check
-- [ ] Log to Windows Event Log or file (no syslog/journald)
-- [ ] Existing `daemon_other.go` currently returns "unsupported" — keep as fallback for other OSes
+The Windows agent runtime/hypervisor does not exist yet. The current
+OpenClaw/Hermes bootstrap path still assumes Lima and macOS virtualization
+semantics. A Windows user can move closer to installing the CLI, daemon,
+updater, and tray, but they still cannot install and run sky10 agents through a
+simple one-click Windows runtime.
 
-## 3. Signal handling
+- [ ] Define the Windows equivalent of the Lima-backed agent runtime
+- [ ] Decide whether the first runtime is WSL, Hyper-V, local host execution,
+      Docker Desktop, or another packaged VM/hypervisor layer
+- [ ] Implement `sky10 sandbox create ...` for Windows-compatible templates
+- [ ] Provision guest `sky10` into the chosen Windows runtime
+- [ ] Define Windows-compatible terminal access for sandbox detail pages
+- [ ] Keep the higher-level agent bootstrap UX consistent across macOS,
+      Linux, and Windows
+- [ ] Extend managed-app archive installs for Windows runtime bundles
+- [ ] Add explicit UI/CLI messaging when an agent template is unavailable on
+      Windows because the hypervisor/runtime is not implemented yet
 
-**Unix signals don't exist on Windows.**
+## 2. RPC Transport
 
-- [x] `commands/serve.go` — use platform-specific shutdown signal lists (`os.Interrupt` on Windows, `SIGTERM` + interrupt on Unix)
-- [x] `pkg/fs/pidfile.go` — replace Unix signal probing with platform process helpers (`Process.Kill` plus Windows handle liveness checks on Windows)
-- [ ] `pkg/fs/debug.go` — add an operator-triggered Windows debug dump alternative (named event, HTTP endpoint, or file-based trigger)
-- [x] Create platform-specific files: `signals_unix.go` / `signals_windows.go` if needed
+**Blocker for full CLI/daemon parity.**
 
-## 4. Path handling
+The core JSON-RPC client/server still uses Unix socket paths. Windows needs a
+deliberate transport decision and implementation.
 
-**Mostly done — service-manager paths still need a Windows pass.**
+- [ ] Decide transport: native Unix sockets on supported Windows versions,
+      named pipes (`go-winio`), localhost TCP, or a hybrid
+- [ ] Update `pkg/rpc/server.go` to listen on the chosen Windows transport
+- [ ] Update `commands/rpc.go` to dial the chosen Windows transport
+- [ ] Update socket/path naming in `pkg/fs/pidfile.go` as needed
+- [ ] Update RPC tests for Windows transport behavior
+- [ ] Verify stale transport cleanup after daemon crash
 
-- [ ] Audit daemon log paths in `commands/daemon_darwin.go` and `commands/daemon_linux.go` templates (these are platform-gated, so fine as-is — just verify)
-- [ ] Verify `RuntimeDir()` works correctly on Windows (`%TEMP%\sky10`)
-- [ ] Land the FS-specific normalization and case-collision work from
-      [`../current/fs-windows-normalization-plan.md`](../current/fs-windows-normalization-plan.md)
+## 3. Windows Service Daemon
 
-## 5. Build and release
+The April 23 checkpoint added a per-user `Run` key fallback so the PowerShell
+installer can start `sky10 serve` now. That is not a real Windows Service.
 
-- [x] Add Windows targets to Makefile (`windows-amd64`, `windows-arm64`)
-- [x] Binary name needs `.exe` suffix
-- [x] Update `checksums.txt` generation to include Windows binaries
-- [x] Update `pkg/update/update.go` if asset naming needs adjustment
-- [x] Update `pkg/update` staged/install paths for Windows binary naming and menu entrypoint naming (`sky10.exe`, `sky10-menu.exe`)
-- [x] Add Windows `sky10-menu` release assets, or make the updater explicitly skip menu updates on Windows until the tray app is supported there
-- [x] Test cross-compilation from macOS (`make platforms`); tag-time Linux verification covers Windows release assets
+- [ ] Create a Service Control Manager implementation using
+      `golang.org/x/sys/windows/svc`
+- [ ] Register/unregister the daemon as a service
+- [ ] Implement service start, stop, restart, and status
+- [ ] Log to Windows Event Log or a clear per-user/per-machine log file
+- [ ] Decide whether user installs keep using `Run` while machine-wide
+      installs use SCM
 
-## 6. Installer
+## 4. Windows CI And Runtime Validation
 
-- [x] Create PowerShell install script (equivalent of `install.sh`)
-- [x] `install.sh` already rejects Windows (lines 14-17) — add pointer to Windows installer
-- [x] Decide install location (`%LOCALAPPDATA%\sky10\bin`)
-- [x] Add to PATH or create shell shim
+Cross-compilation is passing, but actual Windows behavior still needs CI and a
+real Windows filesystem/runtime.
 
-## 7. Browser open
-
-**Trivial.**
-
-- [x] `commands/ui.go` — add `case "windows": exec.Command("cmd", "/c", "start", "", url)`
-
-## 8. Symlinks
-
-**Windows symlinks require Developer Mode or elevation.**
-
-- [ ] Add runtime check for symlink capability
-- [ ] Skip symlink tests on Windows if not available (`t.Skip`)
-- [ ] Document requirement in install guide
-- [ ] Evaluate whether symlink features can degrade gracefully (copy instead of link)
-
-## 9. Testing
-
-- [ ] Set up Windows CI (GitHub Actions `windows-latest`)
+- [ ] Add GitHub Actions `windows-latest` Go test coverage
 - [ ] Run `go test ./... -count=1` on Windows
-- [ ] Guard Unix-only tests with `//go:build !windows` or `t.Skip`
-- [ ] Verify filesystem watcher (`fsnotify`) behavior on NTFS
+- [ ] Parse and smoke-test `install.ps1` in CI
+- [ ] Build and verify the Tauri menu on Windows runners
+- [ ] Verify `sky10-menu.exe` launches and can open the web UI
+- [ ] Verify daemon startup/restart/status on Windows
+- [ ] Verify filesystem watcher behavior on NTFS
 
-## 10. Agent Bootstrap Runtimes
+## 5. Filesystem Policy Gaps
 
-**Current gap: `sky10 sandbox create ... --provider lima --template openclaw|hermes` is macOS-only because the templates use Lima `vz`.**
+The FS Windows normalization work is mostly separate from installer/release
+readiness. Keep it moving because Windows file semantics are a sync correctness
+issue, not cosmetic platform polish.
 
-- [ ] Define the Windows equivalent of agent sandbox/bootstrap
-- [ ] Decide whether that is WSL, a local host sandbox, or a packaged VM runtime
-- [ ] Keep the higher-level agent bootstrap UX consistent even when the runtime differs by platform
-- [ ] Extend managed-app archive installs for Windows runtime bundles (`pkg/apps`) — current Lima bundle support only targets Darwin/Linux asset naming and entrypoint layout
-- [ ] Define Windows-compatible terminal access for sandbox detail pages — current PTY-backed `/rpc/sandboxes/{slug}/terminal` flow assumes Lima/host PTY semantics
+- [ ] Land remaining work from
+      [`../current/fs-windows-normalization-plan.md`](../current/fs-windows-normalization-plan.md)
+- [ ] Add runtime check for Windows symlink capability
+- [ ] Skip or adapt symlink tests on Windows when capability is unavailable
+- [ ] Document symlink behavior and requirements
+- [ ] Evaluate graceful degradation for unsupported symlink materialization
+- [ ] Verify path-policy health output on real Windows
 
-## Priority order
+## 6. Installer Hardening
 
-1. RPC transport (everything depends on it)
-2. Signal handling (serve command won't run without it)
-3. Build targets + browser open (quick wins, enables manual testing)
-4. Path fix (one-liner)
-5. Windows Service (needed for production use)
-6. Installer (needed for distribution)
-7. Symlinks (feature parity)
-8. CI (ongoing quality)
+The PowerShell installer exists, but it has not been run locally in this
+worktree because `pwsh` was unavailable on the development machine.
+
+- [ ] Execute `install.ps1` on a clean Windows amd64 machine
+- [ ] Execute `install.ps1` on a Windows arm64 machine or runner if available
+- [ ] Confirm checksum failure behavior is clear
+- [ ] Decide whether release assets should be Authenticode-signed
+- [ ] Add uninstall behavior for the PowerShell path
+- [ ] Decide whether to add `winget` after the installer path stabilizes
+
+## Priority Order
+
+1. RPC transport
+2. Windows agent hypervisor/runtime
+3. Windows CI
+4. PowerShell installer smoke tests
+5. Real Windows Service support
+6. FS Windows policy validation on NTFS
+7. Symlink capability and documentation
