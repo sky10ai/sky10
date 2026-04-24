@@ -81,8 +81,8 @@ func check(currentVersion string, allowDev bool) (*Info, error) {
 		CLIAvailable: release.TagName != currentVersion,
 	}
 
-	asset := fmt.Sprintf("sky10-%s-%s", runtime.GOOS, runtime.GOARCH)
-	menuAsset := fmt.Sprintf("sky10-menu-%s-%s", runtime.GOOS, runtime.GOARCH)
+	asset := cliAssetName(runtime.GOOS, runtime.GOARCH)
+	menuAsset := menuAssetName(runtime.GOOS, runtime.GOARCH)
 	for _, a := range release.Assets {
 		switch a.Name {
 		case asset:
@@ -117,7 +117,7 @@ func Apply(info *Info, onProgress ProgressFunc) error {
 	return downloadToPath(info.AssetURL, execPath, "sky10-update-*", "downloading binary", onProgress)
 }
 
-// ApplyMenu downloads the latest sky10-menu binary to ~/.bin/sky10-menu.
+// ApplyMenu downloads the latest sky10-menu binary to the user install path.
 // Returns true if the binary was updated. Skips the download entirely
 // when checksums.txt shows the local binary is already current.
 func ApplyMenu(info *Info) (changed bool, err error) {
@@ -130,7 +130,7 @@ func ApplyMenu(info *Info) (changed bool, err error) {
 		return false, fmt.Errorf("finding home dir: %w", err)
 	}
 
-	dest := filepath.Join(home, ".bin", "sky10-menu")
+	dest := menuInstallPath(home, runtime.GOOS)
 	if !info.MenuAvailable && fileExists(dest) {
 		return false, nil
 	}
@@ -152,7 +152,7 @@ func menuNeedsUpdate(info *Info) bool {
 		return info.CLIAvailable
 	}
 
-	dest := filepath.Join(home, ".bin", "sky10-menu")
+	dest := menuInstallPath(home, runtime.GOOS)
 	localHash := hashFile(dest)
 	if localHash == "" {
 		return true
@@ -162,7 +162,7 @@ func menuNeedsUpdate(info *Info) bool {
 		return info.CLIAvailable
 	}
 
-	menuAsset := fmt.Sprintf("sky10-menu-%s-%s", runtime.GOOS, runtime.GOARCH)
+	menuAsset := menuAssetName(runtime.GOOS, runtime.GOARCH)
 	remoteHash, err := fetchChecksum(info.MenuChecksumsURL, menuAsset)
 	if err != nil {
 		return info.CLIAvailable

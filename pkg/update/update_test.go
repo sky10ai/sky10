@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -52,7 +51,7 @@ func TestCheckDevBuildSkipsUpdate(t *testing.T) {
 }
 
 func TestCheckExplicitDevBuildChecksLatestRelease(t *testing.T) {
-	asset := fmt.Sprintf("sky10-%s-%s", runtime.GOOS, runtime.GOARCH)
+	asset := cliAssetName(runtime.GOOS, runtime.GOARCH)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"tag_name": "v2.0.0",
@@ -88,7 +87,7 @@ func TestCheckExplicitDevBuildChecksLatestRelease(t *testing.T) {
 // Regression: bare http.Get without User-Agent header causes GitHub API
 // to return 403 on many Linux hosts / cloud IPs.
 func TestCheckSendsUserAgent(t *testing.T) {
-	asset := fmt.Sprintf("sky10-%s-%s", runtime.GOOS, runtime.GOARCH)
+	asset := cliAssetName(runtime.GOOS, runtime.GOARCH)
 	var gotUA string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotUA = r.Header.Get("User-Agent")
@@ -115,7 +114,7 @@ func TestCheckSendsUserAgent(t *testing.T) {
 }
 
 func TestCheckUpToDate(t *testing.T) {
-	asset := fmt.Sprintf("sky10-%s-%s", runtime.GOOS, runtime.GOARCH)
+	asset := cliAssetName(runtime.GOOS, runtime.GOARCH)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"tag_name": "v1.0.0",
@@ -140,8 +139,8 @@ func TestCheckUpToDate(t *testing.T) {
 }
 
 func TestCheckUpdateAvailable(t *testing.T) {
-	asset := fmt.Sprintf("sky10-%s-%s", runtime.GOOS, runtime.GOARCH)
-	menuAsset := fmt.Sprintf("sky10-menu-%s-%s", runtime.GOOS, runtime.GOARCH)
+	asset := cliAssetName(runtime.GOOS, runtime.GOARCH)
+	menuAsset := menuAssetName(runtime.GOOS, runtime.GOARCH)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"tag_name": "v2.0.0",
@@ -402,7 +401,7 @@ func TestRPCDownloadUpdateStagesRelease(t *testing.T) {
 func TestRPCDownloadUpdateAllowsDevBuild(t *testing.T) {
 	withRPCStubs(t)
 
-	asset := fmt.Sprintf("sky10-%s-%s", runtime.GOOS, runtime.GOARCH)
+	asset := cliAssetName(runtime.GOOS, runtime.GOARCH)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"tag_name": "v2.0.0",
@@ -520,7 +519,7 @@ func TestRPCInstallUpdateSchedulesRestart(t *testing.T) {
 }
 
 func TestPeriodicCheckEmitsEvent(t *testing.T) {
-	asset := fmt.Sprintf("sky10-%s-%s", runtime.GOOS, runtime.GOARCH)
+	asset := cliAssetName(runtime.GOOS, runtime.GOARCH)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"tag_name": "v2.0.0",

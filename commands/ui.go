@@ -51,12 +51,22 @@ func uiOpenCmd() *cobra.Command {
 }
 
 func openBrowser(url string) error {
-	switch runtime.GOOS {
+	name, args, err := browserCommand(runtime.GOOS, url)
+	if err != nil {
+		return err
+	}
+	return exec.Command(name, args...).Start()
+}
+
+func browserCommand(goos, url string) (string, []string, error) {
+	switch goos {
 	case "darwin":
-		return exec.Command("open", url).Start()
+		return "open", []string{url}, nil
 	case "linux":
-		return exec.Command("xdg-open", url).Start()
+		return "xdg-open", []string{url}, nil
+	case "windows":
+		return "cmd", []string{"/c", "start", "", url}, nil
 	default:
-		return fmt.Errorf("unsupported platform %s — open %s manually", runtime.GOOS, url)
+		return "", nil, fmt.Errorf("unsupported platform %s — open %s manually", goos, url)
 	}
 }

@@ -9,7 +9,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/sky10/sky10/pkg/config"
@@ -81,26 +80,27 @@ func KillExistingDaemon() error {
 		return nil // process not found
 	}
 
-	// Check if process is alive (signal 0 = check only)
-	if err := proc.Signal(syscall.Signal(0)); err != nil {
+	if !processAlive(pid, proc) {
 		os.Remove(DaemonPIDPath())
 		return nil // already dead
 	}
 
-	// Kill it
-	proc.Signal(syscall.SIGTERM)
+	if err := terminateProcess(proc); err != nil && processAlive(pid, proc) {
+		return fmt.Errorf("terminating stale daemon (pid %d): %w", pid, err)
+	}
 
 	// Wait up to 3 seconds
 	for i := 0; i < 30; i++ {
 		time.Sleep(100 * time.Millisecond)
-		if err := proc.Signal(syscall.Signal(0)); err != nil {
+		if !processAlive(pid, proc) {
 			os.Remove(DaemonPIDPath())
 			return nil // exited
 		}
 	}
 
-	// Force kill
-	proc.Signal(syscall.SIGKILL)
+	if err := forceKillProcess(proc); err != nil && processAlive(pid, proc) {
+		return fmt.Errorf("killing stale daemon (pid %d): %w", pid, err)
+	}
 	time.Sleep(100 * time.Millisecond)
 	os.Remove(DaemonPIDPath())
 	return fmt.Errorf("killed stale daemon (pid %d)", pid)

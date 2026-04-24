@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/event"
@@ -54,7 +53,7 @@ func ServeCmd() *cobra.Command {
 			defer cancel()
 			go func() {
 				sigCh := make(chan os.Signal, 1)
-				signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+				signal.Notify(sigCh, daemonShutdownSignals()...)
 				<-sigCh
 				cancel()
 			}()

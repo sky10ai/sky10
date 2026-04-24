@@ -136,7 +136,7 @@ func InstallStaged() (*StagedRelease, error) {
 		if err != nil {
 			return nil, fmt.Errorf("finding home dir: %w", err)
 		}
-		menuPath := filepath.Join(home, ".bin", "sky10-menu")
+		menuPath := menuInstallPath(home, runtime.GOOS)
 		if err := installFromPath(stagedMenuPath(), menuPath, "sky10-menu-install-*"); err != nil {
 			return nil, err
 		}
@@ -161,11 +161,11 @@ func stagedMetadataPath() string {
 }
 
 func stagedCLIPath() string {
-	return filepath.Join(updateDir(), "sky10")
+	return filepath.Join(updateDir(), cliBinaryName(runtime.GOOS))
 }
 
 func stagedMenuPath() string {
-	return filepath.Join(updateDir(), "sky10-menu")
+	return filepath.Join(updateDir(), menuBinaryName(runtime.GOOS))
 }
 
 func readStagedRelease() (*StagedRelease, error) {

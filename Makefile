@@ -149,7 +149,7 @@ go-install:
 
 # --- Cross-compilation ---
 
-platforms: bin/sky10-linux-amd64 bin/sky10-linux-arm64 bin/sky10-darwin-amd64 bin/sky10-darwin-arm64
+platforms: bin/sky10-linux-amd64 bin/sky10-linux-arm64 bin/sky10-darwin-amd64 bin/sky10-darwin-arm64 bin/sky10-windows-amd64.exe bin/sky10-windows-arm64.exe
 
 bin/sky10-linux-amd64:
 	GOOS=linux GOARCH=amd64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ .
@@ -162,6 +162,12 @@ bin/sky10-darwin-amd64:
 
 bin/sky10-darwin-arm64:
 	GOOS=darwin GOARCH=arm64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ .
+
+bin/sky10-windows-amd64.exe:
+	GOOS=windows GOARCH=amd64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ .
+
+bin/sky10-windows-arm64.exe:
+	GOOS=windows GOARCH=arm64 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ .
 
 # --- Checksums + Reproducibility ---
 

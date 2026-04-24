@@ -1,6 +1,6 @@
 ---
 created: 2026-04-04
-updated: 2026-04-09
+updated: 2026-04-24
 ---
 
 # Windows Support
@@ -34,10 +34,10 @@ Tracking all work needed to run sky10 on Windows.
 
 **Unix signals don't exist on Windows.**
 
-- [ ] `commands/serve.go` — replace `syscall.SIGTERM` with `os.Interrupt` (cross-platform)
-- [ ] `pkg/fs/pidfile.go` — replace `syscall.SIGTERM`/`SIGKILL`/`Signal(0)` with Windows process management (`os.FindProcess` + `Process.Kill`)
-- [ ] `pkg/fs/debug.go` — replace `SIGUSR1` debug dump trigger with alternative (named event, HTTP endpoint, or file-based trigger)
-- [ ] Create platform-specific files: `signal_unix.go` / `signal_windows.go` if needed
+- [x] `commands/serve.go` — use platform-specific shutdown signal lists (`os.Interrupt` on Windows, `SIGTERM` + interrupt on Unix)
+- [x] `pkg/fs/pidfile.go` — replace Unix signal probing with platform process helpers (`Process.Kill` plus Windows handle liveness checks on Windows)
+- [ ] `pkg/fs/debug.go` — add an operator-triggered Windows debug dump alternative (named event, HTTP endpoint, or file-based trigger)
+- [x] Create platform-specific files: `signals_unix.go` / `signals_windows.go` if needed
 
 ## 4. Path handling
 
@@ -50,12 +50,13 @@ Tracking all work needed to run sky10 on Windows.
 
 ## 5. Build and release
 
-- [ ] Add Windows targets to Makefile (`windows-amd64`, `windows-arm64`)
-- [ ] Binary name needs `.exe` suffix
-- [ ] Update `checksums.txt` generation to include Windows binaries
-- [ ] Update `pkg/update/update.go` if asset naming needs adjustment
-- [ ] Update `pkg/update` staged/install paths for Windows binary naming and menu entrypoint naming (`sky10.exe`, `sky10-menu.exe`)
-- [ ] Test cross-compilation from macOS/Linux
+- [x] Add Windows targets to Makefile (`windows-amd64`, `windows-arm64`)
+- [x] Binary name needs `.exe` suffix
+- [x] Update `checksums.txt` generation to include Windows binaries
+- [x] Update `pkg/update/update.go` if asset naming needs adjustment
+- [x] Update `pkg/update` staged/install paths for Windows binary naming and menu entrypoint naming (`sky10.exe`, `sky10-menu.exe`)
+- [ ] Add Windows `sky10-menu` release assets, or make the updater explicitly skip menu updates on Windows until the tray app is supported there
+- [x] Test cross-compilation from macOS (`make platforms`); tag-time Linux verification covers Windows release assets
 
 ## 6. Installer
 
@@ -68,7 +69,7 @@ Tracking all work needed to run sky10 on Windows.
 
 **Trivial.**
 
-- [ ] `commands/ui.go` — add `case "windows": exec.Command("cmd", "/c", "start", url)`
+- [x] `commands/ui.go` — add `case "windows": exec.Command("cmd", "/c", "start", "", url)`
 
 ## 8. Symlinks
 

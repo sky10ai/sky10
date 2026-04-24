@@ -89,7 +89,7 @@ func TestStageStatusInstallLifecycle(t *testing.T) {
 		t.Fatalf("cli contents = %q, want %q", string(cliData), "new-cli")
 	}
 
-	menuPath := filepath.Join(home, ".bin", "sky10-menu")
+	menuPath := menuInstallPath(home, runtime.GOOS)
 	menuData, err := os.ReadFile(menuPath)
 	if err != nil {
 		t.Fatalf("ReadFile menu: %v", err)
@@ -154,8 +154,8 @@ func TestStageReusesExistingDownload(t *testing.T) {
 func TestCheckReportsMenuUpdateWhenMenuBinaryIsMissing(t *testing.T) {
 	withStageEnv(t)
 
-	asset := fmt.Sprintf("sky10-%s-%s", runtime.GOOS, runtime.GOARCH)
-	menuAsset := fmt.Sprintf("sky10-menu-%s-%s", runtime.GOOS, runtime.GOARCH)
+	asset := cliAssetName(runtime.GOOS, runtime.GOARCH)
+	menuAsset := menuAssetName(runtime.GOOS, runtime.GOARCH)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"tag_name":"v1.0.0","assets":[{"name":%q,"browser_download_url":"https://example.com/%s"},{"name":%q,"browser_download_url":"https://example.com/%s"}]}`, asset, asset, menuAsset, menuAsset)
 	}))
