@@ -13,6 +13,7 @@ type (
 	IdentityID     string
 	ConversationID string
 	MessageID      string
+	ContainerID    string
 	DraftID        string
 	ApprovalID     string
 	PolicyID       string
@@ -105,6 +106,21 @@ const (
 	MessageStatusFailed    MessageStatus = "failed"
 )
 
+// ContainerKind describes a provider-side place that can contain messages or
+// conversations, such as an IMAP mailbox or Gmail label.
+type ContainerKind string
+
+const (
+	ContainerKindInbox   ContainerKind = "inbox"
+	ContainerKindArchive ContainerKind = "archive"
+	ContainerKindTrash   ContainerKind = "trash"
+	ContainerKindSpam    ContainerKind = "spam"
+	ContainerKindSent    ContainerKind = "sent"
+	ContainerKindDrafts  ContainerKind = "drafts"
+	ContainerKindFolder  ContainerKind = "folder"
+	ContainerKindLabel   ContainerKind = "label"
+)
+
 // DraftStatus describes lifecycle state for an unsent outbound draft.
 type DraftStatus string
 
@@ -177,6 +193,7 @@ const (
 	EventTypeConversationUpdated EventType = "conversation_updated"
 	EventTypeMessageReceived     EventType = "message_received"
 	EventTypeMessageUpdated      EventType = "message_updated"
+	EventTypeMessageMoved        EventType = "message_moved"
 	EventTypeDraftUpdated        EventType = "draft_updated"
 	EventTypeDraftSendRequested  EventType = "draft_send_requested"
 	EventTypeDeliveryUpdated     EventType = "delivery_updated"
@@ -375,6 +392,59 @@ func (c Conversation) Validate() error {
 	return nil
 }
 
+// Container is a provider-side grouping target such as a mailbox, folder,
+// label, archive, or trash container.
+type Container struct {
+	ID           ContainerID       `json:"id"`
+	ConnectionID ConnectionID      `json:"connection_id"`
+	Kind         ContainerKind     `json:"kind"`
+	Name         string            `json:"name"`
+	RemoteID     string            `json:"remote_id,omitempty"`
+	Metadata     map[string]string `json:"metadata,omitempty"`
+}
+
+// Validate checks whether a container is structurally valid.
+func (c Container) Validate() error {
+	if err := requireID(string(c.ID), "container id"); err != nil {
+		return err
+	}
+	if err := requireID(string(c.ConnectionID), "container connection_id"); err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(c.Kind)) == "" {
+		return fmt.Errorf("container kind is required")
+	}
+	if err := requireText(c.Name, "container name"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Placement is a mutable provider locator for a message inside a container.
+// Logical Message IDs should remain stable even when the provider locator, such
+// as an IMAP mailbox UID, changes after a move.
+type Placement struct {
+	MessageID    MessageID         `json:"message_id"`
+	ConnectionID ConnectionID      `json:"connection_id"`
+	ContainerID  ContainerID       `json:"container_id"`
+	RemoteID     string            `json:"remote_id,omitempty"`
+	Metadata     map[string]string `json:"metadata,omitempty"`
+}
+
+// Validate checks whether a placement is structurally valid.
+func (p Placement) Validate() error {
+	if err := requireID(string(p.MessageID), "placement message_id"); err != nil {
+		return err
+	}
+	if err := requireID(string(p.ConnectionID), "placement connection_id"); err != nil {
+		return err
+	}
+	if err := requireID(string(p.ContainerID), "placement container_id"); err != nil {
+		return err
+	}
+	return nil
+}
+
 // MessagePart is one normalized content fragment inside a message or draft.
 type MessagePart struct {
 	Kind        MessagePartKind   `json:"kind"`
@@ -551,24 +621,31 @@ func (a Approval) Validate() error {
 // PolicyRules is the broker-enforced allow/deny surface attached to a
 // connection or exposure.
 type PolicyRules struct {
-	ReadInbound           bool         `json:"read_inbound"`
-	CreateDrafts          bool         `json:"create_drafts"`
-	SendMessages          bool         `json:"send_messages"`
-	RequireApproval       bool         `json:"require_approval"`
-	ReplyOnly             bool         `json:"reply_only"`
-	AllowNewConversations bool         `json:"allow_new_conversations"`
-	AllowAttachments      bool         `json:"allow_attachments"`
-	MarkRead              bool         `json:"mark_read"`
-	SearchIdentities      bool         `json:"search_identities"`
-	SearchConversations   bool         `json:"search_conversations"`
-	SearchMessages        bool         `json:"search_messages"`
-	AllowedIdentityIDs    []IdentityID `json:"allowed_identity_ids,omitempty"`
+	ReadInbound           bool          `json:"read_inbound"`
+	CreateDrafts          bool          `json:"create_drafts"`
+	SendMessages          bool          `json:"send_messages"`
+	RequireApproval       bool          `json:"require_approval"`
+	ReplyOnly             bool          `json:"reply_only"`
+	AllowNewConversations bool          `json:"allow_new_conversations"`
+	AllowAttachments      bool          `json:"allow_attachments"`
+	MarkRead              bool          `json:"mark_read"`
+	ManageMessages        bool          `json:"manage_messages"`
+	AllowedContainerIDs   []ContainerID `json:"allowed_container_ids,omitempty"`
+	SearchIdentities      bool          `json:"search_identities"`
+	SearchConversations   bool          `json:"search_conversations"`
+	SearchMessages        bool          `json:"search_messages"`
+	AllowedIdentityIDs    []IdentityID  `json:"allowed_identity_ids,omitempty"`
 }
 
 // Validate checks whether policy rules are structurally valid.
 func (r PolicyRules) Validate() error {
 	for idx, identityID := range r.AllowedIdentityIDs {
 		if err := requireID(string(identityID), fmt.Sprintf("policy rules allowed_identity_ids[%d]", idx)); err != nil {
+			return err
+		}
+	}
+	for idx, containerID := range r.AllowedContainerIDs {
+		if err := requireID(string(containerID), fmt.Sprintf("policy rules allowed_container_ids[%d]", idx)); err != nil {
 			return err
 		}
 	}
@@ -754,23 +831,30 @@ func (e Event) Validate() error {
 
 // Capabilities declares the operations a platform adapter supports.
 type Capabilities struct {
-	ReceiveMessages   bool `json:"receive_messages"`
-	SendMessages      bool `json:"send_messages"`
-	CreateDrafts      bool `json:"create_drafts"`
-	UpdateDrafts      bool `json:"update_drafts"`
-	DeleteDrafts      bool `json:"delete_drafts"`
-	ListConversations bool `json:"list_conversations"`
-	ListMessages      bool `json:"list_messages"`
-	Threading         bool `json:"threading"`
-	Attachments       bool `json:"attachments"`
-	Webhooks          bool `json:"webhooks"`
-	Polling           bool `json:"polling"`
-	MarkRead          bool `json:"mark_read"`
-	TypingIndicators  bool `json:"typing_indicators"`
-	DeliveryStatus    bool `json:"delivery_status"`
-	Reactions         bool `json:"reactions"`
-	Edits             bool `json:"edits"`
-	Deletes           bool `json:"deletes"`
+	ReceiveMessages      bool `json:"receive_messages"`
+	SendMessages         bool `json:"send_messages"`
+	CreateDrafts         bool `json:"create_drafts"`
+	UpdateDrafts         bool `json:"update_drafts"`
+	DeleteDrafts         bool `json:"delete_drafts"`
+	ListConversations    bool `json:"list_conversations"`
+	ListMessages         bool `json:"list_messages"`
+	ListContainers       bool `json:"list_containers"`
+	Threading            bool `json:"threading"`
+	Attachments          bool `json:"attachments"`
+	Webhooks             bool `json:"webhooks"`
+	Polling              bool `json:"polling"`
+	MarkRead             bool `json:"mark_read"`
+	MarkUnread           bool `json:"mark_unread"`
+	MoveMessages         bool `json:"move_messages"`
+	MoveConversations    bool `json:"move_conversations"`
+	ArchiveMessages      bool `json:"archive_messages"`
+	ArchiveConversations bool `json:"archive_conversations"`
+	ApplyLabels          bool `json:"apply_labels"`
+	TypingIndicators     bool `json:"typing_indicators"`
+	DeliveryStatus       bool `json:"delivery_status"`
+	Reactions            bool `json:"reactions"`
+	Edits                bool `json:"edits"`
+	Deletes              bool `json:"deletes"`
 }
 
 func requireID(value, field string) error {

@@ -428,6 +428,83 @@ func defaultIdentity(cfg adapterConfig) messaging.Identity {
 	}
 }
 
+func containersForConfig(cfg adapterConfig) []messaging.Container {
+	mailboxes := make([]messaging.Container, 0, 2)
+	if mailbox := strings.TrimSpace(cfg.Mailbox); mailbox != "" {
+		mailboxes = append(mailboxes, containerForMailbox(cfg, mailbox, containerKindForMailbox(mailbox)))
+	}
+	if mailbox := strings.TrimSpace(cfg.ArchiveMailbox); mailbox != "" && !sameMailbox(mailbox, cfg.Mailbox) {
+		mailboxes = append(mailboxes, containerForMailbox(cfg, mailbox, messaging.ContainerKindArchive))
+	}
+	sort.Slice(mailboxes, func(i, j int) bool {
+		if mailboxes[i].Kind != mailboxes[j].Kind {
+			return mailboxes[i].Kind < mailboxes[j].Kind
+		}
+		return mailboxes[i].Name < mailboxes[j].Name
+	})
+	return mailboxes
+}
+
+func containerForMailbox(cfg adapterConfig, mailbox string, kind messaging.ContainerKind) messaging.Container {
+	return messaging.Container{
+		ID:           containerIDForMailbox(cfg, mailbox),
+		ConnectionID: cfg.ConnectionID,
+		Kind:         kind,
+		Name:         mailbox,
+		RemoteID:     mailbox,
+		Metadata: map[string]string{
+			"imap_mailbox": mailbox,
+		},
+	}
+}
+
+func placementForMessage(cfg adapterConfig, message messaging.Message) messaging.Placement {
+	mailbox := cfg.Mailbox
+	if message.Metadata != nil {
+		mailbox = firstNonEmpty(message.Metadata["mailbox"], mailbox)
+	}
+	remoteID := message.RemoteID
+	if message.Metadata != nil {
+		remoteID = firstNonEmpty(message.Metadata["imap_uid"], remoteID)
+	}
+	return messaging.Placement{
+		MessageID:    message.ID,
+		ConnectionID: cfg.ConnectionID,
+		ContainerID:  containerIDForMailbox(cfg, mailbox),
+		RemoteID:     remoteID,
+		Metadata: map[string]string{
+			"imap_mailbox": mailbox,
+		},
+	}
+}
+
+func containerIDForMailbox(cfg adapterConfig, mailbox string) messaging.ContainerID {
+	return messaging.ContainerID(fmt.Sprintf("container/%s/%s", encodeIDPart(string(cfg.ConnectionID)), encodeIDPart(mailbox)))
+}
+
+func containerKindForMailbox(mailbox string) messaging.ContainerKind {
+	switch strings.ToLower(strings.TrimSpace(mailbox)) {
+	case "inbox":
+		return messaging.ContainerKindInbox
+	case "archive", "all mail", "[gmail]/all mail":
+		return messaging.ContainerKindArchive
+	case "trash", "deleted", "deleted items", "[gmail]/trash":
+		return messaging.ContainerKindTrash
+	case "spam", "junk", "junk email", "[gmail]/spam":
+		return messaging.ContainerKindSpam
+	case "sent", "sent mail", "sent items", "[gmail]/sent mail":
+		return messaging.ContainerKindSent
+	case "drafts", "[gmail]/drafts":
+		return messaging.ContainerKindDrafts
+	default:
+		return messaging.ContainerKindFolder
+	}
+}
+
+func sameMailbox(left, right string) bool {
+	return strings.EqualFold(strings.TrimSpace(left), strings.TrimSpace(right))
+}
+
 func messageIDFor(cfg adapterConfig, uid imap.UID) messaging.MessageID {
 	return messaging.MessageID(fmt.Sprintf("msg/%s/%s/%d", encodeIDPart(string(cfg.ConnectionID)), encodeIDPart(cfg.Mailbox), uid))
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/sky10/sky10/pkg/messaging"
 )
@@ -103,4 +104,43 @@ func TestConnectParamsCarriesResolvedCredential(t *testing.T) {
 	if decoded.Paths.SecretsDir == "" {
 		t.Fatal("decoded secrets dir = empty, want staged secret path")
 	}
+}
+
+func TestMessageRecordCarriesPlacements(t *testing.T) {
+	t.Parallel()
+
+	record := MessageRecord{
+		Message: messaging.Message{
+			ID:              "msg/1",
+			ConnectionID:    "imap/work",
+			ConversationID:  "conv/1",
+			LocalIdentityID: "identity/imap",
+			Direction:       messaging.MessageDirectionInbound,
+			Sender:          messaging.Participant{Kind: messaging.ParticipantKindUser, Address: "latisha@example.com"},
+			Parts:           []messaging.MessagePart{{Kind: messaging.MessagePartKindText, Text: "hello"}},
+			CreatedAt:       testingTime(),
+			Status:          messaging.MessageStatusReceived,
+		},
+		Placements: []messaging.Placement{{
+			MessageID:    "msg/1",
+			ConnectionID: "imap/work",
+			ContainerID:  "container/inbox",
+			RemoteID:     "101",
+		}},
+	}
+	raw, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	var decoded MessageRecord
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if len(decoded.Placements) != 1 || decoded.Placements[0].ContainerID != "container/inbox" {
+		t.Fatalf("decoded placements = %+v, want container/inbox", decoded.Placements)
+	}
+}
+
+func testingTime() time.Time {
+	return time.Date(2026, 4, 22, 10, 0, 0, 0, time.UTC)
 }

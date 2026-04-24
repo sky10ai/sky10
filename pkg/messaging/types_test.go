@@ -130,6 +130,34 @@ func TestConversationValidate(t *testing.T) {
 	}
 }
 
+func TestContainerAndPlacementValidate(t *testing.T) {
+	container := Container{
+		ID:           "container/inbox",
+		ConnectionID: "gmail/work",
+		Kind:         ContainerKindInbox,
+		Name:         "INBOX",
+		RemoteID:     "INBOX",
+	}
+	if err := container.Validate(); err != nil {
+		t.Fatalf("container Validate() error = %v", err)
+	}
+
+	placement := Placement{
+		MessageID:    "msg/1",
+		ConnectionID: "gmail/work",
+		ContainerID:  container.ID,
+		RemoteID:     "101",
+	}
+	if err := placement.Validate(); err != nil {
+		t.Fatalf("placement Validate() error = %v", err)
+	}
+
+	placement.ContainerID = ""
+	if err := placement.Validate(); err == nil {
+		t.Fatal("placement Validate() succeeded with blank container_id, want error")
+	}
+}
+
 func TestMessageValidate(t *testing.T) {
 	now := time.Now().UTC()
 	msg := Message{
@@ -231,6 +259,12 @@ func TestPolicyExposureAndEventValidate(t *testing.T) {
 	policy.Rules.AllowedIdentityIDs = []IdentityID{""}
 	if err := policy.Validate(); err == nil {
 		t.Fatal("policy Validate() succeeded with blank allowed identity, want error")
+	}
+
+	policy.Rules.AllowedIdentityIDs = nil
+	policy.Rules.AllowedContainerIDs = []ContainerID{""}
+	if err := policy.Validate(); err == nil {
+		t.Fatal("policy Validate() succeeded with blank allowed container, want error")
 	}
 }
 

@@ -14,6 +14,9 @@ type Backend interface {
 	PutIdentity(ctx context.Context, identity messaging.Identity) error
 	ReplaceConnectionIdentities(ctx context.Context, connectionID messaging.ConnectionID, identities []messaging.Identity) error
 	PutConversation(ctx context.Context, conversation messaging.Conversation) error
+	PutContainer(ctx context.Context, container messaging.Container) error
+	PutPlacement(ctx context.Context, placement messaging.Placement) error
+	DeletePlacement(ctx context.Context, messageID messaging.MessageID, containerID messaging.ContainerID) error
 	PutMessage(ctx context.Context, message messaging.Message) error
 	PutDraft(ctx context.Context, draft messaging.Draft) error
 	PutApproval(ctx context.Context, approval messaging.Approval) error
@@ -30,6 +33,8 @@ type Snapshot struct {
 	Connections    []messaging.Connection
 	Identities     []messaging.Identity
 	Conversations  []messaging.Conversation
+	Containers     []messaging.Container
+	Placements     []messaging.Placement
 	Messages       []messaging.Message
 	Drafts         []messaging.Draft
 	Approvals      []messaging.Approval

@@ -151,6 +151,16 @@ func (c *AdapterClient) GetMessage(ctx context.Context, params protocol.GetMessa
 	return result, nil
 }
 
+// ListContainers enumerates provider-side containers such as mailboxes,
+// folders, and labels.
+func (c *AdapterClient) ListContainers(ctx context.Context, params protocol.ListContainersParams) (protocol.ListContainersResult, error) {
+	var result protocol.ListContainersResult
+	if err := c.call(ctx, protocol.MethodListContainers, params, &result); err != nil {
+		return protocol.ListContainersResult{}, err
+	}
+	return result, nil
+}
+
 // CreateDraft validates or creates one draft through the adapter.
 func (c *AdapterClient) CreateDraft(ctx context.Context, params protocol.CreateDraftParams) (protocol.CreateDraftResult, error) {
 	var result protocol.CreateDraftResult
@@ -192,6 +202,62 @@ func (c *AdapterClient) ReplyMessage(ctx context.Context, params protocol.ReplyM
 	var result protocol.SendResult
 	if err := c.call(ctx, protocol.MethodReplyMessage, params, &result); err != nil {
 		return protocol.SendResult{}, err
+	}
+	return result, nil
+}
+
+// MoveMessages moves messages to another provider-side container.
+func (c *AdapterClient) MoveMessages(ctx context.Context, params protocol.MoveMessagesParams) (protocol.ManageMessagesResult, error) {
+	var result protocol.ManageMessagesResult
+	if err := c.call(ctx, protocol.MethodMoveMessages, params, &result); err != nil {
+		return protocol.ManageMessagesResult{}, err
+	}
+	return result, nil
+}
+
+// MoveConversation moves a conversation to another provider-side container.
+func (c *AdapterClient) MoveConversation(ctx context.Context, params protocol.MoveConversationParams) (protocol.ManageMessagesResult, error) {
+	var result protocol.ManageMessagesResult
+	if err := c.call(ctx, protocol.MethodMoveConversation, params, &result); err != nil {
+		return protocol.ManageMessagesResult{}, err
+	}
+	return result, nil
+}
+
+// ArchiveMessages archives messages using the adapter's platform semantics.
+func (c *AdapterClient) ArchiveMessages(ctx context.Context, params protocol.ArchiveMessagesParams) (protocol.ManageMessagesResult, error) {
+	var result protocol.ManageMessagesResult
+	if err := c.call(ctx, protocol.MethodArchiveMessages, params, &result); err != nil {
+		return protocol.ManageMessagesResult{}, err
+	}
+	return result, nil
+}
+
+// ArchiveConversation archives a conversation using the adapter's platform
+// semantics.
+func (c *AdapterClient) ArchiveConversation(ctx context.Context, params protocol.ArchiveConversationParams) (protocol.ManageMessagesResult, error) {
+	var result protocol.ManageMessagesResult
+	if err := c.call(ctx, protocol.MethodArchiveConversation, params, &result); err != nil {
+		return protocol.ManageMessagesResult{}, err
+	}
+	return result, nil
+}
+
+// ApplyLabels mutates label-like container membership for messages or a
+// conversation.
+func (c *AdapterClient) ApplyLabels(ctx context.Context, params protocol.ApplyLabelsParams) (protocol.ManageMessagesResult, error) {
+	var result protocol.ManageMessagesResult
+	if err := c.call(ctx, protocol.MethodApplyLabels, params, &result); err != nil {
+		return protocol.ManageMessagesResult{}, err
+	}
+	return result, nil
+}
+
+// MarkRead changes read state for messages or a conversation.
+func (c *AdapterClient) MarkRead(ctx context.Context, params protocol.MarkReadParams) (protocol.ManageMessagesResult, error) {
+	var result protocol.ManageMessagesResult
+	if err := c.call(ctx, protocol.MethodMarkRead, params, &result); err != nil {
+		return protocol.ManageMessagesResult{}, err
 	}
 	return result, nil
 }

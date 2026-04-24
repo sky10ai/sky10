@@ -104,6 +104,23 @@ func TestHandlerConnectBuiltinAndPoll(t *testing.T) {
 	if len(poll.Messages) != 1 || poll.Messages[0].ID != "msg/latisha" {
 		t.Fatalf("poll messages = %+v, want msg/latisha", poll.Messages)
 	}
+	if _, ok := handler.store.GetPlacement("msg/latisha", "container/inbox"); !ok {
+		t.Fatal("GetPlacement(msg/latisha, inbox) = false, want hydrated placement")
+	}
+
+	result, err, handled = handler.Dispatch(ctx, "messaging.listContainers", mustJSON(t, protocol.ListContainersParams{
+		ConnectionID: "imap/work",
+	}))
+	if err != nil {
+		t.Fatalf("Dispatch(listContainers) error = %v", err)
+	}
+	if !handled {
+		t.Fatal("Dispatch(listContainers) handled = false, want true")
+	}
+	containers := result.(protocol.ListContainersResult)
+	if len(containers.Containers) != 1 || containers.Containers[0].ID != "container/inbox" {
+		t.Fatalf("containers = %+v, want container/inbox", containers.Containers)
+	}
 
 	result, err, handled = handler.Dispatch(ctx, "messaging.connections", nil)
 	if err != nil {
@@ -216,6 +233,7 @@ func runMessagingRPCHandlerHelperProcess() error {
 							Polling:           true,
 							ListConversations: true,
 							ListMessages:      true,
+							ListContainers:    true,
 						},
 					},
 				}),
@@ -303,7 +321,29 @@ func runMessagingRPCHandlerHelperProcess() error {
 							CreatedAt: time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC),
 							Status:    messaging.MessageStatusReceived,
 						},
+						Placements: []messaging.Placement{{
+							MessageID:    params.MessageID,
+							ConnectionID: "imap/work",
+							ContainerID:  "container/inbox",
+							RemoteID:     "101",
+						}},
 					},
+				}),
+			}); err != nil {
+				return err
+			}
+		case string(protocol.MethodListContainers):
+			if err := enc.Write(messagingruntime.Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result: mustJSONRaw(protocol.ListContainersResult{
+					Containers: []messaging.Container{{
+						ID:           "container/inbox",
+						ConnectionID: "imap/work",
+						Kind:         messaging.ContainerKindInbox,
+						Name:         "INBOX",
+						RemoteID:     "INBOX",
+					}},
 				}),
 			}); err != nil {
 				return err

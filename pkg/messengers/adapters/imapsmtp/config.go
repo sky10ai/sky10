@@ -12,16 +12,17 @@ import (
 )
 
 const (
-	metaIMAPHost     = "imap_host"
-	metaIMAPPort     = "imap_port"
-	metaIMAPTLSMode  = "imap_tls_mode"
-	metaIMAPMailbox  = "imap_mailbox"
-	metaSMTPHost     = "smtp_host"
-	metaSMTPPort     = "smtp_port"
-	metaSMTPTLSMode  = "smtp_tls_mode"
-	metaEmailAddress = "email_address"
-	metaDisplayName  = "display_name"
-	metaPollLimit    = "poll_limit"
+	metaIMAPHost           = "imap_host"
+	metaIMAPPort           = "imap_port"
+	metaIMAPTLSMode        = "imap_tls_mode"
+	metaIMAPMailbox        = "imap_mailbox"
+	metaIMAPArchiveMailbox = "imap_archive_mailbox"
+	metaSMTPHost           = "smtp_host"
+	metaSMTPPort           = "smtp_port"
+	metaSMTPTLSMode        = "smtp_tls_mode"
+	metaEmailAddress       = "email_address"
+	metaDisplayName        = "display_name"
+	metaPollLimit          = "poll_limit"
 )
 
 type tlsMode string
@@ -41,14 +42,15 @@ type endpointConfig struct {
 }
 
 type adapterConfig struct {
-	ConnectionID messaging.ConnectionID
-	Label        string
-	EmailAddress string
-	DisplayName  string
-	Mailbox      string
-	PollLimit    int
-	IMAP         endpointConfig
-	SMTP         endpointConfig
+	ConnectionID   messaging.ConnectionID
+	Label          string
+	EmailAddress   string
+	DisplayName    string
+	Mailbox        string
+	ArchiveMailbox string
+	PollLimit      int
+	IMAP           endpointConfig
+	SMTP           endpointConfig
 }
 
 type credentialPayload struct {
@@ -85,6 +87,7 @@ func parseConfig(connection messaging.Connection, credential *protocol.ResolvedC
 		cfg.IMAP.Host = strings.TrimSpace(connection.Metadata[metaIMAPHost])
 		cfg.SMTP.Host = strings.TrimSpace(connection.Metadata[metaSMTPHost])
 		cfg.Mailbox = firstNonEmpty(connection.Metadata[metaIMAPMailbox], cfg.Mailbox)
+		cfg.ArchiveMailbox = strings.TrimSpace(connection.Metadata[metaIMAPArchiveMailbox])
 		cfg.EmailAddress = strings.TrimSpace(connection.Metadata[metaEmailAddress])
 		cfg.DisplayName = strings.TrimSpace(connection.Metadata[metaDisplayName])
 		if value := strings.TrimSpace(connection.Metadata[metaIMAPTLSMode]); value != "" {

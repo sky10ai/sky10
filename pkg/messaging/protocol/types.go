@@ -19,22 +19,29 @@ const (
 type Method string
 
 const (
-	MethodDescribe          Method = "messaging.adapter.describe"
-	MethodValidateConfig    Method = "messaging.adapter.validateConfig"
-	MethodConnect           Method = "messaging.adapter.connect"
-	MethodRefresh           Method = "messaging.adapter.refresh"
-	MethodListIdentities    Method = "messaging.adapter.listIdentities"
-	MethodListConversations Method = "messaging.adapter.listConversations"
-	MethodListMessages      Method = "messaging.adapter.listMessages"
-	MethodGetMessage        Method = "messaging.adapter.getMessage"
-	MethodCreateDraft       Method = "messaging.adapter.createDraft"
-	MethodUpdateDraft       Method = "messaging.adapter.updateDraft"
-	MethodDeleteDraft       Method = "messaging.adapter.deleteDraft"
-	MethodSendMessage       Method = "messaging.adapter.sendMessage"
-	MethodReplyMessage      Method = "messaging.adapter.replyMessage"
-	MethodHandleWebhook     Method = "messaging.adapter.handleWebhook"
-	MethodPoll              Method = "messaging.adapter.poll"
-	MethodHealth            Method = "messaging.adapter.health"
+	MethodDescribe            Method = "messaging.adapter.describe"
+	MethodValidateConfig      Method = "messaging.adapter.validateConfig"
+	MethodConnect             Method = "messaging.adapter.connect"
+	MethodRefresh             Method = "messaging.adapter.refresh"
+	MethodListIdentities      Method = "messaging.adapter.listIdentities"
+	MethodListConversations   Method = "messaging.adapter.listConversations"
+	MethodListMessages        Method = "messaging.adapter.listMessages"
+	MethodGetMessage          Method = "messaging.adapter.getMessage"
+	MethodListContainers      Method = "messaging.adapter.listContainers"
+	MethodCreateDraft         Method = "messaging.adapter.createDraft"
+	MethodUpdateDraft         Method = "messaging.adapter.updateDraft"
+	MethodDeleteDraft         Method = "messaging.adapter.deleteDraft"
+	MethodSendMessage         Method = "messaging.adapter.sendMessage"
+	MethodReplyMessage        Method = "messaging.adapter.replyMessage"
+	MethodMoveMessages        Method = "messaging.adapter.moveMessages"
+	MethodMoveConversation    Method = "messaging.adapter.moveConversation"
+	MethodArchiveMessages     Method = "messaging.adapter.archiveMessages"
+	MethodArchiveConversation Method = "messaging.adapter.archiveConversation"
+	MethodApplyLabels         Method = "messaging.adapter.applyLabels"
+	MethodMarkRead            Method = "messaging.adapter.markRead"
+	MethodHandleWebhook       Method = "messaging.adapter.handleWebhook"
+	MethodPoll                Method = "messaging.adapter.poll"
+	MethodHealth              Method = "messaging.adapter.health"
 )
 
 // ProtocolInfo describes the adapter contract version the process speaks.
@@ -136,8 +143,9 @@ type Attachment struct {
 
 // MessageRecord carries a normalized message and any staged attachments.
 type MessageRecord struct {
-	Message     messaging.Message `json:"message"`
-	Attachments []Attachment      `json:"attachments,omitempty"`
+	Message     messaging.Message     `json:"message"`
+	Attachments []Attachment          `json:"attachments,omitempty"`
+	Placements  []messaging.Placement `json:"placements,omitempty"`
 }
 
 // DraftRecord carries a normalized draft and any staged attachments.
@@ -323,6 +331,87 @@ type GetMessageParams struct {
 // GetMessageResult returns one normalized message.
 type GetMessageResult struct {
 	Message MessageRecord `json:"message"`
+}
+
+// ListContainersParams asks an adapter to enumerate provider-side containers
+// such as mailboxes, folders, or labels.
+type ListContainersParams struct {
+	ConnectionID messaging.ConnectionID `json:"connection_id"`
+	PageRequest
+}
+
+// ListContainersResult is one container page.
+type ListContainersResult struct {
+	Containers []messaging.Container `json:"containers,omitempty"`
+	NextCursor string                `json:"next_cursor,omitempty"`
+}
+
+// PlacementChange reports updated provider locators after a management
+// operation such as move, archive, label mutation, or read-state update.
+type PlacementChange struct {
+	MessageID messaging.MessageID     `json:"message_id,omitempty"`
+	Message   *messaging.Message      `json:"message,omitempty"`
+	Placement *messaging.Placement    `json:"placement,omitempty"`
+	Removed   []messaging.ContainerID `json:"removed,omitempty"`
+	Added     []messaging.ContainerID `json:"added,omitempty"`
+}
+
+// MoveMessagesParams asks an adapter to move messages to another container.
+type MoveMessagesParams struct {
+	ConnectionID           messaging.ConnectionID `json:"connection_id"`
+	MessageIDs             []messaging.MessageID  `json:"message_ids"`
+	DestinationContainerID messaging.ContainerID  `json:"destination_container_id"`
+}
+
+// MoveConversationParams asks an adapter to move every supported message in a
+// conversation to another container.
+type MoveConversationParams struct {
+	ConnectionID           messaging.ConnectionID   `json:"connection_id"`
+	ConversationID         messaging.ConversationID `json:"conversation_id"`
+	DestinationContainerID messaging.ContainerID    `json:"destination_container_id"`
+}
+
+// ArchiveMessagesParams asks an adapter to archive messages using the
+// platform's configured archive behavior.
+type ArchiveMessagesParams struct {
+	ConnectionID messaging.ConnectionID `json:"connection_id"`
+	MessageIDs   []messaging.MessageID  `json:"message_ids"`
+	ContainerID  messaging.ContainerID  `json:"container_id,omitempty"`
+}
+
+// ArchiveConversationParams asks an adapter to archive every supported message
+// in a conversation.
+type ArchiveConversationParams struct {
+	ConnectionID   messaging.ConnectionID   `json:"connection_id"`
+	ConversationID messaging.ConversationID `json:"conversation_id"`
+	ContainerID    messaging.ContainerID    `json:"container_id,omitempty"`
+}
+
+// ApplyLabelsParams asks an adapter to add/remove label-like containers.
+type ApplyLabelsParams struct {
+	ConnectionID   messaging.ConnectionID   `json:"connection_id"`
+	ConversationID messaging.ConversationID `json:"conversation_id,omitempty"`
+	MessageIDs     []messaging.MessageID    `json:"message_ids,omitempty"`
+	Add            []messaging.ContainerID  `json:"add,omitempty"`
+	Remove         []messaging.ContainerID  `json:"remove,omitempty"`
+}
+
+// MarkReadParams asks an adapter to set read state for messages or a whole
+// conversation.
+type MarkReadParams struct {
+	ConnectionID   messaging.ConnectionID   `json:"connection_id"`
+	ConversationID messaging.ConversationID `json:"conversation_id,omitempty"`
+	MessageIDs     []messaging.MessageID    `json:"message_ids,omitempty"`
+	Read           bool                     `json:"read"`
+}
+
+// ManageMessagesResult reports provider-side state changes after message
+// management operations.
+type ManageMessagesResult struct {
+	Messages   []MessageRecord       `json:"messages,omitempty"`
+	Placements []messaging.Placement `json:"placements,omitempty"`
+	Changes    []PlacementChange     `json:"changes,omitempty"`
+	Events     []messaging.Event     `json:"events,omitempty"`
 }
 
 // CreateDraftParams asks an adapter to validate and optionally create a native

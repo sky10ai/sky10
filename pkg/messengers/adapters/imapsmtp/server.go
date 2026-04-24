@@ -112,6 +112,8 @@ func (s *service) handle(ctx context.Context, req messagingruntime.Request) mess
 		return s.handleListMessages(req)
 	case string(protocol.MethodGetMessage):
 		return s.handleGetMessage(req)
+	case string(protocol.MethodListContainers):
+		return s.handleListContainers(req)
 	case string(protocol.MethodCreateDraft):
 		return s.handleCreateDraft(req)
 	case string(protocol.MethodUpdateDraft):
@@ -150,6 +152,7 @@ func (s *service) handleDescribe(req messagingruntime.Request) messagingruntime.
 				DeleteDrafts:      true,
 				ListConversations: true,
 				ListMessages:      true,
+				ListContainers:    true,
 				Threading:         true,
 				Polling:           true,
 			},
@@ -204,9 +207,10 @@ func (s *service) handleConnect(ctx context.Context, req messagingruntime.Reques
 		Status:     messaging.ConnectionStatusConnected,
 		Identities: append([]messaging.Identity(nil), state.identities...),
 		Metadata: map[string]string{
-			metaEmailAddress: cfg.EmailAddress,
-			metaDisplayName:  cfg.DisplayName,
-			metaIMAPMailbox:  cfg.Mailbox,
+			metaEmailAddress:       cfg.EmailAddress,
+			metaDisplayName:        cfg.DisplayName,
+			metaIMAPMailbox:        cfg.Mailbox,
+			metaIMAPArchiveMailbox: cfg.ArchiveMailbox,
 		},
 	})
 }
@@ -279,7 +283,7 @@ func (s *service) handleListMessages(req messagingruntime.Request) messagingrunt
 	})
 	records := make([]protocol.MessageRecord, 0, len(items))
 	for _, message := range items {
-		records = append(records, protocol.MessageRecord{Message: message})
+		records = append(records, s.messageRecord(state.config, message))
 	}
 	return resultResponse(req.ID, protocol.ListMessagesResult{Messages: records})
 }
@@ -297,8 +301,20 @@ func (s *service) handleGetMessage(req messagingruntime.Request) messagingruntim
 	if !ok {
 		return errorResponse(req.ID, -32005, fmt.Sprintf("message %s not found", params.MessageID))
 	}
-	return resultResponse(req.ID, protocol.GetMessageResult{
-		Message: protocol.MessageRecord{Message: message},
+	return resultResponse(req.ID, protocol.GetMessageResult{Message: s.messageRecord(state.config, message)})
+}
+
+func (s *service) handleListContainers(req messagingruntime.Request) messagingruntime.Response {
+	var params protocol.ListContainersParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errorResponse(req.ID, -32602, fmt.Sprintf("decode list containers params: %v", err))
+	}
+	state, ok := s.connection(params.ConnectionID)
+	if !ok {
+		return errorResponse(req.ID, -32004, fmt.Sprintf("connection %s is not connected", params.ConnectionID))
+	}
+	return resultResponse(req.ID, protocol.ListContainersResult{
+		Containers: containersForConfig(state.config),
 	})
 }
 
@@ -425,6 +441,13 @@ func (s *service) handleHealth(req messagingruntime.Request) messagingruntime.Re
 		}
 	}
 	return resultResponse(req.ID, protocol.HealthResult{Health: status})
+}
+
+func (s *service) messageRecord(cfg adapterConfig, message messaging.Message) protocol.MessageRecord {
+	return protocol.MessageRecord{
+		Message:    message,
+		Placements: []messaging.Placement{placementForMessage(cfg, message)},
+	}
 }
 
 func (s *service) outboundInput(req messagingruntime.Request, reply bool) (*connectionState, messaging.Draft, []protocol.Attachment, outboundHeaders, []string, error) {

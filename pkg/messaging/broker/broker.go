@@ -519,6 +519,17 @@ func (b *Broker) syncMessage(ctx context.Context, adapterClient *messagingruntim
 	if err := b.store.PutMessage(ctx, result.Message.Message); err != nil {
 		return messaging.Message{}, err
 	}
+	for _, placement := range result.Message.Placements {
+		if placement.ConnectionID == "" {
+			placement.ConnectionID = connection.ID
+		}
+		if placement.MessageID == "" {
+			placement.MessageID = result.Message.Message.ID
+		}
+		if err := b.store.PutPlacement(ctx, placement); err != nil {
+			return messaging.Message{}, err
+		}
+	}
 	return result.Message.Message, nil
 }
 

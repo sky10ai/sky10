@@ -66,9 +66,10 @@ func TestServerHandleConnectAndListIdentities(t *testing.T) {
 				CredentialRef: "secret://imap/work",
 			},
 			Metadata: map[string]string{
-				metaIMAPHost:     "imap.example.com",
-				metaSMTPHost:     "smtp.example.com",
-				metaEmailAddress: "mailer@example.com",
+				metaIMAPHost:           "imap.example.com",
+				metaSMTPHost:           "smtp.example.com",
+				metaEmailAddress:       "mailer@example.com",
+				metaIMAPArchiveMailbox: "Archive",
 			},
 		},
 		Credential: stagedCredential(t, `{"username":"mailer@example.com","password":"secret"}`),
@@ -97,6 +98,20 @@ func TestServerHandleConnectAndListIdentities(t *testing.T) {
 	}
 	if len(identities.Identities) != 1 || identities.Identities[0].ConnectionID != "imap/work" {
 		t.Fatalf("identities = %+v", identities.Identities)
+	}
+
+	resp = server.handle(context.Background(), rpcRequest(t, protocol.MethodListContainers, protocol.ListContainersParams{
+		ConnectionID: "imap/work",
+	}))
+	if resp.Error != nil {
+		t.Fatalf("list containers error = %v", resp.Error)
+	}
+	var containers protocol.ListContainersResult
+	if err := json.Unmarshal(resp.Result, &containers); err != nil {
+		t.Fatalf("decode list containers result: %v", err)
+	}
+	if len(containers.Containers) != 2 || containers.Containers[0].Kind != messaging.ContainerKindArchive || containers.Containers[1].Kind != messaging.ContainerKindInbox {
+		t.Fatalf("containers = %+v, want archive and inbox", containers.Containers)
 	}
 }
 
@@ -179,6 +194,9 @@ func TestServerHandlePollCachesResults(t *testing.T) {
 	}
 	if message.Message.Message.Sender.DisplayName != "Latisha" {
 		t.Fatalf("message sender = %+v", message.Message.Message.Sender)
+	}
+	if len(message.Message.Placements) != 1 || message.Message.Placements[0].ContainerID == "" {
+		t.Fatalf("message placements = %+v, want one IMAP mailbox placement", message.Message.Placements)
 	}
 }
 

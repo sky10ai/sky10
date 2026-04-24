@@ -14,6 +14,11 @@ type recordIndex struct {
 	identitiesByConnection  map[messaging.ConnectionID][]messaging.IdentityID
 	conversations           map[messaging.ConversationID]messaging.Conversation
 	conversationsByConn     map[messaging.ConnectionID][]messaging.ConversationID
+	containers              map[messaging.ContainerID]messaging.Container
+	containersByConnection  map[messaging.ConnectionID][]messaging.ContainerID
+	placements              map[placementKey]messaging.Placement
+	placementsByMessage     map[messaging.MessageID][]messaging.ContainerID
+	placementsByContainer   map[messaging.ContainerID][]messaging.MessageID
 	messages                map[messaging.MessageID]messaging.Message
 	messagesByConversation  map[messaging.ConversationID][]messaging.MessageID
 	drafts                  map[messaging.DraftID]messaging.Draft
@@ -30,6 +35,11 @@ type recordIndex struct {
 	checkpointsByConnection map[messaging.ConnectionID]protocol.Checkpoint
 }
 
+type placementKey struct {
+	MessageID   messaging.MessageID
+	ContainerID messaging.ContainerID
+}
+
 func newRecordIndex(snapshot Snapshot) *recordIndex {
 	idx := &recordIndex{
 		connections:             make(map[messaging.ConnectionID]messaging.Connection, len(snapshot.Connections)),
@@ -37,6 +47,11 @@ func newRecordIndex(snapshot Snapshot) *recordIndex {
 		identitiesByConnection:  make(map[messaging.ConnectionID][]messaging.IdentityID),
 		conversations:           make(map[messaging.ConversationID]messaging.Conversation, len(snapshot.Conversations)),
 		conversationsByConn:     make(map[messaging.ConnectionID][]messaging.ConversationID),
+		containers:              make(map[messaging.ContainerID]messaging.Container, len(snapshot.Containers)),
+		containersByConnection:  make(map[messaging.ConnectionID][]messaging.ContainerID),
+		placements:              make(map[placementKey]messaging.Placement, len(snapshot.Placements)),
+		placementsByMessage:     make(map[messaging.MessageID][]messaging.ContainerID),
+		placementsByContainer:   make(map[messaging.ContainerID][]messaging.MessageID),
 		messages:                make(map[messaging.MessageID]messaging.Message, len(snapshot.Messages)),
 		messagesByConversation:  make(map[messaging.ConversationID][]messaging.MessageID),
 		drafts:                  make(map[messaging.DraftID]messaging.Draft, len(snapshot.Drafts)),
@@ -60,6 +75,12 @@ func newRecordIndex(snapshot Snapshot) *recordIndex {
 	}
 	for _, conversation := range snapshot.Conversations {
 		idx.putConversation(conversation)
+	}
+	for _, container := range snapshot.Containers {
+		idx.putContainer(container)
+	}
+	for _, placement := range snapshot.Placements {
+		idx.putPlacement(placement)
 	}
 	for _, message := range snapshot.Messages {
 		idx.putMessage(message)
@@ -100,6 +121,8 @@ func (idx *recordIndex) snapshot() Snapshot {
 		Connections:    make([]messaging.Connection, 0, len(idx.connections)),
 		Identities:     make([]messaging.Identity, 0, len(idx.identities)),
 		Conversations:  make([]messaging.Conversation, 0, len(idx.conversations)),
+		Containers:     make([]messaging.Container, 0, len(idx.containers)),
+		Placements:     make([]messaging.Placement, 0, len(idx.placements)),
 		Messages:       make([]messaging.Message, 0, len(idx.messages)),
 		Drafts:         make([]messaging.Draft, 0, len(idx.drafts)),
 		Approvals:      make([]messaging.Approval, 0, len(idx.approvals)),
@@ -127,6 +150,21 @@ func (idx *recordIndex) snapshot() Snapshot {
 	}
 	sort.Slice(snapshot.Conversations, func(i, j int) bool {
 		return snapshot.Conversations[i].ID < snapshot.Conversations[j].ID
+	})
+	for _, container := range idx.containers {
+		snapshot.Containers = append(snapshot.Containers, cloneContainer(container))
+	}
+	sort.Slice(snapshot.Containers, func(i, j int) bool {
+		return snapshot.Containers[i].ID < snapshot.Containers[j].ID
+	})
+	for _, placement := range idx.placements {
+		snapshot.Placements = append(snapshot.Placements, clonePlacement(placement))
+	}
+	sort.Slice(snapshot.Placements, func(i, j int) bool {
+		if snapshot.Placements[i].MessageID != snapshot.Placements[j].MessageID {
+			return snapshot.Placements[i].MessageID < snapshot.Placements[j].MessageID
+		}
+		return snapshot.Placements[i].ContainerID < snapshot.Placements[j].ContainerID
 	})
 	for _, message := range idx.messages {
 		snapshot.Messages = append(snapshot.Messages, cloneMessage(message))
@@ -224,6 +262,34 @@ func (idx *recordIndex) putConversation(conversation messaging.Conversation) {
 	}
 	idx.conversations[conversation.ID] = conversation
 	idx.conversationsByConn[conversation.ConnectionID] = appendUnique(idx.conversationsByConn[conversation.ConnectionID], conversation.ID)
+}
+
+func (idx *recordIndex) putContainer(container messaging.Container) {
+	container = cloneContainer(container)
+	existing, exists := idx.containers[container.ID]
+	if exists && existing.ConnectionID != container.ConnectionID {
+		idx.removeContainerFromConnection(existing.ConnectionID, container.ID)
+	}
+	idx.containers[container.ID] = container
+	idx.containersByConnection[container.ConnectionID] = appendUnique(idx.containersByConnection[container.ConnectionID], container.ID)
+}
+
+func (idx *recordIndex) putPlacement(placement messaging.Placement) {
+	placement = clonePlacement(placement)
+	key := placementKey{MessageID: placement.MessageID, ContainerID: placement.ContainerID}
+	idx.placements[key] = placement
+	idx.placementsByMessage[placement.MessageID] = appendUnique(idx.placementsByMessage[placement.MessageID], placement.ContainerID)
+	idx.placementsByContainer[placement.ContainerID] = appendUnique(idx.placementsByContainer[placement.ContainerID], placement.MessageID)
+}
+
+func (idx *recordIndex) deletePlacement(messageID messaging.MessageID, containerID messaging.ContainerID) {
+	key := placementKey{MessageID: messageID, ContainerID: containerID}
+	if _, ok := idx.placements[key]; !ok {
+		return
+	}
+	delete(idx.placements, key)
+	idx.removePlacementFromMessage(messageID, containerID)
+	idx.removePlacementFromContainer(containerID, messageID)
 }
 
 func (idx *recordIndex) putMessage(message messaging.Message) {
@@ -388,6 +454,76 @@ func (idx *recordIndex) listConnectionConversations(connectionID messaging.Conne
 		return conversations[i].ID < conversations[j].ID
 	})
 	return conversations
+}
+
+func (idx *recordIndex) getContainer(containerID messaging.ContainerID) (messaging.Container, bool) {
+	container, ok := idx.containers[containerID]
+	if !ok {
+		return messaging.Container{}, false
+	}
+	return cloneContainer(container), true
+}
+
+func (idx *recordIndex) listConnectionContainers(connectionID messaging.ConnectionID) []messaging.Container {
+	ids := idx.containersByConnection[connectionID]
+	containers := make([]messaging.Container, 0, len(ids))
+	for _, containerID := range ids {
+		container, ok := idx.containers[containerID]
+		if !ok {
+			continue
+		}
+		containers = append(containers, cloneContainer(container))
+	}
+	sort.Slice(containers, func(i, j int) bool {
+		if containers[i].Kind != containers[j].Kind {
+			return containers[i].Kind < containers[j].Kind
+		}
+		if cmp.Compare(containers[i].Name, containers[j].Name) != 0 {
+			return containers[i].Name < containers[j].Name
+		}
+		return containers[i].ID < containers[j].ID
+	})
+	return containers
+}
+
+func (idx *recordIndex) getPlacement(messageID messaging.MessageID, containerID messaging.ContainerID) (messaging.Placement, bool) {
+	placement, ok := idx.placements[placementKey{MessageID: messageID, ContainerID: containerID}]
+	if !ok {
+		return messaging.Placement{}, false
+	}
+	return clonePlacement(placement), true
+}
+
+func (idx *recordIndex) listMessagePlacements(messageID messaging.MessageID) []messaging.Placement {
+	ids := idx.placementsByMessage[messageID]
+	placements := make([]messaging.Placement, 0, len(ids))
+	for _, containerID := range ids {
+		placement, ok := idx.placements[placementKey{MessageID: messageID, ContainerID: containerID}]
+		if !ok {
+			continue
+		}
+		placements = append(placements, clonePlacement(placement))
+	}
+	sort.Slice(placements, func(i, j int) bool {
+		return placements[i].ContainerID < placements[j].ContainerID
+	})
+	return placements
+}
+
+func (idx *recordIndex) listContainerPlacements(containerID messaging.ContainerID) []messaging.Placement {
+	ids := idx.placementsByContainer[containerID]
+	placements := make([]messaging.Placement, 0, len(ids))
+	for _, messageID := range ids {
+		placement, ok := idx.placements[placementKey{MessageID: messageID, ContainerID: containerID}]
+		if !ok {
+			continue
+		}
+		placements = append(placements, clonePlacement(placement))
+	}
+	sort.Slice(placements, func(i, j int) bool {
+		return placements[i].MessageID < placements[j].MessageID
+	})
+	return placements
 }
 
 func (idx *recordIndex) getMessage(messageID messaging.MessageID) (messaging.Message, bool) {
@@ -626,6 +762,54 @@ func (idx *recordIndex) removeConversationFromConnection(connectionID messaging.
 		return
 	}
 	idx.conversationsByConn[connectionID] = filtered
+}
+
+func (idx *recordIndex) removeContainerFromConnection(connectionID messaging.ConnectionID, containerID messaging.ContainerID) {
+	ids := idx.containersByConnection[connectionID]
+	filtered := ids[:0]
+	for _, candidate := range ids {
+		if candidate == containerID {
+			continue
+		}
+		filtered = append(filtered, candidate)
+	}
+	if len(filtered) == 0 {
+		delete(idx.containersByConnection, connectionID)
+		return
+	}
+	idx.containersByConnection[connectionID] = filtered
+}
+
+func (idx *recordIndex) removePlacementFromMessage(messageID messaging.MessageID, containerID messaging.ContainerID) {
+	ids := idx.placementsByMessage[messageID]
+	filtered := ids[:0]
+	for _, candidate := range ids {
+		if candidate == containerID {
+			continue
+		}
+		filtered = append(filtered, candidate)
+	}
+	if len(filtered) == 0 {
+		delete(idx.placementsByMessage, messageID)
+		return
+	}
+	idx.placementsByMessage[messageID] = filtered
+}
+
+func (idx *recordIndex) removePlacementFromContainer(containerID messaging.ContainerID, messageID messaging.MessageID) {
+	ids := idx.placementsByContainer[containerID]
+	filtered := ids[:0]
+	for _, candidate := range ids {
+		if candidate == messageID {
+			continue
+		}
+		filtered = append(filtered, candidate)
+	}
+	if len(filtered) == 0 {
+		delete(idx.placementsByContainer, containerID)
+		return
+	}
+	idx.placementsByContainer[containerID] = filtered
 }
 
 func (idx *recordIndex) removeMessageFromConversation(conversationID messaging.ConversationID, messageID messaging.MessageID) {

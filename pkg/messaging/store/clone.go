@@ -13,6 +13,8 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 		Connections:   make([]messaging.Connection, 0, len(snapshot.Connections)),
 		Identities:    make([]messaging.Identity, 0, len(snapshot.Identities)),
 		Conversations: make([]messaging.Conversation, 0, len(snapshot.Conversations)),
+		Containers:    make([]messaging.Container, 0, len(snapshot.Containers)),
+		Placements:    make([]messaging.Placement, 0, len(snapshot.Placements)),
 		Messages:      make([]messaging.Message, 0, len(snapshot.Messages)),
 		Drafts:        make([]messaging.Draft, 0, len(snapshot.Drafts)),
 		Approvals:     make([]messaging.Approval, 0, len(snapshot.Approvals)),
@@ -28,6 +30,12 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 	}
 	for _, conversation := range snapshot.Conversations {
 		cloned.Conversations = append(cloned.Conversations, cloneConversation(conversation))
+	}
+	for _, container := range snapshot.Containers {
+		cloned.Containers = append(cloned.Containers, cloneContainer(container))
+	}
+	for _, placement := range snapshot.Placements {
+		cloned.Placements = append(cloned.Placements, clonePlacement(placement))
 	}
 	for _, message := range snapshot.Messages {
 		cloned.Messages = append(cloned.Messages, cloneMessage(message))
@@ -109,6 +117,16 @@ func cloneConversation(conversation messaging.Conversation) messaging.Conversati
 	return conversation
 }
 
+func cloneContainer(container messaging.Container) messaging.Container {
+	container.Metadata = cloneStringMap(container.Metadata)
+	return container
+}
+
+func clonePlacement(placement messaging.Placement) messaging.Placement {
+	placement.Metadata = cloneStringMap(placement.Metadata)
+	return placement
+}
+
 func cloneMessagePart(part messaging.MessagePart) messaging.MessagePart {
 	part.Metadata = cloneStringMap(part.Metadata)
 	return part
@@ -149,6 +167,7 @@ func cloneApproval(approval messaging.Approval) messaging.Approval {
 
 func clonePolicy(policy messaging.Policy) messaging.Policy {
 	policy.Rules.AllowedIdentityIDs = slices.Clone(policy.Rules.AllowedIdentityIDs)
+	policy.Rules.AllowedContainerIDs = slices.Clone(policy.Rules.AllowedContainerIDs)
 	policy.Metadata = cloneStringMap(policy.Metadata)
 	return policy
 }

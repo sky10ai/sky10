@@ -120,6 +120,54 @@ func (s *Store) PutConversation(ctx context.Context, conversation messaging.Conv
 	return nil
 }
 
+// PutContainer persists one provider-side container.
+func (s *Store) PutContainer(ctx context.Context, container messaging.Container) error {
+	if err := container.Validate(); err != nil {
+		return err
+	}
+	if err := s.backend.PutContainer(ctx, container); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.ensureIndexLocked()
+	s.index.putContainer(container)
+	s.mu.Unlock()
+	return nil
+}
+
+// PutPlacement persists one mutable provider-side message placement.
+func (s *Store) PutPlacement(ctx context.Context, placement messaging.Placement) error {
+	if err := placement.Validate(); err != nil {
+		return err
+	}
+	if err := s.backend.PutPlacement(ctx, placement); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.ensureIndexLocked()
+	s.index.putPlacement(placement)
+	s.mu.Unlock()
+	return nil
+}
+
+// DeletePlacement removes one provider-side message placement.
+func (s *Store) DeletePlacement(ctx context.Context, messageID messaging.MessageID, containerID messaging.ContainerID) error {
+	if string(messageID) == "" {
+		return fmt.Errorf("message id is required")
+	}
+	if string(containerID) == "" {
+		return fmt.Errorf("container id is required")
+	}
+	if err := s.backend.DeletePlacement(ctx, messageID, containerID); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.ensureIndexLocked()
+	s.index.deletePlacement(messageID, containerID)
+	s.mu.Unlock()
+	return nil
+}
+
 // PutMessage persists one normalized message.
 func (s *Store) PutMessage(ctx context.Context, message messaging.Message) error {
 	if err := message.Validate(); err != nil {
@@ -325,6 +373,56 @@ func (s *Store) ListConnectionConversations(connectionID messaging.ConnectionID)
 		return nil
 	}
 	return s.index.listConnectionConversations(connectionID)
+}
+
+// GetContainer returns one persisted provider-side container.
+func (s *Store) GetContainer(containerID messaging.ContainerID) (messaging.Container, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.index == nil {
+		return messaging.Container{}, false
+	}
+	return s.index.getContainer(containerID)
+}
+
+// ListConnectionContainers returns containers scoped to one connection.
+func (s *Store) ListConnectionContainers(connectionID messaging.ConnectionID) []messaging.Container {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.index == nil {
+		return nil
+	}
+	return s.index.listConnectionContainers(connectionID)
+}
+
+// GetPlacement returns one provider-side message placement.
+func (s *Store) GetPlacement(messageID messaging.MessageID, containerID messaging.ContainerID) (messaging.Placement, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.index == nil {
+		return messaging.Placement{}, false
+	}
+	return s.index.getPlacement(messageID, containerID)
+}
+
+// ListMessagePlacements returns all provider-side placements for one message.
+func (s *Store) ListMessagePlacements(messageID messaging.MessageID) []messaging.Placement {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.index == nil {
+		return nil
+	}
+	return s.index.listMessagePlacements(messageID)
+}
+
+// ListContainerPlacements returns message placements in one container.
+func (s *Store) ListContainerPlacements(containerID messaging.ContainerID) []messaging.Placement {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.index == nil {
+		return nil
+	}
+	return s.index.listContainerPlacements(containerID)
 }
 
 // GetMessage returns one persisted message.

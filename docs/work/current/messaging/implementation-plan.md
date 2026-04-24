@@ -1,6 +1,6 @@
 ---
 created: 2026-04-18
-updated: 2026-04-22
+updated: 2026-04-24
 model: gpt-5.4
 ---
 
@@ -38,7 +38,7 @@ This plan does not yet cover:
 | 3. Broker Core And Event Flows | in progress | Normalize inbound/outbound flow through broker |
 | 4. Policy And Approval Engine | in progress | Broker-enforced permissions and durable approvals |
 | 5. Agent Shim Protocol | not started | One thin runtime-facing messaging surface |
-| 6. First-Party Adapters | not started | Initial platform coverage |
+| 6. First-Party Adapters | in progress | Initial platform coverage |
 | 7. UI And Operator Surfaces | not started | Connections, conversations, drafts, approvals |
 | 8. Reliability, Security, And Packaging | not started | Cross-platform runtime, recovery, and release story |
 
@@ -78,8 +78,8 @@ committing to any one platform adapter.
 
 - [x] Create `pkg/messaging` with the first normalized types:
   `Connection`, `AuthInfo`, `Identity`, `Conversation`, `Participant`,
-  `Message`, `Draft`, `Approval`, `Policy`, `Exposure`, `Workflow`,
-  `ActivityEvent`, `Event`, `Capability`.
+  `Container`, `Placement`, `Message`, `Draft`, `Approval`, `Policy`,
+  `Exposure`, `Workflow`, `ActivityEvent`, `Event`, `Capability`.
 - [x] Define stable ID types for connections, identities, conversations,
   messages, drafts, policies, and exposures.
 - [ ] Decide which records are durable truth versus derived cache.
@@ -89,6 +89,7 @@ committing to any one platform adapter.
   secret material.
 - [x] Persist identities discovered through adapters.
 - [x] Persist conversation metadata and message indexes.
+- [x] Persist provider-side containers and message placements.
 - [x] Persist drafts and their lifecycle state.
 - [x] Persist durable approval request records and status transitions.
 - [x] Persist human-facing `Workflow` records for logical action chains.
@@ -118,7 +119,9 @@ Define and host external platform adapters as supervised local processes.
 - [x] Create `pkg/messaging/protocol` for the southbound adapter contract.
 - [x] Define `Describe`, `ValidateConfig`, `Connect`, `Refresh`,
   `ListIdentities`, `ListConversations`, `ListMessages`, `GetMessage`,
-  `CreateDraft`, `UpdateDraft`, `DeleteDraft`, `SendMessage`, `ReplyMessage`,
+  `ListContainers`, `CreateDraft`, `UpdateDraft`, `DeleteDraft`,
+  `SendMessage`, `ReplyMessage`, `MoveMessages`, `MoveConversation`,
+  `ArchiveMessages`, `ArchiveConversation`, `ApplyLabels`, `MarkRead`,
   `HandleWebhook`, `Poll`, and `Health`.
 - [x] Define a capability declaration shape that adapters return from
   `Describe`.
@@ -159,6 +162,8 @@ outbound orchestration, and event fanout.
 - [x] Add message upsert logic for inbound records.
 - [x] Add message upsert logic for outbound records.
 - [x] Add draft lifecycle management.
+- [x] Add normalized message management surfaces for list containers, move,
+  archive, label mutation, and read-state changes.
 - [ ] Add normalized lookup/search surfaces split between adapter-backed live
   search and broker/index-backed content search.
 - [x] Add normalized inbound event ingestion from polling sources.
@@ -171,7 +176,7 @@ outbound orchestration, and event fanout.
 - [x] Restore persisted built-in messaging connections on daemon startup and
   reattach them to supervised adapter processes.
 - [x] Expose a minimal daemon RPC surface for built-in connection registration,
-  connect, list, and manual poll flows.
+  connect, list, manual poll, container listing, and message management flows.
 - [x] Add a background poll loop for connected polling-based adapters.
 - [ ] Add event fanout to UI and northbound shims.
 - [x] Aggregate raw activity into human-facing workflow state for draft,
@@ -199,7 +204,8 @@ meaningful messaging power.
 - [x] Create `pkg/messaging/policy`.
 - [x] Define broker-enforced policy rules for:
   read inbound, draft replies, send replies, start new conversations,
-  attachment handling, allowed identities, and search permissions.
+  attachment handling, allowed identities, message management, allowed
+  containers, and search permissions.
 - [ ] Add allowed connection scopes and allowed time windows.
 - [x] Support connection-level default policy.
 - [x] Support exposure-level narrowed policy for a specific agent/runtime.
@@ -230,7 +236,8 @@ messaging once instead of learning each platform separately.
 - [ ] Create a northbound shim protocol with operations such as
   `ListConnections`, `ListIdentities`, `ListConversations`,
   `GetConversation`, `GetMessages`, `CreateDraft`, `UpdateDraft`,
-  `RequestSend`, `SendDraft`, `MarkRead`, `SubscribeEvents`.
+  `RequestSend`, `SendDraft`, `ListContainers`, `MoveMessages`,
+  `ArchiveConversation`, `ApplyLabels`, `MarkRead`, `SubscribeEvents`.
 - [ ] Decide whether the default northbound path is MCP, local JSON-RPC, or
   both.
 - [ ] Create a shim host or broker-facing surface for runtime-specific shims.
@@ -278,6 +285,8 @@ different messaging shapes.
 - [ ] Implement honest platform-specific lookup/search support declarations.
 - [ ] Ensure `imap-smtp` is treated as mailbox/message search, not rich
   contact/channel discovery.
+- [x] Implement IMAP/SMTP container listing and placement reporting for cached
+  messages.
 - [ ] Implement inbound normalization for each adapter.
 - [ ] Implement draft/send or reply flow for each adapter.
 - [ ] Implement auth refresh and expired-credential handling.

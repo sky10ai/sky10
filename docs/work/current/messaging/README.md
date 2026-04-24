@@ -207,6 +207,8 @@ The first normalized model should include:
 - `Identity`
 - `Conversation`
 - `Participant`
+- `Container`
+- `Placement`
 - `Message`
 - `Draft`
 - `Policy`
@@ -221,7 +223,9 @@ Recommended relationship shape:
 - one `Adapter` supports many `Connection`s
 - one `Connection` may expose many `Identity` records
 - one `Connection` owns many `Conversation`s
+- one `Connection` owns many provider-side `Container` records
 - one `Conversation` contains many `Message`s
+- one `Message` may have many `Placement` records because labels can overlap
 - one `Message` may lead to one or more `Draft`s or approvals
 - one `Connection` has a default `Policy`
 - one `Exposure` narrows a `Policy` for one agent/runtime
@@ -296,11 +300,18 @@ Initial capability set:
 - `delete_drafts`
 - `list_conversations`
 - `list_messages`
+- `list_containers`
 - `threading`
 - `attachments`
 - `webhooks`
 - `polling`
 - `mark_read`
+- `mark_unread`
+- `move_messages`
+- `move_conversations`
+- `archive_messages`
+- `archive_conversations`
+- `apply_labels`
 - `typing_indicators`
 - `delivery_status`
 - `reactions`
@@ -394,6 +405,37 @@ Important search policy dimensions:
 - can search only conversations already visible through the current exposure
 - can use remote platform search versus broker/index search
 
+## Containers, Placement, And Message Management
+
+The generic model for archive, move, folder, and label operations should use
+two nouns:
+
+- `Container`
+  A provider-side grouping target such as an IMAP mailbox, Gmail label, Slack
+  channel, archive, trash, spam, sent, or drafts bucket.
+- `Placement`
+  A mutable provider locator saying that a normalized message currently exists
+  in a container, with provider-specific locator metadata such as an IMAP UID.
+
+This avoids treating every provider like IMAP. Plain IMAP usually has one
+mailbox placement per message; Gmail-style labels can produce multiple
+placements for one message.
+
+The first generic management operations are:
+
+- `ListContainers`
+- `MoveMessages`
+- `MoveConversation`
+- `ArchiveMessages`
+- `ArchiveConversation`
+- `ApplyLabels`
+- `MarkRead`
+
+Adapters should declare these capabilities honestly. For example, `imap-smtp`
+can list configured mailboxes and expose placements today, but should not claim
+label or move support until those operations are actually implemented against
+the IMAP server.
+
 ## Southbound Adapter Protocol
 
 Platform adapters should be external executables speaking a stable protocol to
@@ -416,11 +458,18 @@ Initial method set:
 - `ListConversations`
 - `ListMessages`
 - `GetMessage`
+- `ListContainers`
 - `CreateDraft`
 - `UpdateDraft`
 - `DeleteDraft`
 - `SendMessage`
 - `ReplyMessage`
+- `MoveMessages`
+- `MoveConversation`
+- `ArchiveMessages`
+- `ArchiveConversation`
+- `ApplyLabels`
+- `MarkRead`
 - `HandleWebhook`
 - `Poll`
 - `Health`
@@ -459,10 +508,14 @@ Initial method set:
 - `ListConversations`
 - `GetConversation`
 - `GetMessages`
+- `ListContainers`
 - `CreateDraft`
 - `UpdateDraft`
 - `RequestSend`
 - `SendDraft`
+- `MoveMessages`
+- `ArchiveConversation`
+- `ApplyLabels`
 - `MarkRead`
 - `SubscribeEvents`
 
@@ -494,6 +547,8 @@ Representative policy controls:
 - cannot start new conversations
 - attachments disallowed
 - only these identities may send
+- can manage message placement
+- only these containers may be targets for move/archive/label operations
 - only during business hours
 - only for these channels/folders/labels/conversation classes
 
@@ -571,6 +626,8 @@ The broker should persist:
 - auth metadata references
 - discovered identities
 - conversation index
+- provider-side containers
+- message placement indexes
 - message index
 - drafts
 - workflows
@@ -629,6 +686,13 @@ The current `sky10 serve` path now:
   - `messaging.connectBuiltin`
   - `messaging.connectConnection`
   - `messaging.pollConnection`
+  - `messaging.listContainers`
+  - `messaging.moveMessages`
+  - `messaging.moveConversation`
+  - `messaging.archiveMessages`
+  - `messaging.archiveConversation`
+  - `messaging.applyLabels`
+  - `messaging.markRead`
 
 This is not yet the full operator UX, but it means messaging now exists in the
 running daemon, not only in isolated package tests.

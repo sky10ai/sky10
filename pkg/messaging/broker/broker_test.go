@@ -726,6 +726,109 @@ func TestBrokerDraftApprovalAndSendFlow(t *testing.T) {
 	}
 }
 
+func TestBrokerMessageManagementPersistsContainersAndPlacements(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	rootDir := filepath.Join(t.TempDir(), "messaging-runtime")
+	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	b, err := New(ctx, Config{
+		Store:   store,
+		RootDir: rootDir,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = b.Close() }()
+
+	if err := store.PutPolicy(ctx, messaging.Policy{
+		ID:   "policy/manage-archive",
+		Name: "Manage Archive",
+		Rules: messaging.PolicyRules{
+			ReadInbound:         true,
+			ManageMessages:      true,
+			AllowedContainerIDs: []messaging.ContainerID{"container/archive"},
+		},
+	}); err != nil {
+		t.Fatalf("PutPolicy() error = %v", err)
+	}
+	if err := store.PutExposure(ctx, messaging.Exposure{
+		ID:           "exposure/hermes",
+		ConnectionID: "slack/work",
+		SubjectID:    "runtime:hermes",
+		SubjectKind:  messaging.ExposureSubjectKindRuntime,
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("PutExposure() error = %v", err)
+	}
+
+	connection := messaging.Connection{
+		ID:              "slack/work",
+		AdapterID:       "slack",
+		Label:           "Work Slack",
+		Status:          messaging.ConnectionStatusConnecting,
+		DefaultPolicyID: "policy/manage-archive",
+	}
+	if err := b.RegisterConnection(ctx, RegisterConnectionParams{
+		Connection: connection,
+		Process: messagingruntime.ProcessSpec{
+			Path: helperProcessExecutableForTests(),
+			Args: []string{"-test.run=TestBrokerHelperMessagingAdapterProcess", "--"},
+			Env:  []string{"GO_WANT_HELPER_MESSAGING_BROKER_ADAPTER=1"},
+		},
+	}); err != nil {
+		t.Fatalf("RegisterConnection() error = %v", err)
+	}
+	if _, err := b.ConnectConnection(ctx, connection.ID); err != nil {
+		t.Fatalf("ConnectConnection() error = %v", err)
+	}
+	if _, err := b.PollConnection(ctx, connection.ID, 10); err != nil {
+		t.Fatalf("PollConnection() error = %v", err)
+	}
+	if _, ok := store.GetPlacement("msg/latisha", "container/inbox"); !ok {
+		t.Fatal("GetPlacement(msg/latisha, inbox) = false, want hydrated inbound placement")
+	}
+
+	containers, err := b.ListContainers(ctx, protocol.ListContainersParams{ConnectionID: connection.ID})
+	if err != nil {
+		t.Fatalf("ListContainers() error = %v", err)
+	}
+	if len(containers.Containers) != 3 {
+		t.Fatalf("ListContainers() len = %d, want 3", len(containers.Containers))
+	}
+
+	result, err := b.MoveMessages(ctx, "exposure/hermes", protocol.MoveMessagesParams{
+		ConnectionID:           connection.ID,
+		MessageIDs:             []messaging.MessageID{"msg/latisha"},
+		DestinationContainerID: "container/archive",
+	})
+	if err != nil {
+		t.Fatalf("MoveMessages() error = %v", err)
+	}
+	if len(result.Changes) != 1 || result.Changes[0].Placement == nil {
+		t.Fatalf("MoveMessages() changes = %+v, want placement change", result.Changes)
+	}
+	placement, ok := store.GetPlacement("msg/latisha", "container/archive")
+	if !ok || placement.RemoteID != "999" {
+		t.Fatalf("GetPlacement(msg/latisha, archive) = %+v, %v; want remote 999", placement, ok)
+	}
+	if _, ok := store.GetPlacement("msg/latisha", "container/inbox"); ok {
+		t.Fatal("GetPlacement(msg/latisha, inbox) = true, want removed")
+	}
+
+	_, err = b.MoveMessages(ctx, "exposure/hermes", protocol.MoveMessagesParams{
+		ConnectionID:           connection.ID,
+		MessageIDs:             []messaging.MessageID{"msg/latisha"},
+		DestinationContainerID: "container/project",
+	})
+	if err == nil || !strings.Contains(err.Error(), "policy does not allow container") {
+		t.Fatalf("MoveMessages(disallowed) error = %v, want container policy denial", err)
+	}
+}
+
 func TestBrokerRuntimePathsForConnection(t *testing.T) {
 	t.Parallel()
 
@@ -818,9 +921,13 @@ func runBrokerHelperMessagingAdapter() error {
 							Polling:           true,
 							ListConversations: true,
 							ListMessages:      true,
+							ListContainers:    true,
 							CreateDrafts:      true,
 							UpdateDrafts:      true,
 							SendMessages:      true,
+							MoveMessages:      true,
+							ApplyLabels:       true,
+							MarkRead:          true,
 						},
 					},
 				}),
@@ -1003,7 +1110,74 @@ func runBrokerHelperMessagingAdapter() error {
 				Result: mustJSON(protocol.GetMessageResult{
 					Message: protocol.MessageRecord{
 						Message: message,
+						Placements: []messaging.Placement{{
+							MessageID:    message.ID,
+							ConnectionID: message.ConnectionID,
+							ContainerID:  "container/inbox",
+							RemoteID:     "101",
+						}},
 					},
+				}),
+			}); err != nil {
+				return err
+			}
+		case string(protocol.MethodListContainers):
+			if err := enc.Write(messagingruntime.Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result: mustJSON(protocol.ListContainersResult{
+					Containers: []messaging.Container{
+						{
+							ID:           "container/archive",
+							ConnectionID: "slack/work",
+							Kind:         messaging.ContainerKindArchive,
+							Name:         "Archive",
+							RemoteID:     "archive",
+						},
+						{
+							ID:           "container/inbox",
+							ConnectionID: "slack/work",
+							Kind:         messaging.ContainerKindInbox,
+							Name:         "Inbox",
+							RemoteID:     "inbox",
+						},
+						{
+							ID:           "container/project",
+							ConnectionID: "slack/work",
+							Kind:         messaging.ContainerKindLabel,
+							Name:         "Project Phoenix",
+							RemoteID:     "project",
+						},
+					},
+				}),
+			}); err != nil {
+				return err
+			}
+		case string(protocol.MethodMoveMessages):
+			var params protocol.MoveMessagesParams
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				return err
+			}
+			if err := enc.Write(messagingruntime.Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result: mustJSON(protocol.ManageMessagesResult{
+					Changes: []protocol.PlacementChange{{
+						MessageID: params.MessageIDs[0],
+						Removed:   []messaging.ContainerID{"container/inbox"},
+						Added:     []messaging.ContainerID{params.DestinationContainerID},
+						Placement: &messaging.Placement{
+							MessageID:    params.MessageIDs[0],
+							ConnectionID: params.ConnectionID,
+							ContainerID:  params.DestinationContainerID,
+							RemoteID:     "999",
+						},
+					}},
+					Events: []messaging.Event{{
+						Type:         messaging.EventTypeMessageMoved,
+						ConnectionID: params.ConnectionID,
+						MessageID:    params.MessageIDs[0],
+					}},
 				}),
 			}); err != nil {
 				return err

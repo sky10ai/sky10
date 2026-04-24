@@ -101,6 +101,16 @@ func (b *Broker) EvaluateMarkRead(connectionID messaging.ConnectionID, exposureI
 	return messagingpolicy.MarkRead(effective.Policy), nil
 }
 
+// EvaluateManageMessages evaluates whether provider-side message management is
+// allowed under the effective policy.
+func (b *Broker) EvaluateManageMessages(connectionID messaging.ConnectionID, exposureID messaging.ExposureID, input messagingpolicy.ManageInput) (messagingpolicy.Decision, error) {
+	effective, err := b.ResolvePolicy(connectionID, exposureID)
+	if err != nil {
+		return messagingpolicy.Decision{}, err
+	}
+	return messagingpolicy.ManageMessages(effective.Policy, input), nil
+}
+
 // EvaluateSearch evaluates one search operation under the effective policy.
 func (b *Broker) EvaluateSearch(connectionID messaging.ConnectionID, exposureID messaging.ExposureID, scope messagingpolicy.SearchScope) (messagingpolicy.Decision, error) {
 	effective, err := b.ResolvePolicy(connectionID, exposureID)

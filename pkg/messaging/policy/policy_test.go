@@ -95,3 +95,30 @@ func TestSearchScopes(t *testing.T) {
 		t.Fatalf("Search(conversations) outcome = %q, want deny", decision.Outcome)
 	}
 }
+
+func TestManageMessagesAllowedContainers(t *testing.T) {
+	t.Parallel()
+
+	p := messaging.Policy{
+		ID:   "policy/manage",
+		Name: "Manage",
+		Rules: messaging.PolicyRules{
+			ManageMessages:      true,
+			AllowedContainerIDs: []messaging.ContainerID{"container/archive", "container/project"},
+		},
+	}
+	if decision := ManageMessages(p, ManageInput{DestinationContainerID: "container/archive"}); decision.Outcome != OutcomeAllow {
+		t.Fatalf("ManageMessages(archive) outcome = %q, want allow", decision.Outcome)
+	}
+	if decision := ManageMessages(p, ManageInput{AddContainerIDs: []messaging.ContainerID{"container/project"}}); decision.Outcome != OutcomeAllow {
+		t.Fatalf("ManageMessages(label) outcome = %q, want allow", decision.Outcome)
+	}
+	if decision := ManageMessages(p, ManageInput{DestinationContainerID: "container/trash"}); decision.Outcome != OutcomeDeny {
+		t.Fatalf("ManageMessages(trash) outcome = %q, want deny", decision.Outcome)
+	}
+
+	p.Rules.ManageMessages = false
+	if decision := ManageMessages(p, ManageInput{DestinationContainerID: "container/archive"}); decision.Outcome != OutcomeDeny {
+		t.Fatalf("ManageMessages(disabled) outcome = %q, want deny", decision.Outcome)
+	}
+}

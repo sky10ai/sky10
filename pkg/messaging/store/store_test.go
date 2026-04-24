@@ -74,6 +74,37 @@ func TestStoreRoundTripAndListViews(t *testing.T) {
 		t.Fatalf("PutConversation() error = %v", err)
 	}
 
+	inbox := messaging.Container{
+		ID:           "container/inbox",
+		ConnectionID: connection.ID,
+		Kind:         messaging.ContainerKindInbox,
+		Name:         "INBOX",
+		RemoteID:     "INBOX",
+	}
+	if err := store.PutContainer(ctx, inbox); err != nil {
+		t.Fatalf("PutContainer(inbox) error = %v", err)
+	}
+	archive := messaging.Container{
+		ID:           "container/archive",
+		ConnectionID: connection.ID,
+		Kind:         messaging.ContainerKindArchive,
+		Name:         "Archive",
+		RemoteID:     "Archive",
+	}
+	if err := store.PutContainer(ctx, archive); err != nil {
+		t.Fatalf("PutContainer(archive) error = %v", err)
+	}
+	project := messaging.Container{
+		ID:           "container/project",
+		ConnectionID: connection.ID,
+		Kind:         messaging.ContainerKindLabel,
+		Name:         "Project Phoenix",
+		RemoteID:     "Project Phoenix",
+	}
+	if err := store.PutContainer(ctx, project); err != nil {
+		t.Fatalf("PutContainer(project) error = %v", err)
+	}
+
 	later := messaging.Message{
 		ID:              "msg/later",
 		ConnectionID:    connection.ID,
@@ -101,6 +132,40 @@ func TestStoreRoundTripAndListViews(t *testing.T) {
 	}
 	if err := store.PutMessage(ctx, earlier); err != nil {
 		t.Fatalf("PutMessage(earlier) error = %v", err)
+	}
+	if err := store.PutPlacement(ctx, messaging.Placement{
+		MessageID:    earlier.ID,
+		ConnectionID: connection.ID,
+		ContainerID:  inbox.ID,
+		RemoteID:     "101",
+	}); err != nil {
+		t.Fatalf("PutPlacement(earlier inbox) error = %v", err)
+	}
+	if err := store.PutPlacement(ctx, messaging.Placement{
+		MessageID:    later.ID,
+		ConnectionID: connection.ID,
+		ContainerID:  inbox.ID,
+		RemoteID:     "102",
+	}); err != nil {
+		t.Fatalf("PutPlacement(later inbox) error = %v", err)
+	}
+	if err := store.PutPlacement(ctx, messaging.Placement{
+		MessageID:    earlier.ID,
+		ConnectionID: connection.ID,
+		ContainerID:  project.ID,
+	}); err != nil {
+		t.Fatalf("PutPlacement(earlier project) error = %v", err)
+	}
+	if err := store.DeletePlacement(ctx, later.ID, inbox.ID); err != nil {
+		t.Fatalf("DeletePlacement(later inbox) error = %v", err)
+	}
+	if err := store.PutPlacement(ctx, messaging.Placement{
+		MessageID:    later.ID,
+		ConnectionID: connection.ID,
+		ContainerID:  archive.ID,
+		RemoteID:     "301",
+	}); err != nil {
+		t.Fatalf("PutPlacement(later archive) error = %v", err)
 	}
 
 	draft := messaging.Draft{
@@ -244,6 +309,23 @@ func TestStoreRoundTripAndListViews(t *testing.T) {
 	messages := reloaded.ListConversationMessages(conversation.ID)
 	if len(messages) != 2 || messages[0].ID != earlier.ID || messages[1].ID != later.ID {
 		t.Fatalf("ListConversationMessages() = %+v, want earlier then later", messages)
+	}
+
+	containers := reloaded.ListConnectionContainers(connection.ID)
+	if len(containers) != 3 || containers[0].ID != archive.ID || containers[1].ID != inbox.ID || containers[2].ID != project.ID {
+		t.Fatalf("ListConnectionContainers() = %+v, want archive then inbox then project", containers)
+	}
+	placement, ok := reloaded.GetPlacement(later.ID, archive.ID)
+	if !ok || placement.ContainerID != archive.ID || placement.RemoteID != "301" {
+		t.Fatalf("GetPlacement(later, archive) = %+v, %v; want archive/301", placement, ok)
+	}
+	earlierPlacements := reloaded.ListMessagePlacements(earlier.ID)
+	if len(earlierPlacements) != 2 || earlierPlacements[0].ContainerID != inbox.ID || earlierPlacements[1].ContainerID != project.ID {
+		t.Fatalf("ListMessagePlacements(earlier) = %+v, want inbox and project label", earlierPlacements)
+	}
+	inboxPlacements := reloaded.ListContainerPlacements(inbox.ID)
+	if len(inboxPlacements) != 1 || inboxPlacements[0].MessageID != earlier.ID {
+		t.Fatalf("ListContainerPlacements(inbox) = %+v, want only earlier after move", inboxPlacements)
 	}
 
 	drafts := reloaded.ListConversationDrafts(conversation.ID)

@@ -47,6 +47,14 @@ func (b *KVBackend) Load(_ context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
+	containers, err := b.listContainers()
+	if err != nil {
+		return Snapshot{}, err
+	}
+	placements, err := b.listPlacements()
+	if err != nil {
+		return Snapshot{}, err
+	}
 	messages, err := b.listMessages()
 	if err != nil {
 		return Snapshot{}, err
@@ -106,6 +114,8 @@ func (b *KVBackend) Load(_ context.Context) (Snapshot, error) {
 		Connections:    connections,
 		Identities:     identities,
 		Conversations:  conversations,
+		Containers:     containers,
+		Placements:     placements,
 		Messages:       messages,
 		Drafts:         drafts,
 		Approvals:      approvals,
@@ -162,6 +172,24 @@ func (b *KVBackend) ReplaceConnectionIdentities(ctx context.Context, connectionI
 // PutConversation persists one normalized conversation.
 func (b *KVBackend) PutConversation(ctx context.Context, conversation messaging.Conversation) error {
 	return b.putJSON(ctx, b.conversationKey(conversation.ID), cloneConversation(conversation))
+}
+
+// PutContainer persists one provider-side container.
+func (b *KVBackend) PutContainer(ctx context.Context, container messaging.Container) error {
+	return b.putJSON(ctx, b.containerKey(container.ID), cloneContainer(container))
+}
+
+// PutPlacement persists one mutable provider-side message placement.
+func (b *KVBackend) PutPlacement(ctx context.Context, placement messaging.Placement) error {
+	return b.putJSON(ctx, b.placementKey(placement.MessageID, placement.ContainerID), clonePlacement(placement))
+}
+
+// DeletePlacement removes one provider-side message placement.
+func (b *KVBackend) DeletePlacement(ctx context.Context, messageID messaging.MessageID, containerID messaging.ContainerID) error {
+	if b == nil || b.store == nil {
+		return fmt.Errorf("messaging backend store is required")
+	}
+	return b.store.Delete(ctx, b.placementKey(messageID, containerID))
 }
 
 // PutMessage persists one normalized message.
@@ -257,6 +285,32 @@ func (b *KVBackend) listConversations() ([]messaging.Conversation, error) {
 		}
 		if err := value.Validate(); err != nil {
 			return messaging.Conversation{}, err
+		}
+		return value, nil
+	})
+}
+
+func (b *KVBackend) listContainers() ([]messaging.Container, error) {
+	return listKVCollection(b.store, b.containersPrefix(), "container", func(raw []byte) (messaging.Container, error) {
+		var value messaging.Container
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return messaging.Container{}, err
+		}
+		if err := value.Validate(); err != nil {
+			return messaging.Container{}, err
+		}
+		return value, nil
+	})
+}
+
+func (b *KVBackend) listPlacements() ([]messaging.Placement, error) {
+	return listKVCollection(b.store, b.placementsPrefix(), "placement", func(raw []byte) (messaging.Placement, error) {
+		var value messaging.Placement
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return messaging.Placement{}, err
+		}
+		if err := value.Validate(); err != nil {
+			return messaging.Placement{}, err
 		}
 		return value, nil
 	})
@@ -443,6 +497,22 @@ func (b *KVBackend) conversationsPrefix() string {
 
 func (b *KVBackend) conversationKey(conversationID messaging.ConversationID) string {
 	return b.conversationsPrefix() + "/" + encodeKeyPart(string(conversationID))
+}
+
+func (b *KVBackend) containersPrefix() string {
+	return b.root + "/containers"
+}
+
+func (b *KVBackend) containerKey(containerID messaging.ContainerID) string {
+	return b.containersPrefix() + "/" + encodeKeyPart(string(containerID))
+}
+
+func (b *KVBackend) placementsPrefix() string {
+	return b.root + "/placements"
+}
+
+func (b *KVBackend) placementKey(messageID messaging.MessageID, containerID messaging.ContainerID) string {
+	return b.placementsPrefix() + "/" + encodeKeyPart(string(messageID)) + "/" + encodeKeyPart(string(containerID))
 }
 
 func (b *KVBackend) messagesPrefix() string {
