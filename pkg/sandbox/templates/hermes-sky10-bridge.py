@@ -856,13 +856,13 @@ class Bridge:
 
         self.agent_name = str(config.get("agent_name") or "").strip() or "hermes"
         self.agent_key_name = str(config.get("agent_key_name") or "").strip() or self.agent_name
-        self.host_rpc_url = str(config.get("host_rpc_url") or "").strip()
-        if not self.host_rpc_url:
-            raise BridgeError("Hermes bridge config is missing host_rpc_url")
+        self.sky10_rpc_url = str(config.get("sky10_rpc_url") or config.get("host_rpc_url") or "").strip()
+        if not self.sky10_rpc_url:
+            raise BridgeError("Hermes bridge config is missing sky10_rpc_url")
 
         raw_skills = config.get("skills") or []
         self.skills = [str(skill).strip() for skill in raw_skills if str(skill).strip()] or list(DEFAULT_AGENT_SKILLS)
-        self.sky10 = Sky10Client(self.host_rpc_url)
+        self.sky10 = Sky10Client(self.sky10_rpc_url)
         self.hermes = HermesClient()
         self.skip_warmup = env_truthy("HERMES_BRIDGE_SKIP_WARMUP")
         self.stop_event = threading.Event()

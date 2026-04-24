@@ -201,33 +201,13 @@ type IdentityInvite struct {
 type openClawJoinPayload struct {
 	HostIdentity string `json:"host_identity"`
 	Code         string `json:"code"`
-	HostRPCURL   string `json:"host_rpc_url,omitempty"`
-	SandboxSlug  string `json:"sandbox_slug,omitempty"`
 }
 
 type hermesBridgeConfig struct {
-	HostRPCURL   string   `json:"host_rpc_url"`
+	Sky10RPCURL  string   `json:"sky10_rpc_url"`
 	AgentName    string   `json:"agent_name"`
 	AgentKeyName string   `json:"agent_key_name,omitempty"`
 	Skills       []string `json:"skills,omitempty"`
-}
-
-type ReconnectGuestParams struct {
-	Slug       string   `json:"slug"`
-	IPAddress  string   `json:"ip_address,omitempty"`
-	PeerID     string   `json:"peer_id"`
-	Multiaddrs []string `json:"multiaddrs"`
-}
-
-type ReconnectGuestResult struct {
-	Connected bool   `json:"connected"`
-	Slug      string `json:"slug"`
-	IPAddress string `json:"ip_address,omitempty"`
-}
-
-type guestSkylinkStatus struct {
-	PeerID string   `json:"peer_id"`
-	Addrs  []string `json:"addrs"`
 }
 
 type guestIdentity struct {

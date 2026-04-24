@@ -71,26 +71,9 @@ func (m *Manager) ReconnectRunningOpenClawSandboxes(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) reconnectRunningSandbox(ctx context.Context, limactl, hostIdentity string, rec Record) error {
-	ipAddr, err := lookupLimaInstanceIPv4(ctx, m.outputCmd, limactl, rec.Slug)
-	if err != nil {
-		m.logger.Warn("sandbox reconnect skipped: guest IP lookup failed", "sandbox", rec.Slug, "error", err)
-		return nil
-	}
-	if strings.TrimSpace(ipAddr) == "" {
-		m.logger.Warn("sandbox reconnect skipped: guest IP unavailable", "sandbox", rec.Slug)
-		return nil
-	}
-	ipAddr = strings.TrimSpace(ipAddr)
-	if rec.IPAddress != ipAddr {
-		rec.IPAddress = ipAddr
-		if err := m.updateIPAddress(rec.Slug, rec.IPAddress); err != nil {
-			return err
-		}
-	}
-
+func (m *Manager) reconnectRunningSandbox(ctx context.Context, _ string, hostIdentity string, rec Record) error {
 	reconnectCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	err = m.waitForGuestIdentityMatch(reconnectCtx, rec, hostIdentity)
+	err := m.waitForGuestIdentityMatch(reconnectCtx, rec, hostIdentity)
 	if err == nil {
 		err = m.ensureHostConnectedGuestAgent(reconnectCtx, rec, hostIdentity)
 	}
@@ -178,36 +161,4 @@ func (m *Manager) waitForGuestIdentityMatch(ctx context.Context, rec Record, hos
 		case <-ticker.C:
 		}
 	}
-}
-
-func (m *Manager) ReconnectGuest(ctx context.Context, params ReconnectGuestParams) (*ReconnectGuestResult, error) {
-	rec, err := m.requireRecord(params.Slug)
-	if err != nil {
-		return nil, err
-	}
-
-	ipAddr := strings.TrimSpace(params.IPAddress)
-	if ipAddr != "" && ipAddr != rec.IPAddress {
-		if err := m.updateIPAddress(rec.Slug, ipAddr); err != nil {
-			return nil, err
-		}
-		rec, err = m.requireRecord(rec.Slug)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	guest := guestSkylinkStatus{
-		PeerID: strings.TrimSpace(params.PeerID),
-		Addrs:  append([]string(nil), params.Multiaddrs...),
-	}
-	if err := m.connectHostToGuestPeer(ctx, *rec, guest); err != nil {
-		return nil, err
-	}
-	m.appendLog(rec.Slug, "stdout", "guest sky10 requested host reconnect")
-	return &ReconnectGuestResult{
-		Connected: true,
-		Slug:      rec.Slug,
-		IPAddress: rec.IPAddress,
-	}, nil
 }

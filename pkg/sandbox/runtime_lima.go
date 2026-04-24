@@ -234,23 +234,13 @@ func (m *Manager) refreshRuntime(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) captureGuestDeviceIdentity(ctx context.Context, rec *Record, limactl string) *Record {
+func (m *Manager) captureGuestDeviceIdentity(ctx context.Context, rec *Record, _ string) *Record {
 	if rec == nil || m.guestRPC == nil || strings.TrimSpace(rec.GuestDevicePubKey) != "" {
 		return rec
 	}
 
 	copy := *rec
-	ipAddr := strings.TrimSpace(copy.IPAddress)
-	if ipAddr == "" {
-		value, err := lookupLimaInstanceIPv4(ctx, m.outputCmd, limactl, copy.Slug)
-		if err == nil && strings.TrimSpace(value) != "" {
-			ipAddr = strings.TrimSpace(value)
-			if err := m.updateIPAddress(copy.Slug, ipAddr); err == nil {
-				copy.IPAddress = ipAddr
-			}
-		}
-	}
-	if ipAddr == "" {
+	if strings.TrimSpace(guestSky10RPCAddress(copy)) == "" {
 		return &copy
 	}
 

@@ -17,7 +17,6 @@ BRIDGE_ASSET="${SANDBOX_STATE_DIR}/hermes-sky10-bridge.py"
 BRIDGE_CONFIG="${SANDBOX_STATE_DIR}/bridge.json"
 BRIDGE_ENV="${STATE_DIR}/bridge.env"
 SKY10_INVITE_PATH="${SANDBOX_STATE_DIR}/join.json"
-SKY10_RECONNECT_HELPER="${HOME}/.bin/sky10-managed-reconnect"
 UNIT_DIR="${HOME}/.config/systemd/user"
 SKY10_UNIT="${UNIT_DIR}/sky10.service"
 GATEWAY_UNIT="${UNIT_DIR}/sky10-hermes-gateway.service"
@@ -84,86 +83,8 @@ ensure_guest_sky10_binary() {
   fi
 }
 
-install_guest_reconnect_helper() {
-  cat > "${SKY10_RECONNECT_HELPER}" <<'EOF'
-#!/bin/bash
-set -u
-
-JOIN_PATH="/sandbox-state/join.json"
-LOCAL_RPC="http://127.0.0.1:9101/rpc"
-
-if [ ! -f "${JOIN_PATH}" ]; then
-  exit 0
-fi
-
-mapfile -t join_info < <(
-  python3 - "${JOIN_PATH}" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], "r", encoding="utf-8") as fh:
-    payload = json.load(fh)
-
-print((payload.get("host_rpc_url") or "").strip())
-print((payload.get("sandbox_slug") or "").strip())
-PY
-)
-host_rpc_url="${join_info[0]:-}"
-sandbox_slug="${join_info[1]:-}"
-
-if [ -z "${host_rpc_url}" ] || [ -z "${sandbox_slug}" ]; then
-  exit 0
-fi
-
-guest_ip="$(
-  ip -4 route get 1.1.1.1 2>/dev/null \
-    | awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}'
-)"
-if [ -z "${guest_ip}" ]; then
-  guest_ip="$(ip -4 -o addr show scope global | awk '{split($4, a, "/"); if (a[1] !~ /^127\./) {print a[1]; exit}}')"
-fi
-
-for _ in $(seq 1 20); do
-  payload="$(
-    curl -fsS "${LOCAL_RPC}" -H 'Content-Type: application/json' \
-      -d '{"jsonrpc":"2.0","method":"skylink.status","params":{},"id":1}' \
-      | python3 - "${sandbox_slug}" "${guest_ip}" <<'PY'
-import json
-import sys
-
-slug = sys.argv[1]
-guest_ip = sys.argv[2]
-resp = json.load(sys.stdin)
-result = resp.get("result") or {}
-peer_id = (result.get("peer_id") or "").strip()
-addrs = result.get("addrs") or []
-if not peer_id or not addrs:
-    raise SystemExit(1)
-
-print(json.dumps({
-    "jsonrpc": "2.0",
-    "method": "sandbox.reconnectGuest",
-    "params": {
-        "slug": slug,
-        "ip_address": guest_ip,
-        "peer_id": peer_id,
-        "multiaddrs": addrs,
-    },
-    "id": 1,
-}))
-PY
-  )" && curl -fsS "${host_rpc_url}" -H 'Content-Type: application/json' -d "${payload}" >/dev/null 2>&1 && exit 0
-  sleep 2
-done
-
-exit 0
-EOF
-  chmod 755 "${SKY10_RECONNECT_HELPER}"
-}
-
 ensure_guest_sky10() {
   ensure_guest_sky10_binary
-  install_guest_reconnect_helper
 
   if curl -fsS http://127.0.0.1:9101/health >/dev/null 2>&1; then
     emit_progress skip guest.sky10.start "Guest sky10 already running."
@@ -179,7 +100,6 @@ Wants=network-online.target
 
 [Service]
 ExecStart=/usr/bin/env sky10 serve
-ExecStartPost=%h/.bin/sky10-managed-reconnect
 Restart=always
 RestartSec=2
 WorkingDirectory=${HOME}

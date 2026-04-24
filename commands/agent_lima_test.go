@@ -385,7 +385,7 @@ func TestPrepareLimaSharedDirHermes(t *testing.T) {
 	}, map[string]string{
 		"ANTHROPIC_API_KEY": "anthropic-key",
 	}, &hermesBridgeConfig{
-		HostRPCURL:   "http://host.lima.internal:9101/rpc",
+		Sky10RPCURL:  "http://127.0.0.1:9101/rpc",
 		AgentName:    "Hermes Agent",
 		AgentKeyName: "hermes-agent",
 		Skills:       []string{"code", "shell"},
@@ -418,6 +418,12 @@ func TestPrepareLimaSharedDirHermes(t *testing.T) {
 	}
 	if !strings.Contains(string(configData), `"agent_name":"Hermes Agent"`) {
 		t.Fatalf("bridge config = %q, want agent name", string(configData))
+	}
+	if !strings.Contains(string(configData), `"sky10_rpc_url":"http://127.0.0.1:9101/rpc"`) {
+		t.Fatalf("bridge config = %q, want guest sky10 rpc url", string(configData))
+	}
+	if strings.Contains(string(configData), "host_rpc_url") {
+		t.Fatalf("bridge config should not include host_rpc_url: %q", string(configData))
 	}
 	bridgePath := filepath.Join(stateDir, agentLimaHermesBridge)
 	if info, err := os.Stat(bridgePath); err != nil {
@@ -558,6 +564,16 @@ func assertDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T, script 
 	if !strings.Contains(script, `SKY10_DOCKER_DEBUG`) {
 		t.Fatalf("docker runtime entrypoint missing opt-in debug xtrace guard: %q", script)
 	}
+	for _, forbidden := range []string{
+		"sandbox.reconnectGuest",
+		"host_rpc_url",
+		"SKY10_RECONNECT_HELPER",
+		"sky10-managed-reconnect",
+	} {
+		if strings.Contains(script, forbidden) {
+			t.Fatalf("docker runtime entrypoint contains removed guest callback marker %q: %q", forbidden, script)
+		}
+	}
 	for _, want := range []string{
 		`export SKY10_HOME="${HOME}/.sky10"`,
 		`export SKY10_RUNTIME_DIR="/run/sky10"`,
@@ -628,20 +644,20 @@ func TestOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), "cat > \"${UNIT_DIR}/sky10.service\" <<EOF") {
 		t.Fatalf("user script missing guest sky10 systemd unit: %q", string(body))
 	}
-	if !strings.Contains(string(body), "ExecStartPost=%h/.bin/sky10-managed-reconnect") {
-		t.Fatalf("user script missing guest sky10 reconnect hook: %q", string(body))
+	if strings.Contains(string(body), "ExecStartPost=%h/.bin/sky10-managed-reconnect") {
+		t.Fatalf("user script should not install guest-to-host reconnect hook: %q", string(body))
 	}
 	if !strings.Contains(string(body), "systemctl --user enable sky10.service") {
 		t.Fatalf("user script missing guest sky10 systemd enable: %q", string(body))
 	}
-	if !strings.Contains(string(body), "install_guest_reconnect_helper") {
-		t.Fatalf("user script missing guest reconnect helper install: %q", string(body))
+	if strings.Contains(string(body), "install_guest_reconnect_helper") {
+		t.Fatalf("user script should not install guest reconnect helper: %q", string(body))
 	}
-	if !strings.Contains(string(body), `"method": "sandbox.reconnectGuest"`) {
-		t.Fatalf("user script missing sandbox reconnect guest callback: %q", string(body))
+	if strings.Contains(string(body), `"method": "sandbox.reconnectGuest"`) {
+		t.Fatalf("user script should not call sandbox.reconnectGuest: %q", string(body))
 	}
-	if !strings.Contains(string(body), `payload.get("host_rpc_url")`) {
-		t.Fatalf("user script missing host rpc url parsing: %q", string(body))
+	if strings.Contains(string(body), `payload.get("host_rpc_url")`) {
+		t.Fatalf("user script should not parse host_rpc_url: %q", string(body))
 	}
 	if strings.Contains(string(body), "nohup sky10 serve") {
 		t.Fatalf("user script should not rely on nohup sky10 serve fallback: %q", string(body))
@@ -883,8 +899,8 @@ func TestHermesUserScriptInstallsHelper(t *testing.T) {
 	if !strings.Contains(script, "sky10-hermes-bridge.service") {
 		t.Fatalf("user script missing bridge service unit: %q", script)
 	}
-	if !strings.Contains(script, "sky10-managed-reconnect") {
-		t.Fatalf("user script missing guest reconnect helper: %q", script)
+	if strings.Contains(script, "sky10-managed-reconnect") {
+		t.Fatalf("user script should not install guest reconnect helper: %q", script)
 	}
 	if !strings.Contains(script, `mkdir -p "${HOME}/.bin"`) {
 		t.Fatalf("user script missing ~/.bin bootstrap dir creation: %q", script)

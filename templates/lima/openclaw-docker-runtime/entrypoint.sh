@@ -16,7 +16,6 @@ OPENCLAW_DIR="${HOME}/.openclaw"
 WORKSPACE_DIR="/shared/workspace"
 SANDBOX_STATE_DIR="/sandbox-state"
 PLUGIN_DIR="${SANDBOX_STATE_DIR}/plugins/openclaw-sky10-channel"
-SKY10_RECONNECT_HELPER="/usr/local/bin/sky10-managed-reconnect"
 
 export PLUGIN_DIR
 
@@ -72,92 +71,6 @@ PY
   if [ -n "${pending_id}" ]; then
     openclaw devices approve "${pending_id}" >/dev/null 2>&1 || true
   fi
-}
-
-install_guest_reconnect_helper() {
-  cat > "${SKY10_RECONNECT_HELPER}" <<'EOF'
-#!/bin/bash
-set -u
-
-JOIN_PATH="/sandbox-state/join.json"
-LOCAL_RPC="http://127.0.0.1:9101/rpc"
-
-if [ ! -f "${JOIN_PATH}" ]; then
-  exit 0
-fi
-
-mapfile -t join_info < <(
-  python3 - "${JOIN_PATH}" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], "r", encoding="utf-8") as fh:
-    payload = json.load(fh)
-
-print((payload.get("host_rpc_url") or "").strip())
-print((payload.get("sandbox_slug") or "").strip())
-PY
-)
-host_rpc_url="${join_info[0]:-}"
-sandbox_slug="${join_info[1]:-}"
-
-if [ -z "${host_rpc_url}" ] || [ -z "${sandbox_slug}" ]; then
-  exit 0
-fi
-
-guest_ip="${SKY10_GUEST_IP:-}"
-if [ -z "${guest_ip}" ] && command -v ip >/dev/null 2>&1; then
-  guest_ip="$(
-    ip -4 route get 1.1.1.1 2>/dev/null \
-      | awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}'
-  )"
-  if [ -z "${guest_ip}" ]; then
-    guest_ip="$(ip -4 -o addr show scope global | awk '{split($4, a, "/"); if (a[1] !~ /^127\./) {print a[1]; exit}}')"
-  fi
-fi
-
-for _ in $(seq 1 20); do
-  payload="$(
-    curl -fsS "${LOCAL_RPC}" -H 'Content-Type: application/json' \
-      -d '{"jsonrpc":"2.0","method":"skylink.status","params":{},"id":1}' \
-      | python3 - "${sandbox_slug}" "${guest_ip}" <<'PY'
-import json
-import sys
-
-slug = sys.argv[1]
-guest_ip = (sys.argv[2] or "").strip()
-try:
-    resp = json.load(sys.stdin)
-except Exception:
-    raise SystemExit(1)
-result = resp.get("result") or {}
-peer_id = (result.get("peer_id") or "").strip()
-addrs = result.get("addrs") or []
-if not peer_id or not addrs:
-    raise SystemExit(1)
-
-params = {
-    "slug": slug,
-    "peer_id": peer_id,
-    "multiaddrs": addrs,
-}
-if guest_ip:
-    params["ip_address"] = guest_ip
-
-print(json.dumps({
-    "jsonrpc": "2.0",
-    "method": "sandbox.reconnectGuest",
-    "params": params,
-    "id": 1,
-}))
-PY
-  )" && curl -fsS "${host_rpc_url}" -H 'Content-Type: application/json' -d "${payload}" >/dev/null 2>&1 && exit 0
-  sleep 2
-done
-
-exit 0
-EOF
-  chmod 755 "${SKY10_RECONNECT_HELPER}"
 }
 
 cleanup() {
@@ -253,12 +166,9 @@ PY
 
 trap cleanup EXIT INT TERM
 
-install_guest_reconnect_helper
-
 sky10 serve >/tmp/sky10.log 2>&1 &
 sky10_pid=$!
 wait_for_sky10
-"${SKY10_RECONNECT_HELPER}" || true
 
 Xvfb :99 -screen 0 1920x1080x24 -ac >/tmp/xvfb.log 2>&1 &
 xvfb_pid=$!

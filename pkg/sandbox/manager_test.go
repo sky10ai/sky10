@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -188,6 +187,23 @@ func TestManagerCreateAllocatesForwardedEndpoint(t *testing.T) {
 			persisted.ForwardedHost, persisted.ForwardedPort, defaultForwardedGuestHost, defaultForwardedGuestPortStart)
 	}
 	assertRecordForwardedEndpoints(t, persisted, rec.ForwardedEndpoints)
+}
+
+func TestRPCHandlerRejectsReconnectGuest(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	_, err, handled := NewRPCHandler(m).Dispatch(context.Background(), "sandbox.reconnectGuest", []byte(`{}`))
+	if !handled {
+		t.Fatal("sandbox.reconnectGuest handled = false, want true")
+	}
+	if err == nil || !strings.Contains(err.Error(), "unknown method") {
+		t.Fatalf("sandbox.reconnectGuest error = %v, want unknown method", err)
+	}
 }
 
 func TestAssignForwardedEndpointSkipsAssignedAndUnavailablePorts(t *testing.T) {
@@ -720,23 +736,23 @@ func TestBundledOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), "cat > \"${UNIT_DIR}/sky10.service\" <<EOF") {
 		t.Fatalf("bundled user script missing guest sky10 systemd unit: %q", string(body))
 	}
-	if !strings.Contains(string(body), "ExecStartPost=%h/.bin/sky10-managed-reconnect") {
-		t.Fatalf("bundled user script missing guest sky10 reconnect hook: %q", string(body))
+	if strings.Contains(string(body), "ExecStartPost=%h/.bin/sky10-managed-reconnect") {
+		t.Fatalf("bundled user script should not install guest-to-host reconnect hook: %q", string(body))
 	}
 	if !strings.Contains(string(body), "systemctl --user enable sky10.service") {
 		t.Fatalf("bundled user script missing guest sky10 systemd enable: %q", string(body))
 	}
-	if !strings.Contains(string(body), "install_guest_reconnect_helper") {
-		t.Fatalf("bundled user script missing guest reconnect helper install: %q", string(body))
+	if strings.Contains(string(body), "install_guest_reconnect_helper") {
+		t.Fatalf("bundled user script should not install guest reconnect helper: %q", string(body))
 	}
 	if !strings.Contains(string(body), `emit_progress begin guest.openclaw.configure`) {
 		t.Fatalf("bundled user script missing OpenClaw progress markers: %q", string(body))
 	}
-	if !strings.Contains(string(body), `"method": "sandbox.reconnectGuest"`) {
-		t.Fatalf("bundled user script missing sandbox reconnect guest callback: %q", string(body))
+	if strings.Contains(string(body), `"method": "sandbox.reconnectGuest"`) {
+		t.Fatalf("bundled user script should not call sandbox.reconnectGuest: %q", string(body))
 	}
-	if !strings.Contains(string(body), `payload.get("host_rpc_url")`) {
-		t.Fatalf("bundled user script missing host rpc url parsing: %q", string(body))
+	if strings.Contains(string(body), `payload.get("host_rpc_url")`) {
+		t.Fatalf("bundled user script should not parse host_rpc_url: %q", string(body))
 	}
 	if strings.Contains(string(body), "nohup sky10 serve") {
 		t.Fatalf("bundled user script should not rely on nohup sky10 serve fallback: %q", string(body))
@@ -1506,7 +1522,7 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 		DisplayName: "OpenClaw M8",
 		Slug:        "openclaw-m8",
 		Template:    templateOpenClaw,
-	}, "http://host.lima.internal:9101/rpc"); err != nil {
+	}); err != nil {
 		t.Fatalf("prepareOpenClawSharedDir() error: %v", err)
 	}
 
@@ -1572,11 +1588,11 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	if invite.Code != "invite-code" {
 		t.Fatalf("invite code = %q, want invite-code", invite.Code)
 	}
-	if invite.HostRPCURL != "http://host.lima.internal:9101/rpc" {
-		t.Fatalf("invite host rpc url = %q, want http://host.lima.internal:9101/rpc", invite.HostRPCURL)
+	if strings.Contains(string(inviteData), "host_rpc_url") {
+		t.Fatalf("join invite should not include host_rpc_url: %q", string(inviteData))
 	}
-	if invite.SandboxSlug != "openclaw-m8" {
-		t.Fatalf("invite sandbox slug = %q, want openclaw-m8", invite.SandboxSlug)
+	if strings.Contains(string(inviteData), "sandbox_slug") {
+		t.Fatalf("join invite should not include sandbox_slug: %q", string(inviteData))
 	}
 }
 
@@ -1595,7 +1611,7 @@ func TestPrepareOpenClawSharedDirDockerAssets(t *testing.T) {
 		DisplayName: "OpenClaw Docker",
 		Slug:        "openclaw-docker",
 		Template:    templateOpenClawDocker,
-	}, "http://host.lima.internal:9101/rpc"); err != nil {
+	}); err != nil {
 		t.Fatalf("prepareOpenClawSharedDir(openclaw-docker) error: %v", err)
 	}
 
@@ -1620,7 +1636,7 @@ func TestPrepareHermesSharedDir(t *testing.T) {
 	}, map[string][]byte{
 		templateHermesBridgeAsset: []byte("#!/usr/bin/env python3\nprint('ok')\n"),
 	}, &hermesBridgeConfig{
-		HostRPCURL:   guestSky10LocalRPCURL,
+		Sky10RPCURL:  guestSky10LocalRPCURL,
 		AgentName:    "Hermes Agent",
 		AgentKeyName: "hermes-agent",
 		Skills:       []string{"code", "shell"},
@@ -1631,7 +1647,7 @@ func TestPrepareHermesSharedDir(t *testing.T) {
 		DisplayName: "Hermes Agent",
 		Slug:        "hermes-agent",
 		Template:    templateHermes,
-	}, "http://host.lima.internal:9101/rpc"); err != nil {
+	}); err != nil {
 		t.Fatalf("prepareHermesSharedDir() error: %v", err)
 	}
 
@@ -1658,6 +1674,12 @@ func TestPrepareHermesSharedDir(t *testing.T) {
 	if !strings.Contains(string(configData), `"agent_name":"Hermes Agent"`) {
 		t.Fatalf("bridge config = %q, want agent name", string(configData))
 	}
+	if !strings.Contains(string(configData), `"sky10_rpc_url":"http://127.0.0.1:9101/rpc"`) {
+		t.Fatalf("bridge config = %q, want guest sky10 rpc url", string(configData))
+	}
+	if strings.Contains(string(configData), "host_rpc_url") {
+		t.Fatalf("bridge config should not include host_rpc_url: %q", string(configData))
+	}
 	inviteData, err := os.ReadFile(filepath.Join(stateDir, templateOpenClawInviteFile))
 	if err != nil {
 		t.Fatalf("ReadFile(invite payload) error: %v", err)
@@ -1665,8 +1687,11 @@ func TestPrepareHermesSharedDir(t *testing.T) {
 	if !strings.Contains(string(inviteData), `"host_identity":"sky10-host"`) {
 		t.Fatalf("invite payload = %q, want host identity", string(inviteData))
 	}
-	if !strings.Contains(string(inviteData), `"sandbox_slug":"hermes-agent"`) {
-		t.Fatalf("invite payload = %q, want sandbox slug", string(inviteData))
+	if strings.Contains(string(inviteData), "host_rpc_url") {
+		t.Fatalf("invite payload should not include host_rpc_url: %q", string(inviteData))
+	}
+	if strings.Contains(string(inviteData), "sandbox_slug") {
+		t.Fatalf("invite payload should not include sandbox_slug: %q", string(inviteData))
 	}
 	bridgePath := filepath.Join(stateDir, templateHermesBridgeAsset)
 	if info, err := os.Stat(bridgePath); err != nil {
@@ -1688,14 +1713,14 @@ func TestPrepareHermesSharedDirDockerAssets(t *testing.T) {
 		templateHermesDockerfile:       []byte("FROM ubuntu:24.04\n"),
 		templateHermesDockerEntrypoint: []byte("#!/bin/sh\n"),
 	}, &hermesBridgeConfig{
-		HostRPCURL:   guestSky10LocalRPCURL,
+		Sky10RPCURL:  guestSky10LocalRPCURL,
 		AgentName:    "Hermes Docker",
 		AgentKeyName: "hermes-docker",
 	}, nil, AgentProfileSeed{
 		DisplayName: "Hermes Docker",
 		Slug:        "hermes-docker",
 		Template:    templateHermesDocker,
-	}, "http://host.lima.internal:9101/rpc"); err != nil {
+	}); err != nil {
 		t.Fatalf("prepareHermesSharedDir(hermes-docker) error: %v", err)
 	}
 
@@ -1775,6 +1800,16 @@ func assertBundledDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T, 
 	if !strings.Contains(script, `SKY10_DOCKER_DEBUG`) {
 		t.Fatalf("bundled Docker runtime entrypoint missing opt-in debug xtrace guard: %q", script)
 	}
+	for _, forbidden := range []string{
+		"sandbox.reconnectGuest",
+		"host_rpc_url",
+		"SKY10_RECONNECT_HELPER",
+		"sky10-managed-reconnect",
+	} {
+		if strings.Contains(script, forbidden) {
+			t.Fatalf("bundled Docker runtime entrypoint contains removed guest callback marker %q: %q", forbidden, script)
+		}
+	}
 	for _, want := range []string{
 		`export SKY10_HOME="${HOME}/.sky10"`,
 		`export SKY10_RUNTIME_DIR="/run/sky10"`,
@@ -1844,8 +1879,8 @@ func TestBundledHermesUserScriptKeepsSharedEnv(t *testing.T) {
 	if !strings.Contains(script, "sky10-hermes-bridge.service") {
 		t.Fatalf("bundled Hermes user script missing bridge service unit: %q", script)
 	}
-	if !strings.Contains(script, "sky10-managed-reconnect") {
-		t.Fatalf("bundled Hermes user script missing guest reconnect helper: %q", script)
+	if strings.Contains(script, "sky10-managed-reconnect") {
+		t.Fatalf("bundled Hermes user script should not install guest reconnect helper: %q", script)
 	}
 	if !strings.Contains(script, `mkdir -p "${HOME}/.bin"`) {
 		t.Fatalf("bundled Hermes user script missing ~/.bin bootstrap dir creation: %q", script)
@@ -2322,49 +2357,6 @@ func TestWaitForGuestHermesAgent(t *testing.T) {
 	}
 }
 
-func writeTestHostSkylinkStatus(t *testing.T, out interface{}) error {
-	t.Helper()
-
-	body, err := json.Marshal(map[string]interface{}{
-		"peer_id": "12D3KooWhost",
-		"addrs": []string{
-			"/ip4/127.0.0.1/tcp/62629",
-			"/ip4/127.0.0.1/udp/61728/quic-v1",
-			"/ip4/192.168.7.229/tcp/62629",
-			"/ip4/192.168.7.229/udp/61728/quic-v1",
-		},
-	})
-	if err != nil {
-		t.Fatalf("marshal host skylink status: %v", err)
-	}
-	return json.Unmarshal(body, out)
-}
-
-func assertGuestConnectsToHostPeer(t *testing.T, params interface{}, guestIP string) {
-	t.Helper()
-
-	connectParams, ok := params.(map[string]interface{})
-	if !ok {
-		t.Fatalf("guest connect params type = %T, want map[string]interface{}", params)
-	}
-	if connectParams["peer_id"] != "12D3KooWhost" {
-		t.Fatalf("guest connect peer_id = %v, want 12D3KooWhost", connectParams["peer_id"])
-	}
-	multiaddrs, ok := connectParams["multiaddrs"].([]string)
-	if !ok {
-		t.Fatalf("guest connect multiaddrs type = %T, want []string", connectParams["multiaddrs"])
-	}
-	gateway := strings.TrimSuffix(guestIP, guestIP[strings.LastIndex(guestIP, ".")+1:]) + "2"
-	want := []string{
-		"/dns4/host.lima.internal/tcp/62629",
-		"/ip4/" + gateway + "/tcp/62629",
-		"/ip4/192.168.7.229/tcp/62629",
-	}
-	if !reflect.DeepEqual(multiaddrs, want) {
-		t.Fatalf("guest connect multiaddrs = %v, want %v", multiaddrs, want)
-	}
-}
-
 func TestFinishReadyHermesConnectsGuestSky10Agent(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
 
@@ -2375,14 +2367,16 @@ func TestFinishReadyHermesConnectsGuestSky10Agent(t *testing.T) {
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	m.records["hermes-dev"] = Record{
-		Name:      "Hermes Dev",
-		Slug:      "hermes-dev",
-		Provider:  providerLima,
-		Template:  templateHermes,
-		Status:    "starting",
-		SharedDir: filepath.Join(t.TempDir(), "shared"),
-		CreatedAt: now,
-		UpdatedAt: now,
+		Name:          "Hermes Dev",
+		Slug:          "hermes-dev",
+		Provider:      providerLima,
+		Template:      templateHermes,
+		Status:        "starting",
+		SharedDir:     filepath.Join(t.TempDir(), "shared"),
+		ForwardedHost: "127.0.0.1",
+		ForwardedPort: 39101,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 
 	var steps []string
@@ -2417,16 +2411,7 @@ func TestFinishReadyHermesConnectsGuestSky10Agent(t *testing.T) {
 	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
 		steps = append(steps, "host."+method)
 		switch method {
-		case "skylink.status":
-			return writeTestHostSkylinkStatus(t, out)
-		case "skylink.connectPeer":
-			connectParams, ok := params.(map[string]interface{})
-			if !ok {
-				t.Fatalf("host connect params type = %T, want map[string]interface{}", params)
-			}
-			if connectParams["peer_id"] != "12D3KooWhermes" {
-				t.Fatalf("host connect peer_id = %v, want 12D3KooWhermes", connectParams["peer_id"])
-			}
+		case "skylink.connect":
 			return nil
 		case "agent.list":
 			body, err := json.Marshal(map[string]interface{}{
@@ -2443,8 +2428,8 @@ func TestFinishReadyHermesConnectsGuestSky10Agent(t *testing.T) {
 	}
 	m.guestRPC = func(ctx context.Context, address, method string, params interface{}, out interface{}) error {
 		steps = append(steps, method)
-		if address != "192.168.64.24" {
-			t.Fatalf("guest RPC address = %q, want 192.168.64.24", address)
+		if address != "http://127.0.0.1:39101" {
+			t.Fatalf("guest RPC address = %q, want forwarded URL", address)
 		}
 		switch method {
 		case "identity.show":
@@ -2453,21 +2438,6 @@ func TestFinishReadyHermesConnectsGuestSky10Agent(t *testing.T) {
 				t.Fatalf("marshal guest identity show: %v", err)
 			}
 			return json.Unmarshal(body, out)
-		case "skylink.status":
-			body, err := json.Marshal(map[string]interface{}{
-				"peer_id": "12D3KooWhermes",
-				"addrs": []string{
-					"/ip4/127.0.0.1/tcp/4201",
-					"/ip4/192.168.64.24/tcp/4201",
-				},
-			})
-			if err != nil {
-				t.Fatalf("marshal guest skylink status: %v", err)
-			}
-			return json.Unmarshal(body, out)
-		case "skylink.connectPeer":
-			assertGuestConnectsToHostPeer(t, params, "192.168.64.24")
-			return nil
 		default:
 			t.Fatalf("unexpected guest RPC method %q", method)
 		}
@@ -2482,12 +2452,9 @@ func TestFinishReadyHermesConnectsGuestSky10Agent(t *testing.T) {
 		"guest-hermes-cli",
 		"guest-sky10-health",
 		"host-identity",
-		"lookup-ip",
 		"identity.show",
 		"guest-agent-list",
-		"skylink.status",
-		"host.skylink.status",
-		"skylink.connectPeer",
+		"host.skylink.connect",
 		"host.agent.list",
 		"lookup-ip",
 	}
@@ -2517,14 +2484,16 @@ func TestFinishReadyOpenClawJoinsGuestSky10Identity(t *testing.T) {
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	m.records["openclaw-m6"] = Record{
-		Name:      "openclaw-m6",
-		Slug:      "openclaw-m6",
-		Provider:  providerLima,
-		Template:  templateOpenClaw,
-		Status:    "starting",
-		SharedDir: filepath.Join(t.TempDir(), "shared"),
-		CreatedAt: now,
-		UpdatedAt: now,
+		Name:          "openclaw-m6",
+		Slug:          "openclaw-m6",
+		Provider:      providerLima,
+		Template:      templateOpenClaw,
+		Status:        "starting",
+		SharedDir:     filepath.Join(t.TempDir(), "shared"),
+		ForwardedHost: "127.0.0.1",
+		ForwardedPort: 39101,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 
 	var steps []string
@@ -2562,23 +2531,7 @@ func TestFinishReadyOpenClawJoinsGuestSky10Identity(t *testing.T) {
 	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
 		steps = append(steps, "host."+method)
 		switch method {
-		case "skylink.status":
-			return writeTestHostSkylinkStatus(t, out)
-		case "skylink.connectPeer":
-			connectParams, ok := params.(map[string]interface{})
-			if !ok {
-				t.Fatalf("host connect params type = %T, want map[string]interface{}", params)
-			}
-			if connectParams["peer_id"] != "12D3KooWguest" {
-				t.Fatalf("host connect peer_id = %v, want 12D3KooWguest", connectParams["peer_id"])
-			}
-			multiaddrs, ok := connectParams["multiaddrs"].([]string)
-			if !ok {
-				t.Fatalf("host connect multiaddrs type = %T, want []string", connectParams["multiaddrs"])
-			}
-			if len(multiaddrs) != 1 || multiaddrs[0] != "/ip4/192.168.64.14/tcp/4101" {
-				t.Fatalf("host connect multiaddrs = %v, want [/ip4/192.168.64.14/tcp/4101]", multiaddrs)
-			}
+		case "skylink.connect":
 			return nil
 		case "agent.list":
 			body, err := json.Marshal(map[string]interface{}{
@@ -2597,8 +2550,8 @@ func TestFinishReadyOpenClawJoinsGuestSky10Identity(t *testing.T) {
 	var joinParams map[string]string
 	m.guestRPC = func(ctx context.Context, address, method string, params interface{}, out interface{}) error {
 		steps = append(steps, method)
-		if address != "192.168.64.14" {
-			t.Fatalf("guest RPC address = %q, want 192.168.64.14", address)
+		if address != "http://127.0.0.1:39101" {
+			t.Fatalf("guest RPC address = %q, want forwarded URL", address)
 		}
 		switch method {
 		case "identity.show":
@@ -2626,22 +2579,6 @@ func TestFinishReadyOpenClawJoinsGuestSky10Identity(t *testing.T) {
 				t.Fatalf("marshal guest identity join result: %v", err)
 			}
 			return json.Unmarshal(body, out)
-		case "skylink.status":
-			body, err := json.Marshal(map[string]interface{}{
-				"peer_id": "12D3KooWguest",
-				"addrs": []string{
-					"/ip4/127.0.0.1/tcp/4101",
-					"/ip4/192.168.5.15/tcp/4101",
-					"/ip4/192.168.64.14/tcp/4101",
-				},
-			})
-			if err != nil {
-				t.Fatalf("marshal guest skylink status: %v", err)
-			}
-			return json.Unmarshal(body, out)
-		case "skylink.connectPeer":
-			assertGuestConnectsToHostPeer(t, params, "192.168.64.14")
-			return nil
 		default:
 			t.Fatalf("unexpected guest RPC method %q", method)
 			return nil
@@ -2666,15 +2603,12 @@ func TestFinishReadyOpenClawJoinsGuestSky10Identity(t *testing.T) {
 		"gateway-health",
 		"guest-health-1",
 		"host-identity",
-		"lookup-ip",
 		"identity.show",
 		"issue-invite",
 		"identity.join",
 		"guest-health-2",
 		"agent-list",
-		"skylink.status",
-		"host.skylink.status",
-		"skylink.connectPeer",
+		"host.skylink.connect",
 		"host.agent.list",
 		"lookup-ip",
 	}
@@ -2710,14 +2644,16 @@ func TestFinishReadyOpenClawSkipsJoinWhenGuestAlreadyJoined(t *testing.T) {
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	m.records["openclaw-m6"] = Record{
-		Name:      "openclaw-m6",
-		Slug:      "openclaw-m6",
-		Provider:  providerLima,
-		Template:  templateOpenClaw,
-		Status:    "starting",
-		SharedDir: filepath.Join(t.TempDir(), "shared"),
-		CreatedAt: now,
-		UpdatedAt: now,
+		Name:          "openclaw-m6",
+		Slug:          "openclaw-m6",
+		Provider:      providerLima,
+		Template:      templateOpenClaw,
+		Status:        "starting",
+		SharedDir:     filepath.Join(t.TempDir(), "shared"),
+		ForwardedHost: "127.0.0.1",
+		ForwardedPort: 39101,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 
 	m.outputCmd = func(ctx context.Context, bin string, args []string) ([]byte, error) {
@@ -2746,16 +2682,7 @@ func TestFinishReadyOpenClawSkipsJoinWhenGuestAlreadyJoined(t *testing.T) {
 	}
 	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
 		switch method {
-		case "skylink.status":
-			return writeTestHostSkylinkStatus(t, out)
-		case "skylink.connectPeer":
-			connectParams, ok := params.(map[string]interface{})
-			if !ok {
-				t.Fatalf("host connect params type = %T, want map[string]interface{}", params)
-			}
-			if connectParams["peer_id"] != "12D3KooWguest" {
-				t.Fatalf("host connect peer_id = %v, want 12D3KooWguest", connectParams["peer_id"])
-			}
+		case "skylink.connect":
 			return nil
 		case "agent.list":
 			body, err := json.Marshal(map[string]interface{}{
@@ -2783,22 +2710,6 @@ func TestFinishReadyOpenClawSkipsJoinWhenGuestAlreadyJoined(t *testing.T) {
 				t.Fatalf("marshal guest identity show: %v", err)
 			}
 			return json.Unmarshal(body, out)
-		case "skylink.status":
-			body, err := json.Marshal(map[string]interface{}{
-				"peer_id": "12D3KooWguest",
-				"addrs": []string{
-					"/ip4/127.0.0.1/tcp/4101",
-					"/ip4/192.168.5.15/tcp/4101",
-					"/ip4/192.168.64.14/tcp/4101",
-				},
-			})
-			if err != nil {
-				t.Fatalf("marshal guest skylink status: %v", err)
-			}
-			return json.Unmarshal(body, out)
-		case "skylink.connectPeer":
-			assertGuestConnectsToHostPeer(t, params, "192.168.64.14")
-			return nil
 		case "identity.join":
 			t.Fatal("identity.join should not be called when the guest already matches the host identity")
 			return nil
@@ -2882,9 +2793,6 @@ func TestReconnectRunningOpenClawSandboxes(t *testing.T) {
 					`{"name":"ubuntu-devbox","status":"Running"}` + "\n" +
 					`{"name":"openclaw-stopped","status":"Stopped"}` + "\n",
 			), nil
-		case len(args) >= 2 && args[0] == "shell":
-			steps = append(steps, "lookup-ip")
-			return []byte("192.168.64.17\n"), nil
 		default:
 			return nil, fmt.Errorf("unexpected outputCmd args: %v", args)
 		}
@@ -2896,23 +2804,7 @@ func TestReconnectRunningOpenClawSandboxes(t *testing.T) {
 	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
 		steps = append(steps, "host."+method)
 		switch method {
-		case "skylink.status":
-			return writeTestHostSkylinkStatus(t, out)
-		case "skylink.connectPeer":
-			connectParams, ok := params.(map[string]interface{})
-			if !ok {
-				t.Fatalf("host connect params type = %T, want map[string]interface{}", params)
-			}
-			if connectParams["peer_id"] != "12D3KooWguest" {
-				t.Fatalf("host connect peer_id = %v, want 12D3KooWguest", connectParams["peer_id"])
-			}
-			multiaddrs, ok := connectParams["multiaddrs"].([]string)
-			if !ok {
-				t.Fatalf("host connect multiaddrs type = %T, want []string", connectParams["multiaddrs"])
-			}
-			if len(multiaddrs) != 1 || multiaddrs[0] != "/ip4/192.168.64.17/tcp/4101" {
-				t.Fatalf("host connect multiaddrs = %v, want [/ip4/192.168.64.17/tcp/4101]", multiaddrs)
-			}
+		case "skylink.connect":
 			return nil
 		case "agent.list":
 			body, err := json.Marshal(map[string]interface{}{
@@ -2939,21 +2831,6 @@ func TestReconnectRunningOpenClawSandboxes(t *testing.T) {
 				t.Fatalf("marshal guest identity show: %v", err)
 			}
 			return json.Unmarshal(body, out)
-		case "skylink.status":
-			body, err := json.Marshal(map[string]interface{}{
-				"peer_id": "12D3KooWguest",
-				"addrs": []string{
-					"/ip4/127.0.0.1/tcp/4101",
-					"/ip4/192.168.5.15/tcp/4101",
-					"/ip4/192.168.64.17/tcp/4101"},
-			})
-			if err != nil {
-				t.Fatalf("marshal guest skylink status: %v", err)
-			}
-			return json.Unmarshal(body, out)
-		case "skylink.connectPeer":
-			assertGuestConnectsToHostPeer(t, params, "192.168.64.17")
-			return nil
 		default:
 			t.Fatalf("unexpected guest RPC method %q", method)
 			return nil
@@ -2966,11 +2843,8 @@ func TestReconnectRunningOpenClawSandboxes(t *testing.T) {
 
 	want := []string{
 		"host-identity",
-		"lookup-ip",
 		"identity.show",
-		"skylink.status",
-		"host.skylink.status",
-		"skylink.connectPeer",
+		"host.skylink.connect",
 		"host.agent.list",
 	}
 	if strings.Join(steps, "\n") != strings.Join(want, "\n") {
@@ -2981,8 +2855,8 @@ func TestReconnectRunningOpenClawSandboxes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get() error: %v", err)
 	}
-	if got.IPAddress != "192.168.64.17" {
-		t.Fatalf("ip address = %q, want 192.168.64.17", got.IPAddress)
+	if got.IPAddress != "192.168.64.99" {
+		t.Fatalf("ip address = %q, want unchanged 192.168.64.99", got.IPAddress)
 	}
 }
 
@@ -3055,16 +2929,18 @@ func TestReconnectRunningOpenClawSandboxesIncludesHermes(t *testing.T) {
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	m.records["hermes-dev"] = Record{
-		Name:      "Hermes Dev",
-		Slug:      "hermes-dev",
-		Provider:  providerLima,
-		Template:  templateHermes,
-		Status:    "error",
-		VMStatus:  "Running",
-		LastError: "waiting for guest Hermes agent registration: signal: killed",
-		SharedDir: filepath.Join(t.TempDir(), "hermes-dev"),
-		CreatedAt: now,
-		UpdatedAt: now,
+		Name:          "Hermes Dev",
+		Slug:          "hermes-dev",
+		Provider:      providerLima,
+		Template:      templateHermes,
+		Status:        "error",
+		VMStatus:      "Running",
+		LastError:     "waiting for guest Hermes agent registration: signal: killed",
+		ForwardedHost: "127.0.0.1",
+		ForwardedPort: 39103,
+		SharedDir:     filepath.Join(t.TempDir(), "hermes-dev"),
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 
 	var steps []string
@@ -3075,9 +2951,6 @@ func TestReconnectRunningOpenClawSandboxesIncludesHermes(t *testing.T) {
 		switch {
 		case len(args) >= 2 && args[0] == "list" && args[1] == "--json":
 			return []byte(`{"name":"hermes-dev","status":"Running"}` + "\n"), nil
-		case len(args) >= 2 && args[0] == "shell":
-			steps = append(steps, "lookup-ip")
-			return []byte("192.168.64.24\n"), nil
 		default:
 			return nil, fmt.Errorf("unexpected outputCmd args: %v", args)
 		}
@@ -3089,9 +2962,7 @@ func TestReconnectRunningOpenClawSandboxesIncludesHermes(t *testing.T) {
 	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
 		steps = append(steps, "host."+method)
 		switch method {
-		case "skylink.status":
-			return writeTestHostSkylinkStatus(t, out)
-		case "skylink.connectPeer":
+		case "skylink.connect":
 			return nil
 		case "agent.list":
 			body, err := json.Marshal(map[string]interface{}{
@@ -3108,8 +2979,8 @@ func TestReconnectRunningOpenClawSandboxesIncludesHermes(t *testing.T) {
 	}
 	m.guestRPC = func(ctx context.Context, address, method string, params interface{}, out interface{}) error {
 		steps = append(steps, method)
-		if address != "192.168.64.24" {
-			t.Fatalf("guest RPC address = %q, want 192.168.64.24", address)
+		if address != "http://127.0.0.1:39103" {
+			t.Fatalf("guest RPC address = %q, want forwarded URL", address)
 		}
 		switch method {
 		case "identity.show":
@@ -3118,21 +2989,6 @@ func TestReconnectRunningOpenClawSandboxesIncludesHermes(t *testing.T) {
 				t.Fatalf("marshal guest identity show: %v", err)
 			}
 			return json.Unmarshal(body, out)
-		case "skylink.status":
-			body, err := json.Marshal(map[string]interface{}{
-				"peer_id": "12D3KooWhermes",
-				"addrs": []string{
-					"/ip4/127.0.0.1/tcp/4201",
-					"/ip4/192.168.64.24/tcp/4201",
-				},
-			})
-			if err != nil {
-				t.Fatalf("marshal guest skylink status: %v", err)
-			}
-			return json.Unmarshal(body, out)
-		case "skylink.connectPeer":
-			assertGuestConnectsToHostPeer(t, params, "192.168.64.24")
-			return nil
 		default:
 			t.Fatalf("unexpected guest RPC method %q", method)
 			return nil
@@ -3145,11 +3001,8 @@ func TestReconnectRunningOpenClawSandboxesIncludesHermes(t *testing.T) {
 
 	want := []string{
 		"host-identity",
-		"lookup-ip",
 		"identity.show",
-		"skylink.status",
-		"host.skylink.status",
-		"skylink.connectPeer",
+		"host.skylink.connect",
 		"host.agent.list",
 	}
 	if strings.Join(steps, "\n") != strings.Join(want, "\n") {
@@ -3178,16 +3031,17 @@ func TestRunManagedReconnectLoopRetriesAfterLaterGuestRecovery(t *testing.T) {
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	m.records["openclaw-m8"] = Record{
-		Name:      "openclaw-m8",
-		Slug:      "openclaw-m8",
-		Provider:  providerLima,
-		Template:  templateOpenClaw,
-		Status:    "ready",
-		VMStatus:  "Running",
-		IPAddress: "192.168.64.17",
-		SharedDir: filepath.Join(t.TempDir(), "openclaw-m8"),
-		CreatedAt: now,
-		UpdatedAt: now,
+		Name:          "openclaw-m8",
+		Slug:          "openclaw-m8",
+		Provider:      providerLima,
+		Template:      templateOpenClaw,
+		Status:        "ready",
+		VMStatus:      "Running",
+		ForwardedHost: "127.0.0.1",
+		ForwardedPort: 39101,
+		SharedDir:     filepath.Join(t.TempDir(), "openclaw-m8"),
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 	m.reconnectSweepTimeout = 20 * time.Millisecond
 	m.reconnectInterval = 10 * time.Millisecond
@@ -3199,8 +3053,6 @@ func TestRunManagedReconnectLoopRetriesAfterLaterGuestRecovery(t *testing.T) {
 		switch {
 		case len(args) >= 2 && args[0] == "list" && args[1] == "--json":
 			return []byte(`{"name":"openclaw-m8","status":"Running"}` + "\n"), nil
-		case len(args) >= 2 && args[0] == "shell":
-			return []byte("192.168.64.17\n"), nil
 		default:
 			return nil, fmt.Errorf("unexpected outputCmd args: %v", args)
 		}
@@ -3218,9 +3070,8 @@ func TestRunManagedReconnectLoopRetriesAfterLaterGuestRecovery(t *testing.T) {
 	)
 	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
 		switch method {
-		case "skylink.status":
-			return writeTestHostSkylinkStatus(t, out)
-		case "skylink.connectPeer":
+		case "skylink.connect":
+			connectCalls++
 			return nil
 		case "agent.list":
 			agents := []map[string]string{}
@@ -3239,8 +3090,8 @@ func TestRunManagedReconnectLoopRetriesAfterLaterGuestRecovery(t *testing.T) {
 		}
 	}
 	m.guestRPC = func(ctx context.Context, address, method string, params interface{}, out interface{}) error {
-		if address != "192.168.64.17" {
-			t.Fatalf("guest RPC address = %q, want 192.168.64.17", address)
+		if address != "http://127.0.0.1:39101" {
+			t.Fatalf("guest RPC address = %q, want forwarded URL", address)
 		}
 		switch method {
 		case "identity.show":
@@ -3253,23 +3104,6 @@ func TestRunManagedReconnectLoopRetriesAfterLaterGuestRecovery(t *testing.T) {
 				t.Fatalf("marshal guest identity show: %v", err)
 			}
 			return json.Unmarshal(body, out)
-		case "skylink.status":
-			body, err := json.Marshal(map[string]interface{}{
-				"peer_id": "12D3KooWguest",
-				"addrs": []string{
-					"/ip4/127.0.0.1/tcp/4101",
-					"/ip4/192.168.5.15/tcp/4101",
-					"/ip4/192.168.64.17/tcp/4101",
-				},
-			})
-			if err != nil {
-				t.Fatalf("marshal guest skylink status: %v", err)
-			}
-			return json.Unmarshal(body, out)
-		case "skylink.connectPeer":
-			assertGuestConnectsToHostPeer(t, params, "192.168.64.17")
-			connectCalls++
-			return nil
 		default:
 			t.Fatalf("unexpected guest RPC method %q", method)
 			return nil
@@ -3291,8 +3125,8 @@ func TestRunManagedReconnectLoopRetriesAfterLaterGuestRecovery(t *testing.T) {
 	if identityCalls < 2 {
 		t.Fatalf("identity.show calls = %d, want at least 2", identityCalls)
 	}
-	if connectCalls != 1 {
-		t.Fatalf("connectPeer calls = %d, want 1", connectCalls)
+	if connectCalls == 0 {
+		t.Fatalf("skylink.connect calls = %d, want at least 1", connectCalls)
 	}
 }
 
@@ -3342,13 +3176,6 @@ func TestReconnectRunningOpenClawSandboxesDoesNotBlockBehindSlowGuest(t *testing
 				`{"name":"slow-openclaw","status":"Running"}` + "\n" +
 					`{"name":"fast-hermes","status":"Running"}` + "\n",
 			), nil
-		case len(args) >= 2 && args[0] == "shell":
-			switch args[1] {
-			case "slow-openclaw":
-				return []byte("192.168.104.4\n"), nil
-			case "fast-hermes":
-				return []byte("192.168.104.5\n"), nil
-			}
 		}
 		return nil, fmt.Errorf("unexpected outputCmd args: %v", args)
 	}
@@ -3360,8 +3187,9 @@ func TestReconnectRunningOpenClawSandboxesDoesNotBlockBehindSlowGuest(t *testing
 	var closeConnected sync.Once
 	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
 		switch method {
-		case "skylink.status":
-			return writeTestHostSkylinkStatus(t, out)
+		case "skylink.connect":
+			closeConnected.Do(func() { close(connected) })
+			return nil
 		case "agent.list":
 			agents := []map[string]string{}
 			select {
@@ -3395,22 +3223,6 @@ func TestReconnectRunningOpenClawSandboxesDoesNotBlockBehindSlowGuest(t *testing
 					t.Fatalf("marshal guest identity show: %v", err)
 				}
 				return json.Unmarshal(body, out)
-			case "skylink.status":
-				body, err := json.Marshal(map[string]interface{}{
-					"peer_id": "12D3KooWfast",
-					"addrs": []string{
-						"/ip4/127.0.0.1/tcp/4201",
-						"/ip4/192.168.104.5/tcp/4201",
-					},
-				})
-				if err != nil {
-					t.Fatalf("marshal guest skylink status: %v", err)
-				}
-				return json.Unmarshal(body, out)
-			case "skylink.connectPeer":
-				assertGuestConnectsToHostPeer(t, params, "192.168.104.5")
-				closeConnected.Do(func() { close(connected) })
-				return nil
 			default:
 				return fmt.Errorf("unexpected fast guest RPC method %q", method)
 			}
@@ -3438,112 +3250,6 @@ func TestReconnectRunningOpenClawSandboxesDoesNotBlockBehindSlowGuest(t *testing
 	}
 	if slow.Status != "error" {
 		t.Fatalf("slow status = %q, want error", slow.Status)
-	}
-}
-
-func TestReconnectGuestUsesSandboxIPAddress(t *testing.T) {
-	t.Setenv(config.EnvHome, t.TempDir())
-
-	m, err := NewManager(nil, nil)
-	if err != nil {
-		t.Fatalf("NewManager() error: %v", err)
-	}
-
-	now := time.Now().UTC().Format(time.RFC3339)
-	m.records["openclaw-m8"] = Record{
-		Name:      "openclaw-m8",
-		Slug:      "openclaw-m8",
-		Provider:  providerLima,
-		Template:  templateOpenClaw,
-		Status:    "ready",
-		VMStatus:  "Running",
-		SharedDir: filepath.Join(t.TempDir(), "openclaw-m8"),
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-
-	var gotPeerID string
-	var gotAddrs []string
-	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
-		if method != "skylink.connectPeer" {
-			t.Fatalf("unexpected host RPC method %q", method)
-		}
-		connectParams, ok := params.(map[string]interface{})
-		if !ok {
-			t.Fatalf("host connect params type = %T, want map[string]interface{}", params)
-		}
-		gotPeerID, _ = connectParams["peer_id"].(string)
-		gotAddrs, _ = connectParams["multiaddrs"].([]string)
-		return nil
-	}
-
-	result, err := m.ReconnectGuest(context.Background(), ReconnectGuestParams{
-		Slug:      "openclaw-m8",
-		IPAddress: "192.168.64.17",
-		PeerID:    "12D3KooWguest",
-		Multiaddrs: []string{
-			"/ip4/127.0.0.1/tcp/4101",
-			"/ip4/192.168.5.15/tcp/4101",
-			"/ip4/192.168.64.17/tcp/4101",
-		},
-	})
-	if err != nil {
-		t.Fatalf("ReconnectGuest() error: %v", err)
-	}
-	if !result.Connected {
-		t.Fatal("ReconnectGuest() connected = false, want true")
-	}
-	if gotPeerID != "12D3KooWguest" {
-		t.Fatalf("peer id = %q, want 12D3KooWguest", gotPeerID)
-	}
-	if len(gotAddrs) != 1 || gotAddrs[0] != "/ip4/192.168.64.17/tcp/4101" {
-		t.Fatalf("multiaddrs = %v, want [/ip4/192.168.64.17/tcp/4101]", gotAddrs)
-	}
-
-	got, err := m.Get(context.Background(), "openclaw-m8")
-	if err != nil {
-		t.Fatalf("Get() error: %v", err)
-	}
-	if got.IPAddress != "192.168.64.17" {
-		t.Fatalf("ip address = %q, want 192.168.64.17", got.IPAddress)
-	}
-}
-
-func TestFilterGuestMultiaddrsForIPAddress(t *testing.T) {
-	t.Parallel()
-
-	got := filterGuestMultiaddrsForIPAddress([]string{
-		"/ip4/127.0.0.1/tcp/4101",
-		"/ip4/192.168.5.15/tcp/4101",
-		"/ip4/192.168.64.17/tcp/4101",
-		"/ip4/192.168.64.17/udp/4401/quic-v1",
-	}, "192.168.64.17")
-	want := []string{
-		"/ip4/192.168.64.17/tcp/4101",
-		"/ip4/192.168.64.17/udp/4401/quic-v1",
-	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("filterGuestMultiaddrsForIPAddress() = %v, want %v", got, want)
-	}
-}
-
-func TestFilterHostMultiaddrsForGuest(t *testing.T) {
-	t.Parallel()
-
-	got := filterHostMultiaddrsForGuest([]string{
-		"/ip4/127.0.0.1/tcp/62629",
-		"/ip4/127.0.0.1/udp/61728/quic-v1",
-		"/ip4/192.168.7.229/tcp/62629",
-		"/ip4/192.168.7.229/udp/61728/quic-v1",
-		"/ip6/::1/tcp/62629",
-	}, "192.168.104.7")
-	want := []string{
-		"/dns4/host.lima.internal/tcp/62629",
-		"/ip4/192.168.104.2/tcp/62629",
-		"/ip4/192.168.7.229/tcp/62629",
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("filterHostMultiaddrsForGuest() = %v, want %v", got, want)
 	}
 }
 

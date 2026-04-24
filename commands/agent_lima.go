@@ -79,7 +79,7 @@ const (
 	openClawReadyTimeout              = 2 * time.Minute
 	guestSky10ReadyURL                = "http://127.0.0.1:9101/health"
 	openClawReadyURL                  = "http://127.0.0.1:18789/health"
-	defaultHermesHostRPCURL           = "http://127.0.0.1:9101/rpc"
+	defaultHermesSky10RPCURL          = "http://127.0.0.1:9101/rpc"
 )
 
 var agentLimaAssetFiles = []string{
@@ -134,7 +134,7 @@ type limaTemplateSpec struct {
 }
 
 type hermesBridgeConfig struct {
-	HostRPCURL   string   `json:"host_rpc_url"`
+	Sky10RPCURL  string   `json:"sky10_rpc_url"`
 	AgentName    string   `json:"agent_name"`
 	AgentKeyName string   `json:"agent_key_name,omitempty"`
 	Skills       []string `json:"skills,omitempty"`
@@ -1023,15 +1023,15 @@ func resolveHermesProviderEnvFromDaemon(ctx context.Context) (map[string]string,
 	return skysandbox.ResolveHermesProviderEnv(ctx, providerSecretLookupFromDaemon())
 }
 
-func buildHermesBridgeConfig(agentName, agentKeyName, hostRPCURL string) *hermesBridgeConfig {
+func buildHermesBridgeConfig(agentName, agentKeyName, sky10RPCURL string) *hermesBridgeConfig {
 	config := &hermesBridgeConfig{
-		HostRPCURL:   strings.TrimSpace(hostRPCURL),
+		Sky10RPCURL:  strings.TrimSpace(sky10RPCURL),
 		AgentName:    strings.TrimSpace(agentName),
 		AgentKeyName: strings.TrimSpace(agentKeyName),
 		Skills:       append([]string(nil), defaultHermesBridgeSkills...),
 	}
-	if config.HostRPCURL == "" {
-		config.HostRPCURL = defaultHermesHostRPCURL
+	if config.Sky10RPCURL == "" {
+		config.Sky10RPCURL = defaultHermesSky10RPCURL
 	}
 	if config.AgentName == "" {
 		config.AgentName = strings.TrimSpace(agentKeyName)

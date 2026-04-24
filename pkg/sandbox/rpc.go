@@ -55,13 +55,6 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		}
 		result, err := h.manager.Ensure(ctx, p)
 		return result, err, true
-	case "sandbox.reconnectGuest":
-		var p ReconnectGuestParams
-		if err := json.Unmarshal(params, &p); err != nil {
-			return nil, fmt.Errorf("parse sandbox.reconnectGuest params: %w", err), true
-		}
-		result, err := h.manager.ReconnectGuest(ctx, p)
-		return result, err, true
 	case "sandbox.start":
 		var p NamedParams
 		if err := json.Unmarshal(params, &p); err != nil {

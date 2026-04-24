@@ -47,33 +47,6 @@ func TestGuestSky10RPCURL(t *testing.T) {
 	}
 }
 
-func TestHTTPPortFromAddr(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		addr string
-		want string
-	}{
-		{name: "bare port", addr: ":9101", want: "9101"},
-		{name: "host port", addr: "127.0.0.1:9101", want: "9101"},
-		{name: "ipv6 host port", addr: "[::1]:9101", want: "9101"},
-		{name: "empty host from split host port", addr: ":9101", want: "9101"},
-		{name: "missing port", addr: "127.0.0.1", want: ""},
-		{name: "empty", addr: "", want: ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if got := httpPortFromAddr(tt.addr); got != tt.want {
-				t.Fatalf("httpPortFromAddr(%q) = %q, want %q", tt.addr, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestLookupLimaInstanceIPv4FallsBackToRouteSource(t *testing.T) {
 	t.Parallel()
 
@@ -123,7 +96,7 @@ func TestGuestSky10RPCAddressPrefersForwardedEndpoint(t *testing.T) {
 	}
 }
 
-func TestCaptureGuestDeviceIdentityLooksUpIPAndPersistsGuest(t *testing.T) {
+func TestCaptureGuestDeviceIdentityUsesForwardedEndpoint(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
 
 	m, err := NewManager(nil, nil)
@@ -133,25 +106,24 @@ func TestCaptureGuestDeviceIdentityLooksUpIPAndPersistsGuest(t *testing.T) {
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	rec := Record{
-		Name:      "openclaw-m8",
-		Slug:      "openclaw-m8",
-		Provider:  providerLima,
-		Template:  templateOpenClaw,
-		Status:    "ready",
-		VMStatus:  "Running",
-		CreatedAt: now,
-		UpdatedAt: now,
+		Name:          "openclaw-m8",
+		Slug:          "openclaw-m8",
+		Provider:      providerLima,
+		Template:      templateOpenClaw,
+		Status:        "ready",
+		VMStatus:      "Running",
+		ForwardedHost: "127.0.0.1",
+		ForwardedPort: 39101,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 	m.records[rec.Slug] = rec
 	m.outputCmd = func(ctx context.Context, bin string, args []string) ([]byte, error) {
-		if len(args) == 6 && strings.Contains(args[5], "route get 1.1.1.1") {
-			return []byte("192.168.64.44\n"), nil
-		}
 		return nil, fmt.Errorf("unexpected outputCmd args: %v", args)
 	}
 	m.guestRPC = func(ctx context.Context, address, method string, params interface{}, out interface{}) error {
-		if address != "192.168.64.44" {
-			t.Fatalf("guest RPC address = %q, want 192.168.64.44", address)
+		if address != "http://127.0.0.1:39101" {
+			t.Fatalf("guest RPC address = %q, want forwarded URL", address)
 		}
 		if method != "identity.show" {
 			t.Fatalf("guest RPC method = %q, want identity.show", method)
@@ -172,8 +144,8 @@ func TestCaptureGuestDeviceIdentityLooksUpIPAndPersistsGuest(t *testing.T) {
 	if got == nil {
 		t.Fatal("captureGuestDeviceIdentity() = nil, want record copy")
 	}
-	if got.IPAddress != "192.168.64.44" {
-		t.Fatalf("captured ip address = %q, want 192.168.64.44", got.IPAddress)
+	if got.IPAddress != "" {
+		t.Fatalf("captured ip address = %q, want empty", got.IPAddress)
 	}
 	if got.GuestDeviceID != "D-guest123" {
 		t.Fatalf("captured guest device id = %q, want D-guest123", got.GuestDeviceID)
@@ -186,8 +158,8 @@ func TestCaptureGuestDeviceIdentityLooksUpIPAndPersistsGuest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("requireRecord() error: %v", err)
 	}
-	if persisted.IPAddress != "192.168.64.44" {
-		t.Fatalf("persisted ip address = %q, want 192.168.64.44", persisted.IPAddress)
+	if persisted.IPAddress != "" {
+		t.Fatalf("persisted ip address = %q, want empty", persisted.IPAddress)
 	}
 	if persisted.GuestDevicePubKey != "abcdef1234567890" {
 		t.Fatalf("persisted guest device pubkey = %q, want abcdef1234567890", persisted.GuestDevicePubKey)

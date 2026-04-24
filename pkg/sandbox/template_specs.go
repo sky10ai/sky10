@@ -356,7 +356,7 @@ func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) erro
 
 func buildHermesBridgeConfig(rec Record) *hermesBridgeConfig {
 	config := &hermesBridgeConfig{
-		HostRPCURL:   guestSky10LocalRPCURL,
+		Sky10RPCURL:  guestSky10LocalRPCURL,
 		AgentName:    strings.TrimSpace(rec.Name),
 		AgentKeyName: strings.TrimSpace(rec.Slug),
 		Skills:       append([]string(nil), defaultHermesBridgeSkills...),
@@ -400,7 +400,6 @@ func prepareOpenClawTemplateSharedDir(assetNames []string) func(context.Context,
 			m.resolveSharedEnv(ctx, rec, m.resolveOpenClawSharedEnv),
 			m.resolveIdentityInvite(ctx, rec, "sandbox"),
 			agentProfileSeed(rec),
-			m.resolveGuestReachableHostRPCURL(ctx, rec, "sandbox"),
 		)
 	}
 }
@@ -421,7 +420,6 @@ func prepareHermesTemplateSharedDir(assetNames []string) func(context.Context, *
 			buildHermesBridgeConfig(rec),
 			m.resolveIdentityInvite(ctx, rec, "hermes sandbox"),
 			agentProfileSeed(rec),
-			m.resolveGuestReachableHostRPCURL(ctx, rec, "hermes sandbox"),
 		)
 	}
 }
@@ -461,20 +459,7 @@ func (m *Manager) resolveIdentityInvite(ctx context.Context, rec Record, subject
 	return value
 }
 
-func (m *Manager) resolveGuestReachableHostRPCURL(ctx context.Context, rec Record, subject string) string {
-	if m.hostRPC == nil {
-		return ""
-	}
-
-	value, err := m.guestReachableHostRPCURL(ctx)
-	if err != nil {
-		m.logger.Warn(fmt.Sprintf("failed to resolve host http rpc url for %s bootstrap", subject), "sandbox", rec.Slug, "error", err)
-		return ""
-	}
-	return value
-}
-
-func prepareOpenClawSharedDir(sharedDir, stateDir string, hostsHelper []byte, pluginAssets map[string][]byte, resolvedEnv map[string]string, invite *IdentityInvite, seed AgentProfileSeed, hostRPCURL string) error {
+func prepareOpenClawSharedDir(sharedDir, stateDir string, hostsHelper []byte, pluginAssets map[string][]byte, resolvedEnv map[string]string, invite *IdentityInvite, seed AgentProfileSeed) error {
 	if err := EnsureAgentProfileLayout(sharedDir, seed); err != nil {
 		return err
 	}
@@ -492,7 +477,7 @@ func prepareOpenClawSharedDir(sharedDir, stateDir string, hostsHelper []byte, pl
 	}
 
 	if invite != nil && strings.TrimSpace(invite.Code) != "" {
-		if err := writeSandboxJoinPayload(stateDir, invite, seed.Slug, hostRPCURL); err != nil {
+		if err := writeSandboxJoinPayload(stateDir, invite); err != nil {
 			return err
 		}
 	}
@@ -521,7 +506,7 @@ func prepareOpenClawSharedDir(sharedDir, stateDir string, hostsHelper []byte, pl
 	return nil
 }
 
-func prepareHermesSharedDir(sharedDir, stateDir string, resolvedEnv map[string]string, sharedAssets map[string][]byte, bridgeConfig *hermesBridgeConfig, invite *IdentityInvite, seed AgentProfileSeed, hostRPCURL string) error {
+func prepareHermesSharedDir(sharedDir, stateDir string, resolvedEnv map[string]string, sharedAssets map[string][]byte, bridgeConfig *hermesBridgeConfig, invite *IdentityInvite, seed AgentProfileSeed) error {
 	if err := EnsureAgentProfileLayout(sharedDir, seed); err != nil {
 		return err
 	}
@@ -550,7 +535,7 @@ func prepareHermesSharedDir(sharedDir, stateDir string, resolvedEnv map[string]s
 	}
 
 	if invite != nil && strings.TrimSpace(invite.Code) != "" {
-		if err := writeSandboxJoinPayload(stateDir, invite, seed.Slug, hostRPCURL); err != nil {
+		if err := writeSandboxJoinPayload(stateDir, invite); err != nil {
 			return err
 		}
 	}
@@ -585,12 +570,10 @@ func sandboxSharedAssetTargetPath(stateDir, relPath string) string {
 	}
 }
 
-func writeSandboxJoinPayload(stateDir string, invite *IdentityInvite, sandboxSlug, hostRPCURL string) error {
+func writeSandboxJoinPayload(stateDir string, invite *IdentityInvite) error {
 	payload := openClawJoinPayload{
 		HostIdentity: strings.TrimSpace(invite.HostIdentity),
 		Code:         strings.TrimSpace(invite.Code),
-		HostRPCURL:   strings.TrimSpace(hostRPCURL),
-		SandboxSlug:  strings.TrimSpace(sandboxSlug),
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
