@@ -697,9 +697,10 @@ func ServeCmd() *cobra.Command {
 
 			fmt.Println(sockPath)
 
+			httpBind, _ := cmd.Flags().GetString("http-bind")
 			httpPort, _ := cmd.Flags().GetInt("http-port")
 			go func() {
-				if err := server.ServeHTTP(ctx, httpPort); err != nil {
+				if err := server.ServeHTTPOn(ctx, httpBind, httpPort); err != nil {
 					logger.Error("HTTP server failed", "error", err)
 				}
 			}()
@@ -717,6 +718,7 @@ func ServeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().String("socket", "", "Socket path")
+	cmd.Flags().String("http-bind", skyrpc.DefaultHTTPBindAddress, "HTTP RPC bind address")
 	cmd.Flags().Int("http-port", skyrpc.DefaultHTTPPort, "HTTP RPC port")
 	cmd.Flags().StringSliceVar(&linkListenAddrs, "link-listen", nil, "Additional libp2p listen addresses")
 	cmd.Flags().StringSliceVar(&linkBootstrapPeers, "link-bootstrap", nil, "Bootstrap peer multiaddrs for libp2p discovery")

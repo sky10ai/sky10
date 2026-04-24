@@ -7,11 +7,18 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 )
 
-// DefaultHTTPPort is the preferred port for the HTTP RPC server.
-const DefaultHTTPPort = 9101
+const (
+	// DefaultHTTPPort is the preferred port for the HTTP RPC server.
+	DefaultHTTPPort = 9101
+	// DefaultHTTPBindAddress keeps the daemon-local HTTP RPC listener private
+	// unless a caller explicitly opts into a wider bind address.
+	DefaultHTTPBindAddress = "127.0.0.1"
+)
 
 type httpSubscriber struct {
 	ch   chan Event
@@ -20,6 +27,11 @@ type httpSubscriber struct {
 
 // ServeHTTP starts an HTTP server alongside the Unix socket.
 func (s *Server) ServeHTTP(ctx context.Context, port int) error {
+	return s.ServeHTTPOn(ctx, DefaultHTTPBindAddress, port)
+}
+
+// ServeHTTPOn starts an HTTP server on an explicit bind address.
+func (s *Server) ServeHTTPOn(ctx context.Context, bindAddress string, port int) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /rpc", s.handleHTTPRPC)
 	mux.HandleFunc("GET /rpc/events", s.handleHTTPEvents)
@@ -42,10 +54,10 @@ func (s *Server) ServeHTTP(ctx context.Context, port int) error {
 		mux.HandleFunc("GET /{$}", s.handleHTTPRoot)
 	}
 
-	addr := fmt.Sprintf(":%d", port)
+	addr := httpListenAddress(bindAddress, port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		ln, err = net.Listen("tcp", ":0")
+		ln, err = net.Listen("tcp", httpListenAddress(bindAddress, 0))
 		if err != nil {
 			return fmt.Errorf("http listen: %w", err)
 		}
@@ -67,6 +79,14 @@ func (s *Server) ServeHTTP(ctx context.Context, port int) error {
 		return err
 	}
 	return nil
+}
+
+func httpListenAddress(bindAddress string, port int) string {
+	bindAddress = strings.TrimSpace(bindAddress)
+	if bindAddress == "" {
+		bindAddress = DefaultHTTPBindAddress
+	}
+	return net.JoinHostPort(bindAddress, strconv.Itoa(port))
 }
 
 // HTTPAddr returns the address the HTTP server is listening on.

@@ -10,6 +10,7 @@ import (
 	"github.com/sky10/sky10/pkg/config"
 	skykey "github.com/sky10/sky10/pkg/key"
 	"github.com/sky10/sky10/pkg/link"
+	skyrpc "github.com/sky10/sky10/pkg/rpc"
 )
 
 func TestResolvedRelays(t *testing.T) {
@@ -182,6 +183,20 @@ func TestServeCmdAllowNoLinkRelayFlagHidden(t *testing.T) {
 	}
 	if !flag.Hidden {
 		t.Fatal("allow-no-link-relay should be hidden")
+	}
+}
+
+func TestServeCmdHTTPBindFlagDefaultsToLoopback(t *testing.T) {
+	cmd := ServeCmd()
+	flag := cmd.Flags().Lookup("http-bind")
+	if flag == nil {
+		t.Fatal("http-bind flag not found")
+	}
+	if flag.DefValue != skyrpc.DefaultHTTPBindAddress {
+		t.Fatalf("http-bind default = %q, want %q", flag.DefValue, skyrpc.DefaultHTTPBindAddress)
+	}
+	if got := flag.Value.String(); got != skyrpc.DefaultHTTPBindAddress {
+		t.Fatalf("http-bind value = %q, want %q", got, skyrpc.DefaultHTTPBindAddress)
 	}
 }
 

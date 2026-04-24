@@ -2,8 +2,10 @@ package rpc
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -82,4 +84,110 @@ func TestHandleHTTPEventsRegistersSubscriberBeforeFirstFlush(t *testing.T) {
 	if got := recorder.Header().Get("Content-Type"); got != "text/event-stream" {
 		t.Fatalf("Content-Type = %q, want text/event-stream", got)
 	}
+}
+
+func TestServeHTTPDefaultsToLoopback(t *testing.T) {
+	t.Parallel()
+
+	srv := startHTTPTestServer(t, func(ctx context.Context, srv *Server) error {
+		return srv.ServeHTTP(ctx, 0)
+	})
+
+	host, port, err := net.SplitHostPort(srv.HTTPAddr())
+	if err != nil {
+		t.Fatalf("parse HTTP server address %q: %v", srv.HTTPAddr(), err)
+	}
+	if host != DefaultHTTPBindAddress {
+		t.Fatalf("HTTP bind host = %q, want %q", host, DefaultHTTPBindAddress)
+	}
+
+	client := http.Client{Timeout: time.Second}
+	resp, err := client.Get("http://" + net.JoinHostPort(DefaultHTTPBindAddress, port) + "/health")
+	if err != nil {
+		t.Fatalf("GET /health: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /health status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+}
+
+func TestHTTPListenAddressUsesExplicitBindAddress(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		bind string
+		port int
+		want string
+	}{
+		{
+			name: "empty bind defaults loopback",
+			bind: "",
+			port: 9101,
+			want: "127.0.0.1:9101",
+		},
+		{
+			name: "explicit wildcard",
+			bind: "0.0.0.0",
+			port: 9101,
+			want: "0.0.0.0:9101",
+		},
+		{
+			name: "ipv6 loopback",
+			bind: "::1",
+			port: 9101,
+			want: "[::1]:9101",
+		},
+		{
+			name: "trimmed host",
+			bind: " localhost ",
+			port: 0,
+			want: "localhost:0",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := httpListenAddress(tc.bind, tc.port); got != tc.want {
+				t.Fatalf("httpListenAddress(%q, %d) = %q, want %q", tc.bind, tc.port, got, tc.want)
+			}
+		})
+	}
+}
+
+func startHTTPTestServer(t *testing.T, serve func(context.Context, *Server) error) *Server {
+	t.Helper()
+
+	srv := NewServer(filepath.Join(t.TempDir(), "test.sock"), "test", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- serve(ctx, srv)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for srv.HTTPAddr() == "" {
+		if time.Now().After(deadline) {
+			cancel()
+			t.Fatal("timed out waiting for HTTP server bind")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-errCh:
+			if err != nil {
+				t.Fatalf("ServeHTTP returned error: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for HTTP server shutdown")
+		}
+	})
+
+	return srv
 }
