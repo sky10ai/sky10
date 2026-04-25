@@ -687,8 +687,8 @@ The recommended packaging split is:
 - official built-in adapters implemented in Go under
   `pkg/messengers/adapters/*` and launched by self-exec of the main binary via
   `sky10 messaging <adapter>`
-- optional third-party or extra official adapters can still ship as separate
-  binaries
+- optional third-party or extra official adapters can ship as adapter bundles
+  with an `adapter.json` manifest and a bundled runtime entrypoint
 - agent shims shipped as external binaries or MCP-compatible local servers
 
 This gives:
@@ -698,8 +698,10 @@ This gives:
 - restartability
 - support for first-party and third-party adapter ecosystems
 
-If JavaScript is attractive for adapters or shims, a self-contained sidecar
-runtime such as Bun-compiled executables is a plausible packaging option.
+For JavaScript adapters, the current direction is a bundled `dist/adapter.js`
+artifact launched by Sky10-managed Bun through `pkg/messaging/external`.
+Zerobox remains the intended sandbox launcher, but the exact manifest-to-Zerobox
+command wiring is still a packaging milestone.
 
 ## Current Daemon Integration
 

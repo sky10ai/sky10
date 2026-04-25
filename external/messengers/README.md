@@ -36,6 +36,44 @@ external/messengers/<adapter-id>/
 For JavaScript or TypeScript adapters, `dist/` should contain a bundled entry
 file that can run on Sky10-managed Bun without `node_modules`.
 
+## Adapter Manifest
+
+Each adapter directory should declare an `adapter.json` manifest:
+
+```json
+{
+  "id": "slack",
+  "display_name": "Slack",
+  "version": "0.1.0",
+  "auth_methods": ["bot_token"],
+  "capabilities": {
+    "receive_messages": true,
+    "send_messages": true,
+    "list_conversations": true,
+    "search_conversations": true
+  },
+  "runtime": {
+    "type": "bun",
+    "version": "^1.3"
+  },
+  "entry": "dist/adapter.js",
+  "sandbox": {
+    "mode": "none"
+  }
+}
+```
+
+The manifest is resolved by `pkg/messaging/external` into the same supervised
+process runtime used by built-in adapters. `entry` must be a slash-separated
+relative path inside the adapter bundle. `sandbox.mode` is intentionally
+explicit; use `none` only for development while the Zerobox launch path is
+being wired.
+
+Sky10 passes these stable environment variables to the adapter process:
+
+- `SKY10_MESSAGING_ADAPTER_ID`
+- `SKY10_MESSAGING_ADAPTER_BUNDLE_DIR`
+
 ## Runtime Contract
 
 External messenger adapters should:

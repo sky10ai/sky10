@@ -40,7 +40,7 @@ This plan does not yet cover:
 | 5. Agent Shim Protocol | in progress | One thin runtime-facing messaging surface |
 | 6. First-Party Adapters | in progress | Initial platform coverage |
 | 7. UI And Operator Surfaces | not started | Connections, conversations, drafts, approvals |
-| 8. Reliability, Security, And Packaging | not started | Cross-platform runtime, recovery, and release story |
+| 8. Reliability, Security, And Packaging | in progress | Cross-platform runtime, recovery, and release story |
 
 ## Milestone 0: Terminology And Architecture
 
@@ -137,6 +137,8 @@ Define and host external platform adapters as supervised local processes.
 - [x] Support adapter stdout/stderr capture for operator diagnostics.
 - [x] Decide that the first protocol transport is JSON-RPC over stdio.
 - [x] Add protocol compatibility/version negotiation.
+- [x] Add an external adapter manifest resolver that turns bundled adapter
+  artifacts into supervised process specs.
 
 ### Exit Criteria
 
@@ -359,6 +361,11 @@ deployment.
 - [ ] Add process isolation and least-privilege guidance for adapters.
 - [x] Add Sky10-managed Bun and Zerobox app entries for JavaScript adapter
   runtime and sandbox launch.
+- [x] Add an incubating `external/messengers/*` adapter layout with explicit
+  `adapter.json` manifests.
+- [x] Resolve bundled Bun adapter manifests into broker-supervised process
+  specs without requiring `node_modules` at runtime.
+- [ ] Wire Zerobox sandbox launch for external adapter manifests.
 - [x] Add broker restart recovery tests.
 - [x] Add adapter crash and reconnection tests.
 - [x] Add webhook replay/idempotency tests.
