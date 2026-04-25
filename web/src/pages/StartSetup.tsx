@@ -68,7 +68,7 @@ export default function StartSetup() {
       lookAround: `/ai?audience=${audience}`,
       apiKey: `/settings/secrets?kind=api-key&audience=${audience}#store-secret`,
       local: `/settings/apps?audience=${audience}`,
-      wallet: `/wallet`,
+      wallet: `/settings#wallet`,
     }),
     [audience]
   );

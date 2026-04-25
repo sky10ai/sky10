@@ -46,14 +46,6 @@ const commands: Command[] = [
     section: "Storage",
   },
   {
-    id: "wallet",
-    label: "Wallet",
-    icon: "account_balance_wallet",
-    action: "/wallet",
-    shortcut: "⌘ 3",
-    section: "Suggestions",
-  },
-  {
     id: "network",
     label: "Network Dashboard",
     icon: "hub",
