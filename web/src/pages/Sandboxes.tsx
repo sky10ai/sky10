@@ -351,7 +351,6 @@ export default function Sandboxes() {
                       </span>
                       <span>ID {item.slug}</span>
                       <span>Updated {timeAgo(item.updated_at)}</span>
-                      {item.ip_address && <span>{item.ip_address}</span>}
                     </div>
                     {progress && (
                       <div className="space-y-2">

@@ -13,7 +13,6 @@ import {
 } from "../lib/rpc";
 import {
   isHermesTemplate,
-  isOpenClawTemplate,
   sandboxCurrentProgress,
   sandboxForwardedURL,
   sandboxLabel,
@@ -197,17 +196,9 @@ export default function SandboxDetail() {
   const terminalEnabled =
     selected?.provider === "lima" &&
     (selected.status === "ready" || selected.vm_status === "Running");
-  const guestIP = selected?.ip_address?.trim() ?? "";
   const openClawURL =
-    sandboxForwardedURL(selected, "openclaw_gateway", "/chat?session=main") ||
-    (isOpenClawTemplate(selected?.template) && guestIP
-      ? `http://${guestIP}:18790/chat?session=main`
-      : "");
-  const guestSky10URL =
-    sandboxForwardedURL(selected, "sky10") ||
-    (isOpenClawTemplate(selected?.template) && guestIP
-      ? `http://${guestIP}:9101`
-      : "");
+    sandboxForwardedURL(selected, "openclaw_gateway", "/chat?session=main");
+  const guestSky10URL = sandboxForwardedURL(selected, "sky10");
   const progress = selected ? sandboxCurrentProgress(selected) : null;
   const progressWidth = Math.max(0, Math.min(progress?.percent ?? 0, 100));
 
@@ -316,11 +307,6 @@ export default function SandboxDetail() {
               <InfoCard label="Runtime ID" mono value={selected.slug} />
               <InfoCard label="Provider" value={selected.provider} />
               <InfoCard label="Template" value={selected.template} />
-              <InfoCard
-                label="Guest IP"
-                mono
-                value={selected.ip_address || "Waiting..."}
-              />
               <InfoCard label="Created" mono value={selected.created_at} />
               <InfoCard label="Updated" mono value={selected.updated_at} />
               <InfoCard
