@@ -25,6 +25,7 @@ import SettingsCodex from "./pages/SettingsCodex";
 import SettingsSecrets from "./pages/SettingsSecrets";
 import SettingsVisuals from "./pages/SettingsVisuals";
 import CodexChat from "./pages/CodexChat";
+import Wallet from "./pages/Wallet";
 
 function HomeRedirect() {
   return <Navigate to="/start" replace />;
@@ -56,6 +57,7 @@ export default function App() {
           <Route path="bucket/*" element={<Bucket />} />
           <Route path="devices" element={<Devices />} />
           <Route path="devices/invite" element={<InviteDevice />} />
+          <Route path="wallet" element={<Wallet />} />
           <Route path="mailbox" element={<Navigate replace to="/settings/mailbox" />} />
           <Route path="sandboxes" element={<Navigate replace to="/settings/sandboxes" />} />
           <Route path="sandboxes/:name" element={<SandboxLegacyRedirect />} />

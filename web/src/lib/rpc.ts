@@ -1,5 +1,7 @@
 /** JSON-RPC 2.0 client for the sky10 daemon. */
 
+import type { WalletActivityEntry } from "./walletActivity";
+
 interface RPCRequest {
   jsonrpc: "2.0";
   method: string;
@@ -264,6 +266,10 @@ export const wallet = {
     rpc<WalletTransfer>("wallet.transfer", p),
   maxTransfer: (p: { wallet: string; chain?: string }) =>
     rpc<{ max: string; fee: string }>("wallet.maxTransfer", p),
+  transactionList: (p: { wallet: string; limit?: number }) =>
+    rpc<WalletTransactionListResult>("wallet.transactionList", p),
+  transactionAppend: (p: { wallet: string; entry: WalletActivityEntry }) =>
+    rpc<{ status: string }>("wallet.transactionAppend", p),
 };
 
 // -- codex --
@@ -1105,6 +1111,12 @@ export interface WalletTransfer {
   transaction_hash?: string;
   status: string;
   amount?: string;
+}
+
+export interface WalletTransactionListResult {
+  wallet: string;
+  entries: WalletActivityEntry[];
+  count: number;
 }
 
 export interface CodexPendingLogin {

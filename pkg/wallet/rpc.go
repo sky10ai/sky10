@@ -66,6 +66,10 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		result, err = h.rpcTransfer(ctx, params)
 	case "wallet.maxTransfer":
 		result, err = h.rpcMaxTransfer(ctx, params)
+	case "wallet.transactionList":
+		result, err = h.rpcTransactionList(params)
+	case "wallet.transactionAppend":
+		result, err = h.rpcTransactionAppend(params)
 	default:
 		return nil, fmt.Errorf("unknown method: %s", method), true
 	}
@@ -335,4 +339,47 @@ func (h *RPCHandler) rpcMaxTransfer(ctx context.Context, params json.RawMessage)
 		chain = ChainSolana
 	}
 	return h.client.MaxTransferForChain(ctx, p.Wallet, chain)
+}
+
+type transactionListParams struct {
+	Wallet string `json:"wallet"`
+	Limit  int    `json:"limit,omitempty"`
+}
+
+type transactionListResult struct {
+	Wallet  string             `json:"wallet"`
+	Entries []TransactionEntry `json:"entries"`
+	Count   int                `json:"count"`
+}
+
+func (h *RPCHandler) rpcTransactionList(params json.RawMessage) (interface{}, error) {
+	var p transactionListParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	entries, err := listTransactions(p.Wallet, p.Limit)
+	if err != nil {
+		return nil, err
+	}
+	return transactionListResult{
+		Wallet:  strings.TrimSpace(p.Wallet),
+		Entries: entries,
+		Count:   len(entries),
+	}, nil
+}
+
+type transactionAppendParams struct {
+	Wallet string           `json:"wallet"`
+	Entry  TransactionEntry `json:"entry"`
+}
+
+func (h *RPCHandler) rpcTransactionAppend(params json.RawMessage) (interface{}, error) {
+	var p transactionAppendParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if err := appendTransaction(p.Wallet, p.Entry); err != nil {
+		return nil, err
+	}
+	return map[string]string{"status": "stored"}, nil
 }

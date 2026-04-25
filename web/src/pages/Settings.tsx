@@ -525,23 +525,32 @@ export default function Settings() {
           className="col-span-12 lg:col-span-4 bg-surface-container-lowest rounded-xl p-8 border border-transparent space-y-6 flex flex-col scroll-mt-24"
           id="wallet"
         >
-          <div className="space-y-1">
-            <h3 className="text-xl font-semibold flex items-center gap-2">
-              <Icon name="account_balance_wallet" className="text-tertiary" />
-              Wallet
-            </h3>
-            <p className="text-sm text-secondary">
-              Agent payments powered by{" "}
-              <a
-                href="https://openwallet.sh"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline hover:text-on-surface transition-colors"
-              >
-                OWS
-              </a>
-              .
-            </p>
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <h3 className="text-xl font-semibold flex items-center gap-2">
+                <Icon name="account_balance_wallet" className="text-tertiary" />
+                Wallet
+              </h3>
+              <p className="text-sm text-secondary">
+                Agent payments powered by{" "}
+                <a
+                  href="https://openwallet.sh"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-on-surface transition-colors"
+                >
+                  OWS
+                </a>
+                .
+              </p>
+            </div>
+            <Link
+              className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-3 py-2 text-xs font-semibold text-secondary transition-colors hover:text-on-surface"
+              to="/wallet"
+            >
+              Open
+              <Icon className="text-sm" name="arrow_forward" />
+            </Link>
           </div>
 
           {((walletStatus && !walletStatus.installed) || walletError) &&

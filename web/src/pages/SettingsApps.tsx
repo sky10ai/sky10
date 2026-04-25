@@ -240,7 +240,7 @@ export default function SettingsApps() {
   return (
     <SettingsPage
       backHref="/settings"
-      description="Manage helper binaries installed by sky10."
+      description="Manage helper binaries installed by sky10. Wallet creation, balances, funding, and transfers live on the dedicated Wallet page."
       title="Managed Apps"
       width="narrow"
     >

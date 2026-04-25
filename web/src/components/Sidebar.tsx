@@ -28,6 +28,12 @@ const navItems = [
     matchPrefixes: ["/drives", "/bucket"],
   },
   {
+    to: "/wallet",
+    icon: "account_balance_wallet",
+    label: "Wallet",
+    matchPrefixes: ["/wallet"],
+  },
+  {
     to: "/devices",
     icon: "devices",
     label: "Devices",
