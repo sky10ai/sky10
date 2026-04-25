@@ -7,10 +7,16 @@ import { StatusBadge } from "../components/StatusBadge";
 import { subscribe } from "../lib/events";
 import {
   sandbox,
+  system,
   type SandboxLogEntry,
   type SandboxLogsResult,
   type SandboxRecord,
+  type SandboxRuntimeStatusResult,
 } from "../lib/rpc";
+import {
+  runtimeUpdateLabel,
+  sandboxRuntimeView,
+} from "../lib/sandboxRuntime";
 import {
   isHermesTemplate,
   sandboxCurrentProgress,
@@ -61,6 +67,28 @@ export default function SandboxDetail() {
           (data as { slug?: string }).slug === slug,
       ],
       refreshIntervalMs: 10_000,
+    },
+  );
+
+  const { data: hostHealth } = useRPC(() => system.health(), [], {
+    refreshIntervalMs: 30_000,
+  });
+
+  const runtimeEligible =
+    selected?.status === "ready" || selected?.vm_status === "Running";
+  const {
+    data: runtimeStatus,
+    error: runtimeStatusError,
+    refreshing: runtimeRefreshing,
+  } = useRPC<SandboxRuntimeStatusResult | null>(
+    () => {
+      if (!selected?.slug || !runtimeEligible) return Promise.resolve(null);
+      return sandbox.runtime.status({ slug: selected.slug });
+    },
+    [selected?.slug, selected?.status, selected?.vm_status],
+    {
+      keepPreviousData: false,
+      refreshIntervalMs: 30_000,
     },
   );
 
@@ -201,6 +229,7 @@ export default function SandboxDetail() {
   const guestSky10URL = sandboxForwardedURL(selected, "sky10");
   const progress = selected ? sandboxCurrentProgress(selected) : null;
   const progressWidth = Math.max(0, Math.min(progress?.percent ?? 0, 100));
+  const runtimeView = sandboxRuntimeView(runtimeStatus, hostHealth);
 
   return (
     <SettingsPage
@@ -234,6 +263,19 @@ export default function SandboxDetail() {
                   {selected.vm_status && (
                     <StatusBadge tone="neutral">
                       VM {selected.vm_status}
+                    </StatusBadge>
+                  )}
+                  {runtimeView && (
+                    <StatusBadge
+                      icon={runtimeView.icon}
+                      tone={runtimeView.tone}
+                    >
+                      {runtimeView.label}
+                    </StatusBadge>
+                  )}
+                  {runtimeRefreshing && (
+                    <StatusBadge icon="sync" tone="neutral">
+                      Runtime
                     </StatusBadge>
                   )}
                 </div>
@@ -272,6 +314,12 @@ export default function SandboxDetail() {
                 )}
               </div>
 
+              {runtimeView?.hasDrift && (
+                <div className="rounded-2xl border border-error/20 bg-error-container/15 p-4 text-sm text-error md:max-w-md">
+                  {runtimeView.detail}
+                </div>
+              )}
+
               <div className="flex flex-wrap items-center gap-3">
                 <button
                   className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary transition-colors disabled:opacity-50"
@@ -307,6 +355,34 @@ export default function SandboxDetail() {
               <InfoCard label="Runtime ID" mono value={selected.slug} />
               <InfoCard label="Provider" value={selected.provider} />
               <InfoCard label="Template" value={selected.template} />
+              <InfoCard
+                label="Guest sky10"
+                mono
+                value={
+                  runtimeView?.guestVersion ||
+                  runtimeStatus?.version ||
+                  (runtimeStatusError
+                    ? runtimeStatusError
+                    : runtimeStatus
+                      ? "Unknown"
+                      : "Checking...")
+                }
+              />
+              <InfoCard
+                label="Host sky10"
+                mono
+                value={
+                  runtimeView?.hostVersion || hostHealth?.version || "Checking..."
+                }
+              />
+              <InfoCard
+                label="Guest Update"
+                value={runtimeUpdateLabel(runtimeStatus)}
+              />
+              <InfoCard
+                label="Runtime Status"
+                value={runtimeView?.detail || "Checking..."}
+              />
               <InfoCard label="Created" mono value={selected.created_at} />
               <InfoCard label="Updated" mono value={selected.updated_at} />
               <InfoCard

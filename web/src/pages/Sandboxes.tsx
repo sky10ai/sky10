@@ -1,10 +1,22 @@
-import { startTransition, useCallback, useEffect, useState } from "react";
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { Icon } from "../components/Icon";
 import { SettingsPage } from "../components/SettingsPage";
 import { StatusBadge } from "../components/StatusBadge";
 import { SANDBOX_STATE_EVENT_TYPES } from "../lib/events";
-import { sandbox } from "../lib/rpc";
+import {
+  sandbox,
+  system,
+  type SandboxRecord,
+  type SandboxRuntimeStatusResult,
+} from "../lib/rpc";
+import { sandboxRuntimeView } from "../lib/sandboxRuntime";
 import {
   isDockerTemplate,
   isHermesTemplate,
@@ -45,6 +57,54 @@ export default function Sandboxes() {
   });
 
   const sandboxes = listData?.sandboxes ?? [];
+  const runtimeFetchKey = useMemo(
+    () =>
+      sandboxes
+        .filter(shouldFetchRuntimeStatus)
+        .map((item) => `${item.slug}:${item.status}:${item.vm_status ?? ""}`)
+        .join("|"),
+    [sandboxes],
+  );
+  const { data: hostHealth } = useRPC(() => system.health(), [], {
+    refreshIntervalMs: 30_000,
+  });
+  const { data: runtimeBySlug, refreshing: runtimeRefreshing } = useRPC<
+    Record<string, SandboxRuntimeStatusResult>
+  >(
+    async () => {
+      const items = sandboxes.filter(shouldFetchRuntimeStatus);
+      if (items.length === 0) return {};
+
+      const entries = await Promise.all(
+        items.map(async (item) => {
+          try {
+            const status = await sandbox.runtime.status({ slug: item.slug });
+            return [item.slug, status] as const;
+          } catch (error: unknown) {
+            return [
+              item.slug,
+              {
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : "Runtime status failed",
+                name: item.name,
+                reachable: false,
+                slug: item.slug,
+                template: item.template,
+              },
+            ] as const;
+          }
+        }),
+      );
+
+      return Object.fromEntries(entries);
+    },
+    [runtimeFetchKey],
+    {
+      refreshIntervalMs: 30_000,
+    },
+  );
   const templateConfig = sandboxTemplateById(selectedTemplate);
   const draftSlug = sandboxSlug(draftName);
   const creatingLabel = isOpenClawTemplate(templateConfig.id)
@@ -310,6 +370,11 @@ export default function Sandboxes() {
                 Refreshing
               </StatusBadge>
             )}
+            {runtimeRefreshing && (
+              <StatusBadge icon="sync" tone="neutral">
+                Runtime
+              </StatusBadge>
+            )}
             <span className="rounded-full bg-surface-container px-3 py-1 text-xs font-semibold text-secondary">
               {sandboxes.length}
             </span>
@@ -320,6 +385,10 @@ export default function Sandboxes() {
           <div className="space-y-3">
             {sandboxes.map((item) => {
               const progress = sandboxCurrentProgress(item);
+              const runtimeView = sandboxRuntimeView(
+                runtimeBySlug?.[item.slug],
+                hostHealth,
+              );
               const progressWidth = Math.max(
                 0,
                 Math.min(progress?.percent ?? 0, 100),
@@ -344,6 +413,14 @@ export default function Sandboxes() {
                           VM {item.vm_status}
                         </StatusBadge>
                       )}
+                      {runtimeView && (
+                        <StatusBadge
+                          icon={runtimeView.icon}
+                          tone={runtimeView.tone}
+                        >
+                          {runtimeView.label}
+                        </StatusBadge>
+                      )}
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-secondary">
                       <span>
@@ -351,6 +428,7 @@ export default function Sandboxes() {
                       </span>
                       <span>ID {item.slug}</span>
                       <span>Updated {timeAgo(item.updated_at)}</span>
+                      {runtimeView && <span>{runtimeView.detail}</span>}
                     </div>
                     {progress && (
                       <div className="space-y-2">
@@ -394,4 +472,8 @@ export default function Sandboxes() {
       </section>
     </SettingsPage>
   );
+}
+
+function shouldFetchRuntimeStatus(item: SandboxRecord) {
+  return item.status === "ready" || item.vm_status === "Running";
 }
