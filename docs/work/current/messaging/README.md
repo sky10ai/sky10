@@ -411,6 +411,10 @@ So the honest capability shape for `imap-smtp` is closer to:
 - `search_conversations = limited`
 - `search_identities = false`
 
+Current `imap-smtp` implementation declares `SearchMessages` only. It uses
+remote IMAP `UID SEARCH` against the configured mailbox or selected mailbox
+container, then returns normalized message hits with placements.
+
 Search also needs policy. It is not automatically safe just because it is
 read-only.
 

@@ -36,6 +36,8 @@ type sendSnapshot struct {
 	Message messaging.Message
 }
 
+type searchMessagesFunc func(context.Context, adapterConfig, protocol.SearchMessagesParams) (protocol.SearchMessagesResult, error)
+
 type service struct {
 	logger *slog.Logger
 	now    func() time.Time
@@ -43,6 +45,7 @@ type service struct {
 	verifyFunc func(context.Context, adapterConfig) error
 	pollFunc   func(context.Context, adapterConfig, *protocol.Checkpoint, int) (pollSnapshot, error)
 	sendFunc   func(context.Context, adapterConfig, messaging.Draft, []string, outboundHeaders) (sendSnapshot, error)
+	searchFunc searchMessagesFunc
 
 	mu          sync.RWMutex
 	connections map[messaging.ConnectionID]*connectionState
@@ -61,6 +64,7 @@ func newServer() *service {
 		verifyFunc:  verifyMailboxAccess,
 		pollFunc:    pollMailbox,
 		sendFunc:    sendMailMessage,
+		searchFunc:  searchMailboxMessages,
 		connections: make(map[messaging.ConnectionID]*connectionState),
 	}
 }
@@ -114,6 +118,8 @@ func (s *service) handle(ctx context.Context, req messagingruntime.Request) mess
 		return s.handleGetMessage(req)
 	case string(protocol.MethodListContainers):
 		return s.handleListContainers(req)
+	case string(protocol.MethodSearchMessages):
+		return s.handleSearchMessages(ctx, req)
 	case string(protocol.MethodCreateDraft):
 		return s.handleCreateDraft(req)
 	case string(protocol.MethodUpdateDraft):
@@ -153,6 +159,7 @@ func (s *service) handleDescribe(req messagingruntime.Request) messagingruntime.
 				ListConversations: true,
 				ListMessages:      true,
 				ListContainers:    true,
+				SearchMessages:    true,
 				Threading:         true,
 				Polling:           true,
 			},
@@ -316,6 +323,58 @@ func (s *service) handleListContainers(req messagingruntime.Request) messagingru
 	return resultResponse(req.ID, protocol.ListContainersResult{
 		Containers: containersForConfig(state.config),
 	})
+}
+
+func (s *service) handleSearchMessages(ctx context.Context, req messagingruntime.Request) messagingruntime.Response {
+	var params protocol.SearchMessagesParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errorResponse(req.ID, -32602, fmt.Sprintf("decode search messages params: %v", err))
+	}
+	if params.Source == protocol.SearchSourceIndexed {
+		return errorResponse(req.ID, -32602, "imap-smtp only supports remote message search")
+	}
+	state, ok := s.connection(params.ConnectionID)
+	if !ok {
+		return errorResponse(req.ID, -32004, fmt.Sprintf("connection %s is not connected", params.ConnectionID))
+	}
+	if s.searchFunc == nil {
+		return errorResponse(req.ID, -32601, "message search is not supported")
+	}
+	result, err := s.searchFunc(ctx, state.config, params)
+	if err != nil {
+		return errorResponse(req.ID, -32002, err.Error())
+	}
+	result.Source = protocol.SearchSourceRemote
+	for idx := range result.Hits {
+		hit := result.Hits[idx]
+		hit.Source = protocol.SearchSourceRemote
+		message := hit.Message.Message
+		if message.ConnectionID == "" {
+			message.ConnectionID = params.ConnectionID
+			hit.Message.Message = message
+		}
+		if message.ID != "" && len(hit.Message.Placements) == 0 {
+			hit.Message.Placements = []messaging.Placement{placementForMessage(state.config, message)}
+		}
+		result.Hits[idx] = hit
+	}
+	if result.Count == 0 && len(result.Hits) > 0 {
+		result.Count = len(result.Hits)
+	}
+
+	s.mu.Lock()
+	for _, hit := range result.Hits {
+		if hit.Conversation != nil && hit.Conversation.ID != "" {
+			state.conversations[hit.Conversation.ID] = *hit.Conversation
+		}
+		message := hit.Message.Message
+		if message.ID != "" {
+			state.messages[message.ID] = message
+		}
+	}
+	s.mu.Unlock()
+
+	return resultResponse(req.ID, result)
 }
 
 func (s *service) handleCreateDraft(req messagingruntime.Request) messagingruntime.Response {

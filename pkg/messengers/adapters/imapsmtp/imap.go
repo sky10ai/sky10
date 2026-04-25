@@ -24,6 +24,11 @@ import (
 	"github.com/sky10/sky10/pkg/messaging/protocol"
 )
 
+const (
+	defaultIMAPSearchLimit = 25
+	maxIMAPSearchLimit     = 100
+)
+
 func verifyMailboxAccess(ctx context.Context, cfg adapterConfig) error {
 	client, err := dialAndLoginIMAP(ctx, cfg)
 	if err != nil {
@@ -124,6 +129,133 @@ func pollMailbox(ctx context.Context, cfg adapterConfig, checkpoint *protocol.Ch
 		Messages:      messages,
 		Checkpoint:    nextCheckpoint(checkpoint, highest),
 	}, nil
+}
+
+func searchMailboxMessages(ctx context.Context, cfg adapterConfig, params protocol.SearchMessagesParams) (protocol.SearchMessagesResult, error) {
+	if params.ConnectionID != "" && params.ConnectionID != cfg.ConnectionID {
+		return protocol.SearchMessagesResult{}, fmt.Errorf("connection_id %q does not match connected account %q", params.ConnectionID, cfg.ConnectionID)
+	}
+	query := strings.TrimSpace(params.Query)
+	if query == "" {
+		return protocol.SearchMessagesResult{}, fmt.Errorf("query is required")
+	}
+	mailbox, err := mailboxForSearchContainer(cfg, params.ContainerID)
+	if err != nil {
+		return protocol.SearchMessagesResult{}, err
+	}
+	searchCfg := cfg
+	searchCfg.Mailbox = mailbox
+
+	client, err := dialAndLoginIMAP(ctx, searchCfg)
+	if err != nil {
+		return protocol.SearchMessagesResult{}, err
+	}
+	defer closeIMAP(client)
+
+	if _, err := client.Select(searchCfg.Mailbox, nil).Wait(); err != nil {
+		return protocol.SearchMessagesResult{}, fmt.Errorf("select mailbox %q: %w", searchCfg.Mailbox, err)
+	}
+
+	searchResult, err := client.UIDSearch(&imap.SearchCriteria{
+		Text: searchTerms(query),
+	}, nil).Wait()
+	if err != nil {
+		return protocol.SearchMessagesResult{}, fmt.Errorf("uid search: %w", err)
+	}
+	uids := searchResult.AllUIDs()
+	sort.Slice(uids, func(i, j int) bool { return uids[i] > uids[j] })
+	if len(uids) == 0 {
+		return protocol.SearchMessagesResult{Source: protocol.SearchSourceRemote}, nil
+	}
+
+	if params.ConversationID == "" {
+		var nextCursor string
+		uids, nextCursor, err = paginateUIDs(uids, params.PageRequest)
+		if err != nil {
+			return protocol.SearchMessagesResult{}, err
+		}
+		hits, err := fetchMessageSearchHits(client, searchCfg, query, params.ConversationID, uids)
+		if err != nil {
+			return protocol.SearchMessagesResult{}, err
+		}
+		return protocol.SearchMessagesResult{
+			Hits:       hits,
+			Count:      len(hits),
+			Source:     protocol.SearchSourceRemote,
+			NextCursor: nextCursor,
+		}, nil
+	}
+
+	hits, err := fetchMessageSearchHits(client, searchCfg, query, params.ConversationID, uids)
+	if err != nil {
+		return protocol.SearchMessagesResult{}, err
+	}
+	hits, nextCursor, err := paginateMessageSearchHits(hits, params.PageRequest)
+	if err != nil {
+		return protocol.SearchMessagesResult{}, err
+	}
+	return protocol.SearchMessagesResult{
+		Hits:       hits,
+		Count:      len(hits),
+		Source:     protocol.SearchSourceRemote,
+		NextCursor: nextCursor,
+	}, nil
+}
+
+func fetchMessageSearchHits(client *imapclient.Client, cfg adapterConfig, query string, conversationID messaging.ConversationID, uids []imap.UID) ([]protocol.MessageSearchHit, error) {
+	if len(uids) == 0 {
+		return nil, nil
+	}
+	var uidSet imap.UIDSet
+	uidSet.AddNum(uids...)
+	bodySection := &imap.FetchItemBodySection{}
+	fetchResult, err := client.Fetch(uidSet, &imap.FetchOptions{
+		UID:          true,
+		Envelope:     true,
+		InternalDate: true,
+		BodySection:  []*imap.FetchItemBodySection{bodySection},
+	}).Collect()
+	if err != nil {
+		return nil, fmt.Errorf("fetch search results: %w", err)
+	}
+
+	hits := make([]protocol.MessageSearchHit, 0, len(fetchResult))
+	for _, item := range fetchResult {
+		if item == nil {
+			continue
+		}
+		raw := item.FindBodySection(bodySection)
+		conversation, message, err := normalizeFetchedMessage(cfg, item, raw)
+		if err != nil {
+			return nil, err
+		}
+		if conversationID != "" && conversation.ID != conversationID {
+			continue
+		}
+		matched := matchedMessageFields(query, conversation, message)
+		if len(matched) == 0 {
+			matched = []string{"imap_text"}
+		}
+		conversationCopy := conversation
+		hits = append(hits, protocol.MessageSearchHit{
+			Message: protocol.MessageRecord{
+				Message:    message,
+				Placements: []messaging.Placement{placementForMessage(cfg, message)},
+			},
+			Conversation:  &conversationCopy,
+			MatchedFields: matched,
+			Source:        protocol.SearchSourceRemote,
+		})
+	}
+	sort.Slice(hits, func(i, j int) bool {
+		left := hits[i].Message.Message
+		right := hits[j].Message.Message
+		if left.CreatedAt.Equal(right.CreatedAt) {
+			return left.ID < right.ID
+		}
+		return left.CreatedAt.After(right.CreatedAt)
+	})
+	return hits, nil
 }
 
 func dialAndLoginIMAP(ctx context.Context, cfg adapterConfig) (*imapclient.Client, error) {
@@ -503,6 +635,135 @@ func containerKindForMailbox(mailbox string) messaging.ContainerKind {
 
 func sameMailbox(left, right string) bool {
 	return strings.EqualFold(strings.TrimSpace(left), strings.TrimSpace(right))
+}
+
+func mailboxForSearchContainer(cfg adapterConfig, containerID messaging.ContainerID) (string, error) {
+	if containerID == "" {
+		return cfg.Mailbox, nil
+	}
+	for _, container := range containersForConfig(cfg) {
+		if container.ID == containerID {
+			return container.RemoteID, nil
+		}
+	}
+	return "", fmt.Errorf("container_id %s is not available on imap-smtp connection %s", containerID, cfg.ConnectionID)
+}
+
+func searchTerms(query string) []string {
+	terms := strings.Fields(query)
+	if len(terms) == 0 {
+		return nil
+	}
+	return terms
+}
+
+func paginateUIDs(uids []imap.UID, page protocol.PageRequest) ([]imap.UID, string, error) {
+	offset, limit, err := searchPage(page)
+	if err != nil {
+		return nil, "", err
+	}
+	if offset >= len(uids) {
+		return nil, "", nil
+	}
+	end := offset + limit
+	if end > len(uids) {
+		end = len(uids)
+	}
+	nextCursor := ""
+	if end < len(uids) {
+		nextCursor = strconv.Itoa(end)
+	}
+	return uids[offset:end], nextCursor, nil
+}
+
+func paginateMessageSearchHits(hits []protocol.MessageSearchHit, page protocol.PageRequest) ([]protocol.MessageSearchHit, string, error) {
+	offset, limit, err := searchPage(page)
+	if err != nil {
+		return nil, "", err
+	}
+	if offset >= len(hits) {
+		return nil, "", nil
+	}
+	end := offset + limit
+	if end > len(hits) {
+		end = len(hits)
+	}
+	nextCursor := ""
+	if end < len(hits) {
+		nextCursor = strconv.Itoa(end)
+	}
+	return hits[offset:end], nextCursor, nil
+}
+
+func searchPage(page protocol.PageRequest) (int, int, error) {
+	limit := page.Limit
+	if limit <= 0 {
+		limit = defaultIMAPSearchLimit
+	}
+	if limit > maxIMAPSearchLimit {
+		limit = maxIMAPSearchLimit
+	}
+	offset := 0
+	if strings.TrimSpace(page.Cursor) != "" {
+		parsed, err := strconv.Atoi(page.Cursor)
+		if err != nil || parsed < 0 {
+			return 0, 0, fmt.Errorf("invalid cursor")
+		}
+		offset = parsed
+	}
+	return offset, limit, nil
+}
+
+func matchedMessageFields(query string, conversation messaging.Conversation, message messaging.Message) []string {
+	tokens := strings.Fields(strings.ToLower(query))
+	if len(tokens) == 0 {
+		return nil
+	}
+	fields := []struct {
+		name  string
+		value string
+	}{
+		{name: "conversation_title", value: conversation.Title},
+		{name: "conversation_remote_id", value: conversation.RemoteID},
+		{name: "message_id", value: string(message.ID)},
+		{name: "remote_id", value: message.RemoteID},
+		{name: "sender_address", value: message.Sender.Address},
+		{name: "sender_display_name", value: message.Sender.DisplayName},
+		{name: "subject", value: message.Metadata["subject"]},
+		{name: "email_message_id", value: message.Metadata["email_message_id"]},
+	}
+	for _, part := range message.Parts {
+		fields = append(fields,
+			struct {
+				name  string
+				value string
+			}{name: "part_text", value: part.Text},
+			struct {
+				name  string
+				value string
+			}{name: "part_file_name", value: part.FileName},
+		)
+	}
+
+	matched := make(map[string]struct{})
+	for _, token := range tokens {
+		tokenMatched := false
+		for _, field := range fields {
+			if strings.Contains(strings.ToLower(field.value), token) {
+				matched[field.name] = struct{}{}
+				tokenMatched = true
+			}
+		}
+		if !tokenMatched {
+			return nil
+		}
+	}
+	names := make([]string, 0, len(matched))
+	for name := range matched {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func messageIDFor(cfg adapterConfig, uid imap.UID) messaging.MessageID {

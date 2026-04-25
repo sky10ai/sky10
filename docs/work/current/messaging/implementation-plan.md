@@ -288,8 +288,8 @@ different messaging shapes.
 - [ ] Implement one webhook-driven adapter.
 - [x] Implement one polling-driven adapter.
 - [ ] Implement identity discovery for each adapter.
-- [ ] Implement honest platform-specific lookup/search support declarations.
-- [ ] Ensure `imap-smtp` is treated as mailbox/message search, not rich
+- [x] Implement honest platform-specific lookup/search support declarations.
+- [x] Ensure `imap-smtp` is treated as mailbox/message search, not rich
   contact/channel discovery.
 - [x] Implement IMAP/SMTP container listing and placement reporting for cached
   messages.
