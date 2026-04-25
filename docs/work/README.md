@@ -13,6 +13,8 @@
 
 - See [`todo/`](todo/) for follow-up work that is no longer active branch planning.
 - Device subsystem follow-up: [`todo/device-subsystem-followup.md`](todo/device-subsystem-followup.md)
+- Deferred sandbox runtime reconcile/autoupdate:
+  [`todo/sandbox-runtime-reconcile.md`](todo/sandbox-runtime-reconcile.md)
 
 ## Past
 
