@@ -57,7 +57,7 @@ export default function App() {
           <Route path="bucket/*" element={<Bucket />} />
           <Route path="devices" element={<Devices />} />
           <Route path="devices/invite" element={<InviteDevice />} />
-          <Route path="wallet" element={<Wallet />} />
+          <Route path="wallet" element={<Navigate replace to="/settings/wallet" />} />
           <Route path="mailbox" element={<Navigate replace to="/settings/mailbox" />} />
           <Route path="sandboxes" element={<Navigate replace to="/settings/sandboxes" />} />
           <Route path="sandboxes/:name" element={<SandboxLegacyRedirect />} />
@@ -72,6 +72,7 @@ export default function App() {
           <Route path="settings/codex" element={<SettingsCodex />} />
           <Route path="settings/secrets" element={<SettingsSecrets />} />
           <Route path="settings/visuals" element={<SettingsVisuals />} />
+          <Route path="settings/wallet" element={<Wallet />} />
           <Route path="settings/sandboxes" element={<Sandboxes />} />
           <Route path="settings/sandboxes/:slug" element={<SandboxDetail />} />
           <Route path="settings" element={<Settings />} />

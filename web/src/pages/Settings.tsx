@@ -546,7 +546,7 @@ export default function Settings() {
             </div>
             <Link
               className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-3 py-2 text-xs font-semibold text-secondary transition-colors hover:text-on-surface"
-              to="/wallet"
+              to="/settings/wallet"
             >
               Open
               <Icon className="text-sm" name="arrow_forward" />
