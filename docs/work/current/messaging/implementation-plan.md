@@ -352,7 +352,7 @@ deployment.
 - [x] Add adapter crash and reconnection tests.
 - [x] Add webhook replay/idempotency tests.
 - [x] Add poll checkpoint recovery tests.
-- [ ] Add multi-connection tests for the same adapter type.
+- [x] Add multi-connection tests for the same adapter type.
 - [ ] Add Windows-specific packaging checks for adapter sidecars.
 - [ ] Decide whether Bun-compiled executables, static binaries, or another
   packaging model is the default for JS adapters.

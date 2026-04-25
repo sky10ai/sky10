@@ -593,6 +593,156 @@ func TestBrokerAdapterRestartPreservesCheckpointAndState(t *testing.T) {
 	}
 }
 
+func TestBrokerMultipleConnectionsSameAdapterAreIsolated(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	rootDir := filepath.Join(t.TempDir(), "messaging-runtime")
+	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	b, err := New(ctx, Config{
+		Store:   store,
+		RootDir: rootDir,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = b.Close() }()
+
+	connections := []messaging.Connection{
+		{
+			ID:        "slack/work",
+			AdapterID: "slack",
+			Label:     "Work Slack",
+			Status:    messaging.ConnectionStatusConnecting,
+		},
+		{
+			ID:        "slack/personal",
+			AdapterID: "slack",
+			Label:     "Personal Slack",
+			Status:    messaging.ConnectionStatusConnecting,
+		},
+	}
+
+	pathsByConnection := make(map[messaging.ConnectionID]protocol.RuntimePaths, len(connections))
+	for _, connection := range connections {
+		if err := b.RegisterConnection(ctx, RegisterConnectionParams{
+			Connection: connection,
+			Process: messagingruntime.ProcessSpec{
+				Path: helperProcessExecutableForTests(),
+				Args: []string{"-test.run=TestBrokerHelperMessagingAdapterProcess", "--"},
+				Env: []string{
+					"GO_WANT_HELPER_MESSAGING_BROKER_ADAPTER=1",
+					"SKY10_MESSAGING_BROKER_HELPER_MODE=connection-scoped",
+				},
+			},
+		}); err != nil {
+			t.Fatalf("RegisterConnection(%s) error = %v", connection.ID, err)
+		}
+		connect, err := b.ConnectConnection(ctx, connection.ID)
+		if err != nil {
+			t.Fatalf("ConnectConnection(%s) error = %v", connection.ID, err)
+		}
+		pathsByConnection[connection.ID] = connect.Paths
+		ids := brokerHelperScopedIDs(connection.ID)
+		identities := store.ListConnectionIdentities(connection.ID)
+		if len(identities) != 1 || identities[0].ID != ids.IdentityID || identities[0].ConnectionID != connection.ID {
+			t.Fatalf("ListConnectionIdentities(%s) = %+v, want %s", connection.ID, identities, ids.IdentityID)
+		}
+	}
+
+	if pathsByConnection["slack/work"].RootDir == pathsByConnection["slack/personal"].RootDir {
+		t.Fatalf("runtime roots collide: %q", pathsByConnection["slack/work"].RootDir)
+	}
+	if got := b.manager.List(); len(got) != 2 {
+		t.Fatalf("managed adapters = %+v, want two connection-scoped adapters", got)
+	}
+
+	for _, connection := range connections {
+		result, err := b.PollConnection(ctx, connection.ID, 10)
+		if err != nil {
+			t.Fatalf("PollConnection(%s) error = %v", connection.ID, err)
+		}
+		ids := brokerHelperScopedIDs(connection.ID)
+		if len(result.Events) != 1 || result.Events[0].MessageID != ids.MessageID {
+			t.Fatalf("PollConnection(%s) events = %+v, want %s", connection.ID, result.Events, ids.MessageID)
+		}
+		checkpoint, ok := store.GetCheckpoint(connection.ID)
+		if !ok || checkpoint.Cursor != ids.FirstCursor {
+			t.Fatalf("GetCheckpoint(%s) = %+v, %v; want %s", connection.ID, checkpoint, ok, ids.FirstCursor)
+		}
+		conversation, ok := store.GetConversation(ids.ConversationID)
+		if !ok || conversation.ConnectionID != connection.ID || conversation.LocalIdentityID != ids.IdentityID {
+			t.Fatalf("GetConversation(%s) = %+v, %v; want connection %s", ids.ConversationID, conversation, ok, connection.ID)
+		}
+		message, ok := store.GetMessage(ids.MessageID)
+		if !ok || message.ConnectionID != connection.ID || message.LocalIdentityID != ids.IdentityID {
+			t.Fatalf("GetMessage(%s) = %+v, %v; want connection %s", ids.MessageID, message, ok, connection.ID)
+		}
+		placements := store.ListMessagePlacements(ids.MessageID)
+		if len(placements) != 1 || placements[0].ConnectionID != connection.ID || placements[0].ContainerID != ids.InboxID {
+			t.Fatalf("ListMessagePlacements(%s) = %+v, want one scoped inbox placement", ids.MessageID, placements)
+		}
+		if got := countMessageReceivedEvents(store.ListConnectionEvents(connection.ID), ids.MessageID); got != 1 {
+			t.Fatalf("message_received events for %s = %d, want 1", connection.ID, got)
+		}
+	}
+
+	if _, ok := store.GetMessage(brokerHelperScopedIDs("slack/work").MessageID); !ok {
+		t.Fatal("work message missing before lifecycle isolation checks")
+	}
+	if _, ok := store.GetMessage(brokerHelperScopedIDs("slack/personal").MessageID); !ok {
+		t.Fatal("personal message missing before lifecycle isolation checks")
+	}
+
+	if _, err := b.DisableConnection(ctx, "slack/work"); err != nil {
+		t.Fatalf("DisableConnection(slack/work) error = %v", err)
+	}
+	if _, ok := b.manager.Get("slack/work"); ok {
+		t.Fatal("managed adapter for slack/work still present after disable")
+	}
+	if _, ok := b.manager.Get("slack/personal"); !ok {
+		t.Fatal("managed adapter for slack/personal missing after disabling slack/work")
+	}
+	if _, err := b.PollConnection(ctx, "slack/work", 10); err == nil || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("PollConnection(disabled work) error = %v, want disabled failure", err)
+	}
+
+	personalIDs := brokerHelperScopedIDs("slack/personal")
+	personalPoll, err := b.PollConnection(ctx, "slack/personal", 10)
+	if err != nil {
+		t.Fatalf("PollConnection(slack/personal after work disabled) error = %v", err)
+	}
+	if len(personalPoll.Events) != 0 {
+		t.Fatalf("PollConnection(slack/personal after checkpoint) events = %+v, want none", personalPoll.Events)
+	}
+	checkpoint, ok := store.GetCheckpoint("slack/personal")
+	if !ok || checkpoint.Cursor != personalIDs.SecondCursor {
+		t.Fatalf("GetCheckpoint(slack/personal) = %+v, %v; want %s", checkpoint, ok, personalIDs.SecondCursor)
+	}
+
+	if _, err := b.DeleteConnection(ctx, "slack/work"); err != nil {
+		t.Fatalf("DeleteConnection(slack/work) error = %v", err)
+	}
+	if _, ok := store.GetConnection("slack/work"); ok {
+		t.Fatal("slack/work connection still present after delete")
+	}
+	if _, ok := store.GetConnection("slack/personal"); !ok {
+		t.Fatal("slack/personal connection missing after deleting slack/work")
+	}
+	if _, err := os.Stat(pathsByConnection["slack/work"].RootDir); !os.IsNotExist(err) {
+		t.Fatalf("work runtime root stat after delete = %v, want not exist", err)
+	}
+	if _, err := os.Stat(pathsByConnection["slack/personal"].RootDir); err != nil {
+		t.Fatalf("personal runtime root stat after deleting work = %v", err)
+	}
+	if _, ok := store.GetMessage(personalIDs.MessageID); !ok {
+		t.Fatal("personal message missing after deleting work connection")
+	}
+}
+
 func TestBrokerHandleWebhookConnection(t *testing.T) {
 	t.Parallel()
 
@@ -1320,6 +1470,65 @@ func countMessageReceivedEvents(events []messaging.Event, messageID messaging.Me
 	return count
 }
 
+type brokerHelperIDs struct {
+	ConnectionID     messaging.ConnectionID
+	IdentityID       messaging.IdentityID
+	ConversationID   messaging.ConversationID
+	MessageID        messaging.MessageID
+	WebhookMessageID messaging.MessageID
+	InboxID          messaging.ContainerID
+	ArchiveID        messaging.ContainerID
+	ProjectID        messaging.ContainerID
+	FirstCursor      string
+	SecondCursor     string
+}
+
+func brokerHelperScopedIDs(connectionID messaging.ConnectionID) brokerHelperIDs {
+	return brokerHelperIDsFor(connectionID, true)
+}
+
+func brokerHelperIDsFor(connectionID messaging.ConnectionID, scoped bool) brokerHelperIDs {
+	if !scoped {
+		return brokerHelperIDs{
+			ConnectionID:     "slack/work",
+			IdentityID:       "identity/test",
+			ConversationID:   "conv/latisha",
+			MessageID:        "msg/latisha",
+			WebhookMessageID: "msg/webhook",
+			InboxID:          "container/inbox",
+			ArchiveID:        "container/archive",
+			ProjectID:        "container/project",
+			FirstCursor:      "cursor-1",
+			SecondCursor:     "cursor-2",
+		}
+	}
+	if connectionID == "" {
+		connectionID = "unknown"
+	}
+	slug := brokerHelperConnectionSlug(connectionID)
+	return brokerHelperIDs{
+		ConnectionID:     connectionID,
+		IdentityID:       messaging.IdentityID("identity/" + slug),
+		ConversationID:   messaging.ConversationID("conv/" + slug + "/latisha"),
+		MessageID:        messaging.MessageID("msg/" + slug + "/latisha"),
+		WebhookMessageID: messaging.MessageID("msg/" + slug + "/webhook"),
+		InboxID:          messaging.ContainerID("container/" + slug + "/inbox"),
+		ArchiveID:        messaging.ContainerID("container/" + slug + "/archive"),
+		ProjectID:        messaging.ContainerID("container/" + slug + "/project"),
+		FirstCursor:      "cursor/" + slug + "/1",
+		SecondCursor:     "cursor/" + slug + "/2",
+	}
+}
+
+func brokerHelperConnectionSlug(connectionID messaging.ConnectionID) string {
+	slug := strings.NewReplacer("/", "-", "\\", "-", ":", "-", " ", "-").Replace(string(connectionID))
+	slug = strings.Trim(slug, "-")
+	if slug == "" {
+		return "unknown"
+	}
+	return slug
+}
+
 func registerHelperConnection(t *testing.T, ctx context.Context, b *Broker) messaging.Connection {
 	t.Helper()
 
@@ -1357,6 +1566,7 @@ func runBrokerHelperMessagingAdapter() error {
 	dec := messagingruntime.NewDecoder(os.Stdin)
 	enc := messagingruntime.NewEncoder(os.Stdout)
 	mode := os.Getenv("SKY10_MESSAGING_BROKER_HELPER_MODE")
+	connectionScoped := mode == "connection-scoped"
 
 	for {
 		var req messagingruntime.Request
@@ -1399,6 +1609,7 @@ func runBrokerHelperMessagingAdapter() error {
 			if err := json.Unmarshal(req.Params, &params); err != nil {
 				return err
 			}
+			ids := brokerHelperIDsFor(params.Connection.ID, connectionScoped)
 			metadata := map[string]string{}
 			if params.Credential != nil {
 				metadata["credential_ref"] = params.Credential.Ref
@@ -1413,7 +1624,7 @@ func runBrokerHelperMessagingAdapter() error {
 				Result: mustJSON(protocol.ConnectResult{
 					Status: messaging.ConnectionStatusConnected,
 					Identities: []messaging.Identity{{
-						ID:           "identity/test",
+						ID:           ids.IdentityID,
 						ConnectionID: params.Connection.ID,
 						Kind:         messaging.IdentityKindBot,
 						RemoteID:     "U123",
@@ -1449,6 +1660,7 @@ func runBrokerHelperMessagingAdapter() error {
 			if err := json.Unmarshal(req.Params, &params); err != nil {
 				return err
 			}
+			ids := brokerHelperIDsFor(params.ConnectionID, connectionScoped)
 			if mode == "crash-once-after-checkpoint" && params.Checkpoint != nil && params.Checkpoint.Cursor == "cursor-1" {
 				marker := os.Getenv("SKY10_MESSAGING_BROKER_HELPER_CRASH_MARKER")
 				if marker == "" {
@@ -1461,14 +1673,14 @@ func runBrokerHelperMessagingAdapter() error {
 					os.Exit(31)
 				}
 			}
-			checkpointAware := mode == "checkpoint-aware" || mode == "crash-once-after-checkpoint"
-			if checkpointAware && params.Checkpoint != nil && params.Checkpoint.Cursor == "cursor-1" {
+			checkpointAware := mode == "checkpoint-aware" || mode == "crash-once-after-checkpoint" || connectionScoped
+			if checkpointAware && params.Checkpoint != nil && params.Checkpoint.Cursor == ids.FirstCursor {
 				if err := enc.Write(messagingruntime.Response{
 					JSONRPC: "2.0",
 					ID:      req.ID,
 					Result: mustJSON(protocol.PollResult{
 						Checkpoint: &protocol.Checkpoint{
-							Cursor: "cursor-2",
+							Cursor: ids.SecondCursor,
 						},
 					}),
 				}); err != nil {
@@ -1482,11 +1694,11 @@ func runBrokerHelperMessagingAdapter() error {
 				Result: mustJSON(protocol.PollResult{
 					Events: []messaging.Event{{
 						Type:           messaging.EventTypeMessageReceived,
-						ConversationID: "conv/latisha",
-						MessageID:      "msg/latisha",
+						ConversationID: ids.ConversationID,
+						MessageID:      ids.MessageID,
 					}},
 					Checkpoint: &protocol.Checkpoint{
-						Cursor: "cursor-1",
+						Cursor: ids.FirstCursor,
 					},
 				}),
 			}); err != nil {
@@ -1572,19 +1784,24 @@ func runBrokerHelperMessagingAdapter() error {
 				return err
 			}
 		case string(protocol.MethodListConversations):
+			var params protocol.ListConversationsParams
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				return err
+			}
+			ids := brokerHelperIDsFor(params.ConnectionID, connectionScoped)
 			if err := enc.Write(messagingruntime.Response{
 				JSONRPC: "2.0",
 				ID:      req.ID,
 				Result: mustJSON(protocol.ListConversationsResult{
 					Conversations: []messaging.Conversation{{
-						ID:              "conv/latisha",
-						ConnectionID:    "slack/work",
-						LocalIdentityID: "identity/test",
+						ID:              ids.ConversationID,
+						ConnectionID:    ids.ConnectionID,
+						LocalIdentityID: ids.IdentityID,
 						Kind:            messaging.ConversationKindDirect,
 						RemoteID:        "D123",
 						Title:           "Latisha",
 						Participants: []messaging.Participant{
-							{Kind: messaging.ParticipantKindBot, IdentityID: "identity/test", IsLocal: true},
+							{Kind: messaging.ParticipantKindBot, IdentityID: ids.IdentityID, IsLocal: true},
 							{Kind: messaging.ParticipantKindUser, RemoteID: "U234", DisplayName: "Latisha"},
 						},
 					}},
@@ -1597,18 +1814,19 @@ func runBrokerHelperMessagingAdapter() error {
 			if err := json.Unmarshal(req.Params, &params); err != nil {
 				return err
 			}
+			ids := brokerHelperIDsFor(params.ConnectionID, connectionScoped)
 			message := messaging.Message{
 				ID:              params.MessageID,
-				ConnectionID:    "slack/work",
-				ConversationID:  "conv/latisha",
-				LocalIdentityID: "identity/test",
+				ConnectionID:    ids.ConnectionID,
+				ConversationID:  ids.ConversationID,
+				LocalIdentityID: ids.IdentityID,
 				Direction:       messaging.MessageDirectionInbound,
 				Sender:          messaging.Participant{Kind: messaging.ParticipantKindUser, RemoteID: "U234", DisplayName: "Latisha"},
 				Parts:           []messaging.MessagePart{{Kind: messaging.MessagePartKindText, Text: "Can you review this?"}},
 				CreatedAt:       time.Date(2026, 4, 22, 13, 0, 0, 0, time.UTC),
 				Status:          messaging.MessageStatusReceived,
 			}
-			if params.MessageID == "msg/webhook" {
+			if params.MessageID == ids.WebhookMessageID {
 				message.Sender.DisplayName = "Webhook Sender"
 				message.Parts[0].Text = "Webhook payload"
 			}
@@ -1621,7 +1839,7 @@ func runBrokerHelperMessagingAdapter() error {
 						Placements: []messaging.Placement{{
 							MessageID:    message.ID,
 							ConnectionID: message.ConnectionID,
-							ContainerID:  "container/inbox",
+							ContainerID:  ids.InboxID,
 							RemoteID:     "101",
 						}},
 					},
@@ -1630,28 +1848,33 @@ func runBrokerHelperMessagingAdapter() error {
 				return err
 			}
 		case string(protocol.MethodListContainers):
+			var params protocol.ListContainersParams
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				return err
+			}
+			ids := brokerHelperIDsFor(params.ConnectionID, connectionScoped)
 			if err := enc.Write(messagingruntime.Response{
 				JSONRPC: "2.0",
 				ID:      req.ID,
 				Result: mustJSON(protocol.ListContainersResult{
 					Containers: []messaging.Container{
 						{
-							ID:           "container/archive",
-							ConnectionID: "slack/work",
+							ID:           ids.ArchiveID,
+							ConnectionID: ids.ConnectionID,
 							Kind:         messaging.ContainerKindArchive,
 							Name:         "Archive",
 							RemoteID:     "archive",
 						},
 						{
-							ID:           "container/inbox",
-							ConnectionID: "slack/work",
+							ID:           ids.InboxID,
+							ConnectionID: ids.ConnectionID,
 							Kind:         messaging.ContainerKindInbox,
 							Name:         "Inbox",
 							RemoteID:     "inbox",
 						},
 						{
-							ID:           "container/project",
-							ConnectionID: "slack/work",
+							ID:           ids.ProjectID,
+							ConnectionID: ids.ConnectionID,
 							Kind:         messaging.ContainerKindLabel,
 							Name:         "Project Phoenix",
 							RemoteID:     "project",
@@ -1666,13 +1889,14 @@ func runBrokerHelperMessagingAdapter() error {
 			if err := json.Unmarshal(req.Params, &params); err != nil {
 				return err
 			}
+			ids := brokerHelperIDsFor(params.ConnectionID, connectionScoped)
 			if err := enc.Write(messagingruntime.Response{
 				JSONRPC: "2.0",
 				ID:      req.ID,
 				Result: mustJSON(protocol.ManageMessagesResult{
 					Changes: []protocol.PlacementChange{{
 						MessageID: params.MessageIDs[0],
-						Removed:   []messaging.ContainerID{"container/inbox"},
+						Removed:   []messaging.ContainerID{ids.InboxID},
 						Added:     []messaging.ContainerID{params.DestinationContainerID},
 						Placement: &messaging.Placement{
 							MessageID:    params.MessageIDs[0],
