@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p"
+	dht "github.com/libp2p/go-libp2p-kad-dht"
 	p2pnetwork "github.com/libp2p/go-libp2p/core/network"
 	p2ppeer "github.com/libp2p/go-libp2p/core/peer"
 	p2pconnmgr "github.com/libp2p/go-libp2p/p2p/net/connmgr"
@@ -52,6 +53,31 @@ func startTestNode(t *testing.T, n *Node) context.CancelFunc {
 		<-errCh
 	})
 	return cancel
+}
+
+func startTestDHTBootstrap(t *testing.T) (p2ppeer.AddrInfo, func()) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	h, err := libp2p.New(libp2p.DisableRelay())
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	kad, err := dht.New(ctx, h, dht.Mode(dht.ModeServer), dht.DisableAutoRefresh())
+	if err != nil {
+		_ = h.Close()
+		cancel()
+		t.Fatal(err)
+	}
+	info := p2ppeer.AddrInfo{
+		ID:    h.ID(),
+		Addrs: h.Addrs(),
+	}
+	return info, func() {
+		_ = kad.Close()
+		_ = h.Close()
+		cancel()
+	}
 }
 
 func startTestRelayHost(t *testing.T) (p2ppeer.AddrInfo, func()) {
@@ -160,6 +186,9 @@ func TestNodeNetworkModeInitializesDHT(t *testing.T) {
 	if n.dht == nil {
 		t.Fatal("expected DHT to initialize in network mode")
 	}
+	if n.dht.Mode() != dht.ModeClient {
+		t.Fatalf("DHT mode = %v, want client", n.dht.Mode())
+	}
 }
 
 func TestNodeNetworkModeUsesBoundedConnectionManager(t *testing.T) {
@@ -185,6 +214,30 @@ func TestNodeNetworkModeUsesBoundedConnectionManager(t *testing.T) {
 	}
 	if info.GracePeriod != networkConnGracePeriod {
 		t.Fatalf("connection grace period = %s, want %s", info.GracePeriod, networkConnGracePeriod)
+	}
+}
+
+func TestNodeNetworkModeUsesBoundedRelayResources(t *testing.T) {
+	t.Parallel()
+
+	resources := networkRelayResources()
+	if resources.ReservationTTL != networkRelayReservationTTL {
+		t.Fatalf("relay reservation TTL = %s, want %s", resources.ReservationTTL, networkRelayReservationTTL)
+	}
+	if resources.MaxReservations != networkRelayMaxReservations {
+		t.Fatalf("relay max reservations = %d, want %d", resources.MaxReservations, networkRelayMaxReservations)
+	}
+	if resources.MaxCircuits != networkRelayMaxCircuits {
+		t.Fatalf("relay max circuits = %d, want %d", resources.MaxCircuits, networkRelayMaxCircuits)
+	}
+	if resources.MaxReservationsPerIP != networkRelayMaxReservationsPerIP {
+		t.Fatalf("relay reservations per IP = %d, want %d", resources.MaxReservationsPerIP, networkRelayMaxReservationsPerIP)
+	}
+	if resources.MaxReservationsPerASN != networkRelayMaxReservationsPerASN {
+		t.Fatalf("relay reservations per ASN = %d, want %d", resources.MaxReservationsPerASN, networkRelayMaxReservationsPerASN)
+	}
+	if resources.Limit == nil {
+		t.Fatal("expected relay limit")
 	}
 }
 

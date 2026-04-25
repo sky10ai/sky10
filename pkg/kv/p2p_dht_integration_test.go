@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/libp2p/go-libp2p"
+	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sky10/sky10/pkg/id"
 	skykey "github.com/sky10/sky10/pkg/key"
@@ -22,8 +24,9 @@ func TestP2PSyncLateConnectViaDHT(t *testing.T) {
 	bundleA, bundleB := sharedNetworkBundles(t)
 
 	bootstrap := startNetworkBootstrapNode(t, ctx)
-	nodeA, storeA, syncA := startNetworkKVNodeFromBundle(t, ctx, bundleA, nsKey, t.TempDir())
-	nodeB, storeB, syncB := startNetworkKVNodeFromBundle(t, ctx, bundleB, nsKey, t.TempDir())
+	bootstrapPeers := []peer.AddrInfo{bootstrap}
+	nodeA, storeA, syncA := startNetworkKVNodeFromBundle(t, ctx, bundleA, nsKey, t.TempDir(), bootstrapPeers)
+	nodeB, storeB, syncB := startNetworkKVNodeFromBundle(t, ctx, bundleB, nsKey, t.TempDir(), bootstrapPeers)
 
 	connectNode(t, ctx, nodeA, bootstrap)
 	connectNode(t, ctx, nodeB, bootstrap)
@@ -76,13 +79,14 @@ func TestP2PSyncRediscoveryAfterRestartViaDHT(t *testing.T) {
 	bundleA, bundleB := sharedNetworkBundles(t)
 
 	bootstrap := startNetworkBootstrapNode(t, ctx)
+	bootstrapPeers := []peer.AddrInfo{bootstrap}
 	dataDirA := t.TempDir()
 	dataDirB := t.TempDir()
 
-	nodeA, storeA, syncA := startNetworkKVNodeFromBundle(t, ctx, bundleA, nsKey, dataDirA)
+	nodeA, storeA, syncA := startNetworkKVNodeFromBundle(t, ctx, bundleA, nsKey, dataDirA, bootstrapPeers)
 
 	ctxB, cancelB := context.WithCancel(ctx)
-	nodeB, storeB, syncB := startNetworkKVNodeFromBundle(t, ctxB, bundleB, nsKey, dataDirB)
+	nodeB, storeB, syncB := startNetworkKVNodeFromBundle(t, ctxB, bundleB, nsKey, dataDirB, bootstrapPeers)
 
 	connectNode(t, ctx, nodeA, bootstrap)
 	connectNode(t, ctx, nodeB, bootstrap)
@@ -130,7 +134,7 @@ func TestP2PSyncRediscoveryAfterRestartViaDHT(t *testing.T) {
 	ctxB2, cancelB2 := context.WithCancel(ctx)
 	defer cancelB2()
 
-	nodeB2, storeB2, syncB2 := startNetworkKVNodeFromBundle(t, ctxB2, bundleB, nsKey, dataDirB)
+	nodeB2, storeB2, syncB2 := startNetworkKVNodeFromBundle(t, ctxB2, bundleB, nsKey, dataDirB, bootstrapPeers)
 	connectNode(t, ctx, nodeB2, bootstrap)
 
 	resolverB2 := link.NewResolver(nodeB2)
@@ -162,9 +166,10 @@ func TestP2PSyncThreeNodesViaDHT(t *testing.T) {
 	bundleA, bundleB, bundleC := sharedNetworkTripleBundles(t)
 
 	bootstrap := startNetworkBootstrapNode(t, ctx)
-	nodeA, storeA, syncA := startNetworkKVNodeFromBundle(t, ctx, bundleA, nsKey, t.TempDir())
-	nodeB, storeB, syncB := startNetworkKVNodeFromBundle(t, ctx, bundleB, nsKey, t.TempDir())
-	nodeC, storeC, syncC := startNetworkKVNodeFromBundle(t, ctx, bundleC, nsKey, t.TempDir())
+	bootstrapPeers := []peer.AddrInfo{bootstrap}
+	nodeA, storeA, syncA := startNetworkKVNodeFromBundle(t, ctx, bundleA, nsKey, t.TempDir(), bootstrapPeers)
+	nodeB, storeB, syncB := startNetworkKVNodeFromBundle(t, ctx, bundleB, nsKey, t.TempDir(), bootstrapPeers)
+	nodeC, storeC, syncC := startNetworkKVNodeFromBundle(t, ctx, bundleC, nsKey, t.TempDir(), bootstrapPeers)
 
 	connectNode(t, ctx, nodeA, bootstrap)
 	connectNode(t, ctx, nodeB, bootstrap)
@@ -225,8 +230,9 @@ func TestP2PSyncThirdNodeLateDiscoveryViaDHT(t *testing.T) {
 	bundleA, bundleB, bundleC := sharedNetworkTripleBundles(t)
 
 	bootstrap := startNetworkBootstrapNode(t, ctx)
-	nodeA, storeA, syncA := startNetworkKVNodeFromBundle(t, ctx, bundleA, nsKey, t.TempDir())
-	nodeB, storeB, syncB := startNetworkKVNodeFromBundle(t, ctx, bundleB, nsKey, t.TempDir())
+	bootstrapPeers := []peer.AddrInfo{bootstrap}
+	nodeA, storeA, syncA := startNetworkKVNodeFromBundle(t, ctx, bundleA, nsKey, t.TempDir(), bootstrapPeers)
+	nodeB, storeB, syncB := startNetworkKVNodeFromBundle(t, ctx, bundleB, nsKey, t.TempDir(), bootstrapPeers)
 
 	connectNode(t, ctx, nodeA, bootstrap)
 	connectNode(t, ctx, nodeB, bootstrap)
@@ -258,7 +264,7 @@ func TestP2PSyncThirdNodeLateDiscoveryViaDHT(t *testing.T) {
 			storeHasValue(storeB, "before-c", "from-a-before-c")
 	})
 
-	nodeC, storeC, syncC := startNetworkKVNodeFromBundle(t, ctx, bundleC, nsKey, t.TempDir())
+	nodeC, storeC, syncC := startNetworkKVNodeFromBundle(t, ctx, bundleC, nsKey, t.TempDir(), bootstrapPeers)
 	connectNode(t, ctx, nodeC, bootstrap)
 
 	publishPrivateNetworkRecord(t, ctx, nodeC)
@@ -373,30 +379,34 @@ func sharedNetworkTripleBundles(t *testing.T) (*id.Bundle, *id.Bundle, *id.Bundl
 	return bundleA, bundleB, bundleC
 }
 
-func startNetworkBootstrapNode(t *testing.T, ctx context.Context) *link.Node {
+func startNetworkBootstrapNode(t *testing.T, ctx context.Context) peer.AddrInfo {
 	t.Helper()
 
-	bootstrapKey, err := skykey.Generate()
+	h, err := libp2p.New(libp2p.DisableRelay())
 	if err != nil {
 		t.Fatal(err)
 	}
-	node, err := link.NewFromKey(bootstrapKey, link.Config{
-		Mode:           link.Network,
-		BootstrapPeers: []peer.AddrInfo{},
-	}, nil)
+	kad, err := dht.New(ctx, h, dht.Mode(dht.ModeServer), dht.DisableAutoRefresh())
 	if err != nil {
+		_ = h.Close()
 		t.Fatal(err)
 	}
-	startLinkNode(t, ctx, node)
-	return node
+	t.Cleanup(func() {
+		_ = kad.Close()
+		_ = h.Close()
+	})
+	return peer.AddrInfo{
+		ID:    h.ID(),
+		Addrs: h.Addrs(),
+	}
 }
 
-func startNetworkKVNodeFromBundle(t *testing.T, ctx context.Context, bundle *id.Bundle, nsKey []byte, dataDir string) (*link.Node, *Store, *P2PSync) {
+func startNetworkKVNodeFromBundle(t *testing.T, ctx context.Context, bundle *id.Bundle, nsKey []byte, dataDir string, bootstrapPeers []peer.AddrInfo) (*link.Node, *Store, *P2PSync) {
 	t.Helper()
 
 	node, err := link.New(bundle, link.Config{
 		Mode:           link.Network,
-		BootstrapPeers: []peer.AddrInfo{},
+		BootstrapPeers: bootstrapPeers,
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -443,13 +453,11 @@ func startLinkNode(t *testing.T, ctx context.Context, node *link.Node) {
 	}
 }
 
-func connectNode(t *testing.T, ctx context.Context, node *link.Node, target *link.Node) {
+func connectNode(t *testing.T, ctx context.Context, node *link.Node, target peer.AddrInfo) {
 	t.Helper()
 
-	info := target.Host().Peerstore().PeerInfo(target.PeerID())
-	info.Addrs = target.Host().Addrs()
-	if err := node.Host().Connect(ctx, info); err != nil {
-		t.Fatalf("connect %s -> %s: %v", node.PeerID(), target.PeerID(), err)
+	if err := node.Host().Connect(ctx, target); err != nil {
+		t.Fatalf("connect %s -> %s: %v", node.PeerID(), target.ID, err)
 	}
 }
 

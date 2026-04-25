@@ -229,7 +229,9 @@ func TestResolverDHTProviderDiscovery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	localBootstrap := []peer.AddrInfo{}
+	bootstrap, closeBootstrap := startTestDHTBootstrap(t)
+	t.Cleanup(closeBootstrap)
+	localBootstrap := []peer.AddrInfo{bootstrap}
 
 	bundleA := generateTestBundle(t, "nodeA")
 	nodeA, err := New(bundleA, Config{Mode: Network, BootstrapPeers: localBootstrap}, nil)

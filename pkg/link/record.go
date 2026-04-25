@@ -557,7 +557,9 @@ func (n *Node) initDHT(ctx context.Context) error {
 	}
 
 	opts := []dht.Option{
-		dht.Mode(dht.ModeAutoServer),
+		dht.Mode(dht.ModeClient),
+		dht.Concurrency(networkDHTConcurrency),
+		dht.DisableAutoRefresh(),
 	}
 	if len(bootstrapPeers) > 0 {
 		opts = append(opts, dht.BootstrapPeers(bootstrapPeers...))
@@ -571,10 +573,16 @@ func (n *Node) initDHT(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("creating DHT: %w", err)
 	}
-	if err := d.Bootstrap(ctx); err != nil {
-		return fmt.Errorf("bootstrapping DHT: %w", err)
-	}
 	n.dht = d
+	if len(bootstrapPeers) > 0 {
+		go func() {
+			bootstrapCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			if err := d.Bootstrap(bootstrapCtx); err != nil && ctx.Err() == nil {
+				n.logger.Warn("DHT bootstrap failed", "error", err)
+			}
+		}()
+	}
 	return nil
 }
 

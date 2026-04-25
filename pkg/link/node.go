@@ -13,6 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	p2pconnmgr "github.com/libp2p/go-libp2p/p2p/net/connmgr"
+	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	"github.com/sky10/sky10/pkg/id"
 	skykey "github.com/sky10/sky10/pkg/key"
@@ -26,14 +27,22 @@ const (
 	// no IPNS, no relay service, no Nostr. Default.
 	Private Mode = iota
 
-	// Network joins the public DHT, publishes IPNS records, accepts
-	// authorized external peers, and acts as a circuit relay.
+	// Network joins public discovery, accepts authorized external peers, and
+	// serves a bounded public circuit relay.
 	Network
 )
 
-const networkConnLowWater = 40
-const networkConnHighWater = 80
+const networkConnLowWater = 24
+const networkConnHighWater = 48
 const networkConnGracePeriod = 30 * time.Second
+const networkConnTrimInterval = 15 * time.Second
+const networkDHTConcurrency = 3
+
+const networkRelayReservationTTL = 15 * time.Minute
+const networkRelayMaxReservations = 16
+const networkRelayMaxCircuits = 4
+const networkRelayMaxReservationsPerIP = 2
+const networkRelayMaxReservationsPerASN = 8
 
 // Config holds Node configuration.
 type Config struct {
@@ -42,7 +51,7 @@ type Config struct {
 	BootstrapPeers           []peer.AddrInfo // nil => libp2p defaults, empty => no default bootstrap peers
 	RelayPeers               []peer.AddrInfo // static relay peers for live autorelay fallback
 	ForcePrivateReachability bool            // primarily useful in tests to force autorelay reservation
-	ForcePublicReachability  bool            // primarily useful in tests to force relay-service viability
+	ForcePublicReachability  bool            // primarily useful in tests to force public reachability
 }
 
 func (c Config) listenAddrs() []string {
@@ -240,7 +249,7 @@ func (n *Node) Run(ctx context.Context) error {
 		}
 		opts = append(opts,
 			libp2p.EnableRelay(),
-			libp2p.EnableRelayService(),
+			libp2p.EnableRelayService(relayv2.WithResources(networkRelayResources())),
 			libp2p.EnableAutoNATv2(),
 		)
 		if len(n.config.RelayPeers) > 0 {
@@ -267,6 +276,7 @@ func (n *Node) Run(ctx context.Context) error {
 			n.dht = nil
 			return err
 		}
+		go n.trimNetworkConnections(ctx, connManager)
 	}
 
 	// Initialize GossipSub for encrypted channels.
@@ -317,6 +327,35 @@ func (n *Node) Run(ctx context.Context) error {
 	}
 	n.logger.Info("skylink node stopped")
 	return nil
+}
+
+func networkRelayResources() relayv2.Resources {
+	resources := relayv2.DefaultResources()
+	resources.ReservationTTL = networkRelayReservationTTL
+	resources.MaxReservations = networkRelayMaxReservations
+	resources.MaxCircuits = networkRelayMaxCircuits
+	resources.MaxReservationsPerIP = networkRelayMaxReservationsPerIP
+	resources.MaxReservationsPerASN = networkRelayMaxReservationsPerASN
+	return resources
+}
+
+func (n *Node) trimNetworkConnections(ctx context.Context, connManager *p2pconnmgr.BasicConnMgr) {
+	if n == nil || connManager == nil {
+		return
+	}
+	ticker := time.NewTicker(networkConnTrimInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if n.host == nil || len(n.host.Network().Peers()) <= networkConnHighWater {
+				continue
+			}
+			connManager.ForceTrim()
+		}
+	}
 }
 
 // Close shuts down the libp2p host.
