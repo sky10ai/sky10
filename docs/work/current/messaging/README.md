@@ -200,8 +200,12 @@ directly.
 The current reference surface is `pkg/messaging/shim.Service`. It is
 exposure-bound, strips raw `AuthInfo` and credential-like connection metadata,
 and delegates draft, send-request, placement, label, and read-state mutations
-back through the broker. Transport is still open; the service can back a local
-JSON-RPC, MCP, or runtime-specific shim host without changing adapter code.
+back through the broker. The service can back local JSON-RPC, MCP, or a
+runtime-specific shim host without changing adapter code.
+
+The first northbound transport is local JSON-RPC via
+`pkg/messaging/shim/rpc`. MCP should layer on top of the same service contract
+later rather than becoming a separate policy surface.
 
 ## Core Domain Model
 

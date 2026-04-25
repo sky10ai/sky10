@@ -241,8 +241,9 @@ messaging once instead of learning each platform separately.
   `RequestSend`, `ListContainers`, `MoveMessages`,
   `ArchiveConversation`, `ApplyLabels`, `MarkRead`, and reserved
   `SubscribeEvents`.
-- [ ] Decide whether the default northbound path is MCP, local JSON-RPC, or
-  both.
+- [x] Decide that the default northbound path starts as local JSON-RPC, with
+  MCP available later as a wrapper over the same service surface.
+- [x] Add a local JSON-RPC handler for the northbound shim method catalog.
 - [x] Create a shim host or broker-facing surface for runtime-specific shims.
 - [x] Make sure shims never receive raw platform credentials.
 - [x] Ensure runtime-facing operations always respect exposures and policy.
