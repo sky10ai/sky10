@@ -350,7 +350,7 @@ deployment.
 - [ ] Add process isolation and least-privilege guidance for adapters.
 - [x] Add broker restart recovery tests.
 - [x] Add adapter crash and reconnection tests.
-- [ ] Add webhook replay/idempotency tests.
+- [x] Add webhook replay/idempotency tests.
 - [x] Add poll checkpoint recovery tests.
 - [ ] Add multi-connection tests for the same adapter type.
 - [ ] Add Windows-specific packaging checks for adapter sidecars.

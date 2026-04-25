@@ -654,6 +654,76 @@ func TestBrokerHandleWebhookConnection(t *testing.T) {
 	}
 }
 
+func TestBrokerHandleWebhookConnectionReplayIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	rootDir := filepath.Join(t.TempDir(), "messaging-runtime")
+	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	b, err := New(ctx, Config{
+		Store:   store,
+		RootDir: rootDir,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = b.Close() }()
+
+	connection := registerHelperConnection(t, ctx, b)
+	if _, err := b.ConnectConnection(ctx, connection.ID); err != nil {
+		t.Fatalf("ConnectConnection() error = %v", err)
+	}
+
+	request := WebhookRequest{
+		RequestID: "req-replay",
+		Method:    "POST",
+		URL:       "https://example.test/webhook",
+		Body:      []byte(`{"event":"message"}`),
+	}
+	first, err := b.HandleWebhookConnection(ctx, connection.ID, request)
+	if err != nil {
+		t.Fatalf("HandleWebhookConnection(first) error = %v", err)
+	}
+	if len(first.Events) != 1 || first.Events[0].MessageID != "msg/webhook" {
+		t.Fatalf("first Events = %+v, want msg/webhook", first.Events)
+	}
+	firstEvents := store.ListConnectionEvents(connection.ID)
+	firstMessageEvents := countMessageReceivedEvents(firstEvents, "msg/webhook")
+	if firstMessageEvents != 1 {
+		t.Fatalf("message_received events after first webhook = %d, want 1", firstMessageEvents)
+	}
+
+	second, err := b.HandleWebhookConnection(ctx, connection.ID, request)
+	if err != nil {
+		t.Fatalf("HandleWebhookConnection(replay) error = %v", err)
+	}
+	if second.StatusCode != first.StatusCode {
+		t.Fatalf("replay status = %d, want %d", second.StatusCode, first.StatusCode)
+	}
+
+	events := store.ListConnectionEvents(connection.ID)
+	if len(events) != len(firstEvents) {
+		t.Fatalf("connection events after replay len = %d, want %d", len(events), len(firstEvents))
+	}
+	if got := countMessageReceivedEvents(events, "msg/webhook"); got != 1 {
+		t.Fatalf("message_received events after replay = %d, want 1", got)
+	}
+	messages := store.ListConversationMessages("conv/latisha")
+	if len(messages) != 1 || messages[0].ID != "msg/webhook" {
+		t.Fatalf("ListConversationMessages() after replay = %+v, want only msg/webhook", messages)
+	}
+	if placements := store.ListMessagePlacements("msg/webhook"); len(placements) != 1 || placements[0].ContainerID != "container/inbox" {
+		t.Fatalf("ListMessagePlacements(msg/webhook) after replay = %+v, want one inbox placement", placements)
+	}
+	checkpoint, ok := store.GetCheckpoint(connection.ID)
+	if !ok || checkpoint.Cursor != "cursor-webhook" {
+		t.Fatalf("GetCheckpoint() after replay = %+v, %v; want cursor-webhook", checkpoint, ok)
+	}
+}
+
 func TestBrokerHandleWebhookConnectionStagesBinaryBody(t *testing.T) {
 	t.Parallel()
 
@@ -1238,6 +1308,16 @@ func waitForManagedRestart(t *testing.T, managed *messagingruntime.ManagedAdapte
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+func countMessageReceivedEvents(events []messaging.Event, messageID messaging.MessageID) int {
+	count := 0
+	for _, event := range events {
+		if event.Type == messaging.EventTypeMessageReceived && event.MessageID == messageID {
+			count++
+		}
+	}
+	return count
 }
 
 func registerHelperConnection(t *testing.T, ctx context.Context, b *Broker) messaging.Connection {
