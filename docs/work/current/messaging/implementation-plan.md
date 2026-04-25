@@ -1,6 +1,6 @@
 ---
 created: 2026-04-18
-updated: 2026-04-24
+updated: 2026-04-25
 model: gpt-5.4
 ---
 
@@ -37,7 +37,7 @@ This plan does not yet cover:
 | 2. Adapter Protocol And Runtime Host | in progress | External adapter process contract and supervision |
 | 3. Broker Core And Event Flows | in progress | Normalize inbound/outbound flow through broker |
 | 4. Policy And Approval Engine | in progress | Broker-enforced permissions and durable approvals |
-| 5. Agent Shim Protocol | not started | One thin runtime-facing messaging surface |
+| 5. Agent Shim Protocol | in progress | One thin runtime-facing messaging surface |
 | 6. First-Party Adapters | in progress | Initial platform coverage |
 | 7. UI And Operator Surfaces | not started | Connections, conversations, drafts, approvals |
 | 8. Reliability, Security, And Packaging | not started | Cross-platform runtime, recovery, and release story |
@@ -234,27 +234,29 @@ messaging once instead of learning each platform separately.
 
 ### Checklist
 
-- [ ] Create a northbound shim protocol with operations such as
+- [x] Create an initial northbound shim method catalog and service surface with
+  operations such as
   `ListConnections`, `ListIdentities`, `ListConversations`,
   `GetConversation`, `GetMessages`, `CreateDraft`, `UpdateDraft`,
-  `RequestSend`, `SendDraft`, `ListContainers`, `MoveMessages`,
-  `ArchiveConversation`, `ApplyLabels`, `MarkRead`, `SubscribeEvents`.
+  `RequestSend`, `ListContainers`, `MoveMessages`,
+  `ArchiveConversation`, `ApplyLabels`, `MarkRead`, and reserved
+  `SubscribeEvents`.
 - [ ] Decide whether the default northbound path is MCP, local JSON-RPC, or
   both.
-- [ ] Create a shim host or broker-facing surface for runtime-specific shims.
-- [ ] Make sure shims never receive raw platform credentials.
-- [ ] Ensure runtime-facing operations always respect exposures and policy.
-- [ ] Add one reference shim implementation.
-- [ ] Add tests proving that shims can read, draft, and request send without
+- [x] Create a shim host or broker-facing surface for runtime-specific shims.
+- [x] Make sure shims never receive raw platform credentials.
+- [x] Ensure runtime-facing operations always respect exposures and policy.
+- [x] Add one reference in-process shim implementation.
+- [x] Add tests proving that shims can read, draft, and request send without
   bypassing policy.
 
 ### Exit Criteria
 
 - [ ] One runtime can consume normalized messaging without platform-specific
   code.
-- [ ] The broker can expose one connection to one agent under a narrowed
+- [x] The broker can expose one connection to one agent under a narrowed
   policy.
-- [ ] A runtime can draft a reply and request send through the broker.
+- [x] A runtime can draft a reply and request send through the broker.
 
 ## Milestone 6: First-Party Adapters
 

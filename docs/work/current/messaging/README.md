@@ -1,6 +1,6 @@
 ---
 created: 2026-04-18
-updated: 2026-04-18
+updated: 2026-04-25
 model: gpt-5.4
 ---
 
@@ -196,6 +196,12 @@ Agent shims:
 
 Agents should learn one `sky10 messaging` interface, not Slack or Gmail
 directly.
+
+The current reference surface is `pkg/messaging/shim.Service`. It is
+exposure-bound, strips raw `AuthInfo` and credential-like connection metadata,
+and delegates draft, send-request, placement, label, and read-state mutations
+back through the broker. Transport is still open; the service can back a local
+JSON-RPC, MCP, or runtime-specific shim host without changing adapter code.
 
 ## Core Domain Model
 
