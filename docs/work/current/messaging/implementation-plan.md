@@ -244,6 +244,8 @@ messaging once instead of learning each platform separately.
 - [x] Decide that the default northbound path starts as local JSON-RPC, with
   MCP available later as a wrapper over the same service surface.
 - [x] Add a local JSON-RPC handler for the northbound shim method catalog.
+- [x] Add a local JSON-RPC shim host that exposes only `messaging.shim.*`
+  methods for one exposure-bound service.
 - [x] Create a shim host or broker-facing surface for runtime-specific shims.
 - [x] Make sure shims never receive raw platform credentials.
 - [x] Ensure runtime-facing operations always respect exposures and policy.
@@ -253,7 +255,7 @@ messaging once instead of learning each platform separately.
 
 ### Exit Criteria
 
-- [ ] One runtime can consume normalized messaging without platform-specific
+- [x] One runtime can consume normalized messaging without platform-specific
   code.
 - [x] The broker can expose one connection to one agent under a narrowed
   policy.

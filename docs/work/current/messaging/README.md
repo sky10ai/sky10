@@ -207,6 +207,10 @@ The first northbound transport is local JSON-RPC via
 `pkg/messaging/shim/rpc`. MCP should layer on top of the same service contract
 later rather than becoming a separate policy surface.
 
+`pkg/messaging/shim/host` runs that handler as a runtime-facing local socket
+for one exposure-bound service. The host registers only the shim namespace, so
+runtime callers do not get the broader broker/admin `messaging.*` RPC surface.
+
 ## Core Domain Model
 
 The first normalized model should include:
