@@ -27,6 +27,8 @@ const fsSyncExchangeTimeout = 5 * time.Second
 const fsReconnectSyncMinInterval = 2 * time.Second
 const defaultFSAntiEntropyInterval = 10 * time.Second
 const fsPeriodicSyncBatchSize = 1
+const fsP2PSyncConcurrency = 2
+const fsP2PPushCoalesceDelay = 750 * time.Millisecond
 
 type fsP2PNode interface {
 	Host() host.Host
@@ -373,6 +375,13 @@ type P2PSync struct {
 	registered      bool
 	lastConnectPush map[peer.ID]time.Time
 	antiEntropyLoop bool
+
+	pushMu      sync.Mutex
+	pushRunning bool
+	pushPending bool
+	syncSem     chan struct{}
+
+	pushRoundHook func(context.Context)
 }
 
 // NewP2PSync creates an FS P2P sync manager.
@@ -382,6 +391,7 @@ func NewP2PSync(node fsP2PNode, logger *slog.Logger) *P2PSync {
 		logger:          componentLogger(logger),
 		replicas:        make(map[string]*p2pReplica),
 		lastConnectPush: make(map[peer.ID]time.Time),
+		syncSem:         make(chan struct{}, fsP2PSyncConcurrency),
 	}
 }
 
@@ -409,7 +419,7 @@ func (s *P2PSync) AddReplica(replica P2PSyncReplica) {
 	s.mu.Unlock()
 
 	if registered {
-		go s.PushToAll(context.Background())
+		s.PushToAll(context.Background())
 	}
 }
 
@@ -445,7 +455,7 @@ func (s *P2PSync) RegisterProtocol() {
 	s.mu.Unlock()
 
 	s.logger.Info("fs p2p sync protocol registered")
-	go s.PushToAll(context.Background())
+	s.PushToAll(context.Background())
 }
 
 // StartAntiEntropy runs periodic bounded anti-entropy in the background so
@@ -481,9 +491,76 @@ func (s *P2PSync) StartAntiEntropy(ctx context.Context, interval time.Duration) 
 	}()
 }
 
-// PushToAll runs a summary-first anti-entropy round with all connected peers.
+// PushToAll schedules a summary-first anti-entropy round with all connected
+// peers. Only one full round runs at a time; concurrent triggers collapse into
+// one follow-up round so reconnect bursts cannot fan out into unlimited
+// snapshot work.
 func (s *P2PSync) PushToAll(ctx context.Context) {
-	if s == nil || s.node == nil {
+	if s == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	s.pushMu.Lock()
+	if s.pushRunning {
+		s.pushPending = true
+		s.pushMu.Unlock()
+		s.logger.Debug("fs p2p push: coalesced while round is running")
+		return
+	}
+	s.pushRunning = true
+	s.pushMu.Unlock()
+
+	go s.runPushLoop(ctx)
+}
+
+func (s *P2PSync) runPushLoop(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	for {
+		s.runPushRound(ctx)
+
+		s.pushMu.Lock()
+		if !s.pushPending {
+			s.pushRunning = false
+			s.pushMu.Unlock()
+			return
+		}
+		s.pushPending = false
+		s.pushMu.Unlock()
+
+		timer := time.NewTimer(fsP2PPushCoalesceDelay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			s.pushMu.Lock()
+			s.pushRunning = false
+			s.pushPending = false
+			s.pushMu.Unlock()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func (s *P2PSync) runPushRound(ctx context.Context) {
+	if s == nil {
+		return
+	}
+	if s.pushRoundHook != nil {
+		s.pushRoundHook(ctx)
+		return
+	}
+	if s.node == nil {
 		return
 	}
 	peers := s.node.ConnectedPrivateNetworkPeers()
@@ -492,10 +569,25 @@ func (s *P2PSync) PushToAll(ctx context.Context) {
 		return
 	}
 
-	s.logger.Info("fs p2p push: broadcasting", "peers", len(peers), "replicas", len(replicas))
+	targets := make([]fsSyncTarget, 0, len(peers)*len(replicas))
+	localPeer := s.node.PeerID()
 	for _, pid := range peers {
-		s.pushToPeer(ctx, pid, replicas)
+		if pid == localPeer {
+			continue
+		}
+		for _, replica := range replicas {
+			targets = append(targets, fsSyncTarget{
+				peer:    pid,
+				replica: replica,
+			})
+		}
 	}
+	if len(targets) == 0 {
+		return
+	}
+
+	s.logger.Info("fs p2p push: broadcasting", "peers", len(peers), "replicas", len(replicas), "targets", len(targets))
+	s.runSyncTargets(ctx, targets)
 }
 
 type fsSyncTarget struct {
@@ -562,29 +654,44 @@ func (s *P2PSync) pushDue(ctx context.Context, limit int, staleAfter time.Durati
 	if len(targets) > limit {
 		targets = targets[:limit]
 	}
+	s.runSyncTargets(ctx, targets)
+}
+
+func (s *P2PSync) runSyncTargets(ctx context.Context, targets []fsSyncTarget) {
+	if s == nil || len(targets) == 0 {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	sem := s.syncSem
+	if sem == nil {
+		sem = make(chan struct{}, fsP2PSyncConcurrency)
+	}
+
+	var wg sync.WaitGroup
 	for _, target := range targets {
+		if target.replica == nil {
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			wg.Wait()
+			return
+		case sem <- struct{}{}:
+		}
+
+		wg.Add(1)
 		go func(target fsSyncTarget) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
 			boundedCtx, cancel := boundedFSSyncContext(ctx)
 			defer cancel()
 			s.syncWithPeer(boundedCtx, target.peer, target.replica)
 		}(target)
 	}
-}
-
-func (s *P2PSync) pushToPeer(ctx context.Context, pid peer.ID, replicas []*p2pReplica) {
-	if pid == s.node.PeerID() {
-		return
-	}
-	if replicas == nil {
-		replicas = s.registeredReplicas()
-	}
-	for _, replica := range replicas {
-		go func(pid peer.ID, replica *p2pReplica) {
-			boundedCtx, cancel := boundedFSSyncContext(ctx)
-			defer cancel()
-			s.syncWithPeer(boundedCtx, pid, replica)
-		}(pid, replica)
-	}
+	wg.Wait()
 }
 
 func (s *P2PSync) handlePeerConnect(pid peer.ID) {
@@ -599,19 +706,14 @@ func (s *P2PSync) handlePeerConnect(pid peer.ID) {
 		return
 	}
 	s.lastConnectPush[pid] = now
-	replicas := make([]*p2pReplica, 0, len(s.replicas))
-	for _, replica := range s.replicas {
-		if replica != nil {
-			replicas = append(replicas, replica)
-		}
-	}
+	replicas := len(s.replicas)
 	s.mu.Unlock()
 
-	if len(replicas) == 0 {
+	if replicas == 0 {
 		return
 	}
-	s.logger.Info("fs p2p: peer connected, scheduling anti-entropy", "peer", pid, "replicas", len(replicas))
-	s.pushToPeer(context.Background(), pid, replicas)
+	s.logger.Info("fs p2p: peer connected, scheduling anti-entropy", "peer", pid, "replicas", replicas)
+	s.PushToAll(context.Background())
 }
 
 func (s *P2PSync) syncWithPeer(ctx context.Context, pid peer.ID, replica *p2pReplica) {

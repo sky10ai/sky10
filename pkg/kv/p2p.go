@@ -21,9 +21,12 @@ import (
 const KVSyncProtocol = protocol.ID("/sky10/kv-sync/1.0.0")
 
 const (
-	summaryExchangeTimeout  = 5 * time.Second
-	snapshotTransferTimeout = 30 * time.Second
-	maxSyncMessageSize      = 32 * 1024 * 1024
+	summaryExchangeTimeout    = 5 * time.Second
+	snapshotTransferTimeout   = 30 * time.Second
+	maxSyncMessageSize        = 32 * 1024 * 1024
+	kvP2PPushConcurrency      = 2
+	kvP2PAsyncSendConcurrency = 2
+	kvP2PPushCoalesceDelay    = 750 * time.Millisecond
 )
 
 // p2pNode is the subset of link.Node that P2PSync needs. Avoids import
@@ -54,6 +57,14 @@ type P2PSync struct {
 
 	mu     sync.Mutex
 	stores []*Store
+
+	pushMu      sync.Mutex
+	pushRunning bool
+	pushPending bool
+
+	asyncSendSem chan struct{}
+
+	pushRoundHook func(context.Context)
 }
 
 // NewP2PSync creates a P2P sync handler for the given KV store.
@@ -65,6 +76,8 @@ func NewP2PSync(store *Store, node p2pNode, identity *skykey.Key, logger *slog.L
 		identity: identity,
 		logger:   logger,
 		stores:   []*Store{store},
+
+		asyncSendSem: make(chan struct{}, kvP2PAsyncSendConcurrency),
 	}
 }
 
@@ -95,24 +108,133 @@ func (s *P2PSync) RegisterProtocol() {
 	s.logger.Info("kv p2p sync protocol registered")
 
 	// Trigger an initial anti-entropy round with all connected peers.
-	go s.PushToAll(context.Background())
+	s.PushToAll(context.Background())
 }
 
-// PushToAll runs a summary-first anti-entropy round with all connected peers.
+// PushToAll schedules a summary-first anti-entropy round with all connected
+// peers. Only one round runs at a time; concurrent triggers are coalesced into
+// one follow-up round so write bursts and reconnect notifications cannot stack
+// unlimited snapshot encodes.
 func (s *P2PSync) PushToAll(ctx context.Context) {
+	if s == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	s.pushMu.Lock()
+	if s.pushRunning {
+		s.pushPending = true
+		s.pushMu.Unlock()
+		s.logger.Debug("kv p2p push: coalesced while round is running")
+		return
+	}
+	s.pushRunning = true
+	s.pushMu.Unlock()
+
+	go s.runPushLoop(ctx)
+}
+
+func (s *P2PSync) runPushLoop(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	for {
+		s.runPushRound(ctx)
+
+		s.pushMu.Lock()
+		if !s.pushPending {
+			s.pushRunning = false
+			s.pushMu.Unlock()
+			return
+		}
+		s.pushPending = false
+		s.pushMu.Unlock()
+
+		timer := time.NewTimer(kvP2PPushCoalesceDelay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			s.pushMu.Lock()
+			s.pushRunning = false
+			s.pushPending = false
+			s.pushMu.Unlock()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+type kvP2PSyncTarget struct {
+	peer  peer.ID
+	store *Store
+}
+
+func (s *P2PSync) runPushRound(ctx context.Context) {
+	if s == nil {
+		return
+	}
+	if s.pushRoundHook != nil {
+		s.pushRoundHook(ctx)
+		return
+	}
+	if s.node == nil {
+		return
+	}
+
 	peers := s.node.ConnectedPrivateNetworkPeers()
 	stores := s.registeredStores()
-	s.logger.Info("kv p2p push: broadcasting", "peers", len(peers), "stores", len(stores))
+	if len(peers) == 0 || len(stores) == 0 {
+		return
+	}
+
+	targets := make([]kvP2PSyncTarget, 0, len(peers)*len(stores))
+	localPeer := s.node.PeerID()
 	for _, pid := range peers {
-		if pid == s.node.PeerID() {
+		if pid == localPeer {
 			continue
 		}
 		for _, store := range stores {
-			go func(pid peer.ID, store *Store) {
-				s.syncWithPeer(ctx, pid, store)
-			}(pid, store)
+			targets = append(targets, kvP2PSyncTarget{
+				peer:  pid,
+				store: store,
+			})
 		}
 	}
+	if len(targets) == 0 {
+		return
+	}
+
+	s.logger.Info("kv p2p push: broadcasting", "peers", len(peers), "stores", len(stores), "targets", len(targets))
+
+	sem := make(chan struct{}, kvP2PPushConcurrency)
+	var wg sync.WaitGroup
+	for _, target := range targets {
+		select {
+		case <-ctx.Done():
+			wg.Wait()
+			return
+		case sem <- struct{}{}:
+		}
+
+		wg.Add(1)
+		go func(target kvP2PSyncTarget) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			boundedCtx, cancel := boundedSnapshotContext(ctx)
+			defer cancel()
+			s.syncWithPeer(boundedCtx, target.peer, target.store)
+		}(target)
+	}
+	wg.Wait()
 }
 
 // syncWithPeer exchanges summaries first, then sends only the state the peer
@@ -362,11 +484,30 @@ func (s *P2PSync) handleSummary(stream network.Stream, msg p2pSyncMsg, from peer
 		go func(delta *Snapshot) {
 			ctx, cancel := boundedSnapshotContext(context.Background())
 			defer cancel()
-			if err := s.sendSnapshotMessage(ctx, from, store, "delta", delta); err != nil {
+			err := s.withAsyncSendSlot(ctx, func(ctx context.Context) error {
+				return s.sendSnapshotMessage(ctx, from, store, "delta", delta)
+			})
+			if err != nil {
 				store.recordSyncError(from.String(), err)
 				s.logger.Warn("kv p2p: async delta send failed", "peer", from, "error", err)
 			}
 		}(followUpDelta)
+	}
+}
+
+func (s *P2PSync) withAsyncSendSlot(ctx context.Context, fn func(context.Context) error) error {
+	if fn == nil {
+		return nil
+	}
+	if s.asyncSendSem == nil {
+		return fn(ctx)
+	}
+	select {
+	case s.asyncSendSem <- struct{}{}:
+		defer func() { <-s.asyncSendSem }()
+		return fn(ctx)
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 

@@ -421,10 +421,10 @@ func ServeCmd() *cobra.Command {
 						errs = append(errs, fmt.Errorf("auto-connect: %w", err))
 					}
 					if kvSync != nil {
-						go kvSync.PushToAll(context.Background())
+						kvSync.PushToAll(context.Background())
 					}
 					if fsSync != nil {
-						go fsSync.PushToAll(context.Background())
+						fsSync.PushToAll(context.Background())
 					}
 					if agentRouter != nil {
 						go agentRouter.DrainOutbox(context.Background(), "")

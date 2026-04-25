@@ -1,12 +1,68 @@
 package fs
 
 import (
+	"context"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/sky10/sky10/pkg/fs/opslog"
 )
+
+func TestFSP2PSyncPushToAllCoalescesConcurrentTriggers(t *testing.T) {
+	t.Parallel()
+
+	syncer := NewP2PSync(nil, nil)
+	release := make(chan struct{})
+	started := make(chan int32, 4)
+	var rounds atomic.Int32
+	syncer.pushRoundHook = func(context.Context) {
+		round := rounds.Add(1)
+		started <- round
+		<-release
+	}
+
+	for i := 0; i < 20; i++ {
+		syncer.PushToAll(context.Background())
+	}
+
+	select {
+	case got := <-started:
+		if got != 1 {
+			t.Fatalf("first round = %d, want 1", got)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for first round")
+	}
+	select {
+	case got := <-started:
+		t.Fatalf("unexpected overlapping round %d", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(release)
+	waitForFSUnit(t, 3*time.Second, func() bool {
+		syncer.pushMu.Lock()
+		idle := !syncer.pushRunning
+		syncer.pushMu.Unlock()
+		return rounds.Load() == 2 && idle
+	})
+	if got := rounds.Load(); got != 2 {
+		t.Fatalf("rounds = %d, want exactly 2", got)
+	}
+}
+
+func waitForFSUnit(t *testing.T, timeout time.Duration, fn func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for !fn() {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for condition")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
 
 func TestSummarizeFSSnapshotStableForUnchangedState(t *testing.T) {
 	t.Parallel()

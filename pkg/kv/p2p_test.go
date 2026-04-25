@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -217,6 +218,49 @@ func TestP2PSyncRoundtrip(t *testing.T) {
 	vi, ok := logB.Lookup("from-a")
 	if !ok || string(vi.Value) != "value-a" {
 		t.Errorf("from-a = %q, %v; want value-a, true", vi.Value, ok)
+	}
+}
+
+func TestP2PSyncPushToAllCoalescesConcurrentTriggers(t *testing.T) {
+	t.Parallel()
+
+	syncer := NewP2PSync(nil, nil, nil, nil)
+	release := make(chan struct{})
+	started := make(chan int32, 4)
+	var rounds atomic.Int32
+	syncer.pushRoundHook = func(context.Context) {
+		round := rounds.Add(1)
+		started <- round
+		<-release
+	}
+
+	for i := 0; i < 20; i++ {
+		syncer.PushToAll(context.Background())
+	}
+
+	select {
+	case got := <-started:
+		if got != 1 {
+			t.Fatalf("first round = %d, want 1", got)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for first round")
+	}
+	select {
+	case got := <-started:
+		t.Fatalf("unexpected overlapping round %d", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(release)
+	waitFor(t, 3*time.Second, func() bool {
+		syncer.pushMu.Lock()
+		idle := !syncer.pushRunning
+		syncer.pushMu.Unlock()
+		return rounds.Load() == 2 && idle
+	})
+	if got := rounds.Load(); got != 2 {
+		t.Fatalf("rounds = %d, want exactly 2", got)
 	}
 }
 

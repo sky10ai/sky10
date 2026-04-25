@@ -194,7 +194,7 @@ func (s *Store) pokeSync(ctx context.Context) {
 	p2p := s.p2pSync
 	s.mu.Unlock()
 	if p2p != nil {
-		go p2p.PushToAll(context.Background())
+		p2p.PushToAll(context.Background())
 	} else {
 		s.logger.Debug("kv pokeSync: p2pSync is nil")
 	}
@@ -269,7 +269,7 @@ func (s *Store) Run(ctx context.Context) error {
 		}
 		// Also push to connected peers for faster convergence.
 		if p2p != nil {
-			go p2p.PushToAll(context.Background())
+			p2p.PushToAll(context.Background())
 		}
 	}
 	s.poller = NewPoller(s.backend, s.localLog, s.deviceID, s.nsID, s.nsKey, s.config.PollInterval, s.baselines, s.logger)
