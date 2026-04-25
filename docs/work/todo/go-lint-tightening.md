@@ -34,7 +34,7 @@ Current `dupl` setting:
 
 Current `revive` file-length setting:
 
-- `file-length-limit.max: 4000`
+- `file-length-limit.max: 2500`
 - `skip-comments: true`
 - `skip-blank-lines: true`
 
@@ -99,26 +99,28 @@ To test a lower threshold, temporarily adjust
 
 ## File Length Plan
 
-### Stage 1: Keep `file-length-limit` at 4000
+### Stage 1: Keep `file-length-limit` at 2500
 
 - [x] Enable `revive` only for `file-length-limit`
-- [x] Start with `max: 4000` so CI stays green
+- [x] Ratchet to `max: 2500` while CI stays green
 - [x] Confirm `make lint` passes with the new limit
 
 ### Stage 2: Inventory the path to 1000
 
 Go files currently above `1000` lines:
 
-- `pkg/sandbox/manager.go` (`3148`)
-- `pkg/sandbox/manager_test.go` (`2429`)
+- `pkg/sandbox/manager_test.go` (`2488`)
+- `pkg/messaging/broker/broker_test.go` (`2039`)
+- `pkg/fs/p2p.go` (`1697`)
 - `pkg/fs/rpc_drive_test.go` (`1615`)
-- `pkg/fs/p2p.go` (`1595`)
+- `pkg/agent/router.go` (`1483`)
 - `pkg/agent/router_test.go` (`1446`)
 - `pkg/fs/daemon_v2_5_test.go` (`1419`)
-- `pkg/agent/router.go` (`1402`)
 - `pkg/fs/reconciler_test.go` (`1343`)
 - `pkg/fs/opslog/opslog.go` (`1238`)
+- `commands/agent_lima.go` (`1153`)
 - `pkg/secrets/store_test.go` (`1132`)
+- `commands/agent_lima_test.go` (`1029`)
 - `pkg/agent/rpc_test.go` (`1024`)
 - `pkg/fs/skyfs.go` (`1006`)
 
@@ -127,14 +129,14 @@ Follow-up tasks:
 - [ ] Split the largest production files before lowering the cap
 - [ ] Decide whether large test files should be split the same way or
       exempted with path-based exclusions
-- [ ] Dry-run `file-length-limit` at `2500`, `2000`, `1500`, and `1000`
+- [x] Dry-run `file-length-limit` at `2500`
+- [ ] Dry-run `file-length-limit` at `2000`, `1500`, and `1000`
 - [ ] Record whether each remaining violation is production code, test
       scaffolding, or generated-style glue that should stay together
 
 ### Stage 3: Tighten to 1000
 
-- [ ] Lower the repo-wide cap from `4000` to `2500` after the first
-      split pass
+- [x] Lower the repo-wide cap from `3000` to `2500`
 - [ ] Lower from `2500` to `1500` once the largest packages are broken
       up
 - [ ] Land `1000` only after the remaining violations are either fixed

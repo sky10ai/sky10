@@ -20,7 +20,7 @@ linters:
       rules:
         - name: file-length-limit
           arguments:
-            - max: 4000
+            - max: 2500
               skip-comments: true
               skip-blank-lines: true
 
