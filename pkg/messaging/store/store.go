@@ -9,12 +9,19 @@ import (
 	"github.com/sky10/sky10/pkg/messaging/protocol"
 )
 
+// EventObserver receives a cloned event after it is durably appended.
+type EventObserver func(messaging.Event)
+
 // Store materializes durable messaging state into broker-friendly read views.
 type Store struct {
 	backend Backend
 
 	mu    sync.RWMutex
 	index *recordIndex
+
+	eventObserverMu     sync.RWMutex
+	eventObservers      map[uint64]EventObserver
+	nextEventObserverID uint64
 }
 
 // NewStore creates a messaging store and rebuilds its in-memory index.
@@ -49,6 +56,27 @@ func (s *Store) Snapshot() Snapshot {
 		return Snapshot{}
 	}
 	return cloneSnapshot(s.index.snapshot())
+}
+
+// AddEventObserver registers an observer for newly appended durable connection
+// events. The returned function unregisters the observer.
+func (s *Store) AddEventObserver(observer EventObserver) func() {
+	if observer == nil {
+		return func() {}
+	}
+	s.eventObserverMu.Lock()
+	defer s.eventObserverMu.Unlock()
+	if s.eventObservers == nil {
+		s.eventObservers = make(map[uint64]EventObserver)
+	}
+	s.nextEventObserverID++
+	id := s.nextEventObserverID
+	s.eventObservers[id] = observer
+	return func() {
+		s.eventObserverMu.Lock()
+		defer s.eventObserverMu.Unlock()
+		delete(s.eventObservers, id)
+	}
 }
 
 // PutConnection persists one normalized connection.
@@ -313,6 +341,7 @@ func (s *Store) AppendEvent(ctx context.Context, event messaging.Event) error {
 	s.ensureIndexLocked()
 	s.index.appendEvent(event.ConnectionID, event)
 	s.mu.Unlock()
+	s.notifyEvent(event)
 	return nil
 }
 
@@ -604,5 +633,17 @@ func (s *Store) GetCheckpoint(connectionID messaging.ConnectionID) (protocol.Che
 func (s *Store) ensureIndexLocked() {
 	if s.index == nil {
 		s.index = newRecordIndex(Snapshot{})
+	}
+}
+
+func (s *Store) notifyEvent(event messaging.Event) {
+	s.eventObserverMu.RLock()
+	observers := make([]EventObserver, 0, len(s.eventObservers))
+	for _, observer := range s.eventObservers {
+		observers = append(observers, observer)
+	}
+	s.eventObserverMu.RUnlock()
+	for _, observer := range observers {
+		observer(cloneEvent(event))
 	}
 }

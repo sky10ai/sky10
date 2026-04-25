@@ -6,6 +6,10 @@ import (
 	"time"
 )
 
+// FanoutEventName is the local RPC/SSE event name used for durable messaging
+// events after the broker persists them.
+const FanoutEventName = "messaging:event"
+
 // Stable identifier types for the messaging domain.
 type (
 	AdapterID      string

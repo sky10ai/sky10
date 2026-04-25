@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sky10/sky10/pkg/logging"
 	"github.com/sky10/sky10/pkg/messaging"
@@ -62,6 +63,45 @@ func TestRestoreMessagingConnectionsSkipsDisabled(t *testing.T) {
 	if !ok || got.Status != messaging.ConnectionStatusDisabled {
 		t.Fatalf("GetConnection() = %+v, %v; want disabled connection retained", got, ok)
 	}
+}
+
+func TestInstallMessagingEventFanoutEmitsDurableEvents(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newServeMessagingMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+
+	var gotName string
+	var gotData interface{}
+	installMessagingEventFanout(store, func(name string, data interface{}) {
+		gotName = name
+		gotData = data
+	})
+
+	event := messaging.Event{
+		ID:           "evt/work",
+		Type:         messaging.EventTypeMessageReceived,
+		ConnectionID: "slack/work",
+		MessageID:    "msg/work",
+		Timestamp:    testingNow(),
+	}
+	if err := store.AppendEvent(ctx, event); err != nil {
+		t.Fatalf("AppendEvent() error = %v", err)
+	}
+	if gotName != messaging.FanoutEventName {
+		t.Fatalf("event name = %q, want %q", gotName, messaging.FanoutEventName)
+	}
+	gotEvent, ok := gotData.(messaging.Event)
+	if !ok || gotEvent.ID != event.ID {
+		t.Fatalf("event data = %+v (%T), want messaging event %s", gotData, gotData, event.ID)
+	}
+}
+
+func testingNow() time.Time {
+	return time.Date(2026, 4, 25, 9, 30, 0, 0, time.UTC)
 }
 
 type serveMessagingMemoryKVStore struct {

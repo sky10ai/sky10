@@ -179,7 +179,7 @@ outbound orchestration, and event fanout.
   registration, connect, list, manual poll, container listing, and message
   management flows.
 - [x] Add a background poll loop for connected polling-based adapters.
-- [ ] Add event fanout to UI and northbound shims.
+- [x] Add event fanout to UI and northbound shims.
 - [x] Aggregate raw activity into human-facing workflow state for draft,
   approval, and send flows.
 - [x] Add deduplication/idempotency for inbound events and outbound send

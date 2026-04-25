@@ -34,11 +34,13 @@ func TestServeExposesOnlyShimRPCSurface(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
 	socketPath := filepath.Join(socketDir, "shim.sock")
 	ready := make(chan struct{})
+	events := make(chan messaging.Event, 1)
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- Serve(ctx, Config{
 			SocketPath: socketPath,
 			Version:    "test",
+			Events:     events,
 			Service: &hostTestService{
 				connections: []messaging.Connection{{
 					ID:        "slack/work",
@@ -95,6 +97,8 @@ func TestServeExposesOnlyShimRPCSurface(t *testing.T) {
 		t.Fatalf("messaging.connections error = %v, want method not found", err)
 	}
 
+	subscribeAndAssertShimEvent(t, socketPath, events)
+
 	cancel()
 	select {
 	case err := <-errCh:
@@ -103,6 +107,59 @@ func TestServeExposesOnlyShimRPCSurface(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for shim host shutdown")
+	}
+}
+
+func subscribeAndAssertShimEvent(t *testing.T, socketPath string, events chan<- messaging.Event) {
+	t.Helper()
+
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatalf("dial subscribe socket: %v", err)
+	}
+	defer conn.Close()
+	decoder := json.NewDecoder(conn)
+	if err := json.NewEncoder(conn).Encode(skyrpc.Request{
+		JSONRPC: "2.0",
+		Method:  "subscribe",
+		ID:      1,
+	}); err != nil {
+		t.Fatalf("send subscribe request: %v", err)
+	}
+	var subscribed struct {
+		Result map[string]string `json:"result"`
+		Error  *skyrpc.Error     `json:"error,omitempty"`
+	}
+	if err := decoder.Decode(&subscribed); err != nil {
+		t.Fatalf("read subscribe response: %v", err)
+	}
+	if subscribed.Error != nil || subscribed.Result["status"] != "subscribed" {
+		t.Fatalf("subscribe response = %+v, want subscribed", subscribed)
+	}
+
+	want := messaging.Event{
+		ID:           "evt/work",
+		Type:         messaging.EventTypeMessageReceived,
+		ConnectionID: "slack/work",
+		MessageID:    "msg/work",
+		Timestamp:    time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC),
+	}
+	events <- want
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	var notification struct {
+		Method string `json:"method"`
+		Params struct {
+			Event string          `json:"event"`
+			Data  messaging.Event `json:"data"`
+		} `json:"params"`
+	}
+	if err := decoder.Decode(&notification); err != nil {
+		t.Fatalf("read event notification: %v", err)
+	}
+	if notification.Method != "event" || notification.Params.Event != messaging.FanoutEventName || notification.Params.Data.ID != want.ID {
+		t.Fatalf("event notification = %+v, want %s/%s", notification, messaging.FanoutEventName, want.ID)
 	}
 }
 

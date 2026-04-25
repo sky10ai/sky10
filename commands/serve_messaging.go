@@ -50,6 +50,7 @@ func setupMessaging(
 	if err != nil {
 		return fmt.Errorf("creating messaging store: %w", err)
 	}
+	installMessagingEventFanout(store, server.Emit)
 
 	b, err := messagingbroker.New(ctx, messagingbroker.Config{
 		Store:              store,
@@ -76,6 +77,15 @@ func setupMessaging(
 
 	go runMessagingPollLoop(ctx, b, store, logging.WithComponent(logger, "messaging.poll"))
 	return nil
+}
+
+func installMessagingEventFanout(store *messagingstore.Store, emit func(string, interface{})) {
+	if store == nil || emit == nil {
+		return
+	}
+	store.AddEventObserver(func(event messaging.Event) {
+		emit(messaging.FanoutEventName, event)
+	})
 }
 
 func restoreMessagingConnections(

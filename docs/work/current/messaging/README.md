@@ -211,6 +211,11 @@ later rather than becoming a separate policy surface.
 for one exposure-bound service. The host registers only the shim namespace, so
 runtime callers do not get the broader broker/admin `messaging.*` RPC surface.
 
+Durable broker events fan out under the `messaging:event` RPC/SSE event name
+after `Store.AppendEvent` succeeds. The daemon wires those events to UI
+subscribers, and shim hosts can bridge the same event stream to runtime
+subscribers without exposing broker/admin RPC methods.
+
 ## Core Domain Model
 
 The first normalized model should include:

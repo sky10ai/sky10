@@ -610,6 +610,60 @@ func TestStoreAppendEventsAreIdempotentByID(t *testing.T) {
 	}
 }
 
+func TestStoreEventObserversReceiveDurableEventsOnce(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := NewStore(ctx, NewKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+
+	now := time.Date(2026, 4, 25, 9, 0, 0, 0, time.UTC)
+	var observed []messaging.Event
+	unsubscribe := store.AddEventObserver(func(event messaging.Event) {
+		observed = append(observed, event)
+	})
+
+	event := messaging.Event{
+		ID:           "evt/1",
+		Type:         messaging.EventTypeMessageReceived,
+		ConnectionID: "slack/work",
+		MessageID:    "msg/1",
+		Timestamp:    now,
+		Metadata: map[string]string{
+			"remote_id": "123",
+		},
+	}
+	if err := store.AppendEvent(ctx, event); err != nil {
+		t.Fatalf("AppendEvent(first) error = %v", err)
+	}
+	if err := store.AppendEvent(ctx, event); err != nil {
+		t.Fatalf("AppendEvent(duplicate) error = %v", err)
+	}
+	if len(observed) != 1 || observed[0].ID != event.ID {
+		t.Fatalf("observed events = %+v, want exactly %s", observed, event.ID)
+	}
+	observed[0].Metadata["remote_id"] = "mutated"
+	if events := store.ListConnectionEvents(event.ConnectionID); len(events) != 1 || events[0].Metadata["remote_id"] != "123" {
+		t.Fatalf("stored events after observer mutation = %+v, want original metadata", events)
+	}
+
+	unsubscribe()
+	if err := store.AppendEvent(ctx, messaging.Event{
+		ID:           "evt/2",
+		Type:         messaging.EventTypeMessageReceived,
+		ConnectionID: "slack/work",
+		MessageID:    "msg/2",
+		Timestamp:    now.Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("AppendEvent(after unsubscribe) error = %v", err)
+	}
+	if len(observed) != 1 {
+		t.Fatalf("observed events after unsubscribe = %+v, want no new events", observed)
+	}
+}
+
 type memoryKVStore struct {
 	mu   sync.RWMutex
 	data map[string][]byte
