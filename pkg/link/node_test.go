@@ -12,6 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p"
 	p2pnetwork "github.com/libp2p/go-libp2p/core/network"
 	p2ppeer "github.com/libp2p/go-libp2p/core/peer"
+	p2pconnmgr "github.com/libp2p/go-libp2p/p2p/net/connmgr"
 	circuitv2_proto "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/proto"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/sky10/sky10/pkg/id"
@@ -158,6 +159,32 @@ func TestNodeNetworkModeInitializesDHT(t *testing.T) {
 	startTestNode(t, n)
 	if n.dht == nil {
 		t.Fatal("expected DHT to initialize in network mode")
+	}
+}
+
+func TestNodeNetworkModeUsesBoundedConnectionManager(t *testing.T) {
+	t.Parallel()
+
+	k, err := skykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := NewFromKey(k, Config{Mode: Network, BootstrapPeers: []p2ppeer.AddrInfo{}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startTestNode(t, n)
+
+	infoGetter, ok := n.Host().ConnManager().(interface{ GetInfo() p2pconnmgr.CMInfo })
+	if !ok {
+		t.Fatalf("connection manager does not expose BasicConnMgr info: %T", n.Host().ConnManager())
+	}
+	info := infoGetter.GetInfo()
+	if info.LowWater != networkConnLowWater || info.HighWater != networkConnHighWater {
+		t.Fatalf("connection watermarks = %d/%d, want %d/%d", info.LowWater, info.HighWater, networkConnLowWater, networkConnHighWater)
+	}
+	if info.GracePeriod != networkConnGracePeriod {
+		t.Fatalf("connection grace period = %s, want %s", info.GracePeriod, networkConnGracePeriod)
 	}
 }
 

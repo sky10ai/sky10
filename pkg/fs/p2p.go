@@ -26,6 +26,7 @@ const FSChunkProtocol = protocol.ID("/sky10/fs-chunk/1.0.0")
 const fsSyncExchangeTimeout = 5 * time.Second
 const fsReconnectSyncMinInterval = 2 * time.Second
 const defaultFSAntiEntropyInterval = 10 * time.Second
+const fsPeerSyncErrorBackoff = 5 * time.Minute
 const fsPeriodicSyncBatchSize = 1
 const fsP2PSyncConcurrency = 2
 const fsP2PPushCoalesceDelay = 750 * time.Millisecond
@@ -146,6 +147,11 @@ func newP2PReplica(replica P2PSyncReplica) (*p2pReplica, error) {
 			return nil, err
 		}
 		r.syncState = state
+		if len(r.syncState.Peers) >= fsPeerSyncStateMaxPeers {
+			// Best-effort compaction keeps old, oversized cache files from
+			// being rewritten at their historical size after startup.
+			_ = saveFSPeerSyncState(replica.StateDir, r.syncState)
+		}
 	}
 	if r.syncState.Peers == nil {
 		r.syncState.Peers = make(map[string]fsPeerSyncState)
@@ -172,6 +178,7 @@ func (r *p2pReplica) updateSyncState(update func(*fsReplicaSyncState) bool) erro
 	}
 	r.mu.Lock()
 	if update(&r.syncState) {
+		r.syncState = pruneFSPeerSyncState(r.syncState)
 		state := cloneFSPeerSyncState(r.syncState)
 		dir := r.stateDir
 		r.mu.Unlock()
@@ -343,16 +350,22 @@ func (r *p2pReplica) shouldSyncPeer(peerID string, localSummary fsSnapshotState,
 	if r == nil || peerID == "" {
 		return false, time.Time{}
 	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
 	state := r.syncStateSnapshot()
 	peerState, ok := state.Peers[peerID]
 	if !ok {
 		return true, time.Time{}
 	}
+	if peerState.LastErrorAt.After(peerState.LastSuccessAt) {
+		if now.Sub(peerState.LastErrorAt) < fsPeerSyncErrorBackoff {
+			return false, peerState.LastAttemptAt
+		}
+		return true, peerState.LastAttemptAt
+	}
 	if peerState.LastSuccessAt.IsZero() {
 		return true, time.Time{}
-	}
-	if peerState.LastErrorAt.After(peerState.LastSuccessAt) {
-		return true, peerState.LastAttemptAt
 	}
 	if !sameFSSnapshotState(peerState.LastLocalSummary, cloneFSSnapshotState(localSummary)) {
 		return true, peerState.LastAttemptAt
@@ -569,17 +582,26 @@ func (s *P2PSync) runPushRound(ctx context.Context) {
 		return
 	}
 
+	now := time.Now().UTC()
 	targets := make([]fsSyncTarget, 0, len(peers)*len(replicas))
 	localPeer := s.node.PeerID()
-	for _, pid := range peers {
-		if pid == localPeer {
+	for _, replica := range replicas {
+		_, summary, _, _, err := s.loadReplicaSnapshot(ctx, replica)
+		if err != nil {
+			s.logger.Warn("fs p2p push: snapshot failed", "replica", replica.id, "error", err)
 			continue
 		}
-		for _, replica := range replicas {
-			targets = append(targets, fsSyncTarget{
-				peer:    pid,
-				replica: replica,
-			})
+		for _, pid := range peers {
+			if pid == localPeer {
+				continue
+			}
+			if due, lastSync := replica.shouldSyncPeer(pid.String(), summary, now, 0); due {
+				targets = append(targets, fsSyncTarget{
+					peer:     pid,
+					replica:  replica,
+					lastSync: lastSync,
+				})
+			}
 		}
 	}
 	if len(targets) == 0 {

@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 )
 
 const fsPeerSyncStateFile = "p2p-sync-state.json"
+const fsPeerSyncStateMaxPeers = 256
 
 type fsPeerSyncState struct {
 	LastAttemptAt    time.Time        `json:"last_attempt_at,omitempty"`
@@ -52,6 +54,7 @@ func loadFSPeerSyncState(dir string) (fsReplicaSyncState, error) {
 	if state.Peers == nil {
 		state.Peers = make(map[string]fsPeerSyncState)
 	}
+	state = pruneFSPeerSyncState(state)
 	return state, nil
 }
 
@@ -59,6 +62,7 @@ func saveFSPeerSyncState(dir string, state fsReplicaSyncState) error {
 	if dir == "" {
 		return nil
 	}
+	state = pruneFSPeerSyncState(state)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create fs peer sync state dir: %w", err)
 	}
@@ -110,4 +114,59 @@ func cloneFSPeerSyncState(state fsReplicaSyncState) fsReplicaSyncState {
 		cloned.Peers[peerID] = peerState
 	}
 	return cloned
+}
+
+func pruneFSPeerSyncState(state fsReplicaSyncState) fsReplicaSyncState {
+	if state.Peers == nil {
+		state.Peers = make(map[string]fsPeerSyncState)
+		return state
+	}
+	if len(state.Peers) <= fsPeerSyncStateMaxPeers {
+		return state
+	}
+
+	type peerActivity struct {
+		id string
+		at time.Time
+	}
+	peers := make([]peerActivity, 0, len(state.Peers))
+	for peerID, peerState := range state.Peers {
+		peers = append(peers, peerActivity{
+			id: peerID,
+			at: fsPeerSyncStateLastActivity(peerState),
+		})
+	}
+	sort.Slice(peers, func(i, j int) bool {
+		if peers[i].at.Equal(peers[j].at) {
+			return peers[i].id < peers[j].id
+		}
+		if peers[i].at.IsZero() {
+			return false
+		}
+		if peers[j].at.IsZero() {
+			return true
+		}
+		return peers[i].at.After(peers[j].at)
+	})
+
+	kept := make(map[string]fsPeerSyncState, fsPeerSyncStateMaxPeers)
+	for _, peer := range peers[:fsPeerSyncStateMaxPeers] {
+		kept[peer.id] = state.Peers[peer.id]
+	}
+	state.Peers = kept
+	return state
+}
+
+func fsPeerSyncStateLastActivity(state fsPeerSyncState) time.Time {
+	last := state.LastAttemptAt
+	for _, candidate := range []time.Time{
+		state.LastSuccessAt,
+		state.LastErrorAt,
+		state.LastSummaryAt,
+	} {
+		if candidate.After(last) {
+			last = candidate
+		}
+	}
+	return last
 }

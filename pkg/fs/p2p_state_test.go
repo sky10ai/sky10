@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -113,5 +114,46 @@ func TestFSPeerSyncStateShouldSyncPeer(t *testing.T) {
 	}
 	if due, _ := replica.shouldSyncPeer("peer-b", local, now, 10*time.Minute); !due {
 		t.Fatal("unknown peer should be due for sync")
+	}
+	if err := replica.recordSyncError("peer-c", &local, fmt.Errorf("unknown namespace")); err != nil {
+		t.Fatalf("recordSyncError: %v", err)
+	}
+	if due, _ := replica.shouldSyncPeer("peer-c", local, time.Now().UTC(), 10*time.Minute); due {
+		t.Fatal("recent peer sync error should back off")
+	}
+	if due, _ := replica.shouldSyncPeer("peer-c", local, time.Now().UTC().Add(fsPeerSyncErrorBackoff+time.Second), 10*time.Minute); !due {
+		t.Fatal("peer sync error should be due after backoff")
+	}
+}
+
+func TestFSPeerSyncStatePrunesOldPeers(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	base := time.Now().UTC().Add(-time.Hour)
+	state := fsReplicaSyncState{
+		Peers: make(map[string]fsPeerSyncState, fsPeerSyncStateMaxPeers+10),
+	}
+	for i := 0; i < fsPeerSyncStateMaxPeers+10; i++ {
+		state.Peers[fmt.Sprintf("peer-%03d", i)] = fsPeerSyncState{
+			LastAttemptAt: base.Add(time.Duration(i) * time.Second),
+		}
+	}
+
+	if err := saveFSPeerSyncState(dir, state); err != nil {
+		t.Fatalf("saveFSPeerSyncState: %v", err)
+	}
+	loaded, err := loadFSPeerSyncState(dir)
+	if err != nil {
+		t.Fatalf("loadFSPeerSyncState: %v", err)
+	}
+	if len(loaded.Peers) != fsPeerSyncStateMaxPeers {
+		t.Fatalf("peers = %d, want %d", len(loaded.Peers), fsPeerSyncStateMaxPeers)
+	}
+	if _, ok := loaded.Peers[fmt.Sprintf("peer-%03d", fsPeerSyncStateMaxPeers+9)]; !ok {
+		t.Fatal("newest peer state should be kept")
+	}
+	if _, ok := loaded.Peers["peer-000"]; ok {
+		t.Fatal("oldest peer state should be pruned")
 	}
 }

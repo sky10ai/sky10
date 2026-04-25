@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	p2pconnmgr "github.com/libp2p/go-libp2p/p2p/net/connmgr"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	"github.com/sky10/sky10/pkg/id"
 	skykey "github.com/sky10/sky10/pkg/key"
@@ -28,6 +30,10 @@ const (
 	// authorized external peers, and acts as a circuit relay.
 	Network
 )
+
+const networkConnLowWater = 40
+const networkConnHighWater = 80
+const networkConnGracePeriod = 30 * time.Second
 
 // Config holds Node configuration.
 type Config struct {
@@ -216,7 +222,17 @@ func (n *Node) Run(ctx context.Context) error {
 		opts = append(opts, libp2p.ConnectionGater(n.gater))
 	}
 
+	var connManager *p2pconnmgr.BasicConnMgr
 	if n.config.Mode == Network {
+		connManager, err = p2pconnmgr.NewConnManager(
+			networkConnLowWater,
+			networkConnHighWater,
+			p2pconnmgr.WithGracePeriod(networkConnGracePeriod),
+		)
+		if err != nil {
+			return fmt.Errorf("creating network connection manager: %w", err)
+		}
+		opts = append(opts, libp2p.ConnectionManager(connManager))
 		if n.config.ForcePublicReachability {
 			opts = append(opts, libp2p.ForceReachabilityPublic())
 		} else if n.config.ForcePrivateReachability {
@@ -236,6 +252,9 @@ func (n *Node) Run(ctx context.Context) error {
 
 	h, err := libp2p.New(opts...)
 	if err != nil {
+		if connManager != nil {
+			_ = connManager.Close()
+		}
 		return fmt.Errorf("creating libp2p host: %w", err)
 	}
 	n.host = h
