@@ -2,6 +2,7 @@
 
 | Date | Entry |
 |------|-------|
+| 25 | [P2P CPU And Public Network Load](25-P2P-CPU-And-Public-Network-Load.md) — high-CPU investigation for network mode, FS retry/state mitigations, bounded public relay service, client-mode public DHT, short local CPU improvement samples, and explicit unvalidated concerns around future P2P performance |
 | 24 | [Lima VM Hardening](24-Lima-VM-Hardening.md) — explicit host-loopback forwarded endpoint blocks for Lima sandboxes, suppressed Lima auto-forwards, host-owned reconnect through guest RPC, loopback HTTP binding, direct sandbox-agent listing for `/agents`, websocket smoke tests, and web chat send/connect fixes |
 | 23 | [Windows Support Readiness](23-Windows-Support-Readiness.md) — Windows CLI release artifacts and updater naming, PowerShell installer, Windows tray/menu release assets, per-user daemon startup fallback, platform signal/process shims, and the explicit remaining gaps around RPC transport, Windows Service support, Windows CI, and the unimplemented Windows agent hypervisor/runtime |
 | 22 | [Getting Docker Setup With Lima](22-Getting-Docker-Setup-With-Lima.md) — keep Lima as the VM substrate, add `openclaw-docker` and `hermes-docker` guest runtimes, move OpenClaw/Hermes packaging into Docker assets, and harden live rollout issues around UI cache, runtime state, service watchdogs, and Hermes bridge/image startup |
