@@ -41,6 +41,20 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		}
 		result, err := h.manager.Logs(coalesceSandboxKey(p.Name, p.Slug), p.Limit)
 		return result, err, true
+	case "sandbox.runtime.status":
+		var p NamedParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("parse sandbox.runtime.status params: %w", err), true
+		}
+		result, err := h.manager.RuntimeStatus(ctx, coalesceSandboxKey(p.Name, p.Slug))
+		return result, err, true
+	case "sandbox.runtime.upgrade":
+		var p NamedParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("parse sandbox.runtime.upgrade params: %w", err), true
+		}
+		result, err := h.manager.RuntimeUpgrade(ctx, coalesceSandboxKey(p.Name, p.Slug))
+		return result, err, true
 	case "sandbox.create":
 		var p CreateParams
 		if err := json.Unmarshal(params, &p); err != nil {

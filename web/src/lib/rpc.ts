@@ -187,6 +187,12 @@ export const sandbox = {
   start: (p: { name?: string; slug?: string }) => rpc<SandboxRecord>("sandbox.start", p),
   stop: (p: { name?: string; slug?: string }) => rpc<SandboxRecord>("sandbox.stop", p),
   delete: (p: { name?: string; slug?: string }) => rpc<SandboxRecord>("sandbox.delete", p),
+  runtime: {
+    status: (p: { name?: string; slug?: string }) =>
+      rpc<SandboxRuntimeStatusResult>("sandbox.runtime.status", p),
+    upgrade: (p: { name?: string; slug?: string }) =>
+      rpc<SandboxRuntimeUpgradeResult>("sandbox.runtime.upgrade", p),
+  },
 };
 
 export function sandboxTerminalURL(slug: string) {
@@ -987,6 +993,29 @@ export interface SandboxLogsResult {
   name: string;
   slug: string;
   entries: SandboxLogEntry[];
+}
+
+export interface SandboxRuntimeStatusResult {
+  name: string;
+  slug: string;
+  template: string;
+  endpoint?: string;
+  reachable: boolean;
+  version?: string;
+  health_status?: string;
+  uptime?: string;
+  update_status?: Record<string, unknown>;
+  update_status_error?: string;
+  error?: string;
+}
+
+export interface SandboxRuntimeUpgradeResult {
+  name: string;
+  slug: string;
+  template: string;
+  endpoint?: string;
+  status: string;
+  result?: Record<string, unknown>;
 }
 
 // -- System update types --
