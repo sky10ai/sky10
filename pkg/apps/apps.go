@@ -26,12 +26,16 @@ import (
 type ID string
 
 const (
+	// AppBun is the Bun JavaScript runtime used for bundled JS adapters.
+	AppBun ID = "bun"
 	// AppOWS is the Open Wallet Standard CLI.
 	AppOWS ID = "ows"
 	// AppLima is the Lima VM runtime bundle.
 	AppLima ID = "lima"
 	// AppMkcert is the mkcert certificate helper.
 	AppMkcert ID = "mkcert"
+	// AppZerobox is the lightweight sandbox launcher for external adapters.
+	AppZerobox ID = "zerobox"
 )
 
 // ProgressFunc reports download progress in bytes.
@@ -73,14 +77,15 @@ type UninstallResult struct {
 }
 
 type spec struct {
-	ID            ID
-	Name          string
-	Repo          string
-	Executable    string
-	EntrySubpath  string
-	VersionArgs   []string
-	InstallKind   installKind
-	ReleaseAssets func(version, goos, goarch string) []releaseAsset
+	ID              ID
+	Name            string
+	Repo            string
+	Executable      string
+	EntrySubpath    string
+	EntrySubpathFor func(goos, goarch string) string
+	VersionArgs     []string
+	InstallKind     installKind
+	ReleaseAssets   func(version, goos, goarch string) []releaseAsset
 }
 
 type installKind string
@@ -107,6 +112,25 @@ type managedState struct {
 }
 
 var registry = map[ID]spec{
+	AppBun: {
+		ID:              AppBun,
+		Name:            "Bun",
+		Repo:            "oven-sh/bun",
+		Executable:      "bun",
+		EntrySubpathFor: bunEntrySubpath,
+		VersionArgs:     []string{"--version"},
+		InstallKind:     installKindArchive,
+		ReleaseAssets: func(version, goos, goarch string) []releaseAsset {
+			assetBase, _ := bunReleasePlatform(goos, goarch)
+			tag := "bun-" + normalizeVersion(version)
+			if assetBase == "" || tag == "bun-" {
+				return nil
+			}
+			return []releaseAsset{{
+				URL: fmt.Sprintf("https://github.com/oven-sh/bun/releases/download/%s/%s.zip", tag, assetBase),
+			}}
+		},
+	},
 	AppOWS: {
 		ID:          AppOWS,
 		Name:        "Open Wallet Standard",
@@ -172,6 +196,25 @@ var registry = map[ID]spec{
 			}
 			return []releaseAsset{{
 				URL: fmt.Sprintf("https://github.com/FiloSottile/mkcert/releases/latest/download/mkcert-%s-%s", goos, goarch),
+			}}
+		},
+	},
+	AppZerobox: {
+		ID:           AppZerobox,
+		Name:         "Zerobox",
+		Repo:         "afshinm/zerobox",
+		Executable:   "zerobox",
+		EntrySubpath: "zerobox",
+		VersionArgs:  []string{"--version"},
+		InstallKind:  installKindArchive,
+		ReleaseAssets: func(version, goos, goarch string) []releaseAsset {
+			assetName := zeroboxReleaseAsset(goos, goarch)
+			tag := normalizeVersion(version)
+			if assetName == "" || tag == "" {
+				return nil
+			}
+			return []releaseAsset{{
+				URL: fmt.Sprintf("https://github.com/afshinm/zerobox/releases/download/%s/%s", tag, assetName),
 			}}
 		},
 	},
@@ -557,11 +600,24 @@ func versionBinaryPath(s spec, version string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	entry := s.EntrySubpath
-	if entry == "" {
-		entry = s.Executable
-	}
+	entry := entrySubpath(s)
 	return filepath.Join(dir, normalizeVersion(version), filepath.FromSlash(entry)), nil
+}
+
+func entrySubpath(s spec) string {
+	return entrySubpathFor(s, runtime.GOOS, runtime.GOARCH)
+}
+
+func entrySubpathFor(s spec, goos, goarch string) string {
+	if s.EntrySubpathFor != nil {
+		if entry := s.EntrySubpathFor(goos, goarch); strings.TrimSpace(entry) != "" {
+			return entry
+		}
+	}
+	if s.EntrySubpath != "" {
+		return s.EntrySubpath
+	}
+	return s.Executable
 }
 
 func ensureManagedState(id ID) (*managedState, error) {
@@ -667,10 +723,7 @@ func inferVersionFromManagedTarget(id ID, s spec, target string) (string, bool) 
 	if len(parts) < 2 {
 		return "", false
 	}
-	entry := s.EntrySubpath
-	if entry == "" {
-		entry = s.Executable
-	}
+	entry := entrySubpath(s)
 	if filepath.Clean(filepath.Join(parts[1:]...)) != filepath.Clean(filepath.FromSlash(entry)) {
 		return "", false
 	}

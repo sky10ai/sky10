@@ -357,14 +357,16 @@ deployment.
 - [ ] Decide how third-party adapters are installed and discovered.
 - [ ] Add signature or provenance expectations for official adapter binaries.
 - [ ] Add process isolation and least-privilege guidance for adapters.
+- [x] Add Sky10-managed Bun and Zerobox app entries for JavaScript adapter
+  runtime and sandbox launch.
 - [x] Add broker restart recovery tests.
 - [x] Add adapter crash and reconnection tests.
 - [x] Add webhook replay/idempotency tests.
 - [x] Add poll checkpoint recovery tests.
 - [x] Add multi-connection tests for the same adapter type.
 - [ ] Add Windows-specific packaging checks for adapter sidecars.
-- [ ] Decide whether Bun-compiled executables, static binaries, or another
-  packaging model is the default for JS adapters.
+- [x] Decide that JS adapters default to bundled JavaScript artifacts running on
+  Sky10-managed Bun, with self-contained binaries reserved for special cases.
 - [ ] Add release/build documentation for official adapters and shims.
 
 ### Exit Criteria

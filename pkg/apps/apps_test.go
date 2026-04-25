@@ -2,6 +2,7 @@ package apps
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
@@ -278,6 +279,74 @@ func TestCheckRelease_NormalizesInstalledVersion(t *testing.T) {
 	}
 }
 
+func TestManagedRuntimePlatformAssets(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		goos         string
+		goarch       string
+		wantBunAsset string
+		wantBunEntry string
+		wantZerobox  string
+	}{
+		{
+			name:         "darwin arm64",
+			goos:         "darwin",
+			goarch:       "arm64",
+			wantBunAsset: "bun-darwin-aarch64",
+			wantBunEntry: filepath.Join("bun-darwin-aarch64", "bun"),
+			wantZerobox:  "zerobox-aarch64-apple-darwin.tar.gz",
+		},
+		{
+			name:         "darwin amd64",
+			goos:         "darwin",
+			goarch:       "amd64",
+			wantBunAsset: "bun-darwin-x64",
+			wantBunEntry: filepath.Join("bun-darwin-x64", "bun"),
+			wantZerobox:  "zerobox-x86_64-apple-darwin.tar.gz",
+		},
+		{
+			name:         "linux arm64",
+			goos:         "linux",
+			goarch:       "arm64",
+			wantBunAsset: "bun-linux-aarch64",
+			wantBunEntry: filepath.Join("bun-linux-aarch64", "bun"),
+			wantZerobox:  "zerobox-aarch64-unknown-linux-gnu.tar.gz",
+		},
+		{
+			name:         "linux amd64",
+			goos:         "linux",
+			goarch:       "amd64",
+			wantBunAsset: "bun-linux-x64",
+			wantBunEntry: filepath.Join("bun-linux-x64", "bun"),
+			wantZerobox:  "zerobox-x86_64-unknown-linux-gnu.tar.gz",
+		},
+		{
+			name:         "windows amd64",
+			goos:         "windows",
+			goarch:       "amd64",
+			wantBunAsset: "bun-windows-x64",
+			wantBunEntry: filepath.Join("bun-windows-x64", "bun.exe"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bunAsset, _ := bunReleasePlatform(tt.goos, tt.goarch)
+			if bunAsset != tt.wantBunAsset {
+				t.Fatalf("bun asset = %q, want %q", bunAsset, tt.wantBunAsset)
+			}
+			if got := entrySubpathFor(registry[AppBun], tt.goos, tt.goarch); got != tt.wantBunEntry {
+				t.Fatalf("bun entry = %q, want %q", got, tt.wantBunEntry)
+			}
+			if got := zeroboxReleaseAsset(tt.goos, tt.goarch); got != tt.wantZerobox {
+				t.Fatalf("zerobox asset = %q, want %q", got, tt.wantZerobox)
+			}
+		})
+	}
+}
+
 func TestInstall_DownloadsBinary(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv(config.EnvHome, home)
@@ -323,6 +392,111 @@ func TestInstall_DownloadsBinary(t *testing.T) {
 	}
 	if _, err := os.Stat(stablePath); err != nil {
 		t.Fatalf("expected active binary at %q: %v", stablePath, err)
+	}
+}
+
+func TestCheckRelease_BunUsesDirectAssetURL(t *testing.T) {
+	bunAsset, _ := bunReleasePlatform(runtime.GOOS, runtime.GOARCH)
+	if bunAsset == "" {
+		t.Skipf("bun has no asset mapping for %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"tag_name": "bun-v1.2.3",
+			"assets":   []map[string]string{},
+		})
+	}))
+	defer srv.Close()
+
+	old := ghReleaseURL
+	ghReleaseURL = func(spec) string { return srv.URL }
+	defer func() { ghReleaseURL = old }()
+
+	info, err := CheckRelease(AppBun, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.Latest != "v1.2.3" {
+		t.Fatalf("latest = %q, want v1.2.3", info.Latest)
+	}
+	want := fmt.Sprintf("https://github.com/oven-sh/bun/releases/download/bun-v1.2.3/%s.zip", bunAsset)
+	if info.AssetURL != want {
+		t.Fatalf("asset URL = %q, want %q", info.AssetURL, want)
+	}
+}
+
+func TestCheckRelease_ZeroboxUsesDirectAssetURL(t *testing.T) {
+	zeroboxAsset := zeroboxReleaseAsset(runtime.GOOS, runtime.GOARCH)
+	if zeroboxAsset == "" {
+		t.Skipf("zerobox has no asset mapping for %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"tag_name": "v0.2.6",
+			"assets":   []map[string]string{},
+		})
+	}))
+	defer srv.Close()
+
+	old := ghReleaseURL
+	ghReleaseURL = func(spec) string { return srv.URL }
+	defer func() { ghReleaseURL = old }()
+
+	info, err := CheckRelease(AppZerobox, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := fmt.Sprintf("https://github.com/afshinm/zerobox/releases/download/v0.2.6/%s", zeroboxAsset)
+	if info.AssetURL != want {
+		t.Fatalf("asset URL = %q, want %q", info.AssetURL, want)
+	}
+}
+
+func TestInstall_BunExtractsArchive(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script fixture is unix-only")
+	}
+	entry := entrySubpath(registry[AppBun])
+	if entry == "" {
+		t.Skipf("bun has no entry mapping for %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+
+	archive := zipFixture(t, map[string]string{
+		entry: "#!/bin/sh\necho '1.2.3'\n",
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(archive)))
+		_, _ = w.Write(archive)
+	}))
+	defer srv.Close()
+
+	info := &ReleaseInfo{
+		ID:       AppBun,
+		Latest:   "v1.2.3",
+		AssetURL: srv.URL + "/bun.zip",
+	}
+	if err := Install(AppBun, info, nil); err != nil {
+		t.Fatalf("install error: %v", err)
+	}
+
+	installedPath, err := InstalledPath(AppBun)
+	if err != nil {
+		t.Fatalf("InstalledPath() error: %v", err)
+	}
+	wantInstalled, err := versionBinaryPath(registry[AppBun], "v1.2.3")
+	if err != nil {
+		t.Fatalf("versionBinaryPath() error: %v", err)
+	}
+	if installedPath != wantInstalled {
+		t.Fatalf("InstalledPath() = %q, want %q", installedPath, wantInstalled)
+	}
+	if _, err := os.Stat(installedPath); err != nil {
+		t.Fatalf("expected extracted bun at %q: %v", installedPath, err)
 	}
 }
 
@@ -722,6 +896,28 @@ func tarGzFixture(t *testing.T, files map[string]string) []byte {
 	}
 	if err := gzw.Close(); err != nil {
 		t.Fatalf("gzip close: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func zipFixture(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, body := range files {
+		hdr := &zip.FileHeader{Name: filepath.ToSlash(name)}
+		hdr.SetMode(0o755)
+		w, err := zw.CreateHeader(hdr)
+		if err != nil {
+			t.Fatalf("CreateHeader(%q): %v", name, err)
+		}
+		if _, err := w.Write([]byte(body)); err != nil {
+			t.Fatalf("Write(%q): %v", name, err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zip close: %v", err)
 	}
 	return buf.Bytes()
 }

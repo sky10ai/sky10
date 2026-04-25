@@ -56,10 +56,13 @@ The default JavaScript adapter model is:
 2. build a bundled `dist/adapter.js`
 3. install the bundle as an adapter artifact
 4. launch with Sky10-managed Bun
-5. run through `zerobox` once sandbox launch support is wired
+5. run through Sky10-managed `zerobox` once sandbox launch support is wired
 
 Sky10 should not run `npm install`, `bun install`, or package lifecycle scripts
 as part of normal adapter startup.
+
+`bun` and `zerobox` are managed helper apps in Sky10, so adapter artifacts can
+depend on those runtime tools without bundling a separate copy per adapter.
 
 ## Current First Target
 

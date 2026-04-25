@@ -261,3 +261,60 @@ func limaReleasePlatform(goos, goarch string) (osName, archName, archiveExt stri
 	}
 	return osName, archName, archiveExt
 }
+
+func bunEntrySubpath(goos, goarch string) string {
+	assetBase, executable := bunReleasePlatform(goos, goarch)
+	if assetBase == "" || executable == "" {
+		return ""
+	}
+	return filepath.Join(assetBase, executable)
+}
+
+func bunReleasePlatform(goos, goarch string) (assetBase, executable string) {
+	executable = "bun"
+	switch strings.ToLower(strings.TrimSpace(goos)) {
+	case "darwin":
+		switch strings.ToLower(strings.TrimSpace(goarch)) {
+		case "arm64":
+			return "bun-darwin-aarch64", executable
+		case "amd64":
+			return "bun-darwin-x64", executable
+		}
+	case "linux":
+		switch strings.ToLower(strings.TrimSpace(goarch)) {
+		case "arm64":
+			return "bun-linux-aarch64", executable
+		case "amd64":
+			return "bun-linux-x64", executable
+		}
+	case "windows":
+		executable = "bun.exe"
+		switch strings.ToLower(strings.TrimSpace(goarch)) {
+		case "arm64":
+			return "bun-windows-aarch64", executable
+		case "amd64":
+			return "bun-windows-x64", executable
+		}
+	}
+	return "", ""
+}
+
+func zeroboxReleaseAsset(goos, goarch string) string {
+	switch strings.ToLower(strings.TrimSpace(goos)) {
+	case "darwin":
+		switch strings.ToLower(strings.TrimSpace(goarch)) {
+		case "arm64":
+			return "zerobox-aarch64-apple-darwin.tar.gz"
+		case "amd64":
+			return "zerobox-x86_64-apple-darwin.tar.gz"
+		}
+	case "linux":
+		switch strings.ToLower(strings.TrimSpace(goarch)) {
+		case "arm64":
+			return "zerobox-aarch64-unknown-linux-gnu.tar.gz"
+		case "amd64":
+			return "zerobox-x86_64-unknown-linux-gnu.tar.gz"
+		}
+	}
+	return ""
+}
