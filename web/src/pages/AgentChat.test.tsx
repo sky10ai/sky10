@@ -60,6 +60,7 @@ let root: Root | null = null;
 let fetchCalls: FetchCall[] = [];
 
 type FetchSetupOptions = {
+  agentList?: "ready" | "pending";
   sandboxList?: "ready" | "pending";
 };
 
@@ -196,6 +197,9 @@ function setupFetch(options: FetchSetupOptions = {}) {
 
     switch (body.method) {
       case "agent.list":
+        if (options.agentList === "pending") {
+          return await new Promise<Response>(() => {});
+        }
         return rpcResult(body.id, {
           agents: [{
             id: "A-agent",
@@ -243,13 +247,16 @@ function setupFetch(options: FetchSetupOptions = {}) {
   }) as typeof fetch;
 }
 
-async function renderAgentChatPage() {
+async function renderAgentChatPage(options: { routeState?: unknown } = {}) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => {
+    const initialEntry = options.routeState
+      ? { pathname: "/agents/agent-1", state: options.routeState }
+      : "/agents/agent-1";
     root!.render(
-      <MemoryRouter initialEntries={["/agents/agent-1"]}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/agents/:agentId" element={<AgentChat />} />
         </Routes>
@@ -310,10 +317,10 @@ describe("AgentChat page", () => {
     FakeWebSocket.reset();
   });
 
-  test("sends text plus image and file attachments over the guest websocket", async () => {
+  test("sends text plus image and file attachments over the chat websocket", async () => {
     localStorage.setItem("sky10:session:agent-1", "session-files");
     const page = await renderAgentChatPage();
-    await waitFor(() => FakeWebSocket.instances.length > 0, "guest websocket");
+    await waitFor(() => FakeWebSocket.instances.length > 0, "chat websocket");
 
     const attachButton = page.querySelector('button[aria-label="Attach photo or file"]') as HTMLButtonElement | null;
     if (!attachButton) {
@@ -390,7 +397,28 @@ describe("AgentChat page", () => {
     await waitFor(() => page.textContent?.includes("Delivered") === true, "delivered state");
   });
 
-  test("allows sending while sandbox lookup is still pending", async () => {
+  test("uses route state while the fresh agent list is still pending", async () => {
+    setupFetch({ agentList: "pending" });
+    const page = await renderAgentChatPage({
+      routeState: {
+        agent: {
+          id: "A-agent",
+          name: "agent-1",
+          device_id: "D-guest",
+          device_name: "Guest VM",
+          skills: ["code"],
+          status: "connected",
+          connected_at: "2026-04-18T12:00:00Z",
+        },
+      },
+    });
+
+    await waitFor(() => FakeWebSocket.instances.length > 0, "chat websocket from route state");
+    expect(page.textContent).toContain("agent-1");
+    expect(FakeWebSocket.latest().url).toContain("/rpc/agents/A-agent/chat");
+  });
+
+  test("allows sending without waiting for sandbox lookup", async () => {
     setupFetch({ sandboxList: "pending" });
     const page = await renderAgentChatPage();
 
@@ -428,14 +456,14 @@ describe("AgentChat page", () => {
     }
     expect(sentSocket.url).toContain("/rpc/agents/A-agent/chat");
     expect(sentSocket.url).not.toContain("10.0.0.2");
-    expect(fetchCalls.filter((call) => call.method === "sandbox.list")).toHaveLength(1);
+    expect(fetchCalls.filter((call) => call.method === "sandbox.list")).toHaveLength(0);
   });
 
   test("rotates a stale chat session when no visible transcript is stored", async () => {
     localStorage.setItem("sky10:session:agent-1", "session-stale");
 
     await renderAgentChatPage();
-    await waitFor(() => FakeWebSocket.instances.length > 0, "guest websocket");
+    await waitFor(() => FakeWebSocket.instances.length > 0, "chat websocket");
 
     const socket = FakeWebSocket.latest();
     const sessionID = new URL(socket.url).searchParams.get("session_id");

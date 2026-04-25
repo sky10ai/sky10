@@ -1,10 +1,10 @@
 import { useEffect, useEffectEvent, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Icon } from "../components/Icon";
 import { StatusBadge } from "../components/StatusBadge";
-import { AGENT_EVENT_TYPES, SANDBOX_EVENT_TYPES, subscribe } from "../lib/events";
+import { AGENT_EVENT_TYPES, subscribe } from "../lib/events";
 import {
   appendChatMessage,
   applyStreamingDelta,
@@ -20,16 +20,12 @@ import {
 import {
   agent,
   agentChatWebSocketURL,
-  guestAgentChatWebSocketURL,
-  sandbox,
   type AgentInfo,
   type AgentSendResult,
   type ChatContent,
   type ChatContentPart,
   type DeliveryMetadata,
-  type SandboxRecord,
 } from "../lib/rpc";
-import { sandboxForwardedEndpoint } from "../lib/sandboxes";
 import { useRPC } from "../lib/useRPC";
 
 const maxAttachmentBytes = 8 * 1024 * 1024;
@@ -97,6 +93,15 @@ function uuid(): string {
   b[8]! = (b[8]! & 0x3f) | 0x80;
   const h = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+function routeStateAgent(state: unknown, agentId: string | undefined): AgentInfo | undefined {
+  if (!state || typeof state !== "object") return undefined;
+  const agentInfo = (state as { agent?: unknown }).agent;
+  if (!agentInfo || typeof agentInfo !== "object") return undefined;
+  const candidate = agentInfo as AgentInfo;
+  if (candidate.id !== agentId && candidate.name !== agentId) return undefined;
+  return candidate;
 }
 
 function parseChatTimestamp(value: unknown): Date {
@@ -385,6 +390,7 @@ function MessageBody({ message }: { message: ChatMessage }) {
 export default function AgentChat() {
   const { agentId } = useParams<{ agentId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const storageKey = `sky10:chat:${agentId}`;
   const sessionKey = `sky10:session:${agentId}`;
   const initialMessages = loadChatMessages(localStorage.getItem(storageKey));
@@ -423,34 +429,15 @@ export default function AgentChat() {
     live: AGENT_EVENT_TYPES,
     refreshIntervalMs: 5_000,
   });
-  const { data: sandboxData, loading: sandboxLoading } = useRPC(() => sandbox.list(), [], {
-    live: SANDBOX_EVENT_TYPES,
-    refreshIntervalMs: 5_000,
-  });
 
+  const routeAgentInfo = routeStateAgent(location.state, agentId);
   const agentInfo: AgentInfo | undefined = data?.agents?.find(
     (a) => a.id === agentId || a.name === agentId
-  );
+  ) ?? routeAgentInfo;
   const agentName = agentInfo?.name;
   const agentInfoID = agentInfo?.id;
-  const sandboxGuest: SandboxRecord | undefined = agentInfo
-    ? sandboxData?.sandboxes?.find((record) => record.guest_device_id === agentInfo.device_id)
-    : undefined;
-  const sandboxLookupPending = Boolean(agentInfo && sandboxData === null && sandboxLoading);
-  const guestSky10Endpoint = sandboxForwardedEndpoint(sandboxGuest, "sky10");
-  const guestChatReady = Boolean(guestSky10Endpoint || sandboxGuest?.ip_address);
   const hostChatWebSocketURL = agentInfoID ? agentChatWebSocketURL(agentInfoID, sessionId) : undefined;
-  const guestChatWebSocketURL = agentInfoID && sandboxGuest && guestChatReady
-    ? guestSky10Endpoint?.host && guestSky10Endpoint.host_port
-      ? guestAgentChatWebSocketURL(guestSky10Endpoint.host, guestSky10Endpoint.host_port, agentInfoID, sessionId)
-      : guestAgentChatWebSocketURL(sandboxGuest.ip_address!, 9101, agentInfoID, sessionId)
-    : undefined;
-  const desiredChatWebSocketURL = guestChatWebSocketURL ?? hostChatWebSocketURL;
-  const usingGuestWebSocket = Boolean(
-    activeChatWebSocketURL &&
-    guestChatWebSocketURL &&
-    activeChatWebSocketURL === guestChatWebSocketURL,
-  );
+  const desiredChatWebSocketURL = hostChatWebSocketURL;
   const showGlobalWaiting = waiting && !messages.some((message) => message.streaming);
 
   const clearWaitingState = useEffectEvent(() => {
@@ -514,20 +501,21 @@ export default function AgentChat() {
   });
 
   const applySendResult = useEffectEvent((userMessageID: string, result: AgentSendResult) => {
+    const delivered = transport === "websocket"
+      ? result.status === "sent"
+      : result.status === "sent" && result.delivery.status === "sent";
     setMessages((prev) =>
       prev.map((message) => (
         message.id === userMessageID
           ? {
               ...message,
-              delivered: usingGuestWebSocket
-                ? result.status === "sent"
-                : result.status === "sent" && result.delivery.status === "sent",
-              delivery: usingGuestWebSocket ? undefined : result.delivery,
+              delivered,
+              delivery: transport === "websocket" ? undefined : result.delivery,
             }
           : message
       ))
     );
-    if (usingGuestWebSocket ? result.status === "sent" : result.status === "sent" && result.delivery.status === "sent") {
+    if (delivered) {
       startWaitingState();
       return;
     }
@@ -951,10 +939,8 @@ export default function AgentChat() {
         ? "Still waiting"
         : "Waiting for reply"
       : transport === "websocket"
-        ? usingGuestWebSocket
-          ? "Direct chat"
-          : "Routed chat"
-        : transport === "connecting" || sandboxLookupPending
+        ? "Routed chat"
+        : transport === "connecting"
           ? "Connecting chat"
           : "Routed fallback";
 

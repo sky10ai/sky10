@@ -106,7 +106,7 @@ export default function Agents() {
         {agents.map((a) => (
           <div
             key={`${a.device_id}-${a.id}`}
-            onClick={() => navigate(`/agents/${a.id}`)}
+            onClick={() => navigate(`/agents/${a.id}`, { state: { agent: a } })}
             className="rounded-xl p-6 shadow-sm hover:shadow-xl transition-all duration-500 bg-surface-container-lowest ring-1 ring-outline-variant/10 cursor-pointer active:scale-[0.98]"
           >
             <div className="flex items-center justify-between mb-3 h-5">
