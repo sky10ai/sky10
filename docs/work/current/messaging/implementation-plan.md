@@ -101,7 +101,7 @@ committing to any one platform adapter.
 
 ### Exit Criteria
 
-- [ ] The broker can restart without losing connection, identity,
+- [x] The broker can restart without losing connection, identity,
   conversation, message, draft, or checkpoint state.
 - [ ] Secrets remain in `pkg/secrets` or equivalent secret storage, not inside
   messaging records.
@@ -144,7 +144,7 @@ Define and host external platform adapters as supervised local processes.
   called by the broker.
 - [x] Broker-owned webhooks can be forwarded to an adapter and converted into
   normalized events.
-- [ ] Adapter restart does not corrupt broker state.
+- [x] Adapter restart does not corrupt broker state.
 
 ## Milestone 3: Broker Core And Event Flows
 
@@ -348,10 +348,10 @@ deployment.
 - [ ] Decide how third-party adapters are installed and discovered.
 - [ ] Add signature or provenance expectations for official adapter binaries.
 - [ ] Add process isolation and least-privilege guidance for adapters.
-- [ ] Add broker restart recovery tests.
-- [ ] Add adapter crash and reconnection tests.
+- [x] Add broker restart recovery tests.
+- [x] Add adapter crash and reconnection tests.
 - [ ] Add webhook replay/idempotency tests.
-- [ ] Add poll checkpoint recovery tests.
+- [x] Add poll checkpoint recovery tests.
 - [ ] Add multi-connection tests for the same adapter type.
 - [ ] Add Windows-specific packaging checks for adapter sidecars.
 - [ ] Decide whether Bun-compiled executables, static binaries, or another

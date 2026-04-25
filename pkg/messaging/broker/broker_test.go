@@ -3,6 +3,7 @@ package broker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -337,6 +338,258 @@ func TestBrokerConnectionLifecycleRefreshDisableDelete(t *testing.T) {
 	}
 	if _, err := b.ConnectConnection(ctx, connection.ID); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("ConnectConnection(deleted) error = %v, want not found", err)
+	}
+}
+
+func TestBrokerRestartReloadsPersistedStateAndCheckpoint(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	rootDir := filepath.Join(t.TempDir(), "messaging-runtime")
+	backend := messagingstore.NewKVBackend(newMemoryKVStore(), "")
+	store, err := messagingstore.NewStore(ctx, backend)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	b, err := New(ctx, Config{
+		Store:   store,
+		RootDir: rootDir,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	connection := messaging.Connection{
+		ID:              "slack/work",
+		AdapterID:       "slack",
+		Label:           "Work Slack",
+		Status:          messaging.ConnectionStatusConnecting,
+		DefaultPolicyID: "policy/drafts",
+	}
+	if err := store.PutPolicy(ctx, messaging.Policy{
+		ID:   "policy/drafts",
+		Name: "Drafts",
+		Rules: messaging.PolicyRules{
+			ReadInbound:     true,
+			CreateDrafts:    true,
+			SendMessages:    true,
+			RequireApproval: true,
+			ReplyOnly:       true,
+		},
+	}); err != nil {
+		t.Fatalf("PutPolicy() error = %v", err)
+	}
+	if err := store.PutExposure(ctx, messaging.Exposure{
+		ID:           "exposure/hermes",
+		ConnectionID: connection.ID,
+		SubjectID:    "runtime:hermes",
+		SubjectKind:  messaging.ExposureSubjectKindRuntime,
+		PolicyID:     "policy/drafts",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("PutExposure() error = %v", err)
+	}
+	if err := b.RegisterConnection(ctx, RegisterConnectionParams{
+		Connection: connection,
+		Process: messagingruntime.ProcessSpec{
+			Path: helperProcessExecutableForTests(),
+			Args: []string{"-test.run=TestBrokerHelperMessagingAdapterProcess", "--"},
+			Env: []string{
+				"GO_WANT_HELPER_MESSAGING_BROKER_ADAPTER=1",
+				"SKY10_MESSAGING_BROKER_HELPER_MODE=checkpoint-aware",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("RegisterConnection() error = %v", err)
+	}
+	if _, err := b.ConnectConnection(ctx, connection.ID); err != nil {
+		t.Fatalf("ConnectConnection() error = %v", err)
+	}
+	if _, err := b.PollConnection(ctx, connection.ID, 10); err != nil {
+		t.Fatalf("PollConnection() error = %v", err)
+	}
+	if _, err := b.CreateDraft(ctx, "exposure/hermes", messaging.Draft{
+		ID:              "draft/reply",
+		ConnectionID:    connection.ID,
+		ConversationID:  "conv/latisha",
+		LocalIdentityID: "identity/test",
+		Parts:           []messaging.MessagePart{{Kind: messaging.MessagePartKindText, Text: "I can review it."}},
+		Status:          messaging.DraftStatusPending,
+	}); err != nil {
+		t.Fatalf("CreateDraft() error = %v", err)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatalf("broker.Close() error = %v", err)
+	}
+
+	reloadedStore, err := messagingstore.NewStore(ctx, backend)
+	if err != nil {
+		t.Fatalf("NewStore(reload) error = %v", err)
+	}
+	reloadedConnection, ok := reloadedStore.GetConnection(connection.ID)
+	if !ok {
+		t.Fatal("GetConnection() after reload = missing")
+	}
+	if got := reloadedStore.ListConnectionIdentities(connection.ID); len(got) != 1 || got[0].ID != "identity/test" {
+		t.Fatalf("ListConnectionIdentities() after reload = %+v, want identity/test", got)
+	}
+	if _, ok := reloadedStore.GetConversation("conv/latisha"); !ok {
+		t.Fatal("GetConversation(conv/latisha) after reload = missing")
+	}
+	if _, ok := reloadedStore.GetMessage("msg/latisha"); !ok {
+		t.Fatal("GetMessage(msg/latisha) after reload = missing")
+	}
+	if _, ok := reloadedStore.GetPlacement("msg/latisha", "container/inbox"); !ok {
+		t.Fatal("GetPlacement(msg/latisha, inbox) after reload = missing")
+	}
+	if _, ok := reloadedStore.GetDraft("draft/reply"); !ok {
+		t.Fatal("GetDraft(draft/reply) after reload = missing")
+	}
+	if workflows := reloadedStore.ListWorkflows(); len(workflows) != 1 || workflows[0].DraftID != "draft/reply" {
+		t.Fatalf("ListWorkflows() after reload = %+v, want draft workflow", workflows)
+	}
+	checkpoint, ok := reloadedStore.GetCheckpoint(connection.ID)
+	if !ok || checkpoint.Cursor != "cursor-1" {
+		t.Fatalf("GetCheckpoint() after reload = %+v, %v; want cursor-1", checkpoint, ok)
+	}
+
+	reloadedBroker, err := New(ctx, Config{
+		Store:   reloadedStore,
+		RootDir: rootDir,
+	})
+	if err != nil {
+		t.Fatalf("New(reloaded) error = %v", err)
+	}
+	defer func() { _ = reloadedBroker.Close() }()
+	if err := reloadedBroker.UpsertConnection(ctx, RegisterConnectionParams{
+		Connection: reloadedConnection,
+		Process: messagingruntime.ProcessSpec{
+			Path: helperProcessExecutableForTests(),
+			Args: []string{"-test.run=TestBrokerHelperMessagingAdapterProcess", "--"},
+			Env: []string{
+				"GO_WANT_HELPER_MESSAGING_BROKER_ADAPTER=1",
+				"SKY10_MESSAGING_BROKER_HELPER_MODE=checkpoint-aware",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("UpsertConnection(reloaded) error = %v", err)
+	}
+	pollResult, err := reloadedBroker.PollConnection(ctx, connection.ID, 10)
+	if err != nil {
+		t.Fatalf("PollConnection(reloaded) error = %v", err)
+	}
+	if len(pollResult.Events) != 0 {
+		t.Fatalf("PollConnection(reloaded) events = %+v, want none after checkpoint", pollResult.Events)
+	}
+	checkpoint, ok = reloadedStore.GetCheckpoint(connection.ID)
+	if !ok || checkpoint.Cursor != "cursor-2" {
+		t.Fatalf("GetCheckpoint() after reloaded poll = %+v, %v; want cursor-2", checkpoint, ok)
+	}
+	receivedEvents := 0
+	for _, event := range reloadedStore.ListConnectionEvents(connection.ID) {
+		if event.Type == messaging.EventTypeMessageReceived {
+			receivedEvents++
+		}
+	}
+	if receivedEvents != 1 {
+		t.Fatalf("message_received events after reloaded poll = %d, want 1", receivedEvents)
+	}
+}
+
+func TestBrokerAdapterRestartPreservesCheckpointAndState(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	rootDir := filepath.Join(t.TempDir(), "messaging-runtime")
+	crashMarker := filepath.Join(t.TempDir(), "poll-crashed")
+	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	b, err := New(ctx, Config{
+		Store:   store,
+		RootDir: rootDir,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = b.Close() }()
+
+	connection := messaging.Connection{
+		ID:        "slack/work",
+		AdapterID: "slack",
+		Label:     "Work Slack",
+		Status:    messaging.ConnectionStatusConnecting,
+	}
+	if err := b.RegisterConnection(ctx, RegisterConnectionParams{
+		Connection: connection,
+		Process: messagingruntime.ProcessSpec{
+			Path: helperProcessExecutableForTests(),
+			Args: []string{"-test.run=TestBrokerHelperMessagingAdapterProcess", "--"},
+			Env: []string{
+				"GO_WANT_HELPER_MESSAGING_BROKER_ADAPTER=1",
+				"SKY10_MESSAGING_BROKER_HELPER_MODE=crash-once-after-checkpoint",
+				"SKY10_MESSAGING_BROKER_HELPER_CRASH_MARKER=" + crashMarker,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("RegisterConnection() error = %v", err)
+	}
+	if _, err := b.ConnectConnection(ctx, connection.ID); err != nil {
+		t.Fatalf("ConnectConnection() error = %v", err)
+	}
+	if _, err := b.PollConnection(ctx, connection.ID, 10); err != nil {
+		t.Fatalf("PollConnection(first) error = %v", err)
+	}
+	if _, ok := store.GetMessage("msg/latisha"); !ok {
+		t.Fatal("GetMessage(msg/latisha) after first poll = missing")
+	}
+	checkpoint, ok := store.GetCheckpoint(connection.ID)
+	if !ok || checkpoint.Cursor != "cursor-1" {
+		t.Fatalf("GetCheckpoint() after first poll = %+v, %v; want cursor-1", checkpoint, ok)
+	}
+
+	if _, err := b.PollConnection(ctx, connection.ID, 10); err == nil {
+		t.Fatal("PollConnection(crashing) error = nil, want adapter crash")
+	}
+	checkpoint, ok = store.GetCheckpoint(connection.ID)
+	if !ok || checkpoint.Cursor != "cursor-1" {
+		t.Fatalf("GetCheckpoint() after crash = %+v, %v; want cursor-1", checkpoint, ok)
+	}
+	receivedEvents := 0
+	for _, event := range store.ListConnectionEvents(connection.ID) {
+		if event.Type == messaging.EventTypeMessageReceived {
+			receivedEvents++
+		}
+	}
+	if receivedEvents != 1 {
+		t.Fatalf("message_received events after crash = %d, want 1", receivedEvents)
+	}
+
+	managed, ok := b.manager.Get(string(connection.ID))
+	if !ok {
+		t.Fatal("managed adapter missing after crash")
+	}
+	waitForManagedRestart(t, managed)
+
+	recoverCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	recovered, err := b.PollConnection(recoverCtx, connection.ID, 10)
+	if err != nil {
+		t.Fatalf("PollConnection(recovered) error = %v", err)
+	}
+	if len(recovered.Events) != 0 {
+		t.Fatalf("PollConnection(recovered) events = %+v, want none after checkpoint", recovered.Events)
+	}
+	checkpoint, ok = store.GetCheckpoint(connection.ID)
+	if !ok || checkpoint.Cursor != "cursor-2" {
+		t.Fatalf("GetCheckpoint() after recovery = %+v, %v; want cursor-2", checkpoint, ok)
+	}
+	if _, ok := store.GetMessage("msg/latisha"); !ok {
+		t.Fatal("GetMessage(msg/latisha) after recovery = missing")
+	}
+	if state := managed.Snapshot(); state.RestartCount < 1 || !state.Running {
+		t.Fatalf("managed adapter state after recovery = %+v, want restarted and running", state)
 	}
 }
 
@@ -971,6 +1224,22 @@ func TestBrokerRuntimePathsForConnection(t *testing.T) {
 	}
 }
 
+func waitForManagedRestart(t *testing.T, managed *messagingruntime.ManagedAdapter) {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		state := managed.Snapshot()
+		if state.RestartCount >= 1 && state.Running {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("managed adapter did not restart: %+v", state)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func registerHelperConnection(t *testing.T, ctx context.Context, b *Broker) messaging.Connection {
 	t.Helper()
 
@@ -1007,6 +1276,7 @@ func TestBrokerHelperMessagingAdapterProcess(t *testing.T) {
 func runBrokerHelperMessagingAdapter() error {
 	dec := messagingruntime.NewDecoder(os.Stdin)
 	enc := messagingruntime.NewEncoder(os.Stdout)
+	mode := os.Getenv("SKY10_MESSAGING_BROKER_HELPER_MODE")
 
 	for {
 		var req messagingruntime.Request
@@ -1095,6 +1365,37 @@ func runBrokerHelperMessagingAdapter() error {
 				return err
 			}
 		case string(protocol.MethodPoll):
+			var params protocol.PollParams
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				return err
+			}
+			if mode == "crash-once-after-checkpoint" && params.Checkpoint != nil && params.Checkpoint.Cursor == "cursor-1" {
+				marker := os.Getenv("SKY10_MESSAGING_BROKER_HELPER_CRASH_MARKER")
+				if marker == "" {
+					return errors.New("crash marker is required")
+				}
+				if _, err := os.Stat(marker); os.IsNotExist(err) {
+					if err := os.WriteFile(marker, []byte("crashed"), 0o600); err != nil {
+						return err
+					}
+					os.Exit(31)
+				}
+			}
+			checkpointAware := mode == "checkpoint-aware" || mode == "crash-once-after-checkpoint"
+			if checkpointAware && params.Checkpoint != nil && params.Checkpoint.Cursor == "cursor-1" {
+				if err := enc.Write(messagingruntime.Response{
+					JSONRPC: "2.0",
+					ID:      req.ID,
+					Result: mustJSON(protocol.PollResult{
+						Checkpoint: &protocol.Checkpoint{
+							Cursor: "cursor-2",
+						},
+					}),
+				}); err != nil {
+					return err
+				}
+				continue
+			}
 			if err := enc.Write(messagingruntime.Response{
 				JSONRPC: "2.0",
 				ID:      req.ID,
