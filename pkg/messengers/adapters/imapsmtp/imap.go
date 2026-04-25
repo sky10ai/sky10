@@ -383,6 +383,16 @@ func normalizeFetchedMessage(cfg adapterConfig, item *imapclient.FetchMessageBuf
 		createdAt = time.Now().UTC()
 	}
 
+	metadata := map[string]string{
+		"imap_uid":         strconv.FormatUint(uint64(item.UID), 10),
+		"mailbox":          cfg.Mailbox,
+		"email_message_id": envelope.MessageID,
+		"subject":          envelope.Subject,
+	}
+	for key, value := range emailHeaderMetadata(raw) {
+		metadata[key] = value
+	}
+
 	message := messaging.Message{
 		ID:              messageIDFor(cfg, item.UID),
 		ConnectionID:    cfg.ConnectionID,
@@ -394,17 +404,53 @@ func normalizeFetchedMessage(cfg adapterConfig, item *imapclient.FetchMessageBuf
 		Parts:           parts,
 		CreatedAt:       createdAt.UTC(),
 		Status:          messaging.MessageStatusReceived,
-		Metadata: map[string]string{
-			"imap_uid":         strconv.FormatUint(uint64(item.UID), 10),
-			"mailbox":          cfg.Mailbox,
-			"email_message_id": envelope.MessageID,
-			"subject":          envelope.Subject,
-		},
+		Metadata:        metadata,
 	}
 	if len(envelope.InReplyTo) > 0 {
 		message.ReplyToRemoteID = envelope.InReplyTo[len(envelope.InReplyTo)-1]
 	}
 	return conversation, message, nil
+}
+
+func emailHeaderMetadata(raw []byte) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	msg, err := mail.ReadMessage(bytes.NewReader(raw))
+	if err != nil {
+		return nil
+	}
+	metadata := make(map[string]string)
+	if references := normalizeMessageIDList(msg.Header.Get("References")); references != "" {
+		metadata["references"] = references
+	}
+	if inReplyTo := normalizeMessageIDList(msg.Header.Get("In-Reply-To")); inReplyTo != "" {
+		metadata["in_reply_to"] = inReplyTo
+	}
+	if workflowID := strings.TrimSpace(msg.Header.Get("X-Sky10-Workflow-ID")); workflowID != "" {
+		metadata["sky10_workflow_id"] = workflowID
+	}
+	if draftID := strings.TrimSpace(msg.Header.Get("X-Sky10-Draft-ID")); draftID != "" {
+		metadata["sky10_draft_id"] = draftID
+	}
+	if gmailThreadID := strings.TrimSpace(msg.Header.Get("X-GM-THRID")); gmailThreadID != "" {
+		metadata["gmail_thread_id"] = gmailThreadID
+	}
+	if len(metadata) == 0 {
+		return nil
+	}
+	return metadata
+}
+
+func normalizeMessageIDList(value string) string {
+	fields := strings.Fields(value)
+	if len(fields) == 0 {
+		return ""
+	}
+	for idx, field := range fields {
+		fields[idx] = strings.Trim(strings.TrimSpace(field), "<>")
+	}
+	return strings.Join(fields, " ")
 }
 
 func extractMessageParts(raw []byte) ([]messaging.MessagePart, error) {

@@ -415,6 +415,14 @@ Current `imap-smtp` implementation declares `SearchMessages` only. It uses
 remote IMAP `UID SEARCH` against the configured mailbox or selected mailbox
 container, then returns normalized message hits with placements.
 
+The adapter normalizes inbound RFC822 messages into email-thread
+conversations, message parts, mailbox placements, poll checkpoints, and
+threading metadata such as `References`, `In-Reply-To`,
+`X-Sky10-Workflow-ID`, `X-Sky10-Draft-ID`, and `X-GM-THRID` when those
+headers are available. Outbound send and reply use standard SMTP delivery with
+RFC822 `Message-ID`, `In-Reply-To`, and `References` headers so replies stay
+attached to provider-side threads where the provider honors those headers.
+
 Search also needs policy. It is not automatically safe just because it is
 read-only.
 

@@ -270,16 +270,16 @@ different messaging shapes.
 
 ### Recommended Order
 
-1. `gmail`
-2. `email/imap-smtp`
-3. `slack`
+1. `email/imap-smtp`
+2. `slack`
+3. `gmail`
 4. `telegram`
 5. `microsoft365`
 6. `whatsapp`
 
 ### Checklist
 
-- [ ] Pick the first two adapters for MVP and keep the rest behind them.
+- [x] Pick the first two adapters for MVP and keep the rest behind them.
 - [x] Keep official built-in adapter code under `pkg/messengers/adapters/*`
   and dispatch it through `sky10 messaging <adapter>` so `sky10` can self-exec
   a child adapter process without shipping many binaries.
@@ -293,12 +293,16 @@ different messaging shapes.
   contact/channel discovery.
 - [x] Implement IMAP/SMTP container listing and placement reporting for cached
   messages.
-- [ ] Implement inbound normalization for each adapter.
-- [ ] Implement draft/send or reply flow for each adapter.
+- [x] Implement IMAP/SMTP inbound normalization.
+- [x] Implement IMAP/SMTP draft/send and reply flow.
+- [ ] Implement inbound normalization for each remaining first-party adapter.
+- [ ] Implement draft/send or reply flow for each remaining first-party adapter.
 - [ ] Implement auth refresh and expired-credential handling.
 - [x] Implement adapter-specific config validation.
-- [ ] Add end-to-end tests for each first-party adapter path using mocks or
-  deterministic fixtures.
+- [x] Add deterministic IMAP/SMTP adapter tests for normalization, search,
+  send, and reply behavior.
+- [ ] Add end-to-end tests for each remaining first-party adapter path using
+  mocks or deterministic fixtures.
 
 ### Exit Criteria
 

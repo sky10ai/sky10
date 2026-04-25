@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/emersion/go-imap/v2"
+	"github.com/emersion/go-imap/v2/imapclient"
 	"github.com/sky10/sky10/pkg/messaging"
 	"github.com/sky10/sky10/pkg/messaging/protocol"
 	messagingruntime "github.com/sky10/sky10/pkg/messaging/runtime"
@@ -249,6 +252,110 @@ func TestServerHandleSearchMessagesRejectsIndexedSource(t *testing.T) {
 	}
 }
 
+func TestNormalizeFetchedMessageParsesRFC822Fixture(t *testing.T) {
+	t.Parallel()
+
+	cfg := adapterConfig{
+		ConnectionID: "imap/work",
+		Label:        "Work Mail",
+		EmailAddress: "mailer@example.com",
+		DisplayName:  "Mailer",
+		Mailbox:      "INBOX",
+	}
+	internalDate := time.Date(2026, 4, 25, 14, 30, 0, 0, time.UTC)
+	raw := crlf(`From: Latisha <latisha@example.com>
+To: Mailer <mailer@example.com>
+Cc: Board <board@example.com>
+Subject: Re: Board Update
+Message-ID: <reply@example.com>
+In-Reply-To: <root@example.com>
+References: <root@example.com> <prior@example.com>
+X-Sky10-Workflow-ID: workflow/board
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="sky10"
+
+--sky10
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: quoted-printable
+
+Hello=2C board update.
+--sky10
+Content-Type: text/html; charset=UTF-8
+
+<p>Hello, board update.</p>
+--sky10--
+`)
+	item := &imapclient.FetchMessageBuffer{
+		UID:          42,
+		InternalDate: internalDate,
+		Envelope: &imap.Envelope{
+			Date:    time.Date(2026, 4, 25, 14, 29, 0, 0, time.UTC),
+			Subject: "Re: Board Update",
+			From: []imap.Address{{
+				Name:    "Latisha",
+				Mailbox: "latisha",
+				Host:    "example.com",
+			}},
+			To: []imap.Address{{
+				Name:    "Mailer",
+				Mailbox: "mailer",
+				Host:    "example.com",
+			}},
+			Cc: []imap.Address{{
+				Name:    "Board",
+				Mailbox: "board",
+				Host:    "example.com",
+			}},
+			InReplyTo: []string{"root@example.com"},
+			MessageID: "reply@example.com",
+		},
+	}
+
+	conversation, message, err := normalizeFetchedMessage(cfg, item, []byte(raw))
+	if err != nil {
+		t.Fatalf("normalize fetched message: %v", err)
+	}
+	if conversation.ID != conversationIDFor(cfg, "root@example.com") || conversation.RemoteID != "root@example.com" {
+		t.Fatalf("conversation thread = (%s, %q), want root thread", conversation.ID, conversation.RemoteID)
+	}
+	if conversation.Title != "Re: Board Update" || conversation.Kind != messaging.ConversationKindEmailThread {
+		t.Fatalf("conversation = %+v, want email thread title", conversation)
+	}
+	if len(conversation.Participants) != 3 || !conversation.Participants[0].IsLocal || conversation.Participants[1].Address != "latisha@example.com" {
+		t.Fatalf("participants = %+v, want local account plus remote senders", conversation.Participants)
+	}
+	if message.ID != messageIDFor(cfg, 42) || message.RemoteID != "reply@example.com" {
+		t.Fatalf("message ids = (%s, %q), want normalized uid and email message id", message.ID, message.RemoteID)
+	}
+	if message.Direction != messaging.MessageDirectionInbound || message.Status != messaging.MessageStatusReceived {
+		t.Fatalf("message state = (%s, %s), want inbound received", message.Direction, message.Status)
+	}
+	if message.Sender.Address != "latisha@example.com" || message.Sender.DisplayName != "Latisha" {
+		t.Fatalf("sender = %+v, want Latisha", message.Sender)
+	}
+	if !message.CreatedAt.Equal(internalDate) || message.ReplyToRemoteID != "root@example.com" {
+		t.Fatalf("created/reply = (%s, %q), want internal date and root reply", message.CreatedAt, message.ReplyToRemoteID)
+	}
+	if len(message.Parts) != 2 || message.Parts[0].Kind != messaging.MessagePartKindText || !strings.Contains(message.Parts[0].Text, "Hello, board update.") {
+		t.Fatalf("parts = %+v, want decoded text plus html", message.Parts)
+	}
+	if message.Parts[1].Kind != messaging.MessagePartKindHTML || !strings.Contains(message.Parts[1].Text, "<p>Hello, board update.</p>") {
+		t.Fatalf("html part = %+v, want html body", message.Parts[1])
+	}
+	if message.Metadata["references"] != "root@example.com prior@example.com" || message.Metadata["sky10_workflow_id"] != "workflow/board" {
+		t.Fatalf("metadata = %+v, want references and x-sky10 workflow", message.Metadata)
+	}
+
+	placement := placementForMessage(cfg, message)
+	if placement.ContainerID != containerIDForMailbox(cfg, "INBOX") || placement.RemoteID != "42" {
+		t.Fatalf("placement = %+v, want INBOX uid 42", placement)
+	}
+	checkpoint := nextCheckpoint(&protocol.Checkpoint{Metadata: map[string]string{"mailbox": "INBOX"}}, item.UID)
+	if checkpoint.Cursor != "42" || checkpoint.Sequence != "42" || checkpoint.Metadata["mailbox"] != "INBOX" {
+		t.Fatalf("checkpoint = %+v, want uid cursor with metadata preserved", checkpoint)
+	}
+}
+
 func TestServerHandlePollCachesResults(t *testing.T) {
 	t.Parallel()
 
@@ -334,6 +441,165 @@ func TestServerHandlePollCachesResults(t *testing.T) {
 	}
 }
 
+func TestServerHandleSendResolvesMetadataRecipientsAndCachesSentMessage(t *testing.T) {
+	t.Parallel()
+
+	server := newServer()
+	server.verifyFunc = func(context.Context, adapterConfig) error { return nil }
+	server.sendFunc = func(_ context.Context, cfg adapterConfig, draft messaging.Draft, recipients []string, headers outboundHeaders) (sendSnapshot, error) {
+		if cfg.ConnectionID != "imap/work" {
+			t.Fatalf("send cfg connection = %q, want imap/work", cfg.ConnectionID)
+		}
+		if got := strings.Join(recipients, ","); got != "board@example.com,latisha@example.com" {
+			t.Fatalf("recipients = %q, want sorted unique metadata recipients", got)
+		}
+		if headers.Subject != "Board Update" || headers.InReplyTo != "" || len(headers.References) != 0 {
+			t.Fatalf("headers = %+v, want new-message subject only", headers)
+		}
+		return sendSnapshot{Message: messaging.Message{
+			ID:              "sent/draft-1",
+			ConnectionID:    draft.ConnectionID,
+			ConversationID:  draft.ConversationID,
+			LocalIdentityID: draft.LocalIdentityID,
+			RemoteID:        "sent-1@example.com",
+			Direction:       messaging.MessageDirectionOutbound,
+			Sender: messaging.Participant{
+				Kind:        messaging.ParticipantKindAccount,
+				IdentityID:  draft.LocalIdentityID,
+				Address:     cfg.EmailAddress,
+				DisplayName: cfg.DisplayName,
+				IsLocal:     true,
+			},
+			Parts:     cloneParts(draft.Parts),
+			CreatedAt: time.Date(2026, 4, 25, 15, 0, 0, 0, time.UTC),
+			Status:    messaging.MessageStatusSent,
+		}}, nil
+	}
+	connectServerForTest(t, server)
+
+	resp := server.handle(context.Background(), rpcRequest(t, protocol.MethodSendMessage, protocol.SendMessageParams{
+		Draft: protocol.DraftRecord{Draft: messaging.Draft{
+			ID:              "draft-1",
+			ConnectionID:    "imap/work",
+			ConversationID:  "conv/new",
+			LocalIdentityID: "identity/imap/work",
+			Parts:           []messaging.MessagePart{{Kind: messaging.MessagePartKindText, Text: "I can review it."}},
+			Status:          messaging.DraftStatusApproved,
+			Metadata: map[string]string{
+				"subject":    "Board Update",
+				"to":         "latisha@example.com, board@example.com",
+				"recipients": "latisha@example.com",
+			},
+		}},
+	}))
+	if resp.Error != nil {
+		t.Fatalf("send message error = %v", resp.Error)
+	}
+	var sent protocol.SendResult
+	if err := json.Unmarshal(resp.Result, &sent); err != nil {
+		t.Fatalf("decode send result: %v", err)
+	}
+	if sent.Status != messaging.MessageStatusSent || sent.Message.Message.ID != "sent/draft-1" {
+		t.Fatalf("send result = %+v, want sent/draft-1", sent)
+	}
+
+	resp = server.handle(context.Background(), rpcRequest(t, protocol.MethodGetMessage, protocol.GetMessageParams{
+		ConnectionID: "imap/work",
+		MessageID:    "sent/draft-1",
+	}))
+	if resp.Error != nil {
+		t.Fatalf("get sent message error = %v", resp.Error)
+	}
+}
+
+func TestServerHandleReplyResolvesSenderAndThreadHeaders(t *testing.T) {
+	t.Parallel()
+
+	server := newServer()
+	server.verifyFunc = func(context.Context, adapterConfig) error { return nil }
+	server.sendFunc = func(_ context.Context, _ adapterConfig, draft messaging.Draft, recipients []string, headers outboundHeaders) (sendSnapshot, error) {
+		if got := strings.Join(recipients, ","); got != "latisha@example.com" {
+			t.Fatalf("reply recipients = %q, want inbound sender", got)
+		}
+		if headers.Subject != "Re: Board Update" || headers.InReplyTo != "reply@example.com" {
+			t.Fatalf("reply headers = %+v, want subject and in-reply-to", headers)
+		}
+		if got := strings.Join(headers.References, ","); got != "root@example.com,reply@example.com" {
+			t.Fatalf("references = %q, want stored thread refs", got)
+		}
+		return sendSnapshot{Message: messaging.Message{
+			ID:              "sent/reply-1",
+			ConnectionID:    draft.ConnectionID,
+			ConversationID:  draft.ConversationID,
+			LocalIdentityID: draft.LocalIdentityID,
+			RemoteID:        "sent-reply@example.com",
+			Direction:       messaging.MessageDirectionOutbound,
+			Sender:          messaging.Participant{Kind: messaging.ParticipantKindAccount, IdentityID: draft.LocalIdentityID, Address: "mailer@example.com", IsLocal: true},
+			Parts:           cloneParts(draft.Parts),
+			CreatedAt:       time.Date(2026, 4, 25, 15, 5, 0, 0, time.UTC),
+			ReplyToRemoteID: headers.InReplyTo,
+			Status:          messaging.MessageStatusSent,
+		}}, nil
+	}
+	connectServerForTest(t, server)
+	seedInboundThread(t, server)
+
+	resp := server.handle(context.Background(), rpcRequest(t, protocol.MethodReplyMessage, protocol.ReplyMessageParams{
+		ReplyToMessageID: "msg/inbound",
+		Draft: protocol.DraftRecord{Draft: messaging.Draft{
+			ID:              "reply-1",
+			ConnectionID:    "imap/work",
+			ConversationID:  "conv/board",
+			LocalIdentityID: "identity/imap/work",
+			Parts:           []messaging.MessagePart{{Kind: messaging.MessagePartKindMarkdown, Text: "I'll take care of it."}},
+			Status:          messaging.DraftStatusApproved,
+		}},
+	}))
+	if resp.Error != nil {
+		t.Fatalf("reply message error = %v", resp.Error)
+	}
+	var sent protocol.SendResult
+	if err := json.Unmarshal(resp.Result, &sent); err != nil {
+		t.Fatalf("decode reply result: %v", err)
+	}
+	if sent.Message.Message.ReplyToRemoteID != "reply@example.com" || sent.Message.Message.Status != messaging.MessageStatusSent {
+		t.Fatalf("reply result = %+v, want sent reply linked to inbound", sent.Message.Message)
+	}
+}
+
+func TestBuildRFC822MessageIncludesThreadHeaders(t *testing.T) {
+	t.Parallel()
+
+	raw := string(buildRFC822Message(
+		"Mailer <mailer@example.com>",
+		[]string{"latisha@example.com", "board@example.com"},
+		"Re: Board Update",
+		"Line one\nLine two",
+		"text/plain",
+		"sent@example.com",
+		outboundHeaders{
+			InReplyTo:  "reply@example.com",
+			References: []string{"root@example.com", "reply@example.com"},
+		},
+	))
+	for _, want := range []string{
+		"From: Mailer <mailer@example.com>\r\n",
+		"To: latisha@example.com, board@example.com\r\n",
+		"Subject: Re: Board Update\r\n",
+		"Message-ID: <sent@example.com>\r\n",
+		"Content-Type: text/plain; charset=\"UTF-8\"\r\n",
+		"In-Reply-To: <reply@example.com>\r\n",
+		"References: <root@example.com> <reply@example.com>\r\n",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("raw message missing %q:\n%s", want, raw)
+		}
+	}
+	if !strings.HasSuffix(raw, "\r\n\r\nLine one\r\nLine two\r\n") {
+		t.Fatalf("raw body = %q, want normalized CRLF body", raw)
+	}
+}
+
 func stagedCredential(t *testing.T, raw string) *protocol.ResolvedCredential {
 	t.Helper()
 
@@ -351,6 +617,53 @@ func stagedCredential(t *testing.T, raw string) *protocol.ResolvedCredential {
 			LocalPath: path,
 		},
 	}
+}
+
+func seedInboundThread(t *testing.T, server *service) {
+	t.Helper()
+
+	state, ok := server.connection("imap/work")
+	if !ok {
+		t.Fatal("imap/work is not connected")
+	}
+	conversation := messaging.Conversation{
+		ID:              "conv/board",
+		ConnectionID:    "imap/work",
+		LocalIdentityID: "identity/imap/work",
+		Kind:            messaging.ConversationKindEmailThread,
+		Title:           "Board Update",
+		Participants: []messaging.Participant{
+			{Kind: messaging.ParticipantKindAccount, IdentityID: "identity/imap/work", Address: "mailer@example.com", IsLocal: true},
+			{Kind: messaging.ParticipantKindUser, Address: "latisha@example.com", DisplayName: "Latisha"},
+		},
+	}
+	message := messaging.Message{
+		ID:              "msg/inbound",
+		ConnectionID:    "imap/work",
+		ConversationID:  conversation.ID,
+		LocalIdentityID: "identity/imap/work",
+		RemoteID:        "reply@example.com",
+		Direction:       messaging.MessageDirectionInbound,
+		Sender:          messaging.Participant{Kind: messaging.ParticipantKindUser, Address: "latisha@example.com", DisplayName: "Latisha"},
+		Parts:           []messaging.MessagePart{{Kind: messaging.MessagePartKindText, Text: "Can you review this?"}},
+		CreatedAt:       time.Date(2026, 4, 25, 14, 30, 0, 0, time.UTC),
+		Status:          messaging.MessageStatusReceived,
+		Metadata: map[string]string{
+			"email_message_id": "reply@example.com",
+			"references":       "root@example.com reply@example.com",
+		},
+	}
+	server.mu.Lock()
+	state.conversations[conversation.ID] = conversation
+	state.messages[message.ID] = message
+	server.mu.Unlock()
+}
+
+func crlf(value string) string {
+	value = strings.TrimPrefix(value, "\n")
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\r", "\n")
+	return strings.ReplaceAll(value, "\n", "\r\n")
 }
 
 func rpcRequest(t *testing.T, method protocol.Method, params any) messagingruntime.Request {
