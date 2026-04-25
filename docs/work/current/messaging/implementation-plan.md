@@ -209,6 +209,12 @@ meaningful messaging power.
   read inbound, draft replies, send replies, start new conversations,
   attachment handling, allowed identities, message management, allowed
   containers, and search permissions.
+- [x] Add a policy document authoring shape with conversational intent,
+  compiled broker rules, generator provenance, and human review state.
+- [ ] Apply validated policy document bindings to connection defaults and
+  exposure overrides.
+- [ ] Add an AI-assisted policy authoring flow that proposes file diffs instead
+  of mutating broker state directly.
 - [ ] Add allowed connection scopes and allowed time windows.
 - [x] Support connection-level default policy.
 - [x] Support exposure-level narrowed policy for a specific agent/runtime.

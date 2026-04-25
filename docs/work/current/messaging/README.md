@@ -568,6 +568,10 @@ Agents should not:
 
 Policy lives in the broker.
 
+Policy authoring should use a file that carries both the user's conversational
+intent and the compiled broker rules. The current policy document shape is
+defined in [`policy-authoring.md`](./policy-authoring.md).
+
 Representative policy controls:
 
 - can read inbound messages
