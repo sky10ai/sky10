@@ -28,6 +28,10 @@ const (
 	MethodListMessages        Method = "messaging.adapter.listMessages"
 	MethodGetMessage          Method = "messaging.adapter.getMessage"
 	MethodListContainers      Method = "messaging.adapter.listContainers"
+	MethodResolveIdentity     Method = "messaging.adapter.resolveIdentity"
+	MethodSearchIdentities    Method = "messaging.adapter.searchIdentities"
+	MethodSearchConversations Method = "messaging.adapter.searchConversations"
+	MethodSearchMessages      Method = "messaging.adapter.searchMessages"
 	MethodCreateDraft         Method = "messaging.adapter.createDraft"
 	MethodUpdateDraft         Method = "messaging.adapter.updateDraft"
 	MethodDeleteDraft         Method = "messaging.adapter.deleteDraft"
@@ -344,6 +348,110 @@ type ListContainersParams struct {
 type ListContainersResult struct {
 	Containers []messaging.Container `json:"containers,omitempty"`
 	NextCursor string                `json:"next_cursor,omitempty"`
+}
+
+// SearchSource identifies whether a search is served from broker-indexed
+// normalized state or through a live platform adapter lookup.
+type SearchSource string
+
+const (
+	SearchSourceIndexed SearchSource = "indexed"
+	SearchSourceRemote  SearchSource = "remote"
+)
+
+// ResolveIdentityParams asks an adapter to resolve one platform identity from
+// an exact address, handle, remote id, or provider-specific query.
+type ResolveIdentityParams struct {
+	ConnectionID messaging.ConnectionID `json:"connection_id"`
+	Address      string                 `json:"address,omitempty"`
+	RemoteID     string                 `json:"remote_id,omitempty"`
+	Query        string                 `json:"query,omitempty"`
+}
+
+// IdentitySearchHit is one local or remote person/account lookup hit.
+type IdentitySearchHit struct {
+	Participant    messaging.Participant    `json:"participant"`
+	Identity       *messaging.Identity      `json:"identity,omitempty"`
+	ConversationID messaging.ConversationID `json:"conversation_id,omitempty"`
+	MatchedFields  []string                 `json:"matched_fields,omitempty"`
+	Source         SearchSource             `json:"source,omitempty"`
+	Metadata       map[string]string        `json:"metadata,omitempty"`
+}
+
+// ResolveIdentityResult is the resolved identity hit for one exact lookup.
+type ResolveIdentityResult struct {
+	Hit    IdentitySearchHit `json:"hit,omitempty"`
+	Found  bool              `json:"found"`
+	Source SearchSource      `json:"source,omitempty"`
+}
+
+// SearchIdentitiesParams asks for contact, username, email address, phone
+// number, handle, or local-identity lookup results.
+type SearchIdentitiesParams struct {
+	ConnectionID messaging.ConnectionID `json:"connection_id"`
+	Query        string                 `json:"query"`
+	Source       SearchSource           `json:"source,omitempty"`
+	PageRequest
+}
+
+// SearchIdentitiesResult returns identity lookup hits.
+type SearchIdentitiesResult struct {
+	Hits       []IdentitySearchHit `json:"hits,omitempty"`
+	Count      int                 `json:"count,omitempty"`
+	Source     SearchSource        `json:"source,omitempty"`
+	NextCursor string              `json:"next_cursor,omitempty"`
+}
+
+// ConversationSearchHit is one destination/thread lookup hit.
+type ConversationSearchHit struct {
+	Conversation  messaging.Conversation `json:"conversation"`
+	MatchedFields []string               `json:"matched_fields,omitempty"`
+	Source        SearchSource           `json:"source,omitempty"`
+	Metadata      map[string]string      `json:"metadata,omitempty"`
+}
+
+// SearchConversationsParams asks for channel, room, thread, mailbox/folder, or
+// cached conversation lookup results.
+type SearchConversationsParams struct {
+	ConnectionID messaging.ConnectionID `json:"connection_id"`
+	Query        string                 `json:"query"`
+	Source       SearchSource           `json:"source,omitempty"`
+	PageRequest
+}
+
+// SearchConversationsResult returns destination/thread lookup hits.
+type SearchConversationsResult struct {
+	Hits       []ConversationSearchHit `json:"hits,omitempty"`
+	Count      int                     `json:"count,omitempty"`
+	Source     SearchSource            `json:"source,omitempty"`
+	NextCursor string                  `json:"next_cursor,omitempty"`
+}
+
+// MessageSearchHit is one content lookup hit.
+type MessageSearchHit struct {
+	Message       MessageRecord           `json:"message"`
+	Conversation  *messaging.Conversation `json:"conversation,omitempty"`
+	MatchedFields []string                `json:"matched_fields,omitempty"`
+	Source        SearchSource            `json:"source,omitempty"`
+	Metadata      map[string]string       `json:"metadata,omitempty"`
+}
+
+// SearchMessagesParams asks for message/body/header search results.
+type SearchMessagesParams struct {
+	ConnectionID   messaging.ConnectionID   `json:"connection_id"`
+	ConversationID messaging.ConversationID `json:"conversation_id,omitempty"`
+	ContainerID    messaging.ContainerID    `json:"container_id,omitempty"`
+	Query          string                   `json:"query"`
+	Source         SearchSource             `json:"source,omitempty"`
+	PageRequest
+}
+
+// SearchMessagesResult returns content lookup hits.
+type SearchMessagesResult struct {
+	Hits       []MessageSearchHit `json:"hits,omitempty"`
+	Count      int                `json:"count,omitempty"`
+	Source     SearchSource       `json:"source,omitempty"`
+	NextCursor string             `json:"next_cursor,omitempty"`
 }
 
 // PlacementChange reports updated provider locators after a management

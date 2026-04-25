@@ -161,6 +161,44 @@ func (c *AdapterClient) ListContainers(ctx context.Context, params protocol.List
 	return result, nil
 }
 
+// ResolveIdentity resolves one exact identity lookup through the adapter.
+func (c *AdapterClient) ResolveIdentity(ctx context.Context, params protocol.ResolveIdentityParams) (protocol.ResolveIdentityResult, error) {
+	var result protocol.ResolveIdentityResult
+	if err := c.call(ctx, protocol.MethodResolveIdentity, params, &result); err != nil {
+		return protocol.ResolveIdentityResult{}, err
+	}
+	return result, nil
+}
+
+// SearchIdentities performs live platform identity lookup through the adapter.
+func (c *AdapterClient) SearchIdentities(ctx context.Context, params protocol.SearchIdentitiesParams) (protocol.SearchIdentitiesResult, error) {
+	var result protocol.SearchIdentitiesResult
+	if err := c.call(ctx, protocol.MethodSearchIdentities, params, &result); err != nil {
+		return protocol.SearchIdentitiesResult{}, err
+	}
+	return result, nil
+}
+
+// SearchConversations performs live platform destination/thread lookup through
+// the adapter.
+func (c *AdapterClient) SearchConversations(ctx context.Context, params protocol.SearchConversationsParams) (protocol.SearchConversationsResult, error) {
+	var result protocol.SearchConversationsResult
+	if err := c.call(ctx, protocol.MethodSearchConversations, params, &result); err != nil {
+		return protocol.SearchConversationsResult{}, err
+	}
+	return result, nil
+}
+
+// SearchMessages performs live platform message/content lookup through the
+// adapter.
+func (c *AdapterClient) SearchMessages(ctx context.Context, params protocol.SearchMessagesParams) (protocol.SearchMessagesResult, error) {
+	var result protocol.SearchMessagesResult
+	if err := c.call(ctx, protocol.MethodSearchMessages, params, &result); err != nil {
+		return protocol.SearchMessagesResult{}, err
+	}
+	return result, nil
+}
+
 // CreateDraft validates or creates one draft through the adapter.
 func (c *AdapterClient) CreateDraft(ctx context.Context, params protocol.CreateDraftParams) (protocol.CreateDraftResult, error) {
 	var result protocol.CreateDraftResult

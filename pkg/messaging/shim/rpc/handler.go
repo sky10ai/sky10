@@ -23,6 +23,9 @@ type Service interface {
 	GetConversation(ctx context.Context, connectionID messaging.ConnectionID, conversationID messaging.ConversationID) (messaging.Conversation, bool, error)
 	GetMessages(ctx context.Context, connectionID messaging.ConnectionID, conversationID messaging.ConversationID) ([]messaging.Message, error)
 	ListContainers(ctx context.Context, params protocol.ListContainersParams) (protocol.ListContainersResult, error)
+	SearchIdentities(ctx context.Context, params protocol.SearchIdentitiesParams) (protocol.SearchIdentitiesResult, error)
+	SearchConversations(ctx context.Context, params protocol.SearchConversationsParams) (protocol.SearchConversationsResult, error)
+	SearchMessages(ctx context.Context, params protocol.SearchMessagesParams) (protocol.SearchMessagesResult, error)
 	CreateDraft(ctx context.Context, draft messaging.Draft) (messagingbroker.DraftMutationResult, error)
 	UpdateDraft(ctx context.Context, draft messaging.Draft) (messagingbroker.DraftMutationResult, error)
 	RequestSend(ctx context.Context, draftID messaging.DraftID, newConversation bool) (messagingbroker.RequestSendDraftResult, error)
@@ -73,6 +76,12 @@ func (h *Handler) Dispatch(ctx context.Context, method string, params json.RawMe
 		result, err = h.rpcGetMessages(ctx, params)
 	case messagingshim.MethodListContainers:
 		result, err = h.rpcListContainers(ctx, params)
+	case messagingshim.MethodSearchIdentities:
+		result, err = h.rpcSearchIdentities(ctx, params)
+	case messagingshim.MethodSearchConversations:
+		result, err = h.rpcSearchConversations(ctx, params)
+	case messagingshim.MethodSearchMessages:
+		result, err = h.rpcSearchMessages(ctx, params)
 	case messagingshim.MethodCreateDraft:
 		result, err = h.rpcCreateDraft(ctx, params)
 	case messagingshim.MethodUpdateDraft:
@@ -206,6 +215,39 @@ func (h *Handler) rpcListContainers(ctx context.Context, params json.RawMessage)
 	return h.service.ListContainers(ctx, p)
 }
 
+func (h *Handler) rpcSearchIdentities(ctx context.Context, params json.RawMessage) (protocol.SearchIdentitiesResult, error) {
+	var p protocol.SearchIdentitiesParams
+	if err := parseParams(params, &p); err != nil {
+		return protocol.SearchIdentitiesResult{}, err
+	}
+	if err := validateSearchParams(p.ConnectionID, p.Query); err != nil {
+		return protocol.SearchIdentitiesResult{}, err
+	}
+	return h.service.SearchIdentities(ctx, p)
+}
+
+func (h *Handler) rpcSearchConversations(ctx context.Context, params json.RawMessage) (protocol.SearchConversationsResult, error) {
+	var p protocol.SearchConversationsParams
+	if err := parseParams(params, &p); err != nil {
+		return protocol.SearchConversationsResult{}, err
+	}
+	if err := validateSearchParams(p.ConnectionID, p.Query); err != nil {
+		return protocol.SearchConversationsResult{}, err
+	}
+	return h.service.SearchConversations(ctx, p)
+}
+
+func (h *Handler) rpcSearchMessages(ctx context.Context, params json.RawMessage) (protocol.SearchMessagesResult, error) {
+	var p protocol.SearchMessagesParams
+	if err := parseParams(params, &p); err != nil {
+		return protocol.SearchMessagesResult{}, err
+	}
+	if err := validateSearchParams(p.ConnectionID, p.Query); err != nil {
+		return protocol.SearchMessagesResult{}, err
+	}
+	return h.service.SearchMessages(ctx, p)
+}
+
 func (h *Handler) rpcCreateDraft(ctx context.Context, params json.RawMessage) (messagingbroker.DraftMutationResult, error) {
 	draft, err := parseDraftParams(params)
 	if err != nil {
@@ -315,6 +357,16 @@ func parseListContainersParams(params json.RawMessage) (protocol.ListContainersP
 		return protocol.ListContainersParams{}, fmt.Errorf("connection_id is required")
 	}
 	return p, nil
+}
+
+func validateSearchParams(connectionID messaging.ConnectionID, query string) error {
+	if strings.TrimSpace(string(connectionID)) == "" {
+		return fmt.Errorf("connection_id is required")
+	}
+	if strings.TrimSpace(query) == "" {
+		return fmt.Errorf("query is required")
+	}
+	return nil
 }
 
 func parseDraftParams(params json.RawMessage) (messaging.Draft, error) {

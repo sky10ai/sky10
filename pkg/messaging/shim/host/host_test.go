@@ -259,6 +259,33 @@ func (s *hostTestService) ListContainers(context.Context, protocol.ListContainer
 	return protocol.ListContainersResult{Containers: []messaging.Container{{ID: "container/work/inbox", ConnectionID: "slack/work", Kind: messaging.ContainerKindInbox}}}, nil
 }
 
+func (s *hostTestService) SearchIdentities(context.Context, protocol.SearchIdentitiesParams) (protocol.SearchIdentitiesResult, error) {
+	return protocol.SearchIdentitiesResult{
+		Hits: []protocol.IdentitySearchHit{{
+			Participant: messaging.Participant{Kind: messaging.ParticipantKindUser, DisplayName: "Latisha"},
+		}},
+		Count: 1,
+	}, nil
+}
+
+func (s *hostTestService) SearchConversations(context.Context, protocol.SearchConversationsParams) (protocol.SearchConversationsResult, error) {
+	return protocol.SearchConversationsResult{
+		Hits: []protocol.ConversationSearchHit{{
+			Conversation: messaging.Conversation{ID: "conv/work", ConnectionID: "slack/work", LocalIdentityID: "identity/work", Kind: messaging.ConversationKindDirect},
+		}},
+		Count: 1,
+	}, nil
+}
+
+func (s *hostTestService) SearchMessages(context.Context, protocol.SearchMessagesParams) (protocol.SearchMessagesResult, error) {
+	return protocol.SearchMessagesResult{
+		Hits: []protocol.MessageSearchHit{{
+			Message: protocol.MessageRecord{Message: messaging.Message{ID: "msg/work", ConnectionID: "slack/work", ConversationID: "conv/work", LocalIdentityID: "identity/work"}},
+		}},
+		Count: 1,
+	}, nil
+}
+
 func (s *hostTestService) CreateDraft(_ context.Context, draft messaging.Draft) (messagingbroker.DraftMutationResult, error) {
 	return messagingbroker.DraftMutationResult{Draft: draft}, nil
 }

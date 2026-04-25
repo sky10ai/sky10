@@ -78,6 +78,15 @@ func (h *Handler) Dispatch(ctx context.Context, method string, params json.RawMe
 	case "messaging.listContainers":
 		result, err := h.rpcListContainers(ctx, params)
 		return result, err, true
+	case "messaging.searchIdentities":
+		result, err := h.rpcSearchIdentities(ctx, params)
+		return result, err, true
+	case "messaging.searchConversations":
+		result, err := h.rpcSearchConversations(ctx, params)
+		return result, err, true
+	case "messaging.searchMessages":
+		result, err := h.rpcSearchMessages(ctx, params)
+		return result, err, true
 	case "messaging.moveMessages":
 		result, err := h.rpcMoveMessages(ctx, params)
 		return result, err, true
@@ -158,6 +167,32 @@ type markReadParams struct {
 	ConversationID messaging.ConversationID `json:"conversation_id,omitempty"`
 	MessageIDs     []messaging.MessageID    `json:"message_ids,omitempty"`
 	Read           bool                     `json:"read"`
+}
+
+type searchIdentitiesParams struct {
+	ExposureID   messaging.ExposureID   `json:"exposure_id,omitempty"`
+	ConnectionID messaging.ConnectionID `json:"connection_id"`
+	Query        string                 `json:"query"`
+	Source       protocol.SearchSource  `json:"source,omitempty"`
+	protocol.PageRequest
+}
+
+type searchConversationsParams struct {
+	ExposureID   messaging.ExposureID   `json:"exposure_id,omitempty"`
+	ConnectionID messaging.ConnectionID `json:"connection_id"`
+	Query        string                 `json:"query"`
+	Source       protocol.SearchSource  `json:"source,omitempty"`
+	protocol.PageRequest
+}
+
+type searchMessagesParams struct {
+	ExposureID     messaging.ExposureID     `json:"exposure_id,omitempty"`
+	ConnectionID   messaging.ConnectionID   `json:"connection_id"`
+	ConversationID messaging.ConversationID `json:"conversation_id,omitempty"`
+	ContainerID    messaging.ContainerID    `json:"container_id,omitempty"`
+	Query          string                   `json:"query"`
+	Source         protocol.SearchSource    `json:"source,omitempty"`
+	protocol.PageRequest
 }
 
 func (h *Handler) rpcAdapters() map[string]interface{} {
@@ -280,6 +315,56 @@ func (h *Handler) rpcListContainers(ctx context.Context, params json.RawMessage)
 	return h.broker.ListContainers(ctx, p)
 }
 
+func (h *Handler) rpcSearchIdentities(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p searchIdentitiesParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if err := validateSearchParams(p.ConnectionID, p.Query); err != nil {
+		return nil, err
+	}
+	return h.broker.SearchIdentities(ctx, p.ExposureID, protocol.SearchIdentitiesParams{
+		ConnectionID: p.ConnectionID,
+		Query:        p.Query,
+		Source:       p.Source,
+		PageRequest:  p.PageRequest,
+	})
+}
+
+func (h *Handler) rpcSearchConversations(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p searchConversationsParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if err := validateSearchParams(p.ConnectionID, p.Query); err != nil {
+		return nil, err
+	}
+	return h.broker.SearchConversations(ctx, p.ExposureID, protocol.SearchConversationsParams{
+		ConnectionID: p.ConnectionID,
+		Query:        p.Query,
+		Source:       p.Source,
+		PageRequest:  p.PageRequest,
+	})
+}
+
+func (h *Handler) rpcSearchMessages(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p searchMessagesParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if err := validateSearchParams(p.ConnectionID, p.Query); err != nil {
+		return nil, err
+	}
+	return h.broker.SearchMessages(ctx, p.ExposureID, protocol.SearchMessagesParams{
+		ConnectionID:   p.ConnectionID,
+		ConversationID: p.ConversationID,
+		ContainerID:    p.ContainerID,
+		Query:          p.Query,
+		Source:         p.Source,
+		PageRequest:    p.PageRequest,
+	})
+}
+
 func (h *Handler) rpcMoveMessages(ctx context.Context, params json.RawMessage) (interface{}, error) {
 	var p moveMessagesParams
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -375,4 +460,14 @@ func parseConnectionParams(params json.RawMessage) (connectionParams, error) {
 		return connectionParams{}, fmt.Errorf("connection_id is required")
 	}
 	return p, nil
+}
+
+func validateSearchParams(connectionID messaging.ConnectionID, query string) error {
+	if strings.TrimSpace(string(connectionID)) == "" {
+		return fmt.Errorf("connection_id is required")
+	}
+	if strings.TrimSpace(query) == "" {
+		return fmt.Errorf("query is required")
+	}
+	return nil
 }

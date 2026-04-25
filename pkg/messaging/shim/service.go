@@ -22,6 +22,9 @@ const (
 	MethodGetConversation     Method = "messaging.shim.getConversation"
 	MethodGetMessages         Method = "messaging.shim.getMessages"
 	MethodListContainers      Method = "messaging.shim.listContainers"
+	MethodSearchIdentities    Method = "messaging.shim.searchIdentities"
+	MethodSearchConversations Method = "messaging.shim.searchConversations"
+	MethodSearchMessages      Method = "messaging.shim.searchMessages"
 	MethodCreateDraft         Method = "messaging.shim.createDraft"
 	MethodUpdateDraft         Method = "messaging.shim.updateDraft"
 	MethodRequestSend         Method = "messaging.shim.requestSend"
@@ -40,6 +43,9 @@ type Broker interface {
 	ResolvePolicy(connectionID messaging.ConnectionID, exposureID messaging.ExposureID) (messagingbroker.EffectivePolicy, error)
 	EvaluateReadInbound(connectionID messaging.ConnectionID, exposureID messaging.ExposureID) (messagingpolicy.Decision, error)
 	ListContainers(ctx context.Context, params protocol.ListContainersParams) (protocol.ListContainersResult, error)
+	SearchIdentities(ctx context.Context, exposureID messaging.ExposureID, params protocol.SearchIdentitiesParams) (protocol.SearchIdentitiesResult, error)
+	SearchConversations(ctx context.Context, exposureID messaging.ExposureID, params protocol.SearchConversationsParams) (protocol.SearchConversationsResult, error)
+	SearchMessages(ctx context.Context, exposureID messaging.ExposureID, params protocol.SearchMessagesParams) (protocol.SearchMessagesResult, error)
 	CreateDraft(ctx context.Context, exposureID messaging.ExposureID, draft messaging.Draft) (messagingbroker.DraftMutationResult, error)
 	UpdateDraft(ctx context.Context, exposureID messaging.ExposureID, draft messaging.Draft) (messagingbroker.DraftMutationResult, error)
 	RequestSendDraft(ctx context.Context, exposureID messaging.ExposureID, draftID messaging.DraftID, newConversation bool) (messagingbroker.RequestSendDraftResult, error)
@@ -168,6 +174,31 @@ func (s *Service) ListContainers(ctx context.Context, params protocol.ListContai
 	}
 	result.Containers = filterContainers(result.Containers, policy)
 	return result, nil
+}
+
+// SearchIdentities searches local indexed identity/participant data or live
+// adapter-backed identity lookup through the broker under this exposure.
+func (s *Service) SearchIdentities(ctx context.Context, params protocol.SearchIdentitiesParams) (protocol.SearchIdentitiesResult, error) {
+	if _, err := s.authorizeConnection(params.ConnectionID); err != nil {
+		return protocol.SearchIdentitiesResult{}, err
+	}
+	return s.broker.SearchIdentities(ctx, s.exposureID, params)
+}
+
+// SearchConversations searches destination/thread metadata through the broker.
+func (s *Service) SearchConversations(ctx context.Context, params protocol.SearchConversationsParams) (protocol.SearchConversationsResult, error) {
+	if _, err := s.authorizeConnection(params.ConnectionID); err != nil {
+		return protocol.SearchConversationsResult{}, err
+	}
+	return s.broker.SearchConversations(ctx, s.exposureID, params)
+}
+
+// SearchMessages searches cached or remote message content through the broker.
+func (s *Service) SearchMessages(ctx context.Context, params protocol.SearchMessagesParams) (protocol.SearchMessagesResult, error) {
+	if _, err := s.authorizeConnection(params.ConnectionID); err != nil {
+		return protocol.SearchMessagesResult{}, err
+	}
+	return s.broker.SearchMessages(ctx, s.exposureID, params)
 }
 
 // CreateDraft creates a broker-owned draft under this exposure.

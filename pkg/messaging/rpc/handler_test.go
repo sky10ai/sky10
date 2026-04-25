@@ -60,13 +60,23 @@ func TestHandlerConnectBuiltinAndPoll(t *testing.T) {
 			Env:  []string{"GO_WANT_HELPER_MESSAGING_RPC_ADAPTER=1"},
 		}, nil
 	})
+	if err := handler.store.PutPolicy(ctx, messaging.Policy{
+		ID:   "policy/search",
+		Name: "Search",
+		Rules: messaging.PolicyRules{
+			SearchMessages: true,
+		},
+	}); err != nil {
+		t.Fatalf("PutPolicy() error = %v", err)
+	}
 
 	raw := mustJSON(t, connectBuiltinParams{
 		Connection: messaging.Connection{
-			ID:        "imap/work",
-			AdapterID: "imap-smtp",
-			Label:     "Work Mail",
-			Status:    messaging.ConnectionStatusConnecting,
+			ID:              "imap/work",
+			AdapterID:       "imap-smtp",
+			Label:           "Work Mail",
+			Status:          messaging.ConnectionStatusConnecting,
+			DefaultPolicyID: "policy/search",
 			Auth: messaging.AuthInfo{
 				Method:        messaging.AuthMethodBasic,
 				CredentialRef: "secret://imap/work",
@@ -106,6 +116,21 @@ func TestHandlerConnectBuiltinAndPoll(t *testing.T) {
 	}
 	if _, ok := handler.store.GetPlacement("msg/latisha", "container/inbox"); !ok {
 		t.Fatal("GetPlacement(msg/latisha, inbox) = false, want hydrated placement")
+	}
+
+	result, err, handled = handler.Dispatch(ctx, "messaging.searchMessages", mustJSON(t, searchMessagesParams{
+		ConnectionID: "imap/work",
+		Query:        "hello",
+	}))
+	if err != nil {
+		t.Fatalf("Dispatch(searchMessages) error = %v", err)
+	}
+	if !handled {
+		t.Fatal("Dispatch(searchMessages) handled = false, want true")
+	}
+	search := result.(protocol.SearchMessagesResult)
+	if search.Count != 1 || search.Hits[0].Message.Message.ID != "msg/latisha" {
+		t.Fatalf("search messages = %+v, want msg/latisha", search)
 	}
 
 	result, err, handled = handler.Dispatch(ctx, "messaging.listContainers", mustJSON(t, protocol.ListContainersParams{

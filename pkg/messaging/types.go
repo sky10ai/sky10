@@ -843,6 +843,10 @@ type Capabilities struct {
 	ListConversations    bool `json:"list_conversations"`
 	ListMessages         bool `json:"list_messages"`
 	ListContainers       bool `json:"list_containers"`
+	ResolveIdentity      bool `json:"resolve_identity"`
+	SearchIdentities     bool `json:"search_identities"`
+	SearchConversations  bool `json:"search_conversations"`
+	SearchMessages       bool `json:"search_messages"`
 	Threading            bool `json:"threading"`
 	Attachments          bool `json:"attachments"`
 	Webhooks             bool `json:"webhooks"`

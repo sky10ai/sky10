@@ -164,7 +164,7 @@ outbound orchestration, and event fanout.
 - [x] Add draft lifecycle management.
 - [x] Add normalized message management surfaces for list containers, move,
   archive, label mutation, and read-state changes.
-- [ ] Add normalized lookup/search surfaces split between adapter-backed live
+- [x] Add normalized lookup/search surfaces split between adapter-backed live
   search and broker/index-backed content search.
 - [x] Add normalized inbound event ingestion from polling sources.
 - [x] Add normalized inbound event ingestion from webhook sources.
@@ -237,10 +237,10 @@ messaging once instead of learning each platform separately.
 - [x] Create an initial northbound shim method catalog and service surface with
   operations such as
   `ListConnections`, `ListIdentities`, `ListConversations`,
-  `GetConversation`, `GetMessages`, `CreateDraft`, `UpdateDraft`,
-  `RequestSend`, `ListContainers`, `MoveMessages`,
-  `ArchiveConversation`, `ApplyLabels`, `MarkRead`, and reserved
-  `SubscribeEvents`.
+  `GetConversation`, `GetMessages`, `SearchIdentities`,
+  `SearchConversations`, `SearchMessages`, `CreateDraft`, `UpdateDraft`,
+  `RequestSend`, `ListContainers`, `MoveMessages`, `ArchiveConversation`,
+  `ApplyLabels`, `MarkRead`, and reserved `SubscribeEvents`.
 - [x] Decide that the default northbound path starts as local JSON-RPC, with
   MCP available later as a wrapper over the same service surface.
 - [x] Add a local JSON-RPC handler for the northbound shim method catalog.

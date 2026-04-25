@@ -29,6 +29,9 @@ func TestHandlerDispatchesShimMethods(t *testing.T) {
 			Kind:            messaging.ConversationKindDirect,
 		}},
 		messages: []messaging.Message{{ID: "msg/work", ConnectionID: "slack/work", ConversationID: "conv/work", LocalIdentityID: "identity/work"}},
+		identityHits: []protocol.IdentitySearchHit{{
+			Participant: messaging.Participant{Kind: messaging.ParticipantKindUser, DisplayName: "Latisha"},
+		}},
 	}
 	handler := NewHandler(Config{Service: service})
 
@@ -64,6 +67,23 @@ func TestHandlerDispatchesShimMethods(t *testing.T) {
 	}
 	if got := messagesRaw.(getMessagesResult); got.Count != 1 || got.Messages[0].ID != "msg/work" {
 		t.Fatalf("get messages = %+v, want msg/work", got)
+	}
+
+	searchRaw, err, handled := handler.Dispatch(ctx, string(messagingshim.MethodSearchIdentities), mustJSON(t, protocol.SearchIdentitiesParams{
+		ConnectionID: "slack/work",
+		Query:        "Latisha",
+	}))
+	if err != nil || !handled {
+		t.Fatalf("Dispatch(search identities) = %v, %v; want handled without error", err, handled)
+	}
+	if got := searchRaw.(protocol.SearchIdentitiesResult); got.Count != 1 || got.Hits[0].Participant.DisplayName != "Latisha" {
+		t.Fatalf("search identities = %+v, want Latisha", got)
+	}
+	if _, err, handled := handler.Dispatch(ctx, string(messagingshim.MethodSearchMessages), mustJSON(t, protocol.SearchMessagesParams{
+		ConnectionID: "slack/work",
+		Query:        "hello",
+	})); err != nil || !handled {
+		t.Fatalf("Dispatch(search messages) = %v, %v; want handled without error", err, handled)
 	}
 
 	draft := messaging.Draft{
@@ -328,6 +348,11 @@ func TestHandlerRejectsInvalidParams(t *testing.T) {
 	if _, err, handled := handler.Dispatch(context.Background(), string(messagingshim.MethodListIdentities), mustJSON(t, map[string]string{})); err == nil || !handled || !strings.Contains(err.Error(), "connection_id") {
 		t.Fatalf("Dispatch(missing connection_id) = %v, %v; want connection_id error", err, handled)
 	}
+	if _, err, handled := handler.Dispatch(context.Background(), string(messagingshim.MethodSearchMessages), mustJSON(t, protocol.SearchMessagesParams{
+		ConnectionID: "slack/work",
+	})); err == nil || !handled || !strings.Contains(err.Error(), "query") {
+		t.Fatalf("Dispatch(missing search query) = %v, %v; want query error", err, handled)
+	}
 	if _, err, handled := handler.Dispatch(context.Background(), string(messagingshim.MethodCreateDraft), mustJSON(t, draftParams{})); err == nil || !handled || !strings.Contains(err.Error(), "draft id") {
 		t.Fatalf("Dispatch(invalid draft) = %v, %v; want draft validation error", err, handled)
 	}
@@ -342,6 +367,7 @@ type recordingService struct {
 	identities    []messaging.Identity
 	conversations []messaging.Conversation
 	messages      []messaging.Message
+	identityHits  []protocol.IdentitySearchHit
 }
 
 func (s *recordingService) ListConnections(context.Context) ([]messaging.Connection, error) {
@@ -377,6 +403,29 @@ func (s *recordingService) GetMessages(_ context.Context, _ messaging.Connection
 func (s *recordingService) ListContainers(context.Context, protocol.ListContainersParams) (protocol.ListContainersResult, error) {
 	s.lastMethod = messagingshim.MethodListContainers
 	return protocol.ListContainersResult{}, nil
+}
+
+func (s *recordingService) SearchIdentities(context.Context, protocol.SearchIdentitiesParams) (protocol.SearchIdentitiesResult, error) {
+	s.lastMethod = messagingshim.MethodSearchIdentities
+	return protocol.SearchIdentitiesResult{Hits: s.identityHits, Count: len(s.identityHits)}, nil
+}
+
+func (s *recordingService) SearchConversations(context.Context, protocol.SearchConversationsParams) (protocol.SearchConversationsResult, error) {
+	s.lastMethod = messagingshim.MethodSearchConversations
+	hits := make([]protocol.ConversationSearchHit, 0, len(s.conversations))
+	for _, conversation := range s.conversations {
+		hits = append(hits, protocol.ConversationSearchHit{Conversation: conversation})
+	}
+	return protocol.SearchConversationsResult{Hits: hits, Count: len(hits)}, nil
+}
+
+func (s *recordingService) SearchMessages(context.Context, protocol.SearchMessagesParams) (protocol.SearchMessagesResult, error) {
+	s.lastMethod = messagingshim.MethodSearchMessages
+	hits := make([]protocol.MessageSearchHit, 0, len(s.messages))
+	for _, message := range s.messages {
+		hits = append(hits, protocol.MessageSearchHit{Message: protocol.MessageRecord{Message: message}})
+	}
+	return protocol.SearchMessagesResult{Hits: hits, Count: len(hits)}, nil
 }
 
 func (s *recordingService) CreateDraft(_ context.Context, draft messaging.Draft) (messagingbroker.DraftMutationResult, error) {

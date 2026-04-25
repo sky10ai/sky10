@@ -370,8 +370,8 @@ shapes:
   Broker/index-level queries like “questions from the board”, “messages needing
   reply”, or “unanswered asks”
 
-This should become a distinct protocol surface, not one vague `Search()`
-method. The likely adapter-facing methods are:
+This is a distinct protocol surface, not one vague `Search()` method. The
+adapter-facing methods are:
 
 - `ResolveIdentity`
 - `SearchIdentities`
@@ -478,6 +478,10 @@ Initial method set:
 - `ListMessages`
 - `GetMessage`
 - `ListContainers`
+- `ResolveIdentity`
+- `SearchIdentities`
+- `SearchConversations`
+- `SearchMessages`
 - `CreateDraft`
 - `UpdateDraft`
 - `DeleteDraft`
@@ -492,13 +496,6 @@ Initial method set:
 - `HandleWebhook`
 - `Poll`
 - `Health`
-
-Planned lookup/search additions:
-
-- `ResolveIdentity`
-- `SearchIdentities`
-- `SearchConversations`
-- `SearchMessages`
 
 Design constraints:
 
@@ -528,6 +525,9 @@ Initial method set:
 - `GetConversation`
 - `GetMessages`
 - `ListContainers`
+- `SearchIdentities`
+- `SearchConversations`
+- `SearchMessages`
 - `CreateDraft`
 - `UpdateDraft`
 - `RequestSend`

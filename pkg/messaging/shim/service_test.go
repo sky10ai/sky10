@@ -64,6 +64,9 @@ func TestServiceScopesReadsDraftsAndSendRequestsToExposure(t *testing.T) {
 			AllowedIdentityIDs:  []messaging.IdentityID{allowedIdentityID},
 			ManageMessages:      true,
 			AllowedContainerIDs: []messaging.ContainerID{allowedInboxID},
+			SearchIdentities:    true,
+			SearchConversations: true,
+			SearchMessages:      true,
 		},
 	}); err != nil {
 		t.Fatalf("PutPolicy(allowed) error = %v", err)
@@ -255,6 +258,43 @@ func TestServiceScopesReadsDraftsAndSendRequestsToExposure(t *testing.T) {
 		t.Fatal("GetMessages(blocked) error = nil, want exposure denial")
 	}
 
+	identitySearch, err := service.SearchIdentities(ctx, protocol.SearchIdentitiesParams{
+		ConnectionID: allowed.ID,
+		Query:        "Latisha",
+	})
+	if err != nil {
+		t.Fatalf("SearchIdentities(allowed) error = %v", err)
+	}
+	if identitySearch.Count != 1 || identitySearch.Hits[0].Participant.DisplayName != "Latisha" {
+		t.Fatalf("SearchIdentities(allowed) = %+v, want Latisha", identitySearch)
+	}
+	conversationSearch, err := service.SearchConversations(ctx, protocol.SearchConversationsParams{
+		ConnectionID: allowed.ID,
+		Query:        "Latisha",
+	})
+	if err != nil {
+		t.Fatalf("SearchConversations(allowed) error = %v", err)
+	}
+	if conversationSearch.Count != 1 || conversationSearch.Hits[0].Conversation.ID != allowedConversationID {
+		t.Fatalf("SearchConversations(allowed) = %+v, want %s", conversationSearch, allowedConversationID)
+	}
+	messageSearch, err := service.SearchMessages(ctx, protocol.SearchMessagesParams{
+		ConnectionID: allowed.ID,
+		Query:        "work",
+	})
+	if err != nil {
+		t.Fatalf("SearchMessages(allowed) error = %v", err)
+	}
+	if messageSearch.Count != 1 || messageSearch.Hits[0].Message.Message.ID != "msg/work/1" {
+		t.Fatalf("SearchMessages(allowed) = %+v, want msg/work/1", messageSearch)
+	}
+	if _, err := service.SearchMessages(ctx, protocol.SearchMessagesParams{
+		ConnectionID: blocked.ID,
+		Query:        "personal",
+	}); err == nil {
+		t.Fatal("SearchMessages(blocked) error = nil, want exposure denial")
+	}
+
 	containers, err := service.ListContainers(ctx, protocol.ListContainersParams{ConnectionID: allowed.ID})
 	if err != nil {
 		t.Fatalf("ListContainers(allowed) error = %v", err)
@@ -392,6 +432,12 @@ func TestServiceRejectsReadsDeniedByPolicy(t *testing.T) {
 
 	if _, err := service.ListConversations(ctx, connection.ID); err == nil || !strings.Contains(err.Error(), "read denied") {
 		t.Fatalf("ListConversations() error = %v, want read denied", err)
+	}
+	if _, err := service.SearchMessages(ctx, protocol.SearchMessagesParams{
+		ConnectionID: connection.ID,
+		Query:        "anything",
+	}); err == nil || !strings.Contains(err.Error(), "message search") {
+		t.Fatalf("SearchMessages() error = %v, want search denied", err)
 	}
 }
 

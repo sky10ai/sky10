@@ -1131,6 +1131,288 @@ func TestBrokerEvaluateSendAndSearch(t *testing.T) {
 	}
 }
 
+func TestBrokerIndexedSearchRespectsPolicy(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	b, err := New(ctx, Config{
+		Store:   store,
+		RootDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = b.Close() }()
+
+	connection := messaging.Connection{
+		ID:              "slack/work",
+		AdapterID:       "slack",
+		Label:           "Work Slack",
+		Status:          messaging.ConnectionStatusConnected,
+		DefaultPolicyID: "policy/search",
+	}
+	if err := store.PutConnection(ctx, connection); err != nil {
+		t.Fatalf("PutConnection() error = %v", err)
+	}
+	if err := store.PutPolicy(ctx, messaging.Policy{
+		ID:   "policy/search",
+		Name: "Search",
+		Rules: messaging.PolicyRules{
+			SearchIdentities:    true,
+			SearchConversations: true,
+			SearchMessages:      true,
+			AllowedIdentityIDs:  []messaging.IdentityID{"identity/work"},
+		},
+	}); err != nil {
+		t.Fatalf("PutPolicy(search) error = %v", err)
+	}
+	if err := store.PutPolicy(ctx, messaging.Policy{
+		ID:   "policy/no-message-search",
+		Name: "No Message Search",
+		Rules: messaging.PolicyRules{
+			SearchIdentities:    true,
+			SearchConversations: true,
+			SearchMessages:      false,
+			AllowedIdentityIDs:  []messaging.IdentityID{"identity/work"},
+		},
+	}); err != nil {
+		t.Fatalf("PutPolicy(no-message-search) error = %v", err)
+	}
+	if err := store.PutExposure(ctx, messaging.Exposure{
+		ID:           "exposure/search",
+		ConnectionID: connection.ID,
+		SubjectID:    "runtime:hermes",
+		SubjectKind:  messaging.ExposureSubjectKindRuntime,
+		PolicyID:     "policy/search",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("PutExposure(search) error = %v", err)
+	}
+	if err := store.PutExposure(ctx, messaging.Exposure{
+		ID:           "exposure/no-message-search",
+		ConnectionID: connection.ID,
+		SubjectID:    "runtime:blocked",
+		SubjectKind:  messaging.ExposureSubjectKindRuntime,
+		PolicyID:     "policy/no-message-search",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("PutExposure(no-message-search) error = %v", err)
+	}
+	for _, identity := range []messaging.Identity{
+		{ID: "identity/work", ConnectionID: connection.ID, Kind: messaging.IdentityKindBot, RemoteID: "B-work", DisplayName: "Work Bot", CanReceive: true, CanSend: true, IsDefault: true},
+		{ID: "identity/other", ConnectionID: connection.ID, Kind: messaging.IdentityKindBot, RemoteID: "B-other", DisplayName: "Other Bot", CanReceive: true, CanSend: true},
+	} {
+		if err := store.PutIdentity(ctx, identity); err != nil {
+			t.Fatalf("PutIdentity(%s) error = %v", identity.ID, err)
+		}
+	}
+	conversations := []messaging.Conversation{
+		{
+			ID:              "conv/board",
+			ConnectionID:    connection.ID,
+			LocalIdentityID: "identity/work",
+			Kind:            messaging.ConversationKindDirect,
+			Title:           "Board Questions",
+			Participants: []messaging.Participant{
+				{Kind: messaging.ParticipantKindBot, IdentityID: "identity/work", IsLocal: true},
+				{Kind: messaging.ParticipantKindUser, RemoteID: "U-latisha", DisplayName: "Latisha"},
+			},
+		},
+		{
+			ID:              "conv/blocked",
+			ConnectionID:    connection.ID,
+			LocalIdentityID: "identity/other",
+			Kind:            messaging.ConversationKindDirect,
+			Title:           "Blocked Board Questions",
+			Participants: []messaging.Participant{
+				{Kind: messaging.ParticipantKindBot, IdentityID: "identity/other", IsLocal: true},
+				{Kind: messaging.ParticipantKindUser, RemoteID: "U-latisha", DisplayName: "Latisha"},
+			},
+		},
+	}
+	for _, conversation := range conversations {
+		if err := store.PutConversation(ctx, conversation); err != nil {
+			t.Fatalf("PutConversation(%s) error = %v", conversation.ID, err)
+		}
+	}
+	for _, message := range []messaging.Message{
+		{
+			ID:              "msg/board",
+			ConnectionID:    connection.ID,
+			ConversationID:  "conv/board",
+			LocalIdentityID: "identity/work",
+			Direction:       messaging.MessageDirectionInbound,
+			Sender:          messaging.Participant{Kind: messaging.ParticipantKindUser, RemoteID: "U-latisha", DisplayName: "Latisha"},
+			Parts:           []messaging.MessagePart{{Kind: messaging.MessagePartKindText, Text: "Can you answer this board question?"}},
+			CreatedAt:       time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC),
+			Status:          messaging.MessageStatusReceived,
+		},
+		{
+			ID:              "msg/blocked",
+			ConnectionID:    connection.ID,
+			ConversationID:  "conv/blocked",
+			LocalIdentityID: "identity/other",
+			Direction:       messaging.MessageDirectionInbound,
+			Sender:          messaging.Participant{Kind: messaging.ParticipantKindUser, RemoteID: "U-latisha", DisplayName: "Latisha"},
+			Parts:           []messaging.MessagePart{{Kind: messaging.MessagePartKindText, Text: "Blocked board question"}},
+			CreatedAt:       time.Date(2026, 4, 25, 11, 0, 0, 0, time.UTC),
+			Status:          messaging.MessageStatusReceived,
+		},
+	} {
+		if err := store.PutMessage(ctx, message); err != nil {
+			t.Fatalf("PutMessage(%s) error = %v", message.ID, err)
+		}
+	}
+
+	identities, err := b.SearchIdentities(ctx, "exposure/search", protocol.SearchIdentitiesParams{
+		ConnectionID: connection.ID,
+		Query:        "Latisha",
+	})
+	if err != nil {
+		t.Fatalf("SearchIdentities() error = %v", err)
+	}
+	if identities.Count != 1 || identities.Hits[0].Participant.DisplayName != "Latisha" || identities.Source != protocol.SearchSourceIndexed {
+		t.Fatalf("SearchIdentities() = %+v, want indexed Latisha only", identities)
+	}
+
+	conversationSearch, err := b.SearchConversations(ctx, "exposure/search", protocol.SearchConversationsParams{
+		ConnectionID: connection.ID,
+		Query:        "board",
+	})
+	if err != nil {
+		t.Fatalf("SearchConversations() error = %v", err)
+	}
+	if conversationSearch.Count != 1 || conversationSearch.Hits[0].Conversation.ID != "conv/board" {
+		t.Fatalf("SearchConversations() = %+v, want conv/board only", conversationSearch)
+	}
+
+	messages, err := b.SearchMessages(ctx, "exposure/search", protocol.SearchMessagesParams{
+		ConnectionID: connection.ID,
+		Query:        "question",
+	})
+	if err != nil {
+		t.Fatalf("SearchMessages() error = %v", err)
+	}
+	if messages.Count != 1 || messages.Hits[0].Message.Message.ID != "msg/board" {
+		t.Fatalf("SearchMessages() = %+v, want msg/board only", messages)
+	}
+
+	_, err = b.SearchMessages(ctx, "exposure/no-message-search", protocol.SearchMessagesParams{
+		ConnectionID: connection.ID,
+		Query:        "question",
+	})
+	if err == nil || !strings.Contains(err.Error(), "message search") {
+		t.Fatalf("SearchMessages(denied) error = %v, want message search policy denial", err)
+	}
+}
+
+func TestBrokerRemoteSearchUsesAdapterAndPersistsResults(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	rootDir := filepath.Join(t.TempDir(), "messaging-runtime")
+	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	b, err := New(ctx, Config{
+		Store:   store,
+		RootDir: rootDir,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = b.Close() }()
+
+	if err := store.PutPolicy(ctx, messaging.Policy{
+		ID:   "policy/remote-search",
+		Name: "Remote Search",
+		Rules: messaging.PolicyRules{
+			SearchIdentities:    true,
+			SearchConversations: true,
+			SearchMessages:      true,
+			AllowedIdentityIDs:  []messaging.IdentityID{"identity/test"},
+		},
+	}); err != nil {
+		t.Fatalf("PutPolicy() error = %v", err)
+	}
+	if err := store.PutExposure(ctx, messaging.Exposure{
+		ID:           "exposure/hermes",
+		ConnectionID: "slack/work",
+		SubjectID:    "runtime:hermes",
+		SubjectKind:  messaging.ExposureSubjectKindRuntime,
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("PutExposure() error = %v", err)
+	}
+	connection := messaging.Connection{
+		ID:              "slack/work",
+		AdapterID:       "slack",
+		Label:           "Work Slack",
+		Status:          messaging.ConnectionStatusConnecting,
+		DefaultPolicyID: "policy/remote-search",
+	}
+	if err := b.RegisterConnection(ctx, RegisterConnectionParams{
+		Connection: connection,
+		Process: messagingruntime.ProcessSpec{
+			Path: helperProcessExecutableForTests(),
+			Args: []string{"-test.run=TestBrokerHelperMessagingAdapterProcess", "--"},
+			Env:  []string{"GO_WANT_HELPER_MESSAGING_BROKER_ADAPTER=1"},
+		},
+	}); err != nil {
+		t.Fatalf("RegisterConnection() error = %v", err)
+	}
+	if _, err := b.ConnectConnection(ctx, connection.ID); err != nil {
+		t.Fatalf("ConnectConnection() error = %v", err)
+	}
+
+	identities, err := b.SearchIdentities(ctx, "exposure/hermes", protocol.SearchIdentitiesParams{
+		ConnectionID: connection.ID,
+		Query:        "Latisha",
+		Source:       protocol.SearchSourceRemote,
+	})
+	if err != nil {
+		t.Fatalf("SearchIdentities(remote) error = %v", err)
+	}
+	if identities.Count != 1 || identities.Source != protocol.SearchSourceRemote || identities.Hits[0].Participant.DisplayName != "Latisha" {
+		t.Fatalf("SearchIdentities(remote) = %+v, want remote Latisha", identities)
+	}
+
+	conversations, err := b.SearchConversations(ctx, "exposure/hermes", protocol.SearchConversationsParams{
+		ConnectionID: connection.ID,
+		Query:        "Latisha",
+		Source:       protocol.SearchSourceRemote,
+	})
+	if err != nil {
+		t.Fatalf("SearchConversations(remote) error = %v", err)
+	}
+	if conversations.Count != 1 || conversations.Source != protocol.SearchSourceRemote || conversations.Hits[0].Conversation.ID != "conv/latisha" {
+		t.Fatalf("SearchConversations(remote) = %+v, want remote conv/latisha", conversations)
+	}
+	if _, ok := store.GetConversation("conv/latisha"); !ok {
+		t.Fatal("GetConversation(conv/latisha) = false, want remote result persisted")
+	}
+
+	messages, err := b.SearchMessages(ctx, "exposure/hermes", protocol.SearchMessagesParams{
+		ConnectionID: connection.ID,
+		Query:        "review",
+		Source:       protocol.SearchSourceRemote,
+	})
+	if err != nil {
+		t.Fatalf("SearchMessages(remote) error = %v", err)
+	}
+	if messages.Count != 1 || messages.Source != protocol.SearchSourceRemote || messages.Hits[0].Message.Message.ID != "msg/search" {
+		t.Fatalf("SearchMessages(remote) = %+v, want remote msg/search", messages)
+	}
+	if _, ok := store.GetMessage("msg/search"); !ok {
+		t.Fatal("GetMessage(msg/search) = false, want remote result persisted")
+	}
+}
+
 func TestBrokerDraftApprovalAndSendFlow(t *testing.T) {
 	t.Parallel()
 
@@ -1588,16 +1870,19 @@ func runBrokerHelperMessagingAdapter() error {
 						ID:          "test-adapter",
 						DisplayName: "Test Adapter",
 						Capabilities: messaging.Capabilities{
-							Polling:           true,
-							ListConversations: true,
-							ListMessages:      true,
-							ListContainers:    true,
-							CreateDrafts:      true,
-							UpdateDrafts:      true,
-							SendMessages:      true,
-							MoveMessages:      true,
-							ApplyLabels:       true,
-							MarkRead:          true,
+							Polling:             true,
+							ListConversations:   true,
+							ListMessages:        true,
+							ListContainers:      true,
+							CreateDrafts:        true,
+							UpdateDrafts:        true,
+							SendMessages:        true,
+							MoveMessages:        true,
+							ApplyLabels:         true,
+							MarkRead:            true,
+							SearchIdentities:    true,
+							SearchConversations: true,
+							SearchMessages:      true,
 						},
 					},
 				}),
@@ -1805,6 +2090,107 @@ func runBrokerHelperMessagingAdapter() error {
 							{Kind: messaging.ParticipantKindUser, RemoteID: "U234", DisplayName: "Latisha"},
 						},
 					}},
+				}),
+			}); err != nil {
+				return err
+			}
+		case string(protocol.MethodSearchIdentities):
+			var params protocol.SearchIdentitiesParams
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				return err
+			}
+			_ = params
+			if err := enc.Write(messagingruntime.Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result: mustJSON(protocol.SearchIdentitiesResult{
+					Hits: []protocol.IdentitySearchHit{{
+						Participant: messaging.Participant{Kind: messaging.ParticipantKindUser, RemoteID: "U234", DisplayName: "Latisha"},
+						Source:      protocol.SearchSourceRemote,
+					}},
+					Count:  1,
+					Source: protocol.SearchSourceRemote,
+				}),
+			}); err != nil {
+				return err
+			}
+		case string(protocol.MethodSearchConversations):
+			var params protocol.SearchConversationsParams
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				return err
+			}
+			ids := brokerHelperIDsFor(params.ConnectionID, connectionScoped)
+			if err := enc.Write(messagingruntime.Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result: mustJSON(protocol.SearchConversationsResult{
+					Hits: []protocol.ConversationSearchHit{{
+						Conversation: messaging.Conversation{
+							ID:              ids.ConversationID,
+							ConnectionID:    ids.ConnectionID,
+							LocalIdentityID: ids.IdentityID,
+							Kind:            messaging.ConversationKindDirect,
+							RemoteID:        "D123",
+							Title:           "Latisha",
+							Participants: []messaging.Participant{
+								{Kind: messaging.ParticipantKindBot, IdentityID: ids.IdentityID, IsLocal: true},
+								{Kind: messaging.ParticipantKindUser, RemoteID: "U234", DisplayName: "Latisha"},
+							},
+						},
+						MatchedFields: []string{"title"},
+						Source:        protocol.SearchSourceRemote,
+					}},
+					Count:  1,
+					Source: protocol.SearchSourceRemote,
+				}),
+			}); err != nil {
+				return err
+			}
+		case string(protocol.MethodSearchMessages):
+			var params protocol.SearchMessagesParams
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				return err
+			}
+			ids := brokerHelperIDsFor(params.ConnectionID, connectionScoped)
+			conversation := messaging.Conversation{
+				ID:              ids.ConversationID,
+				ConnectionID:    ids.ConnectionID,
+				LocalIdentityID: ids.IdentityID,
+				Kind:            messaging.ConversationKindDirect,
+				RemoteID:        "D123",
+				Title:           "Latisha",
+			}
+			message := messaging.Message{
+				ID:              "msg/search",
+				ConnectionID:    ids.ConnectionID,
+				ConversationID:  ids.ConversationID,
+				LocalIdentityID: ids.IdentityID,
+				Direction:       messaging.MessageDirectionInbound,
+				Sender:          messaging.Participant{Kind: messaging.ParticipantKindUser, RemoteID: "U234", DisplayName: "Latisha"},
+				Parts:           []messaging.MessagePart{{Kind: messaging.MessagePartKindText, Text: "Please review this."}},
+				CreatedAt:       time.Date(2026, 4, 22, 14, 0, 0, 0, time.UTC),
+				Status:          messaging.MessageStatusReceived,
+			}
+			if err := enc.Write(messagingruntime.Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result: mustJSON(protocol.SearchMessagesResult{
+					Hits: []protocol.MessageSearchHit{{
+						Message: protocol.MessageRecord{
+							Message: message,
+							Placements: []messaging.Placement{{
+								MessageID:    message.ID,
+								ConnectionID: ids.ConnectionID,
+								ContainerID:  ids.InboxID,
+								RemoteID:     "202",
+							}},
+						},
+						Conversation:  &conversation,
+						MatchedFields: []string{"part_text"},
+						Source:        protocol.SearchSourceRemote,
+					}},
+					Count:  1,
+					Source: protocol.SearchSourceRemote,
 				}),
 			}); err != nil {
 				return err
