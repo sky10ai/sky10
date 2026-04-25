@@ -90,6 +90,7 @@ func TestManagerCreateTransitionsToReady(t *testing.T) {
 
 func TestManagerCreateAllocatesForwardedEndpoint(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
+	allowTemplateOnCurrentOSForTest(t, templateOpenClaw)
 
 	m, err := NewManager(nil, nil)
 	if err != nil {
@@ -187,6 +188,20 @@ func TestManagerCreateAllocatesForwardedEndpoint(t *testing.T) {
 			persisted.ForwardedHost, persisted.ForwardedPort, defaultForwardedGuestHost, defaultForwardedGuestPortStart)
 	}
 	assertRecordForwardedEndpoints(t, persisted, rec.ForwardedEndpoints)
+}
+
+func allowTemplateOnCurrentOSForTest(t *testing.T, template string) {
+	t.Helper()
+	spec, ok := sandboxTemplateSpecs[template]
+	if !ok {
+		t.Fatalf("sandbox template %q not found", template)
+	}
+	original := spec
+	spec.macOSOnly = false
+	sandboxTemplateSpecs[template] = spec
+	t.Cleanup(func() {
+		sandboxTemplateSpecs[template] = original
+	})
 }
 
 func TestRPCHandlerRejectsReconnectGuest(t *testing.T) {
