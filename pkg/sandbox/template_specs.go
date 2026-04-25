@@ -13,17 +13,17 @@ import (
 )
 
 var openClawSharedAssetFiles = []string{
-	templateOpenClawPluginPackage,
-	templateOpenClawPluginManifest,
-	templateOpenClawPluginIndex,
-	templateOpenClawPluginMedia,
-	templateOpenClawPluginClient,
+	runtimeBundleOpenClawPluginPackage,
+	runtimeBundleOpenClawPluginManifest,
+	runtimeBundleOpenClawPluginIndex,
+	runtimeBundleOpenClawPluginMedia,
+	runtimeBundleOpenClawPluginClient,
 }
 
 var openClawDockerSharedAssetFiles = append(
 	append([]string(nil), openClawSharedAssetFiles...),
-	templateOpenClawDockerfile,
-	templateOpenClawDockerEntrypoint,
+	runtimeBundleOpenClawDockerfile,
+	runtimeBundleOpenClawDockerEntrypoint,
 )
 
 var hermesSharedAssetFiles = []string{
@@ -559,8 +559,12 @@ func prepareHermesSharedDir(sharedDir, stateDir string, resolvedEnv map[string]s
 
 func sandboxSharedAssetTargetPath(stateDir, relPath string) string {
 	switch {
+	case strings.HasPrefix(relPath, runtimeBundleOpenClawPluginDir+"/"):
+		return filepath.Join(stateDir, "plugins", templateOpenClawPluginDir, strings.TrimPrefix(relPath, runtimeBundleOpenClawPluginDir+"/"))
 	case strings.HasPrefix(relPath, templateOpenClawPluginDir+"/"):
 		return filepath.Join(stateDir, "plugins", relPath)
+	case strings.HasPrefix(relPath, runtimeBundleOpenClawDockerRuntimeDir+"/"):
+		return filepath.Join(stateDir, "runtime", "openclaw", strings.TrimPrefix(relPath, runtimeBundleOpenClawDockerRuntimeDir+"/"))
 	case strings.HasPrefix(relPath, templateOpenClawDockerRuntimeDir+"/"):
 		return filepath.Join(stateDir, "runtime", "openclaw", strings.TrimPrefix(relPath, templateOpenClawDockerRuntimeDir+"/"))
 	case strings.HasPrefix(relPath, templateHermesDockerRuntimeDir+"/"):

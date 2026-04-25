@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	runtimebundles "github.com/sky10/sky10/external/runtimebundles"
 	skyapps "github.com/sky10/sky10/pkg/apps"
 	"github.com/sky10/sky10/pkg/config"
 	skyfs "github.com/sky10/sky10/pkg/fs"
@@ -25,61 +26,68 @@ import (
 )
 
 const (
-	agentLimaTemplateName             = "openclaw-sky10"
-	agentLimaTemplateYAML             = "openclaw-sky10.yaml"
-	agentLimaDependencyScript         = "openclaw-sky10.dependency.sh"
-	agentLimaSystemScript             = "openclaw-sky10.system.sh"
-	agentLimaUserScript               = "openclaw-sky10.user.sh"
-	agentLimaOpenClawDocker           = "openclaw-docker-sky10"
-	agentLimaOpenClawDockerYAML       = "openclaw-docker-sky10.yaml"
-	agentLimaOpenClawDockerDep        = "openclaw-docker-sky10.dependency.sh"
-	agentLimaOpenClawDockerSys        = "openclaw-docker-sky10.system.sh"
-	agentLimaOpenClawDockerUser       = "openclaw-docker-sky10.user.sh"
-	agentLimaHermesName               = "hermes-sky10"
-	agentLimaHermesYAML               = "hermes-sky10.yaml"
-	agentLimaHermesDep                = "hermes-sky10.dependency.sh"
-	agentLimaHermesSys                = "hermes-sky10.system.sh"
-	agentLimaHermesUser               = "hermes-sky10.user.sh"
-	agentLimaHermesDocker             = "hermes-docker-sky10"
-	agentLimaHermesDockerYAML         = "hermes-docker-sky10.yaml"
-	agentLimaHermesDockerDep          = "hermes-docker-sky10.dependency.sh"
-	agentLimaHermesDockerSys          = "hermes-docker-sky10.system.sh"
-	agentLimaHermesDockerUser         = "hermes-docker-sky10.user.sh"
-	agentLimaHermesBridge             = "hermes-sky10-bridge.py"
-	agentLimaHermesBridgeJSON         = "bridge.json"
-	agentLimaHostsScript              = "update-lima-hosts.sh"
-	agentLimaPluginDir                = "openclaw-sky10-channel"
-	agentLimaPluginPackage            = agentLimaPluginDir + "/package.json"
-	agentLimaPluginManifest           = agentLimaPluginDir + "/openclaw.plugin.json"
-	agentLimaPluginIndex              = agentLimaPluginDir + "/src/index.js"
-	agentLimaPluginMedia              = agentLimaPluginDir + "/src/media.js"
-	agentLimaPluginClient             = agentLimaPluginDir + "/src/sky10.js"
-	agentLimaOpenClawDockerRuntimeDir = "openclaw-docker-runtime"
-	agentLimaOpenClawDockerfile       = agentLimaOpenClawDockerRuntimeDir + "/Dockerfile"
-	agentLimaOpenClawDockerEntrypoint = agentLimaOpenClawDockerRuntimeDir + "/entrypoint.sh"
-	agentLimaHermesDockerRuntimeDir   = "hermes-docker-runtime"
-	agentLimaHermesDockerfile         = agentLimaHermesDockerRuntimeDir + "/Dockerfile"
-	agentLimaHermesDockerEntrypoint   = agentLimaHermesDockerRuntimeDir + "/entrypoint.sh"
-	agentLimaRemoteAssetBase          = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
-	sandboxProviderLima               = "lima"
-	sandboxTemplateOpenClaw           = "openclaw"
-	sandboxTemplateOpenClawDocker     = "openclaw-docker"
-	sandboxTemplateHermes             = "hermes"
-	sandboxTemplateHermesDocker       = "hermes-docker"
-	agentLimaJoinFile                 = "join.json"
-	templateNameToken                 = "__SKY10_SANDBOX_NAME__"
-	templateSharedToken               = "__SKY10_SHARED_DIR__"
-	templateStateToken                = "__SKY10_STATE_DIR__"
-	templateForwardedGuestPortToken   = "__SKY10_GUEST_FORWARD_PORT__"
-	templateOpenClawGatewayPortToken  = "__SKY10_OPENCLAW_GATEWAY_FORWARD_PORT__"
-	defaultForwardedGuestHost         = "127.0.0.1"
-	defaultForwardedGuestPortStart    = 39101
-	agentDriveRootName                = "Agents"
-	agentDriveNamePrefix              = "agent-"
-	openClawReadyTimeout              = 2 * time.Minute
-	guestSky10ReadyURL                = "http://127.0.0.1:9101/health"
-	openClawReadyURL                  = "http://127.0.0.1:18789/health"
-	defaultHermesSky10RPCURL          = "http://127.0.0.1:9101/rpc"
+	agentLimaTemplateName                  = "openclaw-sky10"
+	agentLimaTemplateYAML                  = "openclaw-sky10.yaml"
+	agentLimaDependencyScript              = "openclaw-sky10.dependency.sh"
+	agentLimaSystemScript                  = "openclaw-sky10.system.sh"
+	agentLimaUserScript                    = "openclaw-sky10.user.sh"
+	agentLimaOpenClawDocker                = "openclaw-docker-sky10"
+	agentLimaOpenClawDockerYAML            = "openclaw-docker-sky10.yaml"
+	agentLimaOpenClawDockerDep             = "openclaw-docker-sky10.dependency.sh"
+	agentLimaOpenClawDockerSys             = "openclaw-docker-sky10.system.sh"
+	agentLimaOpenClawDockerUser            = "openclaw-docker-sky10.user.sh"
+	agentLimaHermesName                    = "hermes-sky10"
+	agentLimaHermesYAML                    = "hermes-sky10.yaml"
+	agentLimaHermesDep                     = "hermes-sky10.dependency.sh"
+	agentLimaHermesSys                     = "hermes-sky10.system.sh"
+	agentLimaHermesUser                    = "hermes-sky10.user.sh"
+	agentLimaHermesDocker                  = "hermes-docker-sky10"
+	agentLimaHermesDockerYAML              = "hermes-docker-sky10.yaml"
+	agentLimaHermesDockerDep               = "hermes-docker-sky10.dependency.sh"
+	agentLimaHermesDockerSys               = "hermes-docker-sky10.system.sh"
+	agentLimaHermesDockerUser              = "hermes-docker-sky10.user.sh"
+	agentLimaHermesBridge                  = "hermes-sky10-bridge.py"
+	agentLimaHermesBridgeJSON              = "bridge.json"
+	agentLimaHostsScript                   = "update-lima-hosts.sh"
+	agentLimaPluginDir                     = "openclaw-sky10-channel"
+	agentLimaPluginPackage                 = agentLimaPluginDir + "/package.json"
+	agentLimaPluginManifest                = agentLimaPluginDir + "/openclaw.plugin.json"
+	agentLimaPluginIndex                   = agentLimaPluginDir + "/src/index.js"
+	agentLimaPluginMedia                   = agentLimaPluginDir + "/src/media.js"
+	agentLimaPluginClient                  = agentLimaPluginDir + "/src/sky10.js"
+	agentLimaPluginPackageAsset            = runtimebundles.OpenClawSky10PluginDir + "/package.json"
+	agentLimaPluginManifestAsset           = runtimebundles.OpenClawSky10PluginDir + "/openclaw.plugin.json"
+	agentLimaPluginIndexAsset              = runtimebundles.OpenClawSky10PluginDir + "/src/index.js"
+	agentLimaPluginMediaAsset              = runtimebundles.OpenClawSky10PluginDir + "/src/media.js"
+	agentLimaPluginClientAsset             = runtimebundles.OpenClawSky10PluginDir + "/src/sky10.js"
+	agentLimaOpenClawDockerRuntimeDir      = "openclaw-docker-runtime"
+	agentLimaOpenClawDockerfile            = agentLimaOpenClawDockerRuntimeDir + "/Dockerfile"
+	agentLimaOpenClawDockerEntrypoint      = agentLimaOpenClawDockerRuntimeDir + "/entrypoint.sh"
+	agentLimaOpenClawDockerfileAsset       = runtimebundles.OpenClawDockerDir + "/Dockerfile"
+	agentLimaOpenClawDockerEntrypointAsset = runtimebundles.OpenClawDockerDir + "/entrypoint.sh"
+	agentLimaHermesDockerRuntimeDir        = "hermes-docker-runtime"
+	agentLimaHermesDockerfile              = agentLimaHermesDockerRuntimeDir + "/Dockerfile"
+	agentLimaHermesDockerEntrypoint        = agentLimaHermesDockerRuntimeDir + "/entrypoint.sh"
+	agentLimaRemoteAssetBase               = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
+	sandboxProviderLima                    = "lima"
+	sandboxTemplateOpenClaw                = "openclaw"
+	sandboxTemplateOpenClawDocker          = "openclaw-docker"
+	sandboxTemplateHermes                  = "hermes"
+	sandboxTemplateHermesDocker            = "hermes-docker"
+	agentLimaJoinFile                      = "join.json"
+	templateNameToken                      = "__SKY10_SANDBOX_NAME__"
+	templateSharedToken                    = "__SKY10_SHARED_DIR__"
+	templateStateToken                     = "__SKY10_STATE_DIR__"
+	templateForwardedGuestPortToken        = "__SKY10_GUEST_FORWARD_PORT__"
+	templateOpenClawGatewayPortToken       = "__SKY10_OPENCLAW_GATEWAY_FORWARD_PORT__"
+	defaultForwardedGuestHost              = "127.0.0.1"
+	defaultForwardedGuestPortStart         = 39101
+	agentDriveRootName                     = "Agents"
+	agentDriveNamePrefix                   = "agent-"
+	openClawReadyTimeout                   = 2 * time.Minute
+	guestSky10ReadyURL                     = "http://127.0.0.1:9101/health"
+	openClawReadyURL                       = "http://127.0.0.1:18789/health"
+	defaultHermesSky10RPCURL               = "http://127.0.0.1:9101/rpc"
 )
 
 var agentLimaAssetFiles = []string{
@@ -90,16 +98,16 @@ var agentLimaAssetFiles = []string{
 }
 
 var agentLimaSharedPluginFiles = []string{
-	agentLimaPluginPackage,
-	agentLimaPluginManifest,
-	agentLimaPluginIndex,
-	agentLimaPluginMedia,
-	agentLimaPluginClient,
+	agentLimaPluginPackageAsset,
+	agentLimaPluginManifestAsset,
+	agentLimaPluginIndexAsset,
+	agentLimaPluginMediaAsset,
+	agentLimaPluginClientAsset,
 }
 
 var agentLimaOpenClawDockerRuntimeFiles = []string{
-	agentLimaOpenClawDockerfile,
-	agentLimaOpenClawDockerEntrypoint,
+	agentLimaOpenClawDockerfileAsset,
+	agentLimaOpenClawDockerEntrypointAsset,
 }
 
 var agentLimaHermesSharedFiles = []string{
@@ -848,8 +856,12 @@ func prepareLimaSharedDir(template, sharedDir, stateDir string, hostsScript []by
 
 func limaSharedAssetTargetPath(stateDir, relPath string) string {
 	switch {
+	case strings.HasPrefix(relPath, runtimebundles.OpenClawSky10PluginDir+"/"):
+		return filepath.Join(stateDir, "plugins", agentLimaPluginDir, strings.TrimPrefix(relPath, runtimebundles.OpenClawSky10PluginDir+"/"))
 	case strings.HasPrefix(relPath, agentLimaPluginDir+"/"):
 		return filepath.Join(stateDir, "plugins", relPath)
+	case strings.HasPrefix(relPath, runtimebundles.OpenClawDockerDir+"/"):
+		return filepath.Join(stateDir, "runtime", "openclaw", strings.TrimPrefix(relPath, runtimebundles.OpenClawDockerDir+"/"))
 	case strings.HasPrefix(relPath, agentLimaOpenClawDockerRuntimeDir+"/"):
 		return filepath.Join(stateDir, "runtime", "openclaw", strings.TrimPrefix(relPath, agentLimaOpenClawDockerRuntimeDir+"/"))
 	case strings.HasPrefix(relPath, agentLimaHermesDockerRuntimeDir+"/"):
@@ -994,18 +1006,26 @@ func loadLimaSharedAssets(ctx context.Context, spec limaTemplateSpec) (map[strin
 	if len(spec.sharedAssetFiles) == 0 {
 		return assets, nil
 	}
-	if localDir, err := findLocalLimaTemplateDir(spec); err == nil {
-		for _, assetName := range spec.sharedAssetFiles {
+	localDir, localDirErr := findLocalLimaTemplateDir(spec)
+	for _, assetName := range spec.sharedAssetFiles {
+		if runtimebundles.IsAsset(assetName) {
+			body, err := runtimebundles.LoadAsset(ctx, assetName)
+			if err != nil {
+				return nil, err
+			}
+			assets[assetName] = body
+			continue
+		}
+
+		if localDirErr == nil {
 			body, err := os.ReadFile(filepath.Join(localDir, assetName))
 			if err != nil {
 				return nil, fmt.Errorf("reading local Lima shared asset %q: %w", assetName, err)
 			}
 			assets[assetName] = body
+			continue
 		}
-		return assets, nil
-	}
 
-	for _, assetName := range spec.sharedAssetFiles {
 		body, err := downloadLimaAsset(ctx, assetName)
 		if err != nil {
 			return nil, err

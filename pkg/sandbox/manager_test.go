@@ -843,9 +843,9 @@ func TestBundledOpenClawSystemScriptPinsOpenClawVersion(t *testing.T) {
 func TestBundledOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	t.Parallel()
 
-	manifestBody, err := readBundledTemplateAsset(filepath.Join(templateOpenClawPluginDir, "openclaw.plugin.json"))
+	manifestBody, err := readBundledRuntimeBundleAsset(runtimeBundleOpenClawPluginManifest)
 	if err != nil {
-		t.Fatalf("readBundledTemplateAsset(plugin manifest) error: %v", err)
+		t.Fatalf("readBundledRuntimeBundleAsset(plugin manifest) error: %v", err)
 	}
 	if !strings.Contains(string(manifestBody), `["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("bundled plugin manifest missing browser skill default: %q", string(manifestBody))
@@ -854,9 +854,9 @@ func TestBundledOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 		t.Fatalf("bundled plugin manifest missing sky10 channel declaration: %q", string(manifestBody))
 	}
 
-	indexBody, err := readBundledTemplateAsset(filepath.Join(templateOpenClawPluginDir, "src", "index.js"))
+	indexBody, err := readBundledRuntimeBundleAsset(runtimeBundleOpenClawPluginIndex)
 	if err != nil {
-		t.Fatalf("readBundledTemplateAsset(plugin index) error: %v", err)
+		t.Fatalf("readBundledRuntimeBundleAsset(plugin index) error: %v", err)
 	}
 	if !strings.Contains(string(indexBody), `["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("bundled plugin index missing browser skill default: %q", string(indexBody))
@@ -884,9 +884,9 @@ func TestBundledOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 func TestBundledOpenClawBridgeAssetStreamsReplies(t *testing.T) {
 	t.Parallel()
 
-	indexBody, err := readBundledTemplateAsset(templateOpenClawPluginIndex)
+	indexBody, err := readBundledRuntimeBundleAsset(runtimeBundleOpenClawPluginIndex)
 	if err != nil {
-		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateOpenClawPluginIndex, err)
+		t.Fatalf("readBundledRuntimeBundleAsset(%q) error: %v", runtimeBundleOpenClawPluginIndex, err)
 	}
 	indexScript := string(indexBody)
 	if !strings.Contains(indexScript, "createChannelReplyPipeline") {
@@ -914,9 +914,9 @@ func TestBundledOpenClawBridgeAssetStreamsReplies(t *testing.T) {
 		t.Fatalf("bundled plugin index missing client_request_id propagation helper: %q", indexScript)
 	}
 
-	clientBody, err := readBundledTemplateAsset(templateOpenClawPluginClient)
+	clientBody, err := readBundledRuntimeBundleAsset(runtimeBundleOpenClawPluginClient)
 	if err != nil {
-		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateOpenClawPluginClient, err)
+		t.Fatalf("readBundledRuntimeBundleAsset(%q) error: %v", runtimeBundleOpenClawPluginClient, err)
 	}
 	clientScript := string(clientBody)
 	if !strings.Contains(clientScript, "async sendContent(") {
@@ -1525,9 +1525,9 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	helper := []byte("#!/bin/sh\n")
 	pluginAssets := map[string][]byte{
-		templateOpenClawPluginManifest: []byte(`{"id":"sky10"}` + "\n"),
-		templateOpenClawPluginIndex:    []byte("export default function register() {}\n"),
-		templateOpenClawPluginMedia:    []byte("export function helper() {}\n"),
+		runtimeBundleOpenClawPluginManifest: []byte(`{"id":"sky10"}` + "\n"),
+		runtimeBundleOpenClawPluginIndex:    []byte("export default function register() {}\n"),
+		runtimeBundleOpenClawPluginMedia:    []byte("export function helper() {}\n"),
 	}
 	if err := prepareOpenClawSharedDir(sharedDir, stateDir, helper, pluginAssets, map[string]string{
 		"OPENAI_API_KEY": "openai-key",
@@ -1573,8 +1573,8 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(plugin manifest) error: %v", err)
 	}
-	if string(pluginManifestData) != string(pluginAssets[templateOpenClawPluginManifest]) {
-		t.Fatalf("plugin manifest = %q, want %q", string(pluginManifestData), string(pluginAssets[templateOpenClawPluginManifest]))
+	if string(pluginManifestData) != string(pluginAssets[runtimeBundleOpenClawPluginManifest]) {
+		t.Fatalf("plugin manifest = %q, want %q", string(pluginManifestData), string(pluginAssets[runtimeBundleOpenClawPluginManifest]))
 	}
 
 	pluginMediaPath := filepath.Join(stateDir, "plugins", templateOpenClawPluginMedia)
@@ -1582,8 +1582,8 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(plugin media helper) error: %v", err)
 	}
-	if string(pluginMediaData) != string(pluginAssets[templateOpenClawPluginMedia]) {
-		t.Fatalf("plugin media helper = %q, want %q", string(pluginMediaData), string(pluginAssets[templateOpenClawPluginMedia]))
+	if string(pluginMediaData) != string(pluginAssets[runtimeBundleOpenClawPluginMedia]) {
+		t.Fatalf("plugin media helper = %q, want %q", string(pluginMediaData), string(pluginAssets[runtimeBundleOpenClawPluginMedia]))
 	}
 
 	invitePath := filepath.Join(stateDir, templateOpenClawInviteFile)
@@ -1615,9 +1615,9 @@ func TestPrepareOpenClawSharedDirDockerAssets(t *testing.T) {
 	sharedDir := t.TempDir()
 	stateDir := filepath.Join(t.TempDir(), "state")
 	if err := prepareOpenClawSharedDir(sharedDir, stateDir, nil, map[string][]byte{
-		templateOpenClawPluginManifest:   []byte(`{"id":"sky10"}` + "\n"),
-		templateOpenClawDockerfile:       []byte("FROM ubuntu:24.04\n"),
-		templateOpenClawDockerEntrypoint: []byte("#!/bin/sh\n"),
+		runtimeBundleOpenClawPluginManifest:   []byte(`{"id":"sky10"}` + "\n"),
+		runtimeBundleOpenClawDockerfile:       []byte("FROM ubuntu:24.04\n"),
+		runtimeBundleOpenClawDockerEntrypoint: []byte("#!/bin/sh\n"),
 	}, map[string]string{
 		"OPENAI_API_KEY": "openai-key",
 	}, nil, AgentProfileSeed{
@@ -1785,12 +1785,38 @@ func TestBundledHermesDockerUserScriptPersistsGuestSky10State(t *testing.T) {
 func TestBundledOpenClawDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T) {
 	t.Parallel()
 
-	body, err := readBundledTemplateAsset(templateOpenClawDockerEntrypoint)
+	body, err := readBundledRuntimeBundleAsset(runtimeBundleOpenClawDockerEntrypoint)
 	if err != nil {
-		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateOpenClawDockerEntrypoint, err)
+		t.Fatalf("readBundledRuntimeBundleAsset(%q) error: %v", runtimeBundleOpenClawDockerEntrypoint, err)
 	}
 
 	assertBundledDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t, string(body))
+}
+
+func TestLoadSandboxAssetsLoadsOpenClawRuntimeBundle(t *testing.T) {
+	t.Parallel()
+
+	assets, err := loadSandboxAssets(context.Background(), []string{
+		runtimeBundleOpenClawPluginManifest,
+		runtimeBundleOpenClawDockerEntrypoint,
+	})
+	if err != nil {
+		t.Fatalf("loadSandboxAssets() error: %v", err)
+	}
+	manifestBody, ok := assets[runtimeBundleOpenClawPluginManifest]
+	if !ok {
+		t.Fatalf("loadSandboxAssets() missing %q", runtimeBundleOpenClawPluginManifest)
+	}
+	if !strings.Contains(string(manifestBody), `"channels"`) {
+		t.Fatalf("runtime bundle plugin manifest missing channels: %q", string(manifestBody))
+	}
+	entrypointBody, ok := assets[runtimeBundleOpenClawDockerEntrypoint]
+	if !ok {
+		t.Fatalf("loadSandboxAssets() missing %q", runtimeBundleOpenClawDockerEntrypoint)
+	}
+	if !strings.Contains(string(entrypointBody), `PLUGIN_DIR="${SANDBOX_STATE_DIR}/plugins/openclaw-sky10-channel"`) {
+		t.Fatalf("runtime bundle entrypoint missing plugin target path: %q", string(entrypointBody))
+	}
 }
 
 func TestBundledHermesDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T) {
@@ -2140,9 +2166,9 @@ func TestBundledHermesBridgeAssetRegistersWithSky10(t *testing.T) {
 func TestBundledOpenClawChannelAssetSupportsStructuredAttachments(t *testing.T) {
 	t.Parallel()
 
-	body, err := readBundledTemplateAsset(filepath.Join(templateOpenClawPluginDir, "src", "index.js"))
+	body, err := readBundledRuntimeBundleAsset(runtimeBundleOpenClawPluginIndex)
 	if err != nil {
-		t.Fatalf("readBundledTemplateAsset(openclaw index) error: %v", err)
+		t.Fatalf("readBundledRuntimeBundleAsset(openclaw index) error: %v", err)
 	}
 
 	script := string(body)
@@ -2159,9 +2185,9 @@ func TestBundledOpenClawChannelAssetSupportsStructuredAttachments(t *testing.T) 
 		t.Fatalf("bundled OpenClaw channel missing chat reply type selection: %q", script)
 	}
 
-	mediaBody, err := readBundledTemplateAsset(filepath.Join(templateOpenClawPluginDir, "src", "media.js"))
+	mediaBody, err := readBundledRuntimeBundleAsset(runtimeBundleOpenClawPluginMedia)
 	if err != nil {
-		t.Fatalf("readBundledTemplateAsset(openclaw media helper) error: %v", err)
+		t.Fatalf("readBundledRuntimeBundleAsset(openclaw media helper) error: %v", err)
 	}
 	mediaScript := string(mediaBody)
 	if !strings.Contains(mediaScript, `trimmed.startsWith("MEDIA:")`) {

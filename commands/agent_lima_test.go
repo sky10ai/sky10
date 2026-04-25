@@ -1,11 +1,13 @@
 package commands
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	runtimebundles "github.com/sky10/sky10/external/runtimebundles"
 	skyapps "github.com/sky10/sky10/pkg/apps"
 	"github.com/sky10/sky10/pkg/config"
 	skyfs "github.com/sky10/sky10/pkg/fs"
@@ -333,8 +335,8 @@ func TestPrepareLimaSharedDir(t *testing.T) {
 	sharedDir := t.TempDir()
 	stateDir := filepath.Join(t.TempDir(), "state")
 	pluginAssets := map[string][]byte{
-		agentLimaPluginManifest: []byte(`{"id":"sky10"}` + "\n"),
-		agentLimaPluginIndex:    []byte("export default function register() {}\n"),
+		agentLimaPluginManifestAsset: []byte(`{"id":"sky10"}` + "\n"),
+		agentLimaPluginIndexAsset:    []byte("export default function register() {}\n"),
 	}
 	if err := prepareLimaSharedDir(sandboxTemplateOpenClaw, sharedDir, stateDir, []byte("#!/bin/sh\n"), pluginAssets, map[string]string{
 		"OPENAI_API_KEY": "openai-key",
@@ -439,9 +441,9 @@ func TestPrepareLimaSharedDirDockerRuntimeAssets(t *testing.T) {
 	sharedDir := t.TempDir()
 	stateDir := filepath.Join(t.TempDir(), "state")
 	if err := prepareLimaSharedDir(sandboxTemplateOpenClawDocker, sharedDir, stateDir, []byte("#!/bin/sh\n"), map[string][]byte{
-		agentLimaPluginManifest:           []byte(`{"id":"sky10"}` + "\n"),
-		agentLimaOpenClawDockerfile:       []byte("FROM ubuntu:24.04\n"),
-		agentLimaOpenClawDockerEntrypoint: []byte("#!/bin/sh\n"),
+		agentLimaPluginManifestAsset:           []byte(`{"id":"sky10"}` + "\n"),
+		agentLimaOpenClawDockerfileAsset:       []byte("FROM ubuntu:24.04\n"),
+		agentLimaOpenClawDockerEntrypointAsset: []byte("#!/bin/sh\n"),
 	}, map[string]string{
 		"OPENAI_API_KEY": "openai-key",
 	}, nil, skysandbox.AgentProfileSeed{
@@ -460,6 +462,33 @@ func TestPrepareLimaSharedDirDockerRuntimeAssets(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(stateDir, "runtime", "openclaw", "entrypoint.sh")); err != nil {
 		t.Fatalf("Stat(runtime entrypoint) error: %v", err)
+	}
+}
+
+func TestLoadLimaSharedAssetsLoadsOpenClawRuntimeBundle(t *testing.T) {
+	t.Parallel()
+
+	spec, err := limaTemplateDefinition(sandboxTemplateOpenClawDocker)
+	if err != nil {
+		t.Fatalf("limaTemplateDefinition(openclaw-docker): %v", err)
+	}
+	assets, err := loadLimaSharedAssets(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("loadLimaSharedAssets() error: %v", err)
+	}
+	manifestBody, ok := assets[agentLimaPluginManifestAsset]
+	if !ok {
+		t.Fatalf("loadLimaSharedAssets() missing %q", agentLimaPluginManifestAsset)
+	}
+	if !strings.Contains(string(manifestBody), `"channels"`) {
+		t.Fatalf("runtime bundle plugin manifest missing channels: %q", string(manifestBody))
+	}
+	entrypointBody, ok := assets[agentLimaOpenClawDockerEntrypointAsset]
+	if !ok {
+		t.Fatalf("loadLimaSharedAssets() missing %q", agentLimaOpenClawDockerEntrypointAsset)
+	}
+	if !strings.Contains(string(entrypointBody), `PLUGIN_DIR="${SANDBOX_STATE_DIR}/plugins/openclaw-sky10-channel"`) {
+		t.Fatalf("runtime bundle entrypoint missing plugin target path: %q", string(entrypointBody))
 	}
 }
 
@@ -518,18 +547,9 @@ func TestHermesDockerUserScriptPersistsGuestSky10State(t *testing.T) {
 func TestOpenClawDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T) {
 	t.Parallel()
 
-	spec, err := limaTemplateDefinition(sandboxTemplateOpenClawDocker)
+	body, err := runtimebundles.ReadAsset(agentLimaOpenClawDockerEntrypointAsset)
 	if err != nil {
-		t.Fatalf("limaTemplateDefinition(openclaw-docker): %v", err)
-	}
-	dir, err := findLocalLimaTemplateDir(spec)
-	if err != nil {
-		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
-	}
-
-	body, err := os.ReadFile(filepath.Join(dir, agentLimaOpenClawDockerEntrypoint))
-	if err != nil {
-		t.Fatalf("ReadFile(docker runtime entrypoint) error: %v", err)
+		t.Fatalf("runtimebundles.ReadAsset(%q) error: %v", agentLimaOpenClawDockerEntrypointAsset, err)
 	}
 
 	assertDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t, string(body))
@@ -756,18 +776,9 @@ func TestOpenClawSystemScriptPinsOpenClawVersion(t *testing.T) {
 func TestOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	t.Parallel()
 
-	spec, err := limaTemplateDefinition(sandboxTemplateOpenClaw)
+	manifestBody, err := runtimebundles.ReadAsset(agentLimaPluginManifestAsset)
 	if err != nil {
-		t.Fatalf("limaTemplateDefinition(openclaw): %v", err)
-	}
-	dir, err := findLocalLimaTemplateDir(spec)
-	if err != nil {
-		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
-	}
-
-	manifestBody, err := os.ReadFile(filepath.Join(dir, agentLimaPluginManifest))
-	if err != nil {
-		t.Fatalf("ReadFile(plugin manifest) error: %v", err)
+		t.Fatalf("runtimebundles.ReadAsset(%q) error: %v", agentLimaPluginManifestAsset, err)
 	}
 	if !strings.Contains(string(manifestBody), `["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("plugin manifest missing browser skill default: %q", string(manifestBody))
@@ -776,9 +787,9 @@ func TestOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 		t.Fatalf("plugin manifest missing sky10 channel declaration: %q", string(manifestBody))
 	}
 
-	indexBody, err := os.ReadFile(filepath.Join(dir, agentLimaPluginIndex))
+	indexBody, err := runtimebundles.ReadAsset(agentLimaPluginIndexAsset)
 	if err != nil {
-		t.Fatalf("ReadFile(plugin index) error: %v", err)
+		t.Fatalf("runtimebundles.ReadAsset(%q) error: %v", agentLimaPluginIndexAsset, err)
 	}
 	if !strings.Contains(string(indexBody), `["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("plugin index missing browser skill default: %q", string(indexBody))
@@ -806,18 +817,9 @@ func TestOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 func TestOpenClawBridgeAssetStreamsReplies(t *testing.T) {
 	t.Parallel()
 
-	spec, err := limaTemplateDefinition(sandboxTemplateOpenClaw)
+	indexBody, err := runtimebundles.ReadAsset(agentLimaPluginIndexAsset)
 	if err != nil {
-		t.Fatalf("limaTemplateDefinition(openclaw): %v", err)
-	}
-	dir, err := findLocalLimaTemplateDir(spec)
-	if err != nil {
-		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
-	}
-
-	indexBody, err := os.ReadFile(filepath.Join(dir, agentLimaPluginIndex))
-	if err != nil {
-		t.Fatalf("ReadFile(plugin index) error: %v", err)
+		t.Fatalf("runtimebundles.ReadAsset(%q) error: %v", agentLimaPluginIndexAsset, err)
 	}
 	indexScript := string(indexBody)
 	if !strings.Contains(indexScript, "createChannelReplyPipeline") {
@@ -845,9 +847,9 @@ func TestOpenClawBridgeAssetStreamsReplies(t *testing.T) {
 		t.Fatalf("plugin index missing client_request_id propagation helper: %q", indexScript)
 	}
 
-	clientBody, err := os.ReadFile(filepath.Join(dir, agentLimaPluginClient))
+	clientBody, err := runtimebundles.ReadAsset(agentLimaPluginClientAsset)
 	if err != nil {
-		t.Fatalf("ReadFile(plugin client) error: %v", err)
+		t.Fatalf("runtimebundles.ReadAsset(%q) error: %v", agentLimaPluginClientAsset, err)
 	}
 	clientScript := string(clientBody)
 	if !strings.Contains(clientScript, "async sendContent(") {

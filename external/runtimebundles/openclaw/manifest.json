@@ -1,0 +1,14 @@
+{
+  "id": "openclaw",
+  "schema": 1,
+  "components": {
+    "sky10-openclaw": {
+      "path": "sky10-openclaw",
+      "target": "plugins/openclaw-sky10-channel"
+    },
+    "docker": {
+      "path": "docker",
+      "target": "runtime/openclaw"
+    }
+  }
+}

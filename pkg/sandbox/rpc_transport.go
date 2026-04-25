@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 
+	runtimebundles "github.com/sky10/sky10/external/runtimebundles"
 	skyfs "github.com/sky10/sky10/pkg/fs"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
 )
@@ -40,6 +41,9 @@ func findLocalTemplateFile(name string) (string, error) {
 }
 
 func loadSandboxAsset(ctx context.Context, name string) ([]byte, error) {
+	if runtimebundles.IsAsset(name) {
+		return runtimebundles.LoadAsset(ctx, name)
+	}
 	if local, err := findLocalTemplateFile(name); err == nil {
 		data, err := os.ReadFile(local)
 		if err != nil {
