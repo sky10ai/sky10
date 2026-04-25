@@ -342,11 +342,7 @@ func (d *DaemonV2_5) Run(ctx context.Context) error {
 	}
 
 	// Watchdog
-	wd := NewWatchdog(d.logger, 2*time.Minute)
-	wd.Register("outbox")
-	wd.Register("poller")
-	d.outboxWorker.heartbeat = func() { wd.Heartbeat("outbox") }
-	d.snapshotPoller.heartbeat = func() { wd.Heartbeat("poller") }
+	wd := d.newWorkerWatchdog(2 * time.Minute)
 
 	// Start workers
 	go d.outboxWorker.Run(ctx)
@@ -362,6 +358,19 @@ func (d *DaemonV2_5) Run(ctx context.Context) error {
 	d.logger.Info("daemon shutting down")
 	d.watcher.Close()
 	return nil
+}
+
+func (d *DaemonV2_5) newWorkerWatchdog(timeout time.Duration) *Watchdog {
+	wd := NewWatchdog(d.logger, timeout)
+	if d.outboxWorker != nil {
+		wd.Register("outbox")
+		d.outboxWorker.heartbeat = func() { wd.Heartbeat("outbox") }
+	}
+	if d.snapshotPoller != nil && d.snapshotPoller.backend != nil {
+		wd.Register("poller")
+		d.snapshotPoller.heartbeat = func() { wd.Heartbeat("poller") }
+	}
+	return wd
 }
 
 // SyncOnce does a one-shot sync: seed, poll, reconcile, drain, upload.

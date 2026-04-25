@@ -67,6 +67,36 @@ func waitForDaemonTrackedPath(t *testing.T, daemon *DaemonV2_5, path string, tim
 	return opslog.FileInfo{}
 }
 
+func TestDaemonWorkerWatchdogSkipsPollerWithoutBackend(t *testing.T) {
+	daemon := &DaemonV2_5{
+		outboxWorker:   &OutboxWorker{},
+		snapshotPoller: NewSnapshotPoller(nil, nil, "dev-a", "ns-a", nil, time.Minute, nil, nil),
+	}
+
+	wd := daemon.newWorkerWatchdog(time.Minute)
+
+	if _, ok := wd.workers["outbox"]; !ok {
+		t.Fatal("outbox worker was not registered")
+	}
+	if _, ok := wd.workers["poller"]; ok {
+		t.Fatal("poller worker should not be registered without a backend")
+	}
+}
+
+func TestDaemonWorkerWatchdogRegistersPollerWithBackend(t *testing.T) {
+	backend := s3adapter.NewMemory()
+	daemon := &DaemonV2_5{
+		outboxWorker:   &OutboxWorker{},
+		snapshotPoller: NewSnapshotPoller(backend, nil, "dev-a", "ns-a", nil, time.Minute, nil, nil),
+	}
+
+	wd := daemon.newWorkerWatchdog(time.Minute)
+
+	if _, ok := wd.workers["poller"]; !ok {
+		t.Fatal("poller worker was not registered with a backend")
+	}
+}
+
 // Regression: seedStateFromDisk must queue new files for upload.
 // Bug: seed set state BEFORE sending events to the watcher handler,
 // so the handler saw matching checksums and skipped — files never
