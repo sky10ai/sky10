@@ -698,6 +698,9 @@ func (s *P2PSync) handlePeerConnect(pid peer.ID) {
 	if s == nil || s.node == nil || pid == "" || pid == s.node.PeerID() {
 		return
 	}
+	if !s.isConnectedPrivatePeer(pid) {
+		return
+	}
 	now := time.Now()
 	s.mu.Lock()
 	last := s.lastConnectPush[pid]
@@ -714,6 +717,18 @@ func (s *P2PSync) handlePeerConnect(pid peer.ID) {
 	}
 	s.logger.Info("fs p2p: peer connected, scheduling anti-entropy", "peer", pid, "replicas", replicas)
 	s.PushToAll(context.Background())
+}
+
+func (s *P2PSync) isConnectedPrivatePeer(pid peer.ID) bool {
+	if s == nil || s.node == nil || pid == "" {
+		return false
+	}
+	for _, privatePeer := range s.node.ConnectedPrivateNetworkPeers() {
+		if privatePeer == pid {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *P2PSync) syncWithPeer(ctx context.Context, pid peer.ID, replica *p2pReplica) {

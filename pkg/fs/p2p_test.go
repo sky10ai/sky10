@@ -3,12 +3,28 @@ package fs
 import (
 	"context"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sky10/sky10/pkg/fs/opslog"
 )
+
+type testFSP2PNode struct {
+	localPeer    peer.ID
+	privatePeers []peer.ID
+}
+
+func (n *testFSP2PNode) Host() host.Host { return nil }
+
+func (n *testFSP2PNode) PeerID() peer.ID { return n.localPeer }
+
+func (n *testFSP2PNode) ConnectedPrivateNetworkPeers() []peer.ID {
+	return append([]peer.ID(nil), n.privatePeers...)
+}
 
 func TestFSP2PSyncPushToAllCoalescesConcurrentTriggers(t *testing.T) {
 	t.Parallel()
@@ -51,6 +67,55 @@ func TestFSP2PSyncPushToAllCoalescesConcurrentTriggers(t *testing.T) {
 	if got := rounds.Load(); got != 2 {
 		t.Fatalf("rounds = %d, want exactly 2", got)
 	}
+}
+
+func TestFSP2PSyncHandlePeerConnectIgnoresPublicPeers(t *testing.T) {
+	t.Parallel()
+
+	localPeer := peer.ID("local-peer")
+	privatePeer := peer.ID("private-peer")
+	publicPeer := peer.ID("public-peer")
+	syncer := NewP2PSync(&testFSP2PNode{
+		localPeer:    localPeer,
+		privatePeers: []peer.ID{privatePeer},
+	}, nil)
+	syncer.replicas["drive"] = &p2pReplica{id: "drive"}
+
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	closeRelease := func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	}
+	t.Cleanup(closeRelease)
+
+	var rounds atomic.Int32
+	syncer.pushRoundHook = func(context.Context) {
+		rounds.Add(1)
+		<-release
+	}
+
+	syncer.handlePeerConnect(publicPeer)
+	if fsP2PTestPushScheduled(syncer) || rounds.Load() != 0 {
+		closeRelease()
+		t.Fatalf("public peer connect scheduled FS anti-entropy round")
+	}
+
+	syncer.handlePeerConnect(privatePeer)
+	waitForFSUnit(t, time.Second, func() bool {
+		return rounds.Load() == 1
+	})
+	closeRelease()
+	waitForFSUnit(t, time.Second, func() bool {
+		return !fsP2PTestPushScheduled(syncer)
+	})
+}
+
+func fsP2PTestPushScheduled(syncer *P2PSync) bool {
+	syncer.pushMu.Lock()
+	defer syncer.pushMu.Unlock()
+	return syncer.pushRunning || syncer.pushPending
 }
 
 func waitForFSUnit(t *testing.T, timeout time.Duration, fn func() bool) {
