@@ -24,6 +24,12 @@ const (
 	peerAgentCacheTTL           = 30 * time.Second
 )
 
+// DirectAgentSource exposes agents reachable over a daemon-local transport
+// that does not rely on private-network peer discovery.
+type DirectAgentSource interface {
+	ListAgents(ctx context.Context) []AgentInfo
+}
+
 // Router dispatches messages locally via SSE or to remote devices via
 // skylink. It also aggregates agent lists across the swarm.
 type Router struct {
@@ -33,6 +39,7 @@ type Router struct {
 	emit                   Emitter
 	deviceID               string
 	logger                 *slog.Logger
+	directSources          []DirectAgentSource
 	mailbox                *agentmailbox.Store
 	relay                  agentmailbox.NetworkRelay
 	networkQueue           agentmailbox.NetworkQueue
@@ -104,6 +111,18 @@ func (r *Router) SetMailboxObserver(observer func(action string, record agentmai
 func (r *Router) SetPrivateDeviceMembership(knownDevice func(deviceID string) bool, hasOtherDevices func() bool) {
 	r.knownPrivateDevice = knownDevice
 	r.hasOtherPrivateDevices = hasOtherDevices
+}
+
+// AddDirectAgentSource adds a local inventory source for agents that are
+// reachable without a private-network peer connection, such as sandbox guests
+// with forwarded host ports.
+func (r *Router) AddDirectAgentSource(source DirectAgentSource) {
+	if r == nil || source == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.directSources = append(r.directSources, source)
 }
 
 // Send routes a message to the target agent or identity. Local targets
@@ -522,14 +541,17 @@ func (r *Router) List(ctx context.Context) []AgentInfo {
 	local := r.registry.List()
 	all := make([]AgentInfo, len(local))
 	copy(all, local)
+	all = append(all, r.listDirectAgents(ctx)...)
 
 	if r.node == nil {
+		all = dedupeAgentInfos(all)
 		sortAgentInfos(all)
 		return all
 	}
 
 	peers := r.node.ConnectedPrivateNetworkPeers()
 	if len(peers) == 0 {
+		all = dedupeAgentInfos(all)
 		sortAgentInfos(all)
 		return all
 	}
@@ -546,8 +568,21 @@ func (r *Router) List(ctx context.Context) []AgentInfo {
 
 	r.startPeerAgentRefresh(peers)
 
+	all = dedupeAgentInfos(all)
 	sortAgentInfos(all)
 	return all
+}
+
+func (r *Router) listDirectAgents(ctx context.Context) []AgentInfo {
+	r.mu.RLock()
+	sources := append([]DirectAgentSource(nil), r.directSources...)
+	r.mu.RUnlock()
+
+	var agents []AgentInfo
+	for _, source := range sources {
+		agents = append(agents, source.ListAgents(ctx)...)
+	}
+	return agents
 }
 
 func (r *Router) startPeerAgentRefresh(peers []peer.ID) {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -478,6 +479,8 @@ func ServeCmd() *cobra.Command {
 				agentMessageHub.Publish(msg)
 			}
 			agentRouter = skyagent.NewRouter(agentRegistry, linkNode, agentEventEmitter, bundle.DeviceID(), logRuntime.Logger)
+			sandboxAgentSource := newSandboxAgentSource(sandboxManager, logRuntime.Logger)
+			agentRouter.AddDirectAgentSource(sandboxAgentSource)
 			agentRouter.SetMailbox(mailboxStore)
 			agentRouter.SetResolver(linkResolver)
 			mailboxRetryManager := link.NewManager(
@@ -521,7 +524,12 @@ func ServeCmd() *cobra.Command {
 			agentRPC.SetMailbox(mailboxStore)
 			server.RegisterHandler(agentRPC)
 			agentChatWS := skyagent.NewChatWebSocketHandler(agentRegistry, agentRPC, agentMessageHub, logRuntime.Logger)
-			server.HandleHTTP("GET /rpc/agents/{agent}/chat", agentChatWS.HandleChat)
+			server.HandleHTTP("GET /rpc/agents/{agent}/chat", func(w http.ResponseWriter, r *http.Request) {
+				if sandboxAgentSource.TryProxyChat(w, r) {
+					return
+				}
+				agentChatWS.HandleChat(w, r)
+			})
 			skyagent.RegisterLinkHandlers(linkNode, agentRegistry, agentEventEmitter, agentRouter)
 			agentRPC.SetPeerNotifier(func(ctx context.Context, topic string) {
 				linkNode.NotifyOwn(ctx, topic)
