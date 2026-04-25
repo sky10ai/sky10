@@ -2096,6 +2096,9 @@ func TestBundledHermesBridgeAssetRegistersWithSky10(t *testing.T) {
 	if !strings.Contains(script, "/rpc/events") {
 		t.Fatalf("bundled Hermes bridge missing SSE subscription: %q", script)
 	}
+	if strings.Contains(script, "host_rpc_url") {
+		t.Fatalf("bundled Hermes bridge should not accept legacy host_rpc_url config: %q", script)
+	}
 	if !strings.Contains(script, "/responses") {
 		t.Fatalf("bundled Hermes bridge missing Hermes Responses API call: %q", script)
 	}

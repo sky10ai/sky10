@@ -856,7 +856,7 @@ class Bridge:
 
         self.agent_name = str(config.get("agent_name") or "").strip() or "hermes"
         self.agent_key_name = str(config.get("agent_key_name") or "").strip() or self.agent_name
-        self.sky10_rpc_url = str(config.get("sky10_rpc_url") or config.get("host_rpc_url") or "").strip()
+        self.sky10_rpc_url = str(config.get("sky10_rpc_url") or "").strip()
         if not self.sky10_rpc_url:
             raise BridgeError("Hermes bridge config is missing sky10_rpc_url")
 

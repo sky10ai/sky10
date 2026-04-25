@@ -529,7 +529,7 @@ func startHermesBridge(t *testing.T, guestBaseURL, hermesAPIBaseURL, agentName s
 	configBody, err := json.Marshal(map[string]interface{}{
 		"agent_name":     agentName,
 		"agent_key_name": agentName,
-		"host_rpc_url":   guestBaseURL + "/rpc",
+		"sky10_rpc_url":  guestBaseURL + "/rpc",
 		"skills":         []string{"code"},
 	})
 	if err != nil {
