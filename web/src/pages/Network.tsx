@@ -5,8 +5,8 @@ import { SettingsPage } from "../components/SettingsPage";
 import { STORAGE_EVENT_TYPES } from "../lib/events";
 import {
   identity,
-  skyfs,
   skylink,
+  system,
   type Device,
   type LinkHealthEvent,
   type LinkLiveRelayHealth,
@@ -277,7 +277,7 @@ export default function Network() {
     live: STORAGE_EVENT_TYPES,
     refreshIntervalMs: 10_000,
   });
-  const { data: health } = useRPC(() => skyfs.health(), [], {
+  const { data: health } = useRPC(() => system.health(), [], {
     live: STORAGE_EVENT_TYPES,
     refreshIntervalMs: 10_000,
   });

@@ -1,12 +1,12 @@
 import { STORAGE_EVENT_TYPES } from "../lib/events";
 import { openCommandPalette } from "../lib/commandPalette";
-import { skyfs } from "../lib/rpc";
+import { system } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 import { Icon } from "./Icon";
 import { StatusBadge } from "./StatusBadge";
 
 export function Header() {
-  const { data: health } = useRPC(() => skyfs.health(), [], {
+  const { data: health } = useRPC(() => system.health(), [], {
     live: STORAGE_EVENT_TYPES,
     refreshIntervalMs: 10_000,
   });

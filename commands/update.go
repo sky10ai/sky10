@@ -284,7 +284,7 @@ func waitForDaemonHTTPReady() error {
 	var lastErr error
 
 	for time.Now().Before(deadline) {
-		raw, err := rpcCall("skyfs.health", nil)
+		raw, err := rpcHealth()
 		if err != nil {
 			lastErr = err
 			time.Sleep(200 * time.Millisecond)

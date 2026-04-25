@@ -2,7 +2,7 @@ import { useState } from "react";
 import { NavLink, useLocation } from "react-router";
 import { STORAGE_EVENT_TYPES } from "../lib/events";
 import { Icon } from "./Icon";
-import { skyfs, system } from "../lib/rpc";
+import { system } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 import { VersionOverlay, parseVersionDetails } from "./VersionOverlay";
 
@@ -44,7 +44,7 @@ const navItems = [
 export function Sidebar() {
   const location = useLocation();
   const [versionOverlayOpen, setVersionOverlayOpen] = useState(false);
-  const { data: health } = useRPC(() => skyfs.health(), [], {
+  const { data: health } = useRPC(() => system.health(), [], {
     live: STORAGE_EVENT_TYPES,
     refreshIntervalMs: 10_000,
   });

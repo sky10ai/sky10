@@ -53,6 +53,8 @@ func (h *RPCHandler) Dispatch(_ context.Context, method string, _ json.RawMessag
 	}
 
 	switch method {
+	case "system.health":
+		return nil, nil, false
 	case "system.checkUpdate", "system.update.check":
 		return h.rpcUpdateCheck()
 	case "system.updateStatus", "system.update.status":

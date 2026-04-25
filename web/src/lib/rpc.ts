@@ -57,9 +57,18 @@ export async function rpc<T = unknown>(
   return data.result as T;
 }
 
+const systemHealth = async () => {
+  try {
+    return await rpc<HealthResult>("system.health");
+  } catch (error) {
+    if (!isUnknownMethodError(error)) throw error;
+    return rpc<HealthResult>("skyfs.health");
+  }
+};
+
 // -- skyfs --
 export const skyfs = {
-  health: () => rpc<HealthResult>("skyfs.health"),
+  health: systemHealth,
   driveList: () => rpc<DriveListResult>("skyfs.driveList"),
   driveCreate: (p: { name: string; path: string }) =>
     rpc("skyfs.driveCreate", p),
@@ -224,6 +233,7 @@ export const apps = {
 
 // -- system --
 export const system = {
+  health: systemHealth,
   restart: () => rpc<{ status: string }>("system.restart"),
   update: {
     run: () => rpc<{ status: string }>("system.update"),

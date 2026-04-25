@@ -1,4 +1,4 @@
-import { agent, identity, sandbox, skyfs, skylink, type DriveListResult } from "./rpc";
+import { agent, identity, sandbox, skyfs, skylink, system, type DriveListResult } from "./rpc";
 import {
   type RootAssistantHooks,
   type RootAssistantResult,
@@ -17,10 +17,10 @@ export async function runDaemonVersion(hooks: RootAssistantHooks): Promise<RootA
   const health = await recordTool(
     hooks,
     "daemon.getVersion",
-    "skyfs.health",
+    "system.health",
     "Read daemon version",
     "Fetching the daemon build string and current health snapshot.",
-    () => skyfs.health(),
+    () => system.health(),
     (result) => `version ${result.version} · ${result.uptime} uptime`
   );
 
@@ -54,10 +54,10 @@ export async function runDrives(hooks: RootAssistantHooks): Promise<RootAssistan
     recordTool(
       hooks,
       "daemon.getHealth",
-      "skyfs.health",
+      "system.health",
       "Read storage health",
       "Checking drive runtime and sync counters.",
-      () => skyfs.health(),
+      () => system.health(),
       summarizeHealth
     ),
   ]);

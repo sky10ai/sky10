@@ -49,7 +49,7 @@ compositions of them.
 
 Examples:
 
-- `daemon.getVersion` -> `skyfs.health`
+- `daemon.getVersion` -> `system.health`
 - `drives.list` -> `skyfs.driveList`
 - `network.getStatus` -> `skylink.status`
 - `devices.list` -> `identity.deviceList`
@@ -154,7 +154,7 @@ For a simple request like "what version is the daemon?":
 
 1. User asks in the AI workspace.
 2. Model selects `daemon.getVersion`.
-3. Tool handler calls `skyfs.health`.
+3. Tool handler calls `system.health`.
 4. Tool handler returns `{ version, status }`.
 5. Model answers in natural language.
 

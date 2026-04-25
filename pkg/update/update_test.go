@@ -303,6 +303,21 @@ func TestRPCRestartDispatch(t *testing.T) {
 	}
 }
 
+func TestRPCSystemHealthNotClaimed(t *testing.T) {
+	h := NewRPCHandler("v1.0.0", func(string, interface{}) {})
+
+	result, err, ok := h.Dispatch(context.Background(), "system.health", nil)
+	if ok {
+		t.Fatal("system.health should be handled by the daemon health handler")
+	}
+	if err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if result != nil {
+		t.Fatalf("result = %#v, want nil", result)
+	}
+}
+
 func TestRPCUpdateStatusDispatch(t *testing.T) {
 	withRPCStubs(t)
 

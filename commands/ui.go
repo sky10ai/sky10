@@ -24,7 +24,7 @@ func uiOpenCmd() *cobra.Command {
 		Use:   "open",
 		Short: "Open the web UI in the default browser",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			raw, err := rpcCall("skyfs.health", nil)
+			raw, err := rpcHealth()
 			if err != nil {
 				return err
 			}

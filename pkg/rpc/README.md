@@ -17,6 +17,7 @@ operations. Keep the subdomain in the same position across the group:
 - `agent.mailbox.claim`
 - `sandbox.runtime.status`
 - `sandbox.runtime.upgrade`
+- `system.health`
 - `system.update.status`
 - `system.update.install`
 
@@ -28,3 +29,6 @@ Existing shipped namespaces and aliases are compatibility surface. For
 example, `skyfs.*` is still valid even if a future API would prefer a
 shorter `fs.*` namespace. Do not rename or remove shipped methods unless
 the change includes an explicit compatibility plan.
+
+`system.health` is the canonical daemon health method. `skyfs.health`
+is a legacy compatibility alias and should not be used by new callers.

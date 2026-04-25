@@ -72,6 +72,16 @@ fn rpc(method: &str) -> Option<String> {
     Some(response[body_start..].to_string())
 }
 
+fn rpc_health() -> Option<String> {
+    let health = rpc("system.health")?;
+    if health.contains("\"error\"")
+        && (health.contains("unknown method") || health.contains("method not found"))
+    {
+        return rpc("skyfs.health");
+    }
+    Some(health)
+}
+
 fn json_str<'a>(json: &'a str, field: &str) -> Option<&'a str> {
     let needle = format!("\"{}\"", field);
     let idx = json.find(&needle)? + needle.len();
@@ -137,7 +147,7 @@ fn query_daemon() -> DaemonInfo {
         latest_version: String::new(),
     };
 
-    let health = match rpc("skyfs.health") {
+    let health = match rpc_health() {
         Some(h) => h,
         None => return info,
     };

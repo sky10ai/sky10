@@ -11,7 +11,7 @@ import {
 import { Icon } from "../components/Icon";
 import { AGENT_EVENT_TYPES, SANDBOX_STATE_EVENT_TYPES, STORAGE_EVENT_TYPES } from "../lib/events";
 import { executeRootAssistantPrompt, type AgentAudience } from "../lib/rootAssistant";
-import { agent, identity, sandbox, skyfs, skylink } from "../lib/rpc";
+import { agent, identity, sandbox, skyfs, skylink, system } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
 const STORAGE_KEY = "sky10:ai-workspace:runs:v1";
@@ -59,7 +59,7 @@ export default function AIWorkspace() {
     "Describe the agent you want to create. sky10 will inspect the node with read-only tools and draft the next step."
   );
 
-  const { data: health } = useRPC(() => skyfs.health(), [], {
+  const { data: health } = useRPC(() => system.health(), [], {
     live: STORAGE_EVENT_TYPES,
     refreshIntervalMs: 10_000,
   });

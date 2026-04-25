@@ -241,7 +241,7 @@ func fsHealthCmd() *cobra.Command {
 		Use:   "health",
 		Short: "Show daemon health",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := rpcCall("skyfs.health", nil)
+			result, err := rpcHealth()
 			if err != nil {
 				return err
 			}

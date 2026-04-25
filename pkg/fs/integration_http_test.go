@@ -83,9 +83,9 @@ func TestIntegrationHTTPRPC(t *testing.T) {
 		}
 	})
 
-	// --- POST /rpc: skyfs.health ---
+	// --- POST /rpc: system.health ---
 	t.Run("rpc_health", func(t *testing.T) {
-		result := httpRPCCall(t, baseURL, "skyfs.health", nil)
+		result := httpRPCCall(t, baseURL, "system.health", nil)
 		status, _ := result["status"].(string)
 		if status != "ok" {
 			t.Errorf("status = %q, want ok", status)

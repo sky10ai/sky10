@@ -129,6 +129,36 @@ func TestRPCStatus(t *testing.T) {
 	}
 }
 
+func TestRPCHealthAliases(t *testing.T) {
+	t.Parallel()
+	_, conn, _ := startTestRPC(t)
+
+	systemResult := rpcCall(t, conn, "system.health", nil)
+	var systemHealth map[string]interface{}
+	if err := json.Unmarshal(systemResult, &systemHealth); err != nil {
+		t.Fatalf("unmarshal system.health: %v", err)
+	}
+
+	legacyResult := rpcCall(t, conn, "skyfs.health", nil)
+	var legacyHealth map[string]interface{}
+	if err := json.Unmarshal(legacyResult, &legacyHealth); err != nil {
+		t.Fatalf("unmarshal skyfs.health: %v", err)
+	}
+
+	if systemHealth["status"] != "ok" {
+		t.Fatalf("system.health status = %v, want ok", systemHealth["status"])
+	}
+	if systemHealth["version"] != "test" {
+		t.Fatalf("system.health version = %v, want test", systemHealth["version"])
+	}
+	if legacyHealth["status"] != systemHealth["status"] {
+		t.Fatalf("skyfs.health status = %v, want %v", legacyHealth["status"], systemHealth["status"])
+	}
+	if legacyHealth["version"] != systemHealth["version"] {
+		t.Fatalf("skyfs.health version = %v, want %v", legacyHealth["version"], systemHealth["version"])
+	}
+}
+
 func TestRPCMethodNotFound(t *testing.T) {
 	t.Parallel()
 	_, conn, _ := startTestRPC(t)

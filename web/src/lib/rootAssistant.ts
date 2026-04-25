@@ -1,4 +1,4 @@
-import { agent, identity, sandbox, skyfs, skylink } from "./rpc";
+import { agent, identity, sandbox, skyfs, skylink, system } from "./rpc";
 import {
   detectIntent,
   type AgentAudience,
@@ -52,10 +52,10 @@ async function runNodeDiagnosis(hooks: RootAssistantHooks): Promise<RootAssistan
   const health = await recordTool(
     hooks,
     "daemon.getHealth",
-    "skyfs.health",
+    "system.health",
     "Read daemon health",
     "Inspecting storage health, queue depth, and runtime counters.",
-    () => skyfs.health(),
+    () => system.health(),
     summarizeHealth
   );
   const network = await recordTool(
@@ -234,10 +234,10 @@ async function runFallback(prompt: string, hooks: RootAssistantHooks): Promise<R
     recordTool(
       hooks,
       "daemon.getHealth",
-      "skyfs.health",
+      "system.health",
       "Read daemon health",
       "Checking the daemon health snapshot.",
-      () => skyfs.health(),
+      () => system.health(),
       summarizeHealth
     ),
     recordTool(

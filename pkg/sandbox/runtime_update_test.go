@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -32,7 +33,7 @@ func TestRuntimeStatusUsesGuestRPC(t *testing.T) {
 		}
 		methods = append(methods, method)
 		switch method {
-		case "skyfs.health":
+		case "system.health":
 			return marshalInto(out, map[string]interface{}{
 				"status":  "ok",
 				"version": "v0.64.0",
@@ -65,7 +66,52 @@ func TestRuntimeStatusUsesGuestRPC(t *testing.T) {
 	if got.UpdateStatus["latest"] != "v0.65.0" {
 		t.Fatalf("update status = %#v", got.UpdateStatus)
 	}
-	wantMethods := []string{"skyfs.health", "system.update.status"}
+	wantMethods := []string{"system.health", "system.update.status"}
+	if !reflect.DeepEqual(methods, wantMethods) {
+		t.Fatalf("methods = %v, want %v", methods, wantMethods)
+	}
+}
+
+func TestRuntimeStatusFallsBackToLegacySkyFSHealth(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+	m.records["hermes-dev"] = Record{
+		Name:          "Hermes Dev",
+		Slug:          "hermes-dev",
+		Provider:      providerLima,
+		Template:      templateHermes,
+		ForwardedHost: "127.0.0.1",
+		ForwardedPort: 39101,
+	}
+
+	var methods []string
+	m.guestRPC = func(ctx context.Context, address, method string, params interface{}, out interface{}) error {
+		methods = append(methods, method)
+		switch method {
+		case "system.health":
+			return errors.New("unknown method: system.health")
+		case "skyfs.health":
+			return marshalInto(out, map[string]string{"status": "ok", "version": "v0.63.0"})
+		case "system.update.status":
+			return marshalInto(out, map[string]interface{}{"current": "v0.63.0"})
+		default:
+			t.Fatalf("unexpected guest RPC method %q", method)
+		}
+		return nil
+	}
+
+	got, err := m.RuntimeStatus(context.Background(), "hermes-dev")
+	if err != nil {
+		t.Fatalf("RuntimeStatus() error: %v", err)
+	}
+	if got.Version != "v0.63.0" {
+		t.Fatalf("Version = %q, want v0.63.0", got.Version)
+	}
+	wantMethods := []string{"system.health", "skyfs.health", "system.update.status"}
 	if !reflect.DeepEqual(methods, wantMethods) {
 		t.Fatalf("methods = %v, want %v", methods, wantMethods)
 	}
@@ -157,7 +203,7 @@ func TestRPCDispatchesSandboxRuntimeMethods(t *testing.T) {
 	}
 	m.guestRPC = func(ctx context.Context, address, method string, params interface{}, out interface{}) error {
 		switch method {
-		case "skyfs.health":
+		case "system.health":
 			return marshalInto(out, map[string]string{"status": "ok", "version": "v0.64.0"})
 		case "system.update.status":
 			return marshalInto(out, map[string]interface{}{"current": "v0.64.0"})

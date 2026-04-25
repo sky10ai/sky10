@@ -12,7 +12,7 @@ import {
 } from "../components/PageHeader";
 import { StatusBadge } from "../components/StatusBadge";
 import { STORAGE_EVENT_TYPES } from "../lib/events";
-import { skyfs } from "../lib/rpc";
+import { skyfs, system } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
 export default function Drives() {
@@ -28,7 +28,7 @@ export default function Drives() {
     live: STORAGE_EVENT_TYPES,
     refreshIntervalMs: 10_000,
   });
-  const { data: health } = useRPC(() => skyfs.health(), [], {
+  const { data: health } = useRPC(() => system.health(), [], {
     live: STORAGE_EVENT_TYPES,
     refreshIntervalMs: 10_000,
   });

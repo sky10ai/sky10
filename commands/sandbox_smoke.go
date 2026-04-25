@@ -96,7 +96,7 @@ func sandboxSmokeCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&baseURL, "base-url", "", "Daemon HTTP base URL (defaults to skyfs.health http_addr)")
+	cmd.Flags().StringVar(&baseURL, "base-url", "", "Daemon HTTP base URL (defaults to system.health http_addr)")
 	cmd.Flags().StringVar(&message, "message", skyagent.DefaultSmokeMessage, "Chat message sent to each agent")
 	cmd.Flags().DurationVar(&timeout, "timeout", skyagent.DefaultSmokeTimeout, "Per-agent response timeout")
 	cmd.Flags().DurationVar(&readyTimeout, "ready-timeout", skyagent.DefaultSmokeReadyTimeout, "Per-agent websocket ready timeout")
@@ -107,7 +107,7 @@ func sandboxSmokeCmd() *cobra.Command {
 }
 
 func daemonHTTPBaseURL() (string, error) {
-	raw, err := rpcCall("skyfs.health", nil)
+	raw, err := rpcHealth()
 	if err != nil {
 		return "", err
 	}

@@ -248,7 +248,7 @@ reading raw logs.
 Checklist:
 
 - [x] Add health counters for invalid-path and case-collision issues.
-- [x] Surface those issues in `skyfs.health`, `skyfs.driveList`, and
+- [x] Surface those issues in `system.health`, `skyfs.driveList`, and
       `skyfs.syncActivity`.
 - [x] Show the offending logical path plus a short reason in the UI.
 - [x] Distinguish ordinary transfer degradation from path-policy degradation.

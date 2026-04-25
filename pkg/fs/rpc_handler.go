@@ -131,7 +131,7 @@ func (s *FSHandler) StartAutoApprove(ctx context.Context) {
 // Logger returns the handler's logger.
 func (s *FSHandler) Logger() *slog.Logger { return s.logger }
 
-// Dispatch routes skyfs.* methods to handler functions.
+// Dispatch routes fs and daemon health methods to handler functions.
 func (s *FSHandler) Dispatch(ctx context.Context, method string, params json.RawMessage) (interface{}, error, bool) {
 	var result interface{}
 	var err error
@@ -141,7 +141,7 @@ func (s *FSHandler) Dispatch(ctx context.Context, method string, params json.Raw
 		return map[string]string{"status": "ok"}, nil, true
 	case "skyfs.logs":
 		result, err = s.rpcLogs(ctx, params)
-	case "skyfs.health":
+	case "system.health", "skyfs.health":
 		result, err = s.rpcHealth(ctx)
 	case "skyfs.list", "skyfs.info", "skyfs.put", "skyfs.get",
 		"skyfs.remove", "skyfs.mkdir", "skyfs.versions",

@@ -52,9 +52,15 @@ func (m *Manager) RuntimeStatus(ctx context.Context, name string) (*RuntimeStatu
 	}
 
 	var health runtimeGuestHealth
-	if err := m.guestRPC(ctx, result.Endpoint, "skyfs.health", nil, &health); err != nil {
-		result.Error = fmt.Sprintf("guest health: %v", err)
-		return result, nil
+	if err := m.guestRPC(ctx, result.Endpoint, "system.health", nil, &health); err != nil {
+		if !isUnknownGuestMethod(err) {
+			result.Error = fmt.Sprintf("guest health: %v", err)
+			return result, nil
+		}
+		if legacyErr := m.guestRPC(ctx, result.Endpoint, "skyfs.health", nil, &health); legacyErr != nil {
+			result.Error = fmt.Sprintf("guest health: %v", legacyErr)
+			return result, nil
+		}
 	}
 	result.Reachable = true
 	result.HealthStatus = health.Status
@@ -68,6 +74,14 @@ func (m *Manager) RuntimeStatus(ctx context.Context, name string) (*RuntimeStatu
 	}
 	result.UpdateStatus = updateStatus
 	return result, nil
+}
+
+func isUnknownGuestMethod(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "unknown method") || strings.Contains(msg, "method not found")
 }
 
 func (m *Manager) RuntimeUpgrade(ctx context.Context, name string) (*RuntimeUpgradeResult, error) {

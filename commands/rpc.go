@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strings"
 
 	skyfs "github.com/sky10/sky10/pkg/fs"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
@@ -17,6 +18,25 @@ func dialDaemon() (net.Conn, error) {
 		return nil, fmt.Errorf("daemon not running (start with 'sky10 serve'): %w", err)
 	}
 	return conn, nil
+}
+
+func rpcHealth() (json.RawMessage, error) {
+	result, err := rpcCall("system.health", nil)
+	if err == nil {
+		return result, nil
+	}
+	if !isUnknownRPCMethod(err) {
+		return nil, err
+	}
+	return rpcCall("skyfs.health", nil)
+}
+
+func isUnknownRPCMethod(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "unknown method") || strings.Contains(msg, "method not found")
 }
 
 // rpcCall sends a JSON-RPC 2.0 request to the daemon and returns the result.
