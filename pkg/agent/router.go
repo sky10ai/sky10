@@ -16,7 +16,13 @@ import (
 	"github.com/sky10/sky10/pkg/link"
 )
 
-const peerQueryTimeout = 3 * time.Second
+const (
+	peerQueryTimeout            = 3 * time.Second
+	peerAgentRefreshTimeout     = 1 * time.Second
+	peerAgentRefreshInterval    = 2 * time.Second
+	peerAgentRefreshConcurrency = 16
+	peerAgentCacheTTL           = 30 * time.Second
+)
 
 // Router dispatches messages locally via SSE or to remote devices via
 // skylink. It also aggregates agent lists across the swarm.
@@ -39,6 +45,10 @@ type Router struct {
 	peerDevices    map[string]peer.ID // device_id -> peer.ID
 	peerAddresses  map[string]peer.ID // sky10 address -> peer.ID
 	peerAgentCache map[peer.ID]cachedAgents
+
+	agentRefreshMu      sync.Mutex
+	agentRefreshRunning bool
+	agentRefreshLast    time.Time
 }
 
 // cachedAgents holds the last successful agent list from a peer.
@@ -504,92 +514,128 @@ func (r *Router) DrainLocalPending(ctx context.Context, recipients ...string) er
 	return firstErr
 }
 
-// peerAgentCacheTTL is how long cached agent lists remain valid when a
-// live query fails. Prevents the UI from flashing "No Agents" on transient
-// P2P timeouts.
-const peerAgentCacheTTL = 30 * time.Second
-
-// List returns agents from the local registry and all connected peers.
-// On peer query failure, returns cached results if still within TTL.
+// List returns local agents plus fresh cached agents from connected peers, and
+// starts a bounded background refresh for remote peer lists. This keeps the UI
+// responsive even when a large private-network manifest leaves many stale
+// connected peers around.
 func (r *Router) List(ctx context.Context) []AgentInfo {
 	local := r.registry.List()
-
-	peers := r.node.ConnectedPrivateNetworkPeers()
-	if len(peers) == 0 {
-		return local
-	}
-
-	type peerResult struct {
-		agents []AgentInfo
-		peerID peer.ID
-		ok     bool
-	}
-
-	results := make(chan peerResult, len(peers))
-	var wg sync.WaitGroup
-
-	for _, pid := range peers {
-		wg.Add(1)
-		go func(pid peer.ID) {
-			defer wg.Done()
-			queryCtx, cancel := context.WithTimeout(ctx, peerQueryTimeout)
-			defer cancel()
-
-			raw, err := r.node.Call(queryCtx, pid, "agent.list", nil)
-			if err != nil {
-				r.logger.Debug("agent.list from peer failed", "peer", pid, "error", err)
-				results <- peerResult{peerID: pid, ok: false}
-				return
-			}
-
-			var resp struct {
-				Agents []AgentInfo `json:"agents"`
-			}
-			if err := json.Unmarshal(raw, &resp); err != nil {
-				r.logger.Debug("parsing agent.list response", "peer", pid, "error", err)
-				results <- peerResult{peerID: pid, ok: false}
-				return
-			}
-
-			// Cache device_id -> peer.ID mapping.
-			for _, a := range resp.Agents {
-				r.cachePeer(a.DeviceID, pid)
-			}
-
-			results <- peerResult{agents: resp.Agents, peerID: pid, ok: true}
-		}(pid)
-	}
-
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	now := time.Now()
 	all := make([]AgentInfo, len(local))
 	copy(all, local)
 
-	for pr := range results {
-		if pr.ok {
-			// Fresh result — use it and update cache.
-			all = append(all, pr.agents...)
-			r.mu.Lock()
-			r.peerAgentCache[pr.peerID] = cachedAgents{agents: pr.agents, at: now}
-			r.mu.Unlock()
-		} else {
-			// Query failed — fall back to cached agents if fresh enough.
-			r.mu.RLock()
-			cached, hasCached := r.peerAgentCache[pr.peerID]
-			r.mu.RUnlock()
-			if hasCached && now.Sub(cached.at) < peerAgentCacheTTL {
-				r.logger.Debug("using cached agent list", "peer", pr.peerID, "age", now.Sub(cached.at))
-				all = append(all, cached.agents...)
-			}
+	if r.node == nil {
+		sortAgentInfos(all)
+		return all
+	}
+
+	peers := r.node.ConnectedPrivateNetworkPeers()
+	if len(peers) == 0 {
+		sortAgentInfos(all)
+		return all
+	}
+
+	now := time.Now()
+	r.mu.RLock()
+	for _, pid := range peers {
+		cached, ok := r.peerAgentCache[pid]
+		if ok && now.Sub(cached.at) < peerAgentCacheTTL {
+			all = append(all, cached.agents...)
 		}
 	}
+	r.mu.RUnlock()
+
+	r.startPeerAgentRefresh(peers)
 
 	sortAgentInfos(all)
 	return all
+}
+
+func (r *Router) startPeerAgentRefresh(peers []peer.ID) {
+	if r == nil || r.node == nil || len(peers) == 0 {
+		return
+	}
+	now := time.Now()
+	r.agentRefreshMu.Lock()
+	if r.agentRefreshRunning || now.Sub(r.agentRefreshLast) < peerAgentRefreshInterval {
+		r.agentRefreshMu.Unlock()
+		return
+	}
+	r.agentRefreshRunning = true
+	r.agentRefreshLast = now
+	r.agentRefreshMu.Unlock()
+
+	peers = append([]peer.ID(nil), peers...)
+	go r.refreshPeerAgents(context.Background(), peers)
+}
+
+func (r *Router) refreshPeerAgents(ctx context.Context, peers []peer.ID) {
+	defer func() {
+		r.agentRefreshMu.Lock()
+		r.agentRefreshRunning = false
+		r.agentRefreshMu.Unlock()
+	}()
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	workers := peerAgentRefreshConcurrency
+	if workers > len(peers) {
+		workers = len(peers)
+	}
+	if workers <= 0 {
+		return
+	}
+
+	jobs := make(chan peer.ID)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for pid := range jobs {
+				r.refreshPeerAgent(ctx, pid)
+			}
+		}()
+	}
+
+sendJobs:
+	for _, pid := range peers {
+		select {
+		case <-ctx.Done():
+			break sendJobs
+		case jobs <- pid:
+		}
+	}
+	close(jobs)
+	wg.Wait()
+}
+
+func (r *Router) refreshPeerAgent(ctx context.Context, pid peer.ID) {
+	queryCtx, cancel := context.WithTimeout(ctx, peerAgentRefreshTimeout)
+	defer cancel()
+
+	raw, err := r.node.Call(queryCtx, pid, "agent.list", nil)
+	if err != nil {
+		r.logger.Debug("agent.list from peer failed", "peer", pid, "error", err)
+		return
+	}
+
+	var resp struct {
+		Agents []AgentInfo `json:"agents"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		r.logger.Debug("parsing agent.list response", "peer", pid, "error", err)
+		return
+	}
+
+	r.mu.Lock()
+	for _, a := range resp.Agents {
+		if a.DeviceID != "" {
+			r.peerDevices[a.DeviceID] = pid
+		}
+	}
+	r.peerAgentCache[pid] = cachedAgents{agents: resp.Agents, at: time.Now()}
+	r.mu.Unlock()
 }
 
 // Discover returns agents matching a skill from local + remote.
