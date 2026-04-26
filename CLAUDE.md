@@ -21,14 +21,21 @@ Claude skills.
 ## Claude Skills
 
 - `/release <version>` — canonical release flow. Use it for any request
-  to cut, ship, or publish a release. It now requires:
-  - build web before release artifacts
-  - `make platforms` / `make checksums`
-  - release binaries for all 6 CLI targets, including:
+  to cut, ship, or publish a release. The sequence is:
+  - create the empty release commit
+  - create and push the `vX.Y.Z` tag
+  - create/publish the release entry
+  - build web and CLI artifacts from the tagged commit:
+    - `make build-web`
+    - `make platforms`
+    - `make checksums`
+  - upload all 6 CLI assets, including:
     - `sky10-windows-amd64.exe`
     - `sky10-windows-arm64.exe`
-  - tag/release publication and checksum verification
-  - menu-asset verification and dogfooding.
+    - (and `sky10-darwin-amd64`, `sky10-darwin-arm64`,
+      `sky10-linux-amd64`, `sky10-linux-arm64`)
+  - upload `checksums.txt`
+  - upload dogfood and run verification workflows.
 - `/land` — canonical branch-landing flow. Use it only when the user
   explicitly says `land this branch` or otherwise clearly asks to
   integrate and clean up the current task branch.
