@@ -788,6 +788,21 @@ func TestBundledOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), `sky10_channel["healthMonitor"] = {"enabled": False}`) {
 		t.Fatalf("bundled user script missing sky10 health monitor config: %q", string(body))
 	}
+	if !strings.Contains(string(body), `entries.pop("acpx", None)`) {
+		t.Fatalf("bundled user script should remove stale acpx config in managed runtime: %q", string(body))
+	}
+	if !strings.Contains(string(body), `plugins["allow"] = ["sky10", "anthropic", "browser"]`) {
+		t.Fatalf("bundled user script should restrict bundled OpenClaw plugins in managed runtime: %q", string(body))
+	}
+	if !strings.Contains(string(body), `plugins.setdefault("slots", {})["memory"] = "none"`) {
+		t.Fatalf("bundled user script should disable bundled memory plugin in managed runtime: %q", string(body))
+	}
+	if !strings.Contains(string(body), `OPENCLAW_BUNDLED_PLUGINS_DIR`) || !strings.Contains(string(body), `OPENCLAW_NO_RESPAWN=1`) {
+		t.Fatalf("bundled user script should wrap OpenClaw gateway with managed runtime environment: %q", string(body))
+	}
+	if !strings.Contains(string(body), `prime_managed_openclaw_runtime_deps`) {
+		t.Fatalf("bundled user script should seed managed OpenClaw runtime deps: %q", string(body))
+	}
 	if !strings.Contains(string(body), `sky10_accounts["default"] = {`) {
 		t.Fatalf("bundled user script missing sky10 default account entry: %q", string(body))
 	}
@@ -823,7 +838,7 @@ func TestBundledOpenClawSystemScriptPinsOpenClawVersion(t *testing.T) {
 		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateOpenClawSys, err)
 	}
 	script := string(body)
-	if !strings.Contains(script, `OPENCLAW_VERSION=2026.4.14`) {
+	if !strings.Contains(script, `OPENCLAW_VERSION=2026.4.24`) {
 		t.Fatalf("bundled system script missing pinned openclaw version: %q", script)
 	}
 	if !strings.Contains(script, `emit_progress begin guest.openclaw.install`) {
@@ -831,6 +846,15 @@ func TestBundledOpenClawSystemScriptPinsOpenClawVersion(t *testing.T) {
 	}
 	if !strings.Contains(script, `npm install -g "openclaw@${OPENCLAW_VERSION}"`) {
 		t.Fatalf("bundled system script missing pinned openclaw install command: %q", script)
+	}
+	if !strings.Contains(script, "configure_managed_openclaw_bundled_plugins") {
+		t.Fatalf("bundled system script missing managed OpenClaw bundled plugin tree setup: %q", script)
+	}
+	if !strings.Contains(script, "managed-runtime-deps") {
+		t.Fatalf("bundled system script missing managed OpenClaw runtime dependency seed: %q", script)
+	}
+	if !strings.Contains(script, `speech-core memory-core image-generation-core media-understanding-core video-generation-core`) {
+		t.Fatalf("bundled system script missing managed OpenClaw public-surface plugin tree copy: %q", script)
 	}
 	if !strings.Contains(script, `openclaw-system-v2`) {
 		t.Fatalf("bundled system script missing bumped sentinel version: %q", script)
@@ -966,6 +990,12 @@ func TestBundledHermesScriptsEmitProgressMarkers(t *testing.T) {
 	userScript := string(userBody)
 	if !strings.Contains(userScript, `emit_progress begin guest.hermes.install`) {
 		t.Fatalf("bundled hermes user script missing install progress markers: %q", userScript)
+	}
+	if !strings.Contains(userScript, `HERMES_RELEASE_REF=v2026.4.23`) {
+		t.Fatalf("bundled hermes user script missing pinned release ref: %q", userScript)
+	}
+	if !strings.Contains(userScript, `--branch "${HERMES_RELEASE_REF}"`) {
+		t.Fatalf("bundled hermes user script missing pinned install branch: %q", userScript)
 	}
 	if !strings.Contains(userScript, `emit_progress begin guest.hermes.bridge.start`) {
 		t.Fatalf("bundled hermes user script missing bridge progress markers: %q", userScript)
@@ -1816,6 +1846,24 @@ func TestLoadSandboxAssetsLoadsOpenClawRuntimeBundle(t *testing.T) {
 	}
 	if !strings.Contains(string(entrypointBody), `PLUGIN_DIR="${SANDBOX_STATE_DIR}/plugins/openclaw-sky10-channel"`) {
 		t.Fatalf("runtime bundle entrypoint missing plugin target path: %q", string(entrypointBody))
+	}
+	if !strings.Contains(string(entrypointBody), `entries.pop("acpx", None)`) {
+		t.Fatalf("runtime bundle entrypoint should remove stale acpx config in managed runtime: %q", string(entrypointBody))
+	}
+	if !strings.Contains(string(entrypointBody), `plugins["allow"] = ["sky10", "anthropic", "browser"]`) {
+		t.Fatalf("runtime bundle entrypoint should restrict bundled OpenClaw plugins in managed runtime: %q", string(entrypointBody))
+	}
+	if !strings.Contains(string(entrypointBody), `plugins.setdefault("slots", {})["memory"] = "none"`) {
+		t.Fatalf("runtime bundle entrypoint should disable bundled memory plugin in managed runtime: %q", string(entrypointBody))
+	}
+	if !strings.Contains(string(entrypointBody), `OPENCLAW_BUNDLED_PLUGINS_DIR`) {
+		t.Fatalf("runtime bundle entrypoint should use managed bundled OpenClaw plugin tree: %q", string(entrypointBody))
+	}
+	if !strings.Contains(string(entrypointBody), `speech-core memory-core image-generation-core media-understanding-core video-generation-core`) {
+		t.Fatalf("runtime bundle entrypoint should expose OpenClaw public-surface plugins in managed runtime: %q", string(entrypointBody))
+	}
+	if !strings.Contains(string(entrypointBody), `prime_managed_openclaw_runtime_deps`) {
+		t.Fatalf("runtime bundle entrypoint should seed managed OpenClaw runtime deps: %q", string(entrypointBody))
 	}
 }
 

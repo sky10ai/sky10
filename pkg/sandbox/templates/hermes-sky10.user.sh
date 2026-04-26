@@ -5,6 +5,7 @@ export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${HOME}/.bin:/usr/local/bin:/
 export XDG_RUNTIME_DIR="/run/user/{{.UID}}"
 export HERMES_HOME="${HOME}/.hermes"
 export HERMES_MODEL="{{.Param.model}}"
+HERMES_RELEASE_REF=v2026.4.23
 
 SHARED_DIR="/shared"
 WORKSPACE_DIR="${SHARED_DIR}/workspace"
@@ -460,7 +461,7 @@ ensure_shared_env
 
 if [ ! -f "${SENTINEL}" ]; then
   emit_progress begin guest.hermes.install "Installing Hermes..."
-  curl4 https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup
+  curl4 "https://raw.githubusercontent.com/NousResearch/hermes-agent/${HERMES_RELEASE_REF}/scripts/install.sh" | bash -s -- --skip-setup --branch "${HERMES_RELEASE_REF}"
   touch "${SENTINEL}"
   emit_progress end guest.hermes.install "Hermes installed."
 else

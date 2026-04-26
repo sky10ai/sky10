@@ -7,7 +7,8 @@ ENV HOME=/root
 ENV HERMES_BUILD_HOME=/opt/hermes-home
 ENV HERMES_INSTALL_DIR=/opt/hermes-agent
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 update \
+  && apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 install -y \
     ca-certificates \
     curl \
     dbus-user-session \
@@ -18,8 +19,13 @@ RUN apt-get update && apt-get install -y \
     xz-utils \
   && rm -rf /var/lib/apt/lists/*
 
-RUN HERMES_HOME="${HERMES_BUILD_HOME}" HERMES_INSTALL_DIR="${HERMES_INSTALL_DIR}" \
-    curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup \
+ARG HERMES_RELEASE_REF=v2026.4.23
+
+RUN curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused \
+    -o /tmp/hermes-install.sh "https://raw.githubusercontent.com/NousResearch/hermes-agent/${HERMES_RELEASE_REF}/scripts/install.sh" \
+  && HERMES_HOME="${HERMES_BUILD_HOME}" HERMES_INSTALL_DIR="${HERMES_INSTALL_DIR}" \
+    bash /tmp/hermes-install.sh --skip-setup --branch "${HERMES_RELEASE_REF}" \
+  && rm -f /tmp/hermes-install.sh \
   && test -x "${HERMES_INSTALL_DIR}/venv/bin/hermes" \
   && ln -sf "${HERMES_INSTALL_DIR}/venv/bin/hermes" /usr/local/bin/hermes \
   && if [ -x "${HERMES_BUILD_HOME}/node/bin/node" ]; then \
@@ -28,7 +34,8 @@ RUN HERMES_HOME="${HERMES_BUILD_HOME}" HERMES_INSTALL_DIR="${HERMES_INSTALL_DIR}
        ln -sf "${HERMES_BUILD_HOME}/node/bin/npx" /usr/local/bin/npx; \
      fi
 
-RUN curl -fsSL -o /usr/local/bin/sky10 "https://github.com/sky10ai/sky10/releases/latest/download/sky10-linux-${TARGETARCH}" \
+RUN curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused \
+    -o /usr/local/bin/sky10 "https://github.com/sky10ai/sky10/releases/latest/download/sky10-linux-${TARGETARCH}" \
   && chmod 755 /usr/local/bin/sky10
 
 COPY entrypoint.sh /usr/local/bin/hermes-docker-entrypoint

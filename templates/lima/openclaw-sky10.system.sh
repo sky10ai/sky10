@@ -8,7 +8,7 @@ STATE_DIR=/var/lib/openclaw-lima
 SENTINEL="${STATE_DIR}/openclaw-system-v2"
 APT_FLAGS=(-o Acquire::ForceIPv4=true -o Acquire::Retries=3)
 ROUTE_OVERRIDE=/etc/netplan/99-openclaw-route-metrics.yaml
-OPENCLAW_VERSION=2026.4.14
+OPENCLAW_VERSION=2026.4.24
 
 mkdir -p "${STATE_DIR}"
 mkdir -p /shared
@@ -59,6 +59,49 @@ prefer_eth0_default_route() {
 
 curl4() {
   curl -4 --retry 5 --retry-delay 2 --retry-connrefused -fsSL "$@"
+}
+
+configure_managed_openclaw_bundled_plugins() {
+  local package_root dist_root runtime_root seed_root plugin
+
+  package_root="$(dirname "$(readlink -f "$(command -v openclaw)")")"
+  dist_root="${package_root}/dist"
+  runtime_root="${package_root}/dist-runtime"
+  seed_root="${runtime_root}/managed-runtime-deps"
+
+  rm -rf "${runtime_root}"
+  mkdir -p "${runtime_root}/extensions"
+  find "${dist_root}" -mindepth 1 -maxdepth 1 ! -name extensions \
+    -exec ln -sfn {} "${runtime_root}/" \;
+  for plugin in anthropic browser speech-core memory-core image-generation-core media-understanding-core video-generation-core; do
+    cp -a "${dist_root}/extensions/${plugin}" "${runtime_root}/extensions/${plugin}"
+  done
+
+  mkdir -p "${seed_root}"
+  npm install --prefix "${seed_root}" --ignore-scripts --package-lock=false --save=false \
+    @anthropic-ai/sdk@0.90.0 \
+    @clack/prompts@^1.2.0 \
+    @google/genai@^1.50.1 \
+    @mariozechner/pi-agent-core@0.70.2 \
+    @mariozechner/pi-ai@0.70.2 \
+    @mariozechner/pi-coding-agent@0.70.2 \
+    @modelcontextprotocol/sdk@1.29.0 \
+    ajv@^8.18.0 \
+    chokidar@^5.0.0 \
+    commander@^14.0.3 \
+    express@^5.2.1 \
+    gaxios@7.1.4 \
+    google-auth-library@10.6.2 \
+    https-proxy-agent@^9.0.0 \
+    jiti@^2.6.1 \
+    markdown-it@14.1.1 \
+    openai@^6.34.0 \
+    playwright-core@1.59.1 \
+    typebox@1.1.31 \
+    undici@8.1.0 \
+    ws@^8.20.0 \
+    yaml@^2.8.3 \
+    zod@^4.3.6
 }
 
 prefer_eth0_default_route
@@ -135,6 +178,8 @@ else
   emit_progress skip guest.chromium.install "Chromium already installed."
   emit_progress skip guest.caddy.install "Caddy already installed."
 fi
+
+configure_managed_openclaw_bundled_plugins
 
 CERT_PEM=/sandbox-state/certs/sb.sky10.local.pem
 CERT_KEY=/sandbox-state/certs/sb.sky10.local-key.pem

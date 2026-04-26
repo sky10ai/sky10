@@ -13,6 +13,7 @@ SANDBOX_STATE_DIR="/sandbox-state"
 STATE_DIR="${OPENCLAW_DIR}/.openclaw-lima"
 SENTINEL="${STATE_DIR}/initialized-v2"
 UNIT_DIR="${HOME}/.config/systemd/user"
+GATEWAY_WRAPPER="${HOME}/.bin/openclaw-sky10-gateway"
 SKY10_INVITE_PATH="/sandbox-state/join.json"
 
 mkdir -p "${OPENCLAW_DIR}/agents/main/sessions"
@@ -71,6 +72,28 @@ PY
 
   if [ -n "${pending_id}" ]; then
     openclaw devices approve "${pending_id}" >/dev/null 2>&1 || true
+  fi
+}
+
+prime_managed_openclaw_runtime_deps() {
+  local package_root package_version path_hash install_root source_node_modules
+
+  package_root="$(dirname "$(readlink -f "$(command -v openclaw)")")"
+  package_version="$(
+    node -e 'const fs=require("fs"); const path=require("path"); console.log(JSON.parse(fs.readFileSync(path.join(process.argv[1], "package.json"), "utf8")).version)' "${package_root}"
+  )"
+  path_hash="$(
+    node -e 'const crypto=require("crypto"); const path=require("path"); console.log(crypto.createHash("sha256").update(path.resolve(process.argv[1])).digest("hex").slice(0, 12))' "${package_root}"
+  )"
+  install_root="${OPENCLAW_DIR}/plugin-runtime-deps/openclaw-${package_version}-${path_hash}"
+  source_node_modules="${package_root}/dist-runtime/managed-runtime-deps/node_modules"
+  if [ ! -d "${source_node_modules}" ]; then
+    source_node_modules="${package_root}/node_modules"
+  fi
+
+  if [ ! -d "${install_root}/node_modules" ]; then
+    mkdir -p "${install_root}"
+    cp -a "${source_node_modules}" "${install_root}/node_modules"
   fi
 }
 
@@ -199,6 +222,8 @@ browser["noSandbox"] = True
 browser["ssrfPolicy"] = {"dangerouslyAllowPrivateNetwork": True}
 
 plugins = config.setdefault("plugins", {})
+plugins["allow"] = ["sky10", "anthropic", "browser"]
+plugins.setdefault("slots", {})["memory"] = "none"
 load = plugins.setdefault("load", {})
 paths = load.get("paths")
 if not isinstance(paths, list):
@@ -208,6 +233,7 @@ if os.environ["PLUGIN_DIR"] not in paths:
 load["paths"] = paths
 
 entries = plugins.setdefault("entries", {})
+entries.pop("acpx", None)
 entries["sky10"] = {
     "enabled": True,
     "config": {
@@ -240,6 +266,19 @@ fi
 emit_progress end guest.openclaw.configure "OpenClaw configured."
 
 emit_progress begin guest.openclaw.start "Starting OpenClaw..."
+prime_managed_openclaw_runtime_deps
+cat > "${GATEWAY_WRAPPER}" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+
+openclaw_bin="$(command -v openclaw)"
+package_root="$(dirname "$(readlink -f "${openclaw_bin}")")"
+export OPENCLAW_BUNDLED_PLUGINS_DIR="${package_root}/dist-runtime/extensions"
+export OPENCLAW_NO_RESPAWN=1
+exec openclaw gateway run
+EOF
+chmod 755 "${GATEWAY_WRAPPER}"
+
 cat > "${UNIT_DIR}/openclaw-gateway.service" <<EOF
 [Unit]
 Description=OpenClaw Gateway
@@ -247,7 +286,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/env openclaw gateway run
+ExecStart=${GATEWAY_WRAPPER}
 Restart=always
 RestartSec=5
 WorkingDirectory=${WORKSPACE_DIR}
