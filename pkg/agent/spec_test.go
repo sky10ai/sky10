@@ -81,6 +81,17 @@ func TestBuildAgentSpecSelectsDexterHarness(t *testing.T) {
 	}
 }
 
+func TestBuildAgentSpecDefaultsToOpenClawHarness(t *testing.T) {
+	spec := BuildAgentSpec("make me an ai agent that sorts receipts in a folder", time.Now())
+
+	if spec.Runtime.Target != "sandbox" ||
+		spec.Runtime.Provider != defaultSandboxProvider ||
+		spec.Runtime.Template != defaultSandboxTemplate ||
+		spec.Runtime.Harness != defaultAgentHarness {
+		t.Fatalf("runtime = %#v, want default OpenClaw sandbox runtime", spec.Runtime)
+	}
+}
+
 func TestBuildAgentSpecCanRepresentOptionalCommerce(t *testing.T) {
 	spec := BuildAgentSpec(canonicalMediaAccentPrompt+" and charge $2 per minute", time.Now())
 
@@ -297,6 +308,61 @@ func TestCompileAgentSpecProducesMediaRuntimePreview(t *testing.T) {
 	}
 	if strings.Contains(env, "elevenlabs-key") {
 		t.Fatalf(".env.example leaked secret payload: %q", env)
+	}
+}
+
+func TestCompileAgentSpecDefaultsOmittedSandboxRuntimeToOpenClaw(t *testing.T) {
+	spec := loadSpecFixture(t, "media-accent-private.yaml")
+	spec.Runtime.Provider = ""
+	spec.Runtime.Template = ""
+	spec.Runtime.Harness = ""
+
+	compiled, err := CompileAgentSpec(spec)
+	if err != nil {
+		t.Fatalf("CompileAgentSpec() error: %v", err)
+	}
+	if compiled.Runtime.Provider != defaultSandboxProvider ||
+		compiled.Runtime.Template != defaultSandboxTemplate ||
+		compiled.Runtime.Harness != defaultAgentHarness {
+		t.Fatalf("runtime = %#v, want default OpenClaw sandbox runtime", compiled.Runtime)
+	}
+	if len(compiled.Warnings) != 0 {
+		t.Fatalf("warnings = %#v, want none when defaults fill sandbox runtime", compiled.Warnings)
+	}
+
+	compose := compiledFileContent(t, compiled, "compose.yaml")
+	if !strings.Contains(compose, "sky10.agent.harness=openclaw") {
+		t.Fatalf("compose.yaml = %q, want OpenClaw harness label", compose)
+	}
+	if !strings.Contains(compose, "x-sky10-packages:") || !strings.Contains(compose, "- \"ffmpeg\"") {
+		t.Fatalf("compose.yaml = %q, want spec-declared ffmpeg package", compose)
+	}
+}
+
+func TestCompileAgentSpecInfersExplicitHarnessFromTemplate(t *testing.T) {
+	spec := loadSpecFixture(t, "coding-codex-private.yaml")
+	spec.Runtime.Harness = ""
+
+	compiled, err := CompileAgentSpec(spec)
+	if err != nil {
+		t.Fatalf("CompileAgentSpec() error: %v", err)
+	}
+	if compiled.Runtime.Harness != "codex" ||
+		compiled.Runtime.Template != "codex-docker" {
+		t.Fatalf("runtime = %#v, want explicit Codex template to select Codex harness", compiled.Runtime)
+	}
+}
+
+func TestCompileAgentSpecDoesNotAddPackagesToGenericOpenClawRuntime(t *testing.T) {
+	spec := BuildAgentSpec("make me an ai agent that sorts receipts in a folder", time.Now())
+
+	compiled, err := CompileAgentSpec(spec)
+	if err != nil {
+		t.Fatalf("CompileAgentSpec() error: %v", err)
+	}
+	compose := compiledFileContent(t, compiled, "compose.yaml")
+	if strings.Contains(compose, "x-sky10-packages:") || strings.Contains(compose, "ffmpeg") {
+		t.Fatalf("compose.yaml = %q, want no generated package list for generic OpenClaw runtime", compose)
 	}
 }
 

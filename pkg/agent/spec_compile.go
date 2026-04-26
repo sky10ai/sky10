@@ -8,7 +8,10 @@ import (
 )
 
 const (
-	compiledFileMode = "0644"
+	compiledFileMode       = "0644"
+	defaultAgentHarness    = "openclaw"
+	defaultSandboxProvider = "lima"
+	defaultSandboxTemplate = "openclaw-docker"
 )
 
 type AgentSpecCompileParams struct {
@@ -85,7 +88,7 @@ func compileRuntime(spec AgentSpec) AgentCompiledRuntime {
 	}
 	provider := strings.TrimSpace(runtime.Provider)
 	if provider == "" && runtime.Target == "sandbox" {
-		provider = "lima"
+		provider = defaultSandboxProvider
 	}
 	template := strings.TrimSpace(runtime.Template)
 	if template == "" && runtime.Target == "sandbox" {

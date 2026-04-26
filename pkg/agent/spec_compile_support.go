@@ -116,9 +116,9 @@ func harnessFromTemplate(template string) string {
 	case strings.Contains(value, "dexter"):
 		return "dexter"
 	case strings.Contains(value, "openclaw"):
-		return "openclaw"
+		return defaultAgentHarness
 	default:
-		return "openclaw"
+		return defaultAgentHarness
 	}
 }
 
@@ -128,10 +128,10 @@ func defaultTemplateForHarness(harness string) string {
 		return "codex-docker"
 	case "dexter":
 		return "dexter-docker"
-	case "openclaw":
-		return "openclaw-docker"
+	case "", defaultAgentHarness:
+		return defaultSandboxTemplate
 	default:
-		return "openclaw-docker"
+		return ""
 	}
 }
 

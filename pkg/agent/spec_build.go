@@ -54,9 +54,9 @@ func buildMediaAccentSpec(prompt, timestamp string) AgentSpec {
 		Description: "Process audio and video files and produce British-accent media outputs.",
 		Runtime: AgentRuntimeSpec{
 			Target:   "sandbox",
-			Provider: "lima",
-			Template: "openclaw-docker",
-			Harness:  "openclaw",
+			Provider: defaultSandboxProvider,
+			Template: defaultSandboxTemplate,
+			Harness:  defaultAgentHarness,
 			Packages: []string{"ffmpeg"},
 			Containers: []AgentContainerSpec{
 				{Name: "media-worker", Image: "ubuntu:24.04", Packages: []string{"ffmpeg"}},
@@ -131,7 +131,7 @@ func buildGenericAgentSpec(prompt, timestamp string) AgentSpec {
 		Prompt:      prompt,
 		Name:        "custom-agent",
 		Description: description,
-		Runtime:     AgentRuntimeSpec{Target: "sandbox", Provider: "lima", Template: "openclaw-docker", Harness: "openclaw"},
+		Runtime:     AgentRuntimeSpec{Target: "sandbox", Provider: defaultSandboxProvider, Template: defaultSandboxTemplate, Harness: defaultAgentHarness},
 		Fulfillment: AgentFulfillment{Mode: "autonomous"},
 		Tools: []AgentToolSpec{
 			{
