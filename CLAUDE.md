@@ -27,6 +27,11 @@ Claude skills.
   - create the empty release commit
   - create and push the `vX.Y.Z` tag
   - create/publish the release entry
+  - install from latest release and run daemon dogfood checks:
+    - `curl -fsSL https://raw.githubusercontent.com/sky10ai/sky10/main/install.sh | bash`
+    - `~/.bin/sky10 daemon restart`
+    - `~/.bin/sky10 --version`
+    - `~/.bin/sky10 daemon status`
   - build web and CLI artifacts from the tagged commit:
     - `make build-web`
     - `make platforms`

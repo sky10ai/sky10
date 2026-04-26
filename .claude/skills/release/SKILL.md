@@ -143,21 +143,25 @@ byte-identical.
 
 ## 5. Dogfood the upgrade path
 
-Once the release assets are available, verify the self-update path:
+Once the release assets are available, verify an actual install on this machine and daemon restart:
 
 ```bash
-~/.bin/sky10 update
+curl -fsSL https://raw.githubusercontent.com/sky10ai/sky10/main/install.sh | bash
+~/.bin/sky10 daemon restart
 ~/.bin/sky10 --version
 ~/.bin/sky10 daemon status
 ```
 
-`sky10 update` already tries to update `sky10-menu`, restart the menu,
-and restart the daemon. Do not kill or restart those processes manually
-unless the command reports that restart failed.
+If the installer does not refresh the daemon, restart explicitly:
 
-If `sky10 update` warns that `sky10-menu` assets are missing, the menu
-workflow has not finished yet. Wait for the assets to appear, then
-retry.
+```bash
+~/.bin/sky10 daemon restart
+```
+
+Then confirm the runtime version and restart status with the commands above.
+
+`sky10 update` is still useful to validate the staged updater path after
+the release dogfood pass, especially once menu assets arrive.
 
 ## 6. Closeout
 
@@ -166,5 +170,5 @@ Share:
 - the released version
 - the install command:
   `curl -fsSL https://raw.githubusercontent.com/sky10ai/sky10/main/install.sh | bash`
-- whether `sky10 update` dogfooding succeeded
+- whether install+daemon-restart dogfooding succeeded
 - any CI failures, missing assets, or follow-up work
