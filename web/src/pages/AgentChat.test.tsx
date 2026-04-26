@@ -459,6 +459,137 @@ describe("AgentChat page", () => {
     expect(fetchCalls.filter((call) => call.method === "sandbox.list")).toHaveLength(0);
   });
 
+  test("shows waiting and streaming indicators during a delayed agent turn", async () => {
+    localStorage.setItem("sky10:session:agent-1", "session-indicator");
+    const page = await renderAgentChatPage();
+    await waitFor(() => FakeWebSocket.instances.length > 0, "chat websocket");
+
+    const fileInput = page.querySelector('input[type="file"]') as HTMLInputElement | null;
+    if (!fileInput) {
+      throw new Error("expected hidden file input");
+    }
+    const sendButton = page.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
+    if (!sendButton) {
+      throw new Error("expected send button");
+    }
+
+    const file = new File(["slow turn"], "slow-turn.txt", { type: "text/plain" });
+    Object.defineProperty(fileInput, "files", {
+      configurable: true,
+      value: [file],
+    });
+    await act(async () => {
+      fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await waitFor(() => sendButton.disabled === false, "send button enabled");
+
+    await act(async () => {
+      sendButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    await waitFor(
+      () => FakeWebSocket.instances.some((socket) => socket.sentFrames.length > 0),
+      "websocket request",
+    );
+    await waitFor(
+      () => page.querySelector('[aria-label="Agent response status"]')?.textContent?.includes("Waiting for agent response...") === true,
+      "waiting indicator",
+    );
+
+    const ws = FakeWebSocket.instances.find((socket) => socket.sentFrames.length > 0);
+    if (!ws) {
+      throw new Error("expected websocket request frame");
+    }
+    const sessionID = new URL(ws.url).searchParams.get("session_id");
+    const frame = ws.sentFrames[0] as {
+      params?: {
+        content?: {
+          client_request_id?: string;
+        };
+      };
+    };
+    const clientRequestID = frame.params?.content?.client_request_id;
+    if (!sessionID || !clientRequestID) {
+      throw new Error("expected websocket session and client request id");
+    }
+
+    await act(async () => {
+      ws.emitFrame({
+        type: "event",
+        event: "delta",
+        payload: {
+          id: "reply-delta",
+          session_id: sessionID,
+          message_type: "delta",
+          content: {
+            stream_id: "stream-indicator",
+            client_request_id: clientRequestID,
+            text: "Working on it",
+          },
+          timestamp: "2026-04-26T12:00:00Z",
+        },
+      });
+    });
+
+    await waitFor(
+      () => page.querySelector('[aria-label="Agent response status"]')?.textContent?.includes("Streaming reply") === true,
+      "streaming status",
+    );
+    const responseStatus = page.querySelector('[aria-label="Agent response status"]');
+    expect(responseStatus?.textContent).toContain("Streaming reply");
+    expect(responseStatus?.textContent).toContain("First token");
+    expect(page.textContent).toContain("Streaming...");
+    expect(page.textContent).not.toContain("Waiting for agent response...");
+
+    await act(async () => {
+      ws.emitFrame({
+        type: "event",
+        event: "done",
+        payload: {
+          id: "reply-done",
+          session_id: sessionID,
+          message_type: "done",
+          content: {
+            stream_id: "stream-indicator",
+            client_request_id: clientRequestID,
+          },
+          timestamp: "2026-04-26T12:00:01Z",
+        },
+      });
+    });
+
+    await waitFor(
+      () => page.querySelector('[aria-label="Agent response status"]') === null,
+      "streaming status to clear",
+    );
+    expect(page.textContent).not.toContain("Streaming...");
+    expect(page.textContent).not.toContain("Streaming reply");
+  });
+
+  test("does not revive persisted streaming state as an active reply", async () => {
+    localStorage.setItem("sky10:session:agent-1", "session-stale-stream");
+    localStorage.setItem("sky10:chat:agent-1", JSON.stringify([
+      {
+        id: "stream:old",
+        from: "agent",
+        type: "delta",
+        content: {
+          text: "old partial reply",
+          parts: [{ type: "text", text: "old partial reply" }],
+        },
+        timestamp: "2026-04-26T12:00:00Z",
+        streaming: true,
+      },
+    ]));
+
+    const page = await renderAgentChatPage();
+
+    expect(page.textContent).toContain("old partial reply");
+    expect(page.querySelector('[aria-label="Agent response status"]')).toBeNull();
+    expect(page.textContent).not.toContain("Streaming...");
+    expect(page.textContent).not.toContain("Streaming reply");
+  });
+
   test("rotates a stale chat session when no visible transcript is stored", async () => {
     localStorage.setItem("sky10:session:agent-1", "session-stale");
 

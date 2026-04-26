@@ -30,8 +30,8 @@ import { useRPC } from "../lib/useRPC";
 
 const maxAttachmentBytes = 8 * 1024 * 1024;
 const maxAttachments = 4;
-const waitingNoticeDelayMs = 8_000;
-const slowWaitingDelayMs = 30_000;
+const waitingNoticeDelayMs = 1_000;
+const slowWaitingDelayMs = 15_000;
 
 interface DraftAttachment {
   id: string;
@@ -387,13 +387,22 @@ function MessageBody({ message }: { message: ChatMessage }) {
   );
 }
 
+function clearStreamingMessages(messages: readonly ChatMessage[], streamID?: string): ChatMessage[] {
+  const syntheticID = streamID ? `stream:${streamID}` : null;
+  return messages.map((message) => {
+    if (!message.streaming) return message;
+    if (syntheticID && message.id !== syntheticID) return message;
+    return { ...message, streaming: false };
+  });
+}
+
 export default function AgentChat() {
   const { agentId } = useParams<{ agentId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
   const storageKey = `sky10:chat:${agentId}`;
   const sessionKey = `sky10:session:${agentId}`;
-  const initialMessages = loadChatMessages(localStorage.getItem(storageKey));
+  const initialMessages = clearStreamingMessages(loadChatMessages(localStorage.getItem(storageKey)));
 
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -403,6 +412,7 @@ export default function AgentChat() {
   const [waiting, setWaiting] = useState(false);
   const [waitingNotice, setWaitingNotice] = useState(false);
   const [slowWaiting, setSlowWaiting] = useState(false);
+  const [activeStreamID, setActiveStreamID] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [transport, setTransport] = useState<ChatTransport>("connecting");
   const [activeChatWebSocketURL, setActiveChatWebSocketURL] = useState<string | undefined>();
@@ -438,7 +448,11 @@ export default function AgentChat() {
   const agentInfoID = agentInfo?.id;
   const hostChatWebSocketURL = agentInfoID ? agentChatWebSocketURL(agentInfoID, sessionId) : undefined;
   const desiredChatWebSocketURL = hostChatWebSocketURL;
-  const showGlobalWaiting = waiting && !messages.some((message) => message.streaming);
+  const streamingMessage = activeStreamID
+    ? messages.find((message) => message.id === `stream:${activeStreamID}` && message.streaming)
+    : undefined;
+  const isStreaming = Boolean(streamingMessage);
+  const showGlobalWaiting = waiting && !isStreaming;
 
   const clearWaitingState = useEffectEvent(() => {
     clearTimeout(waitingNoticeTimerRef.current);
@@ -533,15 +547,20 @@ export default function AgentChat() {
 
     if (msgType === "done") {
       clearWaitingState();
+      setActiveStreamID(null);
+      setMessages((prev) => clearStreamingMessages(prev, envelope.stream_id));
       return;
     }
     if (msgType === "delta" && envelope.stream_id && envelope.text) {
+      clearWaitingState();
+      setActiveStreamID(envelope.stream_id);
       const timing = noteFirstTokenTiming(envelope.client_request_id);
       setMessages((prev) => applyStreamingDelta(prev, envelope.stream_id!, envelope.text!, timestamp, timing));
       return;
     }
 
     clearWaitingState();
+    setActiveStreamID(null);
 
     const nextMessage: ChatMessage = {
       id: msg.id || uuid(),
@@ -705,6 +724,18 @@ export default function AgentChat() {
       // storage full or unavailable
     }
   }, [messages, storageKey]);
+
+  useEffect(() => {
+    if (!waiting && !isStreaming) return;
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [
+    isStreaming,
+    slowWaiting,
+    streamingMessage?.timing?.completeMs,
+    streamingMessage?.timing?.firstTokenMs,
+    waiting,
+    waitingNotice,
+  ]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -883,6 +914,7 @@ export default function AgentChat() {
       fileInputRef.current.value = "";
     }
     setSending(true);
+    setActiveStreamID(null);
     const clientRequestID = uuid();
     pendingTurnTimingsRef.current.set(clientRequestID, { startedAtMs: Date.now() });
 
@@ -913,6 +945,7 @@ export default function AgentChat() {
       applySendResult(userMsg.id, result);
     } catch (error) {
       pendingTurnTimingsRef.current.delete(clientRequestID);
+      setActiveStreamID(null);
       clearWaitingState();
       const message = error instanceof Error ? error.message : "Failed to send";
       setMessages((prev) => [
@@ -932,12 +965,15 @@ export default function AgentChat() {
   }
 
   const canSend = (!!input.trim() || attachments.length > 0) && !sending;
+  const chatStatusDetail = isStreaming ? timingLabel(streamingMessage?.timing) : null;
   const chatStatusLabel = sending
     ? "Sending"
+    : isStreaming
+      ? "Streaming reply"
     : waiting
       ? slowWaiting
         ? "Still waiting"
-        : "Waiting for reply"
+        : "Waiting for agent"
       : transport === "websocket"
         ? "Routed chat"
         : transport === "connecting"
@@ -1017,73 +1053,98 @@ export default function AgentChat() {
             </div>
           </div>
         )}
-        {messages.map((msg) => (
-          <div key={msg.id}>
-            <div
-              className={`flex ${msg.from === "user" ? "justify-end" : "justify-start"}`}
-            >
+        {messages.map((msg) => {
+          const messageStreaming = activeStreamID != null && msg.id === `stream:${activeStreamID}` && msg.streaming;
+          return (
+            <div key={msg.id}>
               <div
-                className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
-                  msg.from === "user"
-                    ? "bg-primary text-on-primary rounded-br-md"
-                    : msg.type === "error"
-                      ? "bg-error-container/20 text-error rounded-bl-md"
-                      : "rounded-bl-md border border-outline-variant/20 bg-surface-container-high text-on-surface shadow-[0_10px_30px_-24px_rgba(0,0,0,0.7)]"
-                }`}
+                className={`flex ${msg.from === "user" ? "justify-end" : "justify-start"}`}
               >
-                <MessageBody message={msg} />
-                {msg.from === "agent" && (msg.streaming || msg.timing) && (
-                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-secondary">
-                    {msg.streaming && (
-                      <>
-                        <div className="flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-secondary/60 animate-bounce" style={{ animationDelay: "0ms" }} />
-                          <span className="w-1.5 h-1.5 rounded-full bg-secondary/60 animate-bounce" style={{ animationDelay: "150ms" }} />
-                          <span className="w-1.5 h-1.5 rounded-full bg-secondary/60 animate-bounce" style={{ animationDelay: "300ms" }} />
-                        </div>
-                        <span>Streaming...</span>
-                      </>
-                    )}
-                    {timingLabel(msg.timing) && (
-                      <span>{timingLabel(msg.timing)}</span>
-                    )}
-                  </div>
+                <div
+                  className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
+                    msg.from === "user"
+                      ? "bg-primary text-on-primary rounded-br-md"
+                      : msg.type === "error"
+                        ? "bg-error-container/20 text-error rounded-bl-md"
+                        : "rounded-bl-md border border-outline-variant/20 bg-surface-container-high text-on-surface shadow-[0_10px_30px_-24px_rgba(0,0,0,0.7)]"
+                  }`}
+                >
+                  <MessageBody message={msg} />
+                  {msg.from === "agent" && (messageStreaming || msg.timing) && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-secondary">
+                      {messageStreaming && (
+                        <>
+                          <div className="flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-secondary/60 animate-bounce" style={{ animationDelay: "0ms" }} />
+                            <span className="w-1.5 h-1.5 rounded-full bg-secondary/60 animate-bounce" style={{ animationDelay: "150ms" }} />
+                            <span className="w-1.5 h-1.5 rounded-full bg-secondary/60 animate-bounce" style={{ animationDelay: "300ms" }} />
+                          </div>
+                          <span>Streaming...</span>
+                        </>
+                      )}
+                      {timingLabel(msg.timing) && (
+                        <span>{timingLabel(msg.timing)}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+              {msg.from === "user" && msg.delivered && (
+                <div className="flex justify-end mt-1 pr-1">
+                  <span className="text-[10px] text-secondary">
+                    {deliveryLabel(msg.delivery) || "Delivered"}
+                  </span>
+                </div>
+              )}
+              {msg.from === "user" && !msg.delivered && msg.delivery && (
+                <div className="flex justify-end mt-1 pr-1">
+                  <span className="text-[10px] text-secondary">
+                    {deliveryLabel(msg.delivery)}
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {showGlobalWaiting && (
+          <div className="flex justify-start" role="status" aria-label="Agent response status">
+            <div className="rounded-2xl rounded-bl-md border border-outline-variant/20 bg-surface-container-high px-4 py-3 shadow-sm">
+              <div className="flex items-center gap-2 text-xs text-secondary">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                </div>
+                <span>
+                  {slowWaiting
+                    ? "Still waiting. The agent may be retrying the model request."
+                    : waitingNotice
+                      ? "Message delivered. Waiting for the agent."
+                      : "Waiting for agent response..."}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+        {isStreaming && (
+          <div className="flex justify-start" role="status" aria-label="Agent response status">
+            <div className="rounded-2xl rounded-bl-md border border-outline-variant/20 bg-surface-container-high px-4 py-3 shadow-sm">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-secondary">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                </div>
+                <span>Streaming reply</span>
+                {chatStatusDetail && (
+                  <>
+                    <span aria-hidden="true">•</span>
+                    <span>{chatStatusDetail}</span>
+                  </>
                 )}
               </div>
             </div>
-            {msg.from === "user" && msg.delivered && (
-              <div className="flex justify-end mt-1 pr-1">
-                <span className="text-[10px] text-secondary">
-                  {deliveryLabel(msg.delivery) || "Delivered"}
-                </span>
-              </div>
-            )}
-            {msg.from === "user" && !msg.delivered && msg.delivery && (
-              <div className="flex justify-end mt-1 pr-1">
-                <span className="text-[10px] text-secondary">
-                  {deliveryLabel(msg.delivery)}
-                </span>
-              </div>
-            )}
           </div>
-        ))}
-        {showGlobalWaiting && (
-          <div className="flex justify-start">
-            <div className="rounded-2xl rounded-bl-md border border-outline-variant/20 bg-surface-container-high px-4 py-3 shadow-sm">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-            <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-            <span className="w-2 h-2 bg-secondary/50 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-          </div>
-          {waitingNotice && (
-            <p className="mt-2 text-xs text-secondary">
-              {slowWaiting
-                ? "Still waiting. The agent may be retrying the model request."
-                : "Message delivered. Waiting for the agent."}
-            </p>
-          )}
-        </div>
-      </div>
         )}
         <div ref={messagesEndRef} />
       </div>
@@ -1176,8 +1237,14 @@ export default function AgentChat() {
               <Icon name={sending ? "hourglass_empty" : "send"} className="text-lg" />
             </button>
           </div>
-          <div className="mt-2 flex items-center justify-end text-[11px] text-secondary" aria-live="polite">
-            {chatStatusLabel}
+          <div className="mt-2 flex items-center justify-end gap-1.5 text-[11px] text-secondary" aria-live="polite">
+            <span>{chatStatusLabel}</span>
+            {chatStatusDetail && (
+              <>
+                <span aria-hidden="true">•</span>
+                <span>{chatStatusDetail}</span>
+              </>
+            )}
           </div>
           {composerError && (
             <div className="mt-2 rounded-lg bg-error-container/15 px-3 py-2 text-xs text-error">
