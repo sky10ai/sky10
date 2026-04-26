@@ -28,12 +28,6 @@ const navItems = [
     matchPrefixes: ["/drives", "/bucket"],
   },
   {
-    to: "/devices",
-    icon: "devices",
-    label: "Devices",
-    matchPrefixes: ["/devices"],
-  },
-  {
     to: "/settings",
     icon: "settings",
     label: "Settings",

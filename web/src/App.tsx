@@ -55,8 +55,8 @@ export default function App() {
           <Route path="drives" element={<Drives />} />
           <Route path="drives/:name/*" element={<FileBrowser />} />
           <Route path="bucket/*" element={<Bucket />} />
-          <Route path="devices" element={<Devices />} />
-          <Route path="devices/invite" element={<InviteDevice />} />
+          <Route path="devices" element={<Navigate replace to="/settings/devices" />} />
+          <Route path="devices/invite" element={<Navigate replace to="/settings/devices/invite" />} />
           <Route path="wallet" element={<Navigate replace to="/settings/wallet" />} />
           <Route path="mailbox" element={<Navigate replace to="/settings/mailbox" />} />
           <Route path="sandboxes" element={<Navigate replace to="/settings/sandboxes" />} />
@@ -70,6 +70,8 @@ export default function App() {
           <Route path="settings/activity" element={<Activity />} />
           <Route path="settings/apps" element={<SettingsApps />} />
           <Route path="settings/codex" element={<SettingsCodex />} />
+          <Route path="settings/devices" element={<Devices />} />
+          <Route path="settings/devices/invite" element={<InviteDevice />} />
           <Route path="settings/secrets" element={<SettingsSecrets />} />
           <Route path="settings/visuals" element={<SettingsVisuals />} />
           <Route path="settings/wallet" element={<Wallet />} />

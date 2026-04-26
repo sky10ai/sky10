@@ -1,12 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { Icon } from "../components/Icon";
-import {
-  PageDescription,
-  PageHeader,
-  PageTitle,
-} from "../components/PageHeader";
 import { RelativeTime } from "../components/RelativeTime";
+import { SettingsPage } from "../components/SettingsPage";
 import { STORAGE_EVENT_TYPES } from "../lib/events";
 import { identity } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
@@ -27,27 +23,26 @@ export default function Devices() {
   const thisDevice = data?.this_device ?? "";
 
   return (
-    <section className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-6 pb-12 pt-6 sm:px-8 sm:pt-7 lg:px-10">
-      <PageHeader
-        actions={
-          <button
-            onClick={() => navigate("/devices/invite")}
-            className="bg-primary text-on-primary px-6 py-2.5 rounded-full font-semibold flex items-center gap-2 text-sm shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-all active:scale-95"
-            type="button"
-          >
-            <Icon name="person_add" />
-            Invite Device
-          </button>
-        }
-      >
-        <PageTitle>Connected Devices</PageTitle>
-        <PageDescription>
-          {devices.length === 0
-            ? "No devices registered yet."
-            : `${devices.length} device${devices.length !== 1 ? "s" : ""} in your network.`}
-        </PageDescription>
-      </PageHeader>
-
+    <SettingsPage
+      actions={
+        <button
+          onClick={() => navigate("/settings/devices/invite")}
+          className="bg-primary text-on-primary px-6 py-2.5 rounded-full font-semibold flex items-center gap-2 text-sm shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-all active:scale-95"
+          type="button"
+        >
+          <Icon name="person_add" />
+          Invite Device
+        </button>
+      }
+      backHref="/settings"
+      description={
+        devices.length === 0
+          ? "No devices registered yet."
+          : `${devices.length} device${devices.length !== 1 ? "s" : ""} in your network.`
+      }
+      title="Connected Devices"
+      width="wide"
+    >
       {(error || actionError) && (
         <div className="flex justify-between rounded-xl bg-error-container/20 p-4 text-sm text-error">
           <span>{actionError ?? error}</span>
@@ -183,6 +178,6 @@ export default function Devices() {
           );
         })}
       </div>
-    </section>
+    </SettingsPage>
   );
 }

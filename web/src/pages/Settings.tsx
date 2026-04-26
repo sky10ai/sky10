@@ -56,6 +56,13 @@ function walletExplorerHref(chain: WalletTab, address: string) {
 const settingsTools = [
   {
     description:
+      "Review authorized devices, invite new nodes, and remove old peers.",
+    icon: "devices",
+    label: "Devices",
+    to: "/settings/devices",
+  },
+  {
+    description:
       "Inspect durable queues, approvals, retries, and delivery history.",
     icon: "inbox",
     label: "Mailbox",
@@ -379,11 +386,11 @@ export default function Settings() {
             Open runtime dashboards from Settings
           </h3>
           <p className="max-w-2xl text-sm text-secondary">
-            Mailbox, networking, KV inspection, and sync activity now live under
-            the settings area instead of the primary sidebar.
+            Devices, mailbox, networking, KV inspection, and sync activity now
+            live under the settings area instead of the primary sidebar.
           </p>
         </div>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           {settingsTools.map((tool) => (
             <Link
               key={tool.to}

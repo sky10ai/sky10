@@ -57,7 +57,7 @@ export default function GettingStarted() {
 
         <div className="space-y-3">
           <button
-            onClick={() => navigate("/devices/invite")}
+            onClick={() => navigate("/settings/devices/invite")}
             className="w-full flex items-center gap-4 p-4 rounded-xl bg-primary text-on-primary hover:bg-primary/90 transition-colors"
           >
             <Icon name="person_add" className="text-2xl" />
@@ -104,7 +104,7 @@ export default function GettingStarted() {
           </div>
 
           <button
-            onClick={() => navigate("/devices")}
+            onClick={() => navigate("/settings/devices")}
             className="w-full flex items-center gap-4 p-4 rounded-xl bg-surface-container hover:bg-surface-container-high transition-colors text-on-surface"
           >
             <Icon name="devices" className="text-2xl text-secondary" />

@@ -33,9 +33,16 @@ const commands: Command[] = [
     id: "invite",
     label: "Invite Device",
     icon: "person_add",
-    action: "/devices/invite",
+    action: "/settings/devices/invite",
     shortcut: "⌘ I",
     section: "Suggestions",
+  },
+  {
+    id: "devices",
+    label: "Devices",
+    icon: "devices",
+    action: "/settings/devices",
+    section: "System",
   },
   {
     id: "bucket",
