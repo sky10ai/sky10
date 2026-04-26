@@ -341,6 +341,48 @@ function buildStreamContent(text, streamId, clientRequestID) {
   return content;
 }
 
+function buildToolCallPrompt(content) {
+  const payload = content && typeof content === "object" ? content : {};
+  const jobContext = payload.job_context && typeof payload.job_context === "object" ? payload.job_context : {};
+  const payloadRefs = [];
+  if (payload.payload_ref && typeof payload.payload_ref === "object") {
+    payloadRefs.push(payload.payload_ref);
+  }
+  if (Array.isArray(payload.payload_refs)) {
+    payloadRefs.push(...payload.payload_refs);
+  }
+  const toolCall = {
+    job_id: typeof payload.job_id === "string" && payload.job_id.trim() ? payload.job_id.trim() : String(jobContext.job_id ?? ""),
+    tool: typeof payload.tool === "string" && payload.tool.trim() ? payload.tool.trim() : "tool",
+    capability: typeof payload.capability === "string" ? payload.capability.trim() : "",
+    input: Object.prototype.hasOwnProperty.call(payload, "input") ? payload.input : {},
+    payload_refs: payloadRefs,
+    budget: payload.budget,
+    bid_id: payload.bid_id,
+  };
+  return [
+    "You are fulfilling a sky10 durable agent tool call.",
+    "Complete the requested tool call autonomously using the tools and credentials available in this VM.",
+    "If the request involves audio or video, infer the media workflow yourself: inspect/extract/convert/mux with ffmpeg when useful, and use configured provider APIs such as ElevenLabs when a voice transformation requires them.",
+    "Treat payload_refs as input handles. Write generated artifacts to a durable path or URI that sky10 can return to the caller.",
+    "Return a concise result summary and include any output artifact paths or URIs.",
+    "",
+    "Tool call:",
+    JSON.stringify(toolCall, null, 2),
+  ].join("\n");
+}
+
+function resolveToolCallJobID(content, msg) {
+  const payload = content && typeof content === "object" ? content : {};
+  const jobContext = payload.job_context && typeof payload.job_context === "object" ? payload.job_context : {};
+  return String(payload.job_id || jobContext.job_id || msg.session_id || "").trim();
+}
+
+function resolveToolCallName(content) {
+  const payload = content && typeof content === "object" ? content : {};
+  return String(payload.tool || payload.capability || "tool").trim() || "tool";
+}
+
 async function ensureRegistered(log, account, setStatus) {
   const state = getBridgeState();
   state.client ??= new Sky10Client(account.rpcUrl);
@@ -407,7 +449,7 @@ function startHeartbeat(log, account, setStatus, abortSignal) {
   return () => clearInterval(timer);
 }
 
-async function dispatchInbound(log, ctx, account, msg, inbound) {
+async function dispatchInbound(log, ctx, account, msg, inbound, handlers = {}) {
   const state = getBridgeState();
   const runtime = state.pluginRuntime;
   if (!runtime?.channel) {
@@ -472,6 +514,8 @@ async function dispatchInbound(log, ctx, account, msg, inbound) {
 
   const clientRequestID = extractClientRequestID(msg.content);
   const streamId = randomUUID();
+  let replyError = null;
+  let finalDelivered = false;
   const partialReplyState = {
     lastText: "",
   };
@@ -490,6 +534,17 @@ async function dispatchInbound(log, ctx, account, msg, inbound) {
         const kind = meta?.kind ?? "final";
         const replyText = resolveReplyText(payload);
         if (kind === "block") {
+          if (handlers.onBlockReply) {
+            await handlers.onBlockReply({
+              payload,
+              meta,
+              replyText,
+              streamId,
+              clientRequestID,
+              sessionId,
+            });
+            return;
+          }
           if (partialReplyState.lastText) {
             return;
           }
@@ -500,6 +555,19 @@ async function dispatchInbound(log, ctx, account, msg, inbound) {
           return;
         }
         const replyContent = buildOutboundChatContent(replyText);
+        if (handlers.onFinalReply) {
+          await handlers.onFinalReply({
+            payload,
+            meta,
+            replyText,
+            replyContent,
+            streamId,
+            clientRequestID,
+            sessionId,
+          });
+          finalDelivered = true;
+          return;
+        }
         const hasMedia = replyContent.parts.some((part) => part.type !== "text");
         await state.client.sendContent(
           msg.from,
@@ -514,10 +582,12 @@ async function dispatchInbound(log, ctx, account, msg, inbound) {
           msg.from,
           hasMedia ? "chat" : "text",
         );
+        finalDelivered = true;
         log.info("sky10: reply sent");
       },
       onError: (err, info) => {
         log.error(`sky10: ${info.kind} reply failed: ${err?.message ?? err}`);
+        replyError ??= err ?? new Error(`${info.kind} reply failed`);
       },
     },
     replyOptions: {
@@ -532,10 +602,70 @@ async function dispatchInbound(log, ctx, account, msg, inbound) {
         if (!deltaText) {
           return;
         }
+        if (handlers.onPartialReply) {
+          await handlers.onPartialReply({
+            payload,
+            nextText,
+            deltaText,
+            streamId,
+            clientRequestID,
+            sessionId,
+          });
+          return;
+        }
         await state.client.sendDelta(msg.from, sessionId, deltaText, msg.from, streamId, clientRequestID);
       },
     },
   });
+  if (handlers.failOnError && replyError && !finalDelivered) {
+    throw replyError;
+  }
+}
+
+async function dispatchToolCall(log, ctx, account, msg) {
+  const state = getBridgeState();
+  const content = msg.content && typeof msg.content === "object" ? msg.content : {};
+  const jobId = resolveToolCallJobID(content, msg);
+  if (!jobId) {
+    log.error("sky10: tool_call missing job_id");
+    return;
+  }
+  const tool = resolveToolCallName(content);
+  try {
+    await state.client.updateJobStatus(jobId, "running", `Running ${tool}`);
+    const toolMsg = {
+      ...msg,
+      session_id: jobId,
+      content: {
+        text: buildToolCallPrompt(content),
+      },
+    };
+    const inbound = extractInboundMediaContext(toolMsg.content, jobId);
+    await dispatchInbound(log, ctx, account, toolMsg, inbound, {
+      failOnError: true,
+      onPartialReply: async () => {},
+      onBlockReply: async () => {},
+      onFinalReply: async ({ replyText }) => {
+        await state.client.completeJob(
+          jobId,
+          {
+            summary: replyText,
+            text: replyText,
+          },
+          "Tool call completed.",
+        );
+        log.info(`sky10: tool_call completed for job ${jobId}`);
+      },
+    });
+  } catch (err) {
+    const message = String(err?.message ?? err);
+    log.error(`sky10: tool_call failed for job ${jobId}: ${message}`);
+    try {
+      await state.client.failJob(jobId, "runtime_error", message);
+    } catch (failErr) {
+      log.error(`sky10: failed marking job ${jobId} failed: ${failErr?.message ?? failErr}`);
+    }
+  }
 }
 
 function drainSSEBuffer(buffer, onEvent) {
@@ -577,6 +707,13 @@ function handleAgentMessage(log, ctx, account, data) {
 
     const msgId = resolveMessageId(msg);
     if (!claimMessage(msgId)) {
+      return;
+    }
+
+    if (String(msg.type || "").trim() === "tool_call") {
+      void dispatchToolCall(log, ctx, account, msg).catch((err) => {
+        log.error(`sky10: tool_call dispatch failed: ${err?.message ?? err}`);
+      });
       return;
     }
 

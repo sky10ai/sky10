@@ -77,6 +77,14 @@ func (h *RPCHandler) rpcCall(ctx context.Context, params json.RawMessage) (inter
 		Budget:         p.Budget,
 		BidID:          p.BidID,
 		IdempotencyKey: p.IdempotencyKey,
+		JobContext: AgentJobContext{
+			JobID: job.JobID,
+			UpdateMethods: []string{
+				"agent.job.updateStatus",
+				"agent.job.complete",
+				"agent.job.fail",
+			},
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal tool call content: %w", err)
@@ -153,6 +161,42 @@ func (h *RPCHandler) rpcJobList(ctx context.Context, params json.RawMessage) (in
 		}
 	}
 	return store.List(ctx, p, h.localBuyerID())
+}
+
+func (h *RPCHandler) rpcJobUpdateStatus(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	store, err := h.requireJobStore()
+	if err != nil {
+		return nil, err
+	}
+	var p AgentJobStatusParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	return store.UpdateStatus(ctx, p)
+}
+
+func (h *RPCHandler) rpcJobComplete(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	store, err := h.requireJobStore()
+	if err != nil {
+		return nil, err
+	}
+	var p AgentJobCompleteParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	return store.Complete(ctx, p)
+}
+
+func (h *RPCHandler) rpcJobFail(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	store, err := h.requireJobStore()
+	if err != nil {
+		return nil, err
+	}
+	var p AgentJobFailParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	return store.Fail(ctx, p)
 }
 
 func (h *RPCHandler) resolveCallTarget(ctx context.Context, agentRef, toolRef string) (AgentInfo, AgentToolSpec, error) {
@@ -296,8 +340,12 @@ func callEnvelopeForJob(job AgentJob) *AgentCallResultEnvelope {
 		Delivery: job.Delivery,
 	}
 	if callType == AgentCallError {
+		code := strings.TrimSpace(job.ErrorCode)
+		if code == "" {
+			code = job.WorkState
+		}
 		envelope.Error = &CallError{
-			Code:    job.WorkState,
+			Code:    code,
 			Message: strings.TrimSpace(job.LastError),
 		}
 		if envelope.Error.Message == "" {

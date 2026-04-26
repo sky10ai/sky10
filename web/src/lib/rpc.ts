@@ -158,6 +158,12 @@ export const agent = {
     get: (p: AgentJobGetParams) => rpc<AgentJobResult>("agent.job.get", p),
     list: (p?: AgentJobListParams) =>
       rpc<AgentJobListResult>("agent.job.list", p),
+    updateStatus: (p: AgentJobStatusParams) =>
+      rpc<AgentJobResult>("agent.job.updateStatus", p),
+    complete: (p: AgentJobCompleteParams) =>
+      rpc<AgentJobResult>("agent.job.complete", p),
+    fail: (p: AgentJobFailParams) =>
+      rpc<AgentJobResult>("agent.job.fail", p),
   },
   spec: {
     create: (p: AgentSpecCreateParams) =>
@@ -1012,6 +1018,28 @@ export interface AgentJobGetParams {
   job_id: string;
 }
 
+export interface AgentJobStatusParams {
+  job_id: string;
+  work_state: string;
+  message?: string;
+  progress?: number;
+}
+
+export interface AgentJobCompleteParams {
+  job_id: string;
+  output?: unknown;
+  payload_ref?: AgentPayloadRef;
+  payload_refs?: AgentPayloadRef[];
+  result_digest?: string;
+  message?: string;
+}
+
+export interface AgentJobFailParams {
+  job_id: string;
+  code?: string;
+  message: string;
+}
+
 export interface AgentJobListParams {
   role?: string;
   work_state?: string;
@@ -1034,12 +1062,16 @@ export interface AgentJob {
   payment_state: string;
   created_at: string;
   updated_at: string;
+  status_message?: string;
+  progress?: number;
   idempotency_key?: string;
   input_digest?: string;
   result_digest?: string;
   payload_refs?: AgentPayloadRef[];
+  result_refs?: AgentPayloadRef[];
   message_id?: string;
   cancel_reason?: string;
+  error_code?: string;
   last_error?: string;
   delivery?: DeliveryMetadata;
 }

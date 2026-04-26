@@ -58,6 +58,39 @@ export class Sky10Client {
     await this.rpc("agent.heartbeat", { agent_id: agentId });
   }
 
+  async updateJobStatus(jobId, workState, message = "", progress) {
+    const params = {
+      job_id: jobId,
+      work_state: workState,
+    };
+    if (message) {
+      params.message = message;
+    }
+    if (progress !== undefined) {
+      params.progress = progress;
+    }
+    return this.rpc("agent.job.updateStatus", params);
+  }
+
+  async completeJob(jobId, output = {}, message = "") {
+    const params = {
+      job_id: jobId,
+      output,
+    };
+    if (message) {
+      params.message = message;
+    }
+    return this.rpc("agent.job.complete", params);
+  }
+
+  async failJob(jobId, code, message) {
+    return this.rpc("agent.job.fail", {
+      job_id: jobId,
+      code,
+      message,
+    });
+  }
+
   sseUrl() {
     return `${this.rpcUrl}/rpc/events`;
   }

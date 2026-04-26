@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -200,6 +202,9 @@ func TestRPCAgentCallCreatesAcceptedJobAndDispatchesToolCall(t *testing.T) {
 	if toolCall.JobID != call.JobID || toolCall.Tool != "media.convert" || !strings.Contains(string(toolCall.Input), "private payload text") {
 		t.Fatalf("tool call = %#v input=%s, want job media.convert with live input", toolCall, string(toolCall.Input))
 	}
+	if toolCall.JobContext.JobID != call.JobID || !slices.Contains(toolCall.JobContext.UpdateMethods, "agent.job.complete") {
+		t.Fatalf("tool call job context = %#v, want lifecycle update methods", toolCall.JobContext)
+	}
 
 	getRaw, err, handled := h.Dispatch(ctx, "agent.job.get", mustJSON(t, AgentJobGetParams{JobID: call.JobID}))
 	if !handled || err != nil {
@@ -268,6 +273,129 @@ func TestRPCAgentCancelMarksJobCanceled(t *testing.T) {
 	result := raw.(*AgentJobResult)
 	if result.Job.WorkState != JobWorkCanceled || result.Job.CancelReason != "No longer needed" {
 		t.Fatalf("canceled job = %#v, want canceled with reason", result.Job)
+	}
+}
+
+func TestRPCAgentJobLifecycleUpdates(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	store := NewJobStore(nil)
+	h.SetJobStore(store)
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	job := AgentJob{
+		JobID:        "j_lifecycle",
+		Buyer:        h.localBuyerID(),
+		Seller:       "sky10://A-worker",
+		AgentID:      "A-worker",
+		AgentName:    "worker",
+		Tool:         "media.convert",
+		Capability:   "media.convert",
+		WorkState:    JobWorkAccepted,
+		PaymentState: JobPaymentNone,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if _, err := store.Save(ctx, job); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	progress := 0.35
+	updateRaw, err, handled := h.Dispatch(ctx, "agent.job.updateStatus", mustJSON(t, AgentJobStatusParams{
+		JobID:     "j_lifecycle",
+		WorkState: JobWorkRunning,
+		Message:   "Changing accent",
+		Progress:  &progress,
+	}))
+	if !handled || err != nil {
+		t.Fatalf("agent.job.updateStatus: handled=%v err=%v", handled, err)
+	}
+	updated := updateRaw.(*AgentJobResult)
+	if updated.Job.WorkState != JobWorkRunning || updated.Job.StatusMessage != "Changing accent" || updated.Job.Progress == nil || *updated.Job.Progress != progress {
+		t.Fatalf("updated job = %#v, want running progress", updated.Job)
+	}
+
+	completeRaw, err, handled := h.Dispatch(ctx, "agent.job.complete", mustJSON(t, AgentJobCompleteParams{
+		JobID:  "j_lifecycle",
+		Output: json.RawMessage(`{"summary":"private result text"}`),
+		PayloadRef: &AgentPayloadRef{
+			Kind:     "uri",
+			URI:      "skyfs://jobs/output.mp4",
+			MimeType: "video/mp4",
+			Digest:   "sha256:output",
+		},
+		Message: "Done",
+	}))
+	if !handled || err != nil {
+		t.Fatalf("agent.job.complete: handled=%v err=%v", handled, err)
+	}
+	completed := completeRaw.(*AgentJobResult)
+	if completed.Job.WorkState != JobWorkCompleted || completed.Job.StatusMessage != "Done" {
+		t.Fatalf("completed job = %#v, want completed with message", completed.Job)
+	}
+	if completed.Job.ResultDigest == "" || strings.Contains(completed.Job.ResultDigest, "private result text") {
+		t.Fatalf("result digest = %q, want digest without raw output", completed.Job.ResultDigest)
+	}
+	if completed.Job.Progress == nil || *completed.Job.Progress != 1 {
+		t.Fatalf("completed progress = %#v, want 1", completed.Job.Progress)
+	}
+	if len(completed.Job.ResultRefs) != 1 || completed.Job.ResultRefs[0].URI != "skyfs://jobs/output.mp4" {
+		t.Fatalf("result refs = %#v, want output ref", completed.Job.ResultRefs)
+	}
+
+	path := filepath.Join(os.Getenv(config.EnvHome), "agents", "jobs.jsonl")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error: %v", path, err)
+	}
+	if strings.Contains(string(data), "private result text") {
+		t.Fatalf("job log persisted raw result output: %q", string(data))
+	}
+	if _, err, _ := h.Dispatch(ctx, "agent.job.updateStatus", mustJSON(t, AgentJobStatusParams{
+		JobID:     "j_lifecycle",
+		WorkState: JobWorkRunning,
+	})); err == nil {
+		t.Fatalf("agent.job.updateStatus after complete succeeded, want terminal-state error")
+	}
+}
+
+func TestRPCAgentJobFailRecordsError(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	store := NewJobStore(nil)
+	h.SetJobStore(store)
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	job := AgentJob{
+		JobID:        "j_fail",
+		Buyer:        h.localBuyerID(),
+		Seller:       "sky10://A-worker",
+		AgentID:      "A-worker",
+		AgentName:    "worker",
+		Tool:         "media.convert",
+		Capability:   "media.convert",
+		WorkState:    JobWorkRunning,
+		PaymentState: JobPaymentNone,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if _, err := store.Save(ctx, job); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	raw, err, handled := h.Dispatch(ctx, "agent.job.fail", mustJSON(t, AgentJobFailParams{
+		JobID:   "j_fail",
+		Code:    "provider_error",
+		Message: "ElevenLabs rejected the request",
+	}))
+	if !handled || err != nil {
+		t.Fatalf("agent.job.fail: handled=%v err=%v", handled, err)
+	}
+	result := raw.(*AgentJobResult)
+	if result.Job.WorkState != JobWorkFailed || result.Job.ErrorCode != "provider_error" || result.Job.LastError != "ElevenLabs rejected the request" {
+		t.Fatalf("failed job = %#v, want provider error", result.Job)
 	}
 }
 

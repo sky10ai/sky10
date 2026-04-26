@@ -409,6 +409,41 @@ def extract_client_request_id(content: Any) -> str:
     return client_request_id.strip()
 
 
+def build_tool_call_prompt(content: dict[str, Any]) -> str:
+    tool = str(content.get("tool") or "").strip() or "tool"
+    capability = str(content.get("capability") or "").strip()
+    job_context = content.get("job_context") if isinstance(content.get("job_context"), dict) else {}
+    job_id = str(content.get("job_id") or job_context.get("job_id") or "").strip()
+    payload_refs: list[Any] = []
+    payload_ref = content.get("payload_ref")
+    if isinstance(payload_ref, dict):
+        payload_refs.append(payload_ref)
+    raw_payload_refs = content.get("payload_refs")
+    if isinstance(raw_payload_refs, list):
+        payload_refs.extend(raw_payload_refs)
+    payload = {
+        "job_id": job_id,
+        "tool": tool,
+        "capability": capability,
+        "input": content.get("input") if "input" in content else {},
+        "payload_refs": payload_refs,
+        "budget": content.get("budget"),
+        "bid_id": content.get("bid_id"),
+    }
+    return "\n".join(
+        [
+            "You are fulfilling a sky10 durable agent tool call.",
+            "Complete the requested tool call autonomously using the tools and credentials available in this VM.",
+            "If the request involves audio or video, infer the media workflow yourself: inspect/extract/convert/mux with ffmpeg when useful, and use configured provider APIs such as ElevenLabs when a voice transformation requires them.",
+            "Treat payload_refs as input handles. Write generated artifacts to a durable path or URI that sky10 can return to the caller.",
+            "Return a concise result summary and include any output artifact paths or URIs.",
+            "",
+            "Tool call:",
+            json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True),
+        ]
+    )
+
+
 def env_truthy(name: str) -> bool:
     value = os.environ.get(name, "")
     return value.strip().lower() in {"1", "true", "yes", "on"}
@@ -490,6 +525,39 @@ class Sky10Client:
 
     def heartbeat(self, agent_id: str) -> None:
         self.rpc("agent.heartbeat", {"agent_id": agent_id})
+
+    def update_job_status(self, job_id: str, work_state: str, message: str = "", progress: float | None = None) -> None:
+        params: dict[str, Any] = {
+            "job_id": job_id,
+            "work_state": work_state,
+        }
+        if message:
+            params["message"] = message
+        if progress is not None:
+            params["progress"] = progress
+        self.rpc("agent.job.updateStatus", params)
+
+    def complete_job(self, job_id: str, output: Any = None, payload_refs: list[dict[str, Any]] | None = None, message: str = "") -> None:
+        params: dict[str, Any] = {
+            "job_id": job_id,
+        }
+        if output is not None:
+            params["output"] = output
+        if payload_refs:
+            params["payload_refs"] = payload_refs
+        if message:
+            params["message"] = message
+        self.rpc("agent.job.complete", params)
+
+    def fail_job(self, job_id: str, code: str, message: str) -> None:
+        self.rpc(
+            "agent.job.fail",
+            {
+                "job_id": job_id,
+                "code": code,
+                "message": message,
+            },
+        )
 
     def send_content(self, to: str, session_id: str, content: dict[str, Any], device_id: str, msg_type: str = "text") -> None:
         self.rpc(
@@ -1032,6 +1100,10 @@ class Bridge:
     def _handle_message(self, message: dict[str, Any]) -> None:
         session_id = str(message.get("session_id") or "main").strip() or "main"
         content = message.get("content")
+        if str(message.get("type") or "").strip() == "tool_call":
+            self._handle_tool_call(content if isinstance(content, dict) else {})
+            return
+
         client_request_id = extract_client_request_id(content)
         sender = str(message.get("from") or "").strip()
         if not sender:
@@ -1079,6 +1151,37 @@ class Bridge:
                 )
             except Exception as send_exc:
                 log(f"Failed to send bridge error back to sky10: {send_exc}")
+
+    def _handle_tool_call(self, content: dict[str, Any]) -> None:
+        job_context = content.get("job_context") if isinstance(content.get("job_context"), dict) else {}
+        job_id = str(content.get("job_id") or job_context.get("job_id") or "").strip()
+        if not job_id:
+            log("Skipping tool_call without job_id")
+            return
+        tool = str(content.get("tool") or content.get("capability") or "tool").strip() or "tool"
+        try:
+            self.sky10.update_job_status(job_id, "running", f"Running {tool}")
+            reply = self.hermes.stream(
+                job_id,
+                {"text": build_tool_call_prompt(content)},
+                lambda _chunk: None,
+            )
+            self.sky10.complete_job(
+                job_id,
+                {
+                    "summary": reply,
+                    "text": reply,
+                },
+                message="Tool call completed.",
+            )
+            log(f"Tool call completed for job {job_id}")
+        except Exception as exc:
+            error_text = str(exc)
+            log(f"Tool call failed for job {job_id}: {error_text}")
+            try:
+                self.sky10.fail_job(job_id, "runtime_error", error_text)
+            except Exception as fail_exc:
+                log(f"Failed to mark job {job_id} failed: {fail_exc}")
 
     def _claim_message(self, message_id: str) -> bool:
         now = time.time()

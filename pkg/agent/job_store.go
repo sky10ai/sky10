@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -169,6 +170,90 @@ func (s *JobStore) Cancel(ctx context.Context, jobID, reason string) (*AgentJobR
 	}
 	job.WorkState = JobWorkCanceled
 	job.CancelReason = strings.TrimSpace(reason)
+	job.StatusMessage = job.CancelReason
+	job.UpdatedAt = s.now().UTC().Format(time.RFC3339Nano)
+	return s.Save(ctx, job)
+}
+
+func (s *JobStore) UpdateStatus(ctx context.Context, params AgentJobStatusParams) (*AgentJobResult, error) {
+	result, err := s.Get(ctx, params.JobID)
+	if err != nil {
+		return nil, err
+	}
+	workState := strings.TrimSpace(params.WorkState)
+	if workState == "" {
+		return nil, fmt.Errorf("work_state is required")
+	}
+	if !isKnownWorkState(workState) {
+		return nil, fmt.Errorf("work_state is invalid")
+	}
+	if isTerminalWorkState(workState) {
+		return nil, fmt.Errorf("use agent.job.complete, agent.job.fail, or agent.cancel for terminal states")
+	}
+	if err := validateJobProgress(params.Progress); err != nil {
+		return nil, err
+	}
+
+	job := result.Job
+	if isTerminalWorkState(job.WorkState) {
+		return nil, fmt.Errorf("agent job %q is already %s", job.JobID, job.WorkState)
+	}
+	job.WorkState = workState
+	job.StatusMessage = strings.TrimSpace(params.Message)
+	job.Progress = params.Progress
+	job.UpdatedAt = s.now().UTC().Format(time.RFC3339Nano)
+	return s.Save(ctx, job)
+}
+
+func (s *JobStore) Complete(ctx context.Context, params AgentJobCompleteParams) (*AgentJobResult, error) {
+	result, err := s.Get(ctx, params.JobID)
+	if err != nil {
+		return nil, err
+	}
+	job := result.Job
+	if isTerminalWorkState(job.WorkState) {
+		return nil, fmt.Errorf("agent job %q is already %s", job.JobID, job.WorkState)
+	}
+
+	resultRefs := normalizePayloadRefs(params.PayloadRef, params.PayloadRefs)
+	resultDigest := strings.TrimSpace(params.ResultDigest)
+	if resultDigest == "" {
+		resultDigest, err = digestJobResult(params.Output, resultRefs)
+		if err != nil {
+			return nil, err
+		}
+	}
+	progress := 1.0
+	job.WorkState = JobWorkCompleted
+	job.StatusMessage = strings.TrimSpace(params.Message)
+	job.Progress = &progress
+	job.ResultDigest = resultDigest
+	job.ResultRefs = resultRefs
+	job.UpdatedAt = s.now().UTC().Format(time.RFC3339Nano)
+	return s.Save(ctx, job)
+}
+
+func (s *JobStore) Fail(ctx context.Context, params AgentJobFailParams) (*AgentJobResult, error) {
+	result, err := s.Get(ctx, params.JobID)
+	if err != nil {
+		return nil, err
+	}
+	message := strings.TrimSpace(params.Message)
+	if message == "" {
+		return nil, fmt.Errorf("message is required")
+	}
+	job := result.Job
+	if isTerminalWorkState(job.WorkState) {
+		return nil, fmt.Errorf("agent job %q is already %s", job.JobID, job.WorkState)
+	}
+	code := strings.TrimSpace(params.Code)
+	if code == "" {
+		code = "runtime_error"
+	}
+	job.WorkState = JobWorkFailed
+	job.StatusMessage = message
+	job.ErrorCode = code
+	job.LastError = message
 	job.UpdatedAt = s.now().UTC().Format(time.RFC3339Nano)
 	return s.Save(ctx, job)
 }
@@ -246,11 +331,24 @@ func validateAgentJob(job AgentJob) error {
 	if !isKnownPaymentState(job.PaymentState) {
 		return fmt.Errorf("job.payment_state is invalid")
 	}
+	if err := validateJobProgress(job.Progress); err != nil {
+		return err
+	}
 	if _, err := time.Parse(time.RFC3339Nano, job.CreatedAt); err != nil {
 		return fmt.Errorf("job.created_at must be RFC3339: %w", err)
 	}
 	if _, err := time.Parse(time.RFC3339Nano, job.UpdatedAt); err != nil {
 		return fmt.Errorf("job.updated_at must be RFC3339: %w", err)
+	}
+	return nil
+}
+
+func validateJobProgress(progress *float64) error {
+	if progress == nil {
+		return nil
+	}
+	if math.IsNaN(*progress) || *progress < 0 || *progress > 1 {
+		return fmt.Errorf("job.progress must be between 0 and 1")
 	}
 	return nil
 }
@@ -337,4 +435,18 @@ func digestJSON(raw json.RawMessage) (string, error) {
 	}
 	sum := sha256.Sum256(normalized)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func digestJobResult(output json.RawMessage, refs []AgentPayloadRef) (string, error) {
+	if strings.TrimSpace(string(output)) != "" {
+		return digestJSON(output)
+	}
+	if len(refs) == 0 {
+		return digestJSON(json.RawMessage(`{}`))
+	}
+	raw, err := json.Marshal(refs)
+	if err != nil {
+		return "", fmt.Errorf("marshal result refs: %w", err)
+	}
+	return digestJSON(raw)
 }

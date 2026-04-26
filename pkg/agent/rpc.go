@@ -95,6 +95,12 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		result, err = h.rpcJobGet(ctx, params)
 	case "agent.job.list":
 		result, err = h.rpcJobList(ctx, params)
+	case "agent.job.updateStatus":
+		result, err = h.rpcJobUpdateStatus(ctx, params)
+	case "agent.job.complete":
+		result, err = h.rpcJobComplete(ctx, params)
+	case "agent.job.fail":
+		result, err = h.rpcJobFail(ctx, params)
 	case "agent.heartbeat":
 		result, err = h.rpcHeartbeat(ctx, params)
 	case "agent.discover":
