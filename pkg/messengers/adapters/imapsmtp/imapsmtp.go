@@ -8,9 +8,12 @@ import (
 )
 
 var Definition = shared.Definition{
-	Name:    "imap-smtp",
-	Summary: "Built-in IMAP/SMTP messaging adapter",
-	Serve:   serve,
+	Name:     "imap-smtp",
+	Summary:  summary,
+	Serve:    serve,
+	Adapter:  adapterMeta,
+	Settings: adapterSettings,
+	Actions:  adapterActions,
 }
 
 func serve(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer) error {

@@ -13,6 +13,7 @@ import (
 	messagingbroker "github.com/sky10/sky10/pkg/messaging/broker"
 	messagingexternal "github.com/sky10/sky10/pkg/messaging/external"
 	"github.com/sky10/sky10/pkg/messaging/protocol"
+	messagingadapters "github.com/sky10/sky10/pkg/messengers/adapters"
 	skysecrets "github.com/sky10/sky10/pkg/secrets"
 )
 
@@ -107,7 +108,11 @@ func (h *Handler) lookupAdapterAction(adapterID messaging.AdapterID, actionID st
 	}
 	info, ok := h.externalAdapters.Info(adapterID)
 	if !ok {
-		return messagingexternal.AdapterInfo{}, messagingexternal.Action{}, fmt.Errorf("messaging adapter %q is not registered with generic settings", adapterID)
+		builtin, found := messagingadapters.Lookup(string(adapterID))
+		if !found || len(builtin.Settings) == 0 {
+			return messagingexternal.AdapterInfo{}, messagingexternal.Action{}, fmt.Errorf("messaging adapter %q is not registered with generic settings", adapterID)
+		}
+		info = builtinAdapterInfoForActions(builtin)
 	}
 	for _, action := range info.Actions {
 		if action.ID == actionID {
@@ -115,6 +120,26 @@ func (h *Handler) lookupAdapterAction(adapterID messaging.AdapterID, actionID st
 		}
 	}
 	return messagingexternal.AdapterInfo{}, messagingexternal.Action{}, fmt.Errorf("adapter %q action %q is not registered", adapterID, actionID)
+}
+
+// builtinAdapterInfoForActions synthesizes the AdapterInfo shape that
+// configureAdapterConnection expects from a built-in Definition.
+func builtinAdapterInfoForActions(item messagingadapters.Definition) messagingexternal.AdapterInfo {
+	adapter := item.Adapter
+	if strings.TrimSpace(string(adapter.ID)) == "" {
+		adapter.ID = messaging.AdapterID(item.Name)
+	}
+	if strings.TrimSpace(adapter.DisplayName) == "" {
+		adapter.DisplayName = item.Name
+	}
+	if strings.TrimSpace(adapter.Description) == "" {
+		adapter.Description = item.Summary
+	}
+	return messagingexternal.AdapterInfo{
+		Adapter:  adapter,
+		Settings: item.Settings,
+		Actions:  item.Actions,
+	}
 }
 
 func (h *Handler) configureAdapterConnection(ctx context.Context, info messagingexternal.AdapterInfo, p runAdapterActionParams, defaultStatus messaging.ConnectionStatus) (messaging.Connection, error) {

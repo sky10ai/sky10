@@ -227,16 +227,7 @@ func (h *Handler) rpcAdapters() map[string]interface{} {
 	external := h.externalAdapters.List()
 	adapters := make([]adapterInfo, 0, len(items)+len(external))
 	for _, item := range items {
-		adapters = append(adapters, adapterInfo{
-			Name:    item.Name,
-			Summary: item.Summary,
-			Source:  "builtin",
-			Adapter: &messaging.Adapter{
-				ID:          messaging.AdapterID(item.Name),
-				DisplayName: item.Name,
-				Description: item.Summary,
-			},
-		})
+		adapters = append(adapters, builtinAdapterInfo(item))
 	}
 	for _, item := range external {
 		adapter := item.Adapter
@@ -258,6 +249,29 @@ func (h *Handler) rpcAdapters() map[string]interface{} {
 	}
 }
 
+// builtinAdapterInfo renders one built-in adapter into the same payload shape
+// as external adapters so the settings UI can treat both uniformly.
+func builtinAdapterInfo(item messagingadapters.Definition) adapterInfo {
+	adapter := item.Adapter
+	if strings.TrimSpace(string(adapter.ID)) == "" {
+		adapter.ID = messaging.AdapterID(item.Name)
+	}
+	if strings.TrimSpace(adapter.DisplayName) == "" {
+		adapter.DisplayName = item.Name
+	}
+	if strings.TrimSpace(adapter.Description) == "" {
+		adapter.Description = item.Summary
+	}
+	return adapterInfo{
+		Name:     item.Name,
+		Summary:  adapter.Description,
+		Source:   "builtin",
+		Adapter:  &adapter,
+		Settings: item.Settings,
+		Actions:  item.Actions,
+	}
+}
+
 func (h *Handler) rpcAdapter(params json.RawMessage) (interface{}, error) {
 	var p adapterParams
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -270,16 +284,7 @@ func (h *Handler) rpcAdapter(params json.RawMessage) (interface{}, error) {
 		if item.Name != string(p.AdapterID) {
 			continue
 		}
-		return adapterInfo{
-			Name:    item.Name,
-			Summary: item.Summary,
-			Source:  "builtin",
-			Adapter: &messaging.Adapter{
-				ID:          messaging.AdapterID(item.Name),
-				DisplayName: item.Name,
-				Description: item.Summary,
-			},
-		}, nil
+		return builtinAdapterInfo(item), nil
 	}
 	if item, ok := h.externalAdapters.Info(p.AdapterID); ok {
 		adapter := item.Adapter
