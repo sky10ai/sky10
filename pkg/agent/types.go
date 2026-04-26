@@ -1,6 +1,6 @@
 // Package agent manages local agent registration and cross-device routing.
 // Agents are separate processes that register with the sky10 daemon via
-// HTTP RPC, declaring their skills. The daemon routes messages between
+// HTTP RPC, declaring their callable tools. The daemon routes messages between
 // agents and humans via SSE (local) and libp2p (cross-device).
 package agent
 
@@ -24,20 +24,30 @@ var (
 
 // AgentInfo is the public view of a registered agent.
 type AgentInfo struct {
-	ID          string    `json:"id"`          // A-<16 chars>
-	Name        string    `json:"name"`        // human-chosen name
-	KeyName     string    `json:"-"`           // stable identity slug
-	DeviceID    string    `json:"device_id"`   // D-<8 chars> of hosting device
-	DeviceName  string    `json:"device_name"` // hostname of hosting device
-	Skills      []string  `json:"skills"`
-	Status      string    `json:"status"` // "connected" or "disconnected"
-	ConnectedAt time.Time `json:"connected_at"`
+	ID          string          `json:"id"`          // A-<16 chars>
+	Name        string          `json:"name"`        // human-chosen name
+	KeyName     string          `json:"-"`           // stable identity slug
+	DeviceID    string          `json:"device_id"`   // D-<8 chars> of hosting device
+	DeviceName  string          `json:"device_name"` // hostname of hosting device
+	Tools       []AgentToolSpec `json:"tools,omitempty"`
+	Skills      []string        `json:"skills,omitempty"`
+	Status      string          `json:"status"` // "connected" or "disconnected"
+	ConnectedAt time.Time       `json:"connected_at"`
 }
 
 // HasSkill reports whether the agent declares the given skill.
 func (a *AgentInfo) HasSkill(skill string) bool {
+	skill = strings.TrimSpace(skill)
+	if skill == "" {
+		return false
+	}
 	for _, s := range a.Skills {
 		if s == skill {
+			return true
+		}
+	}
+	for _, tool := range a.Tools {
+		if tool.Capability == skill || tool.Name == skill {
 			return true
 		}
 	}
@@ -46,9 +56,10 @@ func (a *AgentInfo) HasSkill(skill string) bool {
 
 // RegisterParams is the input to agent.register.
 type RegisterParams struct {
-	Name    string   `json:"name"`
-	KeyName string   `json:"key_name,omitempty"`
-	Skills  []string `json:"skills"`
+	Name    string          `json:"name"`
+	KeyName string          `json:"key_name,omitempty"`
+	Tools   []AgentToolSpec `json:"tools,omitempty"`
+	Skills  []string        `json:"skills,omitempty"`
 }
 
 // RegisterResult is the response from agent.register.

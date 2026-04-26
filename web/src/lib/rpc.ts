@@ -953,7 +953,8 @@ export interface AgentInfo {
   name: string;
   device_id: string;
   device_name: string;
-  skills: string[];
+  tools?: AgentToolSpec[];
+  skills?: string[];
   status: string;
   connected_at: string;
 }
@@ -965,6 +966,7 @@ export interface AgentListResult {
 
 export interface AgentStatus {
   agents: number;
+  tools?: string[];
   skills: string[];
   delivery_policies: Record<string, DeliveryPolicyDescription>;
 }

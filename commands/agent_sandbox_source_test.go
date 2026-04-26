@@ -98,6 +98,55 @@ func TestSandboxAgentSourceListsAgentsFromForwardedSky10Endpoint(t *testing.T) {
 	}
 }
 
+func TestSandboxAgentSourceListsManifestToolsBeforeGuestAgentIsReady(t *testing.T) {
+	source := newSandboxAgentSource(fakeSandboxAgentLister{
+		result: &skysandbox.ListResult{Sandboxes: []skysandbox.Record{{
+			Name:     "media-accent-agent",
+			Slug:     "media-accent-agent",
+			Status:   "creating",
+			VMStatus: "",
+			Files: []skysandbox.SharedFile{{
+				Path: "agent-manifest.json",
+				Content: `{
+  "id": "aspec_media",
+  "name": "media-accent-agent",
+  "tools": [{
+    "name": "media.accent.convert",
+    "capability": "media.accent.convert",
+    "description": "Convert media accent.",
+    "audience": "private",
+    "scope": "current",
+    "input_schema": {"type":"object"},
+    "output_schema": {"type":"object"},
+    "availability": {"status":"available"},
+    "fulfillment": {"mode":"autonomous"},
+    "pricing": {"model":"free"},
+    "supports_cancel": true,
+    "supports_streaming": true
+  }]
+}`,
+			}},
+		}}},
+	}, nil)
+
+	agents := source.ListAgents(context.Background())
+	if len(agents) != 1 {
+		t.Fatalf("agents length = %d, want 1", len(agents))
+	}
+	if agents[0].Name != "media-accent-agent" {
+		t.Fatalf("agent name = %q, want media-accent-agent", agents[0].Name)
+	}
+	if len(agents[0].Tools) != 1 || agents[0].Tools[0].Name != "media.accent.convert" {
+		t.Fatalf("tools = %#v, want media accent tool", agents[0].Tools)
+	}
+	if len(agents[0].Skills) != 1 || agents[0].Skills[0] != "media.accent.convert" {
+		t.Fatalf("skills = %#v, want capability compatibility from manifest tool", agents[0].Skills)
+	}
+	if _, ok := source.Resolve(context.Background(), "media-accent-agent"); ok {
+		t.Fatal("Resolve(media-accent-agent) = true before guest endpoint is reachable, want false")
+	}
+}
+
 func TestSandboxSky10BaseURLFallsBackToForwardedPort(t *testing.T) {
 	baseURL, ok := sandboxSky10BaseURL(skysandbox.Record{
 		ForwardedHost: "127.0.0.1",

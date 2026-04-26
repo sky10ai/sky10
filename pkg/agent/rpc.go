@@ -276,6 +276,7 @@ func (h *RPCHandler) rpcRegister(_ context.Context, params json.RawMessage) (int
 			"id":        info.ID,
 			"name":      info.Name,
 			"device_id": info.DeviceID,
+			"tools":     info.Tools,
 			"skills":    info.Skills,
 		})
 	}
@@ -441,17 +442,28 @@ func (h *RPCHandler) rpcDiscover(ctx context.Context, params json.RawMessage) (i
 func (h *RPCHandler) rpcStatus(_ context.Context) (interface{}, error) {
 	agents := h.registry.List()
 	skills := make(map[string]bool)
+	tools := make(map[string]bool)
 	for _, a := range agents {
 		for _, s := range a.Skills {
 			skills[s] = true
+		}
+		for _, tool := range a.Tools {
+			if tool.Name != "" {
+				tools[tool.Name] = true
+			}
 		}
 	}
 	skillList := make([]string, 0, len(skills))
 	for s := range skills {
 		skillList = append(skillList, s)
 	}
+	toolList := make([]string, 0, len(tools))
+	for name := range tools {
+		toolList = append(toolList, name)
+	}
 	return map[string]interface{}{
 		"agents":            len(agents),
+		"tools":             toolList,
 		"skills":            skillList,
 		"delivery_policies": deliveryPolicies(h.router != nil && h.mailbox != nil),
 	}, nil

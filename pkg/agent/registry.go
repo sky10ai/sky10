@@ -2,6 +2,7 @@ package agent
 
 import (
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 )
@@ -56,7 +57,8 @@ func (r *Registry) Register(p RegisterParams, agentID string) (*AgentInfo, error
 				existing.Name = p.Name
 			}
 			existing.KeyName = keyName
-			existing.Skills = p.Skills
+			existing.Tools = normalizeRegisteredTools(p.Tools)
+			existing.Skills = normalizeRegisteredSkills(p.Skills, existing.Tools)
 			existing.Status = "connected"
 			r.lastHeartbeat[existingID] = time.Now().UTC()
 			r.logger.Info("agent re-registered", "id", existingID, "name", p.Name, "key_name", keyName)
@@ -80,10 +82,12 @@ func (r *Registry) Register(p RegisterParams, agentID string) (*AgentInfo, error
 		KeyName:     keyName,
 		DeviceID:    r.deviceID,
 		DeviceName:  r.deviceName,
-		Skills:      p.Skills,
+		Tools:       normalizeRegisteredTools(p.Tools),
+		Skills:      nil,
 		Status:      "connected",
 		ConnectedAt: now,
 	}
+	info.Skills = normalizeRegisteredSkills(p.Skills, info.Tools)
 
 	r.agents[agentID] = info
 	r.byName[p.Name] = agentID
@@ -91,6 +95,58 @@ func (r *Registry) Register(p RegisterParams, agentID string) (*AgentInfo, error
 	r.lastHeartbeat[agentID] = now
 	r.logger.Info("agent registered", "id", agentID, "name", p.Name, "key_name", keyName)
 	return info, nil
+}
+
+func normalizeRegisteredTools(tools []AgentToolSpec) []AgentToolSpec {
+	normalized := make([]AgentToolSpec, 0, len(tools))
+	seen := map[string]struct{}{}
+	for _, tool := range tools {
+		tool.Name = strings.TrimSpace(tool.Name)
+		tool.Capability = strings.TrimSpace(tool.Capability)
+		if tool.Name == "" {
+			continue
+		}
+		key := tool.Name
+		if tool.Capability != "" {
+			key = tool.Capability
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, tool)
+	}
+	return normalized
+}
+
+func normalizeRegisteredSkills(skills []string, tools []AgentToolSpec) []string {
+	seen := map[string]struct{}{}
+	normalized := make([]string, 0, len(skills)+len(tools))
+	for _, skill := range skills {
+		skill = strings.TrimSpace(skill)
+		if skill == "" {
+			continue
+		}
+		if _, exists := seen[skill]; exists {
+			continue
+		}
+		seen[skill] = struct{}{}
+		normalized = append(normalized, skill)
+	}
+	for _, tool := range tools {
+		for _, skill := range []string{tool.Capability, tool.Name} {
+			skill = strings.TrimSpace(skill)
+			if skill == "" {
+				continue
+			}
+			if _, exists := seen[skill]; exists {
+				continue
+			}
+			seen[skill] = struct{}{}
+			normalized = append(normalized, skill)
+		}
+	}
+	return normalized
 }
 
 // Deregister removes an agent by ID.

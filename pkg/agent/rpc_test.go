@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -70,6 +71,49 @@ func TestRPCRegisterAndList(t *testing.T) {
 	listResult := result.(map[string]interface{})
 	if listResult["count"].(int) != 1 {
 		t.Errorf("count = %v, want 1", listResult["count"])
+	}
+}
+
+func TestRPCRegisterListsToolsAndStatusCapabilities(t *testing.T) {
+	t.Parallel()
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	ctx := context.Background()
+
+	params, _ := json.Marshal(RegisterParams{
+		Name: "media",
+		Tools: []AgentToolSpec{{
+			Name:        "media.accent.convert",
+			Capability:  "media.accent.convert",
+			Description: "Convert media accent.",
+		}},
+	})
+	if _, err, handled := h.Dispatch(ctx, "agent.register", params); !handled || err != nil {
+		t.Fatalf("register: handled=%v, err=%v", handled, err)
+	}
+
+	result, err, _ := h.Dispatch(ctx, "agent.list", nil)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	agents := result.(map[string]interface{})["agents"].([]AgentInfo)
+	if len(agents) != 1 {
+		t.Fatalf("agents len = %d, want 1", len(agents))
+	}
+	if len(agents[0].Tools) != 1 || agents[0].Tools[0].Name != "media.accent.convert" {
+		t.Fatalf("tools = %#v, want media accent tool", agents[0].Tools)
+	}
+	if !slices.Contains(agents[0].Skills, "media.accent.convert") {
+		t.Fatalf("skills = %#v, want media accent capability", agents[0].Skills)
+	}
+
+	statusRaw, err, _ := h.Dispatch(ctx, "agent.status", nil)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	tools := statusRaw.(map[string]interface{})["tools"].([]string)
+	if !slices.Contains(tools, "media.accent.convert") {
+		t.Fatalf("status tools = %#v, want media accent tool", tools)
 	}
 }
 

@@ -25,6 +25,7 @@ HEARTBEAT_INTERVAL_SECONDS = 25
 RECONNECT_DELAY_SECONDS = 5
 SEEN_TTL_SECONDS = 30
 DEFAULT_AGENT_SKILLS = ["code", "shell", "web-search", "file-ops"]
+DEFAULT_MANIFEST_PATH = "/shared/agent-manifest.json"
 WARMUP_PROMPT = "Reply with exactly OK."
 MEDIA_ROOT = os.path.join(tempfile.gettempdir(), "sky10-hermes-media")
 
@@ -50,6 +51,53 @@ def env_flag(name: str, default: bool) -> bool:
     if raw == "":
         return default
     return raw in {"1", "true", "yes", "on"}
+
+
+def read_agent_manifest(path: str) -> dict[str, Any]:
+    manifest_path = (path or DEFAULT_MANIFEST_PATH).strip() or DEFAULT_MANIFEST_PATH
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def normalize_tools(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    tools: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in value:
+        if not isinstance(raw, dict):
+            continue
+        tool = dict(raw)
+        name = str(tool.get("name") or "").strip()
+        capability = str(tool.get("capability") or "").strip()
+        if not name:
+            continue
+        key = capability or name
+        if key in seen:
+            continue
+        seen.add(key)
+        tool["name"] = name
+        if capability:
+            tool["capability"] = capability
+        tools.append(tool)
+    return tools
+
+
+def skills_from_tools(tools: list[dict[str, Any]]) -> list[str]:
+    skills: list[str] = []
+    seen: set[str] = set()
+    for tool in tools:
+        for raw in (tool.get("capability"), tool.get("name")):
+            skill = str(raw or "").strip()
+            if not skill or skill in seen:
+                continue
+            seen.add(skill)
+            skills.append(skill)
+    return skills
 
 
 def extract_text(content: Any) -> str:
@@ -425,13 +473,14 @@ class Sky10Client:
             raise BridgeError(f"sky10 RPC {method} failed: {payload['error'].get('message', 'unknown error')}")
         return payload.get("result")
 
-    def register(self, agent_name: str, agent_key_name: str, skills: list[str]) -> str:
+    def register(self, agent_name: str, agent_key_name: str, skills: list[str], tools: list[dict[str, Any]]) -> str:
         result = self.rpc(
             "agent.register",
             {
                 "name": agent_name,
                 "key_name": agent_key_name,
                 "skills": skills,
+                "tools": tools,
             },
         )
         agent_id = (result or {}).get("agent_id", "").strip()
@@ -854,14 +903,19 @@ class Bridge:
         with open(config_path, "r", encoding="utf-8") as fh:
             config = json.load(fh)
 
-        self.agent_name = str(config.get("agent_name") or "").strip() or "hermes"
+        manifest_path = str(config.get("manifest_path") or DEFAULT_MANIFEST_PATH).strip() or DEFAULT_MANIFEST_PATH
+        manifest = read_agent_manifest(manifest_path)
+        manifest_name = str(manifest.get("name") or "").strip()
+        self.agent_name = str(config.get("agent_name") or "").strip() or manifest_name or "hermes"
         self.agent_key_name = str(config.get("agent_key_name") or "").strip() or self.agent_name
         self.sky10_rpc_url = str(config.get("sky10_rpc_url") or "").strip()
         if not self.sky10_rpc_url:
             raise BridgeError("Hermes bridge config is missing sky10_rpc_url")
 
         raw_skills = config.get("skills") or []
-        self.skills = [str(skill).strip() for skill in raw_skills if str(skill).strip()] or list(DEFAULT_AGENT_SKILLS)
+        self.tools = normalize_tools(config.get("tools") or manifest.get("tools"))
+        manifest_skills = skills_from_tools(self.tools)
+        self.skills = [str(skill).strip() for skill in raw_skills if str(skill).strip()] or manifest_skills or list(DEFAULT_AGENT_SKILLS)
         self.sky10 = Sky10Client(self.sky10_rpc_url)
         self.hermes = HermesClient()
         self.skip_warmup = env_truthy("HERMES_BRIDGE_SKIP_WARMUP")
@@ -902,7 +956,7 @@ class Bridge:
                 pass
 
     def ensure_registered(self) -> None:
-        self.agent_id = self.sky10.register(self.agent_name, self.agent_key_name, self.skills)
+        self.agent_id = self.sky10.register(self.agent_name, self.agent_key_name, self.skills, self.tools)
         log(f"Registered Hermes bridge as {self.agent_id} ({self.agent_name})")
 
     def _warm_up_background(self) -> None:

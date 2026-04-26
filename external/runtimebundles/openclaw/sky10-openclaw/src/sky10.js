@@ -22,8 +22,8 @@ export class Sky10Client {
     return data.result;
   }
 
-  async register(name, skills) {
-    return this.rpc("agent.register", { name, skills });
+  async register(name, skills, tools = []) {
+    return this.rpc("agent.register", { name, skills, tools });
   }
 
   async send(to, sessionId, text, deviceId) {

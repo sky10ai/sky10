@@ -27,6 +27,7 @@ const (
 	sandboxAgentResolveTimeout    = 1500 * time.Millisecond
 	sandboxAgentWebSocketTimeout  = 10 * time.Second
 	sandboxAgentWebSocketReadSize = 64 << 20
+	sandboxAgentManifestPath      = "agent-manifest.json"
 )
 
 type sandboxAgentLister interface {
@@ -181,24 +182,38 @@ func (s *sandboxAgentSource) queryAgents(ctx context.Context) ([]skyagent.AgentI
 	}
 
 	results := make(chan queryResult, len(listed.Sandboxes))
+	agents := make([]skyagent.AgentInfo, 0, len(listed.Sandboxes))
+	targetsBy := make(map[string]sandboxAgentTarget)
 	var launched int
 	for _, rec := range listed.Sandboxes {
+		manifestTargets := sandboxManifestAgentTargets(rec, "")
 		if !sandboxCanHaveAgents(rec) {
+			agents, targetsBy = appendSandboxAgentTargets(agents, targetsBy, manifestTargets)
 			continue
 		}
 		baseURL, ok := sandboxSky10BaseURL(rec)
 		if !ok {
+			agents, targetsBy = appendSandboxAgentTargets(agents, targetsBy, manifestTargets)
 			continue
 		}
+		manifestTargets = sandboxManifestAgentTargets(rec, baseURL)
 		launched++
-		go func(rec skysandbox.Record, baseURL string) {
+		go func(rec skysandbox.Record, baseURL string, manifestTargets []sandboxAgentTarget) {
 			targets, err := s.querySandboxAgents(ctx, rec, baseURL)
+			if err != nil && len(manifestTargets) > 0 {
+				targets = manifestTargets
+				err = nil
+			} else if err == nil && len(manifestTargets) > 0 {
+				if len(targets) == 0 {
+					targets = manifestTargets
+				} else {
+					targets = enrichSandboxTargetsWithManifest(targets, manifestTargets[0].Agent)
+				}
+			}
 			results <- queryResult{targets: targets, err: err}
-		}(rec, baseURL)
+		}(rec, baseURL, manifestTargets)
 	}
 
-	agents := make([]skyagent.AgentInfo, 0, launched)
-	targetsBy := make(map[string]sandboxAgentTarget)
 	var firstErr error
 	for i := 0; i < launched; i++ {
 		select {
@@ -226,6 +241,117 @@ func (s *sandboxAgentSource) queryAgents(ctx context.Context) ([]skyagent.AgentI
 		return nil, nil, firstErr
 	}
 	return agents, targetsBy, nil
+}
+
+func appendSandboxAgentTargets(agents []skyagent.AgentInfo, targetsBy map[string]sandboxAgentTarget, targets []sandboxAgentTarget) ([]skyagent.AgentInfo, map[string]sandboxAgentTarget) {
+	for _, target := range targets {
+		agents = append(agents, target.Agent)
+		if strings.TrimSpace(target.BaseURL) == "" {
+			continue
+		}
+		for _, key := range sandboxAgentTargetKeys(target.Agent) {
+			targetsBy[key] = target
+		}
+	}
+	return agents, targetsBy
+}
+
+func enrichSandboxTargetsWithManifest(targets []sandboxAgentTarget, manifest skyagent.AgentInfo) []sandboxAgentTarget {
+	if len(manifest.Tools) == 0 && len(manifest.Skills) == 0 {
+		return targets
+	}
+	enriched := make([]sandboxAgentTarget, 0, len(targets))
+	for _, target := range targets {
+		if len(target.Agent.Tools) == 0 {
+			target.Agent.Tools = append([]skyagent.AgentToolSpec(nil), manifest.Tools...)
+		}
+		if len(target.Agent.Skills) == 0 {
+			target.Agent.Skills = append([]string(nil), manifest.Skills...)
+		}
+		enriched = append(enriched, target)
+	}
+	return enriched
+}
+
+func sandboxManifestAgentTargets(rec skysandbox.Record, baseURL string) []sandboxAgentTarget {
+	manifest, ok := sandboxAgentManifest(rec)
+	if !ok {
+		return nil
+	}
+	now := time.Now().UTC()
+	info := skyagent.AgentInfo{
+		ID:          strings.TrimSpace(manifest.ID),
+		Name:        strings.TrimSpace(manifest.Name),
+		DeviceID:    strings.TrimSpace(rec.GuestDeviceID),
+		Tools:       append([]skyagent.AgentToolSpec(nil), manifest.Tools...),
+		Skills:      skillsFromManifestTools(manifest.Tools),
+		Status:      sandboxAgentStatus(rec),
+		ConnectedAt: now,
+	}
+	if info.Name == "" {
+		info.Name = strings.TrimSpace(rec.Name)
+	}
+	if info.ID == "" {
+		info.ID = strings.TrimSpace(rec.Slug)
+	}
+	info = normalizeSandboxAgentInfo(info, rec, now)
+	return []sandboxAgentTarget{{
+		Agent:   info,
+		Sandbox: rec,
+		BaseURL: baseURL,
+	}}
+}
+
+type sandboxAgentManifestFile struct {
+	ID    string                   `json:"id"`
+	Name  string                   `json:"name"`
+	Tools []skyagent.AgentToolSpec `json:"tools"`
+}
+
+func sandboxAgentManifest(rec skysandbox.Record) (sandboxAgentManifestFile, bool) {
+	for _, file := range rec.Files {
+		if strings.TrimSpace(file.Path) != sandboxAgentManifestPath {
+			continue
+		}
+		var manifest sandboxAgentManifestFile
+		if err := json.Unmarshal([]byte(file.Content), &manifest); err != nil {
+			return sandboxAgentManifestFile{}, false
+		}
+		if strings.TrimSpace(manifest.Name) == "" && len(manifest.Tools) == 0 {
+			return sandboxAgentManifestFile{}, false
+		}
+		return manifest, true
+	}
+	return sandboxAgentManifestFile{}, false
+}
+
+func skillsFromManifestTools(tools []skyagent.AgentToolSpec) []string {
+	seen := map[string]struct{}{}
+	skills := make([]string, 0, len(tools)*2)
+	for _, tool := range tools {
+		for _, value := range []string{tool.Capability, tool.Name} {
+			value = strings.TrimSpace(value)
+			if value == "" {
+				continue
+			}
+			if _, exists := seen[value]; exists {
+				continue
+			}
+			seen[value] = struct{}{}
+			skills = append(skills, value)
+		}
+	}
+	return skills
+}
+
+func sandboxAgentStatus(rec skysandbox.Record) string {
+	if status := strings.TrimSpace(rec.Status); status != "" {
+		return status
+	}
+	if vmStatus := strings.TrimSpace(rec.VMStatus); vmStatus != "" {
+		return strings.ToLower(vmStatus)
+	}
+	return "provisioned"
 }
 
 func (s *sandboxAgentSource) querySandboxAgents(ctx context.Context, rec skysandbox.Record, baseURL string) ([]sandboxAgentTarget, error) {

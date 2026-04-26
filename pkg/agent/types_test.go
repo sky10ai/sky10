@@ -102,9 +102,13 @@ func TestAgentInfoHasSkill(t *testing.T) {
 	t.Parallel()
 	info := AgentInfo{
 		Skills: []string{"code", "test"},
+		Tools:  []AgentToolSpec{{Name: "media.accent.convert", Capability: "media.accent.convert"}},
 	}
 	if !info.HasSkill("code") {
 		t.Error("HasSkill(code) = false, want true")
+	}
+	if !info.HasSkill("media.accent.convert") {
+		t.Error("HasSkill(media.accent.convert) = false, want true for tool capability")
 	}
 	if info.HasSkill("missing") {
 		t.Error("HasSkill(missing) = true, want false")

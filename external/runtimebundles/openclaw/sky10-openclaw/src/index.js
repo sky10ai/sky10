@@ -21,6 +21,7 @@ const CHANNEL_ID = "sky10";
 const CHANNEL_LABEL = "Sky10";
 const DEFAULT_ACCOUNT_ID = "default";
 const DEFAULT_SKILLS = ["code", "shell", "browser", "web-search", "file-ops"];
+const DEFAULT_MANIFEST_PATH = "/shared/agent-manifest.json";
 const GLOBAL_STATE_KEY = Symbol.for("sky10.openclaw.bridge");
 const DEDUP_TTL_MS = 30_000;
 const CLAIM_PRUNE_INTERVAL_MS = 60_000;
@@ -33,6 +34,11 @@ const SKY10_ACCOUNT_PROPERTIES = {
     type: "array",
     items: { type: "string" },
   },
+  tools: {
+    type: "array",
+    items: { type: "object" },
+  },
+  manifestPath: { type: "string" },
   gatewayToken: { type: "string" },
 };
 const SKY10_CHANNEL_CONFIG_SCHEMA = {
@@ -47,6 +53,11 @@ const SKY10_CHANNEL_CONFIG_SCHEMA = {
         type: "array",
         items: { type: "string" },
       },
+      tools: {
+        type: "array",
+        items: { type: "object" },
+      },
+      manifestPath: { type: "string" },
       gatewayToken: { type: "string" },
       defaultAccount: { type: "string" },
       healthMonitor: {
@@ -150,12 +161,57 @@ function normalizeAccountId(accountId) {
   return typeof accountId === "string" && accountId.trim() ? accountId.trim() : DEFAULT_ACCOUNT_ID;
 }
 
-function normalizeSkills(skills) {
-  if (!Array.isArray(skills)) {
-    return [...DEFAULT_SKILLS];
+function normalizeTools(tools) {
+  if (!Array.isArray(tools)) {
+    return [];
   }
-  const normalized = skills.map((value) => String(value).trim()).filter(Boolean);
-  return normalized.length > 0 ? normalized : [...DEFAULT_SKILLS];
+  return tools
+    .filter((tool) => tool && typeof tool === "object")
+    .map((tool) => ({
+      ...tool,
+      name: typeof tool.name === "string" ? tool.name.trim() : "",
+      capability: typeof tool.capability === "string" ? tool.capability.trim() : "",
+    }))
+    .filter((tool) => tool.name);
+}
+
+function skillsFromTools(tools) {
+  const skills = [];
+  const seen = new Set();
+  for (const tool of tools) {
+    for (const value of [tool.capability, tool.name]) {
+      const skill = typeof value === "string" ? value.trim() : "";
+      if (!skill || seen.has(skill)) continue;
+      seen.add(skill);
+      skills.push(skill);
+    }
+  }
+  return skills;
+}
+
+function resolveSkills(skills, tools) {
+  if (Array.isArray(skills)) {
+    const normalized = skills.map((value) => String(value).trim()).filter(Boolean);
+    if (normalized.length > 0) {
+      return normalized;
+    }
+  }
+  const toolSkills = skillsFromTools(tools);
+  return toolSkills.length > 0 ? toolSkills : [...DEFAULT_SKILLS];
+}
+
+function readAgentManifest(manifestPath) {
+  const resolvedPath = typeof manifestPath === "string" && manifestPath.trim()
+    ? manifestPath.trim()
+    : DEFAULT_MANIFEST_PATH;
+  try {
+    if (!fs.existsSync(resolvedPath)) {
+      return {};
+    }
+    return JSON.parse(fs.readFileSync(resolvedPath, "utf8"));
+  } catch {
+    return {};
+  }
 }
 
 function resolveSky10ChannelSection(cfg) {
@@ -188,12 +244,19 @@ function resolveSky10Account({ cfg, accountId }) {
   const section = resolveSky10ChannelSection(cfg);
   const resolvedAccountId = normalizeAccountId(accountId);
   const merged = resolveMergedAccountConfig(cfg, resolvedAccountId);
+  const manifestPath = typeof merged.manifestPath === "string" && merged.manifestPath.trim()
+    ? merged.manifestPath.trim()
+    : DEFAULT_MANIFEST_PATH;
+  const manifest = readAgentManifest(manifestPath);
+  const tools = normalizeTools(merged.tools ?? manifest.tools);
   const rpcUrl = typeof merged.rpcUrl === "string" && merged.rpcUrl.trim()
     ? merged.rpcUrl.trim()
     : "http://localhost:9101";
   const agentName = typeof merged.agentName === "string" && merged.agentName.trim()
     ? merged.agentName.trim()
-    : "openclaw";
+    : typeof manifest.name === "string" && manifest.name.trim()
+      ? manifest.name.trim()
+      : "openclaw";
   return {
     accountId: resolvedAccountId,
     name: agentName,
@@ -201,7 +264,8 @@ function resolveSky10Account({ cfg, accountId }) {
     configured: Boolean(rpcUrl),
     rpcUrl,
     agentName,
-    skills: normalizeSkills(merged.skills),
+    skills: resolveSkills(merged.skills, tools),
+    tools,
     gatewayToken: typeof merged.gatewayToken === "string" ? merged.gatewayToken.trim() : "",
   };
 }
@@ -280,7 +344,7 @@ function buildStreamContent(text, streamId, clientRequestID) {
 async function ensureRegistered(log, account, setStatus) {
   const state = getBridgeState();
   state.client ??= new Sky10Client(account.rpcUrl);
-  const reg = await state.client.register(account.agentName, account.skills);
+  const reg = await state.client.register(account.agentName, account.skills, account.tools);
   state.agentId = reg.agent_id;
   setStatus({
     accountId: account.accountId,
