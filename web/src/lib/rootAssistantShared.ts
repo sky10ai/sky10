@@ -36,6 +36,7 @@ export interface RootAssistantHooks {
 export type AssistantIntent =
   | "agent_create"
   | "agents"
+  | "configuration"
   | "daemon_version"
   | "devices"
   | "drives"
@@ -56,6 +57,20 @@ function lower(value: string) {
   return value.trim().toLowerCase();
 }
 
+function includesAny(value: string, needles: readonly string[]) {
+  return needles.some((needle) => value.includes(needle));
+}
+
+function asksForVersion(value: string) {
+  if (!value.includes("version")) return false;
+  return (
+    value.includes("what version") ||
+    value.includes("version of") ||
+    value.includes("sky10 version") ||
+    includesAny(value, ["daemon", "sky10", "app", "cli", "binary", "build"])
+  );
+}
+
 export function detectIntent(prompt: string): AssistantIntent {
   const value = lower(prompt);
 
@@ -68,10 +83,27 @@ export function detectIntent(prompt: string): AssistantIntent {
   }
 
   if (
-    value.includes("what version") ||
-    value.includes("daemon version") ||
-    (value.includes("version") && value.includes("daemon"))
+    value.includes("configure") ||
+    value.includes("set up") ||
+    value.includes("setup") ||
+    value.includes("install") ||
+    value.includes("uninstall") ||
+    value.includes("api key") ||
+    value.includes("secret") ||
+    value.includes("wallet") ||
+    value.includes("payment") ||
+    value.includes("create a drive") ||
+    value.includes("new drive") ||
+    value.includes("invite device") ||
+    value.includes("join device") ||
+    value.includes("create a sandbox") ||
+    value.includes("start sandbox") ||
+    value.includes("stop sandbox")
   ) {
+    return "configuration";
+  }
+
+  if (asksForVersion(value)) {
     return "daemon_version";
   }
 

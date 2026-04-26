@@ -12,7 +12,7 @@ import (
 	"runtime"
 )
 
-const defaultCodexChatModel = "gpt-5.4"
+const defaultCodexChatModel = "gpt-5.5"
 const defaultCodexInstructions = "You are Codex inside sky10. Help with coding tasks and answer directly."
 
 type chatAPIResponse struct {

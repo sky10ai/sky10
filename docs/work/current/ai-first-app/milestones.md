@@ -1,6 +1,6 @@
 ---
 created: 2026-04-18
-updated: 2026-04-18
+updated: 2026-04-25
 model: gpt-5.4
 ---
 
@@ -13,7 +13,7 @@ increments:
 
 1. make the app visibly AI-first
 2. make the root assistant genuinely useful with read-only tools
-3. add safe write paths and approvals
+3. add safe RPC write paths and approvals
 4. turn natural-language requests into durable agent specs
 5. add jobs and artifacts so work persists beyond chat
 6. prove the whole flow with a vertical slice
@@ -21,20 +21,20 @@ increments:
 Each milestone should land at a sensible checkpoint with a working UI and a
 clean story for what users can now do.
 
-## Milestone 1: AI Workspace Shell
+## Milestone 1: Home Workspace Shell
 
 ### Outcome
 
-Users should land on an AI workspace first instead of dropping into drives or
+Users should land on Home, an AI workspace, instead of dropping into drives or
 device onboarding.
 
 ### Checklist
 
-- [ ] Add a new AI workspace page under `web/src/pages/AIWorkspace.tsx`.
+- [ ] Add a new Home page under `web/src/pages/Home.tsx`.
 - [ ] Change the home redirect in `web/src/App.tsx` to route to the AI
-      workspace by default.
+      workspace by default at `/home`.
 - [ ] Update the sidebar hierarchy in `web/src/components/Sidebar.tsx` so the
-      AI workspace is primary.
+      Home workspace is primary.
 - [ ] Add a large intent composer that invites outcome-driven prompts.
 - [ ] Add sections for recent runs, approvals, and recent agents.
 - [ ] Preserve access to existing drives, devices, and settings flows.
@@ -88,6 +88,11 @@ The assistant can propose mutating actions without silently applying them.
 - [ ] Add audit logging for mutating tool executions.
 - [ ] Add first approval-gated tools for file removal, drive creation/removal,
       sandbox lifecycle actions, secret writes, and system restart.
+- [ ] Extend approval-gated coverage toward ordinary RPC-backed configuration
+      workflows: devices, managed apps, wallet setup, and updates.
+- [ ] Keep debug, internal repair, raw mailbox queue mutation, unsupported
+      platform actions, and destructive Apple-system verbs out of the default
+      assistant profile.
 - [ ] Require explicit user confirmation before any destructive or costly
       action executes.
 - [ ] Handle approval rejection cleanly in the run state and transcript.

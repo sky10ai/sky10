@@ -6,7 +6,11 @@ import { Icon } from "../components/Icon";
 import { PageHeader } from "../components/PageHeader";
 import { StatusBadge } from "../components/StatusBadge";
 import { CODEX_EVENT_TYPES } from "../lib/events";
-import { codex, type CodexChatMessage } from "../lib/rpc";
+import {
+  codex,
+  type CodexChatMessage,
+  type CodexReasoningEffort,
+} from "../lib/rpc";
 import { timeAgo, useRPC } from "../lib/useRPC";
 
 interface LocalChatMessage extends CodexChatMessage {
@@ -17,7 +21,8 @@ interface LocalChatMessage extends CodexChatMessage {
 }
 
 const STORAGE_KEY = "sky10:codex:chat:v1";
-const DEFAULT_MODEL = "gpt-5.4";
+const DEFAULT_MODEL = "gpt-5.5";
+const DEFAULT_REASONING_EFFORT: CodexReasoningEffort = "medium";
 
 function createMessage(
   role: "assistant" | "user",
@@ -59,6 +64,8 @@ export default function CodexChat() {
   });
 
   const [model, setModel] = useState(DEFAULT_MODEL);
+  const [reasoningEffort, setReasoningEffort] =
+    useState<CodexReasoningEffort>(DEFAULT_REASONING_EFFORT);
   const [messages, setMessages] = useState<LocalChatMessage[]>(() =>
     loadStoredMessages(),
   );
@@ -97,6 +104,7 @@ export default function CodexChat() {
     try {
       const result = await codex.chat({
         model,
+        reasoning_effort: reasoningEffort,
         messages: nextMessages.map((message) => ({
           role: message.role,
           content: message.content,
@@ -183,6 +191,7 @@ export default function CodexChat() {
               {canChat ? "Ready" : loading ? "Checking" : "Not ready"}
             </StatusBadge>
             <StatusBadge tone="neutral">{model}</StatusBadge>
+            <StatusBadge tone="neutral">thinking {reasoningEffort}</StatusBadge>
             {status?.email && (
               <StatusBadge tone="neutral">{status.email}</StatusBadge>
             )}
@@ -195,7 +204,26 @@ export default function CodexChat() {
                 onChange={(event) => setModel(event.target.value)}
                 value={model}
               >
-                <option value="gpt-5.4">gpt-5.4</option>
+                <option value="gpt-5.5">gpt-5.5</option>
+                <option value="gpt-5.5-pro">gpt-5.5-pro</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-2">
+              <span>Thinking</span>
+              <select
+                className="rounded-full border border-outline-variant/20 bg-surface px-3 py-2 text-sm text-on-surface outline-none"
+                onChange={(event) =>
+                  setReasoningEffort(
+                    event.target.value as CodexReasoningEffort,
+                  )
+                }
+                value={reasoningEffort}
+              >
+                <option value="none">none</option>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+                <option value="xhigh">xhigh</option>
               </select>
             </label>
           </div>

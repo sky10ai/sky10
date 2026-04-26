@@ -1,7 +1,7 @@
-import { agent, identity, sandbox, skyfs, skylink, system } from "./rpc";
 import {
   detectIntent,
   type AgentAudience,
+  type AssistantIntent,
   type RootAssistantHooks,
   type RootAssistantResult,
   recordTool,
@@ -12,6 +12,15 @@ import {
   summarizeNetwork,
   summarizeSandboxes,
 } from "./rootAssistantShared";
+import {
+  disabledRootAssistantRPCs,
+  rootAssistantApprovalRequiredToolNames,
+  rootAssistantReadOnlyToolNames,
+  rootAssistantToolMetadata,
+  rootAssistantToolRunners,
+  type RootAssistantToolName,
+} from "./rootAssistantTools";
+import { codex } from "./rpc";
 import {
   runAgents,
   runDaemonVersion,
@@ -32,6 +41,87 @@ export type {
 
 interface ExecuteOptions {
   audience?: AgentAudience;
+  intent?: AssistantIntent;
+}
+
+const PLANNABLE_INTENTS: AssistantIntent[] = [
+  "agent_create",
+  "agents",
+  "configuration",
+  "daemon_version",
+  "devices",
+  "drives",
+  "fallback",
+  "network",
+  "node_diagnosis",
+  "sandboxes",
+  "sync_activity",
+];
+
+function plannerToolSummary(names: readonly RootAssistantToolName[]) {
+  return names
+    .map((name) => {
+      const metadata = rootAssistantToolMetadata[name];
+      return `- ${name}: ${metadata.title} (${metadata.rpcMethods.join(", ")})`;
+    })
+    .join("\n");
+}
+
+function parsePlannerIntent(text: string): AssistantIntent | null {
+  const trimmed = text.trim();
+  const match = trimmed.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+
+  try {
+    const parsed = JSON.parse(match[0]) as { intent?: unknown };
+    const intent = typeof parsed.intent === "string" ? parsed.intent : "";
+    return PLANNABLE_INTENTS.includes(intent as AssistantIntent)
+      ? (intent as AssistantIntent)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function planIntentWithModel(
+  prompt: string,
+  hooks: RootAssistantHooks,
+): Promise<AssistantIntent | null> {
+  hooks.onStatus?.("Asking the model to choose a sky10 tool path.");
+
+  try {
+    const result = await codex.chat({
+      model: "gpt-5.5",
+      reasoning_effort: "low",
+      system_prompt: [
+        "You are the sky10 assistant planner.",
+        "Classify the user's request into exactly one intent.",
+        "Use daemon_version for any request about the sky10, app, CLI, binary, build, or daemon version, even if the user has typos.",
+        "Use configuration for setup, install, create, delete, update, secret, wallet, device invite/join/approve/remove, sandbox lifecycle, drive lifecycle, or file mutation requests.",
+        "Use node_diagnosis for health, status summary, degraded, broken, or needs-attention requests.",
+        "Return only compact JSON in this shape: {\"intent\":\"daemon_version\"}.",
+      ].join("\n"),
+      messages: [
+        {
+          role: "user",
+          content: [
+            `Request: ${prompt}`,
+            "",
+            "Read-only AI SDK tools:",
+            plannerToolSummary(rootAssistantReadOnlyToolNames),
+            "",
+            "Approval-gated AI SDK tools:",
+            plannerToolSummary(rootAssistantApprovalRequiredToolNames),
+            "",
+            `Disabled RPCs: ${disabledRootAssistantRPCs.join(", ")}`,
+          ].join("\n"),
+        },
+      ],
+    });
+    return parsePlannerIntent(result.text);
+  } catch {
+    return null;
+  }
 }
 
 function soundsCommercial(prompt: string) {
@@ -55,7 +145,7 @@ async function runNodeDiagnosis(hooks: RootAssistantHooks): Promise<RootAssistan
     "system.health",
     "Read daemon health",
     "Inspecting storage health, queue depth, and runtime counters.",
-    () => system.health(),
+    () => rootAssistantToolRunners.daemon_getHealth(),
     summarizeHealth
   );
   const network = await recordTool(
@@ -64,7 +154,7 @@ async function runNodeDiagnosis(hooks: RootAssistantHooks): Promise<RootAssistan
     "skylink.status",
     "Read network status",
     "Checking peer connectivity and delivery health.",
-    () => skylink.status(),
+    () => rootAssistantToolRunners.network_getStatus(),
     summarizeNetwork
   );
   const activity = await recordTool(
@@ -73,7 +163,7 @@ async function runNodeDiagnosis(hooks: RootAssistantHooks): Promise<RootAssistan
     "skyfs.syncActivity",
     "Read sync activity",
     "Inspecting pending transfers, conflicts, and path issues.",
-    () => skyfs.syncActivity(),
+    () => rootAssistantToolRunners.sync_activity(),
     (result) => `${result.pending.length} pending · ${result.conflicts.length} conflicts · ${result.path_issues.length} path issues`
   );
   const sandboxes = await recordTool(
@@ -82,7 +172,7 @@ async function runNodeDiagnosis(hooks: RootAssistantHooks): Promise<RootAssistan
     "sandbox.list",
     "List sandboxes",
     "Checking managed runtimes for provisioning errors or busy state.",
-    () => sandbox.list(),
+    () => rootAssistantToolRunners.sandboxes_list(),
     summarizeSandboxes
   );
   const agents = await recordTool(
@@ -91,7 +181,7 @@ async function runNodeDiagnosis(hooks: RootAssistantHooks): Promise<RootAssistan
     "agent.list",
     "List agents",
     "Reviewing registered agent presence.",
-    () => agent.list(),
+    () => rootAssistantToolRunners.agents_list(),
     summarizeAgents
   );
 
@@ -172,7 +262,7 @@ async function runAgentCreatePrompt(
   hooks: RootAssistantHooks,
   audience: AgentAudience
 ): Promise<RootAssistantResult> {
-  hooks.onStatus?.("Reading current agent and sandbox inventory before drafting the next step.");
+  hooks.onStatus?.("Reading...");
   const [agents, sandboxes] = await Promise.all([
     recordTool(
       hooks,
@@ -180,7 +270,7 @@ async function runAgentCreatePrompt(
       "agent.list",
       "List agents",
       "Checking what agents already exist.",
-      () => agent.list(),
+      () => rootAssistantToolRunners.agents_list(),
       summarizeAgents
     ),
     recordTool(
@@ -189,31 +279,31 @@ async function runAgentCreatePrompt(
       "sandbox.list",
       "List sandboxes",
       "Checking available managed runtimes.",
-      () => sandbox.list(),
+      () => rootAssistantToolRunners.sandboxes_list(),
       summarizeSandboxes
     ),
   ]);
 
-  const mode = audience === "for_others" || soundsCommercial(prompt) ? "for_others" : "for_me";
+  const serviceAgent = audience === "for_others" || soundsCommercial(prompt);
   const answer = await streamParagraphs(
     hooks,
-    mode === "for_others"
+    serviceAgent
       ? [
-          `This reads like a \`For others\` agent: \`${prompt}\`.`,
-          "The next step should be a service-agent draft covering what the agent offers, who can use it, what it costs to run, how it gets paid, what data may leave the machine, and what isolation level it needs before serving outside users.",
-          `This Milestone 2 slice is still read-only, so I cannot publish or provision that agent yet. I can only show the live registry and prove the planning surface. Current inventory: ${agents.count} registered agent${agents.count === 1 ? "" : "s"} and ${sandboxes.sandboxes.length} sandbox${sandboxes.sandboxes.length === 1 ? "" : "es"} available for future runtime placement.`,
+          `Agent draft: ${prompt}.`,
+          "Define the offer, inputs, runtime, billing, data boundaries, and isolation before serving outside users.",
+          `Inventory: ${agents.count} registered agent${agents.count === 1 ? "" : "s"} · ${sandboxes.sandboxes.length} sandbox${sandboxes.sandboxes.length === 1 ? "" : "es"}.`,
         ]
       : [
-          `This reads like a \`For me\` agent: \`${prompt}\`.`,
-          "The next step should be a private-agent draft covering what folders or data it can access, what outputs it should create, whether it runs once or watches continuously, and what tools or providers it needs.",
-          `This Milestone 2 slice is still read-only, so I cannot provision that agent yet. I can only show the live registry and prove the planning surface. Current inventory: ${agents.count} registered agent${agents.count === 1 ? "" : "s"} and ${sandboxes.sandboxes.length} sandbox${sandboxes.sandboxes.length === 1 ? "" : "es"} available for future runtime placement.`,
+          `Agent draft: ${prompt}.`,
+          "Define the trigger, inputs, outputs, data access, runtime, and provider keys before provisioning.",
+          `Inventory: ${agents.count} registered agent${agents.count === 1 ? "" : "s"} · ${sandboxes.sandboxes.length} sandbox${sandboxes.sandboxes.length === 1 ? "" : "es"}.`,
         ]
   );
 
   return {
     answer,
     followUps:
-      mode === "for_others"
+      serviceAgent
         ? [
             "Create an agent that transcribes podcasts and charges per upload.",
             "Show me my agents and where they run.",
@@ -228,6 +318,77 @@ async function runAgentCreatePrompt(
   };
 }
 
+async function runConfigurationPrompt(
+  prompt: string,
+  hooks: RootAssistantHooks
+): Promise<RootAssistantResult> {
+  hooks.onStatus?.("Checking live RPC state and assistant policy boundaries.");
+  const [health, drives, devices, sandboxes, agents] = await Promise.all([
+    recordTool(
+      hooks,
+      "daemon.getHealth",
+      "system.health",
+      "Read daemon health",
+      "Checking current daemon and storage state.",
+      () => rootAssistantToolRunners.daemon_getHealth(),
+      summarizeHealth
+    ),
+    recordTool(
+      hooks,
+      "drives.list",
+      "skyfs.driveList",
+      "List drives",
+      "Reading configured drive inventory before planning changes.",
+      () => rootAssistantToolRunners.drives_list(),
+      (result) => `${result.drives.length} drive${result.drives.length === 1 ? "" : "s"} configured`
+    ),
+    recordTool(
+      hooks,
+      "devices.list",
+      "identity.deviceList",
+      "List devices",
+      "Reading current device membership.",
+      () => rootAssistantToolRunners.devices_list(),
+      summarizeDevices
+    ),
+    recordTool(
+      hooks,
+      "sandboxes.list",
+      "sandbox.list",
+      "List sandboxes",
+      "Reading managed runtime inventory.",
+      () => rootAssistantToolRunners.sandboxes_list(),
+      summarizeSandboxes
+    ),
+    recordTool(
+      hooks,
+      "agents.list",
+      "agent.list",
+      "List agents",
+      "Reading registered agent inventory.",
+      () => rootAssistantToolRunners.agents_list(),
+      summarizeAgents
+    ),
+  ]);
+
+  const answer = await streamParagraphs(hooks, [
+    `I would treat \`${prompt}\` as an approval-gated RPC configuration request, not as a separate settings-page workflow.`,
+    `Current context: ${summarizeHealth(health)} · ${drives.drives.length} drive${drives.drives.length === 1 ? "" : "s"} · ${devices.devices.length} device${devices.devices.length === 1 ? "" : "s"} · ${sandboxes.sandboxes.length} sandbox${sandboxes.sandboxes.length === 1 ? "" : "es"} · ${agents.count} agent${agents.count === 1 ? "" : "s"}.`,
+    "The AI-first contract is that user-configurable RPC surfaces should be model-addressable through curated tools. Mutating operations need a visible plan, exact parameters, and approval before execution.",
+    `This build has ${rootAssistantApprovalRequiredToolNames.length} approval-gated AI SDK tool wrappers for RPC writes such as drives, secrets, sandboxes, apps, updates, device invites, and wallet setup. The next step is wiring approval cards to execute those tools after user confirmation.`,
+  ]);
+
+  return {
+    answer,
+    followUps: [
+      "Create a drive for agent outputs.",
+      "Store a provider API key for trusted devices.",
+      "Create a sandbox for a local coding agent.",
+    ],
+    status: "complete",
+  };
+}
+
 async function runFallback(prompt: string, hooks: RootAssistantHooks): Promise<RootAssistantResult> {
   hooks.onStatus?.("Building a quick read-only overview of the node.");
   const [health, agents, devices, network] = await Promise.all([
@@ -237,7 +398,7 @@ async function runFallback(prompt: string, hooks: RootAssistantHooks): Promise<R
       "system.health",
       "Read daemon health",
       "Checking the daemon health snapshot.",
-      () => system.health(),
+      () => rootAssistantToolRunners.daemon_getHealth(),
       summarizeHealth
     ),
     recordTool(
@@ -246,7 +407,7 @@ async function runFallback(prompt: string, hooks: RootAssistantHooks): Promise<R
       "agent.list",
       "List agents",
       "Reviewing the current agent registry.",
-      () => agent.list(),
+      () => rootAssistantToolRunners.agents_list(),
       summarizeAgents
     ),
     recordTool(
@@ -255,7 +416,7 @@ async function runFallback(prompt: string, hooks: RootAssistantHooks): Promise<R
       "identity.deviceList",
       "List devices",
       "Reviewing current device membership.",
-      () => identity.deviceList(),
+      () => rootAssistantToolRunners.devices_list(),
       summarizeDevices
     ),
     recordTool(
@@ -264,7 +425,7 @@ async function runFallback(prompt: string, hooks: RootAssistantHooks): Promise<R
       "skylink.status",
       "Read network status",
       "Inspecting peer connectivity.",
-      () => skylink.status(),
+      () => rootAssistantToolRunners.network_getStatus(),
       summarizeNetwork
     ),
   ]);
@@ -287,7 +448,10 @@ export async function executeRootAssistantPrompt(
   hooks: RootAssistantHooks = {},
   options: ExecuteOptions = {}
 ): Promise<RootAssistantResult> {
-  const intent = detectIntent(prompt);
+  const intent =
+    options.intent ??
+    (await planIntentWithModel(prompt, hooks)) ??
+    detectIntent(prompt);
   const audience = options.audience ?? "for_me";
 
   switch (intent) {
@@ -309,6 +473,8 @@ export async function executeRootAssistantPrompt(
       return runNodeDiagnosis(hooks);
     case "agent_create":
       return runAgentCreatePrompt(prompt, hooks, audience);
+    case "configuration":
+      return runConfigurationPrompt(prompt, hooks);
     default:
       return runFallback(prompt, hooks);
   }

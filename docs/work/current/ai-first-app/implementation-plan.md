@@ -1,18 +1,18 @@
 ---
 created: 2026-04-18
-updated: 2026-04-18
+updated: 2026-04-25
 model: gpt-5.4
 ---
 
 # AI-First Implementation Plan
 
-## Phase 1: AI Workspace Shell
+## Phase 1: Home Workspace Shell
 
 Goal: make the product feel AI-first before changing deep backend behavior.
 
 Deliverables:
 
-- add a new AI workspace route and make it the default home
+- add a new Home route and make it the default home
 - update the sidebar hierarchy
 - add a large intent composer
 - add placeholder sections for runs, approvals, and recent agents
@@ -22,12 +22,12 @@ Likely touchpoints:
 
 - `web/src/App.tsx`
 - `web/src/components/Sidebar.tsx`
-- new `web/src/pages/AIWorkspace.tsx`
+- new `web/src/pages/Home.tsx`
 - new `web/src/components/assistant/*`
 
 Success criteria:
 
-- users land in an AI workspace first
+- users land on Home as the AI workspace first
 - the UI clearly promises outcome-driven interaction
 - existing infrastructure views remain accessible
 
@@ -39,7 +39,7 @@ Deliverables:
 
 - assistant session model
 - streaming response support
-- read-only tool set backed by current RPC calls
+- Vercel AI SDK tool registry backed by current RPC calls
 - tool traces in the run view
 
 Initial tool candidates:
@@ -61,28 +61,42 @@ Success criteria:
 
 ## Phase 3: Approval Framework
 
-Goal: make write-capable actions safe and inspectable.
+Goal: make user-configurable RPC actions safe and inspectable from Home.
 
 Deliverables:
 
 - approval object model
 - review cards for pending actions
 - audit trail for mutating tool calls
-- policy labels on tools
+- policy labels and AI SDK `needsApproval` on tools
 
 Initial approval-gated tool candidates:
 
 - create/remove drive
-- remove file/folder
+- start/stop drive
+- create folder/remove file
 - create/start/stop/delete sandbox
 - restart system
 - write/delete secret
 - remove device
+- invite/join/approve device
+- install/uninstall/update managed apps
+- create wallet and prepare explicit transfer approvals
+
+Default-disabled or blocked candidates:
+
+- low-level S3 debug list/delete
+- broad internal KV mutation or pattern deletes over internal namespaces
+- raw mailbox queue mutation
+- hot-add S3 storage and pinning until the todo work lands
+- Windows agent runtime actions until the Windows hypervisor/runtime exists
+- Apple-system destructive delete/remove tools
 
 Success criteria:
 
 - destructive actions are never opaque
 - the model can propose changes without silently applying them
+- most ordinary UI/CLI configuration workflows have an assistant path
 
 ## Phase 4: AgentSpec And Provisioning
 
@@ -159,13 +173,13 @@ Success criteria:
 - what is the first shipping runtime for the model/tool loop?
 - which provider secrets become first-class in the UI?
 - where should durable agent/job specs live?
-- how much of the raw RPC surface should be model-addressable on day one?
+- which approval-gated RPC workflow should ship first after read-only tools?
 
 ## Recommended First Slice
 
 Build only:
 
-- AI workspace shell
+- Home workspace shell
 - root assistant MVP
 - read-only RPC-backed tools
 - tool trace UI

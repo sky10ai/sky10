@@ -65,7 +65,7 @@ export default function StartSetup() {
   const links = useMemo(
     () => ({
       chatgpt: `/settings/codex?audience=${audience}`,
-      lookAround: `/ai?audience=${audience}`,
+      lookAround: `/agents`,
       apiKey: `/settings/secrets?kind=api-key&audience=${audience}#store-secret`,
       local: `/settings/apps?audience=${audience}`,
       wallet: `/settings/wallet`,

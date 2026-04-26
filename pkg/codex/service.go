@@ -36,9 +36,10 @@ type ChatMessage struct {
 }
 
 type ChatParams struct {
-	Model        string        `json:"model,omitempty"`
-	SystemPrompt string        `json:"system_prompt,omitempty"`
-	Messages     []ChatMessage `json:"messages"`
+	Model           string        `json:"model,omitempty"`
+	SystemPrompt    string        `json:"system_prompt,omitempty"`
+	ReasoningEffort string        `json:"reasoning_effort,omitempty"`
+	Messages        []ChatMessage `json:"messages"`
 }
 
 type ChatUsage struct {
@@ -296,6 +297,10 @@ func (s *Service) Chat(ctx context.Context, params ChatParams) (*ChatResult, err
 	if model == "" {
 		model = defaultCodexChatModel
 	}
+	reasoningEffort, err := normalizeReasoningEffort(params.ReasoningEffort)
+	if err != nil {
+		return nil, err
+	}
 
 	accountID := strings.TrimSpace(cred.AccountID)
 	if accountID == "" {
@@ -316,6 +321,9 @@ func (s *Service) Chat(ctx context.Context, params ChatParams) (*ChatResult, err
 	body["instructions"] = defaultCodexInstructions
 	if prompt := strings.TrimSpace(params.SystemPrompt); prompt != "" {
 		body["instructions"] = prompt
+	}
+	if reasoningEffort != "" {
+		body["reasoning"] = map[string]string{"effort": reasoningEffort}
 	}
 
 	payload, err := json.Marshal(body)
@@ -349,6 +357,19 @@ func (s *Service) Chat(ctx context.Context, params ChatParams) (*ChatResult, err
 		return nil, parseCodexAPIError(res.StatusCode, raw)
 	}
 	return parseCodexAPIStream(io.LimitReader(res.Body, 4<<20), model)
+}
+
+func normalizeReasoningEffort(value string) (string, error) {
+	effort := strings.TrimSpace(strings.ToLower(value))
+	if effort == "" {
+		return "", nil
+	}
+	switch effort {
+	case "none", "minimal", "low", "medium", "high", "xhigh":
+		return effort, nil
+	default:
+		return "", fmt.Errorf("unsupported reasoning_effort %q", value)
+	}
 }
 
 func (s *Service) activeCredential(ctx context.Context) (*storedCredential, error) {

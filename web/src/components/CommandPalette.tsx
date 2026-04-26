@@ -14,11 +14,19 @@ interface Command {
 
 const commands: Command[] = [
   {
+    id: "agents",
+    label: "Go to Agents",
+    icon: "smart_toy",
+    action: "/agents",
+    shortcut: "⌘ 1",
+    section: "Suggestions",
+  },
+  {
     id: "drives",
     label: "Go to Drives",
     icon: "folder_open",
     action: "/drives",
-    shortcut: "⌘ 1",
+    shortcut: "⌘ 2",
     section: "Suggestions",
   },
   {

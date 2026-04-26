@@ -1,6 +1,6 @@
 ---
 created: 2026-04-18
-updated: 2026-04-18
+updated: 2026-04-25
 model: gpt-5.4
 ---
 
@@ -13,7 +13,7 @@ the Go daemon and existing HTTP/JSON-RPC capability layer.
 
 The desired user experience is:
 
-- land on an AI workspace, not a storage or infra dashboard
+- land on Home as an AI workspace, not a storage or infra dashboard
 - describe an outcome in plain language
 - watch the system turn that request into a plan, tool calls, approvals,
   artifacts, and optionally a durable agent
@@ -41,6 +41,7 @@ This workstream does not yet commit to:
 ## Documents
 
 - [Architecture](./architecture.md)
+- [RPC Tool Policy](./rpc-tool-policy.md)
 - [User Flow](./user-flow.md)
 - [Implementation Plan](./implementation-plan.md)
 - [Milestones And Checklists](./milestones.md)

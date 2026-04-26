@@ -1,6 +1,6 @@
 ---
 created: 2026-04-18
-updated: 2026-04-18
+updated: 2026-04-25
 model: gpt-5.4
 ---
 
@@ -45,7 +45,9 @@ The AI SDK is a valid fit for this layer.
 ### 3. Tool wrapper layer
 
 Model-facing tools should be thin wrappers over RPC methods or small
-compositions of them.
+compositions of them. In the web app, these wrappers should be Vercel AI SDK
+`tool()` definitions so schemas, execution functions, and approval requirements
+live in one registry.
 
 Examples:
 
@@ -80,11 +82,19 @@ final model-facing interface because:
 - some methods are too low-level or implementation-shaped
 - approval policy should be attached to tools, not inferred from names
 - a curated tool contract gives the model fewer ways to make bad decisions
+- the AI SDK tool registry gives the runtime a single source for schemas,
+  execution, and `needsApproval` policy
 
 The right posture is:
 
 - broad internal capability coverage
 - curated tool exposure per assistant/session/policy
+- user-configurable RPC coverage by default
+- explicit exclusions for debug, destructive, platform-blocked, or
+  high-risk actions
+
+See [RPC Tool Policy](./rpc-tool-policy.md) for the working exposure rules and
+the current `docs/work/todo/` blockers.
 
 ## Tool Classes
 
@@ -106,11 +116,14 @@ Mutating actions that should present a reviewable plan first.
 Examples:
 
 - create/remove drive
+- create folder or remove file
 - delete files
 - create/delete sandbox
 - restart system
 - write or delete secrets
 - connect devices or remove devices
+- install/uninstall apps
+- create wallets or initiate transfers
 
 ### Admin/debug
 
@@ -122,6 +135,8 @@ Examples:
 - raw mailbox queue mutation
 - low-level S3 debug operations
 - repair/retry and internal maintenance flows
+- broad internal KV mutation
+- platform-specific runtime actions that are unavailable on the current OS
 
 ## Assistant Types
 
@@ -152,7 +167,7 @@ Responsibilities:
 
 For a simple request like "what version is the daemon?":
 
-1. User asks in the AI workspace.
+1. User asks on Home.
 2. Model selects `daemon.getVersion`.
 3. Tool handler calls `system.health`.
 4. Tool handler returns `{ version, status }`.

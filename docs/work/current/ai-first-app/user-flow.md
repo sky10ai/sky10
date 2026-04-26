@@ -1,6 +1,6 @@
 ---
 created: 2026-04-18
-updated: 2026-04-18
+updated: 2026-04-25
 model: gpt-5.4
 ---
 
@@ -8,7 +8,7 @@ model: gpt-5.4
 
 ## Primary UX Change
 
-The first screen should become an AI workspace instead of sending users to
+The first screen should be Home, an AI workspace, instead of sending users to
 drives or device onboarding.
 
 Current shape:
@@ -19,7 +19,7 @@ Current shape:
 
 Target shape:
 
-- AI workspace is the center of the product
+- Home is the center of the product
 - chat is only one part of a richer "run" surface
 - drives, devices, network, settings, and sandboxes support the AI workflow
 
@@ -97,7 +97,7 @@ The agent page should show:
 
 Shift the sidebar hierarchy:
 
-- AI Workspace
+- Home
 - Agents
 - Drives
 - Devices

@@ -1,4 +1,4 @@
-import { agent, identity, sandbox, skyfs, skylink, system, type DriveListResult } from "./rpc";
+import type { DriveListResult } from "./rpc";
 import {
   type RootAssistantHooks,
   type RootAssistantResult,
@@ -11,6 +11,7 @@ import {
   summarizeNetwork,
   summarizeSandboxes,
 } from "./rootAssistantShared";
+import { rootAssistantToolRunners } from "./rootAssistantTools";
 
 export async function runDaemonVersion(hooks: RootAssistantHooks): Promise<RootAssistantResult> {
   hooks.onStatus?.("Checking the daemon build and node health.");
@@ -20,7 +21,7 @@ export async function runDaemonVersion(hooks: RootAssistantHooks): Promise<RootA
     "system.health",
     "Read daemon version",
     "Fetching the daemon build string and current health snapshot.",
-    () => system.health(),
+    () => rootAssistantToolRunners.daemon_getHealth(),
     (result) => `version ${result.version} · ${result.uptime} uptime`
   );
 
@@ -48,7 +49,7 @@ export async function runDrives(hooks: RootAssistantHooks): Promise<RootAssistan
       "skyfs.driveList",
       "List drives",
       "Reading configured drive inventory.",
-      () => skyfs.driveList(),
+      () => rootAssistantToolRunners.drives_list(),
       (result: DriveListResult) => `${result.drives.length} drive${result.drives.length === 1 ? "" : "s"} found`
     ),
     recordTool(
@@ -57,7 +58,7 @@ export async function runDrives(hooks: RootAssistantHooks): Promise<RootAssistan
       "system.health",
       "Read storage health",
       "Checking drive runtime and sync counters.",
-      () => system.health(),
+      () => rootAssistantToolRunners.daemon_getHealth(),
       summarizeHealth
     ),
   ]);
@@ -101,7 +102,7 @@ export async function runDevices(hooks: RootAssistantHooks): Promise<RootAssista
     "identity.deviceList",
     "List devices",
     "Reading identity device membership and metadata.",
-    () => identity.deviceList(),
+    () => rootAssistantToolRunners.devices_list(),
     summarizeDevices
   );
 
@@ -141,7 +142,7 @@ export async function runAgents(hooks: RootAssistantHooks): Promise<RootAssistan
     "agent.list",
     "List agents",
     "Reading the live agent registry.",
-    () => agent.list(),
+    () => rootAssistantToolRunners.agents_list(),
     summarizeAgents
   );
 
@@ -178,7 +179,7 @@ export async function runSandboxes(hooks: RootAssistantHooks): Promise<RootAssis
     "sandbox.list",
     "List sandboxes",
     "Inspecting managed runtime inventory.",
-    () => sandbox.list(),
+    () => rootAssistantToolRunners.sandboxes_list(),
     summarizeSandboxes
   );
 
@@ -213,7 +214,7 @@ export async function runNetwork(hooks: RootAssistantHooks): Promise<RootAssista
     "skylink.status",
     "Read network status",
     "Inspecting peer counts, delivery health, and published addresses.",
-    () => skylink.status(),
+    () => rootAssistantToolRunners.network_getStatus(),
     summarizeNetwork
   );
 
@@ -243,7 +244,7 @@ export async function runSyncActivity(hooks: RootAssistantHooks): Promise<RootAs
     "skyfs.syncActivity",
     "Read sync activity",
     "Inspecting pending transfers, conflicts, and path normalization issues.",
-    () => skyfs.syncActivity(),
+    () => rootAssistantToolRunners.sync_activity(),
     summarizeActivity
   );
 

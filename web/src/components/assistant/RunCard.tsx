@@ -1,6 +1,6 @@
 import { StatusBadge } from "../StatusBadge";
 import { timeAgo } from "../../lib/useRPC";
-import { audienceLabel, runTone, toolTone, type WorkspaceRun } from "./workspaceTypes";
+import { runTone, toolTone, type WorkspaceRun } from "./workspaceTypes";
 
 interface RunCardProps {
   onPromptSelect: (value: string) => void;
@@ -9,16 +9,17 @@ interface RunCardProps {
 
 export function RunCard({ onPromptSelect, run }: RunCardProps) {
   return (
-    <article className="rounded-[1.75rem] border border-outline-variant/10 bg-surface p-5 shadow-sm">
+    <article className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="max-w-3xl space-y-2">
+        <div className="min-w-0 max-w-3xl space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
-              Request
+              Draft
             </p>
-            <StatusBadge tone="neutral">{audienceLabel(run.audience)}</StatusBadge>
           </div>
-          <h3 className="text-lg font-semibold text-on-surface">{run.prompt}</h3>
+          <h3 className="text-base font-semibold leading-6 text-on-surface">
+            {run.prompt}
+          </h3>
         </div>
         <div className="flex flex-wrap gap-2">
           <StatusBadge tone={runTone(run.status)}>{run.status}</StatusBadge>
@@ -26,42 +27,32 @@ export function RunCard({ onPromptSelect, run }: RunCardProps) {
         </div>
       </div>
 
-      <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.9fr)]">
-        <div className="rounded-[1.5rem] border border-outline-variant/10 bg-surface-container-low p-5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
-            Assistant Answer
-          </p>
-          <div className="mt-3 whitespace-pre-wrap text-sm leading-7 text-on-surface">
-            {run.answer || "Inspecting the node..."}
-          </div>
-          {run.followUps && run.followUps.length > 0 && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {run.followUps.map((item) => (
-                <button
-                  key={item}
-                  className="rounded-full border border-outline-variant/20 bg-surface px-3 py-2 text-xs text-secondary transition-colors hover:border-primary/20 hover:text-on-surface"
-                  onClick={() => onPromptSelect(item)}
-                  type="button"
-                >
-                  {item}
-                </button>
-              ))}
-            </div>
-          )}
+      <div className="mt-5 border-t border-outline-variant/10 pt-5">
+        <div className="whitespace-pre-wrap text-sm leading-7 text-on-surface">
+          {run.answer || "..."}
         </div>
-
-        <div className="rounded-[1.5rem] border border-outline-variant/10 bg-surface-container-low p-5">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
-              Tool Trace
-            </p>
-            <StatusBadge tone="neutral">
-              {run.toolTraces.length} call{run.toolTraces.length === 1 ? "" : "s"}
-            </StatusBadge>
+        {run.followUps && run.followUps.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {run.followUps.map((item) => (
+              <button
+                key={item}
+                className="rounded-full border border-outline-variant/20 bg-surface px-3 py-2 text-xs text-secondary transition-colors hover:border-primary/20 hover:text-on-surface"
+                onClick={() => onPromptSelect(item)}
+                type="button"
+              >
+                {item}
+              </button>
+            ))}
           </div>
+        )}
+
+        <details className="mt-5 rounded-2xl border border-outline-variant/10 bg-surface px-4 py-3">
+          <summary className="cursor-pointer text-sm font-semibold text-on-surface">
+            Trace
+          </summary>
           <div className="mt-4 space-y-3">
             {run.toolTraces.length === 0 ? (
-              <p className="text-sm text-secondary">Waiting for the first tool call.</p>
+              <p className="text-sm text-secondary">...</p>
             ) : (
               run.toolTraces.map((trace) => (
                 <div
@@ -86,7 +77,7 @@ export function RunCard({ onPromptSelect, run }: RunCardProps) {
               ))
             )}
           </div>
-        </div>
+        </details>
       </div>
     </article>
   );

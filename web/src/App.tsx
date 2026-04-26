@@ -1,6 +1,11 @@
-import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  useParams,
+} from "react-router";
 import { Layout } from "./components/Layout";
-import AIWorkspace from "./pages/AIWorkspace";
 import Start from "./pages/Start";
 import StartSetup from "./pages/StartSetup";
 import GettingStarted from "./pages/GettingStarted";
@@ -27,8 +32,8 @@ import SettingsVisuals from "./pages/SettingsVisuals";
 import CodexChat from "./pages/CodexChat";
 import Wallet from "./pages/Wallet";
 
-function HomeRedirect() {
-  return <Navigate to="/start" replace />;
+function RootRedirect() {
+  return <Navigate to="/agents" replace />;
 }
 
 function SandboxLegacyRedirect() {
@@ -42,10 +47,9 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route element={<Layout />}>
-          <Route index element={<HomeRedirect />} />
+          <Route index element={<RootRedirect />} />
           <Route path="start" element={<Start />} />
           <Route path="start/setup" element={<StartSetup />} />
-          <Route path="ai" element={<AIWorkspace />} />
           <Route path="codex" element={<CodexChat />} />
           <Route path="getting-started" element={<GettingStarted />} />
           <Route path="agents" element={<Agents />} />

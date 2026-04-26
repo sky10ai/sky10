@@ -429,7 +429,7 @@ func TestServiceChatUsesStoredCredential(t *testing.T) {
 			"type": "response.completed",
 			"response": map[string]interface{}{
 				"id":    "resp_123",
-				"model": "gpt-5.4",
+				"model": "gpt-5.5",
 				"usage": map[string]int{
 					"input_tokens":  12,
 					"output_tokens": 7,
@@ -456,7 +456,8 @@ func TestServiceChatUsesStoredCredential(t *testing.T) {
 	}
 
 	result, err := service.Chat(context.Background(), ChatParams{
-		Model: "gpt-5.4",
+		Model:           "gpt-5.5",
+		ReasoningEffort: "high",
 		Messages: []ChatMessage{
 			{Role: "user", Content: "say hi"},
 		},
@@ -485,8 +486,15 @@ func TestServiceChatUsesStoredCredential(t *testing.T) {
 	if seenBeta != "responses=experimental" {
 		t.Fatalf("OpenAI-Beta = %q, want responses=experimental", seenBeta)
 	}
-	if body["model"] != "gpt-5.4" {
-		t.Fatalf("model = %v, want gpt-5.4", body["model"])
+	if body["model"] != "gpt-5.5" {
+		t.Fatalf("model = %v, want gpt-5.5", body["model"])
+	}
+	reasoning, ok := body["reasoning"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("reasoning = %#v, want object", body["reasoning"])
+	}
+	if reasoning["effort"] != "high" {
+		t.Fatalf("reasoning.effort = %v, want high", reasoning["effort"])
 	}
 	if body["stream"] != true {
 		t.Fatalf("stream = %v, want true", body["stream"])
@@ -515,7 +523,7 @@ func TestServiceChatBackfillsMetadataFromNestedJWTClaims(t *testing.T) {
 			"type": "response.completed",
 			"response": map[string]interface{}{
 				"id":    "resp_nested",
-				"model": "gpt-5.4",
+				"model": "gpt-5.5",
 			},
 		})
 	}))
@@ -547,7 +555,7 @@ func TestServiceChatBackfillsMetadataFromNestedJWTClaims(t *testing.T) {
 	}
 
 	result, err := service.Chat(context.Background(), ChatParams{
-		Model: "gpt-5.4",
+		Model: "gpt-5.5",
 		Messages: []ChatMessage{
 			{Role: "user", Content: "say hi"},
 		},

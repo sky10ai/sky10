@@ -299,8 +299,17 @@ export const codex = {
   chat: (p: {
     model?: string;
     system_prompt?: string;
+    reasoning_effort?: CodexReasoningEffort;
     messages: CodexChatMessage[];
   }) => rpc<CodexChatResult>("codex.chat", p),
+};
+
+// -- home --
+export const home = {
+  historyList: (p?: { limit?: number }) =>
+    rpc<HomeHistoryListResult>("home.historyList", p),
+  runSave: (p: { run: HomeRunRecord }) =>
+    rpc<HomeRunSaveResult>("home.runSave", p),
 };
 
 // ---- Types matching actual daemon responses ----
@@ -1186,6 +1195,14 @@ export interface CodexChatMessage {
   content: string;
 }
 
+export type CodexReasoningEffort =
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh";
+
 export interface CodexChatUsage {
   input_tokens?: number;
   output_tokens?: number;
@@ -1197,4 +1214,38 @@ export interface CodexChatResult {
   response_id?: string;
   text: string;
   usage?: CodexChatUsage;
+}
+
+export type HomeRunStatus = "complete" | "error" | "running";
+export type HomeRunAudience = "for_me" | "for_others";
+
+export interface HomeToolTrace {
+  id: string;
+  title: string;
+  tool: string;
+  rpcMethod: string;
+  status: HomeRunStatus;
+  detail: string;
+  startedAt: string;
+  finishedAt?: string;
+}
+
+export interface HomeRunRecord {
+  id: string;
+  audience: HomeRunAudience;
+  prompt: string;
+  answer: string;
+  status: HomeRunStatus;
+  createdAt: string;
+  updatedAt: string;
+  toolTraces: HomeToolTrace[];
+  followUps?: string[];
+}
+
+export interface HomeHistoryListResult {
+  runs: HomeRunRecord[];
+}
+
+export interface HomeRunSaveResult {
+  status: string;
 }
