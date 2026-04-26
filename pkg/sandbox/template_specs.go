@@ -354,6 +354,9 @@ func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) erro
 	if err := spec.prepareSharedDir(ctx, m, rec, stateDir); err != nil {
 		return err
 	}
+	if err := writeSharedFiles(rec.SharedDir, rec.Files); err != nil {
+		return err
+	}
 	return m.materializeSecretBindings(ctx, rec)
 }
 

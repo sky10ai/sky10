@@ -320,11 +320,14 @@ func TestCompileAgentSpecFixturesProduceRuntimeArtifacts(t *testing.T) {
 			}
 			if spec.Runtime.Target == "sandbox" {
 				compiledFileContent(t, compiled, "compose.yaml")
-				if len(compiled.Actions) < 3 ||
+				if len(compiled.Actions) < 2 ||
 					compiled.Actions[0].Method != "sandbox.create" ||
-					compiled.Actions[1].Method != "sandbox.start" ||
-					compiled.Actions[2].Method != "agent.register" {
-					t.Fatalf("actions = %#v, want sandbox.create, sandbox.start, agent.register", compiled.Actions)
+					compiled.Actions[1].Method != "agent.register" {
+					t.Fatalf("actions = %#v, want sandbox.create, agent.register", compiled.Actions)
+				}
+				params := compiled.Actions[0].Params
+				if _, ok := params["files"].([]map[string]string); !ok {
+					t.Fatalf("sandbox.create params files = %#v, want generated shared files", params["files"])
 				}
 			}
 			for _, file := range compiled.Files {

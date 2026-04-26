@@ -102,6 +102,7 @@ type CreateParams struct {
 	Template       string          `json:"template"`
 	Model          string          `json:"model,omitempty"`
 	SecretBindings []SecretBinding `json:"secret_bindings,omitempty"`
+	Files          []SharedFile    `json:"files,omitempty"`
 }
 
 type NamedParams struct {
@@ -130,6 +131,7 @@ type Record struct {
 	ForwardedEndpoints []ForwardedEndpoint `json:"forwarded_endpoints,omitempty"`
 	Shell              string              `json:"shell,omitempty"`
 	SecretBindings     []SecretBinding     `json:"secret_bindings,omitempty"`
+	Files              []SharedFile        `json:"files,omitempty"`
 	LastError          string              `json:"last_error,omitempty"`
 	Progress           *Progress           `json:"progress,omitempty"`
 	GuestDeviceID      string              `json:"guest_device_id,omitempty"`
@@ -566,6 +568,10 @@ func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, err
 	if err != nil {
 		return nil, err
 	}
+	files, err := normalizeSharedFiles(params.Files)
+	if err != nil {
+		return nil, err
+	}
 	initialProgress, tracker := newInitialProgress(provider, template)
 	rec := Record{
 		Name:           displayName,
@@ -577,6 +583,7 @@ func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, err
 		SharedDir:      sharedDir,
 		Shell:          defaultShellCommand(slug, template),
 		SecretBindings: secretBindings,
+		Files:          files,
 		Progress:       initialProgress,
 		CreatedAt:      now,
 		UpdatedAt:      now,
@@ -684,6 +691,10 @@ func (m *Manager) Ensure(ctx context.Context, params CreateParams) (*Record, err
 		if err != nil {
 			return nil, err
 		}
+		files, err := normalizeSharedFiles(params.Files)
+		if err != nil {
+			return nil, err
+		}
 		rec = Record{
 			Name:           displayName,
 			Slug:           slug,
@@ -695,6 +706,7 @@ func (m *Manager) Ensure(ctx context.Context, params CreateParams) (*Record, err
 			SharedDir:      sharedDir,
 			Shell:          defaultShellCommand(slug, template),
 			SecretBindings: secretBindings,
+			Files:          files,
 			CreatedAt:      now,
 			UpdatedAt:      now,
 		}

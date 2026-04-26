@@ -246,6 +246,17 @@ export const rootAssistantTools = {
       spec: input.spec as AgentSpec | undefined,
     }),
   }),
+  agents_provisionSpec: approvalRequiredTool({
+    description: "Provision an approved agent spec by creating its sandbox with generated files and declared secret bindings in place before boot.",
+    inputSchema: z.object({
+      id: z.string().min(1).optional().describe("Approved agent spec ID to provision."),
+      spec: z.unknown().optional().describe("Full approved agent spec object to provision without reading from storage."),
+    }).strict(),
+    execute: (input) => agent.spec.provision({
+      id: input.id,
+      spec: input.spec as AgentSpec | undefined,
+    }),
+  }),
   agents_updateSpec: approvalRequiredTool({
     description: "Update an editable agent spec before approval. This cannot approve, discard, or provision the spec.",
     inputSchema: z.object({
@@ -519,6 +530,7 @@ export const rootAssistantToolMetadata = {
   agents_listSpecs: { policy: "read_only", risk: "low", rpcMethods: ["agent.spec.list"], title: "List agent specs" },
   agents_getSpec: { policy: "read_only", risk: "low", rpcMethods: ["agent.spec.get"], title: "Read agent spec" },
   agents_compileSpec: { policy: "read_only", risk: "low", rpcMethods: ["agent.spec.compile"], title: "Compile agent spec" },
+  agents_provisionSpec: { policy: "approval_required", risk: "high", rpcMethods: ["agent.spec.provision", "sandbox.create"], title: "Provision agent spec" },
   agents_updateSpec: { policy: "approval_required", risk: "medium", rpcMethods: ["agent.spec.update"], title: "Update agent spec" },
   agents_approveSpec: { policy: "approval_required", risk: "medium", rpcMethods: ["agent.spec.approve"], title: "Approve agent spec" },
   agents_discardSpec: { policy: "approval_required", risk: "medium", rpcMethods: ["agent.spec.discard"], title: "Discard agent spec" },

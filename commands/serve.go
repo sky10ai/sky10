@@ -523,6 +523,7 @@ func ServeCmd() *cobra.Command {
 			agentRPC.SetRouter(agentRouter)
 			agentRPC.SetMailbox(mailboxStore)
 			agentRPC.SetSpecStore(agentSpecStore)
+			agentRPC.SetSandboxProvisioner(sandboxManager)
 			server.RegisterHandler(agentRPC)
 			agentChatWS := skyagent.NewChatWebSocketHandler(agentRegistry, agentRPC, agentMessageHub, logRuntime.Logger)
 			server.HandleHTTP("GET /rpc/agents/{agent}/chat", func(w http.ResponseWriter, r *http.Request) {

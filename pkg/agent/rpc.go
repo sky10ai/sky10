@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
 	skykey "github.com/sky10/sky10/pkg/key"
+	skysandbox "github.com/sky10/sky10/pkg/sandbox"
 )
 
 // Emitter sends SSE events to connected subscribers.
@@ -25,6 +26,7 @@ type RPCHandler struct {
 	router   *Router // nil until cross-device wiring
 	mailbox  *agentmailbox.Store
 	specs    *SpecStore
+	sandbox  SandboxProvisioner
 	emit     Emitter
 	notify   PeerNotifier
 }
@@ -47,6 +49,12 @@ func (h *RPCHandler) SetMailbox(store *agentmailbox.Store) {
 // SetSpecStore attaches durable agent spec storage.
 func (h *RPCHandler) SetSpecStore(store *SpecStore) {
 	h.specs = store
+}
+
+// SetSandboxProvisioner attaches the sandbox runtime used by agent spec
+// provisioning.
+func (h *RPCHandler) SetSandboxProvisioner(provisioner SandboxProvisioner) {
+	h.sandbox = provisioner
 }
 
 // SetPeerNotifier attaches a function that broadcasts agent events to
@@ -91,6 +99,8 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		result, err = h.rpcSpecDiscard(ctx, params)
 	case "agent.spec.compile":
 		result, err = h.rpcSpecCompile(ctx, params)
+	case "agent.spec.provision":
+		result, err = h.rpcSpecProvision(ctx, params)
 	case "agent.queue.discover":
 		result, err = h.rpcQueueDiscover(ctx, params)
 	case "agent.queue.claim":
@@ -132,6 +142,10 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 	}
 
 	return result, err, true
+}
+
+type SandboxProvisioner interface {
+	Create(context.Context, skysandbox.CreateParams) (*skysandbox.Record, error)
 }
 
 func (h *RPCHandler) requireSpecStore() (*SpecStore, error) {

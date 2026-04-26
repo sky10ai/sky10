@@ -19,6 +19,22 @@ func sandboxActionSecretBindings(bindings []AgentCompiledSecretBinding) []map[st
 	return result
 }
 
+func sandboxActionFiles(spec AgentSpec, runtime AgentCompiledRuntime, bindings []AgentCompiledSecretBinding) []map[string]string {
+	files, _, err := compileSpecFiles(spec, runtime, bindings)
+	if err != nil {
+		return nil
+	}
+	result := make([]map[string]string, 0, len(files))
+	for _, file := range files {
+		result = append(result, map[string]string{
+			"path":    file.Path,
+			"mode":    file.Mode,
+			"content": file.Content,
+		})
+	}
+	return result
+}
+
 func registerActionTools(tools []AgentToolSpec) []map[string]interface{} {
 	result := make([]map[string]interface{}, 0, len(tools))
 	for _, tool := range tools {

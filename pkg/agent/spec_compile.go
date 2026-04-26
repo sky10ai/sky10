@@ -354,22 +354,16 @@ func compileProvisionActions(spec AgentSpec, runtime AgentCompiledRuntime, secre
 			"name":     runtime.Name,
 			"provider": runtime.Provider,
 			"template": runtime.Template,
+			"files":    sandboxActionFiles(spec, runtime, secretBindings),
 		}
 		if len(secretBindings) > 0 {
 			params["secret_bindings"] = sandboxActionSecretBindings(secretBindings)
 		}
-		actions = append(actions,
-			AgentProvisionAction{
-				Method:  "sandbox.create",
-				Summary: "Create the VM template instance and attach declared sky10 secrets before boot.",
-				Params:  params,
-			},
-			AgentProvisionAction{
-				Method:  "sandbox.start",
-				Summary: "Start the sandbox after its generated files and secret bindings are in place.",
-				Params:  map[string]interface{}{"name": runtime.Name},
-			},
-		)
+		actions = append(actions, AgentProvisionAction{
+			Method:  "sandbox.create",
+			Summary: "Create and boot the VM template instance with generated files and declared sky10 secrets in place before startup.",
+			Params:  params,
+		})
 	}
 
 	actions = append(actions, AgentProvisionAction{

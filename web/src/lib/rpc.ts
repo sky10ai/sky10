@@ -167,6 +167,8 @@ export const agent = {
       rpc<AgentSpecResult>("agent.spec.discard", p),
     compile: (p: AgentSpecCompileParams) =>
       rpc<AgentSpecCompileResult>("agent.spec.compile", p),
+    provision: (p: AgentSpecProvisionParams) =>
+      rpc<AgentSpecProvisionResult>("agent.spec.provision", p),
   },
   mailbox: {
     views: () => rpc<MailboxViewListResult>("agent.mailbox.views"),
@@ -212,6 +214,7 @@ export const sandbox = {
     provider: string;
     template: string;
     secret_bindings?: SandboxSecretBindingInput[];
+    files?: SandboxSharedFileInput[];
   }) =>
     rpc<SandboxRecord>("sandbox.create", p),
   start: (p: { name?: string; slug?: string }) => rpc<SandboxRecord>("sandbox.start", p),
@@ -1125,6 +1128,17 @@ export interface AgentSpecCompileResult {
   warnings?: string[];
 }
 
+export interface AgentSpecProvisionParams {
+  id?: string;
+  spec?: AgentSpec;
+}
+
+export interface AgentSpecProvisionResult {
+  spec: AgentSpec;
+  compile: AgentSpecCompileResult;
+  sandbox?: SandboxRecord;
+}
+
 export interface AgentCompiledRuntime {
   name: string;
   slug: string;
@@ -1375,6 +1389,7 @@ export interface SandboxRecord {
   forwarded_endpoints?: SandboxForwardedEndpoint[];
   shell?: string;
   secret_bindings?: SandboxSecretBinding[];
+  files?: SandboxSharedFile[];
   last_error?: string;
   progress?: SandboxProgress;
   guest_device_id?: string;
@@ -1410,6 +1425,18 @@ export interface SandboxSecretBinding {
 export interface SandboxSecretBindingInput {
   env: string;
   secret: string;
+}
+
+export interface SandboxSharedFile {
+  path: string;
+  mode?: string;
+  content: string;
+}
+
+export interface SandboxSharedFileInput {
+  path: string;
+  mode?: string;
+  content: string;
 }
 
 export interface SandboxSecretBindingsResult {
