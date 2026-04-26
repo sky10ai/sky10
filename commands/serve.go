@@ -479,6 +479,7 @@ func ServeCmd() *cobra.Command {
 			}
 			agentRouter = skyagent.NewRouter(agentRegistry, linkNode, agentEventEmitter, bundle.DeviceID(), logRuntime.Logger)
 			agentSpecStore := skyagent.NewSpecStore(agentEventEmitter)
+			agentJobStore := skyagent.NewJobStore(agentEventEmitter)
 			sandboxAgentSource := newSandboxAgentSource(sandboxManager, logRuntime.Logger)
 			agentRouter.AddDirectAgentSource(sandboxAgentSource)
 			agentRouter.SetMailbox(mailboxStore)
@@ -523,6 +524,7 @@ func ServeCmd() *cobra.Command {
 			agentRPC.SetRouter(agentRouter)
 			agentRPC.SetMailbox(mailboxStore)
 			agentRPC.SetSpecStore(agentSpecStore)
+			agentRPC.SetJobStore(agentJobStore)
 			agentRPC.SetSandboxProvisioner(sandboxManager)
 			server.RegisterHandler(agentRPC)
 			agentChatWS := skyagent.NewChatWebSocketHandler(agentRegistry, agentRPC, agentMessageHub, logRuntime.Logger)

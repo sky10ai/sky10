@@ -26,6 +26,7 @@ type RPCHandler struct {
 	router   *Router // nil until cross-device wiring
 	mailbox  *agentmailbox.Store
 	specs    *SpecStore
+	jobs     *JobStore
 	sandbox  SandboxProvisioner
 	emit     Emitter
 	notify   PeerNotifier
@@ -49,6 +50,11 @@ func (h *RPCHandler) SetMailbox(store *agentmailbox.Store) {
 // SetSpecStore attaches durable agent spec storage.
 func (h *RPCHandler) SetSpecStore(store *SpecStore) {
 	h.specs = store
+}
+
+// SetJobStore attaches durable agent job storage.
+func (h *RPCHandler) SetJobStore(store *JobStore) {
+	h.jobs = store
 }
 
 // SetSandboxProvisioner attaches the sandbox runtime used by agent spec
@@ -81,6 +87,14 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		result, err = h.rpcList(ctx, params)
 	case "agent.send":
 		result, err = h.rpcSend(ctx, params)
+	case "agent.call":
+		result, err = h.rpcCall(ctx, params)
+	case "agent.cancel":
+		result, err = h.rpcCancel(ctx, params)
+	case "agent.job.get":
+		result, err = h.rpcJobGet(ctx, params)
+	case "agent.job.list":
+		result, err = h.rpcJobList(ctx, params)
 	case "agent.heartbeat":
 		result, err = h.rpcHeartbeat(ctx, params)
 	case "agent.discover":
@@ -153,6 +167,13 @@ func (h *RPCHandler) requireSpecStore() (*SpecStore, error) {
 		return nil, fmt.Errorf("agent spec store is not configured")
 	}
 	return h.specs, nil
+}
+
+func (h *RPCHandler) requireJobStore() (*JobStore, error) {
+	if h.jobs == nil {
+		return nil, fmt.Errorf("agent job store is not configured")
+	}
+	return h.jobs, nil
 }
 
 func (h *RPCHandler) rpcSpecCreate(ctx context.Context, params json.RawMessage) (interface{}, error) {

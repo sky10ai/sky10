@@ -152,6 +152,13 @@ export const agent = {
   list: () => rpc<AgentListResult>("agent.list"),
   status: () => rpc<AgentStatus>("agent.status"),
   send: (p: AgentSendParams) => rpc<AgentSendResult>("agent.send", p),
+  call: (p: AgentCallParams) => rpc<AgentCallResult>("agent.call", p),
+  cancel: (p: AgentCancelParams) => rpc<AgentJobResult>("agent.cancel", p),
+  job: {
+    get: (p: AgentJobGetParams) => rpc<AgentJobResult>("agent.job.get", p),
+    list: (p?: AgentJobListParams) =>
+      rpc<AgentJobListResult>("agent.job.list", p),
+  },
   spec: {
     create: (p: AgentSpecCreateParams) =>
       rpc<AgentSpecResult>("agent.spec.create", p),
@@ -969,6 +976,95 @@ export interface AgentStatus {
   tools?: string[];
   skills: string[];
   delivery_policies: Record<string, DeliveryPolicyDescription>;
+}
+
+export interface AgentPayloadRef {
+  kind: string;
+  key?: string;
+  uri?: string;
+  mime_type?: string;
+  size?: number;
+  digest?: string;
+}
+
+export interface AgentCallBudget {
+  max_amount?: string;
+  accepted_payment_assets?: AgentPaymentAsset[];
+}
+
+export interface AgentCallParams {
+  agent?: string;
+  tool: string;
+  input?: unknown;
+  payload_ref?: AgentPayloadRef;
+  payload_refs?: AgentPayloadRef[];
+  budget?: AgentCallBudget;
+  bid_id?: string;
+  idempotency_key?: string;
+}
+
+export interface AgentCancelParams {
+  job_id: string;
+  reason?: string;
+}
+
+export interface AgentJobGetParams {
+  job_id: string;
+}
+
+export interface AgentJobListParams {
+  role?: string;
+  work_state?: string;
+  payment_state?: string;
+  tool?: string;
+  agent?: string;
+  limit?: number;
+}
+
+export interface AgentJob {
+  job_id: string;
+  buyer: string;
+  seller: string;
+  agent_id?: string;
+  agent_name?: string;
+  tool: string;
+  capability?: string;
+  bid_id?: string;
+  work_state: string;
+  payment_state: string;
+  created_at: string;
+  updated_at: string;
+  idempotency_key?: string;
+  input_digest?: string;
+  result_digest?: string;
+  payload_refs?: AgentPayloadRef[];
+  message_id?: string;
+  cancel_reason?: string;
+  last_error?: string;
+  delivery?: DeliveryMetadata;
+}
+
+export interface AgentCallError {
+  code: string;
+  message: string;
+}
+
+export interface AgentCallResult {
+  type: string;
+  job_id?: string;
+  job?: AgentJob;
+  output?: unknown;
+  error?: AgentCallError;
+  delivery?: DeliveryMetadata;
+}
+
+export interface AgentJobResult {
+  job: AgentJob;
+}
+
+export interface AgentJobListResult {
+  jobs: AgentJob[];
+  count: number;
 }
 
 export interface AgentSpec {

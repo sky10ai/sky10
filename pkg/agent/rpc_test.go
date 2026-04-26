@@ -10,6 +10,7 @@ import (
 	"time"
 
 	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
+	"github.com/sky10/sky10/pkg/config"
 	skykey "github.com/sky10/sky10/pkg/key"
 )
 
@@ -114,6 +115,159 @@ func TestRPCRegisterListsToolsAndStatusCapabilities(t *testing.T) {
 	tools := statusRaw.(map[string]interface{})["tools"].([]string)
 	if !slices.Contains(tools, "media.convert") {
 		t.Fatalf("status tools = %#v, want media accent tool", tools)
+	}
+}
+
+func TestRPCAgentCallCreatesAcceptedJobAndDispatchesToolCall(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+	r := newTestRegistry()
+	var messages []Message
+	var jobEvents []string
+	emit := func(event string, data interface{}) {
+		switch event {
+		case "agent.message":
+			if msg, ok := data.(Message); ok {
+				messages = append(messages, msg)
+			}
+		case "agent.job.changed":
+			jobEvents = append(jobEvents, event)
+		}
+	}
+	h := newTestRPCHandler(t, r, emit)
+	h.SetJobStore(NewJobStore(emit))
+	ctx := context.Background()
+
+	registerParams, _ := json.Marshal(RegisterParams{
+		Name: "media",
+		Tools: []AgentToolSpec{{
+			Name:              "media.convert",
+			Capability:        "media.convert",
+			Description:       "Convert media.",
+			Audience:          "private",
+			Scope:             "current",
+			InputSchema:       map[string]interface{}{"type": "object"},
+			OutputSchema:      map[string]interface{}{"type": "object"},
+			Availability:      AgentAvailability{Status: "available"},
+			Fulfillment:       AgentFulfillment{Mode: "autonomous"},
+			Pricing:           AgentPricingSpec{Model: "free"},
+			SupportsCancel:    true,
+			SupportsStreaming: true,
+		}},
+	})
+	regRaw, err, handled := h.Dispatch(ctx, "agent.register", registerParams)
+	if !handled || err != nil {
+		t.Fatalf("register: handled=%v, err=%v", handled, err)
+	}
+	reg := regRaw.(RegisterResult)
+
+	callParams := mustJSON(t, AgentCallParams{
+		Agent:          reg.AgentID,
+		Tool:           "media.convert",
+		Input:          json.RawMessage(`{"note":"private payload text"}`),
+		IdempotencyKey: "req_media_1",
+		PayloadRef: &AgentPayloadRef{
+			Kind:     "uri",
+			URI:      "skyfs://jobs/input.mp4",
+			MimeType: "video/mp4",
+			Digest:   "sha256:input",
+		},
+	})
+	callRaw, err, handled := h.Dispatch(ctx, "agent.call", callParams)
+	if !handled || err != nil {
+		t.Fatalf("agent.call: handled=%v err=%v", handled, err)
+	}
+	call := callRaw.(*AgentCallResultEnvelope)
+	if call.Type != AgentCallAccepted || call.Job == nil {
+		t.Fatalf("call = %#v, want accepted job", call)
+	}
+	if call.Job.WorkState != JobWorkAccepted || call.Job.PaymentState != JobPaymentNone {
+		t.Fatalf("job state = %s/%s, want accepted/none", call.Job.WorkState, call.Job.PaymentState)
+	}
+	if call.Job.InputDigest == "" || strings.Contains(call.Job.InputDigest, "private payload text") {
+		t.Fatalf("input digest = %q, want digest without raw payload", call.Job.InputDigest)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("agent.message count = %d, want 1", len(messages))
+	}
+	msg := messages[0]
+	if msg.To != reg.AgentID || msg.Type != "tool_call" || msg.SessionID != call.JobID {
+		t.Fatalf("message = %#v, want tool_call to registered agent for job session", msg)
+	}
+	var toolCall AgentToolCallMessage
+	if err := json.Unmarshal(msg.Content, &toolCall); err != nil {
+		t.Fatalf("unmarshal tool call content: %v", err)
+	}
+	if toolCall.JobID != call.JobID || toolCall.Tool != "media.convert" || !strings.Contains(string(toolCall.Input), "private payload text") {
+		t.Fatalf("tool call = %#v input=%s, want job media.convert with live input", toolCall, string(toolCall.Input))
+	}
+
+	getRaw, err, handled := h.Dispatch(ctx, "agent.job.get", mustJSON(t, AgentJobGetParams{JobID: call.JobID}))
+	if !handled || err != nil {
+		t.Fatalf("agent.job.get: handled=%v err=%v", handled, err)
+	}
+	got := getRaw.(*AgentJobResult)
+	if got.Job.JobID != call.JobID || got.Job.WorkState != JobWorkAccepted {
+		t.Fatalf("job get = %#v, want accepted job", got.Job)
+	}
+	listRaw, err, handled := h.Dispatch(ctx, "agent.job.list", mustJSON(t, AgentJobListParams{Role: "buyer", Tool: "media.convert"}))
+	if !handled || err != nil {
+		t.Fatalf("agent.job.list: handled=%v err=%v", handled, err)
+	}
+	list := listRaw.(*AgentJobListResult)
+	if list.Count != 1 || list.Jobs[0].JobID != call.JobID {
+		t.Fatalf("job list = %#v, want one call job", list)
+	}
+
+	replayedRaw, err, handled := h.Dispatch(ctx, "agent.call", callParams)
+	if !handled || err != nil {
+		t.Fatalf("agent.call replay: handled=%v err=%v", handled, err)
+	}
+	replayed := replayedRaw.(*AgentCallResultEnvelope)
+	if replayed.JobID != call.JobID {
+		t.Fatalf("replayed job_id = %q, want %q", replayed.JobID, call.JobID)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("agent.message count after idempotent replay = %d, want 1", len(messages))
+	}
+	if len(jobEvents) < 2 {
+		t.Fatalf("job events = %#v, want job change events", jobEvents)
+	}
+}
+
+func TestRPCAgentCancelMarksJobCanceled(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	store := NewJobStore(nil)
+	h.SetJobStore(store)
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	job := AgentJob{
+		JobID:        "j_cancel",
+		Buyer:        h.localBuyerID(),
+		Seller:       "sky10://A-worker",
+		AgentID:      "A-worker",
+		AgentName:    "worker",
+		Tool:         "media.convert",
+		Capability:   "media.convert",
+		WorkState:    JobWorkAccepted,
+		PaymentState: JobPaymentNone,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if _, err := store.Save(context.Background(), job); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	raw, err, handled := h.Dispatch(context.Background(), "agent.cancel", mustJSON(t, AgentCancelParams{
+		JobID:  "j_cancel",
+		Reason: "No longer needed",
+	}))
+	if !handled || err != nil {
+		t.Fatalf("agent.cancel: handled=%v err=%v", handled, err)
+	}
+	result := raw.(*AgentJobResult)
+	if result.Job.WorkState != JobWorkCanceled || result.Job.CancelReason != "No longer needed" {
+		t.Fatalf("canceled job = %#v, want canceled with reason", result.Job)
 	}
 }
 
