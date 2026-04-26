@@ -22,6 +22,8 @@ Claude skills.
 
 - `/release <version>` — canonical release flow. Use it for any request
   to cut, ship, or publish a release. The sequence is:
+  - Never mutate an already published release. If any previous release is
+    bad, create a new patch.
   - create the empty release commit
   - create and push the `vX.Y.Z` tag
   - create/publish the release entry
