@@ -29,8 +29,8 @@ This workstream covers:
 - tool calling over the existing RPC surface
 - approval and policy boundaries
 - durable agent creation from natural-language intent
-- an end-to-end proof case for a media transcription and British-accent dubbing
-  agent
+- an end-to-end proof case for an agent prompted as "make me an ai agent that
+  can process media files to change the accent to british"
 
 This workstream does not yet commit to:
 

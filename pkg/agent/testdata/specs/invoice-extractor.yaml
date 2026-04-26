@@ -1,0 +1,30 @@
+spec: 0.1.0
+id: aspec_fixture_invoice_extractor
+status: draft
+prompt: extract invoice data from PDFs and export CSV
+name: invoice-extraction-agent
+description: Extract invoice fields from PDFs and produce CSV or JSON exports.
+runtime: {target: sandbox, provider: lima, template: openclaw-docker, harness: openclaw}
+fulfillment: {mode: autonomous}
+tools:
+  - name: document.invoice.extract
+    capability: data.extract
+    description: Extract invoice metadata and line items from document payloads.
+    audience: private
+    scope: current
+    input_schema: {type: object, required: [documents], properties: {documents: {type: array}, output_format: {type: string}}}
+    output_schema: {type: object, required: [records], properties: {records: {type: array}, artifacts: {type: array}}}
+    effects: [file.read, file.write]
+    availability: {status: available}
+    fulfillment: {mode: autonomous}
+    pricing: {model: free}
+    supports_cancel: true
+    supports_streaming: true
+inputs: [{kind: payload_ref, description: Invoice PDF files., mime_types: [application/pdf], required: true}]
+outputs: [{kind: artifact, description: CSV or JSON invoice export., required: true}]
+permissions: [file.read, file.write]
+commerce: {enabled: false, default_pricing: {model: free}}
+job_policy: {supports_cancel: true, supports_streaming: true, retention_days: 30}
+publish_policy: {audience: private, scope: current}
+created_at: "2026-04-26T12:00:00Z"
+updated_at: "2026-04-26T12:00:00Z"

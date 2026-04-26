@@ -1,0 +1,61 @@
+spec: 0.1.0
+id: aspec_fixture_media_accent_private
+status: draft
+prompt: make me an ai agent that can process media files to change the accent to british
+name: media-accent-agent
+description: Process audio and video files and produce British-accent media outputs.
+runtime:
+  target: sandbox
+  provider: lima
+  template: openclaw-docker
+  harness: openclaw
+  packages: [ffmpeg]
+  containers:
+    - name: media-worker
+      image: ubuntu:24.04
+      packages: [ffmpeg]
+fulfillment:
+  mode: autonomous
+tools:
+  - name: media.accent.convert
+    capability: media.accent.convert
+    description: Convert an audio or video file into a British-accent output artifact.
+    audience: private
+    scope: current
+    input_schema: {type: object, required: [input], properties: {input: {type: object}, target_accent: {type: string, default: british}}}
+    output_schema: {type: object, required: [artifacts], properties: {summary: {type: string}, artifacts: {type: array}}}
+    stream_schema: {type: object, properties: {message: {type: string}, progress: {type: number, minimum: 0, maximum: 1}}}
+    effects: [file.read, file.write, network.http]
+    availability: {status: available}
+    fulfillment: {mode: autonomous}
+    pricing: {model: free}
+    supports_cancel: true
+    supports_streaming: true
+    meta: {harness: openclaw, services: [voice-provider], tags: [media, audio]}
+inputs:
+  - kind: payload_ref
+    description: Audio or video file to process.
+    mime_types: [audio/*, video/*]
+    required: true
+outputs:
+  - kind: artifact
+    description: British-accent audio output.
+    mime_types: [audio/*]
+    required: true
+secrets:
+  - name: voice-provider-api-key
+    env: ELEVENLABS_API_KEY
+    required: false
+    description: Optional external voice provider key.
+permissions: [file.read, file.write, network.http]
+commerce:
+  enabled: false
+  default_pricing: {model: free}
+job_policy:
+  supports_cancel: true
+  supports_streaming: true
+  retention_days: 30
+publish_policy: {audience: private, scope: current}
+created_at: "2026-04-26T12:00:00Z"
+updated_at: "2026-04-26T12:00:00Z"
+meta: {spec_source: fixture}

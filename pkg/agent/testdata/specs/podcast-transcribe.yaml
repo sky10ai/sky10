@@ -1,0 +1,31 @@
+spec: 0.1.0
+id: aspec_fixture_podcast_transcribe
+status: draft
+prompt: transcribe podcast uploads and prepare show notes
+name: podcast-transcription-agent
+description: Transcribe podcast audio and generate show notes.
+runtime: {target: sandbox, provider: lima, template: openclaw-docker, harness: openclaw, packages: [ffmpeg]}
+fulfillment: {mode: autonomous}
+tools:
+  - name: audio.transcribe
+    capability: audio.transcribe
+    description: Transcribe audio payloads and return transcript plus show notes.
+    audience: private
+    scope: current
+    input_schema: {type: object, required: [audio], properties: {audio: {type: object}, speaker_labels: {type: boolean}}}
+    output_schema: {type: object, required: [transcript], properties: {transcript: {type: string}, notes: {type: string}, artifacts: {type: array}}}
+    effects: [file.read, file.write, network.http]
+    availability: {status: available}
+    fulfillment: {mode: autonomous}
+    pricing: {model: free}
+    supports_cancel: true
+    supports_streaming: true
+inputs: [{kind: payload_ref, description: Podcast audio file., mime_types: [audio/*], required: true}]
+outputs: [{kind: artifact, description: Transcript and show notes., mime_types: [text/markdown], required: true}]
+secrets: [{name: transcription-provider-api-key, env: TRANSCRIPTION_API_KEY, required: false}]
+permissions: [file.read, file.write, network.http]
+commerce: {enabled: false, default_pricing: {model: free}}
+job_policy: {supports_cancel: true, supports_streaming: true, retention_days: 30}
+publish_policy: {audience: private, scope: current}
+created_at: "2026-04-26T12:00:00Z"
+updated_at: "2026-04-26T12:00:00Z"

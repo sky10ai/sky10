@@ -1,0 +1,30 @@
+spec: 0.1.0
+id: aspec_fixture_downloads_organizer
+status: draft
+prompt: watch my Downloads folder and organize receipts
+name: downloads-receipt-organizer
+description: Watch downloads, classify receipt files, and organize them into folders.
+runtime: {target: local, provider: sky10, template: local-file-watcher, harness: openclaw}
+fulfillment: {mode: autonomous}
+tools:
+  - name: files.organize_receipts
+    capability: files.organize
+    description: Classify downloaded receipts and move them into organized folders.
+    audience: private
+    scope: current
+    input_schema: {type: object, required: [folder], properties: {folder: {type: string}, destination: {type: string}}}
+    output_schema: {type: object, required: [summary], properties: {summary: {type: string}, moved: {type: array}}}
+    effects: [file.read, file.write, file.move]
+    availability: {status: available}
+    fulfillment: {mode: autonomous}
+    pricing: {model: free}
+    supports_cancel: true
+    supports_streaming: false
+inputs: [{kind: folder_ref, description: Downloads folder., required: true}]
+outputs: [{kind: artifact, description: Organization summary., required: true}]
+permissions: [file.read, file.write, file.move]
+commerce: {enabled: false, default_pricing: {model: free}}
+job_policy: {supports_cancel: true, supports_streaming: false, retention_days: 30}
+publish_policy: {audience: private, scope: current}
+created_at: "2026-04-26T12:00:00Z"
+updated_at: "2026-04-26T12:00:00Z"

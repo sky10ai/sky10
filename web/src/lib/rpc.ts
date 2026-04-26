@@ -152,6 +152,20 @@ export const agent = {
   list: () => rpc<AgentListResult>("agent.list"),
   status: () => rpc<AgentStatus>("agent.status"),
   send: (p: AgentSendParams) => rpc<AgentSendResult>("agent.send", p),
+  spec: {
+    create: (p: AgentSpecCreateParams) =>
+      rpc<AgentSpecResult>("agent.spec.create", p),
+    list: (p?: AgentSpecListParams) =>
+      rpc<AgentSpecListResult>("agent.spec.list", p),
+    get: (p: AgentSpecGetParams) =>
+      rpc<AgentSpecResult>("agent.spec.get", p),
+    update: (p: AgentSpecUpdateParams) =>
+      rpc<AgentSpecResult>("agent.spec.update", p),
+    approve: (p: AgentSpecActionParams) =>
+      rpc<AgentSpecResult>("agent.spec.approve", p),
+    discard: (p: AgentSpecActionParams) =>
+      rpc<AgentSpecResult>("agent.spec.discard", p),
+  },
   mailbox: {
     views: () => rpc<MailboxViewListResult>("agent.mailbox.views"),
     send: (p: MailboxSendParams) =>
@@ -948,6 +962,151 @@ export interface AgentStatus {
   agents: number;
   skills: string[];
   delivery_policies: Record<string, DeliveryPolicyDescription>;
+}
+
+export interface AgentSpec {
+  spec: string;
+  id: string;
+  status: string;
+  prompt: string;
+  name: string;
+  description: string;
+  runtime: AgentRuntimeSpec;
+  fulfillment: AgentFulfillmentSpec;
+  tools: AgentToolSpec[];
+  inputs: AgentIOSpec[];
+  outputs: AgentIOSpec[];
+  secrets?: AgentSecretSpec[];
+  permissions: string[];
+  commerce: AgentCommerceSpec;
+  job_policy: AgentJobPolicy;
+  publish_policy: AgentPublishPolicy;
+  created_at: string;
+  updated_at: string;
+  approved_at?: string;
+  meta?: Record<string, string>;
+}
+
+export interface AgentRuntimeSpec {
+  target: string;
+  provider?: string;
+  template?: string;
+  harness?: string;
+  packages?: string[];
+  containers?: AgentContainerSpec[];
+}
+
+export interface AgentContainerSpec {
+  name: string;
+  image?: string;
+  packages?: string[];
+}
+
+export interface AgentFulfillmentSpec {
+  mode: string;
+  note?: string;
+}
+
+export interface AgentToolSpec {
+  name: string;
+  capability?: string;
+  description: string;
+  audience: string;
+  scope: string;
+  input_schema: Record<string, unknown>;
+  output_schema: Record<string, unknown>;
+  stream_schema?: Record<string, unknown>;
+  effects?: string[];
+  availability: AgentAvailabilitySpec;
+  fulfillment: AgentFulfillmentSpec;
+  pricing: AgentPricingSpec;
+  supports_cancel: boolean;
+  supports_streaming: boolean;
+  meta?: Record<string, unknown>;
+}
+
+export interface AgentAvailabilitySpec {
+  status: string;
+  message?: string;
+  next_available_at?: string;
+}
+
+export interface AgentPricingSpec {
+  model: string;
+  payment_asset?: AgentPaymentAsset;
+  amount?: string;
+  unit?: string;
+  rate?: string;
+  interval_seconds?: number;
+}
+
+export interface AgentPaymentAsset {
+  chain_id: string;
+  asset_id?: string;
+  symbol: string;
+  decimals: number;
+}
+
+export interface AgentIOSpec {
+  kind: string;
+  description: string;
+  mime_types?: string[];
+  required: boolean;
+}
+
+export interface AgentSecretSpec {
+  name: string;
+  env: string;
+  required: boolean;
+  description?: string;
+}
+
+export interface AgentCommerceSpec {
+  enabled: boolean;
+  default_pricing: AgentPricingSpec;
+  payout_wallet?: string;
+  terms?: string;
+}
+
+export interface AgentJobPolicy {
+  supports_cancel: boolean;
+  supports_streaming: boolean;
+  max_duration_seconds?: number;
+  retention_days?: number;
+}
+
+export interface AgentPublishPolicy {
+  audience: string;
+  scope: string;
+}
+
+export interface AgentSpecResult {
+  spec: AgentSpec;
+}
+
+export interface AgentSpecListResult {
+  specs: AgentSpec[];
+}
+
+export interface AgentSpecCreateParams {
+  prompt: string;
+}
+
+export interface AgentSpecGetParams {
+  id: string;
+}
+
+export interface AgentSpecListParams {
+  status?: string;
+  limit?: number;
+}
+
+export interface AgentSpecUpdateParams {
+  spec: AgentSpec;
+}
+
+export interface AgentSpecActionParams {
+  id: string;
 }
 
 export interface ChatContentSource {

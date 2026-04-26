@@ -1,0 +1,36 @@
+spec: 0.1.0
+id: aspec_fixture_financial_dexter_paid
+status: draft
+prompt: publish a Dexter financial research agent and charge $15 per report
+name: paid-dexter-research-agent
+description: Public Dexter-backed financial research service with fixed report pricing.
+runtime: {target: sandbox, provider: lima, template: dexter-docker, harness: dexter, packages: [bun, git]}
+fulfillment: {mode: autonomous}
+tools:
+  - name: finance.research
+    capability: finance.research
+    description: Produce a source-backed financial research memo.
+    audience: public
+    scope: current
+    input_schema: {type: object, required: [question], properties: {question: {type: string}, tickers: {type: array}, max_sources: {type: integer}}}
+    output_schema: {type: object, required: [memo], properties: {memo: {type: string}, sources: {type: array}, artifacts: {type: array}}}
+    effects: [network.http, market_data.read, file.write, payment.charge]
+    availability: {status: available}
+    fulfillment: {mode: autonomous}
+    pricing:
+      model: fixed
+      amount: "15.00"
+      payment_asset: {chain_id: "eip155:8453", asset_id: "eip155:8453/erc20:0x833589fCD6EDB6E08f4c7C32D4f71b54bdA02913", symbol: USDC, decimals: 6}
+    supports_cancel: true
+    supports_streaming: true
+permissions: [network.http, market_data.read, file.write, payment.charge]
+commerce:
+  enabled: true
+  default_pricing:
+    model: fixed
+    amount: "15.00"
+    payment_asset: {chain_id: "eip155:8453", asset_id: "eip155:8453/erc20:0x833589fCD6EDB6E08f4c7C32D4f71b54bdA02913", symbol: USDC, decimals: 6}
+job_policy: {supports_cancel: true, supports_streaming: true, max_duration_seconds: 10800, retention_days: 60}
+publish_policy: {audience: public, scope: current}
+created_at: "2026-04-26T12:00:00Z"
+updated_at: "2026-04-26T12:00:00Z"

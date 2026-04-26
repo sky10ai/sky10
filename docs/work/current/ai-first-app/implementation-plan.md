@@ -149,9 +149,13 @@ Success criteria:
 
 Goal: validate the whole stack with one compelling example.
 
+Canonical prompt:
+
+`make me an ai agent that can process media files to change the accent to british`
+
 Candidate:
 
-- media transcription + subtitle + British-accent dubbing agent
+- media accent-conversion agent with optional transcript and subtitle artifacts
 
 Flow:
 
@@ -160,7 +164,8 @@ Flow:
 3. user approves the spec
 4. system provisions runtime and tooling
 5. agent processes a sample media file
-6. outputs appear as transcript, subtitles, and dubbed media artifact
+6. outputs appear as a British-accent media artifact, with transcript or
+   subtitles when requested
 
 Success criteria:
 

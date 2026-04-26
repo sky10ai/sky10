@@ -1,14 +1,14 @@
 ---
 created: 2026-04-18
-updated: 2026-04-18
-model: gpt-5.4
+updated: 2026-04-26
+model: gpt-5.5
 ---
 
 # Media Dubbing Agent Example
 
 ## User Prompt
 
-`Create me an agent that can transcribe audio and video and redub it with a British accent.`
+`make me an ai agent that can process media files to change the accent to british`
 
 ## What The System Should Infer
 
@@ -18,15 +18,17 @@ chat response.
 The request decomposes into at least these capabilities:
 
 - media ingestion
-- speech-to-text transcription
-- optional subtitle generation
-- text cleanup or segmentation
-- text-to-speech or voice conversion
-- audio muxing or video render output
+- speech detection and segmentation
+- speech-to-text transcription when needed for provider or review workflows
+- voice conversion or text-to-speech with a British-accent target
+- audio replacement or muxing
+- video render output when the input is video
+- optional transcript and subtitle artifacts
 
-The phrase "transcribe to a British accent" is semantically mixed. The root
-assistant should translate that into a clear plan instead of forcing the user
-to rephrase perfectly.
+The phrase "change the accent to british" is an outcome, not an implementation
+detail. The root assistant should infer ffmpeg, media input/output handling,
+provider choices, and required secrets instead of forcing the user to know those
+terms.
 
 ## Minimal Clarifying Questions
 
@@ -43,11 +45,12 @@ The root assistant should ask only for missing details such as:
 Example shape:
 
 - name: `media-dubber`
-- purpose: transcribe audio/video and generate British-accent dubbed outputs
+- purpose: process media files and generate British-accent dubbed outputs
 - runtime: managed sandbox on this device
 - inputs: `mp3`, `wav`, `m4a`, `mp4`, `mov`
 - outputs: `.txt`, `.srt`, dubbed audio, dubbed video
-- tools: media conversion, transcription, TTS/voice synthesis, file output
+- tools: media conversion, voice conversion or TTS, transcription when needed,
+  file output
 - workspace: input and output folders on a selected drive
 - secrets: provider API keys if external services are chosen
 - approvals: external spend, secret write, writes outside configured output path

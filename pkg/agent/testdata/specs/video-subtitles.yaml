@@ -1,0 +1,30 @@
+spec: 0.1.0
+id: aspec_fixture_video_subtitles
+status: draft
+prompt: make an agent that adds subtitles to videos
+name: video-subtitle-agent
+description: Generate and burn or sidecar subtitles for video files.
+runtime: {target: sandbox, provider: lima, template: openclaw-docker, harness: openclaw, packages: [ffmpeg]}
+fulfillment: {mode: autonomous}
+tools:
+  - name: video.subtitle
+    capability: video.subtitle
+    description: Create subtitle artifacts or burned-in subtitle videos.
+    audience: private
+    scope: current
+    input_schema: {type: object, required: [video], properties: {video: {type: object}, burn_in: {type: boolean}}}
+    output_schema: {type: object, required: [artifacts], properties: {summary: {type: string}, artifacts: {type: array}}}
+    effects: [file.read, file.write, network.http]
+    availability: {status: available}
+    fulfillment: {mode: autonomous}
+    pricing: {model: free}
+    supports_cancel: true
+    supports_streaming: true
+inputs: [{kind: payload_ref, description: Video file., mime_types: [video/*], required: true}]
+outputs: [{kind: artifact, description: Subtitle file or subtitled video., required: true}]
+permissions: [file.read, file.write, network.http]
+commerce: {enabled: false, default_pricing: {model: free}}
+job_policy: {supports_cancel: true, supports_streaming: true, retention_days: 30}
+publish_policy: {audience: private, scope: current}
+created_at: "2026-04-26T12:00:00Z"
+updated_at: "2026-04-26T12:00:00Z"

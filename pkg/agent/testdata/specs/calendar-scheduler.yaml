@@ -1,0 +1,28 @@
+spec: 0.1.0
+id: aspec_fixture_calendar_scheduler
+status: draft
+prompt: create a calendar scheduling agent
+name: calendar-scheduler-agent
+description: Schedule meetings after checking availability and attendee preferences.
+runtime: {target: sandbox, provider: lima, template: openclaw-docker, harness: openclaw}
+fulfillment: {mode: autonomous}
+tools:
+  - name: calendar.create
+    capability: calendar.create
+    description: Create a calendar event from a scheduling request.
+    audience: private
+    scope: trusted
+    input_schema: {type: object, required: [attendees, goal], properties: {attendees: {type: array}, goal: {type: string}, duration_minutes: {type: integer}}}
+    output_schema: {type: object, required: [event_ref], properties: {event_ref: {type: string}, summary: {type: string}}}
+    effects: [calendar.read, calendar.create, email.send]
+    availability: {status: available}
+    fulfillment: {mode: autonomous}
+    pricing: {model: free}
+    supports_cancel: true
+    supports_streaming: false
+permissions: [calendar.read, calendar.create, email.send]
+commerce: {enabled: false, default_pricing: {model: free}}
+job_policy: {supports_cancel: true, supports_streaming: false, retention_days: 14}
+publish_policy: {audience: private, scope: trusted}
+created_at: "2026-04-26T12:00:00Z"
+updated_at: "2026-04-26T12:00:00Z"

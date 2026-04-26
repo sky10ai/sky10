@@ -1,7 +1,7 @@
 ---
 created: 2026-04-18
-updated: 2026-04-25
-model: gpt-5.4
+updated: 2026-04-26
+model: gpt-5.5
 ---
 
 # AI-First User Flow
@@ -35,7 +35,7 @@ The home route should contain:
 
 Example prompt:
 
-`Create me an agent that can transcribe audio and video and redub it with a British accent.`
+`make me an ai agent that can process media files to change the accent to british`
 
 ## Root Assistant Interaction
 
@@ -50,7 +50,7 @@ For the media example, likely missing information:
 
 - local model or API-backed provider
 - output location
-- transcript and subtitle requirements
+- whether transcript and subtitle artifacts should also be saved
 - generic British voice or cloned voice
 - one-off run, batch queue, or watched folder
 

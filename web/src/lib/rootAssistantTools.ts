@@ -12,6 +12,9 @@ import {
   system,
   wallet,
   type AgentListResult,
+  type AgentSpec,
+  type AgentSpecListResult,
+  type AgentSpecResult,
   type DeviceListResult,
   type DriveListResult,
   type HealthResult,
@@ -208,6 +211,49 @@ export const rootAssistantTools = {
     description: "Read aggregate agent runtime and delivery policy status.",
     inputSchema: emptySchema,
     execute: () => agent.status(),
+  }),
+  agents_createSpec: approvalRequiredTool({
+    description: "Create a reviewable agent spec from a natural-language prompt. This does not provision a runtime or charge money.",
+    inputSchema: z.object({
+      prompt: z.string().min(1).describe("The user's requested agent behavior."),
+    }).strict(),
+    execute: (input) => agent.spec.create(input),
+  }),
+  agents_listSpecs: tool({
+    description: "List recent reviewable agent specs.",
+    inputSchema: z.object({
+      limit: z.number().int().positive().max(100).optional().describe("Maximum number of specs."),
+      status: z.enum(["draft", "approved", "discarded"]).optional().describe("Optional spec lifecycle status."),
+    }).strict(),
+    execute: (input) => agent.spec.list(input),
+  }),
+  agents_getSpec: tool({
+    description: "Read one reviewable agent spec by ID.",
+    inputSchema: z.object({
+      id: z.string().min(1).describe("Agent spec ID."),
+    }).strict(),
+    execute: (input) => agent.spec.get(input),
+  }),
+  agents_updateSpec: approvalRequiredTool({
+    description: "Update an editable agent spec before approval. This cannot approve, discard, or provision the spec.",
+    inputSchema: z.object({
+      spec: z.unknown().describe("Full agent spec object returned by a spec RPC."),
+    }).strict(),
+    execute: (input) => agent.spec.update({ spec: input.spec as AgentSpec }),
+  }),
+  agents_approveSpec: approvalRequiredTool({
+    description: "Approve a reviewed agent spec. Runtime provisioning is handled by a later provision step.",
+    inputSchema: z.object({
+      id: z.string().min(1).describe("Agent spec ID."),
+    }).strict(),
+    execute: (input) => agent.spec.approve(input),
+  }),
+  agents_discardSpec: approvalRequiredTool({
+    description: "Discard a review spec without provisioning a runtime.",
+    inputSchema: z.object({
+      id: z.string().min(1).describe("Agent spec ID."),
+    }).strict(),
+    execute: (input) => agent.spec.discard(input),
   }),
   agents_sendMessage: approvalRequiredTool({
     description: "Send a message to a registered agent.",
@@ -457,6 +503,12 @@ export const rootAssistantToolMetadata = {
   secrets_sync: { policy: "approval_required", risk: "medium", rpcMethods: ["secrets.sync"], title: "Sync secrets" },
   agents_list: { policy: "read_only", risk: "low", rpcMethods: ["agent.list"], title: "List agents" },
   agents_status: { policy: "read_only", risk: "low", rpcMethods: ["agent.status"], title: "Read agent status" },
+  agents_createSpec: { policy: "approval_required", risk: "low", rpcMethods: ["agent.spec.create"], title: "Create agent spec" },
+  agents_listSpecs: { policy: "read_only", risk: "low", rpcMethods: ["agent.spec.list"], title: "List agent specs" },
+  agents_getSpec: { policy: "read_only", risk: "low", rpcMethods: ["agent.spec.get"], title: "Read agent spec" },
+  agents_updateSpec: { policy: "approval_required", risk: "medium", rpcMethods: ["agent.spec.update"], title: "Update agent spec" },
+  agents_approveSpec: { policy: "approval_required", risk: "medium", rpcMethods: ["agent.spec.approve"], title: "Approve agent spec" },
+  agents_discardSpec: { policy: "approval_required", risk: "medium", rpcMethods: ["agent.spec.discard"], title: "Discard agent spec" },
   agents_sendMessage: { policy: "approval_required", risk: "medium", rpcMethods: ["agent.send"], title: "Send agent message" },
   sandboxes_list: { policy: "read_only", risk: "low", rpcMethods: ["sandbox.list"], title: "List sandboxes" },
   sandboxes_get: { policy: "read_only", risk: "low", rpcMethods: ["sandbox.get"], title: "Inspect sandbox" },
@@ -534,6 +586,10 @@ export async function executeRootAssistantTool<OUTPUT = unknown>(
 
 export const rootAssistantToolRunners = {
   agents_list: () => executeRootAssistantTool<AgentListResult>("agents_list", {}),
+  agents_getSpec: (id: string) =>
+    executeRootAssistantTool<AgentSpecResult>("agents_getSpec", { id }),
+  agents_listSpecs: (input: { limit?: number; status?: string } = {}) =>
+    executeRootAssistantTool<AgentSpecListResult>("agents_listSpecs", input),
   daemon_getHealth: () => executeRootAssistantTool<HealthResult>("daemon_getHealth", {}),
   devices_list: () => executeRootAssistantTool<DeviceListResult>("devices_list", {}),
   drives_list: () => executeRootAssistantTool<DriveListResult>("drives_list", {}),

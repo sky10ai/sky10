@@ -16,7 +16,8 @@ charge for callable services when the owner chooses to expose that surface.
 The desired product path is:
 
 ```text
-prompt -> draft AgentSpec -> approval -> provisioned runtime -> exported tools
+prompt -> versioned AgentSpec -> approval -> generated runtime templates
+-> provisioned runtime -> exported tools
 -> durable jobs -> result and artifacts
                           \
                            -> optional payment -> receipt
@@ -27,10 +28,11 @@ Commerce, and Jobs V1 model without making paid agents a launch requirement.
 
 ## Product Shape
 
-The default flow should create a usable agent with no monetization at all:
+The default flow should create a usable agent with no monetization at all. Keep
+this prompt front and center:
 
 ```text
-Create an agent that redubs videos with a British accent.
+make me an ai agent that can process media files to change the accent to british
 ```
 
 Only when the owner asks to charge, or later toggles commerce on for an exported
@@ -40,15 +42,17 @@ receipts.
 The user should be able to say:
 
 ```text
-Create an agent that redubs videos with a British accent and charges $2 per
-minute of processed audio.
+make me an ai agent that can process media files to change the accent to
+british and charge $2 per minute
 ```
 
 sky10 should infer:
 
 - the user wants a durable agent, not a chat answer
-- the agent needs media input and media output
+- the agent needs media file input and media file output
 - the runtime needs ffmpeg and a speech or voice provider
+- clear harness requests should select the harness and template directly, such
+  as Codex for coding agents or Dexter for financial research agents
 - the runtime needs secrets such as provider API keys
 - the agent should expose one or more curated public or private tools
 - tool calls should become jobs
@@ -77,6 +81,8 @@ It should include:
 - `name`
 - `description`
 - `runtime`: VM template, container set, or local target
+- `runtime.harness`: the agentic harness, such as OpenClaw, Codex, Dexter,
+  Hermes, an API proxy, or a human queue proxy
 - `fulfillment`: autonomous, assisted, manual, or unspecified
 - `tools`: curated `ToolSpec[]`
 - `inputs`: supported file types, payload refs, or trigger sources
@@ -165,7 +171,7 @@ policy.
 
 1. User enters a prompt on `/agents`.
 2. Root assistant classifies it as `agent_create`.
-3. The model drafts an `AgentSpec`.
+3. The model creates a versioned `AgentSpec`.
 4. The system enriches the spec with deterministic checks:
    - available templates
    - required tools and Docker packages
@@ -236,10 +242,11 @@ boundary.
 
 First slice:
 
-- `agent.spec.draft`
+- `agent.spec.create`
 - `agent.spec.get`
 - `agent.spec.update`
 - `agent.spec.approve`
+- `agent.spec.discard`
 - `agent.provision`
 - `agent.register` with `tools[]`
 - `agent.list`
@@ -280,18 +287,19 @@ secret names, binding metadata, digests, and payload refs.
 
 ## Implementation Milestones
 
-### Milestone 1: Draft And Review
+### Milestone 1: Spec And Review
 
 - define `AgentSpec`, `ToolSpec`, pricing, fulfillment, availability, effects
-- add `agent.spec.draft` backed by the root assistant
+- add `agent.spec.create` backed by the root assistant
 - add review UI on `/agents`
 - support free/private tools only
 - make "charge for this tool" visibly optional and off by default
-- persist drafts in daemon JSONL
+- persist specs in daemon JSONL
+- keep versioned YAML fixtures under `pkg/agent/testdata/specs/`
 
 Acceptance:
 
-- prompt produces a structured draft
+- prompt produces a structured spec with `spec: 0.1.0`
 - user can edit, approve, or discard it
 - no runtime is created before approval
 
@@ -372,15 +380,14 @@ Use the media dubbing agent because it forces the right product boundaries.
 Prompt:
 
 ```text
-Create an agent that takes an audio or video file, redubs the voice with a
-British accent, writes the output file back, and charges $2 per minute.
+make me an ai agent that can process media files to change the accent to british
 ```
 
-Expected draft:
+Expected spec:
 
 - runtime: sandbox with container support
 - tools:
-  - `media.redub`
+  - `media.accent.convert`
 - inputs:
   - audio/video payload ref
 - outputs:
@@ -394,9 +401,9 @@ Expected draft:
 - effects:
   - `file.read`
   - `file.write`
-  - `payment.charge`
 - pricing:
-  - variable, unit `audio_minutes`, rate `2.00`
+  - default `free`
+  - optional variable pricing, unit `audio_minutes`, rate chosen by owner
 - job behavior:
   - supports streaming
   - supports cancel before final render
@@ -412,6 +419,6 @@ outcome.
   allow authorized payment with settlement after completion?
 - Which payload ref scheme should be used for local private files before IPFS is
   configured?
-- Should `agent.spec.*` be a separate namespace long term, or collapse into
-  `agent.create` after the draft/review flow stabilizes?
+- Should `agent.spec.*` stay separate long term, or collapse into `agent.create`
+  after the spec review flow stabilizes?
 - How should public agents prove availability without leaking machine state?

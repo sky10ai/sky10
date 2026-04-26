@@ -26,13 +26,6 @@ export const PINNABLE_PAGES = [
     to: "/settings/mailbox",
   },
   {
-    id: "messaging",
-    icon: "forum",
-    label: "Messaging",
-    matchPrefixes: ["/settings/messaging"],
-    to: "/settings/messaging",
-  },
-  {
     id: "network",
     icon: "hub",
     label: "Network",

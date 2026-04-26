@@ -1,0 +1,43 @@
+spec: 0.1.0
+id: aspec_fixture_coding_codex_public_paid
+status: draft
+prompt: create a public codex agent that fixes github issues for $25 every 15 minutes
+name: paid-codex-github-agent
+description: Public Codex-backed GitHub issue fixer with per-interval pricing.
+runtime:
+  target: sandbox
+  provider: lima
+  template: codex-docker
+  harness: codex
+  packages: [git, nodejs, python3]
+fulfillment: {mode: autonomous}
+tools:
+  - name: github.issue.fix
+    capability: github.fix
+    description: Fix a GitHub issue and return branch, commit, or pull request artifacts.
+    audience: public
+    scope: current
+    input_schema: {type: object, required: [repo, issue_number], properties: {repo: {type: string}, issue_number: {type: integer}, goal: {type: string}}}
+    output_schema: {type: object, required: [summary], properties: {summary: {type: string}, branch: {type: string}, pr_url: {type: string}}}
+    effects: [repo.read, issue.read, file.write, git.push, github.pr.create, payment.charge]
+    availability: {status: available}
+    fulfillment: {mode: autonomous}
+    pricing:
+      model: per_interval
+      amount: "25.00"
+      interval_seconds: 900
+      payment_asset: {chain_id: "eip155:8453", asset_id: "eip155:8453/erc20:0x833589fCD6EDB6E08f4c7C32D4f71b54bdA02913", symbol: USDC, decimals: 6}
+    supports_cancel: true
+    supports_streaming: true
+permissions: [repo.read, issue.read, file.write, git.push, github.pr.create, payment.charge]
+commerce:
+  enabled: true
+  default_pricing:
+    model: per_interval
+    amount: "25.00"
+    interval_seconds: 900
+    payment_asset: {chain_id: "eip155:8453", asset_id: "eip155:8453/erc20:0x833589fCD6EDB6E08f4c7C32D4f71b54bdA02913", symbol: USDC, decimals: 6}
+job_policy: {supports_cancel: true, supports_streaming: true, max_duration_seconds: 14400, retention_days: 60}
+publish_policy: {audience: public, scope: current}
+created_at: "2026-04-26T12:00:00Z"
+updated_at: "2026-04-26T12:00:00Z"

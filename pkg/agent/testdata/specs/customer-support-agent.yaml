@@ -1,0 +1,28 @@
+spec: 0.1.0
+id: aspec_fixture_customer_support
+status: draft
+prompt: create a customer support agent that answers tickets
+name: support-ticket-agent
+description: Answer customer support tickets with knowledge-base context and escalation controls.
+runtime: {target: sandbox, provider: lima, template: openclaw-docker, harness: openclaw}
+fulfillment: {mode: assisted, note: Escalates low-confidence tickets to a human.}
+tools:
+  - name: support.ticket.answer
+    capability: support.answer
+    description: Draft or send support ticket responses.
+    audience: private
+    scope: trusted
+    input_schema: {type: object, required: [ticket], properties: {ticket: {type: object}, auto_send: {type: boolean}}}
+    output_schema: {type: object, required: [response], properties: {response: {type: string}, confidence: {type: string}}}
+    effects: [ticket.read, ticket.comment, email.send]
+    availability: {status: available}
+    fulfillment: {mode: assisted}
+    pricing: {model: free}
+    supports_cancel: true
+    supports_streaming: true
+permissions: [ticket.read, ticket.comment, email.send]
+commerce: {enabled: false, default_pricing: {model: free}}
+job_policy: {supports_cancel: true, supports_streaming: true, retention_days: 30}
+publish_policy: {audience: private, scope: trusted}
+created_at: "2026-04-26T12:00:00Z"
+updated_at: "2026-04-26T12:00:00Z"

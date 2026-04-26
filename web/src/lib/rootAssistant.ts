@@ -289,12 +289,12 @@ async function runAgentCreatePrompt(
     hooks,
     serviceAgent
       ? [
-          `Agent draft: ${prompt}.`,
+          `Agent spec: ${prompt}.`,
           "Define the offer, inputs, runtime, billing, data boundaries, and isolation before serving outside users.",
           `Inventory: ${agents.count} registered agent${agents.count === 1 ? "" : "s"} · ${sandboxes.sandboxes.length} sandbox${sandboxes.sandboxes.length === 1 ? "" : "es"}.`,
         ]
       : [
-          `Agent draft: ${prompt}.`,
+          `Agent spec: ${prompt}.`,
           "Define the trigger, inputs, outputs, data access, runtime, and provider keys before provisioning.",
           `Inventory: ${agents.count} registered agent${agents.count === 1 ? "" : "s"} · ${sandboxes.sandboxes.length} sandbox${sandboxes.sandboxes.length === 1 ? "" : "es"}.`,
         ]

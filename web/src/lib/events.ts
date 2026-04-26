@@ -35,6 +35,7 @@ export const AGENT_EVENT_TYPES = [
   "agent:connected",
   "agent:disconnected",
   "agent.message",
+  "agent.spec.changed",
   "agent.mailbox.updated",
   "agent.mailbox.claimed",
   "agent.mailbox.completed",

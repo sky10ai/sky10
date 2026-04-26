@@ -1,0 +1,56 @@
+spec: 0.1.0
+id: aspec_fixture_media_accent_paid
+status: draft
+prompt: make me an ai agent that can process media files to change the accent to british and charge $2 per minute
+name: paid-media-accent-agent
+description: Process media files into British-accent outputs and charge by processed audio minute.
+runtime:
+  target: sandbox
+  provider: lima
+  template: openclaw-docker
+  harness: openclaw
+  packages: [ffmpeg]
+fulfillment: {mode: autonomous}
+tools:
+  - name: media.accent.convert
+    capability: media.accent.convert
+    description: Convert an audio or video file into a British-accent output artifact.
+    audience: public
+    scope: current
+    input_schema: {type: object, required: [input], properties: {input: {type: object}, target_accent: {type: string}}}
+    output_schema: {type: object, required: [artifacts], properties: {summary: {type: string}, artifacts: {type: array}}}
+    stream_schema: {type: object, properties: {message: {type: string}, progress: {type: number}}}
+    effects: [file.read, file.write, network.http, payment.charge]
+    availability: {status: available}
+    fulfillment: {mode: autonomous}
+    pricing:
+      model: variable
+      unit: audio_minutes
+      rate: "2.00"
+      payment_asset: {chain_id: "eip155:8453", asset_id: "eip155:8453/erc20:0x833589fCD6EDB6E08f4c7C32D4f71b54bdA02913", symbol: USDC, decimals: 6}
+    supports_cancel: true
+    supports_streaming: true
+inputs:
+  - kind: payload_ref
+    description: Audio or video payload ref.
+    mime_types: [audio/*, video/*]
+    required: true
+outputs:
+  - kind: artifact
+    description: Processed media payload ref.
+    required: true
+secrets:
+  - {name: voice-provider-api-key, env: ELEVENLABS_API_KEY, required: true}
+permissions: [file.read, file.write, network.http, payment.charge]
+commerce:
+  enabled: true
+  default_pricing:
+    model: variable
+    unit: audio_minutes
+    rate: "2.00"
+    payment_asset: {chain_id: "eip155:8453", asset_id: "eip155:8453/erc20:0x833589fCD6EDB6E08f4c7C32D4f71b54bdA02913", symbol: USDC, decimals: 6}
+job_policy: {supports_cancel: true, supports_streaming: true, retention_days: 30}
+publish_policy: {audience: public, scope: current}
+created_at: "2026-04-26T12:00:00Z"
+updated_at: "2026-04-26T12:00:00Z"
+meta: {spec_source: fixture}

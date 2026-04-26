@@ -1,0 +1,31 @@
+spec: 0.1.0
+id: aspec_fixture_browser_research_manual
+status: draft
+prompt: create a research agent that can route hard questions to a human analyst
+name: human-assisted-research-agent
+description: Research questions with browser automation and optional human analyst fulfillment.
+runtime: {target: remote, provider: team, template: human-queue-proxy, harness: human}
+fulfillment: {mode: manual, note: A human analyst may fulfill work outside sky10.}
+tools:
+  - name: research.web
+    capability: research.web
+    description: Produce a source-backed research brief.
+    audience: public
+    scope: explicit
+    input_schema: {type: object, required: [question], properties: {question: {type: string}, depth: {type: string}}}
+    output_schema: {type: object, required: [brief], properties: {brief: {type: string}, sources: {type: array}}}
+    effects: [network.http, file.write, payment.charge]
+    availability: {status: busy, message: Human queue may be delayed.}
+    fulfillment: {mode: manual}
+    pricing:
+      model: fixed
+      amount: "35.00"
+      payment_asset: {chain_id: "eip155:8453", symbol: USDC, decimals: 6}
+    supports_cancel: true
+    supports_streaming: false
+permissions: [network.http, file.write, payment.charge]
+commerce: {enabled: true, default_pricing: {model: fixed, amount: "35.00", payment_asset: {chain_id: "eip155:8453", symbol: USDC, decimals: 6}}}
+job_policy: {supports_cancel: true, supports_streaming: false, retention_days: 90}
+publish_policy: {audience: public, scope: explicit}
+created_at: "2026-04-26T12:00:00Z"
+updated_at: "2026-04-26T12:00:00Z"

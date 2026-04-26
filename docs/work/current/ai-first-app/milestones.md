@@ -165,10 +165,10 @@ user goal.
 ### Checklist
 
 - [ ] Use the prompt:
-      `Create me an agent that can transcribe audio and video and redub it with a British accent.`
-- [ ] Ensure the root assistant decomposes the request into transcription,
-      subtitle generation, and dubbing rather than getting stuck on the
-      wording.
+      `make me an ai agent that can process media files to change the accent to british`
+- [ ] Ensure the root assistant decomposes the request into media ingestion,
+      voice/accent conversion, ffmpeg rendering, optional transcription, and
+      output artifacts rather than getting stuck on the wording.
 - [ ] Ask only for the missing details: provider choice, output location,
       subtitle requirement, voice choice, and trigger mode.
 - [ ] Draft a concrete `AgentSpec` for the media agent.

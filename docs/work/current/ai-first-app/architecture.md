@@ -173,8 +173,8 @@ For a simple request like "what version is the daemon?":
 4. Tool handler returns `{ version, status }`.
 5. Model answers in natural language.
 
-For a creation request like "create me an agent that transcribes audio and
-video and redubs it with a British accent":
+For a creation request like "make me an ai agent that can process media files
+to change the accent to british":
 
 1. Root assistant parses the outcome.
 2. It asks only the missing questions.

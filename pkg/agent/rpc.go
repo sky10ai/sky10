@@ -24,6 +24,7 @@ type RPCHandler struct {
 	owner    *skykey.Key
 	router   *Router // nil until cross-device wiring
 	mailbox  *agentmailbox.Store
+	specs    *SpecStore
 	emit     Emitter
 	notify   PeerNotifier
 }
@@ -41,6 +42,11 @@ func (h *RPCHandler) SetRouter(r *Router) {
 // SetMailbox attaches durable mailbox storage.
 func (h *RPCHandler) SetMailbox(store *agentmailbox.Store) {
 	h.mailbox = store
+}
+
+// SetSpecStore attaches durable agent spec storage.
+func (h *RPCHandler) SetSpecStore(store *SpecStore) {
+	h.specs = store
 }
 
 // SetPeerNotifier attaches a function that broadcasts agent events to
@@ -71,6 +77,18 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		result, err = h.rpcHeartbeat(ctx, params)
 	case "agent.discover":
 		result, err = h.rpcDiscover(ctx, params)
+	case "agent.spec.create":
+		result, err = h.rpcSpecCreate(ctx, params)
+	case "agent.spec.get":
+		result, err = h.rpcSpecGet(ctx, params)
+	case "agent.spec.list":
+		result, err = h.rpcSpecList(ctx, params)
+	case "agent.spec.update":
+		result, err = h.rpcSpecUpdate(ctx, params)
+	case "agent.spec.approve":
+		result, err = h.rpcSpecApprove(ctx, params)
+	case "agent.spec.discard":
+		result, err = h.rpcSpecDiscard(ctx, params)
 	case "agent.queue.discover":
 		result, err = h.rpcQueueDiscover(ctx, params)
 	case "agent.queue.claim":
@@ -112,6 +130,87 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 	}
 
 	return result, err, true
+}
+
+func (h *RPCHandler) requireSpecStore() (*SpecStore, error) {
+	if h.specs == nil {
+		return nil, fmt.Errorf("agent spec store is not configured")
+	}
+	return h.specs, nil
+}
+
+func (h *RPCHandler) rpcSpecCreate(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	store, err := h.requireSpecStore()
+	if err != nil {
+		return nil, err
+	}
+	var p AgentSpecCreateParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	return store.Create(ctx, p)
+}
+
+func (h *RPCHandler) rpcSpecGet(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	store, err := h.requireSpecStore()
+	if err != nil {
+		return nil, err
+	}
+	var p AgentSpecGetParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	return store.Get(ctx, p.ID)
+}
+
+func (h *RPCHandler) rpcSpecList(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	store, err := h.requireSpecStore()
+	if err != nil {
+		return nil, err
+	}
+	var p AgentSpecListParams
+	if len(params) > 0 && string(params) != "null" {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("invalid params: %w", err)
+		}
+	}
+	return store.List(ctx, p)
+}
+
+func (h *RPCHandler) rpcSpecUpdate(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	store, err := h.requireSpecStore()
+	if err != nil {
+		return nil, err
+	}
+	var p AgentSpecUpdateParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	return store.Update(ctx, p)
+}
+
+func (h *RPCHandler) rpcSpecApprove(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	store, err := h.requireSpecStore()
+	if err != nil {
+		return nil, err
+	}
+	var p AgentSpecActionParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	return store.Approve(ctx, p.ID)
+}
+
+func (h *RPCHandler) rpcSpecDiscard(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	store, err := h.requireSpecStore()
+	if err != nil {
+		return nil, err
+	}
+	var p AgentSpecActionParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	return store.Discard(ctx, p.ID)
 }
 
 func (h *RPCHandler) rpcRegister(_ context.Context, params json.RawMessage) (interface{}, error) {

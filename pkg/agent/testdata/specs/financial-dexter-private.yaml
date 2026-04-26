@@ -1,0 +1,46 @@
+spec: 0.1.0
+id: aspec_fixture_financial_dexter_private
+status: draft
+prompt: I want a financial agent with Dexter
+name: dexter-financial-research-agent
+description: Use Dexter as the agentic harness for deep financial research with market data and web search.
+runtime:
+  target: sandbox
+  provider: lima
+  template: dexter-docker
+  harness: dexter
+  packages: [bun, git]
+  containers:
+    - {name: dexter-worker, image: oven/bun:1.1, packages: [git]}
+fulfillment: {mode: autonomous}
+tools:
+  - name: finance.research
+    capability: finance.research
+    description: Research a financial question using task planning, market data, and source-backed analysis.
+    audience: private
+    scope: current
+    input_schema: {type: object, required: [question], properties: {question: {type: string}, tickers: {type: array}, payload_refs: {type: array}}}
+    output_schema: {type: object, required: [memo], properties: {memo: {type: string}, sources: {type: array}, confidence: {type: string}, artifacts: {type: array}}}
+    stream_schema: {type: object, properties: {message: {type: string}, progress: {type: number}}}
+    effects: [network.http, market_data.read, file.write]
+    availability: {status: available}
+    fulfillment: {mode: autonomous}
+    pricing: {model: free}
+    supports_cancel: true
+    supports_streaming: true
+    meta: {harness: dexter, source: "https://github.com/virattt/dexter", services: [financial-datasets, exa]}
+inputs:
+  - {kind: prompt, description: Financial research question., required: true}
+outputs:
+  - {kind: artifact, description: Research memo with sources and confidence notes., mime_types: [text/markdown], required: true}
+secrets:
+  - {name: openai-api-key, env: OPENAI_API_KEY, required: true}
+  - {name: financial-datasets-api-key, env: FINANCIAL_DATASETS_API_KEY, required: true}
+  - {name: exa-search-api-key, env: EXASEARCH_API_KEY, required: false}
+permissions: [network.http, market_data.read, file.write]
+commerce: {enabled: false, default_pricing: {model: free}}
+job_policy: {supports_cancel: true, supports_streaming: true, max_duration_seconds: 10800, retention_days: 30}
+publish_policy: {audience: private, scope: current}
+created_at: "2026-04-26T12:00:00Z"
+updated_at: "2026-04-26T12:00:00Z"
+meta: {spec_source: fixture}

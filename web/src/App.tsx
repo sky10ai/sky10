@@ -27,7 +27,6 @@ import Activity from "./pages/Activity";
 import Settings from "./pages/Settings";
 import SettingsApps from "./pages/SettingsApps";
 import SettingsCodex from "./pages/SettingsCodex";
-import SettingsMessaging from "./pages/SettingsMessaging";
 import SettingsSecrets from "./pages/SettingsSecrets";
 import SettingsVisuals from "./pages/SettingsVisuals";
 import CodexChat from "./pages/CodexChat";
@@ -75,7 +74,6 @@ export default function App() {
           <Route path="settings/activity" element={<Activity />} />
           <Route path="settings/apps" element={<SettingsApps />} />
           <Route path="settings/codex" element={<SettingsCodex />} />
-          <Route path="settings/messaging" element={<SettingsMessaging />} />
           <Route path="settings/devices" element={<Devices />} />
           <Route path="settings/devices/invite" element={<InviteDevice />} />
           <Route path="settings/secrets" element={<SettingsSecrets />} />
