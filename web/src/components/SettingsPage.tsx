@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
+import type { PinnablePageID } from "../lib/pinnablePages";
 import { Icon } from "./Icon";
 import { PageDescription, PageHeader, PageTitle } from "./PageHeader";
+import { PinPageButton } from "./PinPageButton";
 
 const widthClasses = {
   default: "max-w-6xl",
@@ -17,6 +19,7 @@ interface SettingsPageProps {
   backLabel?: string;
   children?: ReactNode;
   description: ReactNode;
+  pinnablePageID?: PinnablePageID;
   title: ReactNode;
   width?: SettingsPageWidth;
 }
@@ -27,13 +30,18 @@ export function SettingsPage({
   backLabel = "Settings",
   children,
   description,
+  pinnablePageID,
   title,
   width = "default",
 }: SettingsPageProps) {
+  const pinAction = pinnablePageID ? (
+    <PinPageButton pageID={pinnablePageID} />
+  ) : null;
   const headerActions =
-    actions || backHref ? (
+    actions || backHref || pinAction ? (
       <>
         {actions}
+        {pinAction}
         {backHref && <SettingsGhostLink label={backLabel} to={backHref} />}
       </>
     ) : undefined;

@@ -241,6 +241,7 @@ export default function SettingsApps() {
     <SettingsPage
       backHref="/settings"
       description="Manage helper binaries installed by sky10. Wallet creation, balances, funding, and transfers live on the dedicated Wallet page."
+      pinnablePageID="apps"
       title="Managed Apps"
       width="narrow"
     >

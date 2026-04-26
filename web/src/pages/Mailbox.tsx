@@ -671,6 +671,7 @@ export default function Mailbox() {
           ? `Inspect durable queues and delivery history for ${currentView.label}.`
           : "Inspect durable queues, approvals, and delivery history."
       }
+      pinnablePageID="mailbox"
       actions={
         <>
           <StatusBadge pulse tone="live">

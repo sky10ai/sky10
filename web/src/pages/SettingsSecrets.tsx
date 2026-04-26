@@ -385,6 +385,7 @@ export default function SettingsSecrets() {
       }
       backHref="/settings"
       description="Manage encrypted secrets and device access."
+      pinnablePageID="secrets"
       title="Secrets"
       width="wide"
     >

@@ -159,6 +159,7 @@ export default function Activity() {
       }
       backHref="/settings"
       description="Track live sync events and pending transfers."
+      pinnablePageID="activity"
       title="Activity"
       width="wide"
     >

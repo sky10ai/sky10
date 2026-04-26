@@ -3,6 +3,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { Link } from "react-router";
 import { Icon } from "../components/Icon";
 import { PageHeader } from "../components/PageHeader";
+import { PinPageButton } from "../components/PinPageButton";
 import { RelativeTime } from "../components/RelativeTime";
 import { StatusBadge } from "../components/StatusBadge";
 import { WALLET_EVENT_TYPES, subscribe } from "../lib/events";
@@ -677,6 +678,7 @@ export default function Wallet() {
           <PageHeader
             title="Wallet"
             description="Send funds, copy receive addresses, and keep track of wallet activity started from sky10."
+            actions={<PinPageButton pageID="wallet" />}
           />
           <section className="rounded-[2rem] border border-outline-variant/10 bg-surface-container-lowest p-8 shadow-sm">
             <div className="flex items-center gap-3 text-sm text-secondary">
@@ -704,6 +706,7 @@ export default function Wallet() {
                 <Icon className="text-base" name="download" />
                 Manage OWS
               </Link>
+              <PinPageButton pageID="wallet" />
               <Link
                 className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary transition-colors hover:text-on-surface"
                 to="/settings"

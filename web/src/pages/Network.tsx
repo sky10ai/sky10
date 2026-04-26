@@ -304,6 +304,7 @@ export default function Network() {
     <SettingsPage
       backHref="/settings"
       description="Track peers, relays, and delivery health."
+      pinnablePageID="network"
       title="Network"
       width="wide"
     >

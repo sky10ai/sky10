@@ -40,6 +40,7 @@ export default function Devices() {
           ? "No devices registered yet."
           : `${devices.length} device${devices.length !== 1 ? "s" : ""} in your network.`
       }
+      pinnablePageID="devices"
       title="Connected Devices"
       width="wide"
     >

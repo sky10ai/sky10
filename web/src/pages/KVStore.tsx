@@ -393,6 +393,7 @@ export default function KVStore() {
     <SettingsPage
       backHref="/settings"
       description="Inspect replicated keys and edit live values."
+      pinnablePageID="kv"
       title="Key-Value"
       width="wide"
     >

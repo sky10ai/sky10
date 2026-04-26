@@ -171,6 +171,7 @@ export default function Sandboxes() {
     <SettingsPage
       backHref="/settings"
       description="Provision and manage isolated runtimes on this machine."
+      pinnablePageID="sandboxes"
       title="Sandboxes"
       width="wide"
     >
