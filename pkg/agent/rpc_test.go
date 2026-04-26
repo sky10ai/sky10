@@ -83,8 +83,8 @@ func TestRPCRegisterListsToolsAndStatusCapabilities(t *testing.T) {
 	params, _ := json.Marshal(RegisterParams{
 		Name: "media",
 		Tools: []AgentToolSpec{{
-			Name:        "media.accent.convert",
-			Capability:  "media.accent.convert",
+			Name:        "media.convert",
+			Capability:  "media.convert",
 			Description: "Convert media accent.",
 		}},
 	})
@@ -100,10 +100,10 @@ func TestRPCRegisterListsToolsAndStatusCapabilities(t *testing.T) {
 	if len(agents) != 1 {
 		t.Fatalf("agents len = %d, want 1", len(agents))
 	}
-	if len(agents[0].Tools) != 1 || agents[0].Tools[0].Name != "media.accent.convert" {
+	if len(agents[0].Tools) != 1 || agents[0].Tools[0].Name != "media.convert" {
 		t.Fatalf("tools = %#v, want media accent tool", agents[0].Tools)
 	}
-	if !slices.Contains(agents[0].Skills, "media.accent.convert") {
+	if !slices.Contains(agents[0].Skills, "media.convert") {
 		t.Fatalf("skills = %#v, want media accent capability", agents[0].Skills)
 	}
 
@@ -112,7 +112,7 @@ func TestRPCRegisterListsToolsAndStatusCapabilities(t *testing.T) {
 		t.Fatalf("status: %v", err)
 	}
 	tools := statusRaw.(map[string]interface{})["tools"].([]string)
-	if !slices.Contains(tools, "media.accent.convert") {
+	if !slices.Contains(tools, "media.convert") {
 		t.Fatalf("status tools = %#v, want media accent tool", tools)
 	}
 }

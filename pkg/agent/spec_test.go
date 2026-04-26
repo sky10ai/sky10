@@ -36,8 +36,11 @@ func TestBuildAgentSpecBuildsMediaAccentSpecAsFreePrivateTool(t *testing.T) {
 		t.Fatalf("tools len = %d, want 1", len(spec.Tools))
 	}
 	tool := spec.Tools[0]
-	if tool.Name != "media.accent.convert" {
-		t.Fatalf("tool name = %q, want media.accent.convert", tool.Name)
+	if tool.Name != "media.convert" {
+		t.Fatalf("tool name = %q, want media.convert", tool.Name)
+	}
+	if tool.Capability != "media.convert" {
+		t.Fatalf("tool capability = %q, want media.convert", tool.Capability)
 	}
 	if tool.Audience != "private" || tool.Scope != "current" {
 		t.Fatalf("tool exposure = %s/%s, want private/current", tool.Audience, tool.Scope)

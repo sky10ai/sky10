@@ -111,8 +111,8 @@ func TestSandboxAgentSourceListsManifestToolsBeforeGuestAgentIsReady(t *testing.
   "id": "aspec_media",
   "name": "media-accent-agent",
   "tools": [{
-    "name": "media.accent.convert",
-    "capability": "media.accent.convert",
+    "name": "media.convert",
+    "capability": "media.convert",
     "description": "Convert media accent.",
     "audience": "private",
     "scope": "current",
@@ -136,10 +136,10 @@ func TestSandboxAgentSourceListsManifestToolsBeforeGuestAgentIsReady(t *testing.
 	if agents[0].Name != "media-accent-agent" {
 		t.Fatalf("agent name = %q, want media-accent-agent", agents[0].Name)
 	}
-	if len(agents[0].Tools) != 1 || agents[0].Tools[0].Name != "media.accent.convert" {
+	if len(agents[0].Tools) != 1 || agents[0].Tools[0].Name != "media.convert" {
 		t.Fatalf("tools = %#v, want media accent tool", agents[0].Tools)
 	}
-	if len(agents[0].Skills) != 1 || agents[0].Skills[0] != "media.accent.convert" {
+	if len(agents[0].Skills) != 1 || agents[0].Skills[0] != "media.convert" {
 		t.Fatalf("skills = %#v, want capability compatibility from manifest tool", agents[0].Skills)
 	}
 	if _, ok := source.Resolve(context.Background(), "media-accent-agent"); ok {

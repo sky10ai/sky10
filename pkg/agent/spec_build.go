@@ -65,8 +65,8 @@ func buildMediaAccentSpec(prompt, timestamp string) AgentSpec {
 		Fulfillment: AgentFulfillment{Mode: "autonomous"},
 		Tools: []AgentToolSpec{
 			{
-				Name:              "media.accent.convert",
-				Capability:        "media.accent.convert",
+				Name:              "media.convert",
+				Capability:        "media.convert",
 				Description:       "Convert an audio or video file into a British-accent output artifact.",
 				Audience:          "private",
 				Scope:             "current",

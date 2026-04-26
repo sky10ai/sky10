@@ -121,6 +121,11 @@ Each tool should describe:
 Tools are the service surface. Internal runtime abilities stay hidden unless the
 owner intentionally exports them.
 
+By convention, `capability` should be a broad two-part `domain.action` label,
+such as `media.convert`, `github.fix`, or `finance.research`. More specific
+workflow details belong in the tool name, description, schemas, effects, or
+metadata rather than nested capability labels like `media.accent.convert`.
+
 ### Job
 
 Every accepted tool call should become a durable job, even if it finishes
@@ -387,7 +392,7 @@ Expected spec:
 
 - runtime: sandbox with container support
 - tools:
-  - `media.accent.convert`
+  - `media.convert`
 - inputs:
   - audio/video payload ref
 - outputs:

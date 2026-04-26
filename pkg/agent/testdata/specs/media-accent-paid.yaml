@@ -12,8 +12,8 @@ runtime:
   packages: [ffmpeg]
 fulfillment: {mode: autonomous}
 tools:
-  - name: media.accent.convert
-    capability: media.accent.convert
+  - name: media.convert
+    capability: media.convert
     description: Convert an audio or video file into a British-accent output artifact.
     audience: public
     scope: current

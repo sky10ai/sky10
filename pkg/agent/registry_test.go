@@ -111,19 +111,19 @@ func TestRegistryRegisterStoresToolsAndIndexesCapabilitiesAsSkills(t *testing.T)
 	info, err := r.Register(RegisterParams{
 		Name: "media",
 		Tools: []AgentToolSpec{{
-			Name:        "media.accent.convert",
-			Capability:  "media.accent.convert",
+			Name:        "media.convert",
+			Capability:  "media.convert",
 			Description: "Convert media accent.",
 		}},
 	}, "A-media0000000000")
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	if len(info.Tools) != 1 || info.Tools[0].Name != "media.accent.convert" {
+	if len(info.Tools) != 1 || info.Tools[0].Name != "media.convert" {
 		t.Fatalf("tools = %#v, want media accent tool", info.Tools)
 	}
-	if !info.HasSkill("media.accent.convert") {
-		t.Fatalf("HasSkill(media.accent.convert) = false, want true")
+	if !info.HasSkill("media.convert") {
+		t.Fatalf("HasSkill(media.convert) = false, want true")
 	}
 }
 
