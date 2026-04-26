@@ -1,0 +1,10 @@
+{
+  "name": "@sky10/messenger-slack",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "bun dist/adapter.js",
+    "check": "bun --check dist/adapter.js"
+  }
+}

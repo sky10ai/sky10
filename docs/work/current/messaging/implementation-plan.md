@@ -291,7 +291,14 @@ different messaging shapes.
 - [x] Keep official built-in adapter code under `pkg/messengers/adapters/*`
   and dispatch it through `sky10 messaging <adapter>` so `sky10` can self-exec
   a child adapter process without shipping many binaries.
-- [ ] Implement a thread-oriented adapter (`gmail` or `slack`).
+- [x] Implement a thread-oriented adapter (`gmail` or `slack`).
+- [x] Add an initial external Slack adapter bundle with auth validation,
+  identity lookup, conversation search, message search, list messages, and
+  send/reply over the adapter protocol.
+- [ ] Register and discover external adapter bundles from daemon connection
+  lifecycle flows.
+- [ ] Add Slack OAuth/install UX instead of requiring manually staged bot token
+  credentials.
 - [x] Implement a mailbox-oriented adapter (`gmail` or `imap-smtp`).
 - [ ] Implement one webhook-driven adapter.
 - [x] Implement one polling-driven adapter.

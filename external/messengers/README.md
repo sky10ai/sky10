@@ -102,8 +102,13 @@ as part of normal adapter startup.
 `bun` and `zerobox` are managed helper apps in Sky10, so adapter artifacts can
 depend on those runtime tools without bundling a separate copy per adapter.
 
-## Current First Target
+## Current Slack Adapter
 
-`slack` is the first planned external messenger adapter. It should reuse the
-useful Slack primitives from `agent-slack` while presenting Sky10's normalized
-messaging adapter protocol to the broker.
+`slack` is the first external messenger adapter bundle in this directory. It
+currently speaks the Sky10 adapter protocol over stdio, runs on Sky10-managed
+Bun, and calls Slack Web API methods for auth validation, identity discovery,
+conversation discovery/search, message listing/search, and send/reply.
+
+The remaining Slack product work is daemon-side external adapter discovery,
+OAuth/install UX, webhook/event ingestion, and deciding whether to replace or
+augment the direct Web API calls with reusable pieces from `agent-slack`.

@@ -1,0 +1,28 @@
+{
+  "id": "slack",
+  "display_name": "Slack",
+  "version": "0.1.0",
+  "description": "Sky10 external Slack messaging adapter",
+  "auth_methods": ["bot_token", "bearer_token", "oauth2"],
+  "capabilities": {
+    "receive_messages": true,
+    "send_messages": true,
+    "create_drafts": true,
+    "update_drafts": true,
+    "delete_drafts": true,
+    "list_conversations": true,
+    "list_messages": true,
+    "search_identities": true,
+    "search_conversations": true,
+    "search_messages": true,
+    "threading": true
+  },
+  "runtime": {
+    "type": "bun",
+    "version": "^1.3"
+  },
+  "entry": "dist/adapter.js",
+  "sandbox": {
+    "mode": "none"
+  }
+}
