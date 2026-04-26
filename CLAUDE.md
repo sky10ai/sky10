@@ -1,5 +1,5 @@
 ---
-updated: 2026-04-05
+updated: 2026-04-26
 ---
 
 # CLAUDE.md
@@ -21,8 +21,14 @@ Claude skills.
 ## Claude Skills
 
 - `/release <version>` — canonical release flow. Use it for any request
-  to cut, ship, or publish a release. It covers tag-first builds,
-  GitHub release creation, menu-asset verification, and dogfooding.
+  to cut, ship, or publish a release. It now requires:
+  - build web before release artifacts
+  - `make platforms` / `make checksums`
+  - release binaries for all 6 CLI targets, including:
+    - `sky10-windows-amd64.exe`
+    - `sky10-windows-arm64.exe`
+  - tag/release publication and checksum verification
+  - menu-asset verification and dogfooding.
 - `/land` — canonical branch-landing flow. Use it only when the user
   explicitly says `land this branch` or otherwise clearly asks to
   integrate and clean up the current task branch.
