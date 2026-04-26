@@ -7,6 +7,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { subscribe } from "../lib/events";
 import {
   sandbox,
+  secrets,
   system,
   type SandboxLogEntry,
   type SandboxLogsResult,
@@ -46,6 +47,10 @@ export default function SandboxDetail() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
+  const [secretEnv, setSecretEnv] = useState("");
+  const [secretName, setSecretName] = useState("");
+  const [secretBusy, setSecretBusy] = useState<string | null>(null);
+  const [secretMessage, setSecretMessage] = useState<string | null>(null);
 
   const {
     data: selected,
@@ -71,6 +76,9 @@ export default function SandboxDetail() {
   );
 
   const { data: hostHealth } = useRPC(() => system.health(), [], {
+    refreshIntervalMs: 30_000,
+  });
+  const { data: availableSecrets } = useRPC(() => secrets.list(), [], {
     refreshIntervalMs: 30_000,
   });
 
@@ -207,18 +215,6 @@ export default function SandboxDetail() {
     }
   }, [selected?.shell, selected?.slug, slug]);
 
-  if (!slug) {
-    return (
-      <SettingsPage
-        backHref="/settings/sandboxes"
-        backLabel="Sandboxes"
-        description="No sandbox identifier was provided."
-        title="Sandbox"
-        width="narrow"
-      />
-    );
-  }
-
   const shellCommand =
     selected?.shell || `limactl shell ${selected?.slug ?? slug}`;
   const terminalEnabled =
@@ -230,6 +226,82 @@ export default function SandboxDetail() {
   const progress = selected ? sandboxCurrentProgress(selected) : null;
   const progressWidth = Math.max(0, Math.min(progress?.percent ?? 0, 100));
   const runtimeView = sandboxRuntimeView(runtimeStatus, hostHealth);
+  const secretBindings = selected?.secret_bindings ?? [];
+  const secretOptions = availableSecrets?.items ?? [];
+
+  const handleAttachSecret = useCallback(async () => {
+    if (!slug) return;
+    const env = secretEnv.trim();
+    const secret = secretName.trim();
+    if (!env || !secret) return;
+
+    setSecretBusy("attach");
+    setActionError(null);
+    setSecretMessage(null);
+    try {
+      await sandbox.secrets.attach({ slug, env, secret });
+      setSecretEnv("");
+      setSecretName("");
+      setSecretMessage("Secret attached.");
+      refetchSelected({ background: true });
+    } catch (error: unknown) {
+      setActionError(
+        error instanceof Error ? error.message : "Secret attach failed",
+      );
+    } finally {
+      setSecretBusy(null);
+    }
+  }, [refetchSelected, secretEnv, secretName, slug]);
+
+  const handleDetachSecret = useCallback(
+    async (env: string) => {
+      if (!slug) return;
+      setSecretBusy(env);
+      setActionError(null);
+      setSecretMessage(null);
+      try {
+        await sandbox.secrets.detach({ slug, env });
+        setSecretMessage("Secret detached.");
+        refetchSelected({ background: true });
+      } catch (error: unknown) {
+        setActionError(
+          error instanceof Error ? error.message : "Secret detach failed",
+        );
+      } finally {
+        setSecretBusy(null);
+      }
+    },
+    [refetchSelected, slug],
+  );
+
+  const handleSyncSecrets = useCallback(async () => {
+    if (!slug) return;
+    setSecretBusy("sync");
+    setActionError(null);
+    setSecretMessage(null);
+    try {
+      await sandbox.secrets.sync({ slug });
+      setSecretMessage("Secret bindings synced.");
+    } catch (error: unknown) {
+      setActionError(
+        error instanceof Error ? error.message : "Secret sync failed",
+      );
+    } finally {
+      setSecretBusy(null);
+    }
+  }, [slug]);
+
+  if (!slug) {
+    return (
+      <SettingsPage
+        backHref="/settings/sandboxes"
+        backLabel="Sandboxes"
+        description="No sandbox identifier was provided."
+        title="Sandbox"
+        width="narrow"
+      />
+    );
+  }
 
   return (
     <SettingsPage
@@ -434,6 +506,119 @@ export default function SandboxDetail() {
             Loading sandbox details...
           </div>
         )}
+      </section>
+
+      <section className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
+              Secret Bindings
+            </p>
+            <h2 className="text-2xl font-semibold text-on-surface">
+              Attach secrets to this VM
+            </h2>
+            <p className="max-w-2xl text-sm text-secondary">
+              Bind encrypted sky10 secrets to environment variables projected
+              into the sandbox state.
+            </p>
+          </div>
+          <button
+            className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary transition-colors hover:text-on-surface disabled:opacity-50"
+            disabled={!selected || secretBusy !== null}
+            onClick={() => void handleSyncSecrets()}
+            type="button"
+          >
+            <Icon name="sync" />
+            {secretBusy === "sync" ? "Syncing..." : "Sync"}
+          </button>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+          <label className="space-y-2">
+            <span className="text-xs font-semibold text-secondary">
+              Environment variable
+            </span>
+            <input
+              className="w-full rounded-2xl border border-outline-variant/15 bg-surface px-4 py-3 font-mono text-sm text-on-surface outline-none transition-colors placeholder:text-secondary/70 focus:border-primary/35"
+              onChange={(event) => setSecretEnv(event.target.value)}
+              placeholder="ELEVENLABS_API_KEY"
+              value={secretEnv}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-xs font-semibold text-secondary">
+              Secret name or ID
+            </span>
+            <input
+              className="w-full rounded-2xl border border-outline-variant/15 bg-surface px-4 py-3 text-sm text-on-surface outline-none transition-colors placeholder:text-secondary/70 focus:border-primary/35"
+              list="sandbox-secret-options"
+              onChange={(event) => setSecretName(event.target.value)}
+              placeholder="elevenlabs"
+              value={secretName}
+            />
+            <datalist id="sandbox-secret-options">
+              {secretOptions.map((item) => (
+                <option key={item.id} value={item.name} />
+              ))}
+            </datalist>
+          </label>
+          <div className="flex items-end">
+            <button
+              className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-on-primary shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50 lg:w-auto"
+              disabled={
+                !selected ||
+                secretBusy !== null ||
+                !secretEnv.trim() ||
+                !secretName.trim()
+              }
+              onClick={() => void handleAttachSecret()}
+              type="button"
+            >
+              <Icon name="add" />
+              {secretBusy === "attach" ? "Attaching..." : "Attach"}
+            </button>
+          </div>
+        </div>
+
+        {secretMessage && (
+          <p className="mt-4 text-sm text-secondary">{secretMessage}</p>
+        )}
+
+        <div className="mt-6 space-y-3">
+          {secretBindings.length === 0 ? (
+            <div className="rounded-2xl bg-surface-container p-4 text-sm text-secondary">
+              No secrets are attached to this VM.
+            </div>
+          ) : (
+            secretBindings.map((binding) => (
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-surface-container p-4"
+                key={binding.env}
+              >
+                <div className="min-w-0">
+                  <p className="break-all font-mono text-sm font-semibold text-on-surface">
+                    {binding.env}
+                  </p>
+                  <p className="mt-1 break-all text-sm text-secondary">
+                    {binding.secret}
+                    {binding.updated_at
+                      ? ` • updated ${timeAgo(binding.updated_at)}`
+                      : ""}
+                  </p>
+                </div>
+                <button
+                  className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-error transition-colors disabled:opacity-50"
+                  disabled={secretBusy !== null}
+                  onClick={() => void handleDetachSecret(binding.env)}
+                  type="button"
+                >
+                  <Icon name="close" />
+                  {secretBusy === binding.env ? "Detaching..." : "Detach"}
+                </button>
+              </div>
+            ))
+          )}
+        </div>
       </section>
 
       <section className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm">

@@ -315,29 +315,22 @@ func ServeCmd() *cobra.Command {
 					Code:         code,
 				}, nil
 			})
-			sandboxManager.SetOpenClawSharedEnvResolver(func(ctx context.Context) (map[string]string, error) {
-				return skysandbox.ResolveOpenClawProviderEnv(ctx, func(ctx context.Context, idOrName string) ([]byte, error) {
-					secret, err := secretsStore.Get(idOrName, secrets.Requester{Type: secrets.RequesterOwner})
-					if err != nil {
-						if errors.Is(err, secrets.ErrNotFound) {
-							return nil, skysandbox.ErrProviderSecretNotFound
-						}
-						return nil, err
+			sandboxSecretLookup := func(ctx context.Context, idOrName string) ([]byte, error) {
+				secret, err := secretsStore.Get(idOrName, secrets.Requester{Type: secrets.RequesterOwner})
+				if err != nil {
+					if errors.Is(err, secrets.ErrNotFound) {
+						return nil, skysandbox.ErrProviderSecretNotFound
 					}
-					return secret.Payload, nil
-				})
+					return nil, err
+				}
+				return secret.Payload, nil
+			}
+			sandboxManager.SetSecretLookup(sandboxSecretLookup)
+			sandboxManager.SetOpenClawSharedEnvResolver(func(ctx context.Context) (map[string]string, error) {
+				return skysandbox.ResolveOpenClawProviderEnv(ctx, sandboxSecretLookup)
 			})
 			sandboxManager.SetHermesSharedEnvResolver(func(ctx context.Context) (map[string]string, error) {
-				return skysandbox.ResolveHermesProviderEnv(ctx, func(ctx context.Context, idOrName string) ([]byte, error) {
-					secret, err := secretsStore.Get(idOrName, secrets.Requester{Type: secrets.RequesterOwner})
-					if err != nil {
-						if errors.Is(err, secrets.ErrNotFound) {
-							return nil, skysandbox.ErrProviderSecretNotFound
-						}
-						return nil, err
-					}
-					return secret.Payload, nil
-				})
+				return skysandbox.ResolveHermesProviderEnv(ctx, sandboxSecretLookup)
 			})
 			server.RegisterHandler(skysandbox.NewRPCHandler(sandboxManager))
 			server.HandleHTTP("GET /rpc/sandboxes/{slug}/terminal", sandboxManager.HandleTerminal)

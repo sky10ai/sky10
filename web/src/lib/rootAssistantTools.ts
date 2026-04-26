@@ -247,6 +247,14 @@ export const rootAssistantTools = {
     inputSchema: z.object({
       name: z.string().min(1).describe("Sandbox display name."),
       provider: z.string().min(1).describe("Runtime provider."),
+      secret_bindings: z.array(
+        z.object({
+          env: z.string().min(1).describe("Environment variable name inside the sandbox."),
+          secret: z.string().min(1).describe("Stored sky10 secret name or ID."),
+        }).strict(),
+      )
+        .optional()
+        .describe("Optional secrets to project before the sandbox boots."),
       template: z.string().min(1).describe("Sandbox template."),
     }).strict(),
     execute: (input) => sandbox.create(input),
@@ -274,6 +282,33 @@ export const rootAssistantTools = {
       slug: z.string().optional().describe("Sandbox slug."),
     }).strict(),
     execute: (input) => sandbox.delete(input),
+  }),
+  sandboxes_attachSecret: approvalRequiredTool({
+    description: "Attach a stored sky10 secret to a managed sandbox as an environment variable.",
+    inputSchema: z.object({
+      env: z.string().min(1).describe("Environment variable name inside the sandbox."),
+      name: z.string().optional().describe("Sandbox display name."),
+      secret: z.string().min(1).describe("Secret name or ID."),
+      slug: z.string().optional().describe("Sandbox slug."),
+    }).strict(),
+    execute: (input) => sandbox.secrets.attach(input),
+  }),
+  sandboxes_detachSecret: approvalRequiredTool({
+    description: "Detach a sandbox environment variable from its stored sky10 secret binding.",
+    inputSchema: z.object({
+      env: z.string().min(1).describe("Environment variable name inside the sandbox."),
+      name: z.string().optional().describe("Sandbox display name."),
+      slug: z.string().optional().describe("Sandbox slug."),
+    }).strict(),
+    execute: (input) => sandbox.secrets.detach(input),
+  }),
+  sandboxes_syncSecrets: approvalRequiredTool({
+    description: "Regenerate a sandbox's projected secret environment file from its secret bindings.",
+    inputSchema: z.object({
+      name: z.string().optional().describe("Sandbox display name."),
+      slug: z.string().optional().describe("Sandbox slug."),
+    }).strict(),
+    execute: (input) => sandbox.secrets.sync(input),
   }),
   sandboxes_runtimeUpgrade: approvalRequiredTool({
     description: "Upgrade the sky10 runtime inside a managed sandbox.",
@@ -430,6 +465,9 @@ export const rootAssistantToolMetadata = {
   sandboxes_start: { policy: "approval_required", risk: "medium", rpcMethods: ["sandbox.start"], title: "Start sandbox" },
   sandboxes_stop: { policy: "approval_required", risk: "medium", rpcMethods: ["sandbox.stop"], title: "Stop sandbox" },
   sandboxes_delete: { policy: "approval_required", risk: "high", rpcMethods: ["sandbox.delete"], title: "Delete sandbox" },
+  sandboxes_attachSecret: { policy: "approval_required", risk: "high", rpcMethods: ["sandbox.secrets.attach"], title: "Attach sandbox secret" },
+  sandboxes_detachSecret: { policy: "approval_required", risk: "high", rpcMethods: ["sandbox.secrets.detach"], title: "Detach sandbox secret" },
+  sandboxes_syncSecrets: { policy: "approval_required", risk: "medium", rpcMethods: ["sandbox.secrets.sync"], title: "Sync sandbox secrets" },
   sandboxes_runtimeUpgrade: { policy: "approval_required", risk: "high", rpcMethods: ["sandbox.runtime.upgrade"], title: "Upgrade sandbox runtime" },
   apps_status: { policy: "read_only", risk: "low", rpcMethods: ["apps.status"], title: "Read app status" },
   apps_checkUpdate: { policy: "read_only", risk: "low", rpcMethods: ["apps.checkUpdate"], title: "Check app update" },

@@ -1639,6 +1639,109 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	}
 }
 
+func TestSandboxSecretBindingMaterializesEnvWithoutPersistingValue(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+	m.SetSecretLookup(func(ctx context.Context, idOrName string) ([]byte, error) {
+		switch idOrName {
+		case "elevenlabs":
+			return []byte("elevenlabs-key\n"), nil
+		default:
+			return nil, ErrProviderSecretNotFound
+		}
+	})
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	rec := Record{
+		Name:      "media-agent",
+		Slug:      "media-agent",
+		Provider:  providerLima,
+		Template:  templateUbuntu,
+		Status:    "ready",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	m.mu.Lock()
+	m.records[rec.Slug] = rec
+	if err := m.saveLocked(); err != nil {
+		m.mu.Unlock()
+		t.Fatalf("saveLocked() error: %v", err)
+	}
+	m.mu.Unlock()
+
+	stateDir := m.sandboxStateDir(rec.Slug)
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll(stateDir) error: %v", err)
+	}
+	envPath := filepath.Join(stateDir, ".env")
+	if err := os.WriteFile(envPath, []byte("MANUAL_FLAG=1\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(.env) error: %v", err)
+	}
+
+	updated, err := m.AttachSecret(context.Background(), "media-agent", SecretAttachParams{
+		Env:    "ELEVENLABS_API_KEY",
+		Secret: "elevenlabs",
+	})
+	if err != nil {
+		t.Fatalf("AttachSecret() error: %v", err)
+	}
+	if len(updated.SecretBindings) != 1 {
+		t.Fatalf("secret bindings len = %d, want 1", len(updated.SecretBindings))
+	}
+	if updated.SecretBindings[0].Secret != "elevenlabs" {
+		t.Fatalf("secret binding secret = %q, want elevenlabs", updated.SecretBindings[0].Secret)
+	}
+
+	envData, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatalf("ReadFile(.env) error: %v", err)
+	}
+	envText := string(envData)
+	for _, want := range []string{
+		"MANUAL_FLAG=1",
+		managedSecretEnvBlockStart,
+		"ELEVENLABS_API_KEY=elevenlabs-key",
+		managedSecretEnvBlockEnd,
+	} {
+		if !strings.Contains(envText, want) {
+			t.Fatalf(".env = %q, missing %q", envText, want)
+		}
+	}
+
+	stateData, err := os.ReadFile(m.statePath())
+	if err != nil {
+		t.Fatalf("ReadFile(state) error: %v", err)
+	}
+	if strings.Contains(string(stateData), "elevenlabs-key") {
+		t.Fatalf("sandbox state persisted secret payload: %q", string(stateData))
+	}
+
+	updated, err = m.DetachSecret(context.Background(), "media-agent", SecretDetachParams{
+		Env: "ELEVENLABS_API_KEY",
+	})
+	if err != nil {
+		t.Fatalf("DetachSecret() error: %v", err)
+	}
+	if len(updated.SecretBindings) != 0 {
+		t.Fatalf("secret bindings len after detach = %d, want 0", len(updated.SecretBindings))
+	}
+	envData, err = os.ReadFile(envPath)
+	if err != nil {
+		t.Fatalf("ReadFile(.env after detach) error: %v", err)
+	}
+	envText = string(envData)
+	if !strings.Contains(envText, "MANUAL_FLAG=1") {
+		t.Fatalf(".env after detach dropped manual flag: %q", envText)
+	}
+	if strings.Contains(envText, "ELEVENLABS_API_KEY") || strings.Contains(envText, managedSecretEnvBlockStart) {
+		t.Fatalf(".env after detach still has managed secret block: %q", envText)
+	}
+}
+
 func TestPrepareOpenClawSharedDirDockerAssets(t *testing.T) {
 	t.Parallel()
 

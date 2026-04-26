@@ -351,7 +351,10 @@ func (m *Manager) prepareTemplateSharedDir(ctx context.Context, rec Record) erro
 	if err != nil {
 		return err
 	}
-	return spec.prepareSharedDir(ctx, m, rec, stateDir)
+	if err := spec.prepareSharedDir(ctx, m, rec, stateDir); err != nil {
+		return err
+	}
+	return m.materializeSecretBindings(ctx, rec)
 }
 
 func buildHermesBridgeConfig(rec Record) *hermesBridgeConfig {

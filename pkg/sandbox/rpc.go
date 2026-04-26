@@ -41,6 +41,34 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		}
 		result, err := h.manager.Logs(coalesceSandboxKey(p.Name, p.Slug), p.Limit)
 		return result, err, true
+	case "sandbox.secrets.list":
+		var p NamedParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("parse sandbox.secrets.list params: %w", err), true
+		}
+		result, err := h.manager.SecretBindings(ctx, coalesceSandboxKey(p.Name, p.Slug))
+		return result, err, true
+	case "sandbox.secrets.attach":
+		var p SecretAttachParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("parse sandbox.secrets.attach params: %w", err), true
+		}
+		result, err := h.manager.AttachSecret(ctx, coalesceSandboxKey(p.Name, p.Slug), p)
+		return result, err, true
+	case "sandbox.secrets.detach":
+		var p SecretDetachParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("parse sandbox.secrets.detach params: %w", err), true
+		}
+		result, err := h.manager.DetachSecret(ctx, coalesceSandboxKey(p.Name, p.Slug), p)
+		return result, err, true
+	case "sandbox.secrets.sync":
+		var p NamedParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("parse sandbox.secrets.sync params: %w", err), true
+		}
+		result, err := h.manager.SyncSecrets(ctx, coalesceSandboxKey(p.Name, p.Slug))
+		return result, err, true
 	case "sandbox.runtime.status":
 		var p NamedParams
 		if err := json.Unmarshal(params, &p); err != nil {

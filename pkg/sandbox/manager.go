@@ -97,10 +97,11 @@ var (
 type Emitter func(event string, data interface{})
 
 type CreateParams struct {
-	Name     string `json:"name"`
-	Provider string `json:"provider"`
-	Template string `json:"template"`
-	Model    string `json:"model,omitempty"`
+	Name           string          `json:"name"`
+	Provider       string          `json:"provider"`
+	Template       string          `json:"template"`
+	Model          string          `json:"model,omitempty"`
+	SecretBindings []SecretBinding `json:"secret_bindings,omitempty"`
 }
 
 type NamedParams struct {
@@ -128,6 +129,7 @@ type Record struct {
 	ForwardedPort      int                 `json:"forwarded_port,omitempty"`
 	ForwardedEndpoints []ForwardedEndpoint `json:"forwarded_endpoints,omitempty"`
 	Shell              string              `json:"shell,omitempty"`
+	SecretBindings     []SecretBinding     `json:"secret_bindings,omitempty"`
 	LastError          string              `json:"last_error,omitempty"`
 	Progress           *Progress           `json:"progress,omitempty"`
 	GuestDeviceID      string              `json:"guest_device_id,omitempty"`
@@ -326,6 +328,7 @@ type Manager struct {
 	outputCmd                func(ctx context.Context, bin string, args []string) ([]byte, error)
 	resolveOpenClawSharedEnv func(context.Context) (map[string]string, error)
 	resolveHermesSharedEnv   func(context.Context) (map[string]string, error)
+	secretLookup             ProviderSecretLookup
 	hostIdentity             func(context.Context) (string, error)
 	issueIdentityInvite      func(context.Context) (*IdentityInvite, error)
 	hostRPC                  func(context.Context, string, interface{}, interface{}) error
@@ -372,6 +375,10 @@ func (m *Manager) SetOpenClawSharedEnvResolver(fn func(context.Context) (map[str
 
 func (m *Manager) SetHermesSharedEnvResolver(fn func(context.Context) (map[string]string, error)) {
 	m.resolveHermesSharedEnv = fn
+}
+
+func (m *Manager) SetSecretLookup(fn ProviderSecretLookup) {
+	m.secretLookup = fn
 }
 
 func (m *Manager) SetHostIdentityProvider(fn func(context.Context) (string, error)) {
@@ -555,19 +562,24 @@ func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, err
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
+	secretBindings, err := m.normalizeSecretBindings(ctx, params.SecretBindings, now)
+	if err != nil {
+		return nil, err
+	}
 	initialProgress, tracker := newInitialProgress(provider, template)
 	rec := Record{
-		Name:      displayName,
-		Slug:      slug,
-		Provider:  provider,
-		Template:  template,
-		Model:     model,
-		Status:    "creating",
-		SharedDir: sharedDir,
-		Shell:     defaultShellCommand(slug, template),
-		Progress:  initialProgress,
-		CreatedAt: now,
-		UpdatedAt: now,
+		Name:           displayName,
+		Slug:           slug,
+		Provider:       provider,
+		Template:       template,
+		Model:          model,
+		Status:         "creating",
+		SharedDir:      sharedDir,
+		Shell:          defaultShellCommand(slug, template),
+		SecretBindings: secretBindings,
+		Progress:       initialProgress,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 
 	m.mu.Lock()
@@ -668,18 +680,23 @@ func (m *Manager) Ensure(ctx context.Context, params CreateParams) (*Record, err
 	}
 	if exists {
 		now := time.Now().UTC().Format(time.RFC3339)
+		secretBindings, err := m.normalizeSecretBindings(ctx, params.SecretBindings, now)
+		if err != nil {
+			return nil, err
+		}
 		rec = Record{
-			Name:      displayName,
-			Slug:      slug,
-			Provider:  provider,
-			Template:  template,
-			Model:     model,
-			Status:    sandboxStatusFromVMStatus(vmStatus),
-			VMStatus:  vmStatus,
-			SharedDir: sharedDir,
-			Shell:     defaultShellCommand(slug, template),
-			CreatedAt: now,
-			UpdatedAt: now,
+			Name:           displayName,
+			Slug:           slug,
+			Provider:       provider,
+			Template:       template,
+			Model:          model,
+			Status:         sandboxStatusFromVMStatus(vmStatus),
+			VMStatus:       vmStatus,
+			SharedDir:      sharedDir,
+			Shell:          defaultShellCommand(slug, template),
+			SecretBindings: secretBindings,
+			CreatedAt:      now,
+			UpdatedAt:      now,
 		}
 		if vmStatus == "Running" {
 			if ipAddr, err := lookupLimaInstanceIPv4(ctx, m.outputCmd, limactl, slug); err == nil && ipAddr != "" {
@@ -701,6 +718,11 @@ func (m *Manager) Ensure(ctx context.Context, params CreateParams) (*Record, err
 		m.emitState(rec)
 
 		if vmStatus == "Running" {
+			if len(secretBindings) > 0 {
+				if err := m.materializeSecretBindings(ctx, rec); err != nil {
+					return nil, err
+				}
+			}
 			return m.Get(ctx, slug)
 		}
 		return m.Start(ctx, slug)

@@ -12,7 +12,9 @@ import { StatusBadge } from "../components/StatusBadge";
 import { SANDBOX_STATE_EVENT_TYPES } from "../lib/events";
 import {
   sandbox,
+  secrets,
   system,
+  type SandboxSecretBindingInput,
   type SandboxRecord,
   type SandboxRuntimeStatusResult,
 } from "../lib/rpc";
@@ -43,6 +45,11 @@ export default function Sandboxes() {
   const [selectedTemplate, setSelectedTemplate] = useState<string>(
     requestedTemplate.id,
   );
+  const [initialSecretEnv, setInitialSecretEnv] = useState("");
+  const [initialSecretName, setInitialSecretName] = useState("");
+  const [initialSecretBindings, setInitialSecretBindings] = useState<
+    SandboxSecretBindingInput[]
+  >([]);
   const [actionError, setActionError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -66,6 +73,9 @@ export default function Sandboxes() {
     [sandboxes],
   );
   const { data: hostHealth } = useRPC(() => system.health(), [], {
+    refreshIntervalMs: 30_000,
+  });
+  const { data: availableSecrets } = useRPC(() => secrets.list(), [], {
     refreshIntervalMs: 30_000,
   });
   const { data: runtimeBySlug, refreshing: runtimeRefreshing } = useRPC<
@@ -117,6 +127,7 @@ export default function Sandboxes() {
     : isHermesTemplate(templateConfig.id)
       ? "Creating Hermes..."
       : "Provisioning...";
+  const secretOptions = availableSecrets?.items ?? [];
 
   useEffect(() => {
     if (requestedTemplate.id === selectedTemplate) return;
@@ -133,9 +144,44 @@ export default function Sandboxes() {
     [searchParams, setSearchParams],
   );
 
+  const handleAddInitialSecret = useCallback(() => {
+    const env = initialSecretEnv.trim();
+    const secret = initialSecretName.trim();
+    if (!env || !secret) return;
+    setInitialSecretBindings((current) => {
+      if (current.some((item) => item.env === env)) return current;
+      return [...current, { env, secret }].sort((a, b) =>
+        a.env.localeCompare(b.env),
+      );
+    });
+    setInitialSecretEnv("");
+    setInitialSecretName("");
+  }, [initialSecretEnv, initialSecretName]);
+
+  const handleRemoveInitialSecret = useCallback((env: string) => {
+    setInitialSecretBindings((current) =>
+      current.filter((item) => item.env !== env),
+    );
+  }, []);
+
   const handleCreate = useCallback(async () => {
     const name = draftName.trim();
     if (!name || creating) return;
+    const pendingEnv = initialSecretEnv.trim();
+    const pendingSecret = initialSecretName.trim();
+    if ((pendingEnv && !pendingSecret) || (!pendingEnv && pendingSecret)) {
+      setActionError("Complete both secret binding fields or clear them.");
+      return;
+    }
+    const secretBindings = [...initialSecretBindings];
+    if (pendingEnv && pendingSecret) {
+      if (secretBindings.some((item) => item.env === pendingEnv)) {
+        setActionError(`Secret binding ${pendingEnv} is already added.`);
+        return;
+      }
+      secretBindings.push({ env: pendingEnv, secret: pendingSecret });
+      secretBindings.sort((a, b) => a.env.localeCompare(b.env));
+    }
 
     setCreating(true);
     setActionError(null);
@@ -143,9 +189,13 @@ export default function Sandboxes() {
       const created = await sandbox.create({
         name,
         provider: templateConfig.provider,
+        secret_bindings: secretBindings.length ? secretBindings : undefined,
         template: templateConfig.id,
       });
       setDraftName(nextSandboxName(templateConfig.id));
+      setInitialSecretEnv("");
+      setInitialSecretName("");
+      setInitialSecretBindings([]);
       refetchList({ background: true });
       startTransition(() => {
         const detailPath = isHermesTemplate(templateConfig.id)
@@ -161,6 +211,9 @@ export default function Sandboxes() {
   }, [
     creating,
     draftName,
+    initialSecretBindings,
+    initialSecretEnv,
+    initialSecretName,
     navigate,
     refetchList,
     templateConfig.id,
@@ -235,6 +288,68 @@ export default function Sandboxes() {
                   </button>
                 );
               })}
+            </div>
+
+            <div className="rounded-2xl border border-outline-variant/10 bg-surface-container p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-on-surface">
+                    Secrets before boot
+                  </p>
+                </div>
+                <span className="rounded-full bg-surface-container-high px-3 py-1 text-xs font-semibold text-secondary">
+                  {initialSecretBindings.length}
+                </span>
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                <input
+                  className="min-w-0 rounded-full border border-outline-variant/20 bg-surface px-4 py-2.5 font-mono text-sm text-on-surface outline-none transition-colors placeholder:text-secondary/70 focus:border-primary/40"
+                  onChange={(event) => setInitialSecretEnv(event.target.value)}
+                  placeholder="ELEVENLABS_API_KEY"
+                  value={initialSecretEnv}
+                />
+                <input
+                  className="min-w-0 rounded-full border border-outline-variant/20 bg-surface px-4 py-2.5 text-sm text-on-surface outline-none transition-colors placeholder:text-secondary/70 focus:border-primary/40"
+                  list="sandbox-create-secret-options"
+                  onChange={(event) =>
+                    setInitialSecretName(event.target.value)
+                  }
+                  placeholder="elevenlabs"
+                  value={initialSecretName}
+                />
+                <datalist id="sandbox-create-secret-options">
+                  {secretOptions.map((item) => (
+                    <option key={item.id} value={item.name} />
+                  ))}
+                </datalist>
+                <button
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2.5 text-sm font-semibold text-secondary transition-colors hover:text-on-surface disabled:opacity-50"
+                  disabled={!initialSecretEnv.trim() || !initialSecretName.trim()}
+                  onClick={handleAddInitialSecret}
+                  type="button"
+                >
+                  <Icon name="add" />
+                  Add
+                </button>
+              </div>
+
+              {initialSecretBindings.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {initialSecretBindings.map((binding) => (
+                    <button
+                      className="inline-flex max-w-full items-center gap-2 rounded-full bg-surface px-3 py-2 text-xs text-secondary transition-colors hover:text-error"
+                      key={binding.env}
+                      onClick={() => handleRemoveInitialSecret(binding.env)}
+                      type="button"
+                    >
+                      <span className="truncate font-mono">{binding.env}</span>
+                      <span className="truncate">{binding.secret}</span>
+                      <Icon name="close" className="text-sm" />
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="flex flex-col gap-3 md:flex-row">

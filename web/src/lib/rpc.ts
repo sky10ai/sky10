@@ -191,11 +191,26 @@ export const sandbox = {
   get: (p: { name?: string; slug?: string }) => rpc<SandboxRecord>("sandbox.get", p),
   logs: (p: { name?: string; slug?: string; limit?: number }) =>
     rpc<SandboxLogsResult>("sandbox.logs", p),
-  create: (p: { name: string; provider: string; template: string }) =>
+  create: (p: {
+    name: string;
+    provider: string;
+    template: string;
+    secret_bindings?: SandboxSecretBindingInput[];
+  }) =>
     rpc<SandboxRecord>("sandbox.create", p),
   start: (p: { name?: string; slug?: string }) => rpc<SandboxRecord>("sandbox.start", p),
   stop: (p: { name?: string; slug?: string }) => rpc<SandboxRecord>("sandbox.stop", p),
   delete: (p: { name?: string; slug?: string }) => rpc<SandboxRecord>("sandbox.delete", p),
+  secrets: {
+    list: (p: { name?: string; slug?: string }) =>
+      rpc<SandboxSecretBindingsResult>("sandbox.secrets.list", p),
+    attach: (p: { name?: string; slug?: string; env: string; secret: string }) =>
+      rpc<SandboxRecord>("sandbox.secrets.attach", p),
+    detach: (p: { name?: string; slug?: string; env: string }) =>
+      rpc<SandboxRecord>("sandbox.secrets.detach", p),
+    sync: (p: { name?: string; slug?: string }) =>
+      rpc<SandboxSecretBindingsResult>("sandbox.secrets.sync", p),
+  },
   runtime: {
     status: (p: { name?: string; slug?: string }) =>
       rpc<SandboxRuntimeStatusResult>("sandbox.runtime.status", p),
@@ -973,6 +988,7 @@ export interface SandboxRecord {
   forwarded_port?: number;
   forwarded_endpoints?: SandboxForwardedEndpoint[];
   shell?: string;
+  secret_bindings?: SandboxSecretBinding[];
   last_error?: string;
   progress?: SandboxProgress;
   guest_device_id?: string;
@@ -996,6 +1012,24 @@ export interface SandboxProgress {
   step_id?: string;
   summary?: string;
   percent: number;
+}
+
+export interface SandboxSecretBinding {
+  env: string;
+  secret: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SandboxSecretBindingInput {
+  env: string;
+  secret: string;
+}
+
+export interface SandboxSecretBindingsResult {
+  name: string;
+  slug: string;
+  bindings: SandboxSecretBinding[];
 }
 
 export interface SandboxListResult {
