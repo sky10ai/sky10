@@ -13,6 +13,7 @@ import {
   wallet,
   type AgentListResult,
   type AgentSpec,
+  type AgentSpecCompileResult,
   type AgentSpecListResult,
   type AgentSpecResult,
   type DeviceListResult,
@@ -233,6 +234,17 @@ export const rootAssistantTools = {
       id: z.string().min(1).describe("Agent spec ID."),
     }).strict(),
     execute: (input) => agent.spec.get(input),
+  }),
+  agents_compileSpec: tool({
+    description: "Compile an agent spec into a dry-run runtime preview: generated files, secret bindings, and provisioning actions. This does not create or start a VM.",
+    inputSchema: z.object({
+      id: z.string().min(1).optional().describe("Agent spec ID to compile."),
+      spec: z.unknown().optional().describe("Full agent spec object to compile without saving it first."),
+    }).strict(),
+    execute: (input) => agent.spec.compile({
+      id: input.id,
+      spec: input.spec as AgentSpec | undefined,
+    }),
   }),
   agents_updateSpec: approvalRequiredTool({
     description: "Update an editable agent spec before approval. This cannot approve, discard, or provision the spec.",
@@ -506,6 +518,7 @@ export const rootAssistantToolMetadata = {
   agents_createSpec: { policy: "approval_required", risk: "low", rpcMethods: ["agent.spec.create"], title: "Create agent spec" },
   agents_listSpecs: { policy: "read_only", risk: "low", rpcMethods: ["agent.spec.list"], title: "List agent specs" },
   agents_getSpec: { policy: "read_only", risk: "low", rpcMethods: ["agent.spec.get"], title: "Read agent spec" },
+  agents_compileSpec: { policy: "read_only", risk: "low", rpcMethods: ["agent.spec.compile"], title: "Compile agent spec" },
   agents_updateSpec: { policy: "approval_required", risk: "medium", rpcMethods: ["agent.spec.update"], title: "Update agent spec" },
   agents_approveSpec: { policy: "approval_required", risk: "medium", rpcMethods: ["agent.spec.approve"], title: "Approve agent spec" },
   agents_discardSpec: { policy: "approval_required", risk: "medium", rpcMethods: ["agent.spec.discard"], title: "Discard agent spec" },
@@ -588,6 +601,8 @@ export const rootAssistantToolRunners = {
   agents_list: () => executeRootAssistantTool<AgentListResult>("agents_list", {}),
   agents_getSpec: (id: string) =>
     executeRootAssistantTool<AgentSpecResult>("agents_getSpec", { id }),
+  agents_compileSpec: (id: string) =>
+    executeRootAssistantTool<AgentSpecCompileResult>("agents_compileSpec", { id }),
   agents_listSpecs: (input: { limit?: number; status?: string } = {}) =>
     executeRootAssistantTool<AgentSpecListResult>("agents_listSpecs", input),
   daemon_getHealth: () => executeRootAssistantTool<HealthResult>("daemon_getHealth", {}),

@@ -89,6 +89,8 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		result, err = h.rpcSpecApprove(ctx, params)
 	case "agent.spec.discard":
 		result, err = h.rpcSpecDiscard(ctx, params)
+	case "agent.spec.compile":
+		result, err = h.rpcSpecCompile(ctx, params)
 	case "agent.queue.discover":
 		result, err = h.rpcQueueDiscover(ctx, params)
 	case "agent.queue.claim":
@@ -211,6 +213,29 @@ func (h *RPCHandler) rpcSpecDiscard(ctx context.Context, params json.RawMessage)
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
 	return store.Discard(ctx, p.ID)
+}
+
+func (h *RPCHandler) rpcSpecCompile(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var p AgentSpecCompileParams
+	if len(params) > 0 && string(params) != "null" {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("invalid params: %w", err)
+		}
+	}
+
+	if p.Spec != nil {
+		return CompileAgentSpec(*p.Spec)
+	}
+
+	store, err := h.requireSpecStore()
+	if err != nil {
+		return nil, err
+	}
+	result, err := store.Get(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	return CompileAgentSpec(result.Spec)
 }
 
 func (h *RPCHandler) rpcRegister(_ context.Context, params json.RawMessage) (interface{}, error) {

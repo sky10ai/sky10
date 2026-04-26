@@ -214,6 +214,22 @@ func TestAgentSpecRPCDispatch(t *testing.T) {
 		t.Fatal("spec ID is empty")
 	}
 
+	compileParams, err := json.Marshal(AgentSpecCompileParams{ID: result.Spec.ID})
+	if err != nil {
+		t.Fatalf("Marshal compile params: %v", err)
+	}
+	compileRaw, err, handled := h.Dispatch(context.Background(), "agent.spec.compile", compileParams)
+	if err != nil {
+		t.Fatalf("Dispatch(agent.spec.compile) error: %v", err)
+	}
+	if !handled {
+		t.Fatal("agent.spec.compile handled = false, want true")
+	}
+	compiled := compileRaw.(*AgentSpecCompileResult)
+	if compiled.Runtime.Template != "openclaw-docker" {
+		t.Fatalf("compiled runtime = %#v, want openclaw-docker template", compiled.Runtime)
+	}
+
 	listRaw, err, handled := h.Dispatch(context.Background(), "agent.spec.list", nil)
 	if err != nil {
 		t.Fatalf("Dispatch(agent.spec.list) error: %v", err)
@@ -237,6 +253,113 @@ func TestAgentSpecRPCDispatch(t *testing.T) {
 	approved := approvedRaw.(*AgentSpecResult)
 	if approved.Spec.Status != SpecStatusApproved {
 		t.Fatalf("approved status = %q, want approved", approved.Spec.Status)
+	}
+}
+
+func TestCompileAgentSpecProducesMediaRuntimePreview(t *testing.T) {
+	spec := loadSpecFixture(t, "media-accent-private.yaml")
+	compiled, err := CompileAgentSpec(spec)
+	if err != nil {
+		t.Fatalf("CompileAgentSpec() error: %v", err)
+	}
+
+	if compiled.Runtime.Target != "sandbox" ||
+		compiled.Runtime.Provider != "lima" ||
+		compiled.Runtime.Template != "openclaw-docker" ||
+		compiled.Runtime.Harness != "openclaw" {
+		t.Fatalf("runtime = %#v, want sandbox/lima/openclaw-docker/openclaw", compiled.Runtime)
+	}
+	if len(compiled.SecretBindings) != 1 {
+		t.Fatalf("secret bindings = %#v, want one binding", compiled.SecretBindings)
+	}
+	if compiled.SecretBindings[0].Env != "ELEVENLABS_API_KEY" ||
+		compiled.SecretBindings[0].Secret != "voice-provider-api-key" {
+		t.Fatalf("secret binding = %#v, want ElevenLabs env mapped to sky10 secret name", compiled.SecretBindings[0])
+	}
+
+	compose := compiledFileContent(t, compiled, "compose.yaml")
+	for _, want := range []string{
+		"image: \"ubuntu:24.04\"",
+		"- ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}",
+		"sky10.agent.harness=openclaw",
+	} {
+		if !strings.Contains(compose, want) {
+			t.Fatalf("compose.yaml missing %q:\n%s", want, compose)
+		}
+	}
+
+	env := compiledFileContent(t, compiled, ".env.example")
+	if !strings.Contains(env, "ELEVENLABS_API_KEY=\n") {
+		t.Fatalf(".env.example = %q, want ELEVENLABS_API_KEY placeholder", env)
+	}
+	if strings.Contains(env, "elevenlabs-key") {
+		t.Fatalf(".env.example leaked secret payload: %q", env)
+	}
+}
+
+func TestCompileAgentSpecFixturesProduceRuntimeArtifacts(t *testing.T) {
+	entries, err := os.ReadDir(filepath.Join("testdata", "specs"))
+	if err != nil {
+		t.Fatalf("ReadDir(testdata/specs) error: %v", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+			continue
+		}
+		t.Run(entry.Name(), func(t *testing.T) {
+			spec := loadSpecFixture(t, entry.Name())
+			compiled, err := CompileAgentSpec(spec)
+			if err != nil {
+				t.Fatalf("CompileAgentSpec(%s) error: %v", entry.Name(), err)
+			}
+			for _, path := range []string{"agent-manifest.json", ".env.example", "README.md"} {
+				if content := compiledFileContent(t, compiled, path); strings.TrimSpace(content) == "" {
+					t.Fatalf("%s is empty", path)
+				}
+			}
+			if spec.Runtime.Target == "sandbox" {
+				compiledFileContent(t, compiled, "compose.yaml")
+				if len(compiled.Actions) < 3 ||
+					compiled.Actions[0].Method != "sandbox.create" ||
+					compiled.Actions[1].Method != "sandbox.start" ||
+					compiled.Actions[2].Method != "agent.register" {
+					t.Fatalf("actions = %#v, want sandbox.create, sandbox.start, agent.register", compiled.Actions)
+				}
+			}
+			for _, file := range compiled.Files {
+				if strings.Contains(file.Content, "sk_test_") || strings.Contains(file.Content, "elevenlabs-key") {
+					t.Fatalf("%s appears to contain a secret payload: %q", file.Path, file.Content)
+				}
+			}
+		})
+	}
+}
+
+func TestCompileAgentSpecSelectsHarnessTemplates(t *testing.T) {
+	cases := []struct {
+		fixture string
+		harness string
+		image   string
+	}{
+		{fixture: "coding-codex-private.yaml", harness: "codex", image: "ubuntu:24.04"},
+		{fixture: "financial-dexter-private.yaml", harness: "dexter", image: "oven/bun:1.1"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.fixture, func(t *testing.T) {
+			compiled, err := CompileAgentSpec(loadSpecFixture(t, tc.fixture))
+			if err != nil {
+				t.Fatalf("CompileAgentSpec(%s) error: %v", tc.fixture, err)
+			}
+			if compiled.Runtime.Harness != tc.harness {
+				t.Fatalf("harness = %q, want %q", compiled.Runtime.Harness, tc.harness)
+			}
+			compose := compiledFileContent(t, compiled, "compose.yaml")
+			if !strings.Contains(compose, "image: "+quoteYAML(tc.image)) {
+				t.Fatalf("compose.yaml = %q, want image %s", compose, tc.image)
+			}
+		})
 	}
 }
 
@@ -318,6 +441,20 @@ func loadSpecFixture(t *testing.T, name string) AgentSpec {
 		t.Fatalf("UnmarshalStrict(%s) error: %v", name, err)
 	}
 	return spec
+}
+
+func compiledFileContent(t *testing.T, compiled *AgentSpecCompileResult, path string) string {
+	t.Helper()
+	for _, file := range compiled.Files {
+		if file.Path == path {
+			if file.Mode != compiledFileMode {
+				t.Fatalf("%s mode = %q, want %q", path, file.Mode, compiledFileMode)
+			}
+			return file.Content
+		}
+	}
+	t.Fatalf("compiled file %s not found in %#v", path, compiled.Files)
+	return ""
 }
 
 func containsString(values []string, want string) bool {

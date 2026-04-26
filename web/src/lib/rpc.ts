@@ -165,6 +165,8 @@ export const agent = {
       rpc<AgentSpecResult>("agent.spec.approve", p),
     discard: (p: AgentSpecActionParams) =>
       rpc<AgentSpecResult>("agent.spec.discard", p),
+    compile: (p: AgentSpecCompileParams) =>
+      rpc<AgentSpecCompileResult>("agent.spec.compile", p),
   },
   mailbox: {
     views: () => rpc<MailboxViewListResult>("agent.mailbox.views"),
@@ -1107,6 +1109,49 @@ export interface AgentSpecUpdateParams {
 
 export interface AgentSpecActionParams {
   id: string;
+}
+
+export interface AgentSpecCompileParams {
+  id?: string;
+  spec?: AgentSpec;
+}
+
+export interface AgentSpecCompileResult {
+  spec: AgentSpec;
+  runtime: AgentCompiledRuntime;
+  files: AgentCompiledFile[];
+  secret_bindings?: AgentCompiledSecretBinding[];
+  actions: AgentProvisionAction[];
+  warnings?: string[];
+}
+
+export interface AgentCompiledRuntime {
+  name: string;
+  slug: string;
+  target: string;
+  provider?: string;
+  template?: string;
+  harness?: string;
+  containers?: AgentContainerSpec[];
+}
+
+export interface AgentCompiledFile {
+  path: string;
+  mode: string;
+  content: string;
+}
+
+export interface AgentCompiledSecretBinding {
+  env: string;
+  secret: string;
+  required: boolean;
+  description?: string;
+}
+
+export interface AgentProvisionAction {
+  method: string;
+  summary: string;
+  params?: Record<string, unknown>;
 }
 
 export interface ChatContentSource {
