@@ -1,7 +1,7 @@
 ---
 created: 2026-04-18
-updated: 2026-04-25
-model: gpt-5.4
+updated: 2026-04-26
+model: gpt-5.5
 ---
 
 # AI-First App Plan
@@ -44,6 +44,7 @@ This workstream does not yet commit to:
 - [RPC Tool Policy](./rpc-tool-policy.md)
 - [User Flow](./user-flow.md)
 - [Implementation Plan](./implementation-plan.md)
+- [Prompt To Agent And Optional Commerce Plan](./prompt-to-paid-agent-plan.md)
 - [Milestones And Checklists](./milestones.md)
 - [Media Dubbing Agent Example](./media-dubbing-agent.md)
 
