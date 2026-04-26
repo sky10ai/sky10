@@ -98,6 +98,7 @@ func setupMessaging(
 		Store:            store,
 		ProcessResolver:  processResolver,
 		ExternalAdapters: externalRegistry,
+		SecretWriter:     secretsStore,
 	}))
 
 	go runMessagingPollLoop(ctx, b, store, logging.WithComponent(logger, "messaging.poll"))

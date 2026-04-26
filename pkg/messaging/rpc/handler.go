@@ -24,6 +24,7 @@ type Config struct {
 	Store            *messagingstore.Store
 	ProcessResolver  ProcessResolver
 	ExternalAdapters *messagingexternal.Registry
+	SecretWriter     SecretWriter
 }
 
 // Handler dispatches messaging.* RPC methods.
@@ -32,6 +33,7 @@ type Handler struct {
 	store            *messagingstore.Store
 	processResolver  ProcessResolver
 	externalAdapters *messagingexternal.Registry
+	secretWriter     SecretWriter
 }
 
 // NewHandler creates a messaging RPC handler.
@@ -41,6 +43,7 @@ func NewHandler(cfg Config) *Handler {
 		store:            cfg.Store,
 		processResolver:  cfg.ProcessResolver,
 		externalAdapters: cfg.ExternalAdapters,
+		secretWriter:     cfg.SecretWriter,
 	}
 }
 
@@ -63,6 +66,9 @@ func (h *Handler) Dispatch(ctx context.Context, method string, params json.RawMe
 		return h.rpcConnections(), nil, true
 	case "messaging.createConnection":
 		result, err := h.rpcCreateConnection(ctx, params)
+		return result, err, true
+	case "messaging.runAdapterAction":
+		result, err := h.rpcRunAdapterAction(ctx, params)
 		return result, err, true
 	case "messaging.connectAdapter":
 		result, err := h.rpcConnectAdapter(ctx, params)

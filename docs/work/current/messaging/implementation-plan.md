@@ -350,6 +350,8 @@ internal RPCs.
 - [x] Define a generic adapter settings/action schema so adapter settings
   screens can render text inputs, secret fields, validation buttons, connect
   buttons, and external setup links from manifest data.
+- [x] Add a generic daemon action RPC that maps adapter settings into
+  connection metadata, auth metadata, secrets, validation, and connect calls.
 - [ ] Add operator diagnostics for webhook failures, poll failures, and auth
   expiry.
 - [ ] Add retry and reconnect affordances.

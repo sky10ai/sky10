@@ -177,6 +177,14 @@ That lets the UI render ordinary text inputs, secret inputs, validation
 buttons, connect buttons, and setup links while the broker still owns where
 each value is persisted.
 
+Generic adapter setup actions use `messaging.runAdapterAction`. For
+`validate_config` and `connect` actions, the daemon maps manifest settings into
+a normalized `Connection`, writes credential-targeted values into
+`pkg/secrets`, stores only the resulting `credential_ref` on the connection,
+starts or replaces the supervised adapter process, and then calls the adapter's
+protocol method. This keeps adapter settings screens generic while preserving
+the broker as the credential and policy boundary.
+
 ### Messaging Broker
 
 The broker owns:
@@ -735,6 +743,7 @@ The current `sky10 serve` path now:
   - `messaging.adapter`
   - `messaging.connections`
   - `messaging.createConnection`
+  - `messaging.runAdapterAction`
   - `messaging.connectAdapter`
   - `messaging.connectBuiltin`
   - `messaging.connectConnection`

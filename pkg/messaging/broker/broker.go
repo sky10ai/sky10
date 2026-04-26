@@ -341,6 +341,24 @@ func (b *Broker) ConnectConnection(ctx context.Context, connectionID messaging.C
 	return b.persistConnectionResult(ctx, connection, paths, describe, result, true)
 }
 
+// ValidateConnectionConfig asks a supervised adapter to validate one persisted
+// connection using the broker-owned runtime paths and staged credential.
+func (b *Broker) ValidateConnectionConfig(ctx context.Context, connectionID messaging.ConnectionID) (protocol.ValidateConfigResult, error) {
+	connection, adapterClient, paths, _, err := b.prepareAdapterCall(ctx, connectionID)
+	if err != nil {
+		return protocol.ValidateConfigResult{}, err
+	}
+	credential, err := b.resolveConnectionCredential(ctx, connection, paths)
+	if err != nil {
+		return protocol.ValidateConfigResult{}, err
+	}
+	return adapterClient.ValidateConfig(ctx, protocol.ValidateConfigParams{
+		Connection: connection,
+		Paths:      paths,
+		Credential: credential,
+	})
+}
+
 func (b *Broker) persistConnectionResult(ctx context.Context, connection messaging.Connection, paths protocol.RuntimePaths, describe protocol.DescribeResult, result protocol.ConnectResult, replaceIdentities bool) (ConnectResult, error) {
 	now := b.now()
 	if result.Auth.Configured() {

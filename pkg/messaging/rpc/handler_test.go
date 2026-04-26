@@ -17,6 +17,7 @@ import (
 	"github.com/sky10/sky10/pkg/messaging/protocol"
 	messagingruntime "github.com/sky10/sky10/pkg/messaging/runtime"
 	messagingstore "github.com/sky10/sky10/pkg/messaging/store"
+	skysecrets "github.com/sky10/sky10/pkg/secrets"
 )
 
 func TestHandlerListAdaptersAndConnections(t *testing.T) {
@@ -79,10 +80,10 @@ func TestHandlerListExternalAdapters(t *testing.T) {
 	if slack.Adapter == nil || slack.Adapter.DisplayName != "Slack" {
 		t.Fatalf("slack adapter = %+v, want Slack metadata", slack.Adapter)
 	}
-	if len(slack.Settings) != 1 || slack.Settings[0].Target != messagingexternal.SettingTargetCredential {
+	if !hasAdapterSetting(slack.Settings, "bot_token", messagingexternal.SettingTargetCredential) {
 		t.Fatalf("slack settings = %#v, want credential setting", slack.Settings)
 	}
-	if len(slack.Actions) != 1 || slack.Actions[0].Kind != messagingexternal.ActionKindConnect {
+	if !hasAdapterAction(slack.Actions, "connect", messagingexternal.ActionKindConnect) {
 		t.Fatalf("slack actions = %#v, want connect action", slack.Actions)
 	}
 
@@ -97,6 +98,104 @@ func TestHandlerListExternalAdapters(t *testing.T) {
 	}
 	if result.(adapterInfo).Source != "external" {
 		t.Fatalf("adapter source = %q, want external", result.(adapterInfo).Source)
+	}
+}
+
+func TestHandlerRunAdapterActionStoresSettingsAndValidates(t *testing.T) {
+	t.Parallel()
+
+	registry := newExternalRegistryFixture(t)
+	writer := &recordingSecretWriter{}
+	handler := newTestHandlerWithExternal(t, func(adapterID string) (messagingruntime.ProcessSpec, error) {
+		if adapterID != "slack" {
+			t.Fatalf("resolver adapterID = %q, want slack", adapterID)
+		}
+		return messagingruntime.ProcessSpec{
+			Path: helperProcessExecutableForTests(),
+			Args: []string{"-test.run=TestMessagingRPCHandlerHelperProcess", "--"},
+			Env: []string{
+				"GO_WANT_HELPER_MESSAGING_RPC_ADAPTER=1",
+				"GO_MESSAGING_RPC_ADAPTER_ID=slack",
+			},
+		}, nil
+	}, registry)
+	handler.secretWriter = writer
+
+	result, err, handled := handler.Dispatch(context.Background(), "messaging.runAdapterAction", mustJSON(t, runAdapterActionParams{
+		AdapterID:    "slack",
+		ActionID:     "validate",
+		ConnectionID: "slack/work",
+		Label:        "Work Slack",
+		Settings: map[string]json.RawMessage{
+			"bot_token":                json.RawMessage(`"xoxb-test"`),
+			"slack_team_id":            json.RawMessage(`"T123"`),
+			"slack_history_limit":      json.RawMessage(`25`),
+			"slack_api_base_url":       json.RawMessage(`"https://slack.test/api"`),
+			"slack_conversation_types": json.RawMessage(`"public_channel,im"`),
+		},
+	}))
+	if err != nil {
+		t.Fatalf("Dispatch(runAdapterAction validate) error = %v", err)
+	}
+	if !handled {
+		t.Fatal("Dispatch(runAdapterAction validate) handled = false, want true")
+	}
+	validate := result.(runAdapterActionResult)
+	if validate.ActionKind != messagingexternal.ActionKindValidateConfig {
+		t.Fatalf("action kind = %q, want validate_config", validate.ActionKind)
+	}
+	if validate.Validation == nil || len(validate.Validation.Issues) != 0 {
+		t.Fatalf("validation = %+v, want no issues", validate.Validation)
+	}
+	if validate.Connection.Auth.Method != messaging.AuthMethodBotToken {
+		t.Fatalf("auth method = %q, want bot_token", validate.Connection.Auth.Method)
+	}
+	if validate.Connection.Auth.CredentialRef == "" {
+		t.Fatal("credential_ref is empty, want stored secret ref")
+	}
+	if got := validate.Connection.Metadata["slack_team_id"]; got != "T123" {
+		t.Fatalf("metadata slack_team_id = %q, want T123", got)
+	}
+	if got := validate.Connection.Metadata["slack_history_limit"]; got != "25" {
+		t.Fatalf("metadata slack_history_limit = %q, want 25", got)
+	}
+	if len(writer.puts) != 1 {
+		t.Fatalf("secret puts = %d, want 1", len(writer.puts))
+	}
+	if writer.puts[0].Name != validate.Connection.Auth.CredentialRef {
+		t.Fatalf("secret name = %q, want credential_ref %q", writer.puts[0].Name, validate.Connection.Auth.CredentialRef)
+	}
+	var credential map[string]string
+	if err := json.Unmarshal(writer.puts[0].Payload, &credential); err != nil {
+		t.Fatalf("unmarshal stored credential: %v", err)
+	}
+	if credential["bot_token"] != "xoxb-test" {
+		t.Fatalf("stored credential = %#v, want bot_token", credential)
+	}
+
+	result, err, handled = handler.Dispatch(context.Background(), "messaging.runAdapterAction", mustJSON(t, runAdapterActionParams{
+		AdapterID:    "slack",
+		ActionID:     "connect",
+		ConnectionID: "slack/work",
+		Settings: map[string]json.RawMessage{
+			"slack_team_id": json.RawMessage(`"T456"`),
+		},
+	}))
+	if err != nil {
+		t.Fatalf("Dispatch(runAdapterAction connect) error = %v", err)
+	}
+	if !handled {
+		t.Fatal("Dispatch(runAdapterAction connect) handled = false, want true")
+	}
+	connect := result.(runAdapterActionResult)
+	if connect.Connect == nil || connect.Connect.Connection.Status != messaging.ConnectionStatusConnected {
+		t.Fatalf("connect result = %+v, want connected", connect.Connect)
+	}
+	if len(writer.puts) != 1 {
+		t.Fatalf("secret puts after connect = %d, want unchanged 1", len(writer.puts))
+	}
+	if got := connect.Connect.Connection.Metadata["slack_team_id"]; got != "T456" {
+		t.Fatalf("connected metadata slack_team_id = %q, want T456", got)
 	}
 }
 
@@ -413,9 +512,39 @@ func newExternalRegistryFixture(t *testing.T) *messagingexternal.Registry {
       "kind": "secret",
       "target": "credential",
       "required": true
+    },
+    {
+      "key": "slack_team_id",
+      "label": "Team ID",
+      "kind": "text",
+      "target": "metadata"
+    },
+    {
+      "key": "slack_history_limit",
+      "label": "History page size",
+      "kind": "number",
+      "target": "metadata"
+    },
+    {
+      "key": "slack_api_base_url",
+      "label": "Slack API base URL",
+      "kind": "url",
+      "target": "metadata"
+    },
+    {
+      "key": "slack_conversation_types",
+      "label": "Conversation types",
+      "kind": "text",
+      "target": "metadata",
+      "default": "public_channel,private_channel,im,mpim"
     }
   ],
   "actions": [
+    {
+      "id": "validate",
+      "label": "Validate token",
+      "kind": "validate_config"
+    },
     {
       "id": "connect",
       "label": "Connect Slack",
@@ -442,6 +571,41 @@ func newExternalRegistryFixture(t *testing.T) *messagingexternal.Registry {
 	return registry
 }
 
+func hasAdapterAction(actions []messagingexternal.Action, id string, kind messagingexternal.ActionKind) bool {
+	for _, action := range actions {
+		if action.ID == id && action.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAdapterSetting(settings []messagingexternal.Setting, key string, target messagingexternal.SettingTarget) bool {
+	for _, setting := range settings {
+		if setting.Key == key && setting.Target == target {
+			return true
+		}
+	}
+	return false
+}
+
+type recordingSecretWriter struct {
+	puts []skysecrets.PutParams
+}
+
+func (w *recordingSecretWriter) Put(_ context.Context, params skysecrets.PutParams) (*skysecrets.SecretSummary, error) {
+	params.Payload = append([]byte(nil), params.Payload...)
+	w.puts = append(w.puts, params)
+	return &skysecrets.SecretSummary{
+		ID:          "secret-id",
+		Name:        params.Name,
+		Kind:        params.Kind,
+		ContentType: params.ContentType,
+		Scope:       params.Scope,
+		Size:        int64(len(params.Payload)),
+	}, nil
+}
+
 func runMessagingRPCHandlerHelperProcess() error {
 	dec := messagingruntime.NewDecoder(os.Stdin)
 	enc := messagingruntime.NewEncoder(os.Stdout)
@@ -457,14 +621,18 @@ func runMessagingRPCHandlerHelperProcess() error {
 
 		switch req.Method {
 		case string(protocol.MethodDescribe):
+			adapterID := os.Getenv("GO_MESSAGING_RPC_ADAPTER_ID")
+			if adapterID == "" {
+				adapterID = "imap-smtp"
+			}
 			if err := enc.Write(messagingruntime.Response{
 				JSONRPC: "2.0",
 				ID:      req.ID,
 				Result: mustJSONRaw(protocol.DescribeResult{
 					Protocol: protocol.CurrentProtocol(),
 					Adapter: messaging.Adapter{
-						ID:          "imap-smtp",
-						DisplayName: "IMAP/SMTP",
+						ID:          messaging.AdapterID(adapterID),
+						DisplayName: adapterID,
 						Capabilities: messaging.Capabilities{
 							Polling:           true,
 							ListConversations: true,
@@ -473,6 +641,26 @@ func runMessagingRPCHandlerHelperProcess() error {
 						},
 					},
 				}),
+			}); err != nil {
+				return err
+			}
+		case string(protocol.MethodValidateConfig):
+			var params protocol.ValidateConfigParams
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				return err
+			}
+			issues := make([]protocol.ValidationIssue, 0, 1)
+			if params.Credential == nil || strings.TrimSpace(params.Credential.Ref) == "" {
+				issues = append(issues, protocol.ValidationIssue{
+					Severity: protocol.ValidationIssueError,
+					Code:     "missing_credential",
+					Message:  "credential is required",
+				})
+			}
+			if err := enc.Write(messagingruntime.Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result:  mustJSONRaw(protocol.ValidateConfigResult{Issues: issues}),
 			}); err != nil {
 				return err
 			}
