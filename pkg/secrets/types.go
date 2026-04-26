@@ -78,17 +78,36 @@ type DeleteParams struct {
 
 // SecretSummary is the non-sensitive metadata returned by list/status APIs.
 type SecretSummary struct {
-	ID                 string       `json:"id"`
-	Name               string       `json:"name"`
-	Kind               string       `json:"kind"`
-	ContentType        string       `json:"content_type"`
-	Scope              string       `json:"scope"`
-	Size               int64        `json:"size"`
-	SHA256             string       `json:"sha256"`
-	CreatedAt          time.Time    `json:"created_at"`
-	UpdatedAt          time.Time    `json:"updated_at"`
-	RecipientDeviceIDs []string     `json:"recipient_device_ids"`
-	Policy             AccessPolicy `json:"policy,omitempty"`
+	ID                 string            `json:"id"`
+	Name               string            `json:"name"`
+	Kind               string            `json:"kind"`
+	ContentType        string            `json:"content_type"`
+	Scope              string            `json:"scope"`
+	Size               int64             `json:"size"`
+	SHA256             string            `json:"sha256"`
+	CreatedAt          time.Time         `json:"created_at"`
+	UpdatedAt          time.Time         `json:"updated_at"`
+	RecipientDeviceIDs []string          `json:"recipient_device_ids"`
+	Policy             AccessPolicy      `json:"policy,omitempty"`
+	References         []SecretReference `json:"references,omitempty"`
+}
+
+// SecretReference describes another subsystem that owns or relies on a secret.
+// Surfacing references in list/get responses lets the UI flag secrets that
+// shouldn't be edited directly (e.g. messaging-managed credentials).
+type SecretReference struct {
+	// Kind is a stable identifier for the reference type, e.g.
+	// "messaging-connection".
+	Kind string `json:"kind"`
+	// Manager is a stable identifier for the owning subsystem (e.g.
+	// "messaging"). The UI may group references by manager.
+	Manager string `json:"manager"`
+	// Subject is a human-readable label, e.g. the connection label or name.
+	Subject string `json:"subject,omitempty"`
+	// Detail is an optional secondary label, e.g. the adapter id.
+	Detail string `json:"detail,omitempty"`
+	// Route is an optional UI deep link, e.g. "/settings/messaging".
+	Route string `json:"route,omitempty"`
 }
 
 // Secret is a decrypted secret artifact.

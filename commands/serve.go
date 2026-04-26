@@ -195,14 +195,15 @@ func ServeCmd() *cobra.Command {
 			}()
 
 			secretsStore := secrets.New(backend, bundle, secrets.Config{BootstrapKV: kvStore}, nil)
-			server.RegisterHandler(secrets.NewRPCHandler(secretsStore))
+			secretsRPC := secrets.NewRPCHandler(secretsStore)
+			server.RegisterHandler(secretsRPC)
 			server.RegisterHandler(skycodex.NewRPCHandler(skycodex.NewService(server.Emit)))
 			server.RegisterHandler(skyhome.NewRPCHandler(skyhome.NewStore(server.Emit)))
 			secretsRunErr := make(chan error, 1)
 			go func() {
 				secretsRunErr <- secretsStore.Run(ctx)
 			}()
-			if err := setupMessaging(ctx, server, kvStore, mailboxStore, secretsStore, logger); err != nil {
+			if err := setupMessaging(ctx, server, kvStore, mailboxStore, secretsStore, secretsRPC, logger); err != nil {
 				return err
 			}
 			reconcileTrustedSecrets := func(reason string) {

@@ -38,6 +38,7 @@ func setupMessaging(
 	kvStore *kv.Store,
 	mailboxStore *agentmailbox.Store,
 	secretsStore *skysecrets.Store,
+	secretsRPC *skysecrets.RPCHandler,
 	logger *slog.Logger,
 ) error {
 	rootDir, err := skyconfig.RootDir()
@@ -100,6 +101,8 @@ func setupMessaging(
 		ExternalAdapters: externalRegistry,
 		SecretWriter:     secretsStore,
 	}))
+
+	secretsRPC.AddReferenceResolver(messagingrpc.SecretReferenceResolver{Connections: store})
 
 	go runMessagingPollLoop(ctx, b, store, logging.WithComponent(logger, "messaging.poll"))
 	return nil

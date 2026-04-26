@@ -8,14 +8,46 @@ import (
 	"strings"
 )
 
+// ReferenceResolver resolves cross-subsystem references for a secret summary.
+// Implementations are expected to be cheap and side-effect free; they run on
+// every secrets.list / secrets.get call.
+type ReferenceResolver interface {
+	References(SecretSummary) []SecretReference
+}
+
 // RPCHandler dispatches secrets.* RPC methods.
 type RPCHandler struct {
-	store *Store
+	store     *Store
+	resolvers []ReferenceResolver
 }
 
 // NewRPCHandler creates a new secrets RPC handler.
 func NewRPCHandler(store *Store) *RPCHandler {
 	return &RPCHandler{store: store}
+}
+
+// AddReferenceResolver registers a resolver whose results are appended to the
+// References field on every secret summary returned by list/get. Safe to call
+// after handler registration but before serving traffic.
+func (h *RPCHandler) AddReferenceResolver(r ReferenceResolver) {
+	if h == nil || r == nil {
+		return
+	}
+	h.resolvers = append(h.resolvers, r)
+}
+
+func (h *RPCHandler) referencesFor(summary SecretSummary) []SecretReference {
+	if len(h.resolvers) == 0 {
+		return nil
+	}
+	var refs []SecretReference
+	for _, r := range h.resolvers {
+		if r == nil {
+			continue
+		}
+		refs = append(refs, r.References(summary)...)
+	}
+	return refs
 }
 
 // Dispatch implements rpc.Handler.
@@ -141,7 +173,7 @@ func (h *RPCHandler) rpcGet(params json.RawMessage) (interface{}, error) {
 		return nil, err
 	}
 
-	return map[string]interface{}{
+	out := map[string]interface{}{
 		"id":                   secret.ID,
 		"name":                 secret.Name,
 		"kind":                 secret.Kind,
@@ -154,7 +186,11 @@ func (h *RPCHandler) rpcGet(params json.RawMessage) (interface{}, error) {
 		"recipient_device_ids": secret.RecipientDeviceIDs,
 		"version_id":           secret.VersionID,
 		"payload":              base64.StdEncoding.EncodeToString(secret.Payload),
-	}, nil
+	}
+	if refs := h.referencesFor(secret.SecretSummary); len(refs) > 0 {
+		out["references"] = refs
+	}
+	return out, nil
 }
 
 func (h *RPCHandler) rpcList() (interface{}, error) {
@@ -164,7 +200,7 @@ func (h *RPCHandler) rpcList() (interface{}, error) {
 	}
 	resultItems := make([]map[string]interface{}, 0, len(items))
 	for _, item := range items {
-		resultItems = append(resultItems, map[string]interface{}{
+		entry := map[string]interface{}{
 			"id":                   item.ID,
 			"name":                 item.Name,
 			"kind":                 item.Kind,
@@ -175,7 +211,11 @@ func (h *RPCHandler) rpcList() (interface{}, error) {
 			"created_at":           item.CreatedAt,
 			"updated_at":           item.UpdatedAt,
 			"recipient_device_ids": item.RecipientDeviceIDs,
-		})
+		}
+		if refs := h.referencesFor(item); len(refs) > 0 {
+			entry["references"] = refs
+		}
+		resultItems = append(resultItems, entry)
 	}
 	return map[string]interface{}{
 		"items": resultItems,

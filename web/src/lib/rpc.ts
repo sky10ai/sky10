@@ -667,6 +667,14 @@ export interface IdentityDevices {
   devices: IdentityDevice[];
 }
 
+export interface SecretReference {
+  kind: string;
+  manager: string;
+  subject?: string;
+  detail?: string;
+  route?: string;
+}
+
 export interface SecretSummary {
   id: string;
   name: string;
@@ -678,6 +686,7 @@ export interface SecretSummary {
   created_at: string;
   updated_at: string;
   recipient_device_ids: string[];
+  references?: SecretReference[];
 }
 
 export interface SecretRecord extends SecretSummary {

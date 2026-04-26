@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { Icon } from "../components/Icon";
 import { SettingsPage } from "../components/SettingsPage";
 import { StatusBadge } from "../components/StatusBadge";
 import {
   secrets,
   type SecretDevice,
+  type SecretReference,
   type SecretRecord,
   type SecretSummary,
 } from "../lib/rpc";
@@ -20,6 +21,14 @@ interface DraftFile {
   name: string;
 }
 
+function messagingRefs(
+  summary: Pick<SecretSummary, "references">,
+): SecretReference[] {
+  return (summary.references ?? []).filter(
+    (ref) => ref.manager === "messaging",
+  );
+}
+
 export default function SettingsSecrets() {
   const [searchParams] = useSearchParams();
   const didPrefillFromQuery = useRef(false);
@@ -30,6 +39,7 @@ export default function SettingsSecrets() {
     refetch: refetchList,
     refreshing: listRefreshing,
   } = useRPC(() => secrets.list(), [], {
+    live: ["messaging:event"],
     refreshIntervalMs: 10_000,
   });
   const {
@@ -717,6 +727,11 @@ export default function SettingsSecrets() {
                             {item.scope}
                           </StatusBadge>
                           <StatusBadge tone="neutral">{item.kind}</StatusBadge>
+                          {messagingRefs(item).length > 0 && (
+                            <StatusBadge tone="success" icon="forum">
+                              Managed by Messaging
+                            </StatusBadge>
+                          )}
                         </div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-secondary">
                           <span>{formatBytes(item.size)}</span>
@@ -755,6 +770,42 @@ export default function SettingsSecrets() {
                       {selectedSecret.kind} • {selectedSecret.content_type}
                     </p>
                   </div>
+
+                  {messagingRefs(selectedSecret).length > 0 && (
+                    <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 text-sm text-on-surface">
+                      <div className="flex items-center gap-2 font-semibold text-primary">
+                        <Icon className="text-base" name="forum" />
+                        Managed by Messaging
+                      </div>
+                      <p className="mt-1 text-secondary">
+                        Edit or rotate this secret from the Messaging tab so the
+                        connection stays in sync.
+                      </p>
+                      <ul className="mt-2 space-y-1">
+                        {messagingRefs(selectedSecret).map((ref, idx) => (
+                          <li
+                            key={`${ref.kind}:${ref.subject ?? ""}:${idx}`}
+                            className="text-secondary"
+                          >
+                            <span className="font-medium text-on-surface">
+                              {ref.subject || "(unnamed connection)"}
+                            </span>
+                            {ref.detail ? ` — ${ref.detail}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                      <Link
+                        className="mt-3 inline-flex items-center gap-1 text-primary hover:underline"
+                        to={
+                          messagingRefs(selectedSecret)[0]?.route ??
+                          "/settings/messaging"
+                        }
+                      >
+                        Open Messaging settings
+                        <Icon className="text-xs" name="arrow_forward" />
+                      </Link>
+                    </div>
+                  )}
 
                   <div className="grid gap-3 sm:grid-cols-2">
                     <InfoTile
