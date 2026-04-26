@@ -17,15 +17,18 @@ const (
 	OpenClawDir              = "openclaw"
 	OpenClawSky10PluginDir   = OpenClawDir + "/sky10-openclaw"
 	OpenClawDockerDir        = OpenClawDir + "/docker"
+	HermesDir                = "hermes"
+	HermesBridgeDir          = HermesDir + "/bridge"
+	HermesDockerDir          = HermesDir + "/docker"
 	repoRuntimeBundlesSubdir = "external/runtimebundles"
 )
 
-//go:embed openclaw
+//go:embed openclaw hermes
 var assets embed.FS
 
 func IsAsset(name string) bool {
 	clean, err := cleanAssetName(name)
-	return err == nil && strings.HasPrefix(clean, OpenClawDir+"/")
+	return err == nil && (strings.HasPrefix(clean, OpenClawDir+"/") || strings.HasPrefix(clean, HermesDir+"/"))
 }
 
 func ReadAsset(name string) ([]byte, error) {

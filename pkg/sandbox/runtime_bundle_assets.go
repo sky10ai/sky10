@@ -12,4 +12,9 @@ const (
 	runtimeBundleOpenClawDockerRuntimeDir = runtimebundles.OpenClawDockerDir
 	runtimeBundleOpenClawDockerfile       = runtimeBundleOpenClawDockerRuntimeDir + "/Dockerfile"
 	runtimeBundleOpenClawDockerEntrypoint = runtimeBundleOpenClawDockerRuntimeDir + "/entrypoint.sh"
+	runtimeBundleHermesBridgeDir          = runtimebundles.HermesBridgeDir
+	runtimeBundleHermesBridgeAsset        = runtimeBundleHermesBridgeDir + "/hermes-sky10-bridge.py"
+	runtimeBundleHermesDockerRuntimeDir   = runtimebundles.HermesDockerDir
+	runtimeBundleHermesDockerfile         = runtimeBundleHermesDockerRuntimeDir + "/Dockerfile"
+	runtimeBundleHermesDockerEntrypoint   = runtimeBundleHermesDockerRuntimeDir + "/entrypoint.sh"
 )

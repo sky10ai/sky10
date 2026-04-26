@@ -27,13 +27,13 @@ var openClawDockerSharedAssetFiles = append(
 )
 
 var hermesSharedAssetFiles = []string{
-	templateHermesBridgeAsset,
+	runtimeBundleHermesBridgeAsset,
 }
 
 var hermesDockerSharedAssetFiles = append(
 	append([]string(nil), hermesSharedAssetFiles...),
-	templateHermesDockerfile,
-	templateHermesDockerEntrypoint,
+	runtimeBundleHermesDockerfile,
+	runtimeBundleHermesDockerEntrypoint,
 )
 
 var defaultHermesBridgeSkills = []string{
@@ -567,6 +567,10 @@ func sandboxSharedAssetTargetPath(stateDir, relPath string) string {
 		return filepath.Join(stateDir, "runtime", "openclaw", strings.TrimPrefix(relPath, runtimeBundleOpenClawDockerRuntimeDir+"/"))
 	case strings.HasPrefix(relPath, templateOpenClawDockerRuntimeDir+"/"):
 		return filepath.Join(stateDir, "runtime", "openclaw", strings.TrimPrefix(relPath, templateOpenClawDockerRuntimeDir+"/"))
+	case strings.HasPrefix(relPath, runtimeBundleHermesBridgeDir+"/"):
+		return filepath.Join(stateDir, strings.TrimPrefix(relPath, runtimeBundleHermesBridgeDir+"/"))
+	case strings.HasPrefix(relPath, runtimeBundleHermesDockerRuntimeDir+"/"):
+		return filepath.Join(stateDir, "runtime", "hermes", strings.TrimPrefix(relPath, runtimeBundleHermesDockerRuntimeDir+"/"))
 	case strings.HasPrefix(relPath, templateHermesDockerRuntimeDir+"/"):
 		return filepath.Join(stateDir, "runtime", "hermes", strings.TrimPrefix(relPath, templateHermesDockerRuntimeDir+"/"))
 	default:

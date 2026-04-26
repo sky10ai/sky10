@@ -1647,7 +1647,7 @@ func TestPrepareHermesSharedDir(t *testing.T) {
 	if err := prepareHermesSharedDir(sharedDir, stateDir, map[string]string{
 		"ANTHROPIC_API_KEY": "anthropic-key",
 	}, map[string][]byte{
-		templateHermesBridgeAsset: []byte("#!/usr/bin/env python3\nprint('ok')\n"),
+		runtimeBundleHermesBridgeAsset: []byte("#!/usr/bin/env python3\nprint('ok')\n"),
 	}, &hermesBridgeConfig{
 		Sky10RPCURL:  guestSky10LocalRPCURL,
 		AgentName:    "Hermes Agent",
@@ -1722,9 +1722,9 @@ func TestPrepareHermesSharedDirDockerAssets(t *testing.T) {
 	if err := prepareHermesSharedDir(sharedDir, stateDir, map[string]string{
 		"ANTHROPIC_API_KEY": "anthropic-key",
 	}, map[string][]byte{
-		templateHermesBridgeAsset:      []byte("#!/usr/bin/env python3\nprint('ok')\n"),
-		templateHermesDockerfile:       []byte("FROM ubuntu:24.04\n"),
-		templateHermesDockerEntrypoint: []byte("#!/bin/sh\n"),
+		runtimeBundleHermesBridgeAsset:      []byte("#!/usr/bin/env python3\nprint('ok')\n"),
+		runtimeBundleHermesDockerfile:       []byte("FROM ubuntu:24.04\n"),
+		runtimeBundleHermesDockerEntrypoint: []byte("#!/bin/sh\n"),
 	}, &hermesBridgeConfig{
 		Sky10RPCURL:  guestSky10LocalRPCURL,
 		AgentName:    "Hermes Docker",
@@ -1819,12 +1819,38 @@ func TestLoadSandboxAssetsLoadsOpenClawRuntimeBundle(t *testing.T) {
 	}
 }
 
+func TestLoadSandboxAssetsLoadsHermesRuntimeBundle(t *testing.T) {
+	t.Parallel()
+
+	assets, err := loadSandboxAssets(context.Background(), []string{
+		runtimeBundleHermesBridgeAsset,
+		runtimeBundleHermesDockerEntrypoint,
+	})
+	if err != nil {
+		t.Fatalf("loadSandboxAssets() error: %v", err)
+	}
+	bridgeBody, ok := assets[runtimeBundleHermesBridgeAsset]
+	if !ok {
+		t.Fatalf("loadSandboxAssets() missing %q", runtimeBundleHermesBridgeAsset)
+	}
+	if !strings.Contains(string(bridgeBody), `"agent.register"`) {
+		t.Fatalf("runtime bundle Hermes bridge missing registration call: %q", string(bridgeBody))
+	}
+	entrypointBody, ok := assets[runtimeBundleHermesDockerEntrypoint]
+	if !ok {
+		t.Fatalf("loadSandboxAssets() missing %q", runtimeBundleHermesDockerEntrypoint)
+	}
+	if !strings.Contains(string(entrypointBody), `source_env_file "${BRIDGE_ENV}"`) {
+		t.Fatalf("runtime bundle Hermes entrypoint missing bridge env load: %q", string(entrypointBody))
+	}
+}
+
 func TestBundledHermesDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T) {
 	t.Parallel()
 
-	body, err := readBundledTemplateAsset(templateHermesDockerEntrypoint)
+	body, err := readBundledRuntimeBundleAsset(runtimeBundleHermesDockerEntrypoint)
 	if err != nil {
-		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateHermesDockerEntrypoint, err)
+		t.Fatalf("readBundledRuntimeBundleAsset(%q) error: %v", runtimeBundleHermesDockerEntrypoint, err)
 	}
 
 	assertBundledDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t, string(body))
@@ -1864,9 +1890,9 @@ func assertBundledDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T, 
 func TestBundledHermesDockerRuntimeEntrypointDoesNotTraceSecrets(t *testing.T) {
 	t.Parallel()
 
-	body, err := readBundledTemplateAsset(templateHermesDockerEntrypoint)
+	body, err := readBundledRuntimeBundleAsset(runtimeBundleHermesDockerEntrypoint)
 	if err != nil {
-		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateHermesDockerEntrypoint, err)
+		t.Fatalf("readBundledRuntimeBundleAsset(%q) error: %v", runtimeBundleHermesDockerEntrypoint, err)
 	}
 
 	script := string(body)
@@ -2110,9 +2136,9 @@ Use this file for durable facts that should survive model, runtime, and machine 
 func TestBundledHermesBridgeAssetRegistersWithSky10(t *testing.T) {
 	t.Parallel()
 
-	body, err := readBundledTemplateAsset(templateHermesBridgeAsset)
+	body, err := readBundledRuntimeBundleAsset(runtimeBundleHermesBridgeAsset)
 	if err != nil {
-		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateHermesBridgeAsset, err)
+		t.Fatalf("readBundledRuntimeBundleAsset(%q) error: %v", runtimeBundleHermesBridgeAsset, err)
 	}
 
 	script := string(body)

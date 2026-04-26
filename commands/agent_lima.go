@@ -47,6 +47,7 @@ const (
 	agentLimaHermesDockerSys               = "hermes-docker-sky10.system.sh"
 	agentLimaHermesDockerUser              = "hermes-docker-sky10.user.sh"
 	agentLimaHermesBridge                  = "hermes-sky10-bridge.py"
+	agentLimaHermesBridgeAsset             = runtimebundles.HermesBridgeDir + "/hermes-sky10-bridge.py"
 	agentLimaHermesBridgeJSON              = "bridge.json"
 	agentLimaHostsScript                   = "update-lima-hosts.sh"
 	agentLimaPluginDir                     = "openclaw-sky10-channel"
@@ -68,6 +69,8 @@ const (
 	agentLimaHermesDockerRuntimeDir        = "hermes-docker-runtime"
 	agentLimaHermesDockerfile              = agentLimaHermesDockerRuntimeDir + "/Dockerfile"
 	agentLimaHermesDockerEntrypoint        = agentLimaHermesDockerRuntimeDir + "/entrypoint.sh"
+	agentLimaHermesDockerfileAsset         = runtimebundles.HermesDockerDir + "/Dockerfile"
+	agentLimaHermesDockerEntrypointAsset   = runtimebundles.HermesDockerDir + "/entrypoint.sh"
 	agentLimaRemoteAssetBase               = "https://raw.githubusercontent.com/sky10ai/sky10/main/templates/lima/"
 	sandboxProviderLima                    = "lima"
 	sandboxTemplateOpenClaw                = "openclaw"
@@ -111,12 +114,12 @@ var agentLimaOpenClawDockerRuntimeFiles = []string{
 }
 
 var agentLimaHermesSharedFiles = []string{
-	agentLimaHermesBridge,
+	agentLimaHermesBridgeAsset,
 }
 
 var agentLimaHermesDockerRuntimeFiles = []string{
-	agentLimaHermesDockerfile,
-	agentLimaHermesDockerEntrypoint,
+	agentLimaHermesDockerfileAsset,
+	agentLimaHermesDockerEntrypointAsset,
 }
 
 var defaultHermesBridgeSkills = []string{
@@ -864,6 +867,10 @@ func limaSharedAssetTargetPath(stateDir, relPath string) string {
 		return filepath.Join(stateDir, "runtime", "openclaw", strings.TrimPrefix(relPath, runtimebundles.OpenClawDockerDir+"/"))
 	case strings.HasPrefix(relPath, agentLimaOpenClawDockerRuntimeDir+"/"):
 		return filepath.Join(stateDir, "runtime", "openclaw", strings.TrimPrefix(relPath, agentLimaOpenClawDockerRuntimeDir+"/"))
+	case strings.HasPrefix(relPath, runtimebundles.HermesBridgeDir+"/"):
+		return filepath.Join(stateDir, strings.TrimPrefix(relPath, runtimebundles.HermesBridgeDir+"/"))
+	case strings.HasPrefix(relPath, runtimebundles.HermesDockerDir+"/"):
+		return filepath.Join(stateDir, "runtime", "hermes", strings.TrimPrefix(relPath, runtimebundles.HermesDockerDir+"/"))
 	case strings.HasPrefix(relPath, agentLimaHermesDockerRuntimeDir+"/"):
 		return filepath.Join(stateDir, "runtime", "hermes", strings.TrimPrefix(relPath, agentLimaHermesDockerRuntimeDir+"/"))
 	default:

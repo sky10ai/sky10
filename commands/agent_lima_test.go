@@ -383,7 +383,7 @@ func TestPrepareLimaSharedDirHermes(t *testing.T) {
 	sharedDir := t.TempDir()
 	stateDir := filepath.Join(t.TempDir(), "state")
 	if err := prepareLimaSharedDir(sandboxTemplateHermes, sharedDir, stateDir, nil, map[string][]byte{
-		agentLimaHermesBridge: []byte("#!/usr/bin/env python3\nprint('ok')\n"),
+		agentLimaHermesBridgeAsset: []byte("#!/usr/bin/env python3\nprint('ok')\n"),
 	}, map[string]string{
 		"ANTHROPIC_API_KEY": "anthropic-key",
 	}, &hermesBridgeConfig{
@@ -492,6 +492,33 @@ func TestLoadLimaSharedAssetsLoadsOpenClawRuntimeBundle(t *testing.T) {
 	}
 }
 
+func TestLoadLimaSharedAssetsLoadsHermesRuntimeBundle(t *testing.T) {
+	t.Parallel()
+
+	spec, err := limaTemplateDefinition(sandboxTemplateHermesDocker)
+	if err != nil {
+		t.Fatalf("limaTemplateDefinition(hermes-docker): %v", err)
+	}
+	assets, err := loadLimaSharedAssets(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("loadLimaSharedAssets() error: %v", err)
+	}
+	bridgeBody, ok := assets[agentLimaHermesBridgeAsset]
+	if !ok {
+		t.Fatalf("loadLimaSharedAssets() missing %q", agentLimaHermesBridgeAsset)
+	}
+	if !strings.Contains(string(bridgeBody), `"agent.register"`) {
+		t.Fatalf("runtime bundle Hermes bridge missing registration call: %q", string(bridgeBody))
+	}
+	entrypointBody, ok := assets[agentLimaHermesDockerEntrypointAsset]
+	if !ok {
+		t.Fatalf("loadLimaSharedAssets() missing %q", agentLimaHermesDockerEntrypointAsset)
+	}
+	if !strings.Contains(string(entrypointBody), `source_env_file "${BRIDGE_ENV}"`) {
+		t.Fatalf("runtime bundle Hermes entrypoint missing bridge env load: %q", string(entrypointBody))
+	}
+}
+
 func TestOpenClawDockerUserScriptPersistsGuestSky10State(t *testing.T) {
 	t.Parallel()
 
@@ -558,18 +585,9 @@ func TestOpenClawDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T) {
 func TestHermesDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T) {
 	t.Parallel()
 
-	spec, err := limaTemplateDefinition(sandboxTemplateHermesDocker)
+	body, err := runtimebundles.ReadAsset(agentLimaHermesDockerEntrypointAsset)
 	if err != nil {
-		t.Fatalf("limaTemplateDefinition(hermes-docker): %v", err)
-	}
-	dir, err := findLocalLimaTemplateDir(spec)
-	if err != nil {
-		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
-	}
-
-	body, err := os.ReadFile(filepath.Join(dir, agentLimaHermesDockerEntrypoint))
-	if err != nil {
-		t.Fatalf("ReadFile(docker runtime entrypoint) error: %v", err)
+		t.Fatalf("runtimebundles.ReadAsset(%q) error: %v", agentLimaHermesDockerEntrypointAsset, err)
 	}
 
 	assertDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t, string(body))
@@ -609,18 +627,9 @@ func assertDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T, script 
 func TestHermesDockerRuntimeEntrypointDoesNotTraceSecrets(t *testing.T) {
 	t.Parallel()
 
-	spec, err := limaTemplateDefinition(sandboxTemplateHermesDocker)
+	body, err := runtimebundles.ReadAsset(agentLimaHermesDockerEntrypointAsset)
 	if err != nil {
-		t.Fatalf("limaTemplateDefinition(hermes-docker): %v", err)
-	}
-	dir, err := findLocalLimaTemplateDir(spec)
-	if err != nil {
-		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
-	}
-
-	body, err := os.ReadFile(filepath.Join(dir, agentLimaHermesDockerEntrypoint))
-	if err != nil {
-		t.Fatalf("ReadFile(docker runtime entrypoint) error: %v", err)
+		t.Fatalf("runtimebundles.ReadAsset(%q) error: %v", agentLimaHermesDockerEntrypointAsset, err)
 	}
 
 	script := string(body)
@@ -966,18 +975,9 @@ func TestHermesUserScriptInstallsHelper(t *testing.T) {
 func TestHermesBridgeAssetSubscribesToSky10Events(t *testing.T) {
 	t.Parallel()
 
-	spec, err := limaTemplateDefinition(sandboxTemplateHermes)
+	body, err := runtimebundles.ReadAsset(agentLimaHermesBridgeAsset)
 	if err != nil {
-		t.Fatalf("limaTemplateDefinition(hermes): %v", err)
-	}
-	dir, err := findLocalLimaTemplateDir(spec)
-	if err != nil {
-		t.Fatalf("findLocalLimaTemplateDir() error: %v", err)
-	}
-
-	body, err := os.ReadFile(filepath.Join(dir, agentLimaHermesBridge))
-	if err != nil {
-		t.Fatalf("ReadFile(bridge asset) error: %v", err)
+		t.Fatalf("runtimebundles.ReadAsset(%q) error: %v", agentLimaHermesBridgeAsset, err)
 	}
 	script := string(body)
 	if !strings.Contains(script, `"agent.register"`) {

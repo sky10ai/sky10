@@ -605,7 +605,7 @@ func hermesBridgeScriptPath(t *testing.T) string {
 	if !ok {
 		t.Fatal("runtime.Caller(0) failed")
 	}
-	path := filepath.Clean(filepath.Join(filepath.Dir(file), "..", "sandbox", "templates", "hermes-sky10-bridge.py"))
+	path := filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "external", "runtimebundles", "hermes", "bridge", "hermes-sky10-bridge.py"))
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("stat Hermes bridge script %q: %v", path, err)
 	}

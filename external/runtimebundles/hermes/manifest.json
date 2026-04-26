@@ -1,0 +1,14 @@
+{
+  "id": "hermes",
+  "schema": 1,
+  "components": {
+    "bridge": {
+      "path": "bridge/hermes-sky10-bridge.py",
+      "target": "hermes-sky10-bridge.py"
+    },
+    "docker": {
+      "path": "docker",
+      "target": "runtime/hermes"
+    }
+  }
+}
