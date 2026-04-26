@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import base64
+import hashlib
 import mimetypes
 import os
 import re
@@ -28,6 +29,7 @@ DEFAULT_AGENT_SKILLS = ["code", "shell", "web-search", "file-ops"]
 DEFAULT_MANIFEST_PATH = "/shared/agent-manifest.json"
 WARMUP_PROMPT = "Reply with exactly OK."
 MEDIA_ROOT = os.path.join(tempfile.gettempdir(), "sky10-hermes-media")
+DEFAULT_JOB_OUTPUT_ROOT = "/shared/jobs"
 
 
 class BridgeError(RuntimeError):
@@ -409,7 +411,49 @@ def extract_client_request_id(content: Any) -> str:
     return client_request_id.strip()
 
 
-def build_tool_call_prompt(content: dict[str, Any]) -> str:
+def resolve_job_output_dir(job_id: str, content: dict[str, Any]) -> str:
+    job_context = content.get("job_context") if isinstance(content.get("job_context"), dict) else {}
+    configured = str(job_context.get("output_dir") or "").strip()
+    if configured:
+        return configured
+    root = os.environ.get("SKY10_JOB_OUTPUT_ROOT", DEFAULT_JOB_OUTPUT_ROOT).strip() or DEFAULT_JOB_OUTPUT_ROOT
+    return os.path.join(root, job_id, "outputs")
+
+
+def file_digest(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return "sha256:" + digest.hexdigest()
+
+
+def collect_output_refs(output_dir: str) -> list[dict[str, Any]]:
+    if not os.path.isdir(output_dir):
+        return []
+    refs: list[dict[str, Any]] = []
+    for root, _dirs, files in os.walk(output_dir):
+        for filename in sorted(files):
+            path = os.path.join(root, filename)
+            if not os.path.isfile(path):
+                continue
+            rel = os.path.relpath(path, output_dir)
+            media_type = guess_mime_type(path)
+            refs.append(
+                {
+                    "kind": "file",
+                    "key": rel,
+                    "uri": "file://" + urllib.request.pathname2url(os.path.abspath(path)),
+                    "mime_type": media_type or "application/octet-stream",
+                    "size": os.path.getsize(path),
+                    "digest": file_digest(path),
+                }
+            )
+    refs.sort(key=lambda ref: str(ref.get("key") or ""))
+    return refs
+
+
+def build_tool_call_prompt(content: dict[str, Any], output_dir: str) -> str:
     tool = str(content.get("tool") or "").strip() or "tool"
     capability = str(content.get("capability") or "").strip()
     job_context = content.get("job_context") if isinstance(content.get("job_context"), dict) else {}
@@ -427,6 +471,7 @@ def build_tool_call_prompt(content: dict[str, Any]) -> str:
         "capability": capability,
         "input": content.get("input") if "input" in content else {},
         "payload_refs": payload_refs,
+        "output_dir": output_dir,
         "budget": content.get("budget"),
         "bid_id": content.get("bid_id"),
     }
@@ -435,7 +480,7 @@ def build_tool_call_prompt(content: dict[str, Any]) -> str:
             "You are fulfilling a sky10 durable agent tool call.",
             "Complete the requested tool call autonomously using the tools and credentials available in this VM.",
             "If the request involves audio or video, infer the media workflow yourself: inspect/extract/convert/mux with ffmpeg when useful, and use configured provider APIs such as ElevenLabs when a voice transformation requires them.",
-            "Treat payload_refs as input handles. Write generated artifacts to a durable path or URI that sky10 can return to the caller.",
+            f"Treat payload_refs as input handles. Write generated artifacts under this directory: {output_dir}",
             "Return a concise result summary and include any output artifact paths or URIs.",
             "",
             "Tool call:",
@@ -1159,19 +1204,24 @@ class Bridge:
             log("Skipping tool_call without job_id")
             return
         tool = str(content.get("tool") or content.get("capability") or "tool").strip() or "tool"
+        output_dir = resolve_job_output_dir(job_id, content)
         try:
+            os.makedirs(output_dir, exist_ok=True)
             self.sky10.update_job_status(job_id, "running", f"Running {tool}")
             reply = self.hermes.stream(
                 job_id,
-                {"text": build_tool_call_prompt(content)},
+                {"text": build_tool_call_prompt(content, output_dir)},
                 lambda _chunk: None,
             )
+            output_refs = collect_output_refs(output_dir)
             self.sky10.complete_job(
                 job_id,
                 {
                     "summary": reply,
                     "text": reply,
+                    "artifacts": output_refs,
                 },
+                payload_refs=output_refs,
                 message="Tool call completed.",
             )
             log(f"Tool call completed for job {job_id}")

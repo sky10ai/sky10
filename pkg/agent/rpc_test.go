@@ -185,6 +185,9 @@ func TestRPCAgentCallCreatesAcceptedJobAndDispatchesToolCall(t *testing.T) {
 	if call.Job.WorkState != JobWorkAccepted || call.Job.PaymentState != JobPaymentNone {
 		t.Fatalf("job state = %s/%s, want accepted/none", call.Job.WorkState, call.Job.PaymentState)
 	}
+	if call.Job.OutputDir == "" || !strings.Contains(call.Job.OutputDir, call.JobID) {
+		t.Fatalf("job output_dir = %q, want per-job output directory", call.Job.OutputDir)
+	}
 	if call.Job.InputDigest == "" || strings.Contains(call.Job.InputDigest, "private payload text") {
 		t.Fatalf("input digest = %q, want digest without raw payload", call.Job.InputDigest)
 	}
@@ -204,6 +207,9 @@ func TestRPCAgentCallCreatesAcceptedJobAndDispatchesToolCall(t *testing.T) {
 	}
 	if toolCall.JobContext.JobID != call.JobID || !slices.Contains(toolCall.JobContext.UpdateMethods, "agent.job.complete") {
 		t.Fatalf("tool call job context = %#v, want lifecycle update methods", toolCall.JobContext)
+	}
+	if toolCall.JobContext.OutputDir != call.Job.OutputDir {
+		t.Fatalf("tool call output_dir = %q, want %q", toolCall.JobContext.OutputDir, call.Job.OutputDir)
 	}
 
 	getRaw, err, handled := h.Dispatch(ctx, "agent.job.get", mustJSON(t, AgentJobGetParams{JobID: call.JobID}))

@@ -527,6 +527,7 @@ func ServeCmd() *cobra.Command {
 			agentRPC.SetJobStore(agentJobStore)
 			agentRPC.SetSandboxProvisioner(sandboxManager)
 			server.RegisterHandler(agentRPC)
+			server.HandleHTTP("GET /rpc/agent-jobs/artifact", agentJobStore.HandleArtifactDownload)
 			agentChatWS := skyagent.NewChatWebSocketHandler(agentRegistry, agentRPC, agentMessageHub, logRuntime.Logger)
 			server.HandleHTTP("GET /rpc/agents/{agent}/chat", func(w http.ResponseWriter, r *http.Request) {
 				if sandboxAgentSource.TryProxyChat(w, r) {

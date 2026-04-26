@@ -107,6 +107,7 @@ type AgentJob struct {
 	UpdatedAt      string            `json:"updated_at"`
 	StatusMessage  string            `json:"status_message,omitempty"`
 	Progress       *float64          `json:"progress,omitempty"`
+	OutputDir      string            `json:"output_dir,omitempty"`
 	IdempotencyKey string            `json:"idempotency_key,omitempty"`
 	InputDigest    string            `json:"input_digest,omitempty"`
 	ResultDigest   string            `json:"result_digest,omitempty"`
@@ -144,6 +145,7 @@ type AgentJobListResult struct {
 
 type AgentJobContext struct {
 	JobID         string   `json:"job_id"`
+	OutputDir     string   `json:"output_dir,omitempty"`
 	UpdateMethods []string `json:"update_methods,omitempty"`
 }
 

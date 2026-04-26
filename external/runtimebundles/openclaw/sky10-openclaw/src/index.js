@@ -9,7 +9,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { pathToFileURL } from "node:url";
 
 import { createChatChannelPlugin } from "/usr/lib/node_modules/openclaw/dist/plugin-sdk/core.js";
 import { createChannelReplyPipeline } from "/usr/lib/node_modules/openclaw/dist/plugin-sdk/channel-reply-pipeline.js";
@@ -26,6 +27,7 @@ const GLOBAL_STATE_KEY = Symbol.for("sky10.openclaw.bridge");
 const DEDUP_TTL_MS = 30_000;
 const CLAIM_PRUNE_INTERVAL_MS = 60_000;
 const CLAIM_DIR = path.join(os.homedir(), ".openclaw", ".sky10-bridge-seen");
+const DEFAULT_JOB_OUTPUT_ROOT = "/shared/jobs";
 const SKY10_ACCOUNT_PROPERTIES = {
   enabled: { type: "boolean" },
   rpcUrl: { type: "string" },
@@ -341,7 +343,76 @@ function buildStreamContent(text, streamId, clientRequestID) {
   return content;
 }
 
-function buildToolCallPrompt(content) {
+function resolveJobOutputDir(content, jobId) {
+  const payload = content && typeof content === "object" ? content : {};
+  const jobContext = payload.job_context && typeof payload.job_context === "object" ? payload.job_context : {};
+  const configured = typeof jobContext.output_dir === "string" ? jobContext.output_dir.trim() : "";
+  if (configured) {
+    return configured;
+  }
+  const root = typeof process.env.SKY10_JOB_OUTPUT_ROOT === "string" && process.env.SKY10_JOB_OUTPUT_ROOT.trim()
+    ? process.env.SKY10_JOB_OUTPUT_ROOT.trim()
+    : DEFAULT_JOB_OUTPUT_ROOT;
+  return path.join(root, jobId, "outputs");
+}
+
+function fileDigest(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    const stream = fs.createReadStream(filePath);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(`sha256:${hash.digest("hex")}`));
+  });
+}
+
+function mimeTypeForPath(filePath) {
+  const lower = filePath.toLowerCase();
+  if (lower.endsWith(".mp4")) return "video/mp4";
+  if (lower.endsWith(".mov")) return "video/quicktime";
+  if (lower.endsWith(".webm")) return "video/webm";
+  if (lower.endsWith(".mp3")) return "audio/mpeg";
+  if (lower.endsWith(".wav")) return "audio/wav";
+  if (lower.endsWith(".m4a")) return "audio/mp4";
+  if (lower.endsWith(".srt")) return "application/x-subrip";
+  if (lower.endsWith(".vtt")) return "text/vtt";
+  if (lower.endsWith(".txt")) return "text/plain";
+  if (lower.endsWith(".json")) return "application/json";
+  return "application/octet-stream";
+}
+
+async function collectOutputRefs(outputDir) {
+  if (!fs.existsSync(outputDir)) {
+    return [];
+  }
+  const refs = [];
+  const visit = async (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await visit(fullPath);
+        continue;
+      }
+      if (!entry.isFile()) {
+        continue;
+      }
+      const stat = fs.statSync(fullPath);
+      refs.push({
+        kind: "file",
+        key: path.relative(outputDir, fullPath).split(path.sep).join("/"),
+        uri: pathToFileURL(fullPath).href,
+        mime_type: mimeTypeForPath(fullPath),
+        size: stat.size,
+        digest: await fileDigest(fullPath),
+      });
+    }
+  };
+  await visit(outputDir);
+  refs.sort((left, right) => left.key.localeCompare(right.key));
+  return refs;
+}
+
+function buildToolCallPrompt(content, outputDir) {
   const payload = content && typeof content === "object" ? content : {};
   const jobContext = payload.job_context && typeof payload.job_context === "object" ? payload.job_context : {};
   const payloadRefs = [];
@@ -357,6 +428,7 @@ function buildToolCallPrompt(content) {
     capability: typeof payload.capability === "string" ? payload.capability.trim() : "",
     input: Object.prototype.hasOwnProperty.call(payload, "input") ? payload.input : {},
     payload_refs: payloadRefs,
+    output_dir: outputDir,
     budget: payload.budget,
     bid_id: payload.bid_id,
   };
@@ -364,7 +436,7 @@ function buildToolCallPrompt(content) {
     "You are fulfilling a sky10 durable agent tool call.",
     "Complete the requested tool call autonomously using the tools and credentials available in this VM.",
     "If the request involves audio or video, infer the media workflow yourself: inspect/extract/convert/mux with ffmpeg when useful, and use configured provider APIs such as ElevenLabs when a voice transformation requires them.",
-    "Treat payload_refs as input handles. Write generated artifacts to a durable path or URI that sky10 can return to the caller.",
+    `Treat payload_refs as input handles. Write generated artifacts under this directory: ${outputDir}`,
     "Return a concise result summary and include any output artifact paths or URIs.",
     "",
     "Tool call:",
@@ -631,13 +703,15 @@ async function dispatchToolCall(log, ctx, account, msg) {
     return;
   }
   const tool = resolveToolCallName(content);
+  const outputDir = resolveJobOutputDir(content, jobId);
   try {
+    fs.mkdirSync(outputDir, { recursive: true });
     await state.client.updateJobStatus(jobId, "running", `Running ${tool}`);
     const toolMsg = {
       ...msg,
       session_id: jobId,
       content: {
-        text: buildToolCallPrompt(content),
+        text: buildToolCallPrompt(content, outputDir),
       },
     };
     const inbound = extractInboundMediaContext(toolMsg.content, jobId);
@@ -646,12 +720,15 @@ async function dispatchToolCall(log, ctx, account, msg) {
       onPartialReply: async () => {},
       onBlockReply: async () => {},
       onFinalReply: async ({ replyText }) => {
+        const artifacts = await collectOutputRefs(outputDir);
         await state.client.completeJob(
           jobId,
           {
             summary: replyText,
             text: replyText,
+            artifacts,
           },
+          artifacts,
           "Tool call completed.",
         );
         log.info(`sky10: tool_call completed for job ${jobId}`);

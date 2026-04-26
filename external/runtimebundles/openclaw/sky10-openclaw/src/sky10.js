@@ -72,11 +72,14 @@ export class Sky10Client {
     return this.rpc("agent.job.updateStatus", params);
   }
 
-  async completeJob(jobId, output = {}, message = "") {
+  async completeJob(jobId, output = {}, payloadRefs = [], message = "") {
     const params = {
       job_id: jobId,
       output,
     };
+    if (payloadRefs.length > 0) {
+      params.payload_refs = payloadRefs;
+    }
     if (message) {
       params.message = message;
     }

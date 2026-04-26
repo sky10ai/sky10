@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	slashpath "path"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+const agentJobOutputRoot = "/shared/jobs"
 
 func (h *RPCHandler) rpcCall(ctx context.Context, params json.RawMessage) (interface{}, error) {
 	store, err := h.requireJobStore()
@@ -46,8 +49,10 @@ func (h *RPCHandler) rpcCall(ctx context.Context, params json.RawMessage) (inter
 
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	payloadRefs := normalizePayloadRefs(p.PayloadRef, p.PayloadRefs)
+	jobID := "j_" + uuid.NewString()
+	outputDir := defaultAgentJobOutputDir(jobID)
 	job := AgentJob{
-		JobID:          "j_" + uuid.NewString(),
+		JobID:          jobID,
 		Buyer:          buyer,
 		Seller:         seller,
 		AgentID:        target.ID,
@@ -59,6 +64,7 @@ func (h *RPCHandler) rpcCall(ctx context.Context, params json.RawMessage) (inter
 		PaymentState:   JobPaymentNone,
 		CreatedAt:      now,
 		UpdatedAt:      now,
+		OutputDir:      outputDir,
 		IdempotencyKey: p.IdempotencyKey,
 		InputDigest:    inputDigest,
 		PayloadRefs:    payloadRefs,
@@ -78,7 +84,8 @@ func (h *RPCHandler) rpcCall(ctx context.Context, params json.RawMessage) (inter
 		BidID:          p.BidID,
 		IdempotencyKey: p.IdempotencyKey,
 		JobContext: AgentJobContext{
-			JobID: job.JobID,
+			JobID:     job.JobID,
+			OutputDir: outputDir,
 			UpdateMethods: []string{
 				"agent.job.updateStatus",
 				"agent.job.complete",
@@ -319,6 +326,10 @@ func normalizeRawInput(raw json.RawMessage) json.RawMessage {
 		return json.RawMessage(`{}`)
 	}
 	return raw
+}
+
+func defaultAgentJobOutputDir(jobID string) string {
+	return slashpath.Join(agentJobOutputRoot, strings.TrimSpace(jobID), "outputs")
 }
 
 func callEnvelopeForJob(job AgentJob) *AgentCallResultEnvelope {

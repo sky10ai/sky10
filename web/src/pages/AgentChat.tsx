@@ -20,7 +20,10 @@ import {
 import {
   agent,
   agentChatWebSocketURL,
+  agentJobArtifactURL,
   type AgentInfo,
+  type AgentJob,
+  type AgentPayloadRef,
   type AgentSendResult,
   type ChatContent,
   type ChatContentPart,
@@ -212,6 +215,37 @@ function attachmentName(part: ChatContentPart): string {
   return part.filename || part.source?.filename || "attachment";
 }
 
+function artifactName(ref: AgentPayloadRef): string {
+  if (ref.key) {
+    const parts = ref.key.split("/");
+    return parts[parts.length - 1] || ref.key;
+  }
+  if (ref.uri) {
+    const parts = ref.uri.split("/");
+    const raw = parts[parts.length - 1] || ref.uri;
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  }
+  return "artifact";
+}
+
+function artifactHref(job: AgentJob, ref: AgentPayloadRef): string | null {
+  if (ref.kind === "file" && ref.key) {
+    return agentJobArtifactURL(job.job_id, ref.key);
+  }
+  if (ref.uri && (ref.uri.startsWith("http://") || ref.uri.startsWith("https://") || ref.uri.startsWith("data:"))) {
+    return ref.uri;
+  }
+  return null;
+}
+
+function jobStateLabel(job: AgentJob): string {
+  return job.work_state.replaceAll("_", " ");
+}
+
 function readFileAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -387,6 +421,88 @@ function MessageBody({ message }: { message: ChatMessage }) {
   );
 }
 
+function JobStrip({ jobs }: { jobs: AgentJob[] }) {
+  if (jobs.length === 0) return null;
+  return (
+    <div className="border-b border-outline-variant/10 bg-surface-container-low/55 px-8 py-3">
+      <div className="flex gap-3 overflow-x-auto pb-1">
+        {jobs.map((job) => {
+          const refs = job.result_refs ?? [];
+          const progress = typeof job.progress === "number" && Number.isFinite(job.progress)
+            ? Math.round(job.progress * 100)
+            : null;
+          return (
+            <div
+              className="min-w-[280px] max-w-sm rounded-xl border border-outline-variant/15 bg-surface px-4 py-3 shadow-sm"
+              key={job.job_id}
+            >
+              <div className="mb-2 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-on-surface">
+                    {job.tool}
+                  </div>
+                  <div className="truncate text-xs text-secondary">
+                    {job.status_message || jobStateLabel(job)}
+                  </div>
+                </div>
+                <span className="shrink-0 rounded-full bg-surface-container px-2.5 py-1 text-[10px] font-bold uppercase text-secondary">
+                  {jobStateLabel(job)}
+                </span>
+              </div>
+
+              {progress !== null && job.work_state !== "completed" && (
+                <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-surface-container-high">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all"
+                    style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+                  />
+                </div>
+              )}
+
+              {refs.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {refs.slice(0, 3).map((ref) => {
+                    const href = artifactHref(job, ref);
+                    const name = artifactName(ref);
+                    return href ? (
+                      <a
+                        className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-outline-variant/15 px-2.5 py-1 text-xs font-medium text-on-surface transition-colors hover:border-primary/30 hover:text-primary"
+                        download={name}
+                        href={href}
+                        key={`${job.job_id}:${ref.key || ref.uri}`}
+                      >
+                        <Icon className="text-sm" name="download" />
+                        <span className="truncate">{name}</span>
+                      </a>
+                    ) : (
+                      <span
+                        className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-surface-container px-2.5 py-1 text-xs text-secondary"
+                        key={`${job.job_id}:${ref.key || ref.uri}`}
+                      >
+                        <Icon className="text-sm" name="draft" />
+                        <span className="truncate">{name}</span>
+                      </span>
+                    );
+                  })}
+                  {refs.length > 3 && (
+                    <span className="rounded-full bg-surface-container px-2.5 py-1 text-xs text-secondary">
+                      +{refs.length - 3}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div className="text-xs text-secondary">
+                  {job.output_dir ? `Output: ${job.output_dir}` : "No artifacts yet"}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function clearStreamingMessages(messages: readonly ChatMessage[], streamID?: string): ChatMessage[] {
   const syntheticID = streamID ? `stream:${streamID}` : null;
   return messages.map((message) => {
@@ -446,8 +562,21 @@ export default function AgentChat() {
   ) ?? routeAgentInfo;
   const agentName = agentInfo?.name;
   const agentInfoID = agentInfo?.id;
+  const jobAgentRef = agentInfoID ?? agentName ?? agentId ?? "";
   const hostChatWebSocketURL = agentInfoID ? agentChatWebSocketURL(agentInfoID, sessionId) : undefined;
   const desiredChatWebSocketURL = hostChatWebSocketURL;
+  const { data: jobsData } = useRPC(
+    () =>
+      jobAgentRef
+        ? agent.job.list({ agent: jobAgentRef, limit: 5 })
+        : Promise.resolve({ jobs: [], count: 0 }),
+    [jobAgentRef],
+    {
+      live: AGENT_EVENT_TYPES,
+      refreshIntervalMs: 5_000,
+    },
+  );
+  const recentJobs = jobsData?.jobs ?? [];
   const streamingMessage = activeStreamID
     ? messages.find((message) => message.id === `stream:${activeStreamID}` && message.streaming)
     : undefined;
@@ -1043,6 +1172,7 @@ export default function AgentChat() {
           Connected
         </StatusBadge>
       </div>
+      <JobStrip jobs={recentJobs} />
 
       <div className="flex-1 space-y-4 overflow-y-auto bg-surface-container-low/35 px-8 py-6">
         {messages.length === 0 && (

@@ -270,6 +270,10 @@ export function guestAgentChatWebSocketURL(address: string, port: number, agentI
   return `${protocol}//${address}:${port}/rpc/agents/${agent}/chat?session_id=${session}`;
 }
 
+export function agentJobArtifactURL(jobID: string, key: string) {
+  return `/rpc/agent-jobs/artifact?job_id=${encodeURIComponent(jobID)}&key=${encodeURIComponent(key)}`;
+}
+
 // -- apps --
 export const apps = {
   list: () => rpc<AppListResult>("apps.list"),
@@ -1064,6 +1068,7 @@ export interface AgentJob {
   updated_at: string;
   status_message?: string;
   progress?: number;
+  output_dir?: string;
   idempotency_key?: string;
   input_digest?: string;
   result_digest?: string;
