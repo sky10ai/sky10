@@ -319,6 +319,14 @@ export const codex = {
   }) => rpc<CodexChatResult>("codex.chat", p),
 };
 
+// -- messaging --
+export const messaging = {
+  adapters: () => rpc<MessagingAdaptersResult>("messaging.adapters"),
+  connections: () => rpc<MessagingConnectionsResult>("messaging.connections"),
+  runAdapterAction: (p: MessagingRunAdapterActionParams) =>
+    rpc<MessagingRunAdapterActionResult>("messaging.runAdapterAction", p),
+};
+
 // -- home --
 export const home = {
   historyList: (p?: { limit?: number }) =>
@@ -698,6 +706,162 @@ export interface SecretsStatus {
   namespace: string;
   device_id: string;
   count: number;
+}
+
+export interface MessagingCapabilities {
+  receive_messages?: boolean;
+  send_messages?: boolean;
+  create_drafts?: boolean;
+  update_drafts?: boolean;
+  delete_drafts?: boolean;
+  list_conversations?: boolean;
+  list_messages?: boolean;
+  list_containers?: boolean;
+  resolve_identity?: boolean;
+  search_identities?: boolean;
+  search_conversations?: boolean;
+  search_messages?: boolean;
+  threading?: boolean;
+  attachments?: boolean;
+  webhooks?: boolean;
+  polling?: boolean;
+  mark_read?: boolean;
+  mark_unread?: boolean;
+  move_messages?: boolean;
+  move_conversations?: boolean;
+  archive_messages?: boolean;
+  archive_conversations?: boolean;
+  apply_labels?: boolean;
+  typing_indicators?: boolean;
+  delivery_status?: boolean;
+  reactions?: boolean;
+  edits?: boolean;
+  deletes?: boolean;
+}
+
+export interface MessagingAdapter {
+  id: string;
+  display_name: string;
+  version?: string;
+  description?: string;
+  auth_methods?: string[];
+  capabilities?: MessagingCapabilities;
+}
+
+export type MessagingSettingKind =
+  | "text"
+  | "password"
+  | "secret"
+  | "select"
+  | "number"
+  | "boolean"
+  | "url";
+
+export type MessagingSettingTarget = "metadata" | "auth" | "credential";
+
+export interface MessagingSettingOption {
+  value: string;
+  label: string;
+}
+
+export interface MessagingSetting {
+  key: string;
+  label: string;
+  kind: MessagingSettingKind;
+  target: MessagingSettingTarget;
+  required?: boolean;
+  description?: string;
+  placeholder?: string;
+  default?: string;
+  options?: MessagingSettingOption[];
+  secret?: boolean;
+}
+
+export type MessagingActionKind = "validate_config" | "connect" | "open_url";
+
+export interface MessagingAction {
+  id: string;
+  label: string;
+  kind: MessagingActionKind;
+  description?: string;
+  url?: string;
+  primary?: boolean;
+}
+
+export interface MessagingAdapterInfo {
+  name: string;
+  summary: string;
+  source: "builtin" | "external" | string;
+  adapter?: MessagingAdapter;
+  settings?: MessagingSetting[];
+  actions?: MessagingAction[];
+  manifest_path?: string;
+  bundle_dir?: string;
+  bundled?: boolean;
+}
+
+export interface MessagingAdaptersResult {
+  adapters: MessagingAdapterInfo[];
+  count: number;
+}
+
+export interface MessagingAuthInfo {
+  method?: string;
+  credential_ref?: string;
+  external_account?: string;
+  tenant_id?: string;
+  expires_at?: string;
+  scopes?: string[];
+}
+
+export interface MessagingConnection {
+  id: string;
+  adapter_id: string;
+  label: string;
+  status?: string;
+  auth?: MessagingAuthInfo;
+  default_policy_id?: string;
+  metadata?: Record<string, string>;
+  connected_at?: string;
+  updated_at?: string;
+}
+
+export interface MessagingConnectionsResult {
+  connections: MessagingConnection[];
+  count: number;
+}
+
+export interface MessagingValidationIssue {
+  severity: "error" | "warning" | "info" | string;
+  field?: string;
+  code?: string;
+  message: string;
+}
+
+export interface MessagingRunAdapterActionParams {
+  adapter_id: string;
+  action_id: string;
+  connection_id: string;
+  label?: string;
+  auth_method?: string;
+  default_policy_id?: string;
+  settings?: Record<string, string | number | boolean | null>;
+  secret_scope?: "current" | "trusted" | "explicit" | string;
+}
+
+export interface MessagingRunAdapterActionResult {
+  action_id: string;
+  action_kind: MessagingActionKind;
+  connection?: MessagingConnection;
+  validation?: {
+    issues?: MessagingValidationIssue[];
+  };
+  connect?: {
+    connection: MessagingConnection;
+    adapter: MessagingAdapter;
+  };
+  url?: string;
+  credential_ref?: string;
 }
 
 export interface SyncActivityEntry {

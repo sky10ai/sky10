@@ -76,6 +76,13 @@ const commands: Command[] = [
     section: "System",
   },
   {
+    id: "messaging",
+    label: "Messaging",
+    icon: "forum",
+    action: "/settings/messaging",
+    section: "System",
+  },
+  {
     id: "activity",
     label: "Activity",
     icon: "monitor_heart",

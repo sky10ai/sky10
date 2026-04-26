@@ -39,7 +39,7 @@ This plan does not yet cover:
 | 4. Policy And Approval Engine | in progress | Broker-enforced permissions and durable approvals |
 | 5. Agent Shim Protocol | in progress | One thin runtime-facing messaging surface |
 | 6. First-Party Adapters | in progress | Initial platform coverage |
-| 7. UI And Operator Surfaces | not started | Connections, conversations, drafts, approvals |
+| 7. UI And Operator Surfaces | in progress | Messaging settings screen and adapter setup UX |
 | 8. Reliability, Security, And Packaging | in progress | Cross-platform runtime, recovery, and release story |
 
 ## Milestone 0: Terminology And Architecture
@@ -336,7 +336,9 @@ internal RPCs.
 
 ### Checklist
 
-- [ ] Add a `Messaging` section in the UI.
+- [x] Add a `Messaging` section in the UI.
+- [x] Add a generic adapter setup screen that renders manifest-declared
+  settings, actions, connection status, and inline validation issues.
 - [ ] Add a workflow-first messaging activity table instead of a raw event log
   as the default view.
 - [ ] Add connection list and connection detail views.
