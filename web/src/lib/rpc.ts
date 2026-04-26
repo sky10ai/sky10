@@ -325,6 +325,10 @@ export const messaging = {
   connections: () => rpc<MessagingConnectionsResult>("messaging.connections"),
   runAdapterAction: (p: MessagingRunAdapterActionParams) =>
     rpc<MessagingRunAdapterActionResult>("messaging.runAdapterAction", p),
+  deleteConnection: (p: { connection_id: string }) =>
+    rpc<{ status: string }>("messaging.deleteConnection", p),
+  disableConnection: (p: { connection_id: string }) =>
+    rpc<{ status: string }>("messaging.disableConnection", p),
 };
 
 // -- home --

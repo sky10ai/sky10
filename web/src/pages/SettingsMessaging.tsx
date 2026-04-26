@@ -14,6 +14,8 @@ import {
 import { useRPC } from "../lib/useRPC";
 
 type AdapterFormState = {
+  formKey: string;
+  isExisting: boolean;
   connectionID: string;
   label: string;
   secretScope: "current" | "trusted";
@@ -21,7 +23,7 @@ type AdapterFormState = {
 };
 
 type ActionState = {
-  adapterID: string;
+  formKey: string;
   actionID: string;
   busy: boolean;
 };
@@ -31,8 +33,23 @@ type AdapterActionFeedback = {
   result: MessagingRunAdapterActionResult | null;
 };
 
+let draftCounter = 0;
+function nextDraftKey() {
+  draftCounter += 1;
+  return `__new__:${draftCounter}`;
+}
+
 function defaultConnectionID(adapterID: string) {
   return `${adapterID}/default`;
+}
+
+function suggestConnectionID(adapterID: string, used: Set<string>) {
+  const candidates = [defaultConnectionID(adapterID)];
+  for (let i = 2; i < 1000; i += 1) candidates.push(`${adapterID}/${i}`);
+  for (const candidate of candidates) {
+    if (!used.has(candidate)) return candidate;
+  }
+  return `${adapterID}/${Date.now()}`;
 }
 
 function defaultAdapterLabel(adapter: MessagingAdapterInfo) {
@@ -60,16 +77,43 @@ function statusTone(
   }
 }
 
-function initialFormState(adapter: MessagingAdapterInfo): AdapterFormState {
-  const adapterID = adapter.adapter?.id || adapter.name;
+function initialDraftState(
+  adapter: MessagingAdapterInfo,
+  suggestedID: string,
+): AdapterFormState {
   const values: Record<string, string> = {};
   for (const setting of adapter.settings ?? []) {
     if (setting.target === "credential") continue;
     values[setting.key] = setting.default ?? "";
   }
   return {
-    connectionID: defaultConnectionID(adapterID),
+    formKey: nextDraftKey(),
+    isExisting: false,
+    connectionID: suggestedID,
     label: defaultAdapterLabel(adapter),
+    secretScope: "current",
+    values,
+  };
+}
+
+function formFromConnection(
+  adapter: MessagingAdapterInfo,
+  connection: MessagingConnection,
+): AdapterFormState {
+  const values: Record<string, string> = {};
+  for (const setting of adapter.settings ?? []) {
+    if (setting.target === "credential") {
+      values[setting.key] = "";
+      continue;
+    }
+    values[setting.key] =
+      connection.metadata?.[setting.key] ?? setting.default ?? "";
+  }
+  return {
+    formKey: connection.id,
+    isExisting: true,
+    connectionID: connection.id,
+    label: connection.label || defaultAdapterLabel(adapter),
     secretScope: "current",
     values,
   };
@@ -78,32 +122,32 @@ function initialFormState(adapter: MessagingAdapterInfo): AdapterFormState {
 function hydrateForms(
   adapters: MessagingAdapterInfo[],
   connections: MessagingConnection[],
-) {
-  const byAdapter = new Map<string, MessagingConnection>();
-  for (const connection of connections) {
-    if (!byAdapter.has(connection.adapter_id)) {
-      byAdapter.set(connection.adapter_id, connection);
-    }
-  }
+  current: Record<string, AdapterFormState[]>,
+): Record<string, AdapterFormState[]> {
+  const result: Record<string, AdapterFormState[]> = {};
+  for (const adapter of adapters) {
+    const adapterID = adapter.adapter?.id || adapter.name;
+    const adapterConnections = connections.filter(
+      (connection) => connection.adapter_id === adapterID,
+    );
+    const previous = current[adapterID] ?? [];
+    const byKey = new Map(previous.map((form) => [form.formKey, form]));
 
-  return Object.fromEntries(
-    adapters.map((adapter) => {
-      const adapterID = adapter.adapter?.id || adapter.name;
-      const state = initialFormState(adapter);
-      const connection = byAdapter.get(adapterID);
-      if (connection) {
-        state.connectionID = connection.id;
-        state.label = connection.label || state.label;
-        for (const setting of adapter.settings ?? []) {
-          if (setting.target === "metadata") {
-            state.values[setting.key] =
-              connection.metadata?.[setting.key] ?? state.values[setting.key] ?? "";
-          }
-        }
-      }
-      return [adapterID, state];
-    }),
-  ) as Record<string, AdapterFormState>;
+    const next: AdapterFormState[] = [];
+    for (const connection of adapterConnections) {
+      const existing = byKey.get(connection.id);
+      next.push(existing ?? formFromConnection(adapter, connection));
+      byKey.delete(connection.id);
+    }
+    for (const draft of byKey.values()) {
+      if (!draft.isExisting) next.push(draft);
+    }
+    if (next.length === 0) {
+      next.push(initialDraftState(adapter, defaultConnectionID(adapterID)));
+    }
+    result[adapterID] = next;
+  }
+  return result;
 }
 
 function buildSettingsPayload(
@@ -207,59 +251,132 @@ export default function SettingsMessaging() {
     (adapter) => adapter.settings && adapter.settings.length > 0,
   );
   const connections = connectionData?.connections ?? [];
-  const [forms, setForms] = useState<Record<string, AdapterFormState>>({});
+  const [forms, setForms] = useState<Record<string, AdapterFormState[]>>({});
   const [actionState, setActionState] = useState<ActionState | null>(null);
   const [feedback, setFeedback] = useState<
     Record<string, AdapterActionFeedback>
   >({});
 
   useEffect(() => {
-    setForms((current) => {
-      const hydrated = hydrateForms(adapters, connections);
-      return Object.fromEntries(
-        Object.entries(hydrated).map(([adapterID, state]) => [
-          adapterID,
-          current[adapterID] ?? state,
-        ]),
-      );
-    });
+    setForms((current) => hydrateForms(adapters, connections, current));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adapterData, connectionData]);
 
-  function updateField(adapterID: string, key: string, value: string) {
+  function patchForm(
+    adapterID: string,
+    formKey: string,
+    patch:
+      | Partial<AdapterFormState>
+      | ((previous: AdapterFormState) => Partial<AdapterFormState>),
+  ) {
     setForms((current) => {
-      const previous = current[adapterID];
-      if (!previous) return current;
-      return {
-        ...current,
-        [adapterID]: {
-          ...previous,
-          values: {
-            ...previous.values,
-            [key]: value,
-          },
-        },
-      };
+      const list = current[adapterID];
+      if (!list) return current;
+      const next = list.map((form) => {
+        if (form.formKey !== formKey) return form;
+        const update =
+          typeof patch === "function" ? patch(form) : patch;
+        return { ...form, ...update };
+      });
+      return { ...current, [adapterID]: next };
     });
   }
 
-  function updateForm(adapterID: string, patch: Partial<AdapterFormState>) {
-    setForms((current) => {
-      const previous = current[adapterID];
-      if (!previous) return current;
-      return {
-        ...current,
-        [adapterID]: {
-          ...previous,
-          ...patch,
-        },
-      };
-    });
+  function updateField(
+    adapterID: string,
+    formKey: string,
+    key: string,
+    value: string,
+  ) {
+    patchForm(adapterID, formKey, (previous) => ({
+      values: { ...previous.values, [key]: value },
+    }));
   }
 
-  async function runAction(adapter: MessagingAdapterInfo, action: MessagingAction) {
+  function updateForm(
+    adapterID: string,
+    formKey: string,
+    patch: Partial<AdapterFormState>,
+  ) {
+    patchForm(adapterID, formKey, patch);
+  }
+
+  function addDraft(adapter: MessagingAdapterInfo) {
     const adapterID = adapter.adapter?.id || adapter.name;
-    const form = forms[adapterID];
-    if (!form) return;
+    setForms((current) => {
+      const existing = current[adapterID] ?? [];
+      const used = new Set(existing.map((form) => form.connectionID));
+      for (const connection of connections) {
+        if (connection.adapter_id === adapterID) used.add(connection.id);
+      }
+      const draft = initialDraftState(
+        adapter,
+        suggestConnectionID(adapterID, used),
+      );
+      return { ...current, [adapterID]: [...existing, draft] };
+    });
+  }
+
+  function removeDraft(adapter: MessagingAdapterInfo, formKey: string) {
+    const adapterID = adapter.adapter?.id || adapter.name;
+    setForms((current) => {
+      const existing = current[adapterID] ?? [];
+      const filtered = existing.filter((form) => form.formKey !== formKey);
+      if (filtered.length === 0) {
+        filtered.push(
+          initialDraftState(adapter, defaultConnectionID(adapterID)),
+        );
+      }
+      return { ...current, [adapterID]: filtered };
+    });
+    setFeedback((current) => {
+      if (!(formKey in current)) return current;
+      const next = { ...current };
+      delete next[formKey];
+      return next;
+    });
+  }
+
+  async function disconnect(form: AdapterFormState) {
+    if (!form.isExisting) return;
+    const ok = window.confirm(
+      `Disconnect ${form.label || form.connectionID}? The credential secret stays in place; remove it separately if desired.`,
+    );
+    if (!ok) return;
+    setActionState({
+      formKey: form.formKey,
+      actionID: "__disconnect__",
+      busy: true,
+    });
+    try {
+      await messaging.deleteConnection({ connection_id: form.connectionID });
+      setFeedback((current) => {
+        if (!(form.formKey in current)) return current;
+        const next = { ...current };
+        delete next[form.formKey];
+        return next;
+      });
+      refetchConnections({ background: true });
+    } catch (error) {
+      setFeedback((current) => ({
+        ...current,
+        [form.formKey]: {
+          error:
+            error instanceof Error ? error.message : "Disconnect failed",
+          result: null,
+        },
+      }));
+    } finally {
+      setActionState(null);
+    }
+  }
+
+  async function runAction(
+    adapter: MessagingAdapterInfo,
+    form: AdapterFormState,
+    action: MessagingAction,
+  ) {
+    const adapterID = adapter.adapter?.id || adapter.name;
 
     if (action.kind === "open_url") {
       if (action.url) {
@@ -267,7 +384,7 @@ export default function SettingsMessaging() {
       }
       setFeedback((current) => ({
         ...current,
-        [adapterID]: {
+        [form.formKey]: {
           error: null,
           result: {
             action_id: action.id,
@@ -279,10 +396,10 @@ export default function SettingsMessaging() {
       return;
     }
 
-    setActionState({ adapterID, actionID: action.id, busy: true });
+    setActionState({ formKey: form.formKey, actionID: action.id, busy: true });
     setFeedback((current) => ({
       ...current,
-      [adapterID]: { error: null, result: null },
+      [form.formKey]: { error: null, result: null },
     }));
     try {
       const response = await messaging.runAdapterAction({
@@ -293,16 +410,45 @@ export default function SettingsMessaging() {
         settings: buildSettingsPayload(adapter.settings ?? [], form.values),
         secret_scope: form.secretScope,
       });
-      setFeedback((current) => ({
-        ...current,
-        [adapterID]: { error: null, result: response },
-      }));
+      const isConnect = action.kind === "connect";
+      const persistedID = response?.connection?.id || form.connectionID;
+      if (isConnect && !form.isExisting) {
+        // Promote the draft to a saved form so hydration won't duplicate it.
+        setForms((current) => {
+          const list = current[adapterID];
+          if (!list) return current;
+          const next = list.map((existing) =>
+            existing.formKey === form.formKey
+              ? {
+                  ...existing,
+                  formKey: persistedID,
+                  connectionID: persistedID,
+                  isExisting: true,
+                }
+              : existing,
+          );
+          return { ...current, [adapterID]: next };
+        });
+        setFeedback((current) => {
+          const previous = current[form.formKey];
+          if (!previous) return current;
+          const next = { ...current };
+          delete next[form.formKey];
+          next[persistedID] = { error: null, result: response };
+          return next;
+        });
+      } else {
+        setFeedback((current) => ({
+          ...current,
+          [form.formKey]: { error: null, result: response },
+        }));
+      }
       refetchConnections({ background: true });
       refetchAdapters({ background: true });
     } catch (error) {
       setFeedback((current) => ({
         ...current,
-        [adapterID]: {
+        [form.formKey]: {
           error: error instanceof Error ? error.message : "Action failed",
           result: null,
         },
@@ -315,13 +461,14 @@ export default function SettingsMessaging() {
   function handleSubmit(
     event: FormEvent<HTMLFormElement>,
     adapter: MessagingAdapterInfo,
+    form: AdapterFormState,
   ) {
     event.preventDefault();
     const connectAction = (adapter.actions ?? []).find(
       (action) => action.kind === "connect",
     );
     if (connectAction) {
-      void runAction(adapter, connectAction);
+      void runAction(adapter, form, connectAction);
     }
   }
 
@@ -416,185 +563,298 @@ export default function SettingsMessaging() {
         <div className="grid gap-6 xl:grid-cols-2">
           {adapters.map((adapter) => {
             const adapterID = adapter.adapter?.id || adapter.name;
-            const form = forms[adapterID] ?? initialFormState(adapter);
-            const connection = connections.find(
-              (item) => item.id === form.connectionID,
-            ) ?? connections.find((item) => item.adapter_id === adapterID);
-            const status = connectionStatus(connection);
-            const busy =
-              actionState?.adapterID === adapterID && actionState.busy;
+            const adapterForms = forms[adapterID] ?? [];
             const labels = capabilityLabels(adapter);
-            const adapterFeedback = feedback[adapterID];
-            const validationIssues =
-              adapterFeedback?.result?.validation?.issues ?? [];
-            const showFeedback = Boolean(
-              adapterFeedback?.error || adapterFeedback?.result,
-            );
 
             return (
-              <form
-                className="rounded-[1.75rem] border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm"
+              <section
                 key={adapterID}
-                onSubmit={(event) => handleSubmit(event, adapter)}
+                className="overflow-hidden rounded-[1.75rem] border border-outline-variant/10 bg-surface-container-lowest shadow-sm"
               >
-                <div className="flex flex-col gap-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="text-2xl font-semibold text-on-surface">
-                          {adapter.adapter?.display_name || adapter.name}
-                        </h2>
-                        <StatusBadge tone={statusTone(status)}>
-                          {status}
-                        </StatusBadge>
+                <header className="flex items-start justify-between gap-4 border-b border-outline-variant/10 p-6">
+                  <div className="space-y-2">
+                    <h2 className="text-2xl font-semibold text-on-surface">
+                      {adapter.adapter?.display_name || adapter.name}
+                    </h2>
+                    <p className="max-w-xl text-sm text-secondary">
+                      {adapter.summary ||
+                        adapter.adapter?.description ||
+                        "Messaging adapter"}
+                    </p>
+                    {labels.length > 0 && (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {labels.map((label) => (
+                          <span
+                            className="rounded-full border border-outline-variant/10 bg-surface-container px-3 py-1 text-[11px] font-semibold text-secondary"
+                            key={label}
+                          >
+                            {label}
+                          </span>
+                        ))}
                       </div>
-                      <p className="max-w-xl text-sm text-secondary">
-                        {adapter.summary ||
-                          adapter.adapter?.description ||
-                          "Messaging adapter"}
-                      </p>
-                    </div>
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                      <Icon className="text-2xl" name="forum" />
-                    </div>
+                    )}
                   </div>
-
-                  {labels.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {labels.map((label) => (
-                        <span
-                          className="rounded-full border border-outline-variant/10 bg-surface-container px-3 py-1 text-[11px] font-semibold text-secondary"
-                          key={label}
-                        >
-                          {label}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <label className="space-y-2">
-                      <span className="text-xs font-bold uppercase tracking-[0.14em] text-outline">
-                        Connection ID
-                      </span>
-                      <input
-                        className="w-full rounded-2xl border border-outline-variant/15 bg-surface-container-low px-4 py-3 text-sm text-on-surface outline-none transition focus:border-primary/40 focus:bg-surface-container-lowest"
-                        onChange={(event) =>
-                          updateForm(adapterID, {
-                            connectionID: event.target.value,
-                          })
-                        }
-                        placeholder={defaultConnectionID(adapterID)}
-                        value={form.connectionID}
-                      />
-                      <FieldIssues
-                        issues={issuesFor(validationIssues, "connection_id")}
-                      />
-                    </label>
-                    <label className="space-y-2">
-                      <span className="text-xs font-bold uppercase tracking-[0.14em] text-outline">
-                        Label
-                      </span>
-                      <input
-                        className="w-full rounded-2xl border border-outline-variant/15 bg-surface-container-low px-4 py-3 text-sm text-on-surface outline-none transition focus:border-primary/40 focus:bg-surface-container-lowest"
-                        onChange={(event) =>
-                          updateForm(adapterID, { label: event.target.value })
-                        }
-                        placeholder={defaultAdapterLabel(adapter)}
-                        value={form.label}
-                      />
-                      <FieldIssues issues={issuesFor(validationIssues, "label")} />
-                    </label>
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <Icon className="text-2xl" name="forum" />
                   </div>
+                </header>
 
-                  <div className="grid gap-4 md:grid-cols-2">
-                    {(adapter.settings ?? []).map((setting) => (
-                      <AdapterSettingField
-                        key={setting.key}
-                        setting={setting}
-                        value={form.values[setting.key] ?? ""}
-                        issues={issuesFor(validationIssues, setting.key)}
-                        onChange={(value) =>
-                          updateField(adapterID, setting.key, value)
+                <div className="space-y-5 p-6">
+                  {adapterForms.map((form) => {
+                    const connection = connections.find(
+                      (item) => item.id === form.connectionID,
+                    );
+                    const status = connectionStatus(connection);
+                    const busy =
+                      actionState?.formKey === form.formKey &&
+                      actionState.busy;
+                    const formFeedback = feedback[form.formKey] ?? null;
+                    const allowRemove = adapterForms.length > 1 || form.isExisting;
+                    return (
+                      <ConnectionFormCard
+                        key={form.formKey}
+                        actionState={actionState}
+                        adapter={adapter}
+                        allowRemoveDraft={allowRemove}
+                        busy={busy}
+                        feedback={formFeedback}
+                        form={form}
+                        status={status}
+                        onDisconnect={() => void disconnect(form)}
+                        onRemoveDraft={() => removeDraft(adapter, form.formKey)}
+                        onRunAction={(action) =>
+                          void runAction(adapter, form, action)
+                        }
+                        onSubmit={(event) => handleSubmit(event, adapter, form)}
+                        onUpdateField={(key, value) =>
+                          updateField(adapterID, form.formKey, key, value)
+                        }
+                        onUpdateForm={(patch) =>
+                          updateForm(adapterID, form.formKey, patch)
                         }
                       />
-                    ))}
-                    <label className="space-y-2">
-                      <span className="text-xs font-bold uppercase tracking-[0.14em] text-outline">
-                        Secret scope
-                      </span>
-                      <select
-                        className="w-full rounded-2xl border border-outline-variant/15 bg-surface-container-low px-4 py-3 text-sm text-on-surface outline-none transition focus:border-primary/40 focus:bg-surface-container-lowest"
-                        onChange={(event) =>
-                          updateForm(adapterID, {
-                            secretScope: event.target.value as
-                              | "current"
-                              | "trusted",
-                          })
-                        }
-                        value={form.secretScope}
-                      >
-                        <option value="current">Current device only</option>
-                        <option value="trusted">Trusted devices</option>
-                      </select>
-                      <p className="text-xs text-secondary">
-                        Applies when a credential field is provided.
-                      </p>
-                      <FieldIssues
-                        issues={issuesFor(validationIssues, "secret_scope")}
-                      />
-                    </label>
-                  </div>
+                    );
+                  })}
 
-                  <div className="flex flex-wrap items-center gap-3 border-t border-outline-variant/10 pt-5">
-                    {(adapter.actions ?? []).map((action) => (
-                      <button
-                        className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition active:scale-[0.98] ${
-                          action.primary
-                            ? "bg-primary text-on-primary shadow-sm hover:shadow-md"
-                            : "border border-outline-variant/20 bg-surface-container-low text-secondary hover:bg-surface-container hover:text-on-surface"
-                        }`}
-                        disabled={busy}
-                        key={action.id}
-                        onClick={
-                          action.kind === "connect"
-                            ? undefined
-                            : () => void runAction(adapter, action)
-                        }
-                        type={
-                          action.kind === "connect" ? "submit" : "button"
-                        }
-                      >
-                        <Icon
-                          className="text-base"
-                          name={
-                            action.kind === "open_url"
-                              ? "open_in_new"
-                              : action.kind === "validate_config"
-                                ? "check_circle"
-                                : "link"
-                          }
-                        />
-                        {busy && actionState?.actionID === action.id
-                          ? "Working..."
-                          : action.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  {showFeedback && adapterFeedback ? (
-                    <ActionResultPanel
-                      error={adapterFeedback.error}
-                      result={adapterFeedback.result}
-                    />
-                  ) : null}
+                  <button
+                    className="inline-flex items-center gap-2 self-start rounded-full border border-dashed border-outline-variant/30 bg-transparent px-4 py-2 text-sm font-semibold text-secondary transition hover:border-primary/40 hover:text-primary"
+                    onClick={() => addDraft(adapter)}
+                    type="button"
+                  >
+                    <Icon className="text-base" name="add" />
+                    Add connection
+                  </button>
                 </div>
-              </form>
+              </section>
             );
           })}
         </div>
       )}
     </SettingsPage>
+  );
+}
+
+function ConnectionFormCard({
+  actionState,
+  adapter,
+  allowRemoveDraft,
+  busy,
+  feedback,
+  form,
+  status,
+  onDisconnect,
+  onRemoveDraft,
+  onRunAction,
+  onSubmit,
+  onUpdateField,
+  onUpdateForm,
+}: {
+  actionState: ActionState | null;
+  adapter: MessagingAdapterInfo;
+  allowRemoveDraft: boolean;
+  busy: boolean;
+  feedback: AdapterActionFeedback | null;
+  form: AdapterFormState;
+  status: string;
+  onDisconnect: () => void;
+  onRemoveDraft: () => void;
+  onRunAction: (action: MessagingAction) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onUpdateField: (key: string, value: string) => void;
+  onUpdateForm: (patch: Partial<AdapterFormState>) => void;
+}) {
+  const adapterID = adapter.adapter?.id || adapter.name;
+  const validationIssues = feedback?.result?.validation?.issues ?? [];
+  const showFeedback = Boolean(feedback?.error || feedback?.result);
+  const headingLabel = form.isExisting
+    ? form.label || form.connectionID
+    : "New connection";
+  const disconnecting =
+    busy && actionState?.actionID === "__disconnect__";
+
+  return (
+    <form
+      className="rounded-[1.5rem] border border-outline-variant/10 bg-surface-container-low p-5 shadow-sm"
+      onSubmit={onSubmit}
+    >
+      <div className="flex flex-col gap-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
+              {form.isExisting ? "Connection" : "Draft"}
+            </p>
+            <h3 className="text-lg font-semibold text-on-surface">
+              {headingLabel}
+            </h3>
+            {form.isExisting && (
+              <p className="font-mono text-xs text-secondary">
+                {form.connectionID}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <StatusBadge tone={statusTone(status)}>{status}</StatusBadge>
+            {!form.isExisting && allowRemoveDraft && (
+              <button
+                className="inline-flex items-center gap-1 rounded-full border border-outline-variant/20 px-3 py-1 text-xs font-semibold text-secondary hover:text-on-surface"
+                onClick={onRemoveDraft}
+                type="button"
+              >
+                <Icon className="text-xs" name="close" />
+                Discard
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="space-y-2">
+            <span className="text-xs font-bold uppercase tracking-[0.14em] text-outline">
+              Connection ID
+            </span>
+            <input
+              className="w-full rounded-2xl border border-outline-variant/15 bg-surface-container-low px-4 py-3 text-sm text-on-surface outline-none transition focus:border-primary/40 focus:bg-surface-container-lowest disabled:cursor-not-allowed disabled:opacity-70"
+              disabled={form.isExisting}
+              onChange={(event) =>
+                onUpdateForm({ connectionID: event.target.value })
+              }
+              placeholder={defaultConnectionID(adapterID)}
+              value={form.connectionID}
+            />
+            <FieldIssues
+              issues={issuesFor(validationIssues, "connection_id")}
+            />
+            {form.isExisting && (
+              <p className="text-xs text-secondary">
+                Connection ID is fixed once saved. Add a new connection to
+                use a different ID.
+              </p>
+            )}
+          </label>
+          <label className="space-y-2">
+            <span className="text-xs font-bold uppercase tracking-[0.14em] text-outline">
+              Label
+            </span>
+            <input
+              className="w-full rounded-2xl border border-outline-variant/15 bg-surface-container-low px-4 py-3 text-sm text-on-surface outline-none transition focus:border-primary/40 focus:bg-surface-container-lowest"
+              onChange={(event) => onUpdateForm({ label: event.target.value })}
+              placeholder={defaultAdapterLabel(adapter)}
+              value={form.label}
+            />
+            <FieldIssues issues={issuesFor(validationIssues, "label")} />
+          </label>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          {(adapter.settings ?? []).map((setting) => (
+            <AdapterSettingField
+              issues={issuesFor(validationIssues, setting.key)}
+              key={setting.key}
+              onChange={(value) => onUpdateField(setting.key, value)}
+              setting={setting}
+              value={form.values[setting.key] ?? ""}
+            />
+          ))}
+          <label className="space-y-2">
+            <span className="text-xs font-bold uppercase tracking-[0.14em] text-outline">
+              Secret scope
+            </span>
+            <select
+              className="w-full rounded-2xl border border-outline-variant/15 bg-surface-container-low px-4 py-3 text-sm text-on-surface outline-none transition focus:border-primary/40 focus:bg-surface-container-lowest"
+              onChange={(event) =>
+                onUpdateForm({
+                  secretScope: event.target.value as "current" | "trusted",
+                })
+              }
+              value={form.secretScope}
+            >
+              <option value="current">Current device only</option>
+              <option value="trusted">Trusted devices</option>
+            </select>
+            <p className="text-xs text-secondary">
+              Applies when a credential field is provided.
+            </p>
+            <FieldIssues
+              issues={issuesFor(validationIssues, "secret_scope")}
+            />
+          </label>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 border-t border-outline-variant/10 pt-5">
+          {(adapter.actions ?? []).map((action) => (
+            <button
+              className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition active:scale-[0.98] ${
+                action.primary
+                  ? "bg-primary text-on-primary shadow-sm hover:shadow-md"
+                  : "border border-outline-variant/20 bg-surface-container-low text-secondary hover:bg-surface-container hover:text-on-surface"
+              }`}
+              disabled={busy}
+              key={action.id}
+              onClick={
+                action.kind === "connect"
+                  ? undefined
+                  : () => onRunAction(action)
+              }
+              type={action.kind === "connect" ? "submit" : "button"}
+            >
+              <Icon
+                className="text-base"
+                name={
+                  action.kind === "open_url"
+                    ? "open_in_new"
+                    : action.kind === "validate_config"
+                      ? "check_circle"
+                      : "link"
+                }
+              />
+              {busy && actionState?.actionID === action.id
+                ? "Working..."
+                : action.label}
+            </button>
+          ))}
+          {form.isExisting && (
+            <button
+              className="ml-auto inline-flex items-center gap-2 rounded-full border border-error/30 px-4 py-2 text-sm font-semibold text-error transition hover:bg-error/10 disabled:opacity-60"
+              disabled={busy}
+              onClick={onDisconnect}
+              type="button"
+            >
+              <Icon
+                className={
+                  disconnecting ? "animate-spin text-base" : "text-base"
+                }
+                name={disconnecting ? "sync" : "link_off"}
+              />
+              {disconnecting ? "Disconnecting..." : "Disconnect"}
+            </button>
+          )}
+        </div>
+
+        {showFeedback && feedback ? (
+          <ActionResultPanel error={feedback.error} result={feedback.result} />
+        ) : null}
+      </div>
+    </form>
   );
 }
 
