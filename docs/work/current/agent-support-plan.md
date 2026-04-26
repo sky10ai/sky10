@@ -1,6 +1,6 @@
 ---
 created: 2026-04-03
-updated: 2026-04-11
+updated: 2026-04-25
 model: claude-opus-4-6
 ---
 
@@ -20,6 +20,11 @@ separate future work defined in `agent-protocol.md`.
 > Status note: the async mailbox and Nostr relay handoff now exist in the
 > codebase. Follow-on transport and convergence hardening lives in
 > [`../past/2026/04/12-Private-Network-Robustness.md`](../past/2026/04/12-Private-Network-Robustness.md).
+>
+> Status note: Lima-backed OpenClaw and Hermes runtime payloads were split out
+> of VM bootstrap templates into `external/runtimebundles`, while guest staged
+> paths stayed stable and runtime reconcile/autoupdate remained deferred. See
+> [`../past/2026/04/25-Sandbox-Runtime-Bundles.md`](../past/2026/04/25-Sandbox-Runtime-Bundles.md).
 
 ## Architecture
 
