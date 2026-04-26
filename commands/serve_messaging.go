@@ -10,12 +10,15 @@ import (
 	"strings"
 	"time"
 
+	messengerbundles "github.com/sky10/sky10/external/messengers"
 	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
+	skyapps "github.com/sky10/sky10/pkg/apps"
 	skyconfig "github.com/sky10/sky10/pkg/config"
 	"github.com/sky10/sky10/pkg/kv"
 	"github.com/sky10/sky10/pkg/logging"
 	"github.com/sky10/sky10/pkg/messaging"
 	messagingbroker "github.com/sky10/sky10/pkg/messaging/broker"
+	messagingexternal "github.com/sky10/sky10/pkg/messaging/external"
 	messagingrpc "github.com/sky10/sky10/pkg/messaging/rpc"
 	messagingruntime "github.com/sky10/sky10/pkg/messaging/runtime"
 	messagingstore "github.com/sky10/sky10/pkg/messaging/store"
@@ -62,21 +65,51 @@ func setupMessaging(
 		return fmt.Errorf("creating messaging broker: %w", err)
 	}
 
+	externalRegistry, err := messagingexternal.NewMaterializedBundledRegistry(
+		messengerbundles.FS(),
+		".",
+		filepath.Join(rootDir, "messaging", "adapters"),
+		messagingexternal.ResolveOptions{BunPath: messagingBunPath()},
+	)
+	if err != nil {
+		return fmt.Errorf("discovering external messaging adapters: %w", err)
+	}
+
 	processResolver := func(adapterID string) (messagingruntime.ProcessSpec, error) {
-		return messagingadapters.BuiltinProcessSpec(executablePath, adapterID)
+		process, err := messagingadapters.BuiltinProcessSpec(executablePath, adapterID)
+		if err == nil {
+			return process, nil
+		}
+		if externalRegistry == nil {
+			return messagingruntime.ProcessSpec{}, err
+		}
+		process, externalErr := externalRegistry.ProcessSpec(messaging.AdapterID(adapterID))
+		if externalErr != nil {
+			return messagingruntime.ProcessSpec{}, externalErr
+		}
+		return process, nil
 	}
 	if err := restoreMessagingConnections(ctx, b, store, processResolver, logger); err != nil {
 		return err
 	}
 
 	server.RegisterHandler(messagingrpc.NewHandler(messagingrpc.Config{
-		Broker:          b,
-		Store:           store,
-		ProcessResolver: processResolver,
+		Broker:           b,
+		Store:            store,
+		ProcessResolver:  processResolver,
+		ExternalAdapters: externalRegistry,
 	}))
 
 	go runMessagingPollLoop(ctx, b, store, logging.WithComponent(logger, "messaging.poll"))
 	return nil
+}
+
+func messagingBunPath() string {
+	status, err := skyapps.StatusFor(skyapps.AppBun)
+	if err == nil && status != nil && strings.TrimSpace(status.ActivePath) != "" {
+		return status.ActivePath
+	}
+	return "bun"
 }
 
 func installMessagingEventFanout(store *messagingstore.Store, emit func(string, interface{})) {

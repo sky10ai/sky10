@@ -1,6 +1,6 @@
 ---
 created: 2026-04-18
-updated: 2026-04-25
+updated: 2026-04-26
 model: gpt-5.4
 ---
 
@@ -295,7 +295,7 @@ different messaging shapes.
 - [x] Add an initial external Slack adapter bundle with auth validation,
   identity lookup, conversation search, message search, list messages, and
   send/reply over the adapter protocol.
-- [ ] Register and discover external adapter bundles from daemon connection
+- [x] Register and discover external adapter bundles from daemon connection
   lifecycle flows.
 - [ ] Add Slack OAuth/install UX instead of requiring manually staged bot token
   credentials.
@@ -347,6 +347,9 @@ internal RPCs.
 - [ ] Add drill-down from workflow rows into the raw event timeline.
 - [ ] Show reply permissions and effective policy in plain language.
 - [ ] Show adapter capability differences where they matter to users.
+- [x] Define a generic adapter settings/action schema so adapter settings
+  screens can render text inputs, secret fields, validation buttons, connect
+  buttons, and external setup links from manifest data.
 - [ ] Add operator diagnostics for webhook failures, poll failures, and auth
   expiry.
 - [ ] Add retry and reconnect affordances.
@@ -368,7 +371,7 @@ deployment.
 
 ### Checklist
 
-- [ ] Decide how first-party adapters are installed and discovered.
+- [x] Decide how first-party adapters are installed and discovered.
 - [ ] Decide how third-party adapters are installed and discovered.
 - [ ] Add signature or provenance expectations for official adapter binaries.
 - [ ] Add process isolation and least-privilege guidance for adapters.
@@ -378,6 +381,8 @@ deployment.
   `adapter.json` manifests.
 - [x] Resolve bundled Bun adapter manifests into broker-supervised process
   specs without requiring `node_modules` at runtime.
+- [x] Materialize embedded first-party external adapters under
+  `~/.sky10/messaging/adapters/<adapter-id>/_bundle` before launch.
 - [ ] Wire Zerobox sandbox launch for external adapter manifests.
 - [x] Add broker restart recovery tests.
 - [x] Add adapter crash and reconnection tests.

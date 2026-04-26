@@ -8,6 +8,7 @@ import (
 
 	"github.com/sky10/sky10/pkg/messaging"
 	messagingbroker "github.com/sky10/sky10/pkg/messaging/broker"
+	messagingexternal "github.com/sky10/sky10/pkg/messaging/external"
 	"github.com/sky10/sky10/pkg/messaging/protocol"
 	messagingruntime "github.com/sky10/sky10/pkg/messaging/runtime"
 	messagingstore "github.com/sky10/sky10/pkg/messaging/store"
@@ -19,24 +20,27 @@ type ProcessResolver func(adapterID string) (messagingruntime.ProcessSpec, error
 
 // Config configures one messaging RPC handler.
 type Config struct {
-	Broker          *messagingbroker.Broker
-	Store           *messagingstore.Store
-	ProcessResolver ProcessResolver
+	Broker           *messagingbroker.Broker
+	Store            *messagingstore.Store
+	ProcessResolver  ProcessResolver
+	ExternalAdapters *messagingexternal.Registry
 }
 
 // Handler dispatches messaging.* RPC methods.
 type Handler struct {
-	broker          *messagingbroker.Broker
-	store           *messagingstore.Store
-	processResolver ProcessResolver
+	broker           *messagingbroker.Broker
+	store            *messagingstore.Store
+	processResolver  ProcessResolver
+	externalAdapters *messagingexternal.Registry
 }
 
 // NewHandler creates a messaging RPC handler.
 func NewHandler(cfg Config) *Handler {
 	return &Handler{
-		broker:          cfg.Broker,
-		store:           cfg.Store,
-		processResolver: cfg.ProcessResolver,
+		broker:           cfg.Broker,
+		store:            cfg.Store,
+		processResolver:  cfg.ProcessResolver,
+		externalAdapters: cfg.ExternalAdapters,
 	}
 }
 
@@ -52,13 +56,19 @@ func (h *Handler) Dispatch(ctx context.Context, method string, params json.RawMe
 	switch method {
 	case "messaging.adapters":
 		return h.rpcAdapters(), nil, true
+	case "messaging.adapter":
+		result, err := h.rpcAdapter(params)
+		return result, err, true
 	case "messaging.connections":
 		return h.rpcConnections(), nil, true
 	case "messaging.createConnection":
 		result, err := h.rpcCreateConnection(ctx, params)
 		return result, err, true
+	case "messaging.connectAdapter":
+		result, err := h.rpcConnectAdapter(ctx, params)
+		return result, err, true
 	case "messaging.connectBuiltin":
-		result, err := h.rpcConnectBuiltin(ctx, params)
+		result, err := h.rpcConnectAdapter(ctx, params)
 		return result, err, true
 	case "messaging.connectConnection":
 		result, err := h.rpcConnectConnection(ctx, params)
@@ -111,8 +121,19 @@ func (h *Handler) Dispatch(ctx context.Context, method string, params json.RawMe
 }
 
 type adapterInfo struct {
-	Name    string `json:"name"`
-	Summary string `json:"summary"`
+	Name         string                      `json:"name"`
+	Summary      string                      `json:"summary"`
+	Source       string                      `json:"source"`
+	Adapter      *messaging.Adapter          `json:"adapter,omitempty"`
+	Settings     []messagingexternal.Setting `json:"settings,omitempty"`
+	Actions      []messagingexternal.Action  `json:"actions,omitempty"`
+	ManifestPath string                      `json:"manifest_path,omitempty"`
+	BundleDir    string                      `json:"bundle_dir,omitempty"`
+	Bundled      bool                        `json:"bundled,omitempty"`
+}
+
+type adapterParams struct {
+	AdapterID messaging.AdapterID `json:"adapter_id"`
 }
 
 type connectBuiltinParams struct {
@@ -197,17 +218,78 @@ type searchMessagesParams struct {
 
 func (h *Handler) rpcAdapters() map[string]interface{} {
 	items := messagingadapters.Builtins()
-	adapters := make([]adapterInfo, 0, len(items))
+	external := h.externalAdapters.List()
+	adapters := make([]adapterInfo, 0, len(items)+len(external))
 	for _, item := range items {
 		adapters = append(adapters, adapterInfo{
 			Name:    item.Name,
 			Summary: item.Summary,
+			Source:  "builtin",
+			Adapter: &messaging.Adapter{
+				ID:          messaging.AdapterID(item.Name),
+				DisplayName: item.Name,
+				Description: item.Summary,
+			},
+		})
+	}
+	for _, item := range external {
+		adapter := item.Adapter
+		adapters = append(adapters, adapterInfo{
+			Name:         string(item.Adapter.ID),
+			Summary:      item.Adapter.Description,
+			Source:       "external",
+			Adapter:      &adapter,
+			Settings:     item.Settings,
+			Actions:      item.Actions,
+			ManifestPath: item.ManifestPath,
+			BundleDir:    item.BundleDir,
+			Bundled:      item.Bundled,
 		})
 	}
 	return map[string]interface{}{
 		"adapters": adapters,
 		"count":    len(adapters),
 	}
+}
+
+func (h *Handler) rpcAdapter(params json.RawMessage) (interface{}, error) {
+	var p adapterParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if strings.TrimSpace(string(p.AdapterID)) == "" {
+		return nil, fmt.Errorf("adapter_id is required")
+	}
+	for _, item := range messagingadapters.Builtins() {
+		if item.Name != string(p.AdapterID) {
+			continue
+		}
+		return adapterInfo{
+			Name:    item.Name,
+			Summary: item.Summary,
+			Source:  "builtin",
+			Adapter: &messaging.Adapter{
+				ID:          messaging.AdapterID(item.Name),
+				DisplayName: item.Name,
+				Description: item.Summary,
+			},
+		}, nil
+	}
+	if item, ok := h.externalAdapters.Info(p.AdapterID); ok {
+		adapter := item.Adapter
+		return adapterInfo{
+			Name:         string(item.Adapter.ID),
+			Summary:      item.Adapter.Description,
+			Source:       "external",
+			Adapter:      &adapter,
+			Settings:     item.Settings,
+			Actions:      item.Actions,
+			ManifestPath: item.ManifestPath,
+			BundleDir:    item.BundleDir,
+			Bundled:      item.Bundled,
+		}, nil
+	}
+	return nil, fmt.Errorf("messaging adapter %q is not registered", p.AdapterID)
 }
 
 func (h *Handler) rpcConnections() map[string]interface{} {
@@ -220,7 +302,7 @@ func (h *Handler) rpcConnections() map[string]interface{} {
 
 func (h *Handler) rpcCreateConnection(ctx context.Context, params json.RawMessage) (interface{}, error) {
 	if h.processResolver == nil {
-		return nil, fmt.Errorf("messaging builtin process resolver is not configured")
+		return nil, fmt.Errorf("messaging process resolver is not configured")
 	}
 
 	var p connectBuiltinParams
@@ -241,9 +323,9 @@ func (h *Handler) rpcCreateConnection(ctx context.Context, params json.RawMessag
 	})
 }
 
-func (h *Handler) rpcConnectBuiltin(ctx context.Context, params json.RawMessage) (interface{}, error) {
+func (h *Handler) rpcConnectAdapter(ctx context.Context, params json.RawMessage) (interface{}, error) {
 	if h.processResolver == nil {
-		return nil, fmt.Errorf("messaging builtin process resolver is not configured")
+		return nil, fmt.Errorf("messaging process resolver is not configured")
 	}
 
 	var p connectBuiltinParams

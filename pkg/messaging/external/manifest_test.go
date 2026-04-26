@@ -43,6 +43,12 @@ func TestLoadManifestAndAdapterMetadata(t *testing.T) {
 	if !adapter.Capabilities.SearchConversations {
 		t.Fatal("adapter search conversations = false, want true")
 	}
+	if len(got.Settings) != 1 || got.Settings[0].Key != "bot_token" {
+		t.Fatalf("manifest settings = %#v, want bot_token setting", got.Settings)
+	}
+	if len(got.Actions) != 1 || got.Actions[0].Kind != ActionKindConnect {
+		t.Fatalf("manifest actions = %#v, want connect action", got.Actions)
+	}
 }
 
 func TestResolveBunProcessSpec(t *testing.T) {
@@ -207,6 +213,22 @@ func testManifest() Manifest {
 			ListConversations:   true,
 			SearchConversations: true,
 		},
+		Settings: []Setting{{
+			Key:         "bot_token",
+			Label:       "Bot token",
+			Kind:        SettingKindSecret,
+			Target:      SettingTargetCredential,
+			Required:    true,
+			Description: "Slack bot token.",
+			Placeholder: "xoxb-...",
+			Secret:      true,
+		}},
+		Actions: []Action{{
+			ID:      "connect",
+			Label:   "Connect Slack",
+			Kind:    ActionKindConnect,
+			Primary: true,
+		}},
 		Runtime: RuntimeSpec{
 			Type:    RuntimeBun,
 			Version: "^1.3",

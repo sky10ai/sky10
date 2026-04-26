@@ -31,10 +31,74 @@ type Manifest struct {
 	Description  string                 `json:"description,omitempty"`
 	AuthMethods  []messaging.AuthMethod `json:"auth_methods,omitempty"`
 	Capabilities messaging.Capabilities `json:"capabilities,omitempty"`
+	Settings     []Setting              `json:"settings,omitempty"`
+	Actions      []Action               `json:"actions,omitempty"`
 	Runtime      RuntimeSpec            `json:"runtime"`
 	Entry        string                 `json:"entry"`
 	Sandbox      SandboxSpec            `json:"sandbox,omitempty"`
 	Env          map[string]string      `json:"env,omitempty"`
+}
+
+// SettingKind identifies how a connection setting should be rendered and
+// persisted by generic adapter settings UI.
+type SettingKind string
+
+const (
+	SettingKindText     SettingKind = "text"
+	SettingKindPassword SettingKind = "password"
+	SettingKindSecret   SettingKind = "secret"
+	SettingKindSelect   SettingKind = "select"
+	SettingKindNumber   SettingKind = "number"
+	SettingKindBoolean  SettingKind = "boolean"
+	SettingKindURL      SettingKind = "url"
+)
+
+// SettingTarget identifies where a setting value should be stored.
+type SettingTarget string
+
+const (
+	SettingTargetMetadata   SettingTarget = "metadata"
+	SettingTargetAuth       SettingTarget = "auth"
+	SettingTargetCredential SettingTarget = "credential"
+)
+
+// Setting describes one generic connection setting for an adapter.
+type Setting struct {
+	Key         string        `json:"key"`
+	Label       string        `json:"label"`
+	Kind        SettingKind   `json:"kind"`
+	Target      SettingTarget `json:"target"`
+	Required    bool          `json:"required,omitempty"`
+	Description string        `json:"description,omitempty"`
+	Placeholder string        `json:"placeholder,omitempty"`
+	Default     string        `json:"default,omitempty"`
+	Options     []Option      `json:"options,omitempty"`
+	Secret      bool          `json:"secret,omitempty"`
+}
+
+// Option is one allowed setting value.
+type Option struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
+// ActionKind identifies the generic action behavior the UI should use.
+type ActionKind string
+
+const (
+	ActionKindValidateConfig ActionKind = "validate_config"
+	ActionKindConnect        ActionKind = "connect"
+	ActionKindOpenURL        ActionKind = "open_url"
+)
+
+// Action describes one adapter settings button or link.
+type Action struct {
+	ID          string     `json:"id"`
+	Label       string     `json:"label"`
+	Kind        ActionKind `json:"kind"`
+	Description string     `json:"description,omitempty"`
+	URL         string     `json:"url,omitempty"`
+	Primary     bool       `json:"primary,omitempty"`
 }
 
 // RuntimeSpec declares the runtime needed to execute the adapter bundle.
@@ -65,12 +129,20 @@ func LoadManifest(path string) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, fmt.Errorf("read adapter manifest: %w", err)
 	}
-	var manifest Manifest
-	if err := json.Unmarshal(raw, &manifest); err != nil {
-		return Manifest{}, fmt.Errorf("parse adapter manifest: %w", err)
+	manifest, err := decodeManifest(raw)
+	if err != nil {
+		return Manifest{}, err
 	}
 	if err := manifest.Validate(); err != nil {
 		return Manifest{}, err
+	}
+	return manifest, nil
+}
+
+func decodeManifest(raw []byte) (Manifest, error) {
+	var manifest Manifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return Manifest{}, fmt.Errorf("parse adapter manifest: %w", err)
 	}
 	return manifest, nil
 }
@@ -82,6 +154,16 @@ func (m Manifest) Validate() error {
 	}
 	if strings.TrimSpace(m.Entry) == "" {
 		return fmt.Errorf("adapter entry is required")
+	}
+	for idx, setting := range m.Settings {
+		if err := setting.Validate(); err != nil {
+			return fmt.Errorf("settings[%d]: %w", idx, err)
+		}
+	}
+	for idx, action := range m.Actions {
+		if err := action.Validate(); err != nil {
+			return fmt.Errorf("actions[%d]: %w", idx, err)
+		}
 	}
 	switch strings.TrimSpace(m.Runtime.Type) {
 	case RuntimeBun:
@@ -152,6 +234,58 @@ func (m Manifest) ProcessSpec(baseDir string, options ResolveOptions) (messaging
 	default:
 		return messagingruntime.ProcessSpec{}, fmt.Errorf("unsupported adapter sandbox %q", m.Sandbox.Mode)
 	}
+}
+
+// Validate reports whether a setting is structurally usable by generic UI.
+func (s Setting) Validate() error {
+	if strings.TrimSpace(s.Key) == "" {
+		return fmt.Errorf("key is required")
+	}
+	if strings.TrimSpace(s.Label) == "" {
+		return fmt.Errorf("label is required")
+	}
+	switch s.Kind {
+	case SettingKindText, SettingKindPassword, SettingKindSecret, SettingKindSelect, SettingKindNumber, SettingKindBoolean, SettingKindURL:
+	default:
+		return fmt.Errorf("unsupported kind %q", s.Kind)
+	}
+	switch s.Target {
+	case SettingTargetMetadata, SettingTargetAuth, SettingTargetCredential:
+	default:
+		return fmt.Errorf("unsupported target %q", s.Target)
+	}
+	if s.Kind == SettingKindSelect && len(s.Options) == 0 {
+		return fmt.Errorf("select settings require options")
+	}
+	for idx, option := range s.Options {
+		if strings.TrimSpace(option.Value) == "" {
+			return fmt.Errorf("options[%d].value is required", idx)
+		}
+		if strings.TrimSpace(option.Label) == "" {
+			return fmt.Errorf("options[%d].label is required", idx)
+		}
+	}
+	return nil
+}
+
+// Validate reports whether an action is structurally usable by generic UI.
+func (a Action) Validate() error {
+	if strings.TrimSpace(a.ID) == "" {
+		return fmt.Errorf("id is required")
+	}
+	if strings.TrimSpace(a.Label) == "" {
+		return fmt.Errorf("label is required")
+	}
+	switch a.Kind {
+	case ActionKindValidateConfig, ActionKindConnect:
+	case ActionKindOpenURL:
+		if strings.TrimSpace(a.URL) == "" {
+			return fmt.Errorf("url is required for open_url actions")
+		}
+	default:
+		return fmt.Errorf("unsupported kind %q", a.Kind)
+	}
+	return nil
 }
 
 func sandboxMode(mode string) string {

@@ -17,6 +17,75 @@
     "search_messages": true,
     "threading": true
   },
+  "settings": [
+    {
+      "key": "bot_token",
+      "label": "Bot token",
+      "kind": "secret",
+      "target": "credential",
+      "required": true,
+      "description": "Slack bot token used by the adapter. Store as credential material, not connection metadata.",
+      "placeholder": "xoxb-...",
+      "secret": true
+    },
+    {
+      "key": "slack_team_id",
+      "label": "Team ID",
+      "kind": "text",
+      "target": "metadata",
+      "description": "Optional Slack workspace/team ID for display and validation.",
+      "placeholder": "T0123456789"
+    },
+    {
+      "key": "slack_conversation_types",
+      "label": "Conversation types",
+      "kind": "text",
+      "target": "metadata",
+      "description": "Comma-separated Slack conversation types to list and search.",
+      "default": "public_channel,private_channel,im,mpim",
+      "placeholder": "public_channel,private_channel,im,mpim"
+    },
+    {
+      "key": "slack_history_limit",
+      "label": "History page size",
+      "kind": "number",
+      "target": "metadata",
+      "description": "Maximum messages fetched per conversation request.",
+      "default": "15",
+      "placeholder": "15"
+    },
+    {
+      "key": "slack_api_base_url",
+      "label": "Slack API base URL",
+      "kind": "url",
+      "target": "metadata",
+      "description": "Override for tests or Slack-compatible gateways.",
+      "default": "https://slack.com/api",
+      "placeholder": "https://slack.com/api"
+    }
+  ],
+  "actions": [
+    {
+      "id": "validate",
+      "label": "Validate token",
+      "kind": "validate_config",
+      "description": "Ask the adapter to validate the current connection settings."
+    },
+    {
+      "id": "connect",
+      "label": "Connect Slack",
+      "kind": "connect",
+      "description": "Create or refresh the Slack connection using these settings.",
+      "primary": true
+    },
+    {
+      "id": "slack-apps",
+      "label": "Create Slack app",
+      "kind": "open_url",
+      "description": "Open Slack's app management page to create or configure a bot token.",
+      "url": "https://api.slack.com/apps"
+    }
+  ],
   "runtime": {
     "type": "bun",
     "version": "^1.3"

@@ -1,6 +1,6 @@
 ---
 created: 2026-04-18
-updated: 2026-04-25
+updated: 2026-04-26
 model: gpt-5.4
 ---
 
@@ -159,6 +159,8 @@ Platform adapters:
 - translate platform-native objects into normalized broker events
 - execute outbound send and draft operations when the broker tells them to
 - report their capabilities and auth state
+- declare generic settings and actions in their manifest so the daemon can
+  render adapter setup UI without platform-specific frontend code
 
 Platform adapters do not:
 
@@ -166,6 +168,14 @@ Platform adapters do not:
 - decide whether a message should be sent
 - hold approval logic
 - expose arbitrary direct access to messaging providers
+
+First-party external adapter bundles are embedded in the Sky10 binary during
+early development and materialized at startup under
+`~/.sky10/messaging/adapters/<adapter-id>/_bundle`. Their manifests declare
+settings with explicit storage targets: `metadata`, `auth`, or `credential`.
+That lets the UI render ordinary text inputs, secret inputs, validation
+buttons, connect buttons, and setup links while the broker still owns where
+each value is persisted.
 
 ### Messaging Broker
 
@@ -714,14 +724,18 @@ The current `sky10 serve` path now:
 - instantiates a messaging broker over a KV-backed messaging store
 - resolves adapter credentials through `pkg/secrets`
 - mirrors approvals through the durable mailbox store when configured
-- restores persisted built-in connections on startup
+- discovers and materializes first-party external adapter bundles on startup
+- restores persisted built-in and external connections on startup
 - skips disabled connections during startup restore
-- re-launches built-in adapters through `sky10 messaging <adapter>`
+- re-launches built-in adapters through `sky10 messaging <adapter>` and
+  external adapters through their materialized bundle manifest
 - runs a basic background poll loop for connected polling-based adapters
 - exposes a minimal RPC surface:
   - `messaging.adapters`
+  - `messaging.adapter`
   - `messaging.connections`
   - `messaging.createConnection`
+  - `messaging.connectAdapter`
   - `messaging.connectBuiltin`
   - `messaging.connectConnection`
   - `messaging.refreshConnection`

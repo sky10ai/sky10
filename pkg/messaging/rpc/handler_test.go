@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/sky10/sky10/pkg/messaging"
 	messagingbroker "github.com/sky10/sky10/pkg/messaging/broker"
+	messagingexternal "github.com/sky10/sky10/pkg/messaging/external"
 	"github.com/sky10/sky10/pkg/messaging/protocol"
 	messagingruntime "github.com/sky10/sky10/pkg/messaging/runtime"
 	messagingstore "github.com/sky10/sky10/pkg/messaging/store"
@@ -43,6 +45,58 @@ func TestHandlerListAdaptersAndConnections(t *testing.T) {
 	}
 	if result.(map[string]interface{})["count"].(int) != 0 {
 		t.Fatalf("connection count = %v, want 0", result.(map[string]interface{})["count"])
+	}
+}
+
+func TestHandlerListExternalAdapters(t *testing.T) {
+	t.Parallel()
+
+	registry := newExternalRegistryFixture(t)
+	handler := newTestHandlerWithExternal(t, nil, registry)
+
+	result, err, handled := handler.Dispatch(context.Background(), "messaging.adapters", nil)
+	if err != nil {
+		t.Fatalf("Dispatch(adapters) error = %v", err)
+	}
+	if !handled {
+		t.Fatal("Dispatch(adapters) handled = false, want true")
+	}
+	body := result.(map[string]interface{})
+	if body["count"].(int) != 2 {
+		t.Fatalf("adapter count = %v, want 2", body["count"])
+	}
+	adapters := body["adapters"].([]adapterInfo)
+	var slack adapterInfo
+	for _, adapter := range adapters {
+		if adapter.Name == "slack" {
+			slack = adapter
+			break
+		}
+	}
+	if slack.Source != "external" {
+		t.Fatalf("slack source = %q, want external", slack.Source)
+	}
+	if slack.Adapter == nil || slack.Adapter.DisplayName != "Slack" {
+		t.Fatalf("slack adapter = %+v, want Slack metadata", slack.Adapter)
+	}
+	if len(slack.Settings) != 1 || slack.Settings[0].Target != messagingexternal.SettingTargetCredential {
+		t.Fatalf("slack settings = %#v, want credential setting", slack.Settings)
+	}
+	if len(slack.Actions) != 1 || slack.Actions[0].Kind != messagingexternal.ActionKindConnect {
+		t.Fatalf("slack actions = %#v, want connect action", slack.Actions)
+	}
+
+	result, err, handled = handler.Dispatch(context.Background(), "messaging.adapter", mustJSON(t, adapterParams{
+		AdapterID: "slack",
+	}))
+	if err != nil {
+		t.Fatalf("Dispatch(adapter) error = %v", err)
+	}
+	if !handled {
+		t.Fatal("Dispatch(adapter) handled = false, want true")
+	}
+	if result.(adapterInfo).Source != "external" {
+		t.Fatalf("adapter source = %q, want external", result.(adapterInfo).Source)
 	}
 }
 
@@ -256,6 +310,20 @@ func TestHandlerConnectBuiltinRequiresResolver(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "process resolver") {
 		t.Fatalf("Dispatch(connectBuiltin) error = %v, want resolver failure", err)
 	}
+
+	_, err, handled = handler.Dispatch(context.Background(), "messaging.connectAdapter", mustJSON(t, connectBuiltinParams{
+		Connection: messaging.Connection{
+			ID:        "slack/work",
+			AdapterID: "slack",
+			Label:     "Work Slack",
+		},
+	}))
+	if !handled {
+		t.Fatal("Dispatch(connectAdapter) handled = false, want true")
+	}
+	if err == nil || !strings.Contains(err.Error(), "process resolver") {
+		t.Fatalf("Dispatch(connectAdapter) error = %v, want resolver failure", err)
+	}
 }
 
 func TestHandlerIgnoresUnknownNamespace(t *testing.T) {
@@ -281,6 +349,11 @@ func TestMessagingRPCHandlerHelperProcess(t *testing.T) {
 
 func newTestHandler(t *testing.T, resolver ProcessResolver) *Handler {
 	t.Helper()
+	return newTestHandlerWithExternal(t, resolver, nil)
+}
+
+func newTestHandlerWithExternal(t *testing.T, resolver ProcessResolver, externalAdapters *messagingexternal.Registry) *Handler {
+	t.Helper()
 
 	ctx := context.Background()
 	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newMemoryKVStore(), ""))
@@ -305,10 +378,68 @@ func newTestHandler(t *testing.T, resolver ProcessResolver) *Handler {
 		_ = b.Close()
 	})
 	return &Handler{
-		broker:          b,
-		store:           store,
-		processResolver: resolver,
+		broker:           b,
+		store:            store,
+		processResolver:  resolver,
+		externalAdapters: externalAdapters,
 	}
+}
+
+func newExternalRegistryFixture(t *testing.T) *messagingexternal.Registry {
+	t.Helper()
+
+	dir := t.TempDir()
+	entryDir := filepath.Join(dir, "dist")
+	if err := os.MkdirAll(entryDir, 0o755); err != nil {
+		t.Fatalf("create fixture entry dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(entryDir, "adapter.js"), []byte("console.log('fixture');\n"), 0o644); err != nil {
+		t.Fatalf("write fixture entry: %v", err)
+	}
+	manifest := []byte(`{
+  "id": "slack",
+  "display_name": "Slack",
+  "version": "0.1.0",
+  "description": "Slack adapter fixture",
+  "auth_methods": ["bot_token"],
+  "capabilities": {
+    "send_messages": true,
+    "search_conversations": true
+  },
+  "settings": [
+    {
+      "key": "bot_token",
+      "label": "Bot token",
+      "kind": "secret",
+      "target": "credential",
+      "required": true
+    }
+  ],
+  "actions": [
+    {
+      "id": "connect",
+      "label": "Connect Slack",
+      "kind": "connect",
+      "primary": true
+    }
+  ],
+  "runtime": {
+    "type": "bun",
+    "version": "^1.3"
+  },
+  "entry": "dist/adapter.js",
+  "sandbox": {
+    "mode": "none"
+  }
+}`)
+	if err := os.WriteFile(filepath.Join(dir, "adapter.json"), manifest, 0o644); err != nil {
+		t.Fatalf("write fixture manifest: %v", err)
+	}
+	registry, err := messagingexternal.NewRegistry(messagingexternal.ResolveOptions{BunPath: "bun"}, dir)
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	return registry
 }
 
 func runMessagingRPCHandlerHelperProcess() error {

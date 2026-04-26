@@ -52,6 +52,23 @@ Each adapter directory should declare an `adapter.json` manifest:
     "list_conversations": true,
     "search_conversations": true
   },
+  "settings": [
+    {
+      "key": "bot_token",
+      "label": "Bot token",
+      "kind": "secret",
+      "target": "credential",
+      "required": true
+    }
+  ],
+  "actions": [
+    {
+      "id": "connect",
+      "label": "Connect Slack",
+      "kind": "connect",
+      "primary": true
+    }
+  ],
   "runtime": {
     "type": "bun",
     "version": "^1.3"
@@ -68,6 +85,18 @@ process runtime used by built-in adapters. `entry` must be a slash-separated
 relative path inside the adapter bundle. `sandbox.mode` is intentionally
 explicit; use `none` only for development while the Zerobox launch path is
 being wired.
+
+`settings` and `actions` define the generic adapter settings UI contract.
+Settings describe the fields the daemon UI should render, and their `target`
+declares where values belong:
+
+- `metadata`: persisted non-secret connection metadata
+- `auth`: non-secret auth/session metadata
+- `credential`: secret material stored through the Sky10 secrets path
+
+Supported setting kinds are `text`, `password`, `secret`, `select`, `number`,
+`boolean`, and `url`. Actions are generic buttons or links. Current action
+kinds are `validate_config`, `connect`, and `open_url`.
 
 Sky10 passes these stable environment variables to the adapter process:
 
@@ -109,6 +138,10 @@ currently speaks the Sky10 adapter protocol over stdio, runs on Sky10-managed
 Bun, and calls Slack Web API methods for auth validation, identity discovery,
 conversation discovery/search, message listing/search, and send/reply.
 
-The remaining Slack product work is daemon-side external adapter discovery,
-OAuth/install UX, webhook/event ingestion, and deciding whether to replace or
-augment the direct Web API calls with reusable pieces from `agent-slack`.
+The daemon materializes this first-party bundle under
+`~/.sky10/messaging/adapters/slack/_bundle` and exposes its generic settings
+schema through `messaging.adapters`.
+
+The remaining Slack product work is OAuth/install UX, webhook/event ingestion,
+and deciding whether to replace or augment the direct Web API calls with
+reusable pieces from `agent-slack`.

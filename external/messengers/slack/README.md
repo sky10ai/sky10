@@ -24,6 +24,10 @@ Use a credential JSON payload with one of these token fields:
 Supported token fields are `bot_token`, `access_token`, `token`, and
 `slack_bot_token`.
 
+The bundle manifest declares this as a generic `secret` setting with
+`target: credential`, so the daemon settings screen can store it through the
+Sky10 secrets path instead of putting it in connection metadata.
+
 ## Connection Metadata
 
 Optional connection metadata:
@@ -34,6 +38,15 @@ Optional connection metadata:
 - `slack_conversation_types`: comma-separated Slack conversation types. Default
   is `public_channel,private_channel,im,mpim`.
 - `slack_history_limit`: maximum history page size. Default is `15`.
+
+## Settings UI Contract
+
+`adapter.json` declares generic settings and actions that the daemon can render
+without Slack-specific UI code:
+
+- settings: bot token, team ID, conversation types, history page size, API base
+  URL
+- actions: validate token, connect Slack, open Slack app management
 
 ## Slack Scopes
 
