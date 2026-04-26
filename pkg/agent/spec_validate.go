@@ -2,8 +2,14 @@ package agent
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
+)
+
+var (
+	agentRuntimePackagePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9+.-]*$`)
+	agentRuntimeImagePattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$`)
 )
 
 func validateAgentSpec(spec AgentSpec) error {
@@ -58,10 +64,47 @@ func validateAgentSpec(spec AgentSpec) error {
 func validateRuntimeSpec(runtime AgentRuntimeSpec) error {
 	switch runtime.Target {
 	case "sandbox", "local", "remote":
-		return nil
 	default:
 		return fmt.Errorf("spec.runtime.target must be sandbox, local, or remote")
 	}
+	for i, pkg := range runtime.Packages {
+		if err := validateRuntimePackage(pkg); err != nil {
+			return fmt.Errorf("spec.runtime.packages[%d]: %w", i, err)
+		}
+	}
+	for i, container := range runtime.Containers {
+		if err := validateRuntimeImage(container.Image); err != nil {
+			return fmt.Errorf("spec.runtime.containers[%d].image: %w", i, err)
+		}
+		for j, pkg := range container.Packages {
+			if err := validateRuntimePackage(pkg); err != nil {
+				return fmt.Errorf("spec.runtime.containers[%d].packages[%d]: %w", i, j, err)
+			}
+		}
+	}
+	return nil
+}
+
+func validateRuntimeImage(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	if !agentRuntimeImagePattern.MatchString(value) {
+		return fmt.Errorf("image %q must be a Docker image reference", value)
+	}
+	return nil
+}
+
+func validateRuntimePackage(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fmt.Errorf("package name is required")
+	}
+	if !agentRuntimePackagePattern.MatchString(value) {
+		return fmt.Errorf("package name %q must be an apt-style package name", value)
+	}
+	return nil
 }
 
 func validateToolSpec(tool AgentToolSpec) error {

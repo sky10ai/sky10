@@ -35,6 +35,40 @@ func sandboxActionFiles(spec AgentSpec, runtime AgentCompiledRuntime, bindings [
 	return result
 }
 
+func runtimeNeedsGeneratedCompose(runtime AgentCompiledRuntime) bool {
+	return len(runtime.Packages) > 0 || len(runtime.Containers) > 0
+}
+
+func composeServiceName(name, harness string) string {
+	serviceName := compileSlug(name)
+	if serviceName == "" {
+		serviceName = serviceNameForHarness(harness)
+	}
+	return serviceName
+}
+
+func composePackageArg(packages []string) string {
+	parts := make([]string, 0, len(packages))
+	for _, pkg := range packages {
+		pkg = strings.TrimSpace(pkg)
+		if pkg != "" {
+			parts = append(parts, pkg)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func normalizeRuntimePackages(packages []string) []string {
+	normalized := make([]string, 0, len(packages))
+	for _, pkg := range packages {
+		pkg = strings.TrimSpace(pkg)
+		if pkg != "" {
+			normalized = append(normalized, pkg)
+		}
+	}
+	return normalized
+}
+
 func registerActionTools(tools []AgentToolSpec) []map[string]interface{} {
 	result := make([]map[string]interface{}, 0, len(tools))
 	for _, tool := range tools {

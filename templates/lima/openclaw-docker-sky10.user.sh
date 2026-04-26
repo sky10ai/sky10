@@ -6,12 +6,15 @@ export PATH="${HOME}/.bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
 WORKSPACE_DIR="/shared/workspace"
 SANDBOX_STATE_DIR="/sandbox-state"
 RUNTIME_DIR="${SANDBOX_STATE_DIR}/runtime/openclaw"
-COMPOSE_FILE="${RUNTIME_DIR}/compose.yaml"
+BASE_COMPOSE_FILE="${RUNTIME_DIR}/base-compose.yaml"
+SPEC_COMPOSE_FILE="/shared/compose.yaml"
 CADDY_FILE="${RUNTIME_DIR}/Caddyfile"
 STATE_DIR="${SANDBOX_STATE_DIR}/openclaw-docker"
 SENTINEL="${STATE_DIR}/initialized-v1"
+COMPOSE_FILES=(-f "${BASE_COMPOSE_FILE}")
 
 mkdir -p "${WORKSPACE_DIR}"
+mkdir -p /shared/agent /shared/input /shared/output
 mkdir -p "${SANDBOX_STATE_DIR}"
 mkdir -p "${RUNTIME_DIR}"
 mkdir -p "${STATE_DIR}"
@@ -29,10 +32,10 @@ emit_progress() {
 
 docker_compose() {
   if docker info >/dev/null 2>&1; then
-    docker compose "$@"
+    docker compose "${COMPOSE_FILES[@]}" "$@"
     return
   fi
-  sudo -n docker compose "$@"
+  sudo -n docker compose "${COMPOSE_FILES[@]}" "$@"
 }
 
 wait_for_docker() {
@@ -64,8 +67,8 @@ EOF
 EOF
 }
 
-write_compose_file() {
-  cat > "${COMPOSE_FILE}" <<'EOF'
+write_base_compose_file() {
+  cat > "${BASE_COMPOSE_FILE}" <<'EOF'
 services:
   openclaw:
     container_name: {{.Name}}-openclaw
@@ -77,6 +80,8 @@ services:
     environment:
       OPENCLAW_AGENT_NAME: "__SKY10_SANDBOX_NAME__"
       OPENCLAW_MODEL: "{{.Param.model}}"
+    env_file:
+      - /sandbox-state/.env
     volumes:
       - /shared:/shared
       - /sandbox-state:/sandbox-state
@@ -98,6 +103,13 @@ services:
 EOF
 }
 
+configure_compose_files() {
+  COMPOSE_FILES=(-f "${BASE_COMPOSE_FILE}")
+  if [ -s "${SPEC_COMPOSE_FILE}" ]; then
+    COMPOSE_FILES+=(-f "${SPEC_COMPOSE_FILE}")
+  fi
+}
+
 if [ ! -f "${RUNTIME_DIR}/Dockerfile" ] || [ ! -f "${RUNTIME_DIR}/entrypoint.sh" ]; then
   echo >&2 "OpenClaw Docker runtime assets were not staged into ${RUNTIME_DIR}"
   exit 1
@@ -106,15 +118,16 @@ fi
 emit_progress begin guest.docker.configure "Configuring Docker runtime..."
 wait_for_docker
 write_caddyfile
-write_compose_file
+write_base_compose_file
+configure_compose_files
 emit_progress end guest.docker.configure "Docker runtime configured."
 
-emit_progress begin guest.docker.build "Building OpenClaw container..."
-docker_compose -f "${COMPOSE_FILE}" build openclaw
-emit_progress end guest.docker.build "OpenClaw container built."
+emit_progress begin guest.docker.build "Building Docker containers..."
+docker_compose build
+emit_progress end guest.docker.build "Docker containers built."
 
 emit_progress begin guest.docker.start "Starting OpenClaw containers..."
-docker_compose -f "${COMPOSE_FILE}" up -d --remove-orphans
+docker_compose up -d --remove-orphans
 emit_progress end guest.docker.start "OpenClaw containers running."
 
 if [ ! -f "${SENTINEL}" ]; then

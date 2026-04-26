@@ -293,13 +293,22 @@ func TestCompileAgentSpecProducesMediaRuntimePreview(t *testing.T) {
 
 	compose := compiledFileContent(t, compiled, "compose.yaml")
 	for _, want := range []string{
-		"image: \"ubuntu:24.04\"",
+		"openclaw:",
+		"SKY10_AGENT_PACKAGES: \"ffmpeg\"",
+		"media-worker:",
+		"dockerfile: containers/media-worker/Dockerfile",
+		"- /sandbox-state/.env",
 		"- ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}",
 		"sky10.agent.harness=openclaw",
 	} {
 		if !strings.Contains(compose, want) {
 			t.Fatalf("compose.yaml missing %q:\n%s", want, compose)
 		}
+	}
+	dockerfile := compiledFileContent(t, compiled, "containers/media-worker/Dockerfile")
+	if !strings.Contains(dockerfile, "FROM ubuntu:24.04") ||
+		!strings.Contains(dockerfile, "install -y ${SKY10_AGENT_PACKAGES}") {
+		t.Fatalf("media-worker Dockerfile = %q, want Ubuntu package layer", dockerfile)
 	}
 
 	env := compiledFileContent(t, compiled, ".env.example")
@@ -334,7 +343,9 @@ func TestCompileAgentSpecDefaultsOmittedSandboxRuntimeToOpenClaw(t *testing.T) {
 	if !strings.Contains(compose, "sky10.agent.harness=openclaw") {
 		t.Fatalf("compose.yaml = %q, want OpenClaw harness label", compose)
 	}
-	if !strings.Contains(compose, "x-sky10-packages:") || !strings.Contains(compose, "- \"ffmpeg\"") {
+	if !strings.Contains(compose, "SKY10_AGENT_PACKAGES: \"ffmpeg\"") ||
+		!strings.Contains(compose, "x-sky10-packages:") ||
+		!strings.Contains(compose, "- \"ffmpeg\"") {
 		t.Fatalf("compose.yaml = %q, want spec-declared ffmpeg package", compose)
 	}
 }
@@ -360,9 +371,8 @@ func TestCompileAgentSpecDoesNotAddPackagesToGenericOpenClawRuntime(t *testing.T
 	if err != nil {
 		t.Fatalf("CompileAgentSpec() error: %v", err)
 	}
-	compose := compiledFileContent(t, compiled, "compose.yaml")
-	if strings.Contains(compose, "x-sky10-packages:") || strings.Contains(compose, "ffmpeg") {
-		t.Fatalf("compose.yaml = %q, want no generated package list for generic OpenClaw runtime", compose)
+	if content, ok := compiledFileContentMaybe(compiled, "compose.yaml"); ok {
+		t.Fatalf("compose.yaml = %q, want no generated compose layer for generic OpenClaw runtime", content)
 	}
 }
 
@@ -388,7 +398,11 @@ func TestCompileAgentSpecFixturesProduceRuntimeArtifacts(t *testing.T) {
 				}
 			}
 			if spec.Runtime.Target == "sandbox" {
-				compiledFileContent(t, compiled, "compose.yaml")
+				if specRequestsGeneratedCompose(spec) {
+					compiledFileContent(t, compiled, "compose.yaml")
+				} else if content, ok := compiledFileContentMaybe(compiled, "compose.yaml"); ok {
+					t.Fatalf("compose.yaml = %q, want no generated compose layer without runtime packages or containers", content)
+				}
 				if len(compiled.Actions) < 2 ||
 					compiled.Actions[0].Method != "sandbox.create" ||
 					compiled.Actions[1].Method != "agent.register" {
@@ -413,9 +427,10 @@ func TestCompileAgentSpecSelectsHarnessTemplates(t *testing.T) {
 		fixture string
 		harness string
 		image   string
+		service string
 	}{
-		{fixture: "coding-codex-private.yaml", harness: "codex", image: "ubuntu:24.04"},
-		{fixture: "financial-dexter-private.yaml", harness: "dexter", image: "oven/bun:1.1"},
+		{fixture: "coding-codex-private.yaml", harness: "codex", image: "ubuntu:24.04", service: "codex-worker"},
+		{fixture: "financial-dexter-private.yaml", harness: "dexter", image: "oven/bun:1.1", service: "dexter-worker"},
 	}
 
 	for _, tc := range cases {
@@ -427,11 +442,29 @@ func TestCompileAgentSpecSelectsHarnessTemplates(t *testing.T) {
 			if compiled.Runtime.Harness != tc.harness {
 				t.Fatalf("harness = %q, want %q", compiled.Runtime.Harness, tc.harness)
 			}
-			compose := compiledFileContent(t, compiled, "compose.yaml")
-			if !strings.Contains(compose, "image: "+quoteYAML(tc.image)) {
-				t.Fatalf("compose.yaml = %q, want image %s", compose, tc.image)
+			dockerfile := compiledFileContent(t, compiled, "containers/"+tc.service+"/Dockerfile")
+			if !strings.Contains(dockerfile, "FROM "+tc.image) {
+				t.Fatalf("%s Dockerfile = %q, want base image %s", tc.service, dockerfile, tc.image)
 			}
 		})
+	}
+}
+
+func TestValidateAgentSpecRejectsUnsafeRuntimePackages(t *testing.T) {
+	spec := loadSpecFixture(t, "media-accent-private.yaml")
+	spec.Runtime.Packages = []string{"ffmpeg;touch-/tmp/nope"}
+
+	if err := validateAgentSpec(spec); err == nil {
+		t.Fatal("validateAgentSpec() error = nil, want unsafe package rejection")
+	}
+}
+
+func TestValidateAgentSpecRejectsUnsafeRuntimeImages(t *testing.T) {
+	spec := loadSpecFixture(t, "media-accent-private.yaml")
+	spec.Runtime.Containers[0].Image = "ubuntu:24.04\nRUN false"
+
+	if err := validateAgentSpec(spec); err == nil {
+		t.Fatal("validateAgentSpec() error = nil, want unsafe image rejection")
 	}
 }
 
@@ -517,16 +550,28 @@ func loadSpecFixture(t *testing.T, name string) AgentSpec {
 
 func compiledFileContent(t *testing.T, compiled *AgentSpecCompileResult, path string) string {
 	t.Helper()
-	for _, file := range compiled.Files {
-		if file.Path == path {
-			if file.Mode != compiledFileMode {
-				t.Fatalf("%s mode = %q, want %q", path, file.Mode, compiledFileMode)
-			}
-			return file.Content
-		}
+	content, ok := compiledFileContentMaybe(compiled, path)
+	if !ok {
+		t.Fatalf("compiled file %s not found in %#v", path, compiled.Files)
 	}
-	t.Fatalf("compiled file %s not found in %#v", path, compiled.Files)
-	return ""
+	return content
+}
+
+func compiledFileContentMaybe(compiled *AgentSpecCompileResult, path string) (string, bool) {
+	for _, file := range compiled.Files {
+		if file.Path != path {
+			continue
+		}
+		if file.Mode != compiledFileMode {
+			return "", false
+		}
+		return file.Content, true
+	}
+	return "", false
+}
+
+func specRequestsGeneratedCompose(spec AgentSpec) bool {
+	return len(spec.Runtime.Packages) > 0 || len(spec.Runtime.Containers) > 0
 }
 
 func containsString(values []string, want string) bool {

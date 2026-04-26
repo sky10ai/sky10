@@ -88,7 +88,7 @@ var openClawDockerLimaProgressPlan = []progressStep{
 	{ID: "vm.start", Summary: "Booting device..."},
 	{ID: "guest.system.packages", Summary: "Installing Docker runtime..."},
 	{ID: "guest.docker.configure", Summary: "Configuring Docker runtime..."},
-	{ID: "guest.docker.build", Summary: "Building OpenClaw container..."},
+	{ID: "guest.docker.build", Summary: "Building Docker containers..."},
 	{ID: "guest.docker.start", Summary: "Starting OpenClaw containers..."},
 	{ID: "ready.openclaw.gateway", Summary: "Waiting for OpenClaw gateway..."},
 	{ID: "ready.guest.sky10", Summary: "Waiting for guest sky10..."},

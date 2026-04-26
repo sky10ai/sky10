@@ -1,6 +1,7 @@
 FROM ubuntu:24.04
 
 ARG TARGETARCH
+ARG SKY10_AGENT_PACKAGES=""
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV HOME=/root
@@ -69,6 +70,12 @@ RUN npm install -g "openclaw@${OPENCLAW_VERSION}" \
   && test -n "${CHROME_BIN}" \
   && ln -sf "${CHROME_BIN}" /usr/local/bin/chromium \
   && ln -sf "${CHROME_BIN}" /usr/local/bin/google-chrome
+
+RUN if [ -n "${SKY10_AGENT_PACKAGES}" ]; then \
+      apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 update \
+      && apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 install -y ${SKY10_AGENT_PACKAGES} \
+      && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 RUN curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused \
     -o /usr/local/bin/sky10 "https://github.com/sky10ai/sky10/releases/latest/download/sky10-linux-${TARGETARCH}" \

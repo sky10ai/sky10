@@ -1896,6 +1896,37 @@ func TestBundledOpenClawDockerUserScriptPersistsGuestSky10State(t *testing.T) {
 	if !strings.Contains(script, `- /sandbox-state/sky10-home:/root/.sky10`) {
 		t.Fatalf("bundled OpenClaw Docker user script missing guest sky10 volume mount: %q", script)
 	}
+	for _, want := range []string{
+		`SPEC_COMPOSE_FILE="/shared/compose.yaml"`,
+		`COMPOSE_FILES+=(-f "${SPEC_COMPOSE_FILE}")`,
+		`docker compose "${COMPOSE_FILES[@]}"`,
+		`env_file:`,
+		`- /sandbox-state/.env`,
+		`docker_compose build`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("bundled OpenClaw Docker user script missing %q: %q", want, script)
+		}
+	}
+}
+
+func TestBundledOpenClawDockerfileSupportsSpecPackageLayer(t *testing.T) {
+	t.Parallel()
+
+	body, err := readBundledRuntimeBundleAsset(runtimeBundleOpenClawDockerfile)
+	if err != nil {
+		t.Fatalf("readBundledRuntimeBundleAsset(%q) error: %v", runtimeBundleOpenClawDockerfile, err)
+	}
+
+	dockerfile := string(body)
+	for _, want := range []string{
+		`ARG SKY10_AGENT_PACKAGES=""`,
+		`apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 install -y ${SKY10_AGENT_PACKAGES}`,
+	} {
+		if !strings.Contains(dockerfile, want) {
+			t.Fatalf("bundled OpenClaw Dockerfile missing %q: %q", want, dockerfile)
+		}
+	}
 }
 
 func TestBundledHermesDockerUserScriptPersistsGuestSky10State(t *testing.T) {

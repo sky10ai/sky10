@@ -35,6 +35,7 @@ type AgentCompiledRuntime struct {
 	Provider   string               `json:"provider,omitempty"`
 	Template   string               `json:"template,omitempty"`
 	Harness    string               `json:"harness,omitempty"`
+	Packages   []string             `json:"packages,omitempty"`
 	Containers []AgentContainerSpec `json:"containers,omitempty"`
 }
 
@@ -106,14 +107,8 @@ func compileRuntime(spec AgentSpec) AgentCompiledRuntime {
 		slug = "agent"
 	}
 
+	packages := normalizeRuntimePackages(runtime.Packages)
 	containers := append([]AgentContainerSpec(nil), runtime.Containers...)
-	if runtime.Target == "sandbox" && len(containers) == 0 {
-		containers = []AgentContainerSpec{{
-			Name:     serviceNameForHarness(harness),
-			Image:    defaultImageForHarness(harness),
-			Packages: append([]string(nil), runtime.Packages...),
-		}}
-	}
 	for i := range containers {
 		containers[i].Name = strings.TrimSpace(containers[i].Name)
 		if containers[i].Name == "" {
@@ -121,7 +116,10 @@ func compileRuntime(spec AgentSpec) AgentCompiledRuntime {
 		}
 		if strings.TrimSpace(containers[i].Image) == "" {
 			containers[i].Image = defaultImageForHarness(harness)
+		} else {
+			containers[i].Image = strings.TrimSpace(containers[i].Image)
 		}
+		containers[i].Packages = normalizeRuntimePackages(containers[i].Packages)
 	}
 
 	return AgentCompiledRuntime{
@@ -131,6 +129,7 @@ func compileRuntime(spec AgentSpec) AgentCompiledRuntime {
 		Provider:   provider,
 		Template:   template,
 		Harness:    harness,
+		Packages:   packages,
 		Containers: containers,
 	}
 }
@@ -170,15 +169,26 @@ func compileSpecFiles(spec AgentSpec, runtime AgentCompiledRuntime, secretBindin
 	}
 	files[0].Content = manifest
 
-	if runtime.Target == "sandbox" {
+	if runtime.Target == "sandbox" && runtimeNeedsGeneratedCompose(runtime) {
 		files = append(files, AgentCompiledFile{
 			Path:    "compose.yaml",
 			Mode:    compiledFileMode,
 			Content: compileComposeYAML(spec, runtime, secretBindings),
 		})
-		if runtime.Template == "" {
-			warnings = append(warnings, "runtime.template is empty; provisioning will need an explicit sandbox template")
+		for _, container := range runtime.Containers {
+			if len(container.Packages) == 0 {
+				continue
+			}
+			serviceName := composeServiceName(container.Name, runtime.Harness)
+			files = append(files, AgentCompiledFile{
+				Path:    fmt.Sprintf("containers/%s/Dockerfile", serviceName),
+				Mode:    compiledFileMode,
+				Content: compileContainerDockerfile(container),
+			})
 		}
+	}
+	if runtime.Target == "sandbox" && runtime.Template == "" {
+		warnings = append(warnings, "runtime.template is empty; provisioning will need an explicit sandbox template")
 	}
 
 	sort.SliceStable(files, func(i, j int) bool {
@@ -313,17 +323,33 @@ func compileREADME(spec AgentSpec, runtime AgentCompiledRuntime, secretBindings 
 func compileComposeYAML(spec AgentSpec, runtime AgentCompiledRuntime, secretBindings []AgentCompiledSecretBinding) string {
 	var b strings.Builder
 	b.WriteString("services:\n")
-	for _, container := range runtime.Containers {
-		serviceName := compileSlug(container.Name)
-		if serviceName == "" {
-			serviceName = serviceNameForHarness(runtime.Harness)
+	if runtime.Harness == defaultAgentHarness && len(runtime.Packages) > 0 {
+		b.WriteString("  openclaw:\n")
+		b.WriteString("    build:\n")
+		b.WriteString("      args:\n")
+		fmt.Fprintf(&b, "        SKY10_AGENT_PACKAGES: %s\n", quoteYAML(composePackageArg(runtime.Packages)))
+		writeComposeLabels(&b, spec, runtime.Harness)
+		b.WriteString("    x-sky10-packages:\n")
+		for _, pkg := range runtime.Packages {
+			fmt.Fprintf(&b, "      - %s\n", quoteYAML(pkg))
 		}
+	}
+	for _, container := range runtime.Containers {
+		serviceName := composeServiceName(container.Name, runtime.Harness)
 		fmt.Fprintf(&b, "  %s:\n", serviceName)
-		fmt.Fprintf(&b, "    image: %s\n", quoteYAML(container.Image))
+		if len(container.Packages) > 0 {
+			b.WriteString("    build:\n")
+			b.WriteString("      context: /shared\n")
+			fmt.Fprintf(&b, "      dockerfile: containers/%s/Dockerfile\n", serviceName)
+			b.WriteString("      args:\n")
+			fmt.Fprintf(&b, "        SKY10_AGENT_PACKAGES: %s\n", quoteYAML(composePackageArg(container.Packages)))
+		} else {
+			fmt.Fprintf(&b, "    image: %s\n", quoteYAML(container.Image))
+		}
 		b.WriteString("    working_dir: /workspace\n")
 		b.WriteString("    command: [\"sh\", \"-lc\", \"sleep infinity\"]\n")
 		b.WriteString("    env_file:\n")
-		b.WriteString("      - .env\n")
+		b.WriteString("      - /sandbox-state/.env\n")
 		if len(secretBindings) > 0 {
 			b.WriteString("    environment:\n")
 			for _, binding := range secretBindings {
@@ -331,15 +357,10 @@ func compileComposeYAML(spec AgentSpec, runtime AgentCompiledRuntime, secretBind
 			}
 		}
 		b.WriteString("    volumes:\n")
-		b.WriteString("      - ./agent:/workspace/agent\n")
-		b.WriteString("      - ./input:/workspace/input\n")
-		b.WriteString("      - ./output:/workspace/output\n")
-		b.WriteString("    labels:\n")
-		fmt.Fprintf(&b, "      - %s\n", quoteYAML("sky10.agent.spec_id="+spec.ID))
-		fmt.Fprintf(&b, "      - %s\n", quoteYAML("sky10.agent.name="+spec.Name))
-		if runtime.Harness != "" {
-			fmt.Fprintf(&b, "      - %s\n", quoteYAML("sky10.agent.harness="+runtime.Harness))
-		}
+		b.WriteString("      - /shared/agent:/workspace/agent\n")
+		b.WriteString("      - /shared/input:/workspace/input\n")
+		b.WriteString("      - /shared/output:/workspace/output\n")
+		writeComposeLabels(&b, spec, runtime.Harness)
 		if len(container.Packages) > 0 {
 			b.WriteString("    x-sky10-packages:\n")
 			for _, pkg := range container.Packages {
@@ -348,6 +369,32 @@ func compileComposeYAML(spec AgentSpec, runtime AgentCompiledRuntime, secretBind
 		}
 	}
 	return b.String()
+}
+
+func compileContainerDockerfile(container AgentContainerSpec) string {
+	image := strings.TrimSpace(container.Image)
+	if image == "" {
+		image = defaultImageForHarness("")
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "FROM %s\n\n", image)
+	b.WriteString("ARG SKY10_AGENT_PACKAGES=\"\"\n")
+	b.WriteString("ENV DEBIAN_FRONTEND=noninteractive\n")
+	b.WriteString("RUN if [ -n \"${SKY10_AGENT_PACKAGES}\" ]; then \\\n")
+	b.WriteString("      apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 update \\\n")
+	b.WriteString("      && apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 install -y ${SKY10_AGENT_PACKAGES} \\\n")
+	b.WriteString("      && rm -rf /var/lib/apt/lists/*; \\\n")
+	b.WriteString("    fi\n")
+	return b.String()
+}
+
+func writeComposeLabels(b *strings.Builder, spec AgentSpec, harness string) {
+	b.WriteString("    labels:\n")
+	fmt.Fprintf(b, "      - %s\n", quoteYAML("sky10.agent.spec_id="+spec.ID))
+	fmt.Fprintf(b, "      - %s\n", quoteYAML("sky10.agent.name="+spec.Name))
+	if harness != "" {
+		fmt.Fprintf(b, "      - %s\n", quoteYAML("sky10.agent.harness="+harness))
+	}
 }
 
 func compileProvisionActions(spec AgentSpec, runtime AgentCompiledRuntime, secretBindings []AgentCompiledSecretBinding) []AgentProvisionAction {
