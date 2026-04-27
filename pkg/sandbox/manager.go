@@ -564,7 +564,7 @@ func (m *Manager) Create(ctx context.Context, params CreateParams) (*Record, err
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	secretBindings, err := m.normalizeSecretBindings(ctx, params.SecretBindings, now)
+	secretBindings, err := m.normalizeCreateSecretBindings(ctx, template, model, params.SecretBindings, now)
 	if err != nil {
 		return nil, err
 	}
@@ -687,7 +687,7 @@ func (m *Manager) Ensure(ctx context.Context, params CreateParams) (*Record, err
 	}
 	if exists {
 		now := time.Now().UTC().Format(time.RFC3339)
-		secretBindings, err := m.normalizeSecretBindings(ctx, params.SecretBindings, now)
+		secretBindings, err := m.normalizeCreateSecretBindings(ctx, template, model, params.SecretBindings, now)
 		if err != nil {
 			return nil, err
 		}

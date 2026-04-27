@@ -355,3 +355,67 @@ func (m *Manager) normalizeSecretBindings(ctx context.Context, bindings []Secret
 	sortSecretBindings(normalized)
 	return normalized, nil
 }
+
+func (m *Manager) normalizeCreateSecretBindings(ctx context.Context, template, model string, bindings []SecretBinding, now string) ([]SecretBinding, error) {
+	normalized, err := m.normalizeSecretBindings(ctx, bindings, now)
+	if err != nil {
+		return nil, err
+	}
+	return m.withDefaultProviderSecretBindings(ctx, template, model, normalized, now), nil
+}
+
+func (m *Manager) withDefaultProviderSecretBindings(ctx context.Context, template, model string, bindings []SecretBinding, now string) []SecretBinding {
+	if !isOpenClawTemplate(template) && !isHermesTemplate(template) {
+		return bindings
+	}
+	if !modelUsesAnthropic(model) {
+		return bindings
+	}
+	return m.withDefaultProviderSecretBinding(ctx, bindings, now, anthropicProviderSecretSpec)
+}
+
+func (m *Manager) withDefaultProviderSecretBinding(ctx context.Context, bindings []SecretBinding, now string, spec providerSecretSpec) []SecretBinding {
+	if m.secretLookup == nil {
+		return bindings
+	}
+	env := strings.TrimSpace(spec.envKey)
+	if env == "" {
+		return bindings
+	}
+	for _, binding := range bindings {
+		if binding.Env == env {
+			return bindings
+		}
+	}
+	secret, ok := m.findDefaultProviderSecret(ctx, spec)
+	if !ok {
+		return bindings
+	}
+	next := append([]SecretBinding(nil), bindings...)
+	next = append(next, SecretBinding{
+		Env:       env,
+		Secret:    secret,
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	sortSecretBindings(next)
+	return next
+}
+
+func (m *Manager) findDefaultProviderSecret(ctx context.Context, spec providerSecretSpec) (string, bool) {
+	for _, candidate := range spec.candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if _, err := m.secretLookup(ctx, candidate); err == nil {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func modelUsesAnthropic(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return model == "" || strings.HasPrefix(model, "anthropic/") || strings.HasPrefix(model, "claude-")
+}

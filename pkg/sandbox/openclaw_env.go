@@ -18,11 +18,13 @@ type providerSecretSpec struct {
 	candidates []string
 }
 
+var anthropicProviderSecretSpec = providerSecretSpec{
+	envKey:     "ANTHROPIC_API_KEY",
+	candidates: []string{"ANTHROPIC_API_KEY", "anthropic", "anthropic-api-key"},
+}
+
 var openClawProviderSecretSpecs = []providerSecretSpec{
-	{
-		envKey:     "ANTHROPIC_API_KEY",
-		candidates: []string{"ANTHROPIC_API_KEY", "anthropic", "anthropic-api-key"},
-	},
+	anthropicProviderSecretSpec,
 	{
 		envKey:     "OPENAI_API_KEY",
 		candidates: []string{"OPENAI_API_KEY", "openai", "openai-api-key"},
@@ -70,7 +72,8 @@ func resolveProviderEnvValue(ctx context.Context, lookup ProviderSecretLookup, c
 func BuildOpenClawSharedEnv(existing []byte, resolved map[string]string) []byte {
 	return buildSharedEnv(existing, resolved, openClawProviderSecretSpecs, []string{
 		"# Optional provider keys for OpenClaw inside Lima.",
-		"# Host secrets named OPENAI_API_KEY/openai and ANTHROPIC_API_KEY/anthropic merge in automatically when available.",
+		"# ANTHROPIC_API_KEY is normally projected through sandbox secret bindings.",
+		"# Other host provider secrets merge here when available.",
 	})
 }
 

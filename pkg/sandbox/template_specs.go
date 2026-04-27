@@ -449,6 +449,12 @@ func (m *Manager) resolveSharedEnv(ctx context.Context, rec Record, resolver fun
 		m.logger.Warn("failed to resolve host secrets for sandbox env", "sandbox", rec.Slug, "error", err)
 		return map[string]string{}
 	}
+	for _, binding := range rec.SecretBindings {
+		env := strings.TrimSpace(binding.Env)
+		if env != "" {
+			delete(values, env)
+		}
+	}
 	return values
 }
 

@@ -94,7 +94,7 @@ func EnsureAgentProfileLayout(sharedDir string, seed AgentProfileSeed) error {
 func parseAgentProfileModel(model string) (string, string) {
 	model = strings.TrimSpace(model)
 	if model == "" {
-		model = "anthropic/claude-sonnet-4-6"
+		model = "anthropic/claude-opus-4-6"
 	}
 	parts := strings.SplitN(model, "/", 2)
 	if len(parts) == 2 && strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != "" {

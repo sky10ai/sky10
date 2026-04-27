@@ -1502,6 +1502,34 @@ func TestBundledManagedLimaTemplatesForwardGuestEndpoints(t *testing.T) {
 	}
 }
 
+func TestBundledAgentTemplatesDefaultToOpus(t *testing.T) {
+	t.Parallel()
+
+	for _, asset := range []string{
+		templateOpenClawYAML,
+		templateOpenClawDockerYAML,
+		templateHermesYAML,
+		templateHermesDockerYAML,
+	} {
+		asset := asset
+		t.Run(asset, func(t *testing.T) {
+			t.Parallel()
+
+			body, err := readBundledTemplateAsset(asset)
+			if err != nil {
+				t.Fatalf("readBundledTemplateAsset(%q) error: %v", asset, err)
+			}
+			text := string(body)
+			if !strings.Contains(text, "model: anthropic/claude-opus-4-6") {
+				t.Fatalf("%s default model = %q, want Opus 4.6", asset, text)
+			}
+			if strings.Contains(text, "claude-sonnet-4-6") {
+				t.Fatalf("%s still references Sonnet 4.6: %q", asset, text)
+			}
+		})
+	}
+}
+
 func assertManagedLimaTemplateForwardsGuestSky10(t *testing.T, text string) {
 	t.Helper()
 

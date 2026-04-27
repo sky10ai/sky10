@@ -77,4 +77,4 @@ message: |
     limactl shell __SKY10_SANDBOX_NAME__ -- bash -lc 'hermes-shared'
 
 param:
-  model: anthropic/claude-sonnet-4-6
+  model: anthropic/claude-opus-4-6

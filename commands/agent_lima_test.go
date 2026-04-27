@@ -946,8 +946,8 @@ func TestHermesUserScriptInstallsHelper(t *testing.T) {
 	if !strings.Contains(script, `--branch "${HERMES_RELEASE_REF}"`) {
 		t.Fatalf("user script missing pinned Hermes install branch: %q", script)
 	}
-	if !strings.Contains(script, "ANTHROPIC_API_KEY/anthropic") {
-		t.Fatalf("user script missing host-secret merge note: %q", script)
+	if !strings.Contains(script, "ANTHROPIC_API_KEY is normally projected through sandbox secret bindings") {
+		t.Fatalf("user script missing Anthropic binding note: %q", script)
 	}
 	if !strings.Contains(script, "hermes-sky10-bridge.py") {
 		t.Fatalf("user script missing bundled bridge asset install: %q", script)

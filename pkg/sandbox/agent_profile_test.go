@@ -15,7 +15,7 @@ func TestEnsureAgentProfileLayoutSeedsPortableFiles(t *testing.T) {
 		DisplayName: "Hermes Dev",
 		Slug:        "hermes-dev",
 		Template:    templateHermes,
-		Model:       "openrouter/anthropic/claude-sonnet-4-6",
+		Model:       "openrouter/anthropic/claude-opus-4-6",
 	}); err != nil {
 		t.Fatalf("EnsureAgentProfileLayout() error: %v", err)
 	}

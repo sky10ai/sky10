@@ -123,8 +123,8 @@ ensure_shared_env() {
   if [ ! -f "${SANDBOX_STATE_DIR}/.env" ]; then
     cat > "${SANDBOX_STATE_DIR}/.env" <<'EOF'
 # Optional provider keys for Hermes inside Lima.
-# Host secrets named ANTHROPIC_API_KEY/anthropic, OPENAI_API_KEY/openai,
-# and OPENROUTER_API_KEY/openrouter merge in automatically when available.
+# ANTHROPIC_API_KEY is normally projected through sandbox secret bindings.
+# Other host provider secrets merge here when available.
 # Hermes reads ~/.hermes/.env, which is linked to this sandbox state file.
 
 OPENAI_API_KEY=

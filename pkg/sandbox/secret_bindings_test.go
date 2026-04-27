@@ -150,6 +150,125 @@ func TestNormalizeSecretBindingsSortsAndRejectsDuplicates(t *testing.T) {
 	}
 }
 
+func TestNormalizeCreateSecretBindingsAddsAnthropicForAgentTemplates(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+	m.SetSecretLookup(func(ctx context.Context, idOrName string) ([]byte, error) {
+		if idOrName != "anthropic" {
+			return nil, ErrProviderSecretNotFound
+		}
+		return []byte("anthropic-key"), nil
+	})
+
+	got, err := m.normalizeCreateSecretBindings(context.Background(), templateOpenClawDocker, "", nil, "2026-04-26T12:00:00Z")
+	if err != nil {
+		t.Fatalf("normalizeCreateSecretBindings() error: %v", err)
+	}
+	if len(got) != 1 ||
+		got[0].Env != "ANTHROPIC_API_KEY" ||
+		got[0].Secret != "anthropic" {
+		t.Fatalf("bindings = %#v, want default Anthropic binding", got)
+	}
+}
+
+func TestNormalizeCreateSecretBindingsPreservesExplicitAnthropicBinding(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+	m.SetSecretLookup(func(ctx context.Context, idOrName string) ([]byte, error) {
+		switch idOrName {
+		case "owner-anthropic", "anthropic":
+			return []byte("anthropic-key"), nil
+		default:
+			return nil, ErrProviderSecretNotFound
+		}
+	})
+
+	got, err := m.normalizeCreateSecretBindings(context.Background(), templateOpenClaw, "", []SecretBinding{
+		{Env: "ANTHROPIC_API_KEY", Secret: "owner-anthropic"},
+	}, "2026-04-26T12:00:00Z")
+	if err != nil {
+		t.Fatalf("normalizeCreateSecretBindings() error: %v", err)
+	}
+	if len(got) != 1 || got[0].Secret != "owner-anthropic" {
+		t.Fatalf("bindings = %#v, want explicit Anthropic binding preserved", got)
+	}
+}
+
+func TestNormalizeCreateSecretBindingsSkipsAnthropicForNonAgentTemplates(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+	m.SetSecretLookup(func(ctx context.Context, idOrName string) ([]byte, error) {
+		return []byte("anthropic-key"), nil
+	})
+
+	got, err := m.normalizeCreateSecretBindings(context.Background(), templateUbuntu, "", nil, "2026-04-26T12:00:00Z")
+	if err != nil {
+		t.Fatalf("normalizeCreateSecretBindings() error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("bindings = %#v, want no default binding for ubuntu template", got)
+	}
+}
+
+func TestNormalizeCreateSecretBindingsSkipsAnthropicForNonAnthropicModelOverride(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+	m.SetSecretLookup(func(ctx context.Context, idOrName string) ([]byte, error) {
+		return []byte("anthropic-key"), nil
+	})
+
+	got, err := m.normalizeCreateSecretBindings(context.Background(), templateOpenClaw, "openai/gpt-5.5", nil, "2026-04-26T12:00:00Z")
+	if err != nil {
+		t.Fatalf("normalizeCreateSecretBindings() error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("bindings = %#v, want no default Anthropic binding for non-Anthropic model", got)
+	}
+}
+
+func TestResolveSharedEnvOmitsSecretBoundKeys(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+	got := m.resolveSharedEnv(context.Background(), Record{
+		Slug: "openclaw-agent",
+		SecretBindings: []SecretBinding{
+			{Env: "ANTHROPIC_API_KEY", Secret: "anthropic"},
+		},
+	}, func(context.Context) (map[string]string, error) {
+		return map[string]string{
+			"ANTHROPIC_API_KEY": "legacy-anthropic",
+			"OPENAI_API_KEY":    "openai-key",
+		}, nil
+	})
+
+	if _, ok := got["ANTHROPIC_API_KEY"]; ok {
+		t.Fatalf("resolved env = %#v, want secret-bound Anthropic omitted", got)
+	}
+	if got["OPENAI_API_KEY"] != "openai-key" {
+		t.Fatalf("resolved env = %#v, want unbound OpenAI retained", got)
+	}
+}
+
 func TestPrepareTemplateSharedDirMaterializesInitialSecretBindings(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
 

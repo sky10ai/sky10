@@ -85,4 +85,4 @@ message: |
   OpenClaw's Caddy UI remains guest-local on port 18790 in this phase.
 
 param:
-  model: anthropic/claude-sonnet-4-6
+  model: anthropic/claude-opus-4-6

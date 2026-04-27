@@ -7,10 +7,7 @@ import (
 )
 
 var hermesProviderSecretSpecs = []providerSecretSpec{
-	{
-		envKey:     "ANTHROPIC_API_KEY",
-		candidates: []string{"ANTHROPIC_API_KEY", "anthropic", "anthropic-api-key"},
-	},
+	anthropicProviderSecretSpec,
 	{
 		envKey:     "OPENAI_API_KEY",
 		candidates: []string{"OPENAI_API_KEY", "openai", "openai-api-key"},
@@ -28,7 +25,8 @@ func ResolveHermesProviderEnv(ctx context.Context, lookup ProviderSecretLookup) 
 func BuildHermesSharedEnv(existing []byte, resolved map[string]string) []byte {
 	return buildSharedEnv(existing, resolved, hermesProviderSecretSpecs, []string{
 		"# Optional provider keys for Hermes inside Lima.",
-		"# Host secrets named ANTHROPIC_API_KEY/anthropic, OPENAI_API_KEY/openai, and OPENROUTER_API_KEY/openrouter merge in automatically when available.",
+		"# ANTHROPIC_API_KEY is normally projected through sandbox secret bindings.",
+		"# Other host provider secrets merge here when available.",
 		"# Hermes reads ~/.hermes/.env, which is linked to this shared file.",
 	})
 }

@@ -199,7 +199,7 @@ limactl shell my-agent -- bash -lc 'tail -100 /tmp/openclaw-*/*.log'
 ## Notes
 
 - This template is currently macOS-only because it uses Lima `vz`.
-- The default model is `anthropic/claude-sonnet-4-6`.
+- The default model is `anthropic/claude-opus-4-6`.
 - The provisioning scripts force outbound traffic over the guest `eth0`/`vzNAT` route because the default `lima0` route can lack internet reachability on this setup.
 - To change the default model for future instances, edit
   [`templates/lima/openclaw-sky10.yaml`](../../templates/lima/openclaw-sky10.yaml)
