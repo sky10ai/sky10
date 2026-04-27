@@ -306,9 +306,9 @@ func TestCompileAgentSpecProducesMediaRuntimePreview(t *testing.T) {
 		}
 	}
 	dockerfile := compiledFileContent(t, compiled, "containers/media-worker/Dockerfile")
-	if !strings.Contains(dockerfile, "FROM ubuntu:24.04") ||
+	if !strings.Contains(dockerfile, "FROM "+defaultAgentUbuntuImage) ||
 		!strings.Contains(dockerfile, "install -y ${SKY10_AGENT_PACKAGES}") {
-		t.Fatalf("media-worker Dockerfile = %q, want Ubuntu package layer", dockerfile)
+		t.Fatalf("media-worker Dockerfile = %q, want GHCR Ubuntu package layer", dockerfile)
 	}
 
 	env := compiledFileContent(t, compiled, ".env.example")
@@ -429,7 +429,7 @@ func TestCompileAgentSpecSelectsHarnessTemplates(t *testing.T) {
 		image   string
 		service string
 	}{
-		{fixture: "coding-codex-private.yaml", harness: "codex", image: "ubuntu:24.04", service: "codex-worker"},
+		{fixture: "coding-codex-private.yaml", harness: "codex", image: defaultAgentUbuntuImage, service: "codex-worker"},
 		{fixture: "financial-dexter-private.yaml", harness: "dexter", image: "oven/bun:1.1", service: "dexter-worker"},
 	}
 

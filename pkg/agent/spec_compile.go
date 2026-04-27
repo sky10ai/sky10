@@ -8,10 +8,11 @@ import (
 )
 
 const (
-	compiledFileMode       = "0644"
-	defaultAgentHarness    = "openclaw"
-	defaultSandboxProvider = "lima"
-	defaultSandboxTemplate = "openclaw-docker"
+	compiledFileMode        = "0644"
+	defaultAgentHarness     = "openclaw"
+	defaultAgentUbuntuImage = "ghcr.io/sky10ai/sky10-agent-ubuntu:24.04"
+	defaultSandboxProvider  = "lima"
+	defaultSandboxTemplate  = "openclaw-docker"
 )
 
 type AgentSpecCompileParams struct {

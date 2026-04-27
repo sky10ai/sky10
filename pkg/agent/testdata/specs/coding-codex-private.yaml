@@ -11,7 +11,7 @@ runtime:
   harness: codex
   packages: [git, nodejs, python3]
   containers:
-    - {name: codex-worker, image: ubuntu:24.04, packages: [git, nodejs, python3]}
+    - {name: codex-worker, image: ghcr.io/sky10ai/sky10-agent-ubuntu:24.04, packages: [git, nodejs, python3]}
 fulfillment: {mode: autonomous}
 tools:
   - name: github.issue.fix

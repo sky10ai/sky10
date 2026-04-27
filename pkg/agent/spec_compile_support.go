@@ -174,7 +174,7 @@ func defaultImageForHarness(harness string) string {
 	case "dexter":
 		return "oven/bun:1.1"
 	default:
-		return "ubuntu:24.04"
+		return defaultAgentUbuntuImage
 	}
 }
 

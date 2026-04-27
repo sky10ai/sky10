@@ -12,7 +12,7 @@ runtime:
   packages: [ffmpeg]
   containers:
     - name: media-worker
-      image: ubuntu:24.04
+      image: ghcr.io/sky10ai/sky10-agent-ubuntu:24.04
       packages: [ffmpeg]
 fulfillment:
   mode: autonomous

@@ -59,7 +59,7 @@ func buildMediaAccentSpec(prompt, timestamp string) AgentSpec {
 			Harness:  defaultAgentHarness,
 			Packages: []string{"ffmpeg"},
 			Containers: []AgentContainerSpec{
-				{Name: "media-worker", Image: "ubuntu:24.04", Packages: []string{"ffmpeg"}},
+				{Name: "media-worker", Image: defaultAgentUbuntuImage, Packages: []string{"ffmpeg"}},
 			},
 		},
 		Fulfillment: AgentFulfillment{Mode: "autonomous"},
@@ -177,7 +177,7 @@ func buildCodexCodingSpec(prompt, timestamp string) AgentSpec {
 			Harness:  "codex",
 			Packages: []string{"git", "nodejs", "python3"},
 			Containers: []AgentContainerSpec{
-				{Name: "codex-worker", Image: "ubuntu:24.04", Packages: []string{"git", "nodejs", "python3"}},
+				{Name: "codex-worker", Image: defaultAgentUbuntuImage, Packages: []string{"git", "nodejs", "python3"}},
 			},
 		},
 		Fulfillment: AgentFulfillment{Mode: "autonomous"},

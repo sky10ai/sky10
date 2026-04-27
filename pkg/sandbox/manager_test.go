@@ -1948,11 +1948,32 @@ func TestBundledOpenClawDockerfileSupportsSpecPackageLayer(t *testing.T) {
 
 	dockerfile := string(body)
 	for _, want := range []string{
+		`ARG SKY10_OPENCLAW_RUNTIME_IMAGE=ghcr.io/sky10ai/sky10-openclaw-runtime:2026.4.24-ubuntu24.04`,
+		`FROM ${SKY10_OPENCLAW_RUNTIME_IMAGE}`,
 		`ARG SKY10_AGENT_PACKAGES=""`,
 		`apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 install -y ${SKY10_AGENT_PACKAGES}`,
 	} {
 		if !strings.Contains(dockerfile, want) {
 			t.Fatalf("bundled OpenClaw Dockerfile missing %q: %q", want, dockerfile)
+		}
+	}
+}
+
+func TestBundledHermesDockerfileUsesGHCRRuntimeImage(t *testing.T) {
+	t.Parallel()
+
+	body, err := readBundledRuntimeBundleAsset(runtimeBundleHermesDockerfile)
+	if err != nil {
+		t.Fatalf("readBundledRuntimeBundleAsset(%q) error: %v", runtimeBundleHermesDockerfile, err)
+	}
+
+	dockerfile := string(body)
+	for _, want := range []string{
+		`ARG SKY10_HERMES_RUNTIME_IMAGE=ghcr.io/sky10ai/sky10-hermes-runtime:v2026.4.23-ubuntu24.04`,
+		`FROM ${SKY10_HERMES_RUNTIME_IMAGE}`,
+	} {
+		if !strings.Contains(dockerfile, want) {
+			t.Fatalf("bundled Hermes Dockerfile missing %q: %q", want, dockerfile)
 		}
 	}
 }
