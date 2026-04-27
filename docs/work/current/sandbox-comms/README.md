@@ -106,6 +106,20 @@ for the historical lesson behind this.
 
 - 2026-04-26 — plan drafted; reflects per-intent decision and
   narrower branch scope (x402 only).
+- 2026-04-27 — M1 (shared transport plumbing) landed in
+  `pkg/sandbox/comms/`. Envelope spec, identity injection, replay
+  protection, audit log, per-(agent, type) quotas, and connection
+  lifecycle all in place with tests. The `arch_test.go` slipped to
+  M2 because it has nothing to scan until the first capability
+  subpackage exists.
+- 2026-04-27 — M2 (x402 capability) handlers landed in
+  `pkg/sandbox/comms/x402/` against a `Backend` interface. Three
+  envelope types (`list_services`, `service_call`, `budget_status`)
+  with full test coverage including a structural test that the
+  bus-stamped `AgentID` cannot be smuggled through the payload.
+  The arch test scans the x402 subpackage and enforces validation-
+  first. Real `pkg/x402` Backend implementation and daemon wiring
+  follow under the [x402 plan](../x402/).
 
 ## Documents
 
