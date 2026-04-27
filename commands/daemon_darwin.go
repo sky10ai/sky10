@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -86,6 +87,51 @@ func findMenuBinary() string {
 	return filepath.Join(home, ".bin", "sky10-menu")
 }
 
+// loadLaunchAgent boots the previous instance out (if any), waits for launchd
+// to actually finish the teardown, and then bootstraps the agent. Bootstrap is
+// retried because launchctl can briefly report "service already loaded" or
+// "operation already in progress" while the bootout is still draining,
+// especially during a binary upgrade where a prior version is being replaced.
+func loadLaunchAgent(target, plistPath string) error {
+	gui := fmt.Sprintf("gui/%d", os.Getuid())
+
+	exec.Command("launchctl", "bootout", target).Run()
+	waitForLaunchAgentGone(target, 3*time.Second)
+
+	var lastOut []byte
+	var lastErr error
+	for attempt := 0; attempt < 4; attempt++ {
+		out, err := exec.Command("launchctl", "bootstrap", gui, plistPath).CombinedOutput()
+		if err == nil {
+			return nil
+		}
+		lastOut = out
+		lastErr = err
+		// Re-bootout in case launchd partially loaded the plist between
+		// attempts, then back off before retrying.
+		exec.Command("launchctl", "bootout", target).Run()
+		waitForLaunchAgentGone(target, 2*time.Second)
+		time.Sleep(time.Duration(250*(attempt+1)) * time.Millisecond)
+	}
+	return fmt.Errorf("launchctl bootstrap: %s (%w)", strings.TrimSpace(string(lastOut)), lastErr)
+}
+
+// waitForLaunchAgentGone polls launchctl print until it reports the agent is
+// no longer registered, or the deadline elapses. launchctl bootout returns
+// before the agent is fully torn down.
+func waitForLaunchAgentGone(target string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for {
+		if err := exec.Command("launchctl", "print", target).Run(); err != nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 func installMenuAgent() {
 	menuBin := findMenuBinary()
 	if _, err := os.Stat(menuBin); err != nil {
@@ -114,10 +160,8 @@ func installMenuAgent() {
 	}
 	f.Close()
 
-	exec.Command("launchctl", "bootout", launchdMenuTarget()).Run()
-	gui := fmt.Sprintf("gui/%d", os.Getuid())
-	if out, err := exec.Command("launchctl", "bootstrap", gui, path).CombinedOutput(); err != nil {
-		fmt.Printf("Warning: could not start sky10-menu: %s\n", strings.TrimSpace(string(out)))
+	if err := loadLaunchAgent(launchdMenuTarget(), path); err != nil {
+		fmt.Printf("Warning: could not start sky10-menu: %s\n", err)
 		return
 	}
 	fmt.Printf("Installed: %s\n", path)
@@ -159,13 +203,8 @@ func daemonInstallCmd() *cobra.Command {
 			}
 			f.Close()
 
-			// Unload first in case it's already loaded (ignore error).
-			exec.Command("launchctl", "bootout", launchdTarget()).Run()
-
-			gui := fmt.Sprintf("gui/%d", os.Getuid())
-			out, err := exec.Command("launchctl", "bootstrap", gui, path).CombinedOutput()
-			if err != nil {
-				return fmt.Errorf("launchctl bootstrap: %s (%w)", strings.TrimSpace(string(out)), err)
+			if err := loadLaunchAgent(launchdTarget(), path); err != nil {
+				return err
 			}
 
 			fmt.Printf("Installed: %s\n", path)
