@@ -41,6 +41,20 @@ wait_for_openclaw_gateway() {
   timeout 120s bash -lc 'until pgrep -f "[o]penclaw-gateway" >/dev/null 2>&1; do sleep 2; done'
 }
 
+start_xvfb() {
+  pkill -f "Xvfb ${DISPLAY}" >/dev/null 2>&1 || true
+  rm -f "/tmp/.X${DISPLAY#:}-lock" "/tmp/.X11-unix/X${DISPLAY#:}"
+
+  Xvfb "${DISPLAY}" -screen 0 1920x1080x24 -ac >/tmp/xvfb.log 2>&1 &
+  xvfb_pid=$!
+  sleep 1
+  if ! kill -0 "${xvfb_pid}" >/dev/null 2>&1; then
+    cat /tmp/xvfb.log >&2 || true
+    echo >&2 "Xvfb failed to start"
+    exit 1
+  fi
+}
+
 configure_managed_openclaw_bundled_plugins() {
   local package_root dist_root runtime_root plugin
 
@@ -48,7 +62,9 @@ configure_managed_openclaw_bundled_plugins() {
   dist_root="${package_root}/dist"
   runtime_root="${package_root}/dist-runtime"
 
-  rm -rf "${runtime_root}"
+  mkdir -p "${runtime_root}"
+  find "${runtime_root}" -mindepth 1 -maxdepth 1 ! -name managed-runtime-deps \
+    -exec rm -rf {} +
   mkdir -p "${runtime_root}/extensions"
   find "${dist_root}" -mindepth 1 -maxdepth 1 ! -name extensions \
     -exec ln -sfn {} "${runtime_root}/" \;
@@ -217,8 +233,7 @@ sky10 serve >/tmp/sky10.log 2>&1 &
 sky10_pid=$!
 wait_for_sky10
 
-Xvfb :99 -screen 0 1920x1080x24 -ac >/tmp/xvfb.log 2>&1 &
-xvfb_pid=$!
+start_xvfb
 
 openclaw gateway run >/tmp/openclaw-gateway.log 2>&1 &
 openclaw_pid=$!

@@ -93,11 +93,19 @@ func (m *Manager) ensureHostConnectedGuestAgent(ctx context.Context, rec Record,
 
 	var lastErr error
 	for {
-		if err := m.hostRPC(waitCtx, "skylink.connect", map[string]string{"address": hostIdentity}, nil); err != nil {
-			lastErr = fmt.Errorf("connecting host sky10 to guest identity %q: %w", hostIdentity, err)
+		if err := m.waitForHostAgentVisible(waitCtx, rec); err != nil {
+			lastErr = err
+		} else {
+			m.appendLog(rec.Slug, "stdout", "host sky10 connected to guest peer")
+			return nil
 		}
 
-		if err := m.waitForHostAgentVisible(waitCtx, rec); err != nil {
+		connectCtx, connectCancel := context.WithTimeout(waitCtx, 5*time.Second)
+		connectErr := m.hostRPC(connectCtx, "skylink.connect", map[string]string{"address": hostIdentity}, nil)
+		connectCancel()
+		if connectErr != nil {
+			lastErr = fmt.Errorf("connecting host sky10 to guest identity %q: %w", hostIdentity, connectErr)
+		} else if err := m.waitForHostAgentVisible(waitCtx, rec); err != nil {
 			lastErr = err
 		} else {
 			m.appendLog(rec.Slug, "stdout", "host sky10 connected to guest peer")

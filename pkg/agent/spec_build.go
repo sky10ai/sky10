@@ -100,7 +100,7 @@ func buildMediaAccentSpec(prompt, timestamp string) AgentSpec {
 		},
 		Secrets: []AgentSecretSpec{
 			{
-				Name:        "voice-provider-api-key",
+				Name:        "ELEVENLABS_API_KEY",
 				Env:         "ELEVENLABS_API_KEY",
 				Description: "Optional external voice provider key; attach before runtime boot if that provider is selected.",
 			},

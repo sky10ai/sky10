@@ -12,7 +12,7 @@ runtime:
   packages: [ffmpeg]
   containers:
     - name: media-worker
-      image: ghcr.io/sky10ai/sky10-agent-ubuntu:24.04
+      image: ubuntu:24.04
       packages: [ffmpeg]
 fulfillment:
   mode: autonomous
@@ -43,7 +43,7 @@ outputs:
     mime_types: [audio/*]
     required: true
 secrets:
-  - name: voice-provider-api-key
+  - name: ELEVENLABS_API_KEY
     env: ELEVENLABS_API_KEY
     required: false
     description: Optional external voice provider key.

@@ -20,11 +20,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: agent-ubuntu
-            context: external/runtimebundles/base/ubuntu
-            file: external/runtimebundles/base/ubuntu/Dockerfile
-            tags: |
-              ghcr.io/sky10ai/sky10-agent-ubuntu:24.04
           - name: openclaw-runtime
             context: external/runtimebundles/openclaw/docker
             file: external/runtimebundles/openclaw/docker/runtime.Dockerfile

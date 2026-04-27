@@ -40,7 +40,7 @@ outputs:
     description: Processed media payload ref.
     required: true
 secrets:
-  - {name: voice-provider-api-key, env: ELEVENLABS_API_KEY, required: true}
+  - {name: ELEVENLABS_API_KEY, env: ELEVENLABS_API_KEY, required: true}
 permissions: [file.read, file.write, network.http, payment.charge]
 commerce:
   enabled: true

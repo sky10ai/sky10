@@ -71,7 +71,7 @@ func TestAgentSpecProvisionCreatesSandboxWithFilesAndSecretBindings(t *testing.T
 	}
 	if len(provisioner.params.SecretBindings) != 1 ||
 		provisioner.params.SecretBindings[0].Env != "ELEVENLABS_API_KEY" ||
-		provisioner.params.SecretBindings[0].Secret != "voice-provider-api-key" {
+		provisioner.params.SecretBindings[0].Secret != "ELEVENLABS_API_KEY" {
 		t.Fatalf("secret bindings = %#v, want ElevenLabs binding", provisioner.params.SecretBindings)
 	}
 	if !sandboxFilesContain(provisioner.params.Files, "compose.yaml") ||

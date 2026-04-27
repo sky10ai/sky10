@@ -1930,6 +1930,12 @@ func TestBundledOpenClawDockerUserScriptPersistsGuestSky10State(t *testing.T) {
 		`docker compose "${COMPOSE_FILES[@]}"`,
 		`env_file:`,
 		`- /sandbox-state/.env`,
+		"else\n      status=$?",
+		`for attempt in 1 2 3 4 5; do`,
+		`retry_command "OpenClaw runtime image pull" docker_pull "${image}"`,
+		`emit_progress begin guest.docker.pull "Pulling Docker runtime images..."`,
+		`retry_command "Docker Compose build" docker_compose build`,
+		`retry_command "Docker Compose up" docker_compose up -d --remove-orphans`,
 		`docker_compose build`,
 	} {
 		if !strings.Contains(script, want) {
@@ -1993,6 +1999,18 @@ func TestBundledHermesDockerUserScriptPersistsGuestSky10State(t *testing.T) {
 	if !strings.Contains(script, `- /sandbox-state/sky10-home:/root/.sky10`) {
 		t.Fatalf("bundled Hermes Docker user script missing guest sky10 volume mount: %q", script)
 	}
+	for _, want := range []string{
+		"else\n      status=$?",
+		`for attempt in 1 2 3 4 5; do`,
+		`retry_command "Hermes runtime image pull" docker_pull "${image}"`,
+		`emit_progress begin guest.docker.pull "Pulling Docker runtime images..."`,
+		`retry_command "Docker Compose build" docker_compose -f "${COMPOSE_FILE}" build hermes`,
+		`retry_command "Docker Compose up" docker_compose -f "${COMPOSE_FILE}" up -d --remove-orphans`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("bundled Hermes Docker user script missing %q: %q", want, script)
+		}
+	}
 }
 
 func TestBundledOpenClawDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T) {
@@ -2047,6 +2065,18 @@ func TestLoadSandboxAssetsLoadsOpenClawRuntimeBundle(t *testing.T) {
 	}
 	if !strings.Contains(string(entrypointBody), `prime_managed_openclaw_runtime_deps`) {
 		t.Fatalf("runtime bundle entrypoint should seed managed OpenClaw runtime deps: %q", string(entrypointBody))
+	}
+	if strings.Contains(string(entrypointBody), `rm -rf "${runtime_root}"`) {
+		t.Fatalf("runtime bundle entrypoint should not delete preseeded managed runtime deps: %q", string(entrypointBody))
+	}
+	if !strings.Contains(string(entrypointBody), `! -name managed-runtime-deps`) {
+		t.Fatalf("runtime bundle entrypoint should preserve preseeded managed runtime deps: %q", string(entrypointBody))
+	}
+	if !strings.Contains(string(entrypointBody), `rm -f "/tmp/.X${DISPLAY#:}-lock" "/tmp/.X11-unix/X${DISPLAY#:}"`) {
+		t.Fatalf("runtime bundle entrypoint should clear stale Xvfb display locks before restart: %q", string(entrypointBody))
+	}
+	if !strings.Contains(string(entrypointBody), `cat /tmp/xvfb.log >&2`) {
+		t.Fatalf("runtime bundle entrypoint should surface Xvfb startup failures: %q", string(entrypointBody))
 	}
 }
 
@@ -2753,7 +2783,6 @@ func TestFinishReadyHermesConnectsGuestSky10Agent(t *testing.T) {
 		"host-identity",
 		"identity.show",
 		"guest-agent-list",
-		"host.skylink.connect",
 		"host.agent.list",
 		"lookup-ip",
 	}

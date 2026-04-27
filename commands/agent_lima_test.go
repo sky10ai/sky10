@@ -508,6 +508,18 @@ func TestLoadLimaSharedAssetsLoadsOpenClawRuntimeBundle(t *testing.T) {
 	if !strings.Contains(string(entrypointBody), `prime_managed_openclaw_runtime_deps`) {
 		t.Fatalf("runtime bundle entrypoint should seed managed OpenClaw runtime deps: %q", string(entrypointBody))
 	}
+	if strings.Contains(string(entrypointBody), `rm -rf "${runtime_root}"`) {
+		t.Fatalf("runtime bundle entrypoint should not delete preseeded managed runtime deps: %q", string(entrypointBody))
+	}
+	if !strings.Contains(string(entrypointBody), `! -name managed-runtime-deps`) {
+		t.Fatalf("runtime bundle entrypoint should preserve preseeded managed runtime deps: %q", string(entrypointBody))
+	}
+	if !strings.Contains(string(entrypointBody), `rm -f "/tmp/.X${DISPLAY#:}-lock" "/tmp/.X11-unix/X${DISPLAY#:}"`) {
+		t.Fatalf("runtime bundle entrypoint should clear stale Xvfb display locks before restart: %q", string(entrypointBody))
+	}
+	if !strings.Contains(string(entrypointBody), `cat /tmp/xvfb.log >&2`) {
+		t.Fatalf("runtime bundle entrypoint should surface Xvfb startup failures: %q", string(entrypointBody))
+	}
 }
 
 func TestLoadLimaSharedAssetsLoadsHermesRuntimeBundle(t *testing.T) {

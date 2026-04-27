@@ -287,8 +287,8 @@ func TestCompileAgentSpecProducesMediaRuntimePreview(t *testing.T) {
 		t.Fatalf("secret bindings = %#v, want one binding", compiled.SecretBindings)
 	}
 	if compiled.SecretBindings[0].Env != "ELEVENLABS_API_KEY" ||
-		compiled.SecretBindings[0].Secret != "voice-provider-api-key" {
-		t.Fatalf("secret binding = %#v, want ElevenLabs env mapped to sky10 secret name", compiled.SecretBindings[0])
+		compiled.SecretBindings[0].Secret != "ELEVENLABS_API_KEY" {
+		t.Fatalf("secret binding = %#v, want ElevenLabs env mapped to canonical sky10 secret name", compiled.SecretBindings[0])
 	}
 
 	compose := compiledFileContent(t, compiled, "compose.yaml")
@@ -298,12 +298,14 @@ func TestCompileAgentSpecProducesMediaRuntimePreview(t *testing.T) {
 		"media-worker:",
 		"dockerfile: containers/media-worker/Dockerfile",
 		"- /sandbox-state/.env",
-		"- ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}",
 		"sky10.agent.harness=openclaw",
 	} {
 		if !strings.Contains(compose, want) {
 			t.Fatalf("compose.yaml missing %q:\n%s", want, compose)
 		}
+	}
+	if strings.Contains(compose, "ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}") {
+		t.Fatalf("compose.yaml should rely on env_file instead of blank-prone interpolation:\n%s", compose)
 	}
 	dockerfile := compiledFileContent(t, compiled, "containers/media-worker/Dockerfile")
 	if !strings.Contains(dockerfile, "FROM "+defaultAgentUbuntuImage) ||

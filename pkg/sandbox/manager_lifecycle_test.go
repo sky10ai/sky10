@@ -149,7 +149,6 @@ func TestFinishReadyOpenClawJoinsGuestSky10Identity(t *testing.T) {
 		"identity.join",
 		"guest-health-2",
 		"agent-list",
-		"host.skylink.connect",
 		"host.agent.list",
 		"lookup-ip",
 	}
@@ -385,7 +384,6 @@ func TestReconnectRunningOpenClawSandboxes(t *testing.T) {
 	want := []string{
 		"host-identity",
 		"identity.show",
-		"host.skylink.connect",
 		"host.agent.list",
 	}
 	if strings.Join(steps, "\n") != strings.Join(want, "\n") {
@@ -543,7 +541,6 @@ func TestReconnectRunningOpenClawSandboxesIncludesHermes(t *testing.T) {
 	want := []string{
 		"host-identity",
 		"identity.show",
-		"host.skylink.connect",
 		"host.agent.list",
 	}
 	if strings.Join(steps, "\n") != strings.Join(want, "\n") {

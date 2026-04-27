@@ -10,7 +10,7 @@ import (
 const (
 	compiledFileMode        = "0644"
 	defaultAgentHarness     = "openclaw"
-	defaultAgentUbuntuImage = "ghcr.io/sky10ai/sky10-agent-ubuntu:24.04"
+	defaultAgentUbuntuImage = "ubuntu:24.04"
 	defaultSandboxProvider  = "lima"
 	defaultSandboxTemplate  = "openclaw-docker"
 )
@@ -351,12 +351,6 @@ func compileComposeYAML(spec AgentSpec, runtime AgentCompiledRuntime, secretBind
 		b.WriteString("    command: [\"sh\", \"-lc\", \"sleep infinity\"]\n")
 		b.WriteString("    env_file:\n")
 		b.WriteString("      - /sandbox-state/.env\n")
-		if len(secretBindings) > 0 {
-			b.WriteString("    environment:\n")
-			for _, binding := range secretBindings {
-				fmt.Fprintf(&b, "      - %s=${%s}\n", binding.Env, binding.Env)
-			}
-		}
 		b.WriteString("    volumes:\n")
 		b.WriteString("      - /shared/agent:/workspace/agent\n")
 		b.WriteString("      - /shared/input:/workspace/input\n")
