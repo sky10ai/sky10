@@ -4,6 +4,7 @@ import { SettingsPage } from "../components/SettingsPage";
 import { StatusBadge } from "../components/StatusBadge";
 import {
   messaging,
+  secrets,
   type MessagingAction,
   type MessagingAdapterInfo,
   type MessagingConnection,
@@ -340,20 +341,44 @@ export default function SettingsMessaging() {
   async function disconnect(form: AdapterFormState) {
     if (!form.isExisting) return;
     const ok = window.confirm(
-      `Disconnect ${form.label || form.connectionID}? The credential secret stays in place; remove it separately if desired.`,
+      `Disconnect ${form.label || form.connectionID}?`,
     );
     if (!ok) return;
+
+    const connection = connections.find(
+      (item) => item.id === form.connectionID,
+    );
+    const credentialRef = connection?.auth?.credential_ref ?? "";
+    const alsoDeleteSecret =
+      credentialRef !== "" &&
+      window.confirm(
+        `Also delete the credential secret "${credentialRef}"? This can't be undone. Cancel to keep the secret in place.`,
+      );
+
     setActionState({
       formKey: form.formKey,
       actionID: "__disconnect__",
       busy: true,
     });
+    let secretError: string | null = null;
     try {
       await messaging.deleteConnection({ connection_id: form.connectionID });
+      if (alsoDeleteSecret && credentialRef) {
+        try {
+          await secrets.delete({ id_or_name: credentialRef });
+        } catch (error) {
+          secretError =
+            error instanceof Error
+              ? `Connection removed but credential secret delete failed: ${error.message}`
+              : "Connection removed but credential secret delete failed";
+        }
+      }
       setFeedback((current) => {
-        if (!(form.formKey in current)) return current;
         const next = { ...current };
         delete next[form.formKey];
+        if (secretError) {
+          next[form.formKey] = { error: secretError, result: null };
+        }
         return next;
       });
       refetchConnections({ background: true });
