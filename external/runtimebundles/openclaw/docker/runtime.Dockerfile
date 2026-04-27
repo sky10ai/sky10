@@ -96,7 +96,7 @@ RUN npm install -g "openclaw@${OPENCLAW_VERSION}" \
     "zod@^4.3.6" \
   && mkdir -p /opt/ms-playwright \
   && PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright npx -y playwright@1.59.1 install chromium \
-  && CHROME_BIN="$(find /opt/ms-playwright -path '*/chrome-linux/chrome' | head -1)" \
+  && CHROME_BIN="$(find /opt/ms-playwright -type f -path '*/chrome-linux*/chrome' | head -1)" \
   && test -n "${CHROME_BIN}" \
   && ln -sf "${CHROME_BIN}" /usr/local/bin/chromium \
   && ln -sf "${CHROME_BIN}" /usr/local/bin/google-chrome

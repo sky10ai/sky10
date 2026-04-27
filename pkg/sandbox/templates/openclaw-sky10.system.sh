@@ -165,7 +165,7 @@ if [ ! -f "${SENTINEL}" ]; then
   mkdir -p /opt/ms-playwright
   PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright npx -y playwright@1.59.1 install chromium
 
-  CHROME_BIN="$(find /opt/ms-playwright -path '*/chrome-linux/chrome' | head -1)"
+  CHROME_BIN="$(find /opt/ms-playwright -type f -path '*/chrome-linux*/chrome' | head -1)"
   if [ -z "${CHROME_BIN}" ]; then
     echo >&2 "playwright chromium binary not found"
     exit 1
