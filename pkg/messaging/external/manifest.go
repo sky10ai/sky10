@@ -86,9 +86,10 @@ type Option struct {
 type ActionKind string
 
 const (
-	ActionKindValidateConfig ActionKind = "validate_config"
-	ActionKindConnect        ActionKind = "connect"
-	ActionKindOpenURL        ActionKind = "open_url"
+	ActionKindValidateConfig     ActionKind = "validate_config"
+	ActionKindConnect            ActionKind = "connect"
+	ActionKindOpenURL            ActionKind = "open_url"
+	ActionKindExtractCredentials ActionKind = "extract_credentials"
 )
 
 // Action describes one adapter settings button or link.
@@ -277,7 +278,7 @@ func (a Action) Validate() error {
 		return fmt.Errorf("label is required")
 	}
 	switch a.Kind {
-	case ActionKindValidateConfig, ActionKindConnect:
+	case ActionKindValidateConfig, ActionKindConnect, ActionKindExtractCredentials:
 	case ActionKindOpenURL:
 		if strings.TrimSpace(a.URL) == "" {
 			return fmt.Errorf("url is required for open_url actions")

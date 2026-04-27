@@ -824,7 +824,9 @@ function ConnectionFormCard({
                     ? "open_in_new"
                     : action.kind === "validate_config"
                       ? "check_circle"
-                      : "link"
+                      : action.kind === "extract_credentials"
+                        ? "download"
+                        : "link"
                 }
               />
               {busy && actionState?.actionID === action.id

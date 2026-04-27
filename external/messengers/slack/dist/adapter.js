@@ -358,19 +358,41 @@ function parseConfig(connection, credential) {
   if (connection.adapter_id !== ADAPTER_ID) {
     throw rpcError(-32602, `connection adapter_id ${JSON.stringify(connection.adapter_id)} does not match slack`);
   }
-  if (!["bot_token", "bearer_token", "oauth2"].includes(connection.auth?.method || "")) {
+  if (!["bot_token", "bearer_token", "oauth2", "session"].includes(connection.auth?.method || "")) {
     throw rpcError(-32602, `auth method ${JSON.stringify(connection.auth?.method || "")} is not supported by slack`);
   }
   const payload = readCredentialPayload(credential);
-  const token = firstNonEmpty(payload.bot_token, payload.access_token, payload.token, payload.slack_bot_token);
-  if (!token) {
-    throw rpcError(-32602, "Slack token is required in credential payload");
+  const sessionToken = firstNonEmpty(
+    payload.slack_session_token,
+    payload.session_token,
+    payload.xoxc_token
+  );
+  const sessionCookie = firstNonEmpty(
+    payload.slack_session_cookie,
+    payload.session_cookie,
+    payload.xoxd_cookie,
+    payload.cookie_d
+  );
+  const botToken = firstNonEmpty(payload.bot_token, payload.access_token, payload.token, payload.slack_bot_token);
+  let token;
+  let cookie = "";
+  if (sessionToken) {
+    token = sessionToken;
+    if (!sessionCookie) {
+      throw rpcError(-32602, "Slack session token requires a paired session cookie (xoxd-...)");
+    }
+    cookie = sessionCookie.startsWith("d=") ? sessionCookie : `d=${sessionCookie}`;
+  } else if (botToken) {
+    token = botToken;
+  } else {
+    throw rpcError(-32602, "Slack token is required in credential payload (bot_token or slack_session_token)");
   }
   const metadata = connection.metadata || {};
   const historyLimitValue = Number(firstNonEmpty(metadata.slack_history_limit, payload.history_limit, String(DEFAULT_HISTORY_LIMIT)));
   return {
     connection,
     token,
+    cookie,
     apiBaseURL: firstNonEmpty(metadata.slack_api_base_url, payload.api_base_url, DEFAULT_API_BASE_URL),
     teamID: firstNonEmpty(metadata.slack_team_id, payload.team_id, connection.auth?.tenant_id),
     conversationTypes: firstNonEmpty(metadata.slack_conversation_types, payload.conversation_types, DEFAULT_CONVERSATION_TYPES),
@@ -396,6 +418,9 @@ async function slackAPI(config, method, params = {}, options = {}) {
   const headers = {
     Authorization: `Bearer ${config.token}`
   };
+  if (config.cookie) {
+    headers["Cookie"] = config.cookie;
+  }
   const request = { method: httpMethod, headers };
   if (httpMethod === "GET") {
     for (const [key, value] of Object.entries(params)) {

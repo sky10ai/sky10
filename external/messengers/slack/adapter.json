@@ -3,7 +3,7 @@
   "display_name": "Slack",
   "version": "0.1.0",
   "description": "Sky10 external Slack messaging adapter",
-  "auth_methods": ["bot_token", "bearer_token", "oauth2"],
+  "auth_methods": ["bot_token", "bearer_token", "oauth2", "session"],
   "capabilities": {
     "receive_messages": true,
     "send_messages": true,
@@ -23,9 +23,26 @@
       "label": "Bot token",
       "kind": "secret",
       "target": "credential",
-      "required": true,
-      "description": "Slack bot token used by the adapter. Store as credential material, not connection metadata.",
+      "description": "Slack bot token (xoxb-...). Use either this OR a session token + cookie pair.",
       "placeholder": "xoxb-...",
+      "secret": true
+    },
+    {
+      "key": "slack_session_token",
+      "label": "Session token (xoxc)",
+      "kind": "secret",
+      "target": "credential",
+      "description": "Slack workspace token from a logged-in browser/desktop session. Pair with the session cookie below.",
+      "placeholder": "xoxc-...",
+      "secret": true
+    },
+    {
+      "key": "slack_session_cookie",
+      "label": "Session cookie (xoxd)",
+      "kind": "password",
+      "target": "credential",
+      "description": "The 'd' cookie from a logged-in Slack session. Required when using a session token.",
+      "placeholder": "xoxd-...",
       "secret": true
     },
     {
@@ -84,6 +101,30 @@
       "kind": "open_url",
       "description": "Open Slack's app management page to create or configure a bot token.",
       "url": "https://api.slack.com/apps"
+    },
+    {
+      "id": "import-desktop",
+      "label": "Import from Slack Desktop",
+      "kind": "extract_credentials",
+      "description": "Read your existing Slack Desktop session via agent-slack."
+    },
+    {
+      "id": "import-chrome",
+      "label": "Import from Chrome",
+      "kind": "extract_credentials",
+      "description": "Read your existing Slack session from Chrome's cookie store via agent-slack."
+    },
+    {
+      "id": "import-firefox",
+      "label": "Import from Firefox",
+      "kind": "extract_credentials",
+      "description": "Read your existing Slack session from Firefox's cookie store via agent-slack."
+    },
+    {
+      "id": "import-brave",
+      "label": "Import from Brave",
+      "kind": "extract_credentials",
+      "description": "Read your existing Slack session from Brave's cookie store via agent-slack."
     }
   ],
   "runtime": {

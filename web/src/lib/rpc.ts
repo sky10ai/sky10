@@ -790,7 +790,11 @@ export interface MessagingSetting {
   secret?: boolean;
 }
 
-export type MessagingActionKind = "validate_config" | "connect" | "open_url";
+export type MessagingActionKind =
+  | "validate_config"
+  | "connect"
+  | "open_url"
+  | "extract_credentials";
 
 export interface MessagingAction {
   id: string;
