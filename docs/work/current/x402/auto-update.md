@@ -76,13 +76,25 @@ carries sky10's editorial layer over the upstream catalog:
 
 ```json
 {
-  "anthropic":   { "tier": "primitive",   "default_on": true,  "hint": "Use for high-quality LLM tasks. Free local browser cannot substitute." },
-  "openai":      { "tier": "primitive",   "default_on": true,  "hint": "Use for OpenAI-specific models." },
-  "perplexity":  { "tier": "primitive",   "default_on": true,  "hint": "Use for current-events search; better than browse-and-summarize." },
+  "deepgram":    { "tier": "primitive",   "default_on": true,  "hint": "Speech-to-text. Local tools cannot substitute." },
+  "fal":         { "tier": "primitive",   "default_on": true,  "hint": "Image and video generation. Local tools cannot substitute." },
+  "e2b":         { "tier": "primitive",   "default_on": true,  "hint": "Sandboxed code execution. Use when shell tool is too risky." },
+  "browserbase": { "tier": "primitive",   "default_on": true,  "hint": "Residential-IP browser sessions. Use when local browser is blocked or fingerprinted." },
+  "anthropic":   { "tier": "primitive",   "default_on": false, "hint": "Most users already have a direct Anthropic API key; enable this only if you specifically want to spend USDC instead." },
+  "openai":      { "tier": "primitive",   "default_on": false, "hint": "Most users already have a direct OpenAI API key; enable this only if you specifically want to spend USDC instead." },
+  "perplexity":  { "tier": "primitive",   "default_on": false, "hint": "Use for current-events search when no direct API key is available." },
+  "exa":         { "tier": "primitive",   "default_on": false, "hint": "Use for web search and content retrieval when no direct API key is available." },
   "tripadvisor": { "tier": "convenience", "default_on": false, "hint": "Browser tool can scrape this for free. Prefer browser unless you need structured ratings." },
   "apollo":      { "tier": "convenience", "default_on": false, "hint": "Browser tool can do most queries. Use only when you need verified contact data." }
 }
 ```
+
+The `default_on` set is intentionally narrow: only services where the
+local tool stack genuinely cannot substitute (audio I/O, image/video
+generation, sandboxed code execution, residential-IP browsing). LLM
+and search primitives are present in the overlay but default OFF
+because most users have direct API keys for them and would not want to
+route through x402 USDC by default.
 
 - Upstream catalog provides identity, endpoint, and price; the overlay
   provides tier classification, on/off default, and routing hint.

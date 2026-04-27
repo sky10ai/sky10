@@ -43,7 +43,7 @@ transport layer and exposing a single registry to agent runtimes
 | Protocol | x402 over HTTPS; SIWE + SIWS signing; Base + Solana USDC |
 | Discovery | agentic.market `/v1/services` + per-service `/.well-known/x402.json` + user-added URLs |
 | Catalog freshness | Hourly refresh, change classification, manifest pinning, repo-curated overlay |
-| Agent surface | OpenClaw plugin tools + standalone MCP server |
+| Agent surface | x402 envelope types on the [agent bus](../agent-bus/) |
 | Human surface | Web UI services browser + `sky10 market` CLI |
 | Safety | Dedicated x402 subwallet, daily/per-call/per-service budget caps, receipt log |
 
@@ -56,6 +56,17 @@ transport layer and exposing a single registry to agent runtimes
 - 2026-04-26 — added [threat model](threat-model.md). First cut bounds
   damage via budget caps; quality / reputation detection deferred to
   M9.
+- 2026-04-26 — default-on primitives narrowed to capabilities that
+  cannot be substituted locally: Deepgram, fal.ai, E2B, Browserbase.
+  LLM and search primitives default OFF (most users have direct API
+  keys).
+- 2026-04-26 — agent surface rebased onto the
+  [agent bus](../agent-bus/). x402 ships as envelope types on the
+  bus rather than a generic RPC surface. OpenClaw plugin and MCP
+  server milestones removed from this plan. Agents call x402
+  capabilities by sending bus envelopes. See
+  [agent-bus/envelope-types.md](../agent-bus/envelope-types.md#x402)
+  for the x402 envelope registry.
 
 ## Documents
 
