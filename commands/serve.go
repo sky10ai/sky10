@@ -536,6 +536,9 @@ func ServeCmd() *cobra.Command {
 				agentChatWS.HandleChat(w, r)
 			})
 			skyagent.RegisterLinkHandlers(linkNode, agentRegistry, agentEventEmitter, agentRouter)
+			if err := installX402Endpoint(ctx, server, agentRegistry, logRuntime.Logger); err != nil {
+				logger.Warn("x402 endpoint not installed", "error", err)
+			}
 			agentRPC.SetPeerNotifier(func(ctx context.Context, topic string) {
 				linkNode.NotifyOwn(ctx, topic)
 			})

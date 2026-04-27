@@ -72,17 +72,20 @@ end through the plumbing — including identity injection, replay
 rejection, quota enforcement, and audit logging. No live daemon
 integration yet, no x402 yet.
 
-## M2 — x402 capability — **handlers done 2026-04-27, awaiting Backend impl**
+## M2 — x402 capability — **done 2026-04-27**
 
 `pkg/sandbox/comms/x402/`. Registers `/comms/x402/ws` on the
 daemon HTTP server. Handlers delegate to `pkg/x402` (host-side
 catalog/budget logic from the [x402 plan](../x402/)).
 
-The handlers, the Backend interface, and full test coverage are
-in place. The handlers compile and pass tests against a fake
-Backend; the real Backend implementation lands in pkg/x402 as part
-of the x402 plan's M1 (protocol core). Daemon wiring of the
-endpoint into commands/serve.go also waits for that Backend impl.
+The handlers, the Backend interface, full test coverage, the
+real Backend implementation in `pkg/x402`, and the daemon wiring
+in `commands/serve_x402.go` are all in place. The endpoint is
+registered when the daemon starts; agents reach it at
+`/comms/x402/ws?agent=<name-or-id>` (identity resolved against
+the existing agent registry). M1 wiring uses pkg/x402's
+StubSigner — calls fail with ErrSignerNotConfigured rather than
+charging an unconfigured wallet; OWS-backed signing follows.
 
 Includes the arch_test in pkg/sandbox/comms/arch_test.go that was
 deferred from M1 — now scans the x402 subpackage's handlers and

@@ -117,11 +117,13 @@ Exit criteria: an unfunded wallet causes `x402.service_call` to
 return `wallet_not_funded` cleanly; the catalog remains browsable
 without funding.
 
-## M5 — x402 endpoint on sandbox comms
+## M5 — x402 endpoint on sandbox comms — **done 2026-04-27**
 
-This is the agent-facing surface. **Blocked by
-[sandbox-comms M1](../sandbox-comms/implementation-plan.md#m1-shared-transport-plumbing)
-reaching exit. Tracked there as M2 of the sandbox-comms plan.**
+This is the agent-facing surface. Landed alongside
+[sandbox-comms M2](../sandbox-comms/implementation-plan.md#m2-x402-capability-done-2026-04-27).
+Daemon wiring lives in `commands/serve_x402.go`; the endpoint
+mounts at `/comms/x402/ws` with agent identity resolved from the
+`agent` query parameter against the existing agent registry.
 
 Files (in `pkg/sandbox/comms/x402/`):
 
