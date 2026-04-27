@@ -17,10 +17,10 @@ import (
 )
 
 const (
-	extractActionPrefix    = "import-"
-	extractActionTimeout   = 60 * time.Second
-	extractDumpTimeout     = 15 * time.Second
-	slackSessionTokenField = "slack_session_token"
+	extractActionPrefix     = "import-"
+	extractActionTimeout    = 60 * time.Second
+	extractDumpTimeout      = 15 * time.Second
+	slackSessionTokenField  = "slack_session_token"
 	slackSessionCookieField = "slack_session_cookie"
 )
 
@@ -28,9 +28,9 @@ const (
 // dump-credentials.js helper, which forwards agent-slack's loadCredentials()
 // output (with macOS Keychain values resolved).
 type agentSlackCredentials struct {
-	Version             int                  `json:"version"`
-	UpdatedAt           string               `json:"updated_at,omitempty"`
-	DefaultWorkspaceURL string               `json:"default_workspace_url,omitempty"`
+	Version             int                   `json:"version"`
+	UpdatedAt           string                `json:"updated_at,omitempty"`
+	DefaultWorkspaceURL string                `json:"default_workspace_url,omitempty"`
 	Workspaces          []agentSlackWorkspace `json:"workspaces"`
 }
 
@@ -43,10 +43,10 @@ type agentSlackWorkspace struct {
 }
 
 type agentSlackWorkspaceAuth struct {
-	AuthType    string `json:"auth_type"`
-	Token       string `json:"token,omitempty"`
-	XoxcToken   string `json:"xoxc_token,omitempty"`
-	XoxdCookie  string `json:"xoxd_cookie,omitempty"`
+	AuthType   string `json:"auth_type"`
+	Token      string `json:"token,omitempty"`
+	XoxcToken  string `json:"xoxc_token,omitempty"`
+	XoxdCookie string `json:"xoxd_cookie,omitempty"`
 }
 
 // runExtractCredentials handles the extract_credentials action by invoking
