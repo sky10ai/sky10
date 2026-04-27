@@ -22,10 +22,15 @@ are listed below M2 but explicitly out of scope here.
 - [ ] Confirm package path: `pkg/sandbox/comms/` for shared
   plumbing; `pkg/sandbox/comms/<capability>/` per capability.
 
-## M1 — shared transport plumbing
+## M1 — shared transport plumbing — **done 2026-04-27**
 
 `pkg/sandbox/comms/`. No endpoints registered yet. The plumbing
 is library code that future capability packages import.
+
+Landed in commit `202e91b0` (post-rebase). Files match the list
+below; tests pass; `go vet` and `gofmt` clean. The `arch_test.go`
+described under M1 below moves to M2 because it has nothing to
+scan until the first capability subpackage exists.
 
 Files:
 
@@ -67,11 +72,22 @@ end through the plumbing — including identity injection, replay
 rejection, quota enforcement, and audit logging. No live daemon
 integration yet, no x402 yet.
 
-## M2 — x402 capability
+## M2 — x402 capability — **handlers done 2026-04-27, awaiting Backend impl**
 
 `pkg/sandbox/comms/x402/`. Registers `/comms/x402/ws` on the
 daemon HTTP server. Handlers delegate to `pkg/x402` (host-side
 catalog/budget logic from the [x402 plan](../x402/)).
+
+The handlers, the Backend interface, and full test coverage are
+in place. The handlers compile and pass tests against a fake
+Backend; the real Backend implementation lands in pkg/x402 as part
+of the x402 plan's M1 (protocol core). Daemon wiring of the
+endpoint into commands/serve.go also waits for that Backend impl.
+
+Includes the arch_test in pkg/sandbox/comms/arch_test.go that was
+deferred from M1 — now scans the x402 subpackage's handlers and
+asserts validation-first. A meta-test verifies the classifier
+correctly rejects non-validation shapes.
 
 This depends on x402 plan M1 (protocol core in `pkg/x402/`) and
 benefits from M2 (discovery) being far enough along that the
