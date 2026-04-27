@@ -1,0 +1,9 @@
+Source:    https://github.com/stablyai/agent-slack
+Tag:       v0.8.5
+Built:     2026-04-27T00:45:44Z
+Bundler:   bun build --target=bun
+By:        scripts/vendor-agent-slack.sh
+License:   MIT (see LICENSE)
+
+agent-slack.js     full CLI bundle, runs with managed bun
+dump-credentials.js  sky10 hydrator that prints loadCredentials() output

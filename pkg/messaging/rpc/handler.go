@@ -25,6 +25,15 @@ type Config struct {
 	ProcessResolver  ProcessResolver
 	ExternalAdapters *messagingexternal.Registry
 	SecretWriter     SecretWriter
+	// BunPath returns the absolute path to the managed bun executable used
+	// to run vendored helper bundles such as agent-slack. Optional; when
+	// nil, action kinds that depend on bun (e.g. extract_credentials)
+	// return a clear error.
+	BunPath func() string
+	// HelperRootDir is the writable directory under which vendored helper
+	// bundles are materialized. Optional; when empty, helper-backed actions
+	// return a clear error.
+	HelperRootDir string
 }
 
 // Handler dispatches messaging.* RPC methods.
@@ -34,6 +43,8 @@ type Handler struct {
 	processResolver  ProcessResolver
 	externalAdapters *messagingexternal.Registry
 	secretWriter     SecretWriter
+	bunPath          func() string
+	helperRootDir    string
 }
 
 // NewHandler creates a messaging RPC handler.
@@ -44,6 +55,8 @@ func NewHandler(cfg Config) *Handler {
 		processResolver:  cfg.ProcessResolver,
 		externalAdapters: cfg.ExternalAdapters,
 		secretWriter:     cfg.SecretWriter,
+		bunPath:          cfg.BunPath,
+		helperRootDir:    cfg.HelperRootDir,
 	}
 }
 

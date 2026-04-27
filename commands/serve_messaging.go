@@ -100,6 +100,8 @@ func setupMessaging(
 		ProcessResolver:  processResolver,
 		ExternalAdapters: externalRegistry,
 		SecretWriter:     secretsStore,
+		BunPath:          messagingBunPath,
+		HelperRootDir:    filepath.Join(rootDir, "messaging", "helpers"),
 	}))
 
 	secretsRPC.AddReferenceResolver(messagingrpc.SecretReferenceResolver{Connections: store})

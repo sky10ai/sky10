@@ -69,7 +69,11 @@ func (h *Handler) rpcRunAdapterAction(ctx context.Context, params json.RawMessag
 	case messagingexternal.ActionKindOpenURL:
 		return result, nil
 	case messagingexternal.ActionKindExtractCredentials:
-		return nil, fmt.Errorf("credential extraction is not wired yet (action %q on adapter %q)", action.ID, info.Adapter.ID)
+		extracted, err := h.runExtractCredentials(ctx, info, action, p)
+		if err != nil {
+			return nil, err
+		}
+		return extracted, nil
 	case messagingexternal.ActionKindValidateConfig:
 		connection, err := h.configureAdapterConnection(ctx, info, p, "")
 		if err != nil {
