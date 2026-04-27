@@ -21,19 +21,16 @@ jobs:
       matrix:
         include:
           - name: agent-ubuntu
-            package: sky10-agent-ubuntu
             context: external/runtimebundles/base/ubuntu
             file: external/runtimebundles/base/ubuntu/Dockerfile
             tags: |
               ghcr.io/sky10ai/sky10-agent-ubuntu:24.04
           - name: openclaw-runtime
-            package: sky10-openclaw-runtime
             context: external/runtimebundles/openclaw/docker
             file: external/runtimebundles/openclaw/docker/runtime.Dockerfile
             tags: |
               ghcr.io/sky10ai/sky10-openclaw-runtime:2026.4.24-ubuntu24.04
           - name: hermes-runtime
-            package: sky10-hermes-runtime
             context: external/runtimebundles/hermes/docker
             file: external/runtimebundles/hermes/docker/runtime.Dockerfile
             tags: |
@@ -63,17 +60,3 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.title=${{ matrix.name }}
           tags: ${{ matrix.tags }}
-
-      - name: Make package public
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PACKAGE_NAME: ${{ matrix.package }}
-          PACKAGE_OWNER: ${{ github.repository_owner }}
-        run: |
-          for attempt in 1 2 3 4 5; do
-            if gh api --method PATCH "/orgs/${PACKAGE_OWNER}/packages/container/${PACKAGE_NAME}/visibility" -f visibility=public; then
-              exit 0
-            fi
-            sleep 5
-          done
-          exit 1
