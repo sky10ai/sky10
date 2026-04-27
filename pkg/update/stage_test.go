@@ -151,6 +151,68 @@ func TestStageReusesExistingDownload(t *testing.T) {
 	}
 }
 
+func TestStatusClearsStageWhenRunningVersionIsNewer(t *testing.T) {
+	withStageEnv(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "old-cli")
+	}))
+	defer srv.Close()
+
+	info := &Info{
+		Current:      "v0.73.0",
+		Latest:       "v0.73.1",
+		Available:    true,
+		CLIAvailable: true,
+		AssetURL:     srv.URL + "/cli",
+	}
+	if _, err := Stage(info, nil); err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+
+	status, err := Status("v0.74.0")
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if status.Ready {
+		t.Fatalf("expected stale stage to be cleared: %+v", status)
+	}
+	if status.Latest != "" {
+		t.Fatalf("expected empty latest after clearing stale stage, got %q", status.Latest)
+	}
+	if _, err := os.Stat(stagedMetadataPath()); !os.IsNotExist(err) {
+		t.Fatalf("expected staged metadata removed, stat err = %v", err)
+	}
+}
+
+func TestStatusKeepsStageWhenCurrentVersionUnknown(t *testing.T) {
+	withStageEnv(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "new-cli")
+	}))
+	defer srv.Close()
+
+	info := &Info{
+		Current:      "dev",
+		Latest:       "v0.74.0",
+		Available:    true,
+		CLIAvailable: true,
+		AssetURL:     srv.URL + "/cli",
+	}
+	if _, err := Stage(info, nil); err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+
+	status, err := Status("dev")
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if !status.Ready {
+		t.Fatalf("expected stage to remain ready when current version is unparseable: %+v", status)
+	}
+}
+
 func TestCheckReportsMenuUpdateWhenMenuBinaryIsMissing(t *testing.T) {
 	withStageEnv(t)
 

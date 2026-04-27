@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -93,7 +95,7 @@ func Status(currentVersion string) (*StagedStatus, error) {
 	if staged == nil {
 		return status, nil
 	}
-	if !stagedFilesExist(staged) {
+	if !stagedFilesExist(staged) || stagedReleaseIsStale(currentVersion, staged.Latest) {
 		if err := clearStage(); err != nil {
 			return nil, err
 		}
@@ -105,6 +107,52 @@ func Status(currentVersion string) (*StagedStatus, error) {
 	status.CLIStaged = staged.CLIStaged
 	status.MenuStaged = staged.MenuStaged
 	return status, nil
+}
+
+// stagedReleaseIsStale reports whether a staged release tag is no newer than
+// the running version. We only treat the stage as stale when both versions
+// parse as clean semver release tags; ambiguous inputs (dev builds, missing
+// tags) leave the stage untouched.
+func stagedReleaseIsStale(current, staged string) bool {
+	cur, ok := parseSemverTag(current)
+	if !ok {
+		return false
+	}
+	stg, ok := parseSemverTag(staged)
+	if !ok {
+		return false
+	}
+	return compareSemver(cur, stg) >= 0
+}
+
+func parseSemverTag(v string) ([3]int, bool) {
+	v = strings.TrimSpace(v)
+	v = strings.TrimPrefix(v, "v")
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		return [3]int{}, false
+	}
+	var out [3]int
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return [3]int{}, false
+		}
+		out[i] = n
+	}
+	return out, true
+}
+
+func compareSemver(a, b [3]int) int {
+	for i := 0; i < 3; i++ {
+		if a[i] != b[i] {
+			if a[i] < b[i] {
+				return -1
+			}
+			return 1
+		}
+	}
+	return 0
 }
 
 func InstallStaged() (*StagedRelease, error) {
