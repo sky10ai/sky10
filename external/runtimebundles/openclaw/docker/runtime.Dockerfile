@@ -11,9 +11,41 @@ RUN apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 update \
     ca-certificates \
     curl \
     dbus-user-session \
+    fonts-freefont-ttf \
+    fonts-ipafont-gothic \
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    fonts-tlwg-loma-otf \
+    fonts-unifont \
+    fonts-wqy-zenhei \
     git \
     gnupg \
+    libasound2t64 \
+    libatk-bridge2.0-0t64 \
+    libatk1.0-0t64 \
+    libatspi2.0-0t64 \
+    libcairo2 \
+    libcups2t64 \
+    libdbus-1-3 \
+    libdrm2 \
+    libfontconfig1 \
+    libfreetype6 \
+    libgbm1 \
+    libglib2.0-0t64 \
+    libnspr4 \
+    libnss3 \
+    libpango-1.0-0 \
+    libx11-6 \
+    libxcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
     python3 \
+    xfonts-cyrillic \
+    xfonts-scalable \
     xvfb \
   && rm -rf /var/lib/apt/lists/*
 
@@ -62,9 +94,8 @@ RUN npm install -g "openclaw@${OPENCLAW_VERSION}" \
     "ws@^8.20.0" \
     "yaml@^2.8.3" \
     "zod@^4.3.6" \
-  && npx -y playwright install-deps chromium \
   && mkdir -p /opt/ms-playwright \
-  && PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright npx -y playwright install chromium \
+  && PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright npx -y playwright@1.59.1 install chromium \
   && CHROME_BIN="$(find /opt/ms-playwright -path '*/chrome-linux/chrome' | head -1)" \
   && test -n "${CHROME_BIN}" \
   && ln -sf "${CHROME_BIN}" /usr/local/bin/chromium \

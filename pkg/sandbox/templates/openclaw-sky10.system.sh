@@ -114,9 +114,41 @@ if [ ! -f "${SENTINEL}" ]; then
     ca-certificates \
     curl \
     dbus-user-session \
+    fonts-freefont-ttf \
+    fonts-ipafont-gothic \
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    fonts-tlwg-loma-otf \
+    fonts-unifont \
+    fonts-wqy-zenhei \
     git \
     gnupg \
+    libasound2t64 \
+    libatk-bridge2.0-0t64 \
+    libatk1.0-0t64 \
+    libatspi2.0-0t64 \
+    libcairo2 \
+    libcups2t64 \
+    libdbus-1-3 \
+    libdrm2 \
+    libfontconfig1 \
+    libfreetype6 \
+    libgbm1 \
+    libglib2.0-0t64 \
+    libnspr4 \
+    libnss3 \
+    libpango-1.0-0 \
+    libx11-6 \
+    libxcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
     python3 \
+    xfonts-cyrillic \
+    xfonts-scalable \
     xvfb
   emit_progress end guest.system.packages "System packages installed."
 
@@ -130,9 +162,8 @@ if [ ! -f "${SENTINEL}" ]; then
   emit_progress end guest.openclaw.install "OpenClaw installed."
 
   emit_progress begin guest.chromium.install "Installing Chromium..."
-  npx -y playwright install-deps chromium
   mkdir -p /opt/ms-playwright
-  PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright npx -y playwright install chromium
+  PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright npx -y playwright@1.59.1 install chromium
 
   CHROME_BIN="$(find /opt/ms-playwright -path '*/chrome-linux/chrome' | head -1)"
   if [ -z "${CHROME_BIN}" ]; then
