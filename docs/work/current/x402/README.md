@@ -72,6 +72,15 @@ transport layer and exposing a single registry to agent runtimes
   `pkg/sandbox/comms/` in this branch. Wallet and messengers comms
   are future work; secrets stay out of comms entirely (VM env-var
   mount via `pkg/sandbox/openclaw_env.go`).
+- 2026-04-27 — M1 (protocol core) landed in `pkg/x402/`. Wire
+  types, registry + persisted store, manifest pinning, per-agent
+  budget caps, http transport that performs the 402 round-trip
+  with a Signer abstraction, and a Backend that ties the pieces
+  into one delegate the comms handlers call. End-to-end test
+  exercises the full path against a httptest x402 fake. Real
+  OWS-backed signing follows; the M1 production wiring uses
+  StubSigner so misconfiguration fails with a typed error rather
+  than a panic.
 
 ## Documents
 

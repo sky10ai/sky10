@@ -28,10 +28,22 @@ of x402 below are pure host-side work and can run in parallel.
 - [ ] Confirm [sandbox-comms M1](../sandbox-comms/implementation-plan.md#m1-shared-transport-plumbing)
   is the foundation this rides on.
 
-## M1 — protocol core
+## M1 — protocol core — **landed 2026-04-27**
 
 `pkg/x402` implements the protocol against a manually-pinned
 manifest; no discovery yet. **Host-side; not blocked by agent bus.**
+
+Landed in commit `<filled by commit>`. Files match the list below
+plus a Backend type that the comms adapter wires into. Tests cover
+402 round-trip with a httptest fake (initial 402 → sign with
+FakeSigner → retry with X-PAYMENT → 200 with X-PAYMENT-RESPONSE),
+pin enforcement, budget gates, and the full Backend.Call path.
+
+Real OWS-backed signing on Base testnet is a follow-up: sign.go
+ships `StubSigner` (returns ErrSignerNotConfigured) as the default
+production wiring; the OWSSigner implementation that bridges to
+`pkg/wallet.Client` lands once we settle how OWS exposes a sign-
+only command (today its `pay request <url>` does the whole flow).
 
 Files:
 
