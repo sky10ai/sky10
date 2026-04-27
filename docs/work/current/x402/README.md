@@ -43,7 +43,7 @@ transport layer and exposing a single registry to agent runtimes
 | Protocol | x402 over HTTPS; SIWE + SIWS signing; Base + Solana USDC |
 | Discovery | agentic.market `/v1/services` + per-service `/.well-known/x402.json` + user-added URLs |
 | Catalog freshness | Hourly refresh, change classification, manifest pinning, repo-curated overlay |
-| Agent surface | x402 envelope types on the [agent bus](../agent-bus/) |
+| Agent surface | x402 envelope types on the [sandbox comms](../sandbox-comms/) |
 | Human surface | Web UI services browser + `sky10 market` CLI |
 | Safety | Dedicated x402 subwallet, daily/per-call/per-service budget caps, receipt log |
 
@@ -60,13 +60,18 @@ transport layer and exposing a single registry to agent runtimes
   cannot be substituted locally: Deepgram, fal.ai, E2B, Browserbase.
   LLM and search primitives default OFF (most users have direct API
   keys).
-- 2026-04-26 — agent surface rebased onto the
-  [agent bus](../agent-bus/). x402 ships as envelope types on the
-  bus rather than a generic RPC surface. OpenClaw plugin and MCP
-  server milestones removed from this plan. Agents call x402
-  capabilities by sending bus envelopes. See
-  [agent-bus/envelope-types.md](../agent-bus/envelope-types.md#x402)
-  for the x402 envelope registry.
+- 2026-04-26 — agent surface rebased onto per-intent sandbox comms
+  endpoints under `pkg/sandbox/comms/`. x402 ships as a single
+  websocket endpoint `/comms/x402/ws` with its own narrow handler
+  package, not as envelopes on a unified bus. OpenClaw plugin and
+  MCP server milestones removed from this plan. See
+  [sandbox-comms](../sandbox-comms/) for the comms architecture and
+  [sandbox-comms/implementation-plan.md](../sandbox-comms/implementation-plan.md)
+  for the M2 x402 capability milestone where the handlers land.
+- 2026-04-27 — narrowed branch scope: only x402 ships under
+  `pkg/sandbox/comms/` in this branch. Wallet and messengers comms
+  are future work; secrets stay out of comms entirely (VM env-var
+  mount via `pkg/sandbox/openclaw_env.go`).
 
 ## Documents
 

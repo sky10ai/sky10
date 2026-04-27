@@ -10,12 +10,13 @@ Milestones in dependency order. Each is a coherent unit of work with
 its own tests; later milestones build on the contracts shipped by
 earlier ones.
 
-x402 now rides on the [agent bus](../agent-bus/). The agent-facing
-surface is a small set of x402 envelope types served by host-side
-handlers that delegate to `pkg/x402`. The bus must reach the
-**M3 — wallet envelopes** milestone before x402 envelopes can land
-(M6 of the bus plan); M1–M4 of x402 below are pure host-side work
-and can run in parallel with bus M1–M3.
+x402's agent-facing surface lives at `pkg/sandbox/comms/x402/` —
+a per-intent websocket endpoint at `/comms/x402/ws` whose handlers
+delegate to `pkg/x402`. See
+[sandbox-comms](../sandbox-comms/) for the per-intent endpoint
+architecture and shared transport plumbing. The shared plumbing
+(M1 of sandbox-comms) must land before the x402 endpoint can; M1–M4
+of x402 below are pure host-side work and can run in parallel.
 
 ## Pre-flight
 
@@ -24,8 +25,8 @@ and can run in parallel with bus M1–M3.
 - [ ] Verify state of `pkg/wallet/{base.go,evm.go}` — what is already
   capable on Base mainnet, what gaps need filling for SIWE + USDC
   transfers.
-- [ ] Confirm the [agent bus plan](../agent-bus/) is the foundation
-  this rides on.
+- [ ] Confirm [sandbox-comms M1](../sandbox-comms/implementation-plan.md#m1-shared-transport-plumbing)
+  is the foundation this rides on.
 
 ## M1 — protocol core
 
@@ -104,26 +105,31 @@ Exit criteria: an unfunded wallet causes `x402.service_call` to
 return `wallet_not_funded` cleanly; the catalog remains browsable
 without funding.
 
-## M5 — x402 envelopes on the agent bus
+## M5 — x402 endpoint on sandbox comms
 
-This is the agent-facing surface. **Blocked by agent bus M3
-(wallet envelopes) reaching exit.**
+This is the agent-facing surface. **Blocked by
+[sandbox-comms M1](../sandbox-comms/implementation-plan.md#m1-shared-transport-plumbing)
+reaching exit. Tracked there as M2 of the sandbox-comms plan.**
 
-Files:
+Files (in `pkg/sandbox/comms/x402/`):
 
-- `pkg/bus/envelopes/x402_list_services.go`
-- `pkg/bus/envelopes/x402_service_call.go`
-- `pkg/bus/envelopes/x402_budget_status.go`
-- `pkg/bus/envelopes/x402_changes.go`
-- Each handler delegates to `pkg/x402` with `agent_id` from the
-  envelope as the requester for scope filtering
+- `endpoint.go` — registers `/comms/x402/ws` and the four envelope types
+- `list_services.go` — `x402.list_services` handler
+- `service_call.go` — `x402.service_call` handler (sync, idempotent on payment-binding nonce)
+- `budget_status.go` — `x402.budget_status` handler
+- `changes.go` — `x402.changes` push (host-initiated)
+- Each handler delegates to `pkg/x402` with `requester = env.AgentID`
+  for scope filtering
+- Daemon wiring in `commands/serve.go` to register the endpoint
+  (host only; explicitly **not** registered in guest sky10
+  instances)
 - Tests: scope (agent only sees services it has been approved for),
   budget enforcement, sync-on-async correlation, idempotency on the
   payment-binding nonce
 
 Exit criteria: an agent inside a Lima VM makes a real paid call to a
-service via the bus. The wallet stays on host. The agent never sees
-the 402 challenge.
+service via `/comms/x402/ws`. The wallet stays on host. The agent
+never sees the 402 challenge.
 
 ## M6 — Web UI
 
