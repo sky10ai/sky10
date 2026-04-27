@@ -373,6 +373,12 @@ function parseConfig(connection, credential) {
     payload.xoxd_cookie,
     payload.cookie_d
   );
+  const sessionCookieDS = firstNonEmpty(
+    payload.slack_session_cookie_d_s,
+    payload.session_cookie_d_s,
+    payload.cookie_d_s,
+    payload.xoxd_s_cookie
+  );
   const botToken = firstNonEmpty(payload.bot_token, payload.access_token, payload.token, payload.slack_bot_token);
   let token;
   let cookie = "";
@@ -381,7 +387,13 @@ function parseConfig(connection, credential) {
     if (!sessionCookie) {
       throw rpcError(-32602, "Slack session token requires a paired session cookie (xoxd-...)");
     }
-    cookie = sessionCookie.startsWith("d=") ? sessionCookie : `d=${sessionCookie}`;
+    const dPart = sessionCookie.startsWith("d=") ? sessionCookie : `d=${sessionCookie}`;
+    if (sessionCookieDS) {
+      const dsPart = sessionCookieDS.startsWith("d-s=") ? sessionCookieDS : `d-s=${sessionCookieDS}`;
+      cookie = `${dPart}; ${dsPart}`;
+    } else {
+      cookie = dPart;
+    }
   } else if (botToken) {
     token = botToken;
   } else {

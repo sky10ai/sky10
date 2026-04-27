@@ -46,6 +46,15 @@
       "secret": true
     },
     {
+      "key": "slack_session_cookie_d_s",
+      "label": "Session cookie (d-s, optional)",
+      "kind": "password",
+      "target": "credential",
+      "description": "Optional 'd-s' companion cookie. Some Slack endpoints (file uploads, certain workflow APIs) require it alongside 'd'.",
+      "placeholder": "1700000000",
+      "secret": true
+    },
+    {
       "key": "slack_team_id",
       "label": "Team ID",
       "kind": "text",
