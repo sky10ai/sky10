@@ -51,6 +51,11 @@ transport layer and exposing a single registry to agent runtimes
 
 - 2026-04-26 — plan drafted; awaiting answers to the open questions
   below before code lands.
+- 2026-04-26 — refresh cadence locked: hourly default with ±10min
+  jitter, configurable up to 4h.
+- 2026-04-26 — added [threat model](threat-model.md). First cut bounds
+  damage via budget caps; quality / reputation detection deferred to
+  M9.
 
 ## Documents
 
@@ -58,6 +63,7 @@ transport layer and exposing a single registry to agent runtimes
 - [Auto-update](auto-update.md) — catalog refresh and change handling
 - [Agent integration](agent-integration.md) — OpenClaw, MCP, when-to-use routing
 - [Wallet and budget](wallet-and-budget.md) — subwallet, caps, receipts
+- [Threat model](threat-model.md) — malicious-service threats, what is mitigated, what is deferred
 - [Implementation plan](implementation-plan.md) — milestones in dependency order
 
 ## Open questions

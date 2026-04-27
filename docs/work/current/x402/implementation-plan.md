@@ -124,6 +124,20 @@ a service, and see receipts populate from the UI alone.
   browse-it-yourself".
 - Iterate `overlay.json` defaults from this signal.
 
+## M9 — quality and reputation (deferred)
+
+Detect (not just bound) malicious or broken services. See
+[`threat-model.md`](threat-model.md) for the full threat list.
+
+- Outcome scoring on every call: caller (OpenClaw plugin / MCP
+  server) reports whether the response was usable; aggregate into
+  a per-service quality score persisted with receipts.
+- Auto-quarantine for services with sustained low quality.
+- Volume anomaly detection on the receipt log.
+- Per-agent-per-service caps so one runtime cannot dominate spend.
+- Optional opt-in shared reputation feed (Sybil-resistant design is
+  its own problem and is out of scope for the first version).
+
 ## Out of scope for first cut
 
 - Per-service typed Go clients (`pkg/x402/wrappers/...`) — driven
