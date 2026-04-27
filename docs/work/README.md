@@ -8,6 +8,7 @@
 - Active FS transfer workspace draft: [`current/fs-hidden-transfer-workspace.md`](current/fs-hidden-transfer-workspace.md)
 - Active FS Windows normalization plan: [`current/fs-windows-normalization-plan.md`](current/fs-windows-normalization-plan.md)
 - Active Agents drive contract: [`current/agents-drive-contract.md`](current/agents-drive-contract.md)
+- Active x402 service integration plan: [`current/x402/`](current/x402/)
 
 ## Todo
 
