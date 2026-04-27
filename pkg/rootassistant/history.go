@@ -1,4 +1,4 @@
-package home
+package rootassistant
 
 import (
 	"bufio"
@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	historyDirName      = "home"
+	historyDirName      = "rootassistant"
 	historyLogName      = "runs.jsonl"
 	defaultHistoryLimit = 12
 	maxHistoryLimit     = 100
@@ -24,8 +24,8 @@ const (
 // Emitter sends daemon events to connected UI clients.
 type Emitter func(event string, data interface{})
 
-// Store persists Home assistant history as append-only JSONL under the sky10
-// root directory.
+// Store persists RootAssistant run history as append-only JSONL under the
+// sky10 root directory.
 type Store struct {
 	mu      sync.Mutex
 	emit    Emitter
@@ -34,7 +34,7 @@ type Store struct {
 	maxLine int
 }
 
-// RunRecord is the durable representation of a Home assistant run.
+// RunRecord is the durable representation of a RootAssistant run.
 type RunRecord struct {
 	ID         string      `json:"id"`
 	Audience   string      `json:"audience"`
@@ -47,7 +47,7 @@ type RunRecord struct {
 	FollowUps  []string    `json:"followUps,omitempty"`
 }
 
-// ToolTrace mirrors the UI trace schema for persisted Home runs.
+// ToolTrace mirrors the UI trace schema for persisted RootAssistant runs.
 type ToolTrace struct {
 	ID         string `json:"id"`
 	Title      string `json:"title"`
@@ -59,22 +59,22 @@ type ToolTrace struct {
 	FinishedAt string `json:"finishedAt,omitempty"`
 }
 
-// HistoryListParams controls Home history listing.
+// HistoryListParams controls RootAssistant history listing.
 type HistoryListParams struct {
 	Limit int `json:"limit,omitempty"`
 }
 
-// HistoryListResult is returned by home.historyList.
+// HistoryListResult is returned by rootAssistant.historyList.
 type HistoryListResult struct {
 	Runs []RunRecord `json:"runs"`
 }
 
-// RunSaveParams carries a complete Home run snapshot to append.
+// RunSaveParams carries a complete RootAssistant run snapshot to append.
 type RunSaveParams struct {
 	Run RunRecord `json:"run"`
 }
 
-// RunSaveResult is returned by home.runSave.
+// RunSaveResult is returned by rootAssistant.runSave.
 type RunSaveResult struct {
 	Status string `json:"status"`
 }
@@ -85,7 +85,7 @@ type historyEntry struct {
 	Run     RunRecord `json:"run"`
 }
 
-// NewStore creates a Home history store.
+// NewStore creates a RootAssistant history store.
 func NewStore(emit Emitter) *Store {
 	return &Store{
 		emit:    emit,
@@ -119,7 +119,7 @@ func (s *Store) List(params HistoryListParams) (*HistoryListResult, error) {
 		if os.IsNotExist(err) {
 			return &HistoryListResult{Runs: []RunRecord{}}, nil
 		}
-		return nil, fmt.Errorf("open home history log: %w", err)
+		return nil, fmt.Errorf("open rootAssistant history log: %w", err)
 	}
 	defer file.Close()
 
@@ -155,7 +155,7 @@ func (s *Store) List(params HistoryListParams) (*HistoryListResult, error) {
 		order = append(order, id)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("read home history log: %w", err)
+		return nil, fmt.Errorf("read rootAssistant history log: %w", err)
 	}
 
 	runs := make([]RunRecord, 0, min(limit, len(order)))
@@ -182,7 +182,7 @@ func (s *Store) Save(params RunSaveParams) (*RunSaveResult, error) {
 	}
 	line, err := json.Marshal(entry)
 	if err != nil {
-		return nil, fmt.Errorf("marshal home history entry: %w", err)
+		return nil, fmt.Errorf("marshal rootAssistant history entry: %w", err)
 	}
 	line = append(line, '\n')
 
@@ -190,19 +190,19 @@ func (s *Store) Save(params RunSaveParams) (*RunSaveResult, error) {
 	defer s.mu.Unlock()
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, fmt.Errorf("create home history directory: %w", err)
+		return nil, fmt.Errorf("create rootAssistant history directory: %w", err)
 	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("open home history log: %w", err)
+		return nil, fmt.Errorf("open rootAssistant history log: %w", err)
 	}
 	defer file.Close()
 
 	if _, err := file.Write(line); err != nil {
-		return nil, fmt.Errorf("write home history log: %w", err)
+		return nil, fmt.Errorf("write rootAssistant history log: %w", err)
 	}
 	if s.emit != nil {
-		s.emit("home.history.changed", map[string]string{"id": params.Run.ID})
+		s.emit("rootAssistant.history.changed", map[string]string{"id": params.Run.ID})
 	}
 	return &RunSaveResult{Status: "saved"}, nil
 }

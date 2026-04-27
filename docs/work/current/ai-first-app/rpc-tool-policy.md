@@ -8,7 +8,7 @@ updated: 2026-04-25
 ## Product Rule
 
 The AI-first app should make user-configurable daemon capabilities available
-from Home by default.
+from the RootAssistant by default.
 
 The source of truth remains the Go daemon and its JSON-RPC surface. The root
 assistant should expose curated model-facing tools over those RPC methods using

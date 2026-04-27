@@ -1,4 +1,4 @@
-package home
+package rootassistant
 
 import (
 	"context"
@@ -46,7 +46,7 @@ func TestStoreSaveAppendsJSONLAndListReturnsLatestPerRun(t *testing.T) {
 		t.Fatalf("run-1 = %#v, want latest complete snapshot", result.Runs[1])
 	}
 
-	path := filepath.Join(os.Getenv(config.EnvHome), "home", "runs.jsonl")
+	path := filepath.Join(os.Getenv(config.EnvHome), "rootassistant", "runs.jsonl")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", path, err)
@@ -65,10 +65,10 @@ func TestStoreSaveAppendsJSONLAndListReturnsLatestPerRun(t *testing.T) {
 }
 
 func TestStoreListSkipsInvalidLines(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv(config.EnvHome, home)
+	root := t.TempDir()
+	t.Setenv(config.EnvHome, root)
 
-	path := filepath.Join(home, "home", "runs.jsonl")
+	path := filepath.Join(root, "rootassistant", "runs.jsonl")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -113,26 +113,26 @@ func TestRPCHandlerDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal save params: %v", err)
 	}
-	raw, err, handled := handler.Dispatch(context.Background(), "home.runSave", saveParams)
+	raw, err, handled := handler.Dispatch(context.Background(), "rootAssistant.runSave", saveParams)
 	if err != nil {
-		t.Fatalf("Dispatch(home.runSave): %v", err)
+		t.Fatalf("Dispatch(rootAssistant.runSave): %v", err)
 	}
 	if !handled {
-		t.Fatal("Dispatch(home.runSave) handled = false, want true")
+		t.Fatal("Dispatch(rootAssistant.runSave) handled = false, want true")
 	}
 	if raw.(*RunSaveResult).Status != "saved" {
 		t.Fatalf("save result = %#v, want saved", raw)
 	}
-	if len(emitted) != 1 || emitted[0] != "home.history.changed" {
-		t.Fatalf("emitted = %#v, want home.history.changed", emitted)
+	if len(emitted) != 1 || emitted[0] != "rootAssistant.history.changed" {
+		t.Fatalf("emitted = %#v, want rootAssistant.history.changed", emitted)
 	}
 
-	raw, err, handled = handler.Dispatch(context.Background(), "home.historyList", nil)
+	raw, err, handled = handler.Dispatch(context.Background(), "rootAssistant.historyList", nil)
 	if err != nil {
-		t.Fatalf("Dispatch(home.historyList): %v", err)
+		t.Fatalf("Dispatch(rootAssistant.historyList): %v", err)
 	}
 	if !handled {
-		t.Fatal("Dispatch(home.historyList) handled = false, want true")
+		t.Fatal("Dispatch(rootAssistant.historyList) handled = false, want true")
 	}
 	result := raw.(*HistoryListResult)
 	if len(result.Runs) != 1 || result.Runs[0].ID != "rpc-run" {

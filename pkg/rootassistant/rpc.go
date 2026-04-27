@@ -1,4 +1,4 @@
-package home
+package rootassistant
 
 import (
 	"context"
@@ -7,34 +7,34 @@ import (
 	"strings"
 )
 
-// RPCHandler exposes daemon-backed Home UI state.
+// RPCHandler exposes daemon-backed RootAssistant UI state.
 type RPCHandler struct {
 	store *Store
 }
 
-// NewRPCHandler creates a Home RPC handler.
+// NewRPCHandler creates a RootAssistant RPC handler.
 func NewRPCHandler(store *Store) *RPCHandler {
 	return &RPCHandler{store: store}
 }
 
 // Dispatch implements rpc.Handler.
 func (h *RPCHandler) Dispatch(_ context.Context, method string, params json.RawMessage) (interface{}, error, bool) {
-	if !strings.HasPrefix(method, "home.") {
+	if !strings.HasPrefix(method, "rootAssistant.") {
 		return nil, nil, false
 	}
 	if h == nil || h.store == nil {
-		return nil, fmt.Errorf("home history store is not configured"), true
+		return nil, fmt.Errorf("rootAssistant history store is not configured"), true
 	}
 
 	switch method {
-	case "home.historyList":
+	case "rootAssistant.historyList":
 		var parsed HistoryListParams
 		if err := decodeParams(params, &parsed); err != nil {
 			return nil, err, true
 		}
 		result, err := h.store.List(parsed)
 		return result, err, true
-	case "home.runSave":
+	case "rootAssistant.runSave":
 		var parsed RunSaveParams
 		if err := decodeParams(params, &parsed); err != nil {
 			return nil, err, true

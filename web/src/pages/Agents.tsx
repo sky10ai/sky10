@@ -12,7 +12,7 @@ import { RelativeTime } from "../components/RelativeTime";
 import { StatusBadge } from "../components/StatusBadge";
 import { AGENT_EVENT_TYPES } from "../lib/events";
 import { executeRootAssistantPrompt } from "../lib/rootAssistant";
-import { agent, home } from "../lib/rpc";
+import { agent, rootAssistant } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
 const AGENT_IDEAS = [
@@ -67,7 +67,7 @@ export default function Agents() {
 
   async function saveRun(nextRun: WorkspaceRun) {
     try {
-      await home.runSave({ run: nextRun });
+      await rootAssistant.runSave({ run: nextRun });
     } catch {
       setBuilderStatus("Save failed.");
     }

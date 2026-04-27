@@ -3,23 +3,15 @@ import type {
   DeviceListResult,
   HealthResult,
   LinkStatus,
+  RootAssistantToolTrace,
   SandboxListResult,
   SyncActivityResult,
 } from "./rpc";
 
+export type { RootAssistantToolTrace } from "./rpc";
+
 export type RootAssistantStatus = "complete" | "error" | "running";
 export type AgentAudience = "for_me" | "for_others";
-
-export interface RootAssistantToolTrace {
-  id: string;
-  title: string;
-  tool: string;
-  rpcMethod: string;
-  status: RootAssistantStatus;
-  detail: string;
-  startedAt: string;
-  finishedAt?: string;
-}
 
 export interface RootAssistantResult {
   answer: string;

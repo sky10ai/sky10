@@ -332,12 +332,12 @@ export const messaging = {
     rpc<{ status: string }>("messaging.disableConnection", p),
 };
 
-// -- home --
-export const home = {
+// -- rootAssistant --
+export const rootAssistant = {
   historyList: (p?: { limit?: number }) =>
-    rpc<HomeHistoryListResult>("home.historyList", p),
-  runSave: (p: { run: HomeRunRecord }) =>
-    rpc<HomeRunSaveResult>("home.runSave", p),
+    rpc<RootAssistantHistoryListResult>("rootAssistant.historyList", p),
+  runSave: (p: { run: RootAssistantRunRecord }) =>
+    rpc<RootAssistantRunSaveResult>("rootAssistant.runSave", p),
 };
 
 // ---- Types matching actual daemon responses ----
@@ -1441,36 +1441,36 @@ export interface CodexChatResult {
   usage?: CodexChatUsage;
 }
 
-export type HomeRunStatus = "complete" | "error" | "running";
-export type HomeRunAudience = "for_me" | "for_others";
+export type RootAssistantRunStatus = "complete" | "error" | "running";
+export type RootAssistantRunAudience = "for_me" | "for_others";
 
-export interface HomeToolTrace {
+export interface RootAssistantToolTrace {
   id: string;
   title: string;
   tool: string;
   rpcMethod: string;
-  status: HomeRunStatus;
+  status: RootAssistantRunStatus;
   detail: string;
   startedAt: string;
   finishedAt?: string;
 }
 
-export interface HomeRunRecord {
+export interface RootAssistantRunRecord {
   id: string;
-  audience: HomeRunAudience;
+  audience: RootAssistantRunAudience;
   prompt: string;
   answer: string;
-  status: HomeRunStatus;
+  status: RootAssistantRunStatus;
   createdAt: string;
   updatedAt: string;
-  toolTraces: HomeToolTrace[];
+  toolTraces: RootAssistantToolTrace[];
   followUps?: string[];
 }
 
-export interface HomeHistoryListResult {
-  runs: HomeRunRecord[];
+export interface RootAssistantHistoryListResult {
+  runs: RootAssistantRunRecord[];
 }
 
-export interface HomeRunSaveResult {
+export interface RootAssistantRunSaveResult {
   status: string;
 }

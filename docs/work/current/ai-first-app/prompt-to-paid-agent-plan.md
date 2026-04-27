@@ -271,8 +271,9 @@ Initial storage can be JSONL while the model settles:
 - `.sky10/agents/jobs.jsonl`
 - `.sky10/agents/receipts.jsonl`
 
-Records should be append-only snapshots keyed by stable IDs, matching the Home
-history pattern. If the shape stabilizes, move to a richer store later.
+Records should be append-only snapshots keyed by stable IDs, matching the
+RootAssistant history pattern. If the shape stabilizes, move to a richer store
+later.
 
 Do not persist secret values in specs, job records, or receipts. Persist only
 secret names, binding metadata, digests, and payload refs.
