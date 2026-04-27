@@ -127,6 +127,20 @@ func (r *Registry) Manifest(serviceID string) (ServiceManifest, error) {
 	return m, nil
 }
 
+// AllManifests returns a snapshot of every manifest in the catalog,
+// sorted by service id. Used by the discovery package to diff a
+// fresh observation against the registry's current view.
+func (r *Registry) AllManifests() []ServiceManifest {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]ServiceManifest, 0, len(r.manifests))
+	for _, m := range r.manifests {
+		out = append(out, m)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
 // Approve creates an approval and matching Pin from the current
 // manifest. ErrServiceUnknown if the service is not in the catalog.
 func (r *Registry) Approve(agentID, serviceID, maxPriceUSDC string) error {

@@ -17,6 +17,7 @@ import (
 	"github.com/sky10/sky10/pkg/sandbox/comms"
 	commsx402 "github.com/sky10/sky10/pkg/sandbox/comms/x402"
 	"github.com/sky10/sky10/pkg/x402"
+	"github.com/sky10/sky10/pkg/x402/discovery"
 )
 
 // installX402Endpoint mounts /comms/x402/ws on the daemon's RPC
@@ -29,7 +30,7 @@ import (
 // charge fail with ErrSignerNotConfigured rather than charging an
 // unconfigured wallet. Real OWS-backed signing follows once OWS
 // exposes a sign-only command.
-func installX402Endpoint(_ context.Context, server *skyrpc.Server, agentRegistry *skyagent.Registry, logger *slog.Logger) error {
+func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegistry *skyagent.Registry, logger *slog.Logger) error {
 	if server == nil {
 		return errors.New("x402: nil rpc server")
 	}
@@ -46,6 +47,13 @@ func installX402Endpoint(_ context.Context, server *skyrpc.Server, agentRegistry
 		return fmt.Errorf("new registry: %w", err)
 	}
 
+	if err := seedX402Registry(ctx, registry, logger); err != nil {
+		// Seeding is best-effort: a network or overlay parse error
+		// should not prevent the endpoint from coming up. Log and
+		// continue with whatever the persisted registry already had.
+		logger.Warn("x402 registry seed failed; continuing with persisted state", "error", err)
+	}
+
 	budget := x402.NewBudget(nil)
 	transport := x402.NewTransport(x402.NewStubSigner("OWS x402 sign-only command not yet wired"))
 	backend := x402.NewBackend(x402.BackendOptions{
@@ -59,6 +67,30 @@ func installX402Endpoint(_ context.Context, server *skyrpc.Server, agentRegistry
 
 	endpoint := commsx402.NewEndpoint(adapter, resolver, comms.WithLogger(logger))
 	server.HandleHTTP("GET "+commsx402.EndpointPath, endpoint.Handler())
+	return nil
+}
+
+// seedX402Registry runs one Refresh against the curated builtin
+// source so the registry has at least the primitive set after a
+// fresh daemon start. Future work adds periodic refresh and live
+// agentic.market integration; until then the daemon falls back to
+// the embedded primitive list on every startup.
+func seedX402Registry(ctx context.Context, registry *x402.Registry, logger *slog.Logger) error {
+	overlay, err := discovery.LoadOverlay()
+	if err != nil {
+		return fmt.Errorf("load overlay: %w", err)
+	}
+	source := discovery.NewStaticSource("builtin-primitives", discovery.BuiltinPrimitives())
+	result, err := discovery.Refresh(ctx, registry, overlay, []discovery.Source{source}, logger)
+	if err != nil {
+		return fmt.Errorf("seed refresh: %w", err)
+	}
+	logger.Info("x402 registry seeded",
+		"applied", len(result.Applied),
+		"queued", len(result.Queued),
+		"removed", len(result.Removed),
+		"errors", len(result.Errors),
+	)
 	return nil
 }
 

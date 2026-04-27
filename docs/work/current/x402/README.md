@@ -88,6 +88,14 @@ transport layer and exposing a single registry to agent runtimes
   apply per-agent on first sight. Adapter translates between
   pkg/x402 native types and the comms wire shape. With this,
   sandbox-comms M2 and x402 plan M5 are both complete.
+- 2026-04-27 — M2 (discovery and refresh) landed in
+  `pkg/x402/discovery/`. Source interface, StaticSource with the
+  builtin primitive set, Refresh orchestrator with diff
+  classification, and an embedded overlay providing tier/hint
+  metadata. Daemon seeds the registry on startup with the curated
+  primitives (Deepgram, fal.ai, E2B, Browserbase) so agents have
+  something concrete to approve. Live agentic.market HTTP source
+  and periodic refresh ticker follow.
 
 ## Documents
 
