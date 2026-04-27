@@ -11,6 +11,7 @@ import (
 
 	agentslack "github.com/sky10/sky10/external/agent-slack"
 	"github.com/sky10/sky10/pkg/messaging"
+	messagingbroker "github.com/sky10/sky10/pkg/messaging/broker"
 	messagingexternal "github.com/sky10/sky10/pkg/messaging/external"
 	skysecrets "github.com/sky10/sky10/pkg/secrets"
 )
@@ -148,20 +149,45 @@ func (h *Handler) runExtractCredentials(
 	connection.Auth.Method = messaging.AuthMethodSession
 	connection.Auth.CredentialRef = ref
 	connection.Auth.ExternalAccount = workspace.WorkspaceURL
+	connection.Status = messaging.ConnectionStatusConnecting
 
 	if err := connection.Validate(); err != nil {
 		return runAdapterActionResult{}, err
 	}
-	if err := h.store.PutConnection(ctx, connection); err != nil {
+
+	if h.processResolver == nil {
+		return runAdapterActionResult{}, fmt.Errorf("messaging process resolver is not configured")
+	}
+	process, err := h.processResolver(string(connection.AdapterID))
+	if err != nil {
+		return runAdapterActionResult{}, err
+	}
+	if err := h.broker.UpsertConnection(ctx, messagingbroker.RegisterConnectionParams{
+		Connection: connection,
+		Process:    process,
+	}); err != nil {
 		return runAdapterActionResult{}, err
 	}
 
-	return runAdapterActionResult{
+	result := runAdapterActionResult{
 		ActionID:      action.ID,
 		ActionKind:    action.Kind,
 		Connection:    connection,
 		CredentialRef: ref,
-	}, nil
+	}
+
+	connectResult, err := h.broker.ConnectConnection(ctx, connection.ID)
+	if err != nil {
+		// The connection is persisted; surface the validation error so the
+		// user can re-paste or re-extract without losing the import.
+		if stored, ok := h.store.GetConnection(connection.ID); ok {
+			result.Connection = stored
+		}
+		return result, fmt.Errorf("validate extracted credentials: %w", err)
+	}
+	result.Connection = connectResult.Connection
+	result.Connect = &connectResult
+	return result, nil
 }
 
 func runBunCommand(ctx context.Context, bun, script string, args []string, timeout time.Duration) error {
