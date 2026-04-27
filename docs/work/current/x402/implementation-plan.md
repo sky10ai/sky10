@@ -10,6 +10,13 @@ Milestones in dependency order. Each is a coherent unit of work with
 its own tests; later milestones build on the contracts shipped by
 earlier ones.
 
+x402 now rides on the [agent bus](../agent-bus/). The agent-facing
+surface is a small set of x402 envelope types served by host-side
+handlers that delegate to `pkg/x402`. The bus must reach the
+**M3 — wallet envelopes** milestone before x402 envelopes can land
+(M6 of the bus plan); M1–M4 of x402 below are pure host-side work
+and can run in parallel with bus M1–M3.
+
 ## Pre-flight
 
 - [ ] Confirm answers to the open questions in the
@@ -17,12 +24,13 @@ earlier ones.
 - [ ] Verify state of `pkg/wallet/{base.go,evm.go}` — what is already
   capable on Base mainnet, what gaps need filling for SIWE + USDC
   transfers.
-- [ ] Decide MCP server scope: same milestone or follow-up.
+- [ ] Confirm the [agent bus plan](../agent-bus/) is the foundation
+  this rides on.
 
 ## M1 — protocol core
 
 `pkg/x402` implements the protocol against a manually-pinned
-manifest; no discovery yet.
+manifest; no discovery yet. **Host-side; not blocked by agent bus.**
 
 Files:
 
@@ -44,7 +52,7 @@ testnet.
 
 ## M2 — discovery and refresh
 
-`pkg/x402/discovery` adds catalog ingestion.
+`pkg/x402/discovery` adds catalog ingestion. **Host-side.**
 
 Files:
 
@@ -56,55 +64,68 @@ Files:
 - Tests: diff classifier, refresh loop with fake source, overlay
   merge.
 
-Exit criteria: `x402.refreshCatalog` populates the local registry from
-the live `/v1/services` endpoint and per-service `/.well-known`
-manifests.
+Exit criteria: a manual host-side refresh populates the local
+registry from the live `/v1/services` endpoint and per-service
+`/.well-known` manifests.
 
-## M3 — daemon RPC
+## M3 — host-side RPC for CLI / Web UI
 
-`pkg/x402/rpc` wires the registry, transport, budget, and discovery
-into the daemon's existing RPC dispatcher.
+The host's existing unix-socket RPC gets the `x402.*` handlers so
+that **host-side consumers** (CLI, Web UI, host tools) can drive
+catalog management, approval, and budget. Sandboxed agents do not
+use this surface; they use the bus envelopes (see M5).
 
 Files:
 
 - `pkg/x402/rpc/handler.go`
-- daemon integration: register `x402.*` handler alongside existing
-  ones in `commands/`
-- Tests: RPC contract tests for each method.
+- daemon integration: register `x402.*` handler in `commands/serve.go`
+  (host-only — guarded so guest sky10 instances do **not** register
+  it; guest x402 calls use the agent bus, which proxies to host)
+- Tests: RPC contract tests; guard test that confirms guest does not
+  register the handler.
 
-Exit criteria: `sky10 market list/search/call/approve/budget/receipts`
-work from the CLI; manual call against a sandbox service succeeds.
+Exit criteria: `sky10 market list/search/approve/budget/receipts`
+work from the CLI on the host; manual call against a sandbox service
+succeeds.
 
-## M4 — subwallet
+## M4 — subwallet integration
 
-Wallet binding so x402 calls only ever sign with the dedicated
-subwallet.
+Even though the user landed on "use existing OWS wallet directly"
+(see [`wallet-and-budget.md`](wallet-and-budget.md)), x402 still
+needs to gate calls on the wallet being installed and funded.
 
 Files:
 
-- `pkg/wallet/x402.go` — derive, label, fund, refill
-- daemon refuses `x402.serviceCall` against the main wallet
-- Tests: derivation deterministic, balance and fund flows on testnet.
+- `pkg/x402/wallet.go` — preflight checks (OWS installed, funded for
+  the network the call needs)
+- Tests: preflight failure modes return clear typed errors.
 
-Exit criteria: a clean install can fund the subwallet, make a paid
-call, and the main wallet is never touched.
+Exit criteria: an unfunded wallet causes `x402.service_call` to
+return `wallet_not_funded` cleanly; the catalog remains browsable
+without funding.
 
-## M5 — OpenClaw plugin
+## M5 — x402 envelopes on the agent bus
 
-`external/runtimebundles/openclaw/sky10-openclaw/src/x402-tools.js`
-registers approved services as OpenClaw tools.
+This is the agent-facing surface. **Blocked by agent bus M3
+(wallet envelopes) reaching exit.**
 
-Exit criteria: an OpenClaw agent makes a real paid call to a service
-through the plugin; budget and policy errors surface as tool errors.
+Files:
 
-## M6 — MCP server
+- `pkg/bus/envelopes/x402_list_services.go`
+- `pkg/bus/envelopes/x402_service_call.go`
+- `pkg/bus/envelopes/x402_budget_status.go`
+- `pkg/bus/envelopes/x402_changes.go`
+- Each handler delegates to `pkg/x402` with `agent_id` from the
+  envelope as the requester for scope filtering
+- Tests: scope (agent only sees services it has been approved for),
+  budget enforcement, sync-on-async correlation, idempotency on the
+  payment-binding nonce
 
-`cmd/sky10-x402-mcp` exposes the registry as MCP tools.
+Exit criteria: an agent inside a Lima VM makes a real paid call to a
+service via the bus. The wallet stays on host. The agent never sees
+the 402 challenge.
 
-Exit criteria: a runtime configured with the MCP endpoint sees the
-same tools as OpenClaw and can call them.
-
-## M7 — Web UI
+## M6 — Web UI
 
 `web/src/x402/`:
 
@@ -112,26 +133,28 @@ same tools as OpenClaw and can call them.
 - Approve / revoke per service
 - Budget panel with caps + today's spend + receipt log
 - Changes panel (new / review / removed)
+- Wallet status banner: "wallet not funded — agents cannot call x402
+  services until funded"
 
-Exit criteria: a user can install sky10, fund the subwallet, approve
-a service, and see receipts populate from the UI alone.
+Exit criteria: a user can install sky10, fund the wallet, approve a
+service, and see receipts populate from the UI alone.
 
-## M8 — telemetry and overlay tuning
+## M7 — telemetry and overlay tuning
 
 - Receipt records carry `was_browser_attempted_first` from the
-  agent's recent tool-call log.
+  agent's recent tool-call log (sourced from the bus audit log).
 - Aggregate dashboard surfaces "paid services that beat
   browse-it-yourself".
 - Iterate `overlay.json` defaults from this signal.
 
-## M9 — quality and reputation (deferred)
+## M8 — quality and reputation (deferred)
 
 Detect (not just bound) malicious or broken services. See
 [`threat-model.md`](threat-model.md) for the full threat list.
 
-- Outcome scoring on every call: caller (OpenClaw plugin / MCP
-  server) reports whether the response was usable; aggregate into
-  a per-service quality score persisted with receipts.
+- Outcome scoring on every call: caller reports via a follow-up
+  envelope (`x402.call_outcome`) whether the response was usable;
+  aggregate into a per-service quality score persisted with receipts.
 - Auto-quarantine for services with sustained low quality.
 - Volume anomaly detection on the receipt log.
 - Per-agent-per-service caps so one runtime cannot dominate spend.
@@ -147,3 +170,6 @@ Detect (not just bound) malicious or broken services. See
   credentials.
 - Webhooks / SSE from agentic.market for push catalog updates (poll
   is fine to start).
+- A standalone MCP server for x402. Removed: agents go through the
+  bus, not through MCP. If a future runtime really needs MCP, we
+  add an MCP→bus adapter then.
