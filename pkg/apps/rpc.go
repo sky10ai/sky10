@@ -19,6 +19,7 @@ type RPCHandler struct {
 	mu         sync.Mutex
 	installing map[ID]bool
 
+	list      func() []AppInfo
 	lookup    func(string) (*AppInfo, error)
 	status    func(ID) (*Status, error)
 	check     func(ID) (*ReleaseInfo, error)
@@ -31,6 +32,7 @@ func NewRPCHandler(emit Emitter) *RPCHandler {
 	return &RPCHandler{
 		emit:       emit,
 		installing: make(map[ID]bool),
+		list:       List,
 		lookup:     Lookup,
 		status:     StatusFor,
 		check:      CheckLatest,
@@ -49,6 +51,8 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 	var err error
 
 	switch method {
+	case "apps.list":
+		result, err = h.rpcList()
 	case "apps.status":
 		result, err = h.rpcStatus(params)
 	case "apps.install":
@@ -66,6 +70,12 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 
 type rpcAppParams struct {
 	ID string `json:"id"`
+}
+
+func (h *RPCHandler) rpcList() (interface{}, error) {
+	return map[string]interface{}{
+		"apps": h.list(),
+	}, nil
 }
 
 func (h *RPCHandler) rpcStatus(params json.RawMessage) (interface{}, error) {

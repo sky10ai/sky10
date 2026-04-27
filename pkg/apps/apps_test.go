@@ -614,28 +614,6 @@ func TestCheckRelease_LimaUsesDirectAssetURLs(t *testing.T) {
 	}
 }
 
-func TestCheckRelease_MkcertUsesDirectAssetURL(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"tag_name": "v1.4.4",
-			"assets":   []map[string]string{},
-		})
-	}))
-	defer srv.Close()
-
-	old := ghReleaseURL
-	ghReleaseURL = func(spec) string { return srv.URL }
-	defer func() { ghReleaseURL = old }()
-
-	info, err := CheckRelease(AppMkcert, "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if info.AssetURL == "" {
-		t.Fatal("expected mkcert asset URL")
-	}
-}
-
 func TestInstall_LimaExtractsArchive(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell script fixture is unix-only")

@@ -240,6 +240,7 @@ export function guestAgentChatWebSocketURL(address: string, port: number, agentI
 
 // -- apps --
 export const apps = {
+  list: () => rpc<AppListResult>("apps.list"),
   status: (p: { id: string }) => rpc<AppStatus>("apps.status", p),
   install: (p: { id: string }) => rpc<{ id: string; status: string }>("apps.install", p),
   uninstall: (p: { id: string }) => rpc<AppUninstallResult>("apps.uninstall", p),
@@ -1284,6 +1285,15 @@ export interface SystemInstallUpdateResult {
 }
 
 // -- Managed app types --
+
+export interface AppInfo {
+  id: string;
+  name: string;
+}
+
+export interface AppListResult {
+  apps: AppInfo[];
+}
 
 export interface AppStatus {
   id: string;

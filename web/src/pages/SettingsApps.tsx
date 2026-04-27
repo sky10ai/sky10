@@ -3,12 +3,18 @@ import { Icon } from "../components/Icon";
 import { SettingsPage } from "../components/SettingsPage";
 import { StatusBadge } from "../components/StatusBadge";
 import { subscribe } from "../lib/events";
-import { apps, wallet } from "../lib/rpc";
+import { type AppInfo, apps } from "../lib/rpc";
 import { formatBytes, useRPC } from "../lib/useRPC";
 
-const LIMA_APP_ID = "lima";
+type AppLinkConfig = {
+  name: string;
+  siteUrl?: string;
+  githubUrl?: string;
+  xHandle?: string;
+  xUrl?: string;
+};
 
-const APP_LINKS = {
+const APP_LINKS: Record<string, AppLinkConfig> = {
   ows: {
     name: "Open Wallet Standard",
     siteUrl: "https://openwallet.sh/",
@@ -23,7 +29,34 @@ const APP_LINKS = {
     xHandle: "@TheLimaProject",
     xUrl: "https://x.com/TheLimaProject",
   },
-} as const;
+  bun: {
+    name: "Bun",
+    siteUrl: "https://bun.sh/",
+    githubUrl: "https://github.com/oven-sh/bun",
+    xHandle: "@bunjavascript",
+    xUrl: "https://x.com/bunjavascript",
+  },
+  zerobox: {
+    name: "Zerobox",
+    githubUrl: "https://github.com/afshinm/zerobox",
+  },
+};
+
+const APP_ICONS: Record<string, string> = {
+  ows: "download",
+  lima: "terminal",
+  bun: "bolt",
+  zerobox: "shield",
+};
+
+const APP_DESCRIPTIONS: Record<string, string> = {
+  ows: "Installation and update state for the Open Wallet Standard executable.",
+  lima:
+    "Install and manage the Lima runtime that sky10 sandbox flows use when a managed copy is available.",
+  bun: "Install and manage the Bun JavaScript runtime that powers bundled adapters.",
+  zerobox:
+    "Install and manage the Zerobox sandbox launcher used by external adapters.",
+};
 
 type InstallProgress = {
   downloaded: number;
@@ -38,204 +71,9 @@ type DetailItem = {
 };
 
 export default function SettingsApps() {
-  const {
-    data: walletStatus,
-    error: walletError,
-    refetch: refetchWallet,
-  } = useRPC(() => wallet.status(), [], {
-    refreshIntervalMs: 30_000,
+  const { data: list, error: listError } = useRPC(() => apps.list(), [], {
+    refreshIntervalMs: 60_000,
   });
-  const {
-    data: walletRelease,
-    error: walletReleaseError,
-    refetch: refetchWalletRelease,
-  } = useRPC(() => wallet.checkUpdate());
-  const {
-    data: limaStatus,
-    error: limaError,
-    refetch: refetchLima,
-  } = useRPC(() => apps.status({ id: LIMA_APP_ID }), [], {
-    refreshIntervalMs: 30_000,
-  });
-  const {
-    data: limaRelease,
-    error: limaReleaseError,
-    refetch: refetchLimaRelease,
-  } = useRPC(() => apps.checkUpdate({ id: LIMA_APP_ID }));
-
-  const [walletInstallProgress, setWalletInstallProgress] = useState<{
-    downloaded: number;
-    total: number;
-  } | null>(null);
-  const [walletActionError, setWalletActionError] = useState<string | null>(
-    null,
-  );
-  const [walletActionMessage, setWalletActionMessage] = useState<string | null>(
-    null,
-  );
-  const [walletInstalling, setWalletInstalling] = useState(false);
-  const [walletUninstalling, setWalletUninstalling] = useState(false);
-  const [walletDetailsOpen, setWalletDetailsOpen] = useState(false);
-
-  const [limaInstallProgress, setLimaInstallProgress] = useState<{
-    downloaded: number;
-    total: number;
-  } | null>(null);
-  const [limaActionError, setLimaActionError] = useState<string | null>(null);
-  const [limaActionMessage, setLimaActionMessage] = useState<string | null>(
-    null,
-  );
-  const [limaInstalling, setLimaInstalling] = useState(false);
-  const [limaUninstalling, setLimaUninstalling] = useState(false);
-  const [limaDetailsOpen, setLimaDetailsOpen] = useState(false);
-
-  useEffect(() => {
-    return subscribe((event, data) => {
-      if (event === "wallet:install:progress") {
-        const d = data as { downloaded: number; total: number };
-        setWalletInstallProgress(d);
-        return;
-      }
-      if (event === "wallet:install:complete") {
-        setWalletInstalling(false);
-        setWalletInstallProgress(null);
-        setWalletActionError(null);
-        setWalletActionMessage("OWS installed.");
-        refetchWallet();
-        refetchWalletRelease();
-        return;
-      }
-      if (event === "wallet:install:error") {
-        const d = data as { message: string };
-        setWalletInstalling(false);
-        setWalletInstallProgress(null);
-        setWalletActionError(d.message);
-        return;
-      }
-
-      if (!data || typeof data !== "object") return;
-      const payload = data as {
-        id?: string;
-        downloaded?: number;
-        total?: number;
-        message?: string;
-        status?: string;
-      };
-      if (payload.id !== LIMA_APP_ID) return;
-
-      if (event === "apps:install:progress") {
-        setLimaInstalling(true);
-        setLimaInstallProgress({
-          downloaded: payload.downloaded ?? 0,
-          total: payload.total ?? 0,
-        });
-        return;
-      }
-      if (event === "apps:install:complete") {
-        setLimaInstalling(false);
-        setLimaInstallProgress(null);
-        setLimaActionError(null);
-        setLimaActionMessage(
-          payload.status === "already up to date"
-            ? "Managed Lima already up to date."
-            : "Managed Lima installed.",
-        );
-        refetchLima();
-        refetchLimaRelease();
-        return;
-      }
-      if (event === "apps:install:error") {
-        setLimaInstalling(false);
-        setLimaInstallProgress(null);
-        setLimaActionError(payload.message ?? "Install failed");
-      }
-    });
-  }, [refetchLima, refetchLimaRelease, refetchWallet, refetchWalletRelease]);
-
-  const handleWalletInstall = useCallback(async () => {
-    setWalletInstalling(true);
-    setWalletActionError(null);
-    setWalletActionMessage(null);
-    setWalletInstallProgress(null);
-    try {
-      await wallet.install();
-    } catch (e: unknown) {
-      setWalletInstalling(false);
-      setWalletActionError(e instanceof Error ? e.message : "Install failed");
-    }
-  }, []);
-
-  const handleWalletDelete = useCallback(async () => {
-    setWalletUninstalling(true);
-    setWalletActionError(null);
-    setWalletActionMessage(null);
-    try {
-      const result = await wallet.uninstall();
-      refetchWallet();
-      refetchWalletRelease();
-      setWalletActionMessage(
-        result.removed
-          ? `Removed managed OWS binary from ${result.path}.`
-          : `No managed OWS binary found at ${result.path}.`,
-      );
-    } catch (e: unknown) {
-      setWalletActionError(e instanceof Error ? e.message : "Delete failed");
-    } finally {
-      setWalletUninstalling(false);
-    }
-  }, [refetchWallet, refetchWalletRelease]);
-
-  const handleLimaInstall = useCallback(async () => {
-    setLimaInstalling(true);
-    setLimaActionError(null);
-    setLimaActionMessage(null);
-    setLimaInstallProgress(null);
-    try {
-      await apps.install({ id: LIMA_APP_ID });
-    } catch (e: unknown) {
-      setLimaInstalling(false);
-      setLimaActionError(e instanceof Error ? e.message : "Install failed");
-    }
-  }, []);
-
-  const handleLimaDelete = useCallback(async () => {
-    setLimaUninstalling(true);
-    setLimaActionError(null);
-    setLimaActionMessage(null);
-    try {
-      const result = await apps.uninstall({ id: LIMA_APP_ID });
-      refetchLima();
-      refetchLimaRelease();
-      setLimaActionMessage(
-        result.removed
-          ? `Removed managed Lima binary from ${result.path}.`
-          : `No managed Lima binary found at ${result.path}.`,
-      );
-    } catch (e: unknown) {
-      setLimaActionError(e instanceof Error ? e.message : "Delete failed");
-    } finally {
-      setLimaUninstalling(false);
-    }
-  }, [refetchLima, refetchLimaRelease]);
-
-  const walletInstalled = Boolean(walletStatus?.installed);
-  const walletManaged = Boolean(walletStatus?.managed);
-  const walletUpdateAvailable = Boolean(
-    walletInstalled && walletRelease?.available,
-  );
-  const walletBinaryPath = walletStatus?.bin_path || "Not installed";
-  const walletManagedPath = walletStatus?.managed_path;
-  const walletBusy = walletInstalling || walletUninstalling;
-
-  const limaInstalled = Boolean(limaStatus?.installed);
-  const limaManaged = Boolean(limaStatus?.managed);
-  const limaUpdateAvailable = Boolean(limaInstalled && limaRelease?.available);
-  const limaBinaryPath = limaStatus?.active_path || "Not installed";
-  const limaManagedPath = limaStatus?.managed_path;
-  const limaUnsupportedPlatform = Boolean(
-    limaRelease && !limaRelease.asset_url,
-  );
-  const limaBusy = limaInstalling || limaUninstalling;
 
   return (
     <SettingsPage
@@ -245,355 +83,293 @@ export default function SettingsApps() {
       title="Managed Apps"
       width="narrow"
     >
-      <section className="order-2 rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-8 shadow-sm">
-        <div className="flex flex-col gap-6">
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
-            <div className="min-w-0 space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-tertiary/10 text-tertiary">
-                  <Icon className="text-2xl" name="download" />
-                </div>
-                <div>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                    <h2 className="text-2xl font-semibold text-on-surface">
-                      OWS Binary
-                    </h2>
-                    <StatusBadge
-                      icon={
-                        walletInstalling
-                          ? "downloading"
-                          : walletInstalled
-                            ? "check_circle"
-                            : "download"
-                      }
-                      pulse={walletInstalling}
-                      tone={
-                        walletInstalling
-                          ? "processing"
-                          : walletInstalled
-                            ? "success"
-                            : "neutral"
-                      }
-                    >
-                      {walletInstalling
-                        ? "Installing"
-                        : walletInstalled
-                          ? "Installed"
-                          : "Not Installed"}
-                    </StatusBadge>
-                    <AppResourceLinks app={APP_LINKS.ows} />
-                  </div>
-                  <p className="text-sm text-secondary">
-                    Installation and update state for the Open Wallet Standard
-                    executable.
-                  </p>
-                </div>
-              </div>
-              {walletUpdateAvailable && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge icon="system_update_alt" tone="processing">
-                    Update Available
-                  </StatusBadge>
-                </div>
-              )}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3 md:justify-end">
-              <button
-                className="inline-flex items-center gap-2 rounded-full bg-tertiary px-5 py-2.5 text-sm font-semibold text-on-tertiary shadow-lg transition-all active:scale-95 disabled:opacity-60"
-                disabled={walletBusy}
-                onClick={handleWalletInstall}
-                type="button"
-              >
-                <Icon
-                  name={
-                    walletUpdateAvailable ? "system_update_alt" : "download"
-                  }
-                />
-                {walletInstalling
-                  ? "Installing..."
-                  : walletUpdateAvailable
-                    ? "Update"
-                    : walletInstalled
-                      ? "Reinstall"
-                      : "Install"}
-              </button>
-              <button
-                className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-5 py-2.5 text-sm font-semibold text-secondary transition-colors disabled:opacity-50"
-                disabled={!walletManaged || walletBusy}
-                onClick={handleWalletDelete}
-                type="button"
-              >
-                <Icon name="delete" />
-                {walletUninstalling ? "Deleting..." : "Delete"}
-              </button>
-            </div>
-          </div>
-
-          <ManagedAppDetails
-            controlsId="ows-managed-app-details"
-            expanded={walletDetailsOpen}
-            items={[
-              {
-                label: "Current Version",
-                value:
-                  walletStatus?.version ||
-                  walletRelease?.current ||
-                  "Not installed",
-              },
-              {
-                label: "Latest Version",
-                value: walletRelease?.latest || "Unavailable",
-              },
-              {
-                full: true,
-                label: "Management Mode",
-                value: walletManaged
-                  ? "Managed by sky10"
-                  : walletInstalled
-                    ? "External PATH install"
-                    : "Not installed",
-              },
-              {
-                full: true,
-                label: "Install Location",
-                mono: true,
-                value: walletBinaryPath,
-              },
-              ...(walletManagedPath
-                ? [
-                    {
-                      full: true,
-                      label: "Managed Install Path",
-                      mono: true,
-                      value: walletManagedPath,
-                    },
-                  ]
-                : []),
-            ]}
-            notes={
-              <>
-                <p className="text-sm text-secondary">
-                  This page is intentionally about the binary only: install
-                  state, path, version checks, and updates.
-                </p>
-                <p className="text-sm text-secondary">
-                  Delete removes only the managed binary under sky10 control. It
-                  does not touch OWS wallet data or any unrelated system install
-                  on PATH.
-                </p>
-                {!walletManaged && walletInstalled && (
-                  <p className="text-sm text-secondary">
-                    The current OWS binary was discovered on PATH, so delete is
-                    disabled until sky10 is the manager of that binary.
-                  </p>
-                )}
-              </>
-            }
-            onToggle={() => setWalletDetailsOpen((open) => !open)}
-          />
-
-          {walletInstalling && (
-            <InstallProgressPanel progress={walletInstallProgress} />
-          )}
-
-          {(walletActionError || walletError || walletReleaseError) && (
-            <div className="rounded-xl bg-error-container/20 p-4 text-sm text-error">
-              {walletActionError ?? walletError ?? walletReleaseError}
-            </div>
-          )}
-
-          {walletActionMessage && (
-            <div className="rounded-xl bg-primary/10 p-4 text-sm text-primary">
-              {walletActionMessage}
-            </div>
-          )}
-
+      {listError && (
+        <div className="rounded-xl bg-error-container/20 p-4 text-sm text-error">
+          {listError}
         </div>
-      </section>
+      )}
+      {list?.apps.map((app) => (
+        <ManagedAppCard app={app} key={app.id} />
+      ))}
+    </SettingsPage>
+  );
+}
 
-      <section className="order-1 rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-8 shadow-sm">
-        <div className="flex flex-col gap-6">
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
-            <div className="min-w-0 space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-tertiary/10 text-tertiary">
-                  <Icon className="text-2xl" name="terminal" />
-                </div>
-                <div>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                    <h2 className="text-2xl font-semibold text-on-surface">
-                      Lima Runtime
-                    </h2>
-                    <StatusBadge
-                      icon={
-                        limaInstalling
-                          ? "downloading"
-                          : limaInstalled
-                            ? "check_circle"
-                            : "download"
-                      }
-                      pulse={limaInstalling}
-                      tone={
-                        limaInstalling
-                          ? "processing"
-                          : limaInstalled
-                            ? "success"
-                            : "neutral"
-                      }
-                    >
-                      {limaInstalling
-                        ? limaUpdateAvailable
-                          ? "Updating"
-                          : "Installing"
-                        : limaInstalled
-                          ? "Installed"
-                          : "Not Installed"}
-                    </StatusBadge>
-                    <AppResourceLinks app={APP_LINKS.lima} />
-                  </div>
-                  <p className="text-sm text-secondary">
-                    Install and manage the Lima runtime that sky10 sandbox flows
-                    use when a managed copy is available.
-                  </p>
-                </div>
+function ManagedAppCard({ app }: { app: AppInfo }) {
+  const { id, name } = app;
+  const links = APP_LINKS[id];
+  const icon = APP_ICONS[id] ?? "download";
+  const description =
+    APP_DESCRIPTIONS[id] ?? `Install and manage the managed ${name} binary.`;
+
+  const {
+    data: status,
+    error: statusError,
+    refetch: refetchStatus,
+  } = useRPC(() => apps.status({ id }), [id], {
+    refreshIntervalMs: 30_000,
+  });
+  const {
+    data: release,
+    error: releaseError,
+    refetch: refetchRelease,
+  } = useRPC(() => apps.checkUpdate({ id }), [id]);
+
+  const [installProgress, setInstallProgress] =
+    useState<InstallProgress | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [installing, setInstalling] = useState(false);
+  const [uninstalling, setUninstalling] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
+  useEffect(() => {
+    return subscribe((event, data) => {
+      if (!data || typeof data !== "object") return;
+      const payload = data as {
+        id?: string;
+        downloaded?: number;
+        total?: number;
+        message?: string;
+        status?: string;
+      };
+      if (payload.id !== id) return;
+
+      if (event === "apps:install:progress") {
+        setInstalling(true);
+        setInstallProgress({
+          downloaded: payload.downloaded ?? 0,
+          total: payload.total ?? 0,
+        });
+        return;
+      }
+      if (event === "apps:install:complete") {
+        setInstalling(false);
+        setInstallProgress(null);
+        setActionError(null);
+        setActionMessage(
+          payload.status === "already up to date"
+            ? `Managed ${name} already up to date.`
+            : `Managed ${name} installed.`,
+        );
+        refetchStatus();
+        refetchRelease();
+        return;
+      }
+      if (event === "apps:install:error") {
+        setInstalling(false);
+        setInstallProgress(null);
+        setActionError(payload.message ?? "Install failed");
+      }
+    });
+  }, [id, name, refetchStatus, refetchRelease]);
+
+  const handleInstall = useCallback(async () => {
+    setInstalling(true);
+    setActionError(null);
+    setActionMessage(null);
+    setInstallProgress(null);
+    try {
+      await apps.install({ id });
+    } catch (e: unknown) {
+      setInstalling(false);
+      setActionError(e instanceof Error ? e.message : "Install failed");
+    }
+  }, [id]);
+
+  const handleDelete = useCallback(async () => {
+    setUninstalling(true);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      const result = await apps.uninstall({ id });
+      refetchStatus();
+      refetchRelease();
+      setActionMessage(
+        result.removed
+          ? `Removed managed ${name} binary from ${result.path}.`
+          : `No managed ${name} binary found at ${result.path}.`,
+      );
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setUninstalling(false);
+    }
+  }, [id, name, refetchStatus, refetchRelease]);
+
+  const installed = Boolean(status?.installed);
+  const managed = Boolean(status?.managed);
+  const updateAvailable = Boolean(installed && release?.available);
+  const binaryPath = status?.active_path || "Not installed";
+  const managedPath = status?.managed_path;
+  const unsupportedPlatform = Boolean(release && !release.asset_url);
+  const busy = installing || uninstalling;
+
+  return (
+    <section className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-8 shadow-sm">
+      <div className="flex flex-col gap-6">
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+          <div className="min-w-0 space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-tertiary/10 text-tertiary">
+                <Icon className="text-2xl" name={icon} />
               </div>
-              {limaUpdateAvailable && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge icon="system_update_alt" tone="processing">
-                    Update Available
+              <div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <h2 className="text-2xl font-semibold text-on-surface">
+                    {name}
+                  </h2>
+                  <StatusBadge
+                    icon={
+                      installing
+                        ? "downloading"
+                        : installed
+                          ? "check_circle"
+                          : "download"
+                    }
+                    pulse={installing}
+                    tone={
+                      installing
+                        ? "processing"
+                        : installed
+                          ? "success"
+                          : "neutral"
+                    }
+                  >
+                    {installing
+                      ? updateAvailable
+                        ? "Updating"
+                        : "Installing"
+                      : installed
+                        ? "Installed"
+                        : "Not Installed"}
                   </StatusBadge>
+                  {links && <AppResourceLinks app={links} />}
                 </div>
-              )}
+                <p className="text-sm text-secondary">{description}</p>
+              </div>
             </div>
-
-            <div className="flex flex-wrap items-center gap-3 md:justify-end">
-              <button
-                className="inline-flex items-center gap-2 rounded-full bg-tertiary px-5 py-2.5 text-sm font-semibold text-on-tertiary shadow-lg transition-all active:scale-95 disabled:opacity-60"
-                disabled={limaBusy || limaUnsupportedPlatform}
-                onClick={handleLimaInstall}
-                type="button"
-              >
-                <Icon
-                  name={limaUpdateAvailable ? "system_update_alt" : "download"}
-                />
-                {limaInstalling
-                  ? limaUpdateAvailable
-                    ? "Updating..."
-                    : "Installing..."
-                  : limaUpdateAvailable
-                    ? "Update"
-                    : limaInstalled
-                      ? "Reinstall"
-                      : "Install"}
-              </button>
-              <button
-                className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-5 py-2.5 text-sm font-semibold text-secondary transition-colors disabled:opacity-50"
-                disabled={!limaManaged || limaBusy}
-                onClick={handleLimaDelete}
-                type="button"
-              >
-                <Icon name="delete" />
-                {limaUninstalling ? "Deleting..." : "Delete"}
-              </button>
-            </div>
-          </div>
-
-          <ManagedAppDetails
-            controlsId="lima-managed-app-details"
-            expanded={limaDetailsOpen}
-            items={[
-              {
-                label: "Current Version",
-                value:
-                  limaStatus?.version ||
-                  limaRelease?.current ||
-                  "Not installed",
-              },
-              {
-                label: "Latest Version",
-                value: limaRelease?.latest || "Unavailable",
-              },
-              {
-                full: true,
-                label: "Management Mode",
-                value: limaManaged
-                  ? "Managed by sky10"
-                  : limaInstalled
-                    ? "External PATH install"
-                    : "Not installed",
-              },
-              {
-                full: true,
-                label: "Install Location",
-                mono: true,
-                value: limaBinaryPath,
-              },
-              ...(limaManagedPath
-                ? [
-                    {
-                      full: true,
-                      label: "Managed Install Path",
-                      mono: true,
-                      value: limaManagedPath,
-                    },
-                  ]
-                : []),
-            ]}
-            notes={
-              <>
-                <p className="text-sm text-secondary">
-                  Sandbox create, start, stop, delete, and terminal flows prefer
-                  the managed Lima binary when it is installed.
-                </p>
-                <p className="text-sm text-secondary">
-                  If no managed Lima binary is active yet, sky10 falls back to
-                  `limactl` from `PATH`.
-                </p>
-                <p className="text-sm text-secondary">
-                  Delete removes only the managed Lima binary under sky10
-                  control. It does not touch any unrelated system install on
-                  PATH.
-                </p>
-                {!limaManaged && limaInstalled && (
-                  <p className="text-sm text-secondary">
-                    The current Lima binary was discovered on PATH, so delete is
-                    disabled until sky10 is the manager of that binary.
-                  </p>
-                )}
-              </>
-            }
-            onToggle={() => setLimaDetailsOpen((open) => !open)}
-          />
-
-          {limaInstalling && (
-            <InstallProgressPanel progress={limaInstallProgress} />
-          )}
-
-          {(limaActionError || limaError || limaReleaseError) && (
-            <div className="rounded-xl bg-error-container/20 p-4 text-sm text-error">
-              {limaActionError ?? limaError ?? limaReleaseError}
-            </div>
-          )}
-
-          {!limaActionError &&
-            !limaError &&
-            !limaReleaseError &&
-            limaUnsupportedPlatform && (
-              <div className="rounded-xl bg-error-container/20 p-4 text-sm text-error">
-                A managed Lima bundle is not available for this platform yet.
+            {updateAvailable && (
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge icon="system_update_alt" tone="processing">
+                  Update Available
+                </StatusBadge>
               </div>
             )}
+          </div>
 
-          {limaActionMessage && (
-            <div className="rounded-xl bg-primary/10 p-4 text-sm text-primary">
-              {limaActionMessage}
+          <div className="flex flex-wrap items-center gap-3 md:justify-end">
+            <button
+              className="inline-flex items-center gap-2 rounded-full bg-tertiary px-5 py-2.5 text-sm font-semibold text-on-tertiary shadow-lg transition-all active:scale-95 disabled:opacity-60"
+              disabled={busy || unsupportedPlatform}
+              onClick={handleInstall}
+              type="button"
+            >
+              <Icon
+                name={updateAvailable ? "system_update_alt" : "download"}
+              />
+              {installing
+                ? updateAvailable
+                  ? "Updating..."
+                  : "Installing..."
+                : updateAvailable
+                  ? "Update"
+                  : installed
+                    ? "Reinstall"
+                    : "Install"}
+            </button>
+            <button
+              className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-5 py-2.5 text-sm font-semibold text-secondary transition-colors disabled:opacity-50"
+              disabled={!managed || busy}
+              onClick={handleDelete}
+              type="button"
+            >
+              <Icon name="delete" />
+              {uninstalling ? "Deleting..." : "Delete"}
+            </button>
+          </div>
+        </div>
+
+        <ManagedAppDetails
+          controlsId={`${id}-managed-app-details`}
+          expanded={detailsOpen}
+          items={[
+            {
+              label: "Current Version",
+              value: status?.version || release?.current || "Not installed",
+            },
+            {
+              label: "Latest Version",
+              value: release?.latest || "Unavailable",
+            },
+            {
+              full: true,
+              label: "Management Mode",
+              value: managed
+                ? "Managed by sky10"
+                : installed
+                  ? "External PATH install"
+                  : "Not installed",
+            },
+            {
+              full: true,
+              label: "Install Location",
+              mono: true,
+              value: binaryPath,
+            },
+            ...(managedPath
+              ? [
+                  {
+                    full: true,
+                    label: "Managed Install Path",
+                    mono: true,
+                    value: managedPath,
+                  },
+                ]
+              : []),
+          ]}
+          notes={
+            <>
+              <p className="text-sm text-secondary">
+                Delete removes only the managed {name} binary under sky10
+                control. It does not touch any unrelated system install on
+                PATH.
+              </p>
+              {!managed && installed && (
+                <p className="text-sm text-secondary">
+                  The current {name} binary was discovered on PATH, so delete
+                  is disabled until sky10 is the manager of that binary.
+                </p>
+              )}
+            </>
+          }
+          onToggle={() => setDetailsOpen((open) => !open)}
+        />
+
+        {installing && <InstallProgressPanel progress={installProgress} />}
+
+        {(actionError || statusError || releaseError) && (
+          <div className="rounded-xl bg-error-container/20 p-4 text-sm text-error">
+            {actionError ?? statusError ?? releaseError}
+          </div>
+        )}
+
+        {!actionError &&
+          !statusError &&
+          !releaseError &&
+          unsupportedPlatform && (
+            <div className="rounded-xl bg-error-container/20 p-4 text-sm text-error">
+              A managed {name} bundle is not available for this platform yet.
             </div>
           )}
 
-        </div>
-      </section>
-    </SettingsPage>
+        {actionMessage && (
+          <div className="rounded-xl bg-primary/10 p-4 text-sm text-primary">
+            {actionMessage}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -693,46 +469,48 @@ function InstallProgressPanel({
   );
 }
 
-function AppResourceLinks({
-  app,
-}: {
-  app: (typeof APP_LINKS)[keyof typeof APP_LINKS];
-}) {
+function AppResourceLinks({ app }: { app: AppLinkConfig }) {
   const linkClass =
     "inline-flex h-7 w-7 items-center justify-center rounded-full border border-outline-variant/20 text-secondary transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary/40";
 
   return (
     <div className="flex items-center gap-1">
-      <a
-        aria-label={`Open ${app.name} site`}
-        className={linkClass}
-        href={app.siteUrl}
-        rel="noopener noreferrer"
-        target="_blank"
-        title={`${app.name} site`}
-      >
-        <Icon className="text-sm" name="link" />
-      </a>
-      <a
-        aria-label={`Open ${app.name} GitHub repository`}
-        className={linkClass}
-        href={app.githubUrl}
-        rel="noopener noreferrer"
-        target="_blank"
-        title={`${app.name} GitHub repository`}
-      >
-        <GitHubIcon className="h-3.5 w-3.5" />
-      </a>
-      <a
-        aria-label={`Open ${app.name} on X, ${app.xHandle}`}
-        className={linkClass}
-        href={app.xUrl}
-        rel="noopener noreferrer"
-        target="_blank"
-        title={`${app.xHandle} on X`}
-      >
-        <XIcon className="h-3 w-3" />
-      </a>
+      {app.siteUrl && (
+        <a
+          aria-label={`Open ${app.name} site`}
+          className={linkClass}
+          href={app.siteUrl}
+          rel="noopener noreferrer"
+          target="_blank"
+          title={`${app.name} site`}
+        >
+          <Icon className="text-sm" name="link" />
+        </a>
+      )}
+      {app.githubUrl && (
+        <a
+          aria-label={`Open ${app.name} GitHub repository`}
+          className={linkClass}
+          href={app.githubUrl}
+          rel="noopener noreferrer"
+          target="_blank"
+          title={`${app.name} GitHub repository`}
+        >
+          <GitHubIcon className="h-3.5 w-3.5" />
+        </a>
+      )}
+      {app.xUrl && app.xHandle && (
+        <a
+          aria-label={`Open ${app.name} on X, ${app.xHandle}`}
+          className={linkClass}
+          href={app.xUrl}
+          rel="noopener noreferrer"
+          target="_blank"
+          title={`${app.xHandle} on X`}
+        >
+          <XIcon className="h-3 w-3" />
+        </a>
+      )}
     </div>
   );
 }

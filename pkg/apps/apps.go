@@ -32,8 +32,6 @@ const (
 	AppOWS ID = "ows"
 	// AppLima is the Lima VM runtime bundle.
 	AppLima ID = "lima"
-	// AppMkcert is the mkcert certificate helper.
-	AppMkcert ID = "mkcert"
 	// AppZerobox is the lightweight sandbox launcher for external adapters.
 	AppZerobox ID = "zerobox"
 )
@@ -179,24 +177,6 @@ var registry = map[ID]spec{
 						tag, baseVersion, osName, archName, archiveExt),
 				},
 			}
-		},
-	},
-	AppMkcert: {
-		ID:          AppMkcert,
-		Name:        "mkcert",
-		Repo:        "FiloSottile/mkcert",
-		Executable:  "mkcert",
-		VersionArgs: []string{"-version"},
-		InstallKind: installKindBinary,
-		ReleaseAssets: func(_ string, goos, goarch string) []releaseAsset {
-			goos = strings.ToLower(strings.TrimSpace(goos))
-			goarch = strings.ToLower(strings.TrimSpace(goarch))
-			if goos == "" || goarch == "" {
-				return nil
-			}
-			return []releaseAsset{{
-				URL: fmt.Sprintf("https://github.com/FiloSottile/mkcert/releases/latest/download/mkcert-%s-%s", goos, goarch),
-			}}
 		},
 	},
 	AppZerobox: {

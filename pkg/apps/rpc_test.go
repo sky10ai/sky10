@@ -18,6 +18,35 @@ func TestRPCHandler_UnknownNamespaceIsIgnored(t *testing.T) {
 	}
 }
 
+func TestRPCHandler_ListDispatch(t *testing.T) {
+	h := NewRPCHandler(nil)
+	h.list = func() []AppInfo {
+		return []AppInfo{
+			{ID: AppBun, Name: "Bun"},
+			{ID: AppLima, Name: "Lima"},
+		}
+	}
+
+	result, err, handled := h.Dispatch(context.Background(), "apps.list", nil)
+	if err != nil {
+		t.Fatalf("apps.list error: %v", err)
+	}
+	if !handled {
+		t.Fatal("apps.list should be handled")
+	}
+	payload, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("apps.list result has unexpected type %T", result)
+	}
+	apps, ok := payload["apps"].([]AppInfo)
+	if !ok {
+		t.Fatalf("apps.list payload[\"apps\"] has unexpected type %T", payload["apps"])
+	}
+	if len(apps) != 2 || apps[0].ID != AppBun || apps[1].ID != AppLima {
+		t.Fatalf("apps.list apps = %#v, want [bun, lima]", apps)
+	}
+}
+
 func TestRPCHandler_StatusAndCheckUpdateDispatch(t *testing.T) {
 	h := NewRPCHandler(nil)
 	h.lookup = func(id string) (*AppInfo, error) {
