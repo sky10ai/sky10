@@ -81,6 +81,13 @@ transport layer and exposing a single registry to agent runtimes
   OWS-backed signing follows; the M1 production wiring uses
   StubSigner so misconfiguration fails with a typed error rather
   than a panic.
+- 2026-04-27 — Daemon wiring landed in `commands/serve_x402.go`.
+  The x402 endpoint is mounted at `/comms/x402/ws` when the
+  daemon starts; identity is resolved from the `agent` query
+  parameter against the existing agent registry; budget defaults
+  apply per-agent on first sight. Adapter translates between
+  pkg/x402 native types and the comms wire shape. With this,
+  sandbox-comms M2 and x402 plan M5 are both complete.
 
 ## Documents
 
