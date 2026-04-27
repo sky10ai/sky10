@@ -48,24 +48,55 @@ discovers paths the original allowlist designer didn't consider.
 
 ## What we do instead
 
-A typed-envelope agent bus carries every cross-trust-boundary
-operation. Each envelope type is its own audited capability with its
-own narrow handler file. Identity is stamped by the bus from the
-authenticated transport, never from the payload. Validation is the
-first non-trivial statement in every handler, enforced by an
-arch-test. The payload is `json.RawMessage` until a handler
-explicitly parses it — there is no auto-binding that would let a
-handler treat its inputs as already-trusted.
+Per-intent websocket endpoints under `pkg/sandbox/comms/`, one
+per capability, each with its own URL path, its own subpackage,
+and its own envelope handlers. The Go HTTP mux routes by path —
+the URL is the dispatch. There is no central bus, no shared
+dispatcher, no allowlist that grows over time.
 
-The bus is **not** more secure than RPC at the cryptographic
-primitive level. It is more secure at the *frame* level: the shape
-of the code (raw bytes from the wire, identity injected by
-infrastructure, one handler per file) keeps "trust this" code
-visibly out of place. We lock the frame in structurally — not as a
-review convention — because review conventions drift.
+Each handler receives raw bytes from the wire (`json.RawMessage`)
+and must validate explicitly. Identity is stamped by the
+plumbing from the authenticated transport, never from the
+payload. Validation is the first non-trivial statement in every
+handler, enforced by an arch-test. There is no auto-binding that
+would let a handler treat its inputs as already-trusted.
 
-See [`docs/work/current/agent-bus/`](../work/current/agent-bus/) for
-the full design and the rules that hold the frame in place.
+This is more secure at two levels:
+
+- **Frame.** The shape of the code (raw bytes from the wire,
+  identity injected by infrastructure, one handler per file)
+  keeps "trust this" code visibly out of place.
+- **Blast radius.** A capability bug in `/comms/wallet/ws`
+  cannot affect `/comms/x402/ws` because the code paths don't
+  intersect. There is no shared dispatcher to compromise.
+
+See [`docs/work/current/sandbox-comms/`](../work/current/sandbox-comms/)
+for the full design and the rules that hold the frame in place.
+
+## Why per-intent and not one bus with discipline rules
+
+We considered a single endpoint that multiplexes envelope types,
+guarded by strict handler discipline rules. It is structurally
+worse than per-intent endpoints for a non-obvious reason:
+
+A single endpoint drifts back to RPC over time. Adding capability
+N+1 to an existing bus is a small, low-friction change that
+always feels small; six months in, the bus is functionally the
+host's RPC surface in a different costume. Discipline rules
+notwithstanding, because review attention drifts and "just one
+more envelope type" never trips a threshold.
+
+Per-intent endpoints put friction in the right place: a new
+capability requires a new URL, a new subpackage, a new endpoint
+registration. That friction is the feature. It forces the
+question "is this really its own capability or a stretch of an
+existing one?" to be answered every time, not just at design
+review.
+
+Discipline rules can't substitute for structural drift
+prevention. The per-intent split *is* the drift prevention. The
+discipline rules are the additional defense within each
+capability's surface.
 
 ## When this lesson applies
 
