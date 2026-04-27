@@ -265,6 +265,24 @@ func parseBudget(cfg BudgetConfig) (parsedBudget, error) {
 	return out, nil
 }
 
+// CompareUSDC returns -1, 0, or +1 reflecting whether a is less
+// than, equal to, or greater than b. Both arguments are decimal
+// USDC strings. A parse failure on either side returns an error;
+// callers that prefer to silently treat malformed values as equal
+// can ignore the error and the returned int (which is 0 in that
+// case).
+func CompareUSDC(a, b string) (int, error) {
+	av, err := parseUSDC(a)
+	if err != nil {
+		return 0, fmt.Errorf("compare a=%q: %w", a, err)
+	}
+	bv, err := parseUSDC(b)
+	if err != nil {
+		return 0, fmt.Errorf("compare b=%q: %w", b, err)
+	}
+	return av.Cmp(bv), nil
+}
+
 // parseUSDC converts a decimal USDC string ("0.005") to micro-USDC
 // (5000). Empty strings are an error; the budget configuration
 // requires concrete values.

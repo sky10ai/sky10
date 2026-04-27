@@ -63,9 +63,31 @@ Exit criteria: a Go test makes a real x402 call against a sandbox
 service (or an `httptest` fake) end-to-end with USDC on a Base
 testnet.
 
-## M2 — discovery and refresh
+## M2 — discovery and refresh — **landed 2026-04-27**
 
 `pkg/x402/discovery` adds catalog ingestion. **Host-side.**
+
+Landed alongside daemon seeding in `commands/serve_x402.go`. The
+package ships:
+
+- `Source` interface; `StaticSource` for the curated builtin
+  primitive set baked into the binary
+- `Diff` + `Classify` covering new, removed, relisted, unchanged,
+  metadata-only, price-decreased (safe), price-increased,
+  endpoint-changed, breaking (risky)
+- `Refresh` orchestrator: pulls every source, classifies each
+  observation, applies safe diffs to the registry, queues risky
+  ones for re-approval, marks removals; per-source errors do not
+  abort other sources
+- `Overlay` loader from embedded `overlay.json` carrying
+  sky10-curated tier/default-on/hint metadata for the
+  primitive set plus the major LLM/search/convenience services
+
+On daemon start, `seedX402Registry` runs one Refresh against
+`BuiltinPrimitives` so the registry has Deepgram, fal.ai, E2B, and
+Browserbase entries available for approval. Live
+agentic.market HTTP integration (`AgenticMarketSource`) and a
+periodic refresh ticker land in a follow-up.
 
 Files:
 
