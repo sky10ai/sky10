@@ -146,6 +146,18 @@ transport layer and exposing a single registry to agent runtimes
   approving opens an inline form to set the per-call max price
   (defaults to the manifest's price) so each approval is a
   deliberate decision rather than a flick of a switch.
+- 2026-04-28 — Receipts persist across daemon restarts via a new
+  `pkg/x402.ReceiptStore` (`FileReceiptStore` writes append-only
+  JSONL to `<sky10 root>/x402/receipts.jsonl`). `Budget.NewBudget`
+  takes a store and loads existing receipts on construction; every
+  Charge appends. Malformed lines are skipped on load so a partial
+  write never blocks the daemon from coming up.
+- 2026-04-28 — Services page got search + tier/status filters. A
+  search input matches against service name, id, description, and
+  category; tier dropdown filters Primitive vs Convenience;
+  status dropdown filters Approved vs Not approved. A "Showing X
+  of Y" indicator runs alongside so the catalog stays usable once
+  agentic.market lights up the full 500+ entries.
 
 ## Documents
 

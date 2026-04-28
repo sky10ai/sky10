@@ -44,7 +44,7 @@ func TestParseUSDCRejectsBadInput(t *testing.T) {
 func TestBudgetAuthorizeWithinCaps(t *testing.T) {
 	t.Parallel()
 	clock := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
-	b := NewBudget(func() time.Time { return clock })
+	b := NewBudget(func() time.Time { return clock }, nil)
 	if err := b.SetAgentBudget("A-1", BudgetConfig{
 		PerCallMaxUSDC: "0.10",
 		DailyCapUSDC:   "5.00",
@@ -58,7 +58,7 @@ func TestBudgetAuthorizeWithinCaps(t *testing.T) {
 
 func TestBudgetAuthorizeRejectsAboveCallerMax(t *testing.T) {
 	t.Parallel()
-	b := NewBudget(nil)
+	b := NewBudget(nil, nil)
 	_ = b.SetAgentBudget("A-1", BudgetConfig{PerCallMaxUSDC: "0.10", DailyCapUSDC: "5.00"})
 	err := b.Authorize("A-1", "svc", "0.001", "0.005")
 	if !errors.Is(err, ErrPriceQuoteTooHigh) {
@@ -68,7 +68,7 @@ func TestBudgetAuthorizeRejectsAboveCallerMax(t *testing.T) {
 
 func TestBudgetAuthorizeRejectsAbovePerCallCap(t *testing.T) {
 	t.Parallel()
-	b := NewBudget(nil)
+	b := NewBudget(nil, nil)
 	_ = b.SetAgentBudget("A-1", BudgetConfig{PerCallMaxUSDC: "0.001", DailyCapUSDC: "5.00"})
 	err := b.Authorize("A-1", "svc", "0.10", "0.005")
 	if !errors.Is(err, ErrBudgetExceeded) {
@@ -78,7 +78,7 @@ func TestBudgetAuthorizeRejectsAbovePerCallCap(t *testing.T) {
 
 func TestBudgetAuthorizeRejectsAboveDailyCap(t *testing.T) {
 	t.Parallel()
-	b := NewBudget(nil)
+	b := NewBudget(nil, nil)
 	_ = b.SetAgentBudget("A-1", BudgetConfig{PerCallMaxUSDC: "0.10", DailyCapUSDC: "0.01"})
 	_ = b.Charge(Receipt{AgentID: "A-1", ServiceID: "svc", AmountUSDC: "0.009"})
 	err := b.Authorize("A-1", "svc", "0.10", "0.005")
@@ -89,7 +89,7 @@ func TestBudgetAuthorizeRejectsAboveDailyCap(t *testing.T) {
 
 func TestBudgetAuthorizeRejectsUnknownAgent(t *testing.T) {
 	t.Parallel()
-	b := NewBudget(nil)
+	b := NewBudget(nil, nil)
 	err := b.Authorize("A-unknown", "svc", "0.10", "0.005")
 	if !errors.Is(err, ErrBudgetExceeded) {
 		t.Fatalf("err = %v, want ErrBudgetExceeded for unconfigured agent", err)
@@ -99,7 +99,7 @@ func TestBudgetAuthorizeRejectsUnknownAgent(t *testing.T) {
 func TestBudgetChargeUpdatesStatus(t *testing.T) {
 	t.Parallel()
 	clock := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
-	b := NewBudget(func() time.Time { return clock })
+	b := NewBudget(func() time.Time { return clock }, nil)
 	_ = b.SetAgentBudget("A-1", BudgetConfig{
 		PerCallMaxUSDC: "0.10",
 		DailyCapUSDC:   "5.00",
@@ -126,7 +126,7 @@ func TestBudgetAllReceiptsReturnsNewestFirst(t *testing.T) {
 	t.Parallel()
 	clock := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
 	now := clock
-	b := NewBudget(func() time.Time { return now })
+	b := NewBudget(func() time.Time { return now }, nil)
 	_ = b.SetAgentBudget("A-1", BudgetConfig{PerCallMaxUSDC: "0.10", DailyCapUSDC: "5.00"})
 	_ = b.SetAgentBudget("A-2", BudgetConfig{PerCallMaxUSDC: "0.10", DailyCapUSDC: "5.00"})
 
@@ -149,7 +149,7 @@ func TestBudgetAllReceiptsReturnsNewestFirst(t *testing.T) {
 func TestBudgetAggregateStatusSumsAcrossAgents(t *testing.T) {
 	t.Parallel()
 	clock := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
-	b := NewBudget(func() time.Time { return clock })
+	b := NewBudget(func() time.Time { return clock }, nil)
 	_ = b.SetAgentBudget("A-1", BudgetConfig{PerCallMaxUSDC: "0.10", DailyCapUSDC: "5.00"})
 	_ = b.SetAgentBudget("A-2", BudgetConfig{PerCallMaxUSDC: "0.20", DailyCapUSDC: "10.00"})
 	_ = b.Charge(Receipt{AgentID: "A-1", ServiceID: "x", AmountUSDC: "0.250"})
@@ -172,7 +172,7 @@ func TestBudgetAggregateStatusSumsAcrossAgents(t *testing.T) {
 
 func TestBudgetAggregateStatusEmpty(t *testing.T) {
 	t.Parallel()
-	b := NewBudget(nil)
+	b := NewBudget(nil, nil)
 	snap := b.AggregateStatus()
 	if snap.Agents != 0 {
 		t.Fatalf("Agents = %d, want 0", snap.Agents)
@@ -186,7 +186,7 @@ func TestBudgetDailyCounterRollsOver(t *testing.T) {
 	t.Parallel()
 	day1 := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
 	clock := day1
-	b := NewBudget(func() time.Time { return clock })
+	b := NewBudget(func() time.Time { return clock }, nil)
 	_ = b.SetAgentBudget("A-1", BudgetConfig{PerCallMaxUSDC: "0.10", DailyCapUSDC: "5.00"})
 	_ = b.Charge(Receipt{AgentID: "A-1", ServiceID: "svc", AmountUSDC: "1.00"})
 	if got := b.Status("A-1").SpentTodayUSDC; got != "1" {

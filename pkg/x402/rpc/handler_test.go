@@ -38,7 +38,7 @@ func newHandler(t *testing.T) *Handler {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	return NewHandler(r, x402.NewBudget(nil))
+	return NewHandler(r, x402.NewBudget(nil, nil))
 }
 
 func TestDispatchOnlyHandlesX402Methods(t *testing.T) {
@@ -153,7 +153,7 @@ func TestBudgetStatusReportsAggregate(t *testing.T) {
 	if err := r.AddManifest(sampleManifest()); err != nil {
 		t.Fatal(err)
 	}
-	budget := x402.NewBudget(nil)
+	budget := x402.NewBudget(nil, nil)
 	if err := budget.SetAgentBudget("A-1", x402.BudgetConfig{PerCallMaxUSDC: "0.10", DailyCapUSDC: "5.00"}); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestReceiptsJoinsServiceName(t *testing.T) {
 	if err := r.AddManifest(sampleManifest()); err != nil {
 		t.Fatal(err)
 	}
-	budget := x402.NewBudget(nil)
+	budget := x402.NewBudget(nil, nil)
 	_ = budget.SetAgentBudget("A-1", x402.BudgetConfig{PerCallMaxUSDC: "0.10", DailyCapUSDC: "5.00"})
 	_ = budget.Charge(x402.Receipt{AgentID: "A-1", ServiceID: "perplexity", AmountUSDC: "0.005", Network: x402.NetworkBase, Tx: "0xtest"})
 
