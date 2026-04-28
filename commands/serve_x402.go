@@ -2,6 +2,8 @@ package commands
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -48,12 +50,22 @@ func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegist
 		return fmt.Errorf("new registry: %w", err)
 	}
 
-	if err := seedX402Registry(ctx, registry, logger); err != nil {
+	overlay, err := discovery.LoadOverlay()
+	if err != nil {
+		return fmt.Errorf("load overlay: %w", err)
+	}
+	sources := []discovery.Source{
+		discovery.NewAgenticMarketSource("", nil),
+		discovery.NewStaticSource("builtin-primitives", discovery.BuiltinPrimitives()),
+	}
+
+	if err := seedX402Registry(ctx, registry, overlay, sources, logger); err != nil {
 		// Seeding is best-effort: a network or overlay parse error
 		// should not prevent the endpoint from coming up. Log and
 		// continue with whatever the persisted registry already had.
 		logger.Warn("x402 registry seed failed; continuing with persisted state", "error", err)
 	}
+	go runX402RefreshLoop(ctx, registry, overlay, sources, logger)
 
 	budget := x402.NewBudget(nil)
 	transport := x402.NewTransport(x402.NewStubSigner("OWS x402 sign-only command not yet wired"))
@@ -73,18 +85,13 @@ func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegist
 	return nil
 }
 
-// seedX402Registry runs one Refresh against the curated builtin
-// source so the registry has at least the primitive set after a
-// fresh daemon start. Future work adds periodic refresh and live
-// agentic.market integration; until then the daemon falls back to
-// the embedded primitive list on every startup.
-func seedX402Registry(ctx context.Context, registry *x402.Registry, logger *slog.Logger) error {
-	overlay, err := discovery.LoadOverlay()
-	if err != nil {
-		return fmt.Errorf("load overlay: %w", err)
-	}
-	source := discovery.NewStaticSource("builtin-primitives", discovery.BuiltinPrimitives())
-	result, err := discovery.Refresh(ctx, registry, overlay, []discovery.Source{source}, logger)
+// seedX402Registry runs one Refresh on daemon startup so the
+// registry is populated by the time agents begin connecting. The
+// AgenticMarketSource pulls live data from agentic.market; if it
+// fails (offline install, transient network), the StaticSource
+// fallback keeps the curated primitive set available.
+func seedX402Registry(ctx context.Context, registry *x402.Registry, overlay *discovery.Overlay, sources []discovery.Source, logger *slog.Logger) error {
+	result, err := discovery.Refresh(ctx, registry, overlay, sources, logger)
 	if err != nil {
 		return fmt.Errorf("seed refresh: %w", err)
 	}
@@ -95,6 +102,70 @@ func seedX402Registry(ctx context.Context, registry *x402.Registry, logger *slog
 		"errors", len(result.Errors),
 	)
 	return nil
+}
+
+// x402RefreshInterval is the base cadence for periodic catalog
+// refresh. The decision to default to one hour is recorded in
+// docs/work/current/x402/auto-update.md.
+const x402RefreshInterval = time.Hour
+
+// x402RefreshJitter is the maximum +/- skew applied to each tick to
+// prevent fleets of daemons from synchronizing on the upstream API.
+const x402RefreshJitter = 10 * time.Minute
+
+// runX402RefreshLoop runs a periodic Refresh in the background until
+// ctx is cancelled. The first tick fires after one
+// x402RefreshInterval (the seed call already covered startup); each
+// subsequent tick is jittered by ±x402RefreshJitter.
+//
+// Errors are logged and swallowed — a single missed refresh is
+// acceptable because the registry retains its prior state and the
+// next tick will try again.
+func runX402RefreshLoop(ctx context.Context, registry *x402.Registry, overlay *discovery.Overlay, sources []discovery.Source, logger *slog.Logger) {
+	for {
+		next := jitteredInterval(x402RefreshInterval, x402RefreshJitter)
+		timer := time.NewTimer(next)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		result, err := discovery.Refresh(ctx, registry, overlay, sources, logger)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			logger.Warn("x402 periodic refresh failed", "error", err)
+			continue
+		}
+		logger.Info("x402 catalog refreshed",
+			"applied", len(result.Applied),
+			"queued", len(result.Queued),
+			"removed", len(result.Removed),
+			"errors", len(result.Errors),
+		)
+	}
+}
+
+// jitteredInterval returns base ± a random offset capped at jitter.
+// Falls back to base on RNG failure.
+func jitteredInterval(base, jitter time.Duration) time.Duration {
+	if jitter <= 0 {
+		return base
+	}
+	var raw [8]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return base
+	}
+	n := int64(binary.BigEndian.Uint64(raw[:]) & 0x7fffffffffffffff)
+	span := int64(2 * jitter)
+	offset := time.Duration(n%span) - jitter
+	out := base + offset
+	if out <= 0 {
+		return base
+	}
+	return out
 }
 
 func x402RegistryPath() (string, error) {

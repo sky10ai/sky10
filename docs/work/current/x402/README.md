@@ -105,6 +105,13 @@ transport layer and exposing a single registry to agent runtimes
   approval when no per-agent record exists. M3 (host RPC) and M6
   (Web UI) are partially done; remaining surface (approve/revoke
   per agent, budget panel, receipts log, CLI) follows.
+- 2026-04-27 — Services page now shows a wallet-status banner that
+  surfaces "OWS not installed" / "no wallet yet" so the toggle
+  isn't misleading when calls would actually fail. Discovery now
+  pulls live data from `https://api.agentic.market/v1/services` via
+  `AgenticMarketSource`, with the StaticSource as a fallback for
+  offline installs. A daemon goroutine runs `Refresh` hourly with
+  ±10min jitter so the local catalog stays current.
 
 ## Documents
 

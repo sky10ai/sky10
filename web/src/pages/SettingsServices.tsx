@@ -1,7 +1,8 @@
 import { useCallback, useState } from "react";
+import { Link } from "react-router";
 import { Icon } from "../components/Icon";
 import { SettingsPage } from "../components/SettingsPage";
-import { x402, type X402ServiceListing } from "../lib/rpc";
+import { wallet, x402, type X402ServiceListing } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
 function networkLabel(networks: X402ServiceListing["networks"]): string {
@@ -90,6 +91,50 @@ function ServiceCard({ service, busy, error, onToggle }: ServiceCardProps) {
   );
 }
 
+function WalletStatusBanner() {
+  const { data: status } = useRPC(() => wallet.status(), [], {
+    refreshIntervalMs: 30_000,
+  });
+  if (!status) return null;
+  if (!status.installed) {
+    return (
+      <div className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-200">
+        <Icon className="text-base" name="warning" />
+        <div className="flex-1">
+          <p className="font-medium">OWS not installed.</p>
+          <p>
+            Agents cannot make x402 calls until you install the wallet. Install
+            it from{" "}
+            <Link className="underline" to="/settings/wallet">
+              Settings → Wallet
+            </Link>
+            .
+          </p>
+        </div>
+      </div>
+    );
+  }
+  if (status.wallets === 0) {
+    return (
+      <div className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-200">
+        <Icon className="text-base" name="account_balance_wallet" />
+        <div className="flex-1">
+          <p className="font-medium">No wallet yet.</p>
+          <p>
+            Create and fund a wallet from{" "}
+            <Link className="underline" to="/settings/wallet">
+              Settings → Wallet
+            </Link>{" "}
+            before enabling paid services. Toggling without a funded wallet
+            still records your preference, but agent calls will fail.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
 export default function SettingsServices() {
   const {
     data,
@@ -128,6 +173,8 @@ export default function SettingsServices() {
       description="Approve external services your agents can call. Each service charges per request in USDC; calls only succeed once your wallet is installed and funded."
       pinnablePageID="services"
     >
+      <WalletStatusBanner />
+
       <section className="space-y-4">
         <header className="flex items-center justify-between gap-4">
           <div>
