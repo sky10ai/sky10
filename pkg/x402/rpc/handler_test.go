@@ -38,7 +38,7 @@ func newHandler(t *testing.T) *Handler {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	return NewHandler(r)
+	return NewHandler(r, x402.NewBudget(nil))
 }
 
 func TestDispatchOnlyHandlesX402Methods(t *testing.T) {
@@ -131,6 +131,87 @@ func TestSetEnabledRejectsUnknownService(t *testing.T) {
 	_, err, _ := h.Dispatch(context.Background(), "x402.setEnabled", params)
 	if !errors.Is(err, x402.ErrServiceUnknown) {
 		t.Fatalf("err = %v, want ErrServiceUnknown", err)
+	}
+}
+
+func TestBudgetStatusEmptyWhenNoAgents(t *testing.T) {
+	t.Parallel()
+	h := newHandler(t)
+	res, err, handled := h.Dispatch(context.Background(), "x402.budgetStatus", nil)
+	if !handled || err != nil {
+		t.Fatalf("err=%v handled=%v", err, handled)
+	}
+	got := res.(BudgetStatusResult)
+	if got.Agents != 0 {
+		t.Fatalf("Agents = %d, want 0", got.Agents)
+	}
+}
+
+func TestBudgetStatusReportsAggregate(t *testing.T) {
+	t.Parallel()
+	r, _ := x402.NewRegistry(x402.NewMemoryRegistryStore(), nil)
+	if err := r.AddManifest(sampleManifest()); err != nil {
+		t.Fatal(err)
+	}
+	budget := x402.NewBudget(nil)
+	if err := budget.SetAgentBudget("A-1", x402.BudgetConfig{PerCallMaxUSDC: "0.10", DailyCapUSDC: "5.00"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := budget.Charge(x402.Receipt{AgentID: "A-1", ServiceID: "perplexity", AmountUSDC: "0.005", Network: x402.NetworkBase, Tx: "0xabc"}); err != nil {
+		t.Fatal(err)
+	}
+
+	h := NewHandler(r, budget)
+	res, _, _ := h.Dispatch(context.Background(), "x402.budgetStatus", nil)
+	got := res.(BudgetStatusResult)
+	if got.Agents != 1 {
+		t.Fatalf("Agents = %d, want 1", got.Agents)
+	}
+	if got.SpentTodayUSDC != "0.005" {
+		t.Fatalf("SpentTodayUSDC = %q, want 0.005", got.SpentTodayUSDC)
+	}
+}
+
+func TestReceiptsJoinsServiceName(t *testing.T) {
+	t.Parallel()
+	r, _ := x402.NewRegistry(x402.NewMemoryRegistryStore(), nil)
+	if err := r.AddManifest(sampleManifest()); err != nil {
+		t.Fatal(err)
+	}
+	budget := x402.NewBudget(nil)
+	_ = budget.SetAgentBudget("A-1", x402.BudgetConfig{PerCallMaxUSDC: "0.10", DailyCapUSDC: "5.00"})
+	_ = budget.Charge(x402.Receipt{AgentID: "A-1", ServiceID: "perplexity", AmountUSDC: "0.005", Network: x402.NetworkBase, Tx: "0xtest"})
+
+	h := NewHandler(r, budget)
+	res, _, _ := h.Dispatch(context.Background(), "x402.receipts", json.RawMessage(`{}`))
+	got := res.(ReceiptsResult)
+	if len(got.Receipts) != 1 {
+		t.Fatalf("receipts = %d, want 1", len(got.Receipts))
+	}
+	if got.Receipts[0].ServiceName != "Perplexity" {
+		t.Fatalf("ServiceName = %q, want Perplexity (from manifest)", got.Receipts[0].ServiceName)
+	}
+	if got.Receipts[0].AmountUSDC != "0.005" {
+		t.Fatalf("AmountUSDC = %q", got.Receipts[0].AmountUSDC)
+	}
+}
+
+func TestListServicesIncludesApprovalDetails(t *testing.T) {
+	t.Parallel()
+	h := newHandler(t)
+	if err := h.registry.SetUserEnabled("perplexity", "0.003"); err != nil {
+		t.Fatal(err)
+	}
+	res, _, _ := h.Dispatch(context.Background(), "x402.listServices", nil)
+	listing := res.(ListServicesResult).Services[0]
+	if !listing.Enabled {
+		t.Fatal("Enabled = false, want true after SetUserEnabled")
+	}
+	if listing.ApprovedMaxPriceUSDC != "0.003" {
+		t.Fatalf("ApprovedMaxPriceUSDC = %q, want 0.003", listing.ApprovedMaxPriceUSDC)
+	}
+	if listing.ApprovedAt == "" {
+		t.Fatal("ApprovedAt should be populated")
 	}
 }
 

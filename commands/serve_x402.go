@@ -83,7 +83,7 @@ func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegist
 	endpoint := commsx402.NewEndpoint(adapter, resolver, comms.WithLogger(logger))
 	server.HandleHTTP("GET "+commsx402.EndpointPath, endpoint.Handler())
 
-	server.RegisterHandler(x402rpc.NewHandler(registry))
+	server.RegisterHandler(x402rpc.NewHandler(registry, budget))
 	return nil
 }
 

@@ -122,6 +122,66 @@ func TestBudgetChargeUpdatesStatus(t *testing.T) {
 	}
 }
 
+func TestBudgetAllReceiptsReturnsNewestFirst(t *testing.T) {
+	t.Parallel()
+	clock := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+	now := clock
+	b := NewBudget(func() time.Time { return now })
+	_ = b.SetAgentBudget("A-1", BudgetConfig{PerCallMaxUSDC: "0.10", DailyCapUSDC: "5.00"})
+	_ = b.SetAgentBudget("A-2", BudgetConfig{PerCallMaxUSDC: "0.10", DailyCapUSDC: "5.00"})
+
+	_ = b.Charge(Receipt{AgentID: "A-1", ServiceID: "x", AmountUSDC: "0.001"})
+	now = now.Add(time.Second)
+	_ = b.Charge(Receipt{AgentID: "A-2", ServiceID: "y", AmountUSDC: "0.002"})
+	now = now.Add(time.Second)
+	_ = b.Charge(Receipt{AgentID: "A-1", ServiceID: "z", AmountUSDC: "0.003"})
+
+	all := b.AllReceipts()
+	if len(all) != 3 {
+		t.Fatalf("len(all) = %d, want 3", len(all))
+	}
+	if all[0].ServiceID != "z" || all[2].ServiceID != "x" {
+		t.Fatalf("ordering wrong; AllReceipts should be newest-first, got %v",
+			[]string{all[0].ServiceID, all[1].ServiceID, all[2].ServiceID})
+	}
+}
+
+func TestBudgetAggregateStatusSumsAcrossAgents(t *testing.T) {
+	t.Parallel()
+	clock := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+	b := NewBudget(func() time.Time { return clock })
+	_ = b.SetAgentBudget("A-1", BudgetConfig{PerCallMaxUSDC: "0.10", DailyCapUSDC: "5.00"})
+	_ = b.SetAgentBudget("A-2", BudgetConfig{PerCallMaxUSDC: "0.20", DailyCapUSDC: "10.00"})
+	_ = b.Charge(Receipt{AgentID: "A-1", ServiceID: "x", AmountUSDC: "0.250"})
+	_ = b.Charge(Receipt{AgentID: "A-2", ServiceID: "y", AmountUSDC: "1.000"})
+
+	snap := b.AggregateStatus()
+	if snap.Agents != 2 {
+		t.Fatalf("Agents = %d, want 2", snap.Agents)
+	}
+	if snap.PerCallMaxUSDC != "0.2" {
+		t.Fatalf("PerCallMaxUSDC = %q, want 0.2 (most permissive)", snap.PerCallMaxUSDC)
+	}
+	if snap.DailyCapUSDC != "10" {
+		t.Fatalf("DailyCapUSDC = %q, want 10", snap.DailyCapUSDC)
+	}
+	if snap.SpentTodayUSDC != "1.25" {
+		t.Fatalf("SpentTodayUSDC = %q, want 1.25", snap.SpentTodayUSDC)
+	}
+}
+
+func TestBudgetAggregateStatusEmpty(t *testing.T) {
+	t.Parallel()
+	b := NewBudget(nil)
+	snap := b.AggregateStatus()
+	if snap.Agents != 0 {
+		t.Fatalf("Agents = %d, want 0", snap.Agents)
+	}
+	if snap.SpentTodayUSDC != "0" {
+		t.Fatalf("SpentTodayUSDC = %q, want 0", snap.SpentTodayUSDC)
+	}
+}
+
 func TestBudgetDailyCounterRollsOver(t *testing.T) {
 	t.Parallel()
 	day1 := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)

@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/sky10/sky10/pkg/x402"
 )
@@ -23,13 +24,16 @@ import (
 // Handler dispatches x402.* RPC methods.
 type Handler struct {
 	registry *x402.Registry
+	budget   *x402.Budget
 }
 
 // NewHandler constructs a Handler. registry must be the same
 // pkg/x402.Registry instance the daemon's comms-side x402 endpoint
-// uses, so changes here affect agent-facing state immediately.
-func NewHandler(registry *x402.Registry) *Handler {
-	return &Handler{registry: registry}
+// uses, so changes here affect agent-facing state immediately. The
+// budget pointer may be nil; budget-related methods return zero
+// values when it is.
+func NewHandler(registry *x402.Registry, budget *x402.Budget) *Handler {
+	return &Handler{registry: registry, budget: budget}
 }
 
 // Dispatch implements the repo's RPC handler contract.
@@ -45,24 +49,114 @@ func (h *Handler) Dispatch(_ context.Context, method string, params json.RawMess
 		return h.listServices(params)
 	case "x402.setEnabled":
 		return h.setEnabled(params)
+	case "x402.budgetStatus":
+		return h.budgetStatus(params)
+	case "x402.receipts":
+		return h.receipts(params)
 	default:
 		return nil, fmt.Errorf("unknown method: %s", method), true
 	}
+}
+
+// BudgetStatusResult is the response shape for x402.budgetStatus.
+type BudgetStatusResult struct {
+	PerCallMaxUSDC string `json:"per_call_max_usdc"`
+	DailyCapUSDC   string `json:"daily_cap_usdc"`
+	SpentTodayUSDC string `json:"spent_today_usdc"`
+	Agents         int    `json:"agents"`
+}
+
+func (h *Handler) budgetStatus(_ json.RawMessage) (interface{}, error, bool) {
+	if h.budget == nil {
+		return BudgetStatusResult{}, nil, true
+	}
+	snap := h.budget.AggregateStatus()
+	return BudgetStatusResult{
+		PerCallMaxUSDC: snap.PerCallMaxUSDC,
+		DailyCapUSDC:   snap.DailyCapUSDC,
+		SpentTodayUSDC: snap.SpentTodayUSDC,
+		Agents:         snap.Agents,
+	}, nil, true
+}
+
+// ReceiptsParams is the request shape for x402.receipts. Limit caps
+// the number of receipts returned, newest first; 0 or absent means
+// return up to a sensible default.
+type ReceiptsParams struct {
+	Limit int `json:"limit,omitempty"`
+}
+
+// ReceiptEntry is one row in the receipts list. The handler joins
+// the underlying budget receipt with the catalog's display name so
+// the UI does not need a separate lookup.
+type ReceiptEntry struct {
+	Ts          string `json:"ts"`
+	AgentID     string `json:"agent_id"`
+	ServiceID   string `json:"service_id"`
+	ServiceName string `json:"service_name,omitempty"`
+	Path        string `json:"path,omitempty"`
+	AmountUSDC  string `json:"amount_usdc"`
+	Network     string `json:"network,omitempty"`
+	Tx          string `json:"tx,omitempty"`
+}
+
+// ReceiptsResult is the response shape for x402.receipts.
+type ReceiptsResult struct {
+	Receipts []ReceiptEntry `json:"receipts"`
+}
+
+func (h *Handler) receipts(params json.RawMessage) (interface{}, error, bool) {
+	limit := 50
+	if len(params) > 0 {
+		var p ReceiptsParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("invalid params: %w", err), true
+		}
+		if p.Limit > 0 && p.Limit <= 500 {
+			limit = p.Limit
+		}
+	}
+	if h.budget == nil {
+		return ReceiptsResult{}, nil, true
+	}
+	rec := h.budget.AllReceipts()
+	if len(rec) > limit {
+		rec = rec[:limit]
+	}
+	out := make([]ReceiptEntry, 0, len(rec))
+	for _, r := range rec {
+		entry := ReceiptEntry{
+			Ts:         r.Ts.UTC().Format(time.RFC3339),
+			AgentID:    r.AgentID,
+			ServiceID:  r.ServiceID,
+			Path:       r.Path,
+			AmountUSDC: r.AmountUSDC,
+			Network:    string(r.Network),
+			Tx:         r.Tx,
+		}
+		if m, err := h.registry.Manifest(r.ServiceID); err == nil {
+			entry.ServiceName = m.DisplayName
+		}
+		out = append(out, entry)
+	}
+	return ReceiptsResult{Receipts: out}, nil, true
 }
 
 // ServiceListing is the per-service shape the listServices method
 // returns. Carries enough information for the Web UI to render the
 // service card without secondary RPC calls.
 type ServiceListing struct {
-	ID           string         `json:"id"`
-	DisplayName  string         `json:"display_name"`
-	Description  string         `json:"description,omitempty"`
-	Category     string         `json:"category,omitempty"`
-	Networks     []x402.Network `json:"networks,omitempty"`
-	MaxPriceUSDC string         `json:"max_price_usdc,omitempty"`
-	Tier         x402.Tier      `json:"tier"`
-	Hint         string         `json:"hint,omitempty"`
-	Enabled      bool           `json:"enabled"`
+	ID                   string         `json:"id"`
+	DisplayName          string         `json:"display_name"`
+	Description          string         `json:"description,omitempty"`
+	Category             string         `json:"category,omitempty"`
+	Networks             []x402.Network `json:"networks,omitempty"`
+	MaxPriceUSDC         string         `json:"max_price_usdc,omitempty"`
+	Tier                 x402.Tier      `json:"tier"`
+	Hint                 string         `json:"hint,omitempty"`
+	Enabled              bool           `json:"enabled"`
+	ApprovedAt           string         `json:"approved_at,omitempty"`
+	ApprovedMaxPriceUSDC string         `json:"approved_max_price_usdc,omitempty"`
 }
 
 // ListServicesResult is the response shape for x402.listServices.
@@ -87,8 +181,12 @@ func (h *Handler) listServices(_ json.RawMessage) (interface{}, error, bool) {
 			entry.Tier = p.Tier
 			entry.Hint = p.Hint
 		}
-		if _, ok := h.registry.UserEnabled(m.ID); ok {
+		if rec, ok := h.registry.UserEnabled(m.ID); ok {
 			entry.Enabled = true
+			if !rec.EnabledAt.IsZero() {
+				entry.ApprovedAt = rec.EnabledAt.UTC().Format(time.RFC3339)
+			}
+			entry.ApprovedMaxPriceUSDC = rec.MaxPriceUSDC
 		}
 		out = append(out, entry)
 	}
