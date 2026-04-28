@@ -94,12 +94,16 @@ func (t *Transport) Call(ctx context.Context, req CallRequest) (*CallResponse, e
 	if err != nil {
 		return nil, fmt.Errorf("parse 402 challenge: %w", err)
 	}
+	requirement, err := challenge.SelectRequirements()
+	if err != nil {
+		return nil, err
+	}
 
-	header, err := t.Signer.Sign(ctx, challenge)
+	payload, err := t.Signer.Sign(ctx, requirement)
 	if err != nil {
 		return nil, fmt.Errorf("sign payment: %w", err)
 	}
-	encoded, err := header.Encode()
+	encoded, err := payload.Encode()
 	if err != nil {
 		return nil, fmt.Errorf("encode payment header: %w", err)
 	}
@@ -139,24 +143,30 @@ func (t *Transport) do(ctx context.Context, req CallRequest, paymentHeader strin
 
 // parseChallenge reads the 402 response body and decodes it into a
 // PaymentChallenge. The canonical x402 server emits the challenge as
-// a JSON object in the body; future server variants might use
-// headers instead. For now we accept the body shape only.
+// a JSON body with `accepts` listing each acceptable scheme/network
+// combination. Servers must offer at least one option; an empty list
+// is treated as a malformed challenge.
 func parseChallenge(resp *http.Response) (PaymentChallenge, error) {
 	var c PaymentChallenge
 	if err := json.NewDecoder(resp.Body).Decode(&c); err != nil {
 		return c, err
 	}
-	if c.Nonce == "" {
-		return c, errors.New("challenge missing nonce")
+	if len(c.Accepts) == 0 {
+		return c, errors.New("challenge offered no payment options")
 	}
-	if c.Recipient == "" {
-		return c, errors.New("challenge missing recipient")
-	}
-	if c.Amount == "" {
-		return c, errors.New("challenge missing amount")
-	}
-	if c.Network == "" {
-		return c, errors.New("challenge missing network")
+	for _, req := range c.Accepts {
+		if strings.TrimSpace(req.Scheme) == "" {
+			return c, errors.New("challenge requirement missing scheme")
+		}
+		if strings.TrimSpace(req.Network) == "" {
+			return c, errors.New("challenge requirement missing network")
+		}
+		if strings.TrimSpace(req.PayTo) == "" {
+			return c, errors.New("challenge requirement missing payTo")
+		}
+		if strings.TrimSpace(req.MaxAmountRequired) == "" {
+			return c, errors.New("challenge requirement missing maxAmountRequired")
+		}
 	}
 	return c, nil
 }

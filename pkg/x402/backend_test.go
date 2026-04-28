@@ -55,7 +55,7 @@ func backendOnFake(t *testing.T) (*Backend, *x402TestServer, func()) {
 		t.Fatal(err)
 	}
 
-	tx := NewTransport(NewFakeSigner())
+	tx := NewTransport(NewFakeSigner("0x0000000000000000000000000000000000000abc"))
 	backend := NewBackend(BackendOptions{
 		Registry:  registry,
 		Transport: tx,

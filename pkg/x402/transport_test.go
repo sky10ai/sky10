@@ -15,20 +15,23 @@ import (
 )
 
 // x402TestServer is a minimal x402-compliant server used in tests.
-// First request without X-PAYMENT returns 402 with a PaymentChallenge
-// body; second request with a valid header returns 200 with an
-// X-PAYMENT-RESPONSE header.
+// First request without X-PAYMENT returns 402 with the standard
+// PaymentChallenge body; second request with a valid header returns
+// 200 with an X-PAYMENT-RESPONSE header.
 type x402TestServer struct {
-	mu          sync.Mutex
-	calls       atomic.Int64
-	challenges  []PaymentChallenge
-	gotPayments []PaymentHeader
-	bodies      [][]byte
-	respondWith json.RawMessage
+	mu           sync.Mutex
+	calls        atomic.Int64
+	gotPayments  []PaymentPayload
+	bodies       [][]byte
+	respondWith  json.RawMessage
+	requirements PaymentRequirements
 }
 
 func newX402TestServer(respond json.RawMessage) *x402TestServer {
-	return &x402TestServer{respondWith: respond}
+	return &x402TestServer{
+		respondWith:  respond,
+		requirements: sampleRequirement(),
+	}
 }
 
 func (s *x402TestServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -41,36 +44,26 @@ func (s *x402TestServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	paymentValue := r.Header.Get(HeaderPayment)
 	if paymentValue == "" {
 		challenge := PaymentChallenge{
-			Version:   "1",
-			Network:   NetworkBase,
-			Currency:  CurrencyUSDC,
-			Amount:    "0.005",
-			Recipient: "0xrecipient",
-			Nonce:     "challenge-nonce-1",
-			ExpiresAt: time.Now().Add(time.Minute),
+			X402Version: X402ProtocolVersion,
+			Accepts:     []PaymentRequirements{s.requirements},
 		}
-		s.challenges = append(s.challenges, challenge)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusPaymentRequired)
 		_ = json.NewEncoder(w).Encode(challenge)
 		return
 	}
 
-	header, err := DecodePaymentHeader(paymentValue)
+	payload, err := DecodePaymentPayload(paymentValue)
 	if err != nil {
 		http.Error(w, "bad payment header", http.StatusBadRequest)
 		return
 	}
-	s.gotPayments = append(s.gotPayments, header)
-	if header.Signature == "" {
-		http.Error(w, "unsigned payment", http.StatusPaymentRequired)
-		return
-	}
+	s.gotPayments = append(s.gotPayments, payload)
 
 	receipt := PaymentReceipt{
 		Tx:         "0xdeadbeef",
-		Network:    header.Network,
-		AmountUSDC: header.Amount,
+		Network:    Network(payload.Network),
+		AmountUSDC: s.requirements.MaxAmountRequired,
 		SettledAt:  time.Now().UTC(),
 	}
 	receiptJSON, _ := json.Marshal(receipt)
@@ -96,7 +89,7 @@ func TestTransportCallSignsAndRetries(t *testing.T) {
 	srv := httptest.NewServer(fake)
 	defer srv.Close()
 
-	tx := NewTransport(NewFakeSigner())
+	tx := NewTransport(NewFakeSigner("0x0000000000000000000000000000000000000abc"))
 	resp, err := tx.Call(context.Background(), CallRequest{
 		Method: "POST",
 		URL:    mustParseAddr(t, srv) + "/search",
@@ -121,21 +114,30 @@ func TestTransportCallSignsAndRetries(t *testing.T) {
 		t.Fatalf("payments seen = %d, want 1", len(fake.gotPayments))
 	}
 	pay := fake.gotPayments[0]
-	if pay.Signature != "fake-sig:challenge-nonce-1" {
-		t.Fatalf("signature = %q, want fake-sig:challenge-nonce-1", pay.Signature)
+	if pay.X402Version != X402ProtocolVersion {
+		t.Fatalf("version = %d", pay.X402Version)
+	}
+	if pay.Scheme != "exact" || pay.Network != "base" {
+		t.Fatalf("scheme/network = %s/%s", pay.Scheme, pay.Network)
+	}
+	var exact ExactSchemePayload
+	if err := json.Unmarshal(pay.Payload, &exact); err != nil {
+		t.Fatalf("decode inner: %v", err)
+	}
+	if !strings.HasPrefix(exact.Signature, "fake-sig:") {
+		t.Fatalf("signature = %q, want fake-sig prefix", exact.Signature)
 	}
 }
 
 func TestTransportCallReturnsImmediateSuccess(t *testing.T) {
 	t.Parallel()
-	// Server that returns 200 directly — no challenge, no retry.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer srv.Close()
 
-	tx := NewTransport(NewFakeSigner())
+	tx := NewTransport(NewFakeSigner("0x0"))
 	resp, err := tx.Call(context.Background(), CallRequest{Method: "GET", URL: srv.URL + "/free"})
 	if err != nil {
 		t.Fatalf("Call: %v", err)
@@ -147,18 +149,17 @@ func TestTransportCallReturnsImmediateSuccess(t *testing.T) {
 
 func TestTransportCallReturnsErrPaymentNotAccepted(t *testing.T) {
 	t.Parallel()
-	// Server that returns 402 even after a signed retry.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusPaymentRequired)
 		_ = json.NewEncoder(w).Encode(PaymentChallenge{
-			Network: NetworkBase, Currency: CurrencyUSDC, Amount: "0.005",
-			Recipient: "0xr", Nonce: "n1",
+			X402Version: X402ProtocolVersion,
+			Accepts:     []PaymentRequirements{sampleRequirement()},
 		})
 	}))
 	defer srv.Close()
 
-	tx := NewTransport(NewFakeSigner())
+	tx := NewTransport(NewFakeSigner("0x0"))
 	_, err := tx.Call(context.Background(), CallRequest{URL: srv.URL})
 	if !errors.Is(err, ErrPaymentNotAccepted) {
 		t.Fatalf("err = %v, want ErrPaymentNotAccepted", err)
@@ -171,8 +172,8 @@ func TestTransportCallReturnsSignerErr(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusPaymentRequired)
 		_ = json.NewEncoder(w).Encode(PaymentChallenge{
-			Network: NetworkBase, Currency: CurrencyUSDC, Amount: "0.005",
-			Recipient: "0xr", Nonce: "n1",
+			X402Version: X402ProtocolVersion,
+			Accepts:     []PaymentRequirements{sampleRequirement()},
 		})
 	}))
 	defer srv.Close()
@@ -181,5 +182,26 @@ func TestTransportCallReturnsSignerErr(t *testing.T) {
 	_, err := tx.Call(context.Background(), CallRequest{URL: srv.URL})
 	if !errors.Is(err, ErrSignerNotConfigured) {
 		t.Fatalf("err = %v, want ErrSignerNotConfigured", err)
+	}
+}
+
+func TestTransportCallReturnsNoCompatibleRequirements(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusPaymentRequired)
+		_ = json.NewEncoder(w).Encode(PaymentChallenge{
+			X402Version: X402ProtocolVersion,
+			Accepts: []PaymentRequirements{
+				{Scheme: "lightning", Network: "btc", MaxAmountRequired: "1", PayTo: "lnbc...", Asset: "btc"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	tx := NewTransport(NewFakeSigner("0x0"))
+	_, err := tx.Call(context.Background(), CallRequest{URL: srv.URL})
+	if !errors.Is(err, ErrNoCompatibleRequirements) {
+		t.Fatalf("err = %v, want ErrNoCompatibleRequirements", err)
 	}
 }

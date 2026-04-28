@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
 	"github.com/sky10/sky10/pkg/sandbox/comms"
 	commsx402 "github.com/sky10/sky10/pkg/sandbox/comms/x402"
+	skywallet "github.com/sky10/sky10/pkg/wallet"
 	"github.com/sky10/sky10/pkg/x402"
 	"github.com/sky10/sky10/pkg/x402/discovery"
 	x402rpc "github.com/sky10/sky10/pkg/x402/rpc"
@@ -29,10 +31,10 @@ import (
 // connections is resolved against the agent registry: the URL must
 // carry an `agent` query parameter naming a registered agent.
 //
-// M1 wiring uses pkg/x402's StubSigner — calls that would actually
-// charge fail with ErrSignerNotConfigured rather than charging an
-// unconfigured wallet. Real OWS-backed signing follows once OWS
-// exposes a sign-only command.
+// When OWS is installed locally the production signer shells out to
+// `ows sign message --typed-data` for each x402 challenge; otherwise
+// the daemon falls back to a stub signer that returns a typed error
+// on any call requiring payment.
 func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegistry *skyagent.Registry, logger *slog.Logger) error {
 	if server == nil {
 		return errors.New("x402: nil rpc server")
@@ -68,14 +70,14 @@ func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegist
 	go runX402RefreshLoop(ctx, registry, overlay, sources, logger)
 
 	budget := x402.NewBudget(nil)
-	transport := x402.NewTransport(x402.NewStubSigner("OWS x402 sign-only command not yet wired"))
+	transport := x402.NewTransport(buildX402Signer(logger))
 	backend := x402.NewBackend(x402.BackendOptions{
 		Registry:  registry,
 		Transport: transport,
 		Budget:    budget,
 	})
 
-	adapter := newX402Adapter(backend, budget, defaultX402BudgetConfig())
+	adapter := newX402Adapter(backend, budget, defaultX402BudgetConfig(), logger)
 	resolver := newAgentIdentityResolver(agentRegistry)
 
 	endpoint := commsx402.NewEndpoint(adapter, resolver, comms.WithLogger(logger))
@@ -186,6 +188,40 @@ func defaultX402BudgetConfig() x402.BudgetConfig {
 	}
 }
 
+// x402DefaultWalletEnv overrides the default wallet name used by
+// OWSSigner. Operators set OWS_WALLET to point x402 at a specific
+// wallet; otherwise we default to the one OWS itself reads from
+// the OWS_WALLET environment variable, falling back to "default".
+const x402DefaultWalletEnv = "OWS_WALLET"
+
+// x402DefaultWalletFallback is the wallet name OWSSigner uses when
+// the operator has not set OWS_WALLET. OWS itself treats this name
+// the same as omitting --wallet.
+const x402DefaultWalletFallback = "default"
+
+// buildX402Signer wires the production Signer. When OWS is installed
+// the OWSSigner shells out to `ows sign message --typed-data` for
+// each x402 challenge. When OWS is missing the StubSigner returns a
+// typed error so callers (and the agent's routing rubric) treat the
+// service as unavailable rather than silently mis-charging.
+func buildX402Signer(logger *slog.Logger) x402.Signer {
+	client := skywallet.NewClient()
+	if client == nil {
+		logger.Info("x402 signer: OWS not installed, using stub signer; calls that need to charge will return signer_not_configured")
+		return x402.NewStubSigner("OWS not installed")
+	}
+	walletName := strings.TrimSpace(os.Getenv(x402DefaultWalletEnv))
+	if walletName == "" {
+		walletName = x402DefaultWalletFallback
+	}
+	signer := x402.NewOWSSigner(client, walletName)
+	if signer == nil {
+		return x402.NewStubSigner("OWS signer construction returned nil")
+	}
+	logger.Info("x402 signer: OWS-backed", "wallet", walletName)
+	return signer
+}
+
 // newAgentIdentityResolver returns a comms.IdentityResolver that
 // reads the `agent` query parameter and resolves it against the
 // agent registry. Mirrors the chat websocket's path-based agent
@@ -214,16 +250,21 @@ type x402Adapter struct {
 	backend       *x402.Backend
 	budget        *x402.Budget
 	defaultBudget x402.BudgetConfig
+	logger        *slog.Logger
 
 	mu       sync.Mutex
 	enrolled map[string]bool
 }
 
-func newX402Adapter(backend *x402.Backend, budget *x402.Budget, defaults x402.BudgetConfig) *x402Adapter {
+func newX402Adapter(backend *x402.Backend, budget *x402.Budget, defaults x402.BudgetConfig, logger *slog.Logger) *x402Adapter {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &x402Adapter{
 		backend:       backend,
 		budget:        budget,
 		defaultBudget: defaults,
+		logger:        logger,
 		enrolled:      make(map[string]bool),
 	}
 }
@@ -278,6 +319,18 @@ func (a *x402Adapter) Call(ctx context.Context, params commsx402.CallParams) (*c
 			AmountUSDC: result.Receipt.AmountUSDC,
 			SettledAt:  result.Receipt.Ts.UTC().Format(time.RFC3339Nano),
 		}
+		// Audit attribution: log every successful charge so it is
+		// clear which service the user paid for and which agent
+		// initiated the call. Goes to the daemon's structured log
+		// alongside other access events.
+		a.logger.Info("x402 charge",
+			"agent_id", params.AgentID,
+			"service_id", params.ServiceID,
+			"path", params.Path,
+			"amount_usdc", result.Receipt.AmountUSDC,
+			"network", string(result.Receipt.Network),
+			"tx", result.Receipt.Tx,
+		)
 	}
 	return out, nil
 }
