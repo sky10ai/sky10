@@ -122,14 +122,11 @@ func (b *Backend) Call(ctx context.Context, params CallParams) (*CallResult, err
 		return nil, errors.New("max_price_usdc required")
 	}
 
-	if _, err := b.registry.Approval(params.AgentID, params.ServiceID); err != nil {
-		return nil, err
-	}
 	manifest, err := b.registry.Manifest(params.ServiceID)
 	if err != nil {
 		return nil, err
 	}
-	pin, err := b.registry.Pin(params.AgentID, params.ServiceID)
+	pin, err := b.resolveAuthorization(params.AgentID, params.ServiceID)
 	if err != nil {
 		return nil, err
 	}
@@ -181,6 +178,20 @@ func (b *Backend) Call(ctx context.Context, params CallParams) (*CallResult, err
 	}
 	out.Receipt = &receipt
 	return out, nil
+}
+
+// resolveAuthorization returns the pin Backend.Call should enforce
+// for an (agent, service) pair. It tries per-agent approval first,
+// then falls back to a user-level enable. Returns
+// ErrServiceNotApproved when neither path authorizes the call.
+func (b *Backend) resolveAuthorization(agentID, serviceID string) (Pin, error) {
+	if _, err := b.registry.Approval(agentID, serviceID); err == nil {
+		return b.registry.Pin(agentID, serviceID)
+	}
+	if user, ok := b.registry.UserEnabled(serviceID); ok {
+		return user.Pin, nil
+	}
+	return Pin{}, ErrServiceNotApproved
 }
 
 // BudgetStatus returns the agent's current spend snapshot.

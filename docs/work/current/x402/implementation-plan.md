@@ -103,25 +103,31 @@ Exit criteria: a manual host-side refresh populates the local
 registry from the live `/v1/services` endpoint and per-service
 `/.well-known` manifests.
 
-## M3 — host-side RPC for CLI / Web UI
+## M3 — host-side RPC for CLI / Web UI — **partially done 2026-04-27**
 
 The host's existing unix-socket RPC gets the `x402.*` handlers so
 that **host-side consumers** (CLI, Web UI, host tools) can drive
 catalog management, approval, and budget. Sandboxed agents do not
 use this surface; they use the bus envelopes (see M5).
 
-Files:
+`pkg/x402/rpc/handler.go` ships with `x402.listServices` and
+`x402.setEnabled`. The Web UI (M6) drives both. CLI surface
+(`sky10 market ...`) and the remaining methods (approve/revoke at
+agent granularity, budget status, receipts) follow when needed.
 
-- `pkg/x402/rpc/handler.go`
-- daemon integration: register `x402.*` handler in `commands/serve.go`
-  (host-only — guarded so guest sky10 instances do **not** register
-  it; guest x402 calls use the agent bus, which proxies to host)
-- Tests: RPC contract tests; guard test that confirms guest does not
-  register the handler.
+Files landed:
 
-Exit criteria: `sky10 market list/search/approve/budget/receipts`
-work from the CLI on the host; manual call against a sandbox service
-succeeds.
+- `pkg/x402/rpc/handler.go` — `x402.listServices`, `x402.setEnabled`
+- `commands/serve_x402.go` registers the handler on the daemon RPC
+
+Files remaining:
+
+- `x402.approve` / `x402.revoke` (per-agent approval)
+- `x402.budgetStatus` / `x402.receipts`
+- `sky10 market` CLI
+
+Exit criteria for full M3: `sky10 market list/search/approve/budget/receipts`
+work from the CLI on the host.
 
 ## M4 — subwallet integration
 
@@ -167,12 +173,26 @@ Exit criteria: an agent inside a Lima VM makes a real paid call to a
 service via `/comms/x402/ws`. The wallet stays on host. The agent
 never sees the 402 challenge.
 
-## M6 — Web UI
+## M6 — Web UI — **services browser landed 2026-04-27**
 
-`web/src/x402/`:
+Settings → Services page exists at `/settings/services`.
+`SettingsServices.tsx` renders an "Agentic.Market" section with
+the curated catalog: each service shows display name, blurb,
+category, chain, tier, max price, and an enable toggle that
+roundtrips through `x402.setEnabled`.
 
-- Services browser with search, tier filter, approval state
-- Approve / revoke per service
+Files landed:
+
+- `web/src/pages/SettingsServices.tsx`
+- `web/src/lib/rpc.ts` — `x402.listServices`, `x402.setEnabled`
+- `web/src/App.tsx` route
+- `web/src/lib/pinnablePages.ts` entry
+- Settings landing card in `web/src/pages/Settings.tsx`
+
+Files remaining for full M6:
+
+- Search and tier filter on the services page
+- Per-agent approve/revoke (current toggle is user-level)
 - Budget panel with caps + today's spend + receipt log
 - Changes panel (new / review / removed)
 - Wallet status banner: "wallet not funded — agents cannot call x402

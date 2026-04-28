@@ -351,6 +351,34 @@ export default function Settings() {
 
         <Link
           className="group rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
+          to="/settings/services"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
+                Services
+              </p>
+              <h3 className="text-xl font-semibold text-on-surface">
+                Approve x402 services for your agents
+              </h3>
+              <p className="max-w-md text-sm text-secondary">
+                Browse the Agentic.Market catalog and toggle services on or
+                off. Pay-per-request in USDC; calls only succeed once your
+                wallet is funded.
+              </p>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-700 dark:text-amber-200">
+              <Icon className="text-2xl" name="storefront" />
+            </div>
+          </div>
+          <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-amber-700 transition-colors group-hover:text-on-surface dark:text-amber-200">
+            Open Services
+            <Icon className="text-base" name="arrow_forward" />
+          </div>
+        </Link>
+
+        <Link
+          className="group rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
           to="/settings/secrets"
         >
           <div className="flex items-start justify-between gap-4">

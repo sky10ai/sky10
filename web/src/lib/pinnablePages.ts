@@ -68,6 +68,13 @@ export const PINNABLE_PAGES = [
     to: "/settings/apps",
   },
   {
+    id: "services",
+    icon: "storefront",
+    label: "Services",
+    matchPrefixes: ["/settings/services"],
+    to: "/settings/services",
+  },
+  {
     id: "activity",
     icon: "monitor_heart",
     label: "Activity",
