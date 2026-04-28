@@ -138,6 +138,18 @@ type OWSSigner struct {
 	// chain. Tests substitute a fake; production wraps the OWS
 	// client.
 	AddressForChain func(ctx context.Context, walletName, chain string) (string, error)
+
+	// SignTx signs an unsigned transaction (e.g. a partially-signed
+	// Solana versioned tx) and returns the signed bytes as hex.
+	// Tests substitute a fake; production calls
+	// `ows sign tx --json` via the wallet client.
+	SignTx func(ctx context.Context, walletName, chain, unsignedTxHex string) (string, error)
+
+	// BuildSolanaTx constructs the partially-signed v0 versioned
+	// Solana transfer transaction the Solana branch hands to OWS
+	// for signing. Tests substitute a fake; production wraps
+	// pkg/wallet.BuildX402SolanaTransferTx.
+	BuildSolanaTx func(ctx context.Context, from, to, feePayer, mint string, amount uint64, memo string) (string, error)
 }
 
 // NewOWSSigner builds a signer that uses the supplied wallet client.
@@ -158,30 +170,47 @@ func NewOWSSigner(client *skywallet.Client, walletName string) *OWSSigner {
 	s.AddressForChain = func(ctx context.Context, name, chain string) (string, error) {
 		return client.AddressForChain(ctx, name, chain)
 	}
+	s.SignTx = func(ctx context.Context, name, chain, txHex string) (string, error) {
+		return owsSignTx(ctx, client, name, chain, txHex)
+	}
+	s.BuildSolanaTx = owsBuildSolanaTx
 	return s
 }
 
 // Sign implements Signer.
 func (s *OWSSigner) Sign(ctx context.Context, req PaymentRequirements) (PaymentPayload, error) {
-	if s == nil || s.SignTypedData == nil || s.AddressForChain == nil {
+	if s == nil {
 		return PaymentPayload{}, ErrSignerNotConfigured
 	}
 	if !isSupportedScheme(req.Scheme) {
 		return PaymentPayload{}, fmt.Errorf("ows signer: unsupported scheme %q", req.Scheme)
 	}
-	network := strings.ToLower(strings.TrimSpace(req.Network))
-	if network != string(NetworkBase) {
-		// Solana signing requires its own scheme construction; until
-		// that lands, refuse cleanly so the agent's routing rubric
-		// can fall back.
-		return PaymentPayload{}, fmt.Errorf("ows signer: network %q not yet supported", req.Network)
+	network, ok := canonicalizeNetwork(req.Network)
+	if !ok {
+		return PaymentPayload{}, fmt.Errorf("ows signer: network %q not supported", req.Network)
 	}
-	addr, err := s.AddressForChain(ctx, s.WalletName, network)
+	switch network {
+	case NetworkBase:
+		return s.signEVMExact(ctx, req)
+	case NetworkSolana:
+		return s.signSolanaExact(ctx, req)
+	default:
+		return PaymentPayload{}, fmt.Errorf("ows signer: network %q has no signing path", network)
+	}
+}
+
+// signEVMExact handles EIP-3009 TransferWithAuthorization signing on
+// Base. The flow lifts straight from the x402 spec for EVM.
+func (s *OWSSigner) signEVMExact(ctx context.Context, req PaymentRequirements) (PaymentPayload, error) {
+	if s.SignTypedData == nil || s.AddressForChain == nil {
+		return PaymentPayload{}, ErrSignerNotConfigured
+	}
+	addr, err := s.AddressForChain(ctx, s.WalletName, string(NetworkBase))
 	if err != nil {
 		return PaymentPayload{}, fmt.Errorf("ows signer: resolving wallet %q address: %w", s.WalletName, err)
 	}
 	if strings.TrimSpace(addr) == "" {
-		return PaymentPayload{}, fmt.Errorf("ows signer: wallet %q has no %s address", s.WalletName, network)
+		return PaymentPayload{}, fmt.Errorf("ows signer: wallet %q has no base address", s.WalletName)
 	}
 	nonceHex, err := randomNonceHex()
 	if err != nil {
@@ -199,7 +228,7 @@ func (s *OWSSigner) Sign(ctx context.Context, req PaymentRequirements) (PaymentP
 	if err != nil {
 		return PaymentPayload{}, err
 	}
-	sig, err := s.SignTypedData(ctx, s.WalletName, network, tdJSON)
+	sig, err := s.SignTypedData(ctx, s.WalletName, string(NetworkBase), tdJSON)
 	if err != nil {
 		return PaymentPayload{}, fmt.Errorf("ows signer: %w", err)
 	}
@@ -208,6 +237,33 @@ func (s *OWSSigner) Sign(ctx context.Context, req PaymentRequirements) (PaymentP
 		Authorization: auth,
 	}
 	return marshalExactPayload(req, exact)
+}
+
+// owsSignTx runs `ows sign tx --chain <chain> --wallet <name>
+// --tx <hex> --json` and returns the signed transaction's hex
+// representation. The exact JSON shape OWS emits is parsed
+// permissively — accepts a `signed_tx`, `tx`, or `transaction` field
+// containing hex bytes.
+func owsSignTx(ctx context.Context, client *skywallet.Client, walletName, chain, txHex string) (string, error) {
+	out, err := client.RunSignTxJSON(ctx, walletName, chain, txHex)
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		SignedTx    string `json:"signed_tx"`
+		Tx          string `json:"tx"`
+		Transaction string `json:"transaction"`
+		Signature   string `json:"signature"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return "", fmt.Errorf("decode ows sign tx output: %w", err)
+	}
+	for _, candidate := range []string{resp.SignedTx, resp.Tx, resp.Transaction, resp.Signature} {
+		if strings.TrimSpace(candidate) != "" {
+			return candidate, nil
+		}
+	}
+	return "", errors.New("ows sign tx output missing signed bytes")
 }
 
 // owsSignTypedData runs `ows sign message --chain <network> --wallet

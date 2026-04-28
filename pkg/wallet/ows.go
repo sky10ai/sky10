@@ -408,6 +408,41 @@ func (c *Client) RunSignMessageJSON(ctx context.Context, walletName, chain strin
 	return out, nil
 }
 
+// RunSignTxJSON shells out to `ows sign tx` with the supplied
+// hex-encoded unsigned transaction bytes and returns the structured
+// JSON output. Used by pkg/x402's Solana signer to produce
+// partially-signed Solana transactions for x402 payment headers.
+//
+// chain accepts the same identifiers OWS accepts on --chain
+// ("solana", "ethereum", "base", "eip155:8453", etc.). The output
+// is the raw bytes of `ows sign tx --json`; callers parse the
+// signature/tx fields they need.
+func (c *Client) RunSignTxJSON(ctx context.Context, walletName, chain, txHex string) ([]byte, error) {
+	if c == nil {
+		return nil, ErrNotInstalled
+	}
+	if strings.TrimSpace(walletName) == "" {
+		return nil, fmt.Errorf("wallet name required")
+	}
+	if strings.TrimSpace(chain) == "" {
+		return nil, fmt.Errorf("chain required")
+	}
+	if strings.TrimSpace(txHex) == "" {
+		return nil, fmt.Errorf("tx hex required")
+	}
+	out, err := c.run(ctx,
+		"sign", "tx",
+		"--chain", owsChainArg(chain),
+		"--wallet", walletName,
+		"--tx", txHex,
+		"--json",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ows sign tx: %w", err)
+	}
+	return out, nil
+}
+
 // Pay makes an x402 payment to a URL using the given wallet.
 func (c *Client) Pay(ctx context.Context, walletName, url string) (*PayResult, error) {
 	if c == nil {

@@ -90,11 +90,30 @@ func isSupportedScheme(scheme string) bool {
 }
 
 func isSupportedNetwork(network string) bool {
-	switch strings.ToLower(strings.TrimSpace(network)) {
-	case string(NetworkBase), string(NetworkSolana):
-		return true
+	_, ok := canonicalizeNetwork(network)
+	return ok
+}
+
+// canonicalizeNetwork maps the wire-level `network` field — which
+// may be a bare name ("base", "solana") or a CAIP-2 / CAIP-2-prefixed
+// identifier ("eip155:8453", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp")
+// — to the package's canonical Network value. The bool is false if
+// the network is not one we currently support.
+func canonicalizeNetwork(network string) (Network, bool) {
+	raw := strings.ToLower(strings.TrimSpace(network))
+	if raw == "" {
+		return "", false
+	}
+	if i := strings.IndexByte(raw, ':'); i > 0 {
+		raw = raw[:i]
+	}
+	switch raw {
+	case string(NetworkBase), "eip155":
+		return NetworkBase, true
+	case string(NetworkSolana):
+		return NetworkSolana, true
 	default:
-		return false
+		return "", false
 	}
 }
 
