@@ -120,11 +120,22 @@ transport layer and exposing a single registry to agent runtimes
   authorization signature; daemon picks OWSSigner when OWS is
   installed and StubSigner otherwise. Each successful charge logs
   `x402 charge agent_id=A service_id=S amount_usdc=X tx=H` so
-  payment attribution is visible in the daemon log. Solana signing
-  remains a follow-up — the OWSSigner refuses Solana requirements
-  cleanly so agent routing can fall back rather than silently
-  fail. There is no per-service "top up" model in x402: the user
-  funds one wallet and the protocol pays per request.
+  payment attribution is visible in the daemon log. There is no
+  per-service "top up" model in x402: the user funds one wallet
+  and the protocol pays per request.
+- 2026-04-28 — Solana signing path landed. OWSSigner dispatches by
+  network: Base uses EIP-712 typed-data signing, Solana builds a
+  v0 versioned partially-signed transfer transaction (via the new
+  `pkg/wallet.BuildX402SolanaTransferTx`) with the facilitator's
+  pubkey from `extra.feePayer` in slot 0 and the client in slot 1,
+  signs it with `ows sign tx --chain solana --json`, and returns
+  the spec-shaped `{"transaction": "<base64>"}` payload. CAIP-2
+  network identifiers (`solana:5eykt4...`, `eip155:8453`) are
+  accepted alongside bare names. Untested end-to-end against a
+  live Solana facilitator; the structure follows the published
+  x402 SVM spec and tests cover layout, fee-payer validation,
+  amount-format flexibility (base unit vs decimal), and CAIP-2
+  parsing.
 
 ## Documents
 
