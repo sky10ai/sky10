@@ -1840,3 +1840,37 @@ export interface RootAssistantHistoryListResult {
 export interface RootAssistantRunSaveResult {
   status: string;
 }
+
+// -- x402 services --
+
+export type X402Network = "base" | "solana";
+
+export interface X402ServiceListing {
+  id: string;
+  display_name: string;
+  description?: string;
+  category?: string;
+  networks?: X402Network[];
+  max_price_usdc?: string;
+  tier: "primitive" | "convenience";
+  hint?: string;
+  enabled: boolean;
+}
+
+export interface X402ListServicesResult {
+  services: X402ServiceListing[];
+}
+
+export interface X402SetEnabledResult {
+  service_id: string;
+  enabled: boolean;
+}
+
+export const x402 = {
+  listServices: () => rpc<X402ListServicesResult>("x402.listServices"),
+  setEnabled: (p: {
+    service_id: string;
+    enabled: boolean;
+    max_price_usdc?: string;
+  }) => rpc<X402SetEnabledResult>("x402.setEnabled", p),
+};

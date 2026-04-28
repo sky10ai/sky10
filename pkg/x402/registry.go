@@ -28,13 +28,26 @@ var ErrServiceNotApproved = errors.New("x402: service not approved for this agen
 // nil store for tests; production wires a JSON-backed store under
 // os.UserConfigDir().
 type Registry struct {
-	mu        sync.RWMutex
-	manifests map[string]ServiceManifest
-	policy    map[string]PolicyEntry
-	approvals map[approvalKey]Approval
-	pins      map[approvalKey]Pin
-	store     RegistryStore
-	clock     func() time.Time
+	mu          sync.RWMutex
+	manifests   map[string]ServiceManifest
+	policy      map[string]PolicyEntry
+	approvals   map[approvalKey]Approval
+	pins        map[approvalKey]Pin
+	userEnabled map[string]UserEnableRecord
+	store       RegistryStore
+	clock       func() time.Time
+}
+
+// UserEnableRecord captures the user-level "this service is enabled
+// for any of my agents" decision made from settings UI/CLI. Distinct
+// from per-(agent, service) Approval, which is the fine-grained
+// override path. When Backend.Call lacks a per-agent approval it
+// falls back to this user-level record.
+type UserEnableRecord struct {
+	ServiceID    string    `json:"service_id"`
+	EnabledAt    time.Time `json:"enabled_at"`
+	MaxPriceUSDC string    `json:"max_price_usdc"`
+	Pin          Pin       `json:"pin"`
 }
 
 type approvalKey struct {
@@ -50,12 +63,13 @@ func NewRegistry(store RegistryStore, now func() time.Time) (*Registry, error) {
 		now = time.Now
 	}
 	r := &Registry{
-		manifests: make(map[string]ServiceManifest),
-		policy:    make(map[string]PolicyEntry),
-		approvals: make(map[approvalKey]Approval),
-		pins:      make(map[approvalKey]Pin),
-		store:     store,
-		clock:     now,
+		manifests:   make(map[string]ServiceManifest),
+		policy:      make(map[string]PolicyEntry),
+		approvals:   make(map[approvalKey]Approval),
+		pins:        make(map[approvalKey]Pin),
+		userEnabled: make(map[string]UserEnableRecord),
+		store:       store,
+		clock:       now,
 	}
 	if store != nil {
 		snapshot, err := store.Load()
@@ -73,6 +87,9 @@ func NewRegistry(store RegistryStore, now func() time.Time) (*Registry, error) {
 		}
 		for _, p := range snapshot.Pins {
 			r.pins[approvalKey{agentApprovalAgentForPin(p, snapshot), p.ServiceID}] = p
+		}
+		for _, u := range snapshot.UserEnabled {
+			r.userEnabled[u.ServiceID] = u
 		}
 	}
 	return r, nil
@@ -113,6 +130,16 @@ func (r *Registry) SetPolicy(p PolicyEntry) error {
 	defer r.mu.Unlock()
 	r.policy[p.ServiceID] = p
 	return r.persistLocked()
+}
+
+// Policy returns the overlay policy entry for a service, if one
+// exists. The bool is false when the registry has no opinion on
+// this service.
+func (r *Registry) Policy(serviceID string) (PolicyEntry, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	p, ok := r.policy[serviceID]
+	return p, ok
 }
 
 // Manifest returns a copy of the manifest for a service.
@@ -180,6 +207,53 @@ func (r *Registry) Revoke(agentID, serviceID string) error {
 	return r.persistLocked()
 }
 
+// SetUserEnabled marks a service enabled for the user. Pins the
+// current manifest so subsequent calls fail closed if the upstream
+// changes risky fields. ErrServiceUnknown if the manifest is not in
+// the catalog.
+func (r *Registry) SetUserEnabled(serviceID, maxPriceUSDC string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	m, ok := r.manifests[serviceID]
+	if !ok {
+		return ErrServiceUnknown
+	}
+	pin, err := PinFromManifest(m)
+	if err != nil {
+		return err
+	}
+	if maxPriceUSDC == "" {
+		maxPriceUSDC = m.MaxPriceUSDC
+	}
+	r.userEnabled[serviceID] = UserEnableRecord{
+		ServiceID:    serviceID,
+		EnabledAt:    r.clock().UTC(),
+		MaxPriceUSDC: maxPriceUSDC,
+		Pin:          pin,
+	}
+	return r.persistLocked()
+}
+
+// SetUserDisabled removes the user-level enable record for a
+// service. Per-agent approvals (if any) are not affected; revoking
+// those is the agent-scoped operation.
+func (r *Registry) SetUserDisabled(serviceID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.userEnabled, serviceID)
+	return r.persistLocked()
+}
+
+// UserEnabled returns the user-level enable record for a service.
+// The bool is false when no user-level enable exists; callers
+// usually only check the bool and ignore the record on miss.
+func (r *Registry) UserEnabled(serviceID string) (UserEnableRecord, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	rec, ok := r.userEnabled[serviceID]
+	return rec, ok
+}
+
 // Approval returns the per-(agent, service) approval record.
 // ErrServiceNotApproved when none exists.
 func (r *Registry) Approval(agentID, serviceID string) (Approval, error) {
@@ -217,12 +291,15 @@ type ListApprovedListing struct {
 	Hint        string
 }
 
-// ListApproved returns the services this agent has approved, joined
-// with policy overlay (tier, hint) and the manifest's display
-// metadata. Sorted by service id for stable iteration.
+// ListApproved returns the services this agent can call: those with
+// an explicit per-(agent, service) approval AND those the user has
+// enabled at the user level. Joined with policy overlay (tier, hint)
+// and the manifest's display metadata. Sorted by service id for
+// stable iteration.
 func (r *Registry) ListApproved(agentID string) []ListApprovedListing {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	seen := make(map[string]struct{})
 	var out []ListApprovedListing
 	for key, ap := range r.approvals {
 		if key.agentID != agentID {
@@ -232,21 +309,39 @@ func (r *Registry) ListApproved(agentID string) []ListApprovedListing {
 		if !ok {
 			continue
 		}
-		entry := ListApprovedListing{
-			ID:          m.ID,
-			DisplayName: m.DisplayName,
-			Category:    m.Category,
-			Tier:        ap.Tier,
-			PriceUSDC:   m.MaxPriceUSDC,
+		seen[key.serviceID] = struct{}{}
+		out = append(out, r.listingLocked(m, ap.Tier))
+	}
+	for serviceID := range r.userEnabled {
+		if _, dupe := seen[serviceID]; dupe {
+			continue
 		}
-		if p, ok := r.policy[key.serviceID]; ok {
-			entry.Tier = p.Tier
-			entry.Hint = p.Hint
+		m, ok := r.manifests[serviceID]
+		if !ok {
+			continue
 		}
-		out = append(out, entry)
+		out = append(out, r.listingLocked(m, TierConvenience))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
+}
+
+// listingLocked is a helper that builds a ListApprovedListing from a
+// manifest, applying policy overlay metadata. Callers must hold r.mu
+// (read or write).
+func (r *Registry) listingLocked(m ServiceManifest, defaultTier Tier) ListApprovedListing {
+	entry := ListApprovedListing{
+		ID:          m.ID,
+		DisplayName: m.DisplayName,
+		Category:    m.Category,
+		Tier:        defaultTier,
+		PriceUSDC:   m.MaxPriceUSDC,
+	}
+	if p, ok := r.policy[m.ID]; ok {
+		entry.Tier = p.Tier
+		entry.Hint = p.Hint
+	}
+	return entry
 }
 
 func (r *Registry) persistLocked() error {
@@ -266,6 +361,9 @@ func (r *Registry) persistLocked() error {
 	for _, p := range r.pins {
 		snap.Pins = append(snap.Pins, p)
 	}
+	for _, u := range r.userEnabled {
+		snap.UserEnabled = append(snap.UserEnabled, u)
+	}
 	sort.Slice(snap.Manifests, func(i, j int) bool { return snap.Manifests[i].ID < snap.Manifests[j].ID })
 	sort.Slice(snap.Policy, func(i, j int) bool { return snap.Policy[i].ServiceID < snap.Policy[j].ServiceID })
 	sort.Slice(snap.Approvals, func(i, j int) bool {
@@ -275,5 +373,6 @@ func (r *Registry) persistLocked() error {
 		return snap.Approvals[i].ServiceID < snap.Approvals[j].ServiceID
 	})
 	sort.Slice(snap.Pins, func(i, j int) bool { return snap.Pins[i].ServiceID < snap.Pins[j].ServiceID })
+	sort.Slice(snap.UserEnabled, func(i, j int) bool { return snap.UserEnabled[i].ServiceID < snap.UserEnabled[j].ServiceID })
 	return r.store.Save(snap)
 }

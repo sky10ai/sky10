@@ -12,10 +12,11 @@ import (
 // RegistrySnapshot is the on-disk shape of the registry. Loaders
 // restore from this; persistence writes this back on every change.
 type RegistrySnapshot struct {
-	Manifests []ServiceManifest `json:"manifests,omitempty"`
-	Policy    []PolicyEntry     `json:"policy,omitempty"`
-	Approvals []Approval        `json:"approvals,omitempty"`
-	Pins      []Pin             `json:"pins,omitempty"`
+	Manifests   []ServiceManifest  `json:"manifests,omitempty"`
+	Policy      []PolicyEntry      `json:"policy,omitempty"`
+	Approvals   []Approval         `json:"approvals,omitempty"`
+	Pins        []Pin              `json:"pins,omitempty"`
+	UserEnabled []UserEnableRecord `json:"user_enabled,omitempty"`
 }
 
 // RegistryStore persists registry snapshots. Implementations include

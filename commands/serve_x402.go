@@ -18,6 +18,7 @@ import (
 	commsx402 "github.com/sky10/sky10/pkg/sandbox/comms/x402"
 	"github.com/sky10/sky10/pkg/x402"
 	"github.com/sky10/sky10/pkg/x402/discovery"
+	x402rpc "github.com/sky10/sky10/pkg/x402/rpc"
 )
 
 // installX402Endpoint mounts /comms/x402/ws on the daemon's RPC
@@ -67,6 +68,8 @@ func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegist
 
 	endpoint := commsx402.NewEndpoint(adapter, resolver, comms.WithLogger(logger))
 	server.HandleHTTP("GET "+commsx402.EndpointPath, endpoint.Handler())
+
+	server.RegisterHandler(x402rpc.NewHandler(registry))
 	return nil
 }
 

@@ -96,6 +96,15 @@ transport layer and exposing a single registry to agent runtimes
   primitives (Deepgram, fal.ai, E2B, Browserbase) so agents have
   something concrete to approve. Live agentic.market HTTP source
   and periodic refresh ticker follow.
+- 2026-04-27 — Settings → Services page landed
+  (`web/src/pages/SettingsServices.tsx`). Renders the catalog from
+  `x402.listServices` host RPC, with each service showing blurb,
+  category, chain, tier, price, and an enable toggle backed by
+  `x402.setEnabled`. The toggle drives a new user-level enable
+  state on the Registry; Backend.Call falls back to user-level
+  approval when no per-agent record exists. M3 (host RPC) and M6
+  (Web UI) are partially done; remaining surface (approve/revoke
+  per agent, budget panel, receipts log, CLI) follows.
 
 ## Documents
 
