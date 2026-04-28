@@ -136,6 +136,16 @@ transport layer and exposing a single registry to agent runtimes
   x402 SVM spec and tests cover layout, fee-payer validation,
   amount-format flexibility (base unit vs decimal), and CAIP-2
   parsing.
+- 2026-04-28 — Services page upgraded to show budget + receipts
+  and a per-service approval flow. New host RPC methods
+  `x402.budgetStatus` (aggregate caps + spend across agents) and
+  `x402.receipts` (recent charges joined with service display
+  names from the catalog). UI now has a Budget card with per-call
+  / daily / spent-today, a Recent Charges table, and replaces the
+  on/off toggle with explicit "Approve" / "Revoke" actions —
+  approving opens an inline form to set the per-call max price
+  (defaults to the manifest's price) so each approval is a
+  deliberate decision rather than a flick of a switch.
 
 ## Documents
 

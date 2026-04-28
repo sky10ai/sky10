@@ -225,6 +225,72 @@ func (b *Budget) Receipts(agentID string) []Receipt {
 	return out
 }
 
+// AllReceipts returns a copy of every receipt across every agent
+// the budget has charged, newest first. Used by the host RPC layer
+// to render the Web UI's receipts panel without per-agent
+// enumeration.
+func (b *Budget) AllReceipts() []Receipt {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([]Receipt, len(b.receipts))
+	copy(out, b.receipts)
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out
+}
+
+// AggregateSnapshot returns a single roll-up of caps and today's
+// spend across every agent the budget knows about. The Web UI uses
+// this for a single-user-facing summary.
+//
+// Caps are reported as the most-permissive observed value (the
+// user's intent is "I'm OK with up to this amount"); spend is the
+// sum across agents.
+type AggregateSnapshot struct {
+	PerCallMaxUSDC string
+	DailyCapUSDC   string
+	SpentTodayUSDC string
+	Agents         int
+}
+
+// AggregateStatus collapses every per-agent budget the store knows
+// about into a single roll-up.
+func (b *Budget) AggregateStatus() AggregateSnapshot {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := AggregateSnapshot{Agents: len(b.agentConfig)}
+	day := b.clock().UTC().Format("2006-01-02")
+	var spentTotal, perCallMax, dailyCap *bigInt
+	for agentID, cfg := range b.agentConfig {
+		if cfg.perCallMax != nil {
+			if perCallMax == nil || cfg.perCallMax.Cmp(perCallMax) > 0 {
+				perCallMax = cfg.perCallMax
+			}
+		}
+		if cfg.dailyCap != nil {
+			if dailyCap == nil || cfg.dailyCap.Cmp(dailyCap) > 0 {
+				dailyCap = cfg.dailyCap
+			}
+		}
+		if d, ok := b.spentToday[agentID]; ok && d.day == day {
+			if spentTotal == nil {
+				spentTotal = new(bigInt).Set(d.total)
+			} else {
+				spentTotal.Add(spentTotal, d.total)
+			}
+		}
+	}
+	out.PerCallMaxUSDC = formatUSDC(perCallMax)
+	out.DailyCapUSDC = formatUSDC(dailyCap)
+	out.SpentTodayUSDC = formatUSDC(spentTotal)
+	return out
+}
+
+// bigInt is a thin alias so AggregateStatus can use `new(bigInt)`
+// without importing math/big again at the call site.
+type bigInt = big.Int
+
 // dayLocked returns the spendDay for the agent, rolling to a new day
 // (zeroed counters) when the calendar day changes.
 func (b *Budget) dayLocked(agentID string) *spendDay {

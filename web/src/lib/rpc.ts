@@ -1855,6 +1855,8 @@ export interface X402ServiceListing {
   tier: "primitive" | "convenience";
   hint?: string;
   enabled: boolean;
+  approved_at?: string;
+  approved_max_price_usdc?: string;
 }
 
 export interface X402ListServicesResult {
@@ -1866,6 +1868,28 @@ export interface X402SetEnabledResult {
   enabled: boolean;
 }
 
+export interface X402BudgetStatus {
+  per_call_max_usdc: string;
+  daily_cap_usdc: string;
+  spent_today_usdc: string;
+  agents: number;
+}
+
+export interface X402Receipt {
+  ts: string;
+  agent_id: string;
+  service_id: string;
+  service_name?: string;
+  path?: string;
+  amount_usdc: string;
+  network?: string;
+  tx?: string;
+}
+
+export interface X402ReceiptsResult {
+  receipts: X402Receipt[];
+}
+
 export const x402 = {
   listServices: () => rpc<X402ListServicesResult>("x402.listServices"),
   setEnabled: (p: {
@@ -1873,4 +1897,7 @@ export const x402 = {
     enabled: boolean;
     max_price_usdc?: string;
   }) => rpc<X402SetEnabledResult>("x402.setEnabled", p),
+  budgetStatus: () => rpc<X402BudgetStatus>("x402.budgetStatus"),
+  receipts: (p?: { limit?: number }) =>
+    rpc<X402ReceiptsResult>("x402.receipts", p ?? {}),
 };
