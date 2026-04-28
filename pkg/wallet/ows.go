@@ -374,6 +374,40 @@ func (c *Client) BalanceForChain(ctx context.Context, walletName, chain string) 
 	}
 }
 
+// RunSignMessageJSON shells out to `ows sign message` with the given
+// EIP-712 typed-data JSON and returns the structured JSON output
+// (`{ "signature": "0x..." }`). Used by pkg/x402's OWSSigner to
+// produce x402 payment authorizations.
+//
+// chain is the OWS chain identifier expected by `--chain` (e.g.
+// "base", "ethereum", or a CAIP-2 ID like "eip155:8453").
+func (c *Client) RunSignMessageJSON(ctx context.Context, walletName, chain string, typedData []byte) ([]byte, error) {
+	if c == nil {
+		return nil, ErrNotInstalled
+	}
+	if strings.TrimSpace(walletName) == "" {
+		return nil, fmt.Errorf("wallet name required")
+	}
+	if strings.TrimSpace(chain) == "" {
+		return nil, fmt.Errorf("chain required")
+	}
+	if len(typedData) == 0 {
+		return nil, fmt.Errorf("typed data required")
+	}
+	out, err := c.run(ctx,
+		"sign", "message",
+		"--chain", owsChainArg(chain),
+		"--wallet", walletName,
+		"--typed-data", string(typedData),
+		"--json",
+		"--no-passphrase",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ows sign message: %w", err)
+	}
+	return out, nil
+}
+
 // Pay makes an x402 payment to a URL using the given wallet.
 func (c *Client) Pay(ctx context.Context, walletName, url string) (*PayResult, error) {
 	if c == nil {

@@ -112,6 +112,19 @@ transport layer and exposing a single registry to agent runtimes
   `AgenticMarketSource`, with the StaticSource as a fallback for
   offline installs. A daemon goroutine runs `Refresh` hourly with
   ±10min jitter so the local catalog stays current.
+- 2026-04-28 — OWS sign integration. `pkg/x402/protocol.go` now
+  speaks the real x402 wire shape (`accepts`/PaymentRequirements,
+  base64-JSON `X-PAYMENT` payloads, EIP-3009
+  TransferWithAuthorization for USDC). New `OWSSigner` shells out
+  to `ows sign message --typed-data --json` to produce the
+  authorization signature; daemon picks OWSSigner when OWS is
+  installed and StubSigner otherwise. Each successful charge logs
+  `x402 charge agent_id=A service_id=S amount_usdc=X tx=H` so
+  payment attribution is visible in the daemon log. Solana signing
+  remains a follow-up — the OWSSigner refuses Solana requirements
+  cleanly so agent routing can fall back rather than silently
+  fail. There is no per-service "top up" model in x402: the user
+  funds one wallet and the protocol pays per request.
 
 ## Documents
 

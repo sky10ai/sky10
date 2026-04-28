@@ -22,8 +22,21 @@ func fakeX402Server(t *testing.T) *httptest.Server {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusPaymentRequired)
 			_ = json.NewEncoder(w).Encode(x402.PaymentChallenge{
-				Network: x402.NetworkBase, Currency: x402.CurrencyUSDC,
-				Amount: "0.005", Recipient: "0xrecipient", Nonce: "test-nonce",
+				X402Version: x402.X402ProtocolVersion,
+				Accepts: []x402.PaymentRequirements{
+					{
+						Scheme:            "exact",
+						Network:           "base",
+						MaxAmountRequired: "0.005",
+						PayTo:             "0x000000000000000000000000000000000000beef",
+						Asset:             "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+						MaxTimeoutSeconds: 60,
+						Extra: map[string]interface{}{
+							"name":    "USD Coin",
+							"version": "2",
+						},
+					},
+				},
 			})
 			return
 		}
@@ -60,11 +73,11 @@ func newTestAdapter(t *testing.T, srv *httptest.Server) *x402Adapter {
 	}
 
 	budget := x402.NewBudget(clock)
-	transport := x402.NewTransport(x402.NewFakeSigner())
+	transport := x402.NewTransport(x402.NewFakeSigner("0x0000000000000000000000000000000000000abc"))
 	backend := x402.NewBackend(x402.BackendOptions{
 		Registry: registry, Transport: transport, Budget: budget, Clock: clock,
 	})
-	return newX402Adapter(backend, budget, defaultX402BudgetConfig())
+	return newX402Adapter(backend, budget, defaultX402BudgetConfig(), nil)
 }
 
 func TestAdapterListServicesTranslatesFields(t *testing.T) {
