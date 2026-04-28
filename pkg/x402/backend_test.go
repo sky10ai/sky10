@@ -44,7 +44,7 @@ func backendOnFake(t *testing.T) (*Backend, *x402TestServer, func()) {
 		t.Fatal(err)
 	}
 
-	budget := NewBudget(clock)
+	budget := NewBudget(clock, nil)
 	if err := budget.SetAgentBudget("A-1", BudgetConfig{
 		PerCallMaxUSDC: "0.10",
 		DailyCapUSDC:   "5.00",

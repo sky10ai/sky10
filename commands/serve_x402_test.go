@@ -72,7 +72,7 @@ func newTestAdapter(t *testing.T, srv *httptest.Server) *x402Adapter {
 		t.Fatal(err)
 	}
 
-	budget := x402.NewBudget(clock)
+	budget := x402.NewBudget(clock, nil)
 	transport := x402.NewTransport(x402.NewFakeSigner("0x0000000000000000000000000000000000000abc"))
 	backend := x402.NewBackend(x402.BackendOptions{
 		Registry: registry, Transport: transport, Budget: budget, Clock: clock,

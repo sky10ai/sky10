@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { Icon } from "../components/Icon";
 import { SettingsPage } from "../components/SettingsPage";
@@ -405,6 +405,30 @@ export default function SettingsServices() {
 
   const services = data?.services ?? [];
 
+  const [search, setSearch] = useState("");
+  const [tierFilter, setTierFilter] = useState<"all" | "primitive" | "convenience">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "approved" | "not_approved">("all");
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return services.filter((s) => {
+      if (tierFilter !== "all" && s.tier !== tierFilter) return false;
+      if (statusFilter === "approved" && !s.enabled) return false;
+      if (statusFilter === "not_approved" && s.enabled) return false;
+      if (!q) return true;
+      const haystack = [
+        s.id,
+        s.display_name,
+        s.description,
+        s.category,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [services, search, tierFilter, statusFilter]);
+
   return (
     <SettingsPage
       title="Services"
@@ -440,6 +464,47 @@ export default function SettingsServices() {
           ) : null}
         </header>
 
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[200px]">
+            <Icon
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-base text-outline"
+              name="search"
+            />
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search by name, category, or description"
+              className="w-full rounded-full border border-outline-variant/30 bg-surface-container-lowest py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+            />
+          </div>
+          <select
+            value={tierFilter}
+            onChange={(event) =>
+              setTierFilter(event.target.value as typeof tierFilter)
+            }
+            className="rounded-full border border-outline-variant/30 bg-surface-container-lowest px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+          >
+            <option value="all">All tiers</option>
+            <option value="primitive">Primitive</option>
+            <option value="convenience">Convenience</option>
+          </select>
+          <select
+            value={statusFilter}
+            onChange={(event) =>
+              setStatusFilter(event.target.value as typeof statusFilter)
+            }
+            className="rounded-full border border-outline-variant/30 bg-surface-container-lowest px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+          >
+            <option value="all">All services</option>
+            <option value="approved">Approved only</option>
+            <option value="not_approved">Not yet approved</option>
+          </select>
+          <p className="text-xs text-secondary">
+            Showing {filtered.length} of {services.length}
+          </p>
+        </div>
+
         {error ? (
           <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-700 dark:text-red-200">
             Failed to load services: {error}
@@ -454,8 +519,15 @@ export default function SettingsServices() {
           </div>
         ) : null}
 
+        {!error && services.length > 0 && filtered.length === 0 ? (
+          <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 text-sm text-secondary">
+            No services match your filters. Adjust the search or change the
+            tier/status dropdowns.
+          </div>
+        ) : null}
+
         <div className="grid gap-3">
-          {services.map((service) => (
+          {filtered.map((service) => (
             <ServiceCard
               key={service.id}
               service={service}

@@ -52,6 +52,12 @@ func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegist
 		return fmt.Errorf("new registry: %w", err)
 	}
 
+	receiptsPath, err := x402ReceiptsPath()
+	if err != nil {
+		return fmt.Errorf("receipts path: %w", err)
+	}
+	receiptStore := x402.NewFileReceiptStore(receiptsPath)
+
 	overlay, err := discovery.LoadOverlay()
 	if err != nil {
 		return fmt.Errorf("load overlay: %w", err)
@@ -69,7 +75,7 @@ func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegist
 	}
 	go runX402RefreshLoop(ctx, registry, overlay, sources, logger)
 
-	budget := x402.NewBudget(nil)
+	budget := x402.NewBudget(nil, receiptStore)
 	transport := x402.NewTransport(buildX402Signer(logger))
 	backend := x402.NewBackend(x402.BackendOptions{
 		Registry:  registry,
@@ -176,6 +182,14 @@ func x402RegistryPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(root, "x402", "registry.json"), nil
+}
+
+func x402ReceiptsPath() (string, error) {
+	root, err := skyconfig.RootDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "x402", "receipts.jsonl"), nil
 }
 
 // defaultX402BudgetConfig is the per-agent default applied lazily on

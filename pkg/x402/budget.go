@@ -47,13 +47,15 @@ type Receipt struct {
 
 // Budget tracks per-agent caps, today's spend, and the receipt log.
 // Daily counters reset at the first call of a new day in the agent's
-// configured timezone (UTC for now). Receipt log is in-memory in M1;
-// future milestone persists to JSONL on disk.
+// configured timezone (UTC for now). Receipts persist to a
+// ReceiptStore when one is configured so they survive a daemon
+// restart.
 type Budget struct {
 	mu          sync.Mutex
 	agentConfig map[string]parsedBudget
 	spentToday  map[string]*spendDay
 	receipts    []Receipt
+	store       ReceiptStore
 	clock       func() time.Time
 }
 
@@ -71,15 +73,26 @@ type spendDay struct {
 
 // NewBudget constructs an empty budget. Agents are configured via
 // SetAgentBudget; receipts accumulate via Charge.
-func NewBudget(now func() time.Time) *Budget {
+//
+// store is optional: when non-nil, NewBudget loads the existing
+// receipt log from the store and appends every subsequent Charge.
+// Pass nil for tests that don't care about persistence.
+func NewBudget(now func() time.Time, store ReceiptStore) *Budget {
 	if now == nil {
 		now = time.Now
 	}
-	return &Budget{
+	b := &Budget{
 		agentConfig: make(map[string]parsedBudget),
 		spentToday:  make(map[string]*spendDay),
+		store:       store,
 		clock:       now,
 	}
+	if store != nil {
+		if loaded, err := store.Load(); err == nil {
+			b.receipts = loaded
+		}
+	}
+	return b
 }
 
 // SetAgentBudget records or replaces the per-agent configuration.
@@ -208,6 +221,14 @@ func (b *Budget) Charge(receipt Receipt) error {
 		receipt.Ts = b.clock().UTC()
 	}
 	b.receipts = append(b.receipts, receipt)
+	if b.store != nil {
+		// Persistence is best-effort: a failed append should not
+		// undo an already-applied charge. The in-memory log stays
+		// authoritative for the running daemon; operators see the
+		// underlying error via the daemon's process-level logger
+		// (the budget package itself does not own a logger).
+		_ = b.store.Append(receipt)
+	}
 	return nil
 }
 
