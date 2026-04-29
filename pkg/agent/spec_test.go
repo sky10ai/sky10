@@ -205,6 +205,41 @@ func TestSpecStoreUpdateRejectsApprovedDraft(t *testing.T) {
 	}
 }
 
+func TestSpecStoreDeleteRemovesSpecFromLatestList(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	var emitted []string
+	store := NewSpecStore(func(event string, _ interface{}) {
+		emitted = append(emitted, event)
+	})
+	create, err := store.Create(context.Background(), AgentSpecCreateParams{Prompt: canonicalMediaAccentPrompt})
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+
+	deleted, err := store.Delete(context.Background(), create.Spec.ID)
+	if err != nil {
+		t.Fatalf("Delete() error: %v", err)
+	}
+	if deleted.Spec.ID != create.Spec.ID {
+		t.Fatalf("deleted spec ID = %q, want %q", deleted.Spec.ID, create.Spec.ID)
+	}
+
+	list, err := store.List(context.Background(), AgentSpecListParams{Limit: 10})
+	if err != nil {
+		t.Fatalf("List() error: %v", err)
+	}
+	if len(list.Specs) != 0 {
+		t.Fatalf("spec count = %d, want 0 after delete", len(list.Specs))
+	}
+	if _, err := store.Get(context.Background(), create.Spec.ID); err == nil {
+		t.Fatal("Get() error = nil, want deleted spec to be hidden")
+	}
+	if len(emitted) != 2 {
+		t.Fatalf("emitted = %#v, want create and delete events", emitted)
+	}
+}
+
 func TestAgentSpecRPCDispatch(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
 

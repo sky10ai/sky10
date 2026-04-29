@@ -178,6 +178,8 @@ export const agent = {
       rpc<AgentSpecResult>("agent.spec.approve", p),
     discard: (p: AgentSpecActionParams) =>
       rpc<AgentSpecResult>("agent.spec.discard", p),
+    delete: (p: AgentSpecActionParams) =>
+      rpc<AgentSpecResult>("agent.spec.delete", p),
     compile: (p: AgentSpecCompileParams) =>
       rpc<AgentSpecCompileResult>("agent.spec.compile", p),
     provision: (p: AgentSpecProvisionParams) =>

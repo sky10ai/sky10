@@ -117,6 +117,8 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 		result, err = h.rpcSpecApprove(ctx, params)
 	case "agent.spec.discard":
 		result, err = h.rpcSpecDiscard(ctx, params)
+	case "agent.spec.delete":
+		result, err = h.rpcSpecDelete(ctx, params)
 	case "agent.spec.compile":
 		result, err = h.rpcSpecCompile(ctx, params)
 	case "agent.spec.provision":
@@ -254,6 +256,18 @@ func (h *RPCHandler) rpcSpecDiscard(ctx context.Context, params json.RawMessage)
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
 	return store.Discard(ctx, p.ID)
+}
+
+func (h *RPCHandler) rpcSpecDelete(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	store, err := h.requireSpecStore()
+	if err != nil {
+		return nil, err
+	}
+	var p AgentSpecActionParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	return store.Delete(ctx, p.ID)
 }
 
 func (h *RPCHandler) rpcSpecCompile(ctx context.Context, params json.RawMessage) (interface{}, error) {

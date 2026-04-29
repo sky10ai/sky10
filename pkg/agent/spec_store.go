@@ -32,6 +32,7 @@ type SpecStore struct {
 
 type specEntry struct {
 	Type    string    `json:"type"`
+	ID      string    `json:"id,omitempty"`
 	SavedAt string    `json:"saved_at"`
 	Spec    AgentSpec `json:"spec"`
 }
@@ -162,6 +163,58 @@ func (s *SpecStore) Discard(ctx context.Context, id string) (*AgentSpecResult, e
 	return &AgentSpecResult{Spec: spec}, nil
 }
 
+func (s *SpecStore) Delete(ctx context.Context, id string) (*AgentSpecResult, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	result, err := s.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	path, err := s.pathFn()
+	if err != nil {
+		return nil, err
+	}
+	entry := specEntry{
+		Type:    "spec_deleted",
+		ID:      id,
+		SavedAt: s.now().UTC().Format(time.RFC3339Nano),
+	}
+	line, err := json.Marshal(entry)
+	if err != nil {
+		return nil, fmt.Errorf("marshal agent spec delete entry: %w", err)
+	}
+	line = append(line, '\n')
+
+	s.mu.Lock()
+	err = func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return fmt.Errorf("create agent spec directory: %w", err)
+		}
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			return fmt.Errorf("open agent spec log: %w", err)
+		}
+		defer file.Close()
+		if _, err := file.Write(line); err != nil {
+			return fmt.Errorf("write agent spec log: %w", err)
+		}
+		return nil
+	}()
+	s.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	if s.emit != nil {
+		s.emit("agent.spec.changed", map[string]string{"id": id, "status": "deleted"})
+	}
+	return result, nil
+}
+
 func (s *SpecStore) save(ctx context.Context, spec AgentSpec) error {
 	if err := validateAgentSpec(spec); err != nil {
 		return err
@@ -172,6 +225,7 @@ func (s *SpecStore) save(ctx context.Context, spec AgentSpec) error {
 	}
 	entry := specEntry{
 		Type:    "spec_saved",
+		ID:      spec.ID,
 		SavedAt: s.now().UTC().Format(time.RFC3339Nano),
 		Spec:    spec,
 	}
@@ -238,6 +292,20 @@ func (s *SpecStore) listLatest() ([]AgentSpec, error) {
 		}
 		var entry specEntry
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+		if entry.Type == "spec_deleted" {
+			id := strings.TrimSpace(entry.ID)
+			if id == "" {
+				id = strings.TrimSpace(entry.Spec.ID)
+			}
+			if id == "" {
+				continue
+			}
+			delete(byID, id)
+			order = slices.DeleteFunc(order, func(value string) bool {
+				return value == id
+			})
 			continue
 		}
 		if entry.Type != "spec_saved" || validateAgentSpec(entry.Spec) != nil {

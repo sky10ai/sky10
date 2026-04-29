@@ -146,7 +146,10 @@ function SpecReview({
   };
 
   return (
-    <section className="space-y-4 rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-5 shadow-sm">
+    <section
+      className="space-y-4 rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-5 shadow-sm"
+      id="agent-spec-review"
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -350,6 +353,15 @@ export default function Agents() {
 
   const deviceSet = new Set(agents.map((a) => a.device_id));
 
+  function viewSpec(spec: AgentSpec) {
+    setSelectedSpec(spec);
+    window.setTimeout(() => {
+      document
+        .getElementById("agent-spec-review")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }
+
   async function saveRun(nextRun: WorkspaceRun) {
     try {
       await rootAssistant.runSave({ run: nextRun });
@@ -499,6 +511,28 @@ export default function Agents() {
     }
   }
 
+  async function deleteSpec(spec: AgentSpec) {
+    const confirmed = window.confirm(
+      `Delete spec "${spec.name}"? This removes it from Recent specs.`,
+    );
+    if (!confirmed) return;
+    setReviewBusy("Deleting...");
+    try {
+      await agent.spec.delete({ id: spec.id });
+      if (selectedSpec?.id === spec.id) {
+        setSelectedSpec(null);
+      }
+      setBuilderStatus("Spec deleted.");
+      refetchSpecs({ background: true });
+    } catch (deleteError) {
+      setBuilderStatus(
+        deleteError instanceof Error ? deleteError.message : "Delete failed",
+      );
+    } finally {
+      setReviewBusy("");
+    }
+  }
+
   return (
     <section className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-6 pb-12 pt-6 sm:px-8 sm:pt-7 lg:px-10">
       {(error || specError) && (
@@ -607,11 +641,13 @@ export default function Agents() {
             </h2>
             <div className="grid gap-3 md:grid-cols-2">
               {specs.map((specItem) => (
-                <button
-                  className="min-w-0 rounded-xl bg-surface-container-lowest p-4 text-left shadow-sm ring-1 ring-outline-variant/10 transition-colors hover:ring-primary/20"
+                <div
+                  className={`min-w-0 rounded-xl bg-surface-container-lowest p-4 text-left shadow-sm ring-1 transition-colors ${
+                    selectedSpec?.id === specItem.id
+                      ? "ring-primary/35"
+                      : "ring-outline-variant/10 hover:ring-primary/20"
+                  }`}
                   key={specItem.id}
-                  onClick={() => setSelectedSpec(specItem)}
-                  type="button"
                 >
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <p className="truncate text-sm font-semibold text-on-surface">
@@ -624,7 +660,26 @@ export default function Agents() {
                   <p className="line-clamp-2 text-xs leading-5 text-secondary">
                     {specItem.description}
                   </p>
-                </button>
+                  <div className="mt-4 flex flex-wrap justify-end gap-2">
+                    <button
+                      className="inline-flex items-center gap-1.5 rounded-full border border-outline-variant/20 px-3 py-1.5 text-xs font-semibold text-on-surface transition-colors hover:bg-surface-container"
+                      onClick={() => viewSpec(specItem)}
+                      type="button"
+                    >
+                      <Icon name="visibility" className="text-sm" />
+                      View
+                    </button>
+                    <button
+                      className="inline-flex items-center gap-1.5 rounded-full border border-outline-variant/20 px-3 py-1.5 text-xs font-semibold text-error transition-colors hover:bg-error-container/20 disabled:opacity-50"
+                      disabled={reviewBusy === "Deleting..."}
+                      onClick={() => void deleteSpec(specItem)}
+                      type="button"
+                    >
+                      <Icon name="delete" className="text-sm" />
+                      Delete
+                    </button>
+                  </div>
+                </div>
               ))}
             </div>
           </div>

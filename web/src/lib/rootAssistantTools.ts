@@ -278,6 +278,13 @@ export const rootAssistantTools = {
     }).strict(),
     execute: (input) => agent.spec.discard(input),
   }),
+  agents_deleteSpec: approvalRequiredTool({
+    description: "Delete a review spec from the recent specs list.",
+    inputSchema: z.object({
+      id: z.string().min(1).describe("Agent spec ID."),
+    }).strict(),
+    execute: (input) => agent.spec.delete(input),
+  }),
   agents_sendMessage: approvalRequiredTool({
     description: "Send a message to a registered agent.",
     inputSchema: z.object({
@@ -534,6 +541,7 @@ export const rootAssistantToolMetadata = {
   agents_updateSpec: { policy: "approval_required", risk: "medium", rpcMethods: ["agent.spec.update"], title: "Update agent spec" },
   agents_approveSpec: { policy: "approval_required", risk: "medium", rpcMethods: ["agent.spec.approve"], title: "Approve agent spec" },
   agents_discardSpec: { policy: "approval_required", risk: "medium", rpcMethods: ["agent.spec.discard"], title: "Discard agent spec" },
+  agents_deleteSpec: { policy: "approval_required", risk: "medium", rpcMethods: ["agent.spec.delete"], title: "Delete agent spec" },
   agents_sendMessage: { policy: "approval_required", risk: "medium", rpcMethods: ["agent.send"], title: "Send agent message" },
   sandboxes_list: { policy: "read_only", risk: "low", rpcMethods: ["sandbox.list"], title: "List sandboxes" },
   sandboxes_get: { policy: "read_only", risk: "low", rpcMethods: ["sandbox.get"], title: "Inspect sandbox" },
