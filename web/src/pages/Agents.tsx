@@ -347,9 +347,14 @@ export default function Agents() {
   const [run, setRun] = useState<WorkspaceRun | null>(null);
   const [builderStatus, setBuilderStatus] = useState("");
   const [reviewBusy, setReviewBusy] = useState("");
+  const [hiddenSpecIDs, setHiddenSpecIDs] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const agents = data?.agents ?? [];
-  const specs = specData?.specs ?? [];
+  const specs = (specData?.specs ?? []).filter(
+    (spec) => !hiddenSpecIDs.has(spec.id),
+  );
 
   const deviceSet = new Set(agents.map((a) => a.device_id));
 
@@ -512,19 +517,25 @@ export default function Agents() {
   }
 
   async function deleteSpec(spec: AgentSpec) {
-    const confirmed = window.confirm(
-      `Delete spec "${spec.name}"? This removes it from Recent specs.`,
-    );
-    if (!confirmed) return;
+    setHiddenSpecIDs((current) => {
+      const next = new Set(current);
+      next.add(spec.id);
+      return next;
+    });
+    if (selectedSpec?.id === spec.id) {
+      setSelectedSpec(null);
+    }
     setReviewBusy("Deleting...");
     try {
       await agent.spec.delete({ id: spec.id });
-      if (selectedSpec?.id === spec.id) {
-        setSelectedSpec(null);
-      }
       setBuilderStatus("Spec deleted.");
       refetchSpecs({ background: true });
     } catch (deleteError) {
+      setHiddenSpecIDs((current) => {
+        const next = new Set(current);
+        next.delete(spec.id);
+        return next;
+      });
       setBuilderStatus(
         deleteError instanceof Error ? deleteError.message : "Delete failed",
       );
