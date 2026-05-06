@@ -1,6 +1,7 @@
 package x402
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -65,6 +66,13 @@ const (
 // AmountMicros is always the integer base unit ("1000" = 0.001 USDC
 // at 6 decimals). v1's decimal `maxAmountRequired` is converted on
 // the way in; v2's `amount` passes through unchanged.
+//
+// RawWire holds the verbatim JSON of this accepts entry as the
+// server emitted it. The encoder uses RawWire (when present) for
+// the `accepted` echo on the X-PAYMENT envelope, so non-spec fields
+// (Venice's `protocol` + per-entry `version`) round-trip without
+// us having to model every vendor extension. Empty when the
+// requirement was constructed in-memory rather than parsed.
 type PaymentRequirements struct {
 	Scheme            string
 	Network           string
@@ -73,13 +81,15 @@ type PaymentRequirements struct {
 	Asset             string
 	MaxTimeoutSeconds int64
 	Extra             map[string]interface{}
+	RawWire           json.RawMessage
 }
 
 // PaymentChallenge is the parsed, canonical 402 challenge.
 type PaymentChallenge struct {
-	Version  int
-	Accepts  []PaymentRequirements
-	Resource *Resource
+	Version    int
+	Accepts    []PaymentRequirements
+	Resource   *Resource
+	Extensions map[string]json.RawMessage
 }
 
 // SelectRequirements returns the first PaymentRequirements compatible

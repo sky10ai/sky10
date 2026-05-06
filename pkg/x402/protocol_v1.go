@@ -46,19 +46,32 @@ type paymentPayloadV1 struct {
 // converted to integer micro-USDC base units so downstream code only
 // has to deal with one form.
 func parseChallengeV1Body(raw []byte) (PaymentChallenge, error) {
-	var v1 paymentChallengeV1
-	if err := json.Unmarshal(raw, &v1); err != nil {
+	// First decode the outer challenge into a permissive shape so we
+	// can capture each accepts entry's raw bytes verbatim. Some
+	// servers (Venice) send non-spec fields per entry that the
+	// X-PAYMENT envelope must echo back exactly.
+	var rawOuter struct {
+		X402Version int               `json:"x402Version"`
+		Accepts     []json.RawMessage `json:"accepts"`
+		Error       string            `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &rawOuter); err != nil {
 		return PaymentChallenge{}, err
 	}
-	if len(v1.Accepts) == 0 {
+	if len(rawOuter.Accepts) == 0 {
 		return PaymentChallenge{}, errors.New("challenge offered no payment options")
 	}
 	out := PaymentChallenge{Version: X402ProtocolV1}
-	for _, r := range v1.Accepts {
+	for _, entry := range rawOuter.Accepts {
+		var r paymentRequirementsV1
+		if err := json.Unmarshal(entry, &r); err != nil {
+			return PaymentChallenge{}, err
+		}
 		canon, err := toCanonicalV1(r)
 		if err != nil {
 			return PaymentChallenge{}, err
 		}
+		canon.RawWire = append(json.RawMessage(nil), entry...)
 		out.Accepts = append(out.Accepts, canon)
 	}
 	return out, nil

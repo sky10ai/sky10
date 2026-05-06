@@ -1,0 +1,173 @@
+{
+  "service": "venice-ai",
+  "method": "POST",
+  "url": "https://api.venice.ai/api/v1/x402/top-up",
+  "captured_at_utc": "2026-05-06T12:08:28Z",
+  "exchanges": [
+    {
+      "request_method": "POST",
+      "request_url": "https://api.venice.ai/api/v1/x402/top-up",
+      "request_headers": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "X-Sign-In-With-X": [
+          "\u003cREDACTED\u003e"
+        ]
+      },
+      "request_body": "{}",
+      "response_status": 402,
+      "response_headers": {
+        "Access-Control-Allow-Credentials": [
+          "true"
+        ],
+        "Access-Control-Allow-Origin": [
+          "*"
+        ],
+        "Access-Control-Expose-Headers": [
+          "*"
+        ],
+        "Cf-Cache-Status": [
+          "DYNAMIC"
+        ],
+        "Cf-Ray": [
+          "9f77ded26c9e089b-OMA"
+        ],
+        "Content-Length": [
+          "210"
+        ],
+        "Content-Security-Policy": [
+          "default-src 'none'; frame-ancestors *; upgrade-insecure-requests"
+        ],
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ],
+        "Date": [
+          "Wed, 06 May 2026 12:08:27 GMT"
+        ],
+        "Etag": [
+          "W/\"d2-YFvqhTht3w6NDySthEYs7gDNV9c\""
+        ],
+        "Payment-Required": [
+          "eyJ4NDAyVmVyc2lvbiI6MiwiYWNjZXB0cyI6W3sicHJvdG9jb2wiOiJ4NDAyIiwidmVyc2lvbiI6MiwibmV0d29yayI6ImVpcDE1NTo4NDUzIiwiYXNzZXQiOiIweDgzMzU4OWZDRDZlRGI2RTA4ZjRjN0MzMkQ0ZjcxYjU0YmRBMDI5MTMiLCJhbW91bnQiOiI1MDAwMDAwIiwicGF5VG8iOiIweDI2NzBCOTIyZWYzN0M3RGY0NzE1ODcyNUMwQ0M0MDdiNTM4MjI5M0YifV19"
+        ],
+        "Permissions-Policy": [
+          "geolocation=(), camera=()"
+        ],
+        "Referrer-Policy": [
+          "strict-origin"
+        ],
+        "Server": [
+          "cloudflare"
+        ],
+        "Server-Timing": [
+          "cfCacheStatus;desc=\"DYNAMIC\"",
+          "cfEdge;dur=64,cfOrigin;dur=67"
+        ],
+        "Set-Cookie": [
+          "_cfuvid=9zRGoZFeyBQuKmWH9XTkUY8x73FuUD7xZXyNLeb7scg-1778069307.270111-1.0.1.1-fzhEIaTYtch3EpbgBZgRN8kdJ6IGnvy22V1UjfKH9NU; HttpOnly; SameSite=None; Secure; Path=/; Domain=venice.ai"
+        ],
+        "Strict-Transport-Security": [
+          "max-age=31536000; includeSubDomains; preload"
+        ],
+        "Vary": [
+          "Accept-Encoding"
+        ],
+        "X-Cloud-Trace-Context": [
+          "d4112071cb4edca3d1c4e76b1662a0ea"
+        ],
+        "X-Content-Type-Options": [
+          "nosniff"
+        ],
+        "X-Frame-Options": [
+          "SAMEORIGIN"
+        ]
+      },
+      "response_body": "{\"x402Version\":2,\"accepts\":[{\"protocol\":\"x402\",\"version\":2,\"network\":\"eip155:8453\",\"asset\":\"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913\",\"amount\":\"5000000\",\"payTo\":\"0x2670B922ef37C7Df47158725C0CC407b5382293F\"}]}"
+    },
+    {
+      "request_method": "POST",
+      "request_url": "https://api.venice.ai/api/v1/x402/top-up",
+      "request_headers": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "Payment-Signature": [
+          "eyJ4NDAyVmVyc2lvbiI6Miwic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoiYmFzZSIsImFjY2VwdGVkIjp7InByb3RvY29sIjoieDQwMiIsInZlcnNpb24iOjIsIm5ldHdvcmsiOiJlaXAxNTU6ODQ1MyIsImFzc2V0IjoiMHg4MzM1ODlmQ0Q2ZURiNkUwOGY0YzdDMzJENGY3MWI1NGJkQTAyOTEzIiwiYW1vdW50IjoiNTAwMDAwMCIsInBheVRvIjoiMHgyNjcwQjkyMmVmMzdDN0RmNDcxNTg3MjVDMENDNDA3YjUzODIyOTNGIn0sInBheWxvYWQiOnsic2lnbmF0dXJlIjoiMHgwNjcxYWI0ODJhYzZjZjM1YTAwYTA5MDdkMDM4ODY0NjhiYzRiYmVkY2M3ZTc5MzAyMGU1MzVkNjliN2VmNDJjNDQ1YmI5M2IzYWNiNjFhNzU0M2RmNjE3MDI2MzgyOWYzZDBlYzViZGI5M2RiOTAzMzM3NDdjOTdjMmZlMGM2YjFjIiwiYXV0aG9yaXphdGlvbiI6eyJmcm9tIjoiMHhkRDEyREVjYmVhNGJkMEJjNDE0YWY2MzVhMzM5OGY1MEZBMjkxZTQ1IiwidG8iOiIweDI2NzBCOTIyZWYzN0M3RGY0NzE1ODcyNUMwQ0M0MDdiNTM4MjI5M0YiLCJ2YWx1ZSI6IjUwMDAwMDAiLCJ2YWxpZEFmdGVyIjoiMCIsInZhbGlkQmVmb3JlIjoiMTc3ODA2OTM2NyIsIm5vbmNlIjoiMHhhZjA5ZmNkMzE3YzNhZWI0ZTAwZTAwM2E0ZWZhYTE0N2I1NzMwOWY1NGE0NGE3M2Q2ZDFiNGIyNWYzMzU3ZjhhIn19fQ=="
+        ],
+        "X-402-Payment": [
+          "eyJ4NDAyVmVyc2lvbiI6Miwic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoiYmFzZSIsImFjY2VwdGVkIjp7InByb3RvY29sIjoieDQwMiIsInZlcnNpb24iOjIsIm5ldHdvcmsiOiJlaXAxNTU6ODQ1MyIsImFzc2V0IjoiMHg4MzM1ODlmQ0Q2ZURiNkUwOGY0YzdDMzJENGY3MWI1NGJkQTAyOTEzIiwiYW1vdW50IjoiNTAwMDAwMCIsInBheVRvIjoiMHgyNjcwQjkyMmVmMzdDN0RmNDcxNTg3MjVDMENDNDA3YjUzODIyOTNGIn0sInBheWxvYWQiOnsic2lnbmF0dXJlIjoiMHgwNjcxYWI0ODJhYzZjZjM1YTAwYTA5MDdkMDM4ODY0NjhiYzRiYmVkY2M3ZTc5MzAyMGU1MzVkNjliN2VmNDJjNDQ1YmI5M2IzYWNiNjFhNzU0M2RmNjE3MDI2MzgyOWYzZDBlYzViZGI5M2RiOTAzMzM3NDdjOTdjMmZlMGM2YjFjIiwiYXV0aG9yaXphdGlvbiI6eyJmcm9tIjoiMHhkRDEyREVjYmVhNGJkMEJjNDE0YWY2MzVhMzM5OGY1MEZBMjkxZTQ1IiwidG8iOiIweDI2NzBCOTIyZWYzN0M3RGY0NzE1ODcyNUMwQ0M0MDdiNTM4MjI5M0YiLCJ2YWx1ZSI6IjUwMDAwMDAiLCJ2YWxpZEFmdGVyIjoiMCIsInZhbGlkQmVmb3JlIjoiMTc3ODA2OTM2NyIsIm5vbmNlIjoiMHhhZjA5ZmNkMzE3YzNhZWI0ZTAwZTAwM2E0ZWZhYTE0N2I1NzMwOWY1NGE0NGE3M2Q2ZDFiNGIyNWYzMzU3ZjhhIn19fQ=="
+        ],
+        "X-Payment": [
+          "eyJ4NDAyVmVyc2lvbiI6Miwic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoiYmFzZSIsImFjY2VwdGVkIjp7InByb3RvY29sIjoieDQwMiIsInZlcnNpb24iOjIsIm5ldHdvcmsiOiJlaXAxNTU6ODQ1MyIsImFzc2V0IjoiMHg4MzM1ODlmQ0Q2ZURiNkUwOGY0YzdDMzJENGY3MWI1NGJkQTAyOTEzIiwiYW1vdW50IjoiNTAwMDAwMCIsInBheVRvIjoiMHgyNjcwQjkyMmVmMzdDN0RmNDcxNTg3MjVDMENDNDA3YjUzODIyOTNGIn0sInBheWxvYWQiOnsic2lnbmF0dXJlIjoiMHgwNjcxYWI0ODJhYzZjZjM1YTAwYTA5MDdkMDM4ODY0NjhiYzRiYmVkY2M3ZTc5MzAyMGU1MzVkNjliN2VmNDJjNDQ1YmI5M2IzYWNiNjFhNzU0M2RmNjE3MDI2MzgyOWYzZDBlYzViZGI5M2RiOTAzMzM3NDdjOTdjMmZlMGM2YjFjIiwiYXV0aG9yaXphdGlvbiI6eyJmcm9tIjoiMHhkRDEyREVjYmVhNGJkMEJjNDE0YWY2MzVhMzM5OGY1MEZBMjkxZTQ1IiwidG8iOiIweDI2NzBCOTIyZWYzN0M3RGY0NzE1ODcyNUMwQ0M0MDdiNTM4MjI5M0YiLCJ2YWx1ZSI6IjUwMDAwMDAiLCJ2YWxpZEFmdGVyIjoiMCIsInZhbGlkQmVmb3JlIjoiMTc3ODA2OTM2NyIsIm5vbmNlIjoiMHhhZjA5ZmNkMzE3YzNhZWI0ZTAwZTAwM2E0ZWZhYTE0N2I1NzMwOWY1NGE0NGE3M2Q2ZDFiNGIyNWYzMzU3ZjhhIn19fQ=="
+        ],
+        "X-Sign-In-With-X": [
+          "\u003cREDACTED\u003e"
+        ]
+      },
+      "request_body": "{}",
+      "response_status": 200,
+      "response_headers": {
+        "Access-Control-Allow-Credentials": [
+          "true"
+        ],
+        "Access-Control-Allow-Origin": [
+          "*"
+        ],
+        "Access-Control-Expose-Headers": [
+          "*"
+        ],
+        "Cf-Cache-Status": [
+          "DYNAMIC"
+        ],
+        "Cf-Ray": [
+          "9f77ded3fd57089b-OMA"
+        ],
+        "Content-Security-Policy": [
+          "default-src 'none'; frame-ancestors *; upgrade-insecure-requests"
+        ],
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ],
+        "Date": [
+          "Wed, 06 May 2026 12:08:28 GMT"
+        ],
+        "Etag": [
+          "W/\"ac-2s02bkfeUJyQmdBII5x+NmR+dao\""
+        ],
+        "Permissions-Policy": [
+          "geolocation=(), camera=()"
+        ],
+        "Referrer-Policy": [
+          "strict-origin"
+        ],
+        "Server": [
+          "cloudflare"
+        ],
+        "Server-Timing": [
+          "cfCacheStatus;desc=\"DYNAMIC\"",
+          "cfEdge;dur=16,cfOrigin;dur=1098"
+        ],
+        "Set-Cookie": [
+          "_cfuvid=J79KPVMMhhJFkSczLxEA0RYLLPVHskizwB50yZwO264-1778069307.5115488-1.0.1.1-qVtf_K06iAWmimwJw6BxUGjdDX1at1AzQX94h843moE; HttpOnly; SameSite=None; Secure; Path=/; Domain=venice.ai"
+        ],
+        "Strict-Transport-Security": [
+          "max-age=31536000; includeSubDomains; preload"
+        ],
+        "Vary": [
+          "Accept-Encoding"
+        ],
+        "X-Cloud-Trace-Context": [
+          "ce384d9c95ba06ccd1c4e76b1662a1f8"
+        ],
+        "X-Content-Type-Options": [
+          "nosniff"
+        ],
+        "X-Frame-Options": [
+          "SAMEORIGIN"
+        ]
+      },
+      "response_body": "{\"success\":true,\"data\":{\"walletAddress\":\"0xdd12decbea4bd0bc414af635a3398f50fa291e45\",\"amountCredited\":5,\"newBalance\":5,\"paymentId\":\"x402-3f8192ada2051c0edef7b301ad7cf567\"}}"
+    }
+  ]
+}

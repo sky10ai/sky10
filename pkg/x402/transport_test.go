@@ -249,12 +249,10 @@ func TestTransportCallV2RoundtripAssertsWireShape(t *testing.T) {
 	// payload. NO top-level scheme/network — those live inside
 	// `accepted`.
 	assertJSONField(t, pay.Top, "x402Version", float64(X402ProtocolV2))
-	if _, ok := pay.Top["scheme"]; ok {
-		t.Fatalf("v2 envelope should NOT contain top-level `scheme`")
-	}
-	if _, ok := pay.Top["network"]; ok {
-		t.Fatalf("v2 envelope should NOT contain top-level `network`")
-	}
+	// Top-level scheme/network are present (canonical x402 npm
+	// shape; Venice requires them). network is normalized to bare.
+	assertJSONField(t, pay.Top, "scheme", "exact")
+	assertJSONField(t, pay.Top, "network", "base")
 	if _, ok := pay.Top["accepted"]; !ok {
 		t.Fatalf("v2 envelope missing `accepted`")
 	}

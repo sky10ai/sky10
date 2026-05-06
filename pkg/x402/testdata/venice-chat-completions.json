@@ -1,0 +1,89 @@
+{
+  "service": "venice-ai",
+  "method": "POST",
+  "url": "https://api.venice.ai/api/v1/chat/completions",
+  "captured_at_utc": "2026-05-06T12:08:37Z",
+  "exchanges": [
+    {
+      "request_method": "POST",
+      "request_url": "https://api.venice.ai/api/v1/chat/completions",
+      "request_headers": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "X-Sign-In-With-X": [
+          "\u003cREDACTED\u003e"
+        ]
+      },
+      "request_body": "{\"model\":\"venice-uncensored\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hi in three words.\"}]}",
+      "response_status": 200,
+      "response_headers": {
+        "Access-Control-Allow-Credentials": [
+          "true"
+        ],
+        "Access-Control-Allow-Origin": [
+          "*"
+        ],
+        "Access-Control-Expose-Headers": [
+          "*"
+        ],
+        "Cf-Cache-Status": [
+          "DYNAMIC"
+        ],
+        "Cf-Ray": [
+          "9f77df0cdd368df3-OMA"
+        ],
+        "Content-Security-Policy": [
+          "default-src 'none'; frame-ancestors *; upgrade-insecure-requests"
+        ],
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ],
+        "Date": [
+          "Wed, 06 May 2026 12:08:37 GMT"
+        ],
+        "Etag": [
+          "W/\"37e-wo8r2DPFGoZmapGK++//o20E9Hk\""
+        ],
+        "Permissions-Policy": [
+          "geolocation=(), camera=()"
+        ],
+        "Referrer-Policy": [
+          "strict-origin"
+        ],
+        "Server": [
+          "cloudflare"
+        ],
+        "Server-Timing": [
+          "cfCacheStatus;desc=\"DYNAMIC\"",
+          "cfEdge;dur=4,cfOrigin;dur=1043"
+        ],
+        "Set-Cookie": [
+          "_cfuvid=Xy4Ir9S_qIjYQtza7mdAkN0cyHON1ZYmIK_y1o208aI-1778069316.618298-1.0.1.1-oT1Y6XLOGXIf.x.0qstsyGA56r1pQZ4C1i6D69wk4f0; HttpOnly; SameSite=None; Secure; Path=/; Domain=venice.ai"
+        ],
+        "Strict-Transport-Security": [
+          "max-age=31536000; includeSubDomains; preload"
+        ],
+        "Vary": [
+          "Accept-Encoding"
+        ],
+        "X-Cloud-Trace-Context": [
+          "3682bb48754f4651ed3e763756785917"
+        ],
+        "X-Content-Type-Options": [
+          "nosniff"
+        ],
+        "X-Frame-Options": [
+          "SAMEORIGIN"
+        ],
+        "X-Ratelimit-Remaining": [
+          "20"
+        ],
+        "X-Ratelimit-Resets": [
+          "1778069346691"
+        ]
+      },
+      "response_body": "{\"id\":\"chatcmpl-84d72ef5e4605219\",\"object\":\"chat.completion\",\"created\":1778069317,\"model\":\"venice-uncensored-1-2\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Hello there friend.\",\"refusal\":null,\"annotations\":null,\"audio\":null,\"function_call\":null,\"tool_calls\":[],\"reasoning\":null},\"logprobs\":null,\"finish_reason\":\"stop\",\"stop_reason\":null,\"token_ids\":null}],\"service_tier\":null,\"usage\":{\"prompt_tokens\":1578,\"completion_tokens\":5,\"total_tokens\":1583},\"prompt_logprobs\":null,\"prompt_token_ids\":null,\"kv_transfer_params\":null,\"venice_parameters\":{\"strip_thinking_response\":false,\"disable_thinking\":false,\"enable_e2ee\":true,\"enable_web_search\":\"off\",\"enable_web_scraping\":false,\"enable_web_citations\":false,\"include_search_results_in_stream\":false,\"include_venice_system_prompt\":true,\"enable_x_search\":false,\"web_search_citations\":[],\"return_search_results_as_documents\":false}}"
+    }
+  ]
+}

@@ -221,11 +221,16 @@ func TestEncodePaymentV2(t *testing.T) {
 	if top["x402Version"] != float64(X402ProtocolV2) {
 		t.Fatalf("x402Version = %v, want %d", top["x402Version"], X402ProtocolV2)
 	}
-	if _, exists := top["scheme"]; exists {
-		t.Fatalf("v2 envelope should NOT carry top-level `scheme`; got %v", top["scheme"])
+	// Top-level scheme/network are present in addition to the
+	// nested `accepted` block — the canonical x402 npm shape that
+	// Venice's verifier requires (other facilitators tolerate them).
+	// network is normalized to the bare canonical form ("base"),
+	// not CAIP-2.
+	if top["scheme"] != "exact" {
+		t.Fatalf("envelope.scheme = %v, want \"exact\"", top["scheme"])
 	}
-	if _, exists := top["network"]; exists {
-		t.Fatalf("v2 envelope should NOT carry top-level `network`; got %v", top["network"])
+	if top["network"] != "base" {
+		t.Fatalf("envelope.network = %v, want \"base\" (bare, normalized)", top["network"])
 	}
 	accepted, ok := top["accepted"].(map[string]any)
 	if !ok {

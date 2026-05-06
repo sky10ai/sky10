@@ -54,19 +54,38 @@ func parseChallengeV2Header(value string) (PaymentChallenge, error) {
 	if err != nil {
 		return PaymentChallenge{}, fmt.Errorf("decode v2 challenge header: %w", err)
 	}
-	var v2 paymentChallengeV2
-	if err := json.Unmarshal(raw, &v2); err != nil {
+	// Decode into a permissive outer shape so we can keep each
+	// accepts entry's raw bytes for verbatim echo on the X-PAYMENT
+	// envelope. Some servers (Venice) emit non-spec per-entry
+	// fields that the verifier expects mirrored back exactly.
+	var rawOuter struct {
+		X402Version int                        `json:"x402Version"`
+		Accepts     []json.RawMessage          `json:"accepts"`
+		Resource    *Resource                  `json:"resource,omitempty"`
+		Extensions  map[string]json.RawMessage `json:"extensions,omitempty"`
+		Error       string                     `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &rawOuter); err != nil {
 		return PaymentChallenge{}, fmt.Errorf("decode v2 challenge JSON: %w", err)
 	}
-	if len(v2.Accepts) == 0 {
+	if len(rawOuter.Accepts) == 0 {
 		return PaymentChallenge{}, errors.New("challenge offered no payment options")
 	}
-	out := PaymentChallenge{Version: X402ProtocolV2, Resource: v2.Resource}
-	for _, r := range v2.Accepts {
+	out := PaymentChallenge{
+		Version:    X402ProtocolV2,
+		Resource:   rawOuter.Resource,
+		Extensions: rawOuter.Extensions,
+	}
+	for _, entry := range rawOuter.Accepts {
+		var r paymentRequirementsV2
+		if err := json.Unmarshal(entry, &r); err != nil {
+			return PaymentChallenge{}, err
+		}
 		canon, err := toCanonicalV2(r)
 		if err != nil {
 			return PaymentChallenge{}, err
 		}
+		canon.RawWire = append(json.RawMessage(nil), entry...)
 		out.Accepts = append(out.Accepts, canon)
 	}
 	return out, nil
@@ -107,21 +126,59 @@ func toCanonicalV2(r paymentRequirementsV2) (PaymentRequirements, error) {
 
 // encodePaymentV2 builds the X-PAYMENT base64 string for a v2 server.
 // `inner` is a JSON-encoded ExactSchemePayload; the outer envelope
-// includes `accepted` (the picked requirement, mirrored back into v2
-// wire shape) and `resource` (echoed from the challenge).
+// is a hybrid that satisfies every facilitator we've observed:
+//
+//   - top-level `scheme` and `network` (canonical x402 npm shape;
+//     Venice's verifier hard-requires these and won't accept
+//     the v2 nested-only form)
+//   - `accepted` block echoed from the challenge (Smartflow's
+//     verifier reads this to confirm the picked requirement;
+//     omitting it triggers their replay-protection check)
+//   - `resource` block echoed when present (Smartflow again)
+//
+// Top-level `network` normalizes to the bare canonical name
+// ("base", "solana") since Venice rejects CAIP-2 here.
+//
+// When the requirement carries RawWire bytes (set by the parser) we
+// echo them verbatim under `accepted` so vendor extensions
+// (Venice's protocol/version per accepts entry) round-trip exactly.
 func encodePaymentV2(req PaymentRequirements, inner json.RawMessage, resource *Resource) (string, error) {
-	wire := paymentRequirementsV2{
-		Scheme:            req.Scheme,
-		Network:           req.Network,
-		Amount:            req.AmountMicros,
-		PayTo:             req.PayTo,
-		Asset:             req.Asset,
-		MaxTimeoutSeconds: req.MaxTimeoutSeconds,
-		Extra:             req.Extra,
+	var accepted json.RawMessage
+	if len(req.RawWire) > 0 {
+		accepted = append(json.RawMessage(nil), req.RawWire...)
+	} else {
+		wire := paymentRequirementsV2{
+			Scheme:            req.Scheme,
+			Network:           req.Network,
+			Amount:            req.AmountMicros,
+			PayTo:             req.PayTo,
+			Asset:             req.Asset,
+			MaxTimeoutSeconds: req.MaxTimeoutSeconds,
+			Extra:             req.Extra,
+		}
+		raw, err := json.Marshal(wire)
+		if err != nil {
+			return "", fmt.Errorf("encode v2 accepted: %w", err)
+		}
+		accepted = raw
 	}
-	payload := paymentPayloadV2{
+	scheme := strings.TrimSpace(req.Scheme)
+	if scheme == "" {
+		scheme = SchemeExact
+	}
+	network := normalizeNetworkBare(req.Network)
+	payload := struct {
+		X402Version int             `json:"x402Version"`
+		Scheme      string          `json:"scheme"`
+		Network     string          `json:"network"`
+		Accepted    json.RawMessage `json:"accepted,omitempty"`
+		Resource    *Resource       `json:"resource,omitempty"`
+		Payload     json.RawMessage `json:"payload"`
+	}{
 		X402Version: X402ProtocolV2,
-		Accepted:    wire,
+		Scheme:      scheme,
+		Network:     network,
+		Accepted:    accepted,
 		Resource:    resource,
 		Payload:     inner,
 	}
@@ -130,6 +187,19 @@ func encodePaymentV2(req PaymentRequirements, inner json.RawMessage, resource *R
 		return "", fmt.Errorf("encode v2 payload: %w", err)
 	}
 	return base64.StdEncoding.EncodeToString(raw), nil
+}
+
+// normalizeNetworkBare returns the bare canonical name ("base",
+// "solana") for a wire network identifier. Venice's verifier (and
+// the canonical x402 npm `createPaymentHeader`) reject CAIP-2
+// identifiers in the top-level envelope, even though they accept
+// them inside `accepted`.
+func normalizeNetworkBare(network string) string {
+	canon, ok := canonicalizeNetwork(network)
+	if !ok {
+		return network
+	}
+	return string(canon)
 }
 
 // parseReceipt extracts a PaymentReceipt from a Payment-Response or

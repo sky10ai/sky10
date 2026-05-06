@@ -22,14 +22,19 @@ var ErrPaymentNotAccepted = errors.New("x402: payment not accepted by service")
 // the challenge into a Payment-Required header and the receipt into
 // a Payment-Response header.
 //
-// On retry we set BOTH X-Payment and Payment-Signature with the
-// same base64 envelope value — that's what OWS pay request emits
-// and some servers (Smartflow) check the Payment-Signature header
-// rather than X-Payment. Receipts are read from either Payment-Response
-// or X-Payment-Response, whichever the server sets first.
+// On retry we set THREE request headers with the same base64
+// envelope value:
+//
+//   - X-Payment (the spec-canonical name; Coinbase, Exa, etc. read this)
+//   - Payment-Signature (Smartflow's verifier reads this one)
+//   - X-402-Payment (Venice's reference SDK uses this, no other name)
+//
+// Receipts are read from either Payment-Response or
+// X-Payment-Response, whichever the server sets first.
 const (
 	HeaderPayment            = "X-PAYMENT"
 	HeaderPaymentSignatureV2 = "Payment-Signature"
+	HeaderPaymentVenice      = "X-402-Payment"
 	HeaderPaymentResponse    = "X-PAYMENT-RESPONSE"
 	HeaderPaymentRequiredV2  = "Payment-Required"
 	HeaderPaymentResponseV2  = "Payment-Response"
@@ -164,6 +169,7 @@ func (t *Transport) do(ctx context.Context, req CallRequest, paymentHeader strin
 	if paymentHeader != "" {
 		httpReq.Header.Set(HeaderPayment, paymentHeader)
 		httpReq.Header.Set(HeaderPaymentSignatureV2, paymentHeader)
+		httpReq.Header.Set(HeaderPaymentVenice, paymentHeader)
 	}
 	return t.HTTP.Do(httpReq)
 }

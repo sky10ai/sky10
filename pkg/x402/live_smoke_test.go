@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -162,18 +163,48 @@ func liveSmokeCases() []liveSmokeCase {
 		},
 
 		// --- SIWX-authenticated services ---
-		// Venice's /x402/balance/{wallet} is gated on SIWX but
-		// doesn't charge — perfect free smoke for the SIWX header
-		// path. Backend.Call attaches X-Sign-In-With-X (built from
-		// our wallet) and Venice returns the wallet's spendable
-		// balance. Verifies the SIWE message construction and
-		// EIP-191 signature reach Venice's verifier intact.
+		//
+		// Venice's full integration is the prototype for any
+		// deposit-style x402 service: pay once via x402 to top up
+		// a server-side credit balance keyed by wallet address,
+		// then call data endpoints with X-Sign-In-With-X for
+		// session auth. Cases below run in order — top-up must
+		// settle before chat-completions can draw from credits.
+		//
+		// The {walletAddress} placeholder in path is resolved at
+		// runtime from the OWS-bound wallet so we never check a
+		// dev address into the test source.
+		{
+			id:           "venice-top-up",
+			manifestID:   "venice-ai",
+			displayName:  "Venice AI Top-Up",
+			endpointHost: "https://api.venice.ai",
+			path:         "/api/v1/x402/top-up",
+			method:       "POST",
+			body:         []byte(`{}`),
+			maxPriceUSDC: "5.500",
+			networks:     []Network{NetworkBase},
+			siwxDomain:   "api.venice.ai",
+		},
+		{
+			id:           "venice-chat-completions",
+			manifestID:   "venice-ai",
+			displayName:  "Venice AI Chat",
+			endpointHost: "https://api.venice.ai",
+			path:         "/api/v1/chat/completions",
+			method:       "POST",
+			body:         []byte(`{"model":"venice-uncensored","messages":[{"role":"user","content":"Say hi in three words."}]}`),
+			maxPriceUSDC: "0.020",
+			networks:     []Network{NetworkBase},
+			siwxDomain:   "api.venice.ai",
+			expectFreeOK: true,
+		},
 		{
 			id:           "venice-balance",
 			manifestID:   "venice-ai",
-			displayName:  "Venice AI",
+			displayName:  "Venice AI Balance",
 			endpointHost: "https://api.venice.ai",
-			path:         "/api/v1/x402/balance/0xdD12DEcbea4bd0Bc414af635a3398f50FA291e45",
+			path:         "/api/v1/x402/balance/{walletAddress}",
 			method:       "GET",
 			maxPriceUSDC: "0.005",
 			networks:     []Network{NetworkBase},
@@ -214,7 +245,10 @@ func TestX402LiveSmoke(t *testing.T) {
 
 	for _, tc := range liveSmokeCases() {
 		tc := tc
-		if only != "" && only != tc.id {
+		// X402_LIVE_ONLY is a prefix match so a single env var
+		// can scope to a service family (e.g. "venice" picks
+		// venice-top-up + venice-chat-completions + venice-balance).
+		if only != "" && !strings.HasPrefix(tc.id, only) {
 			continue
 		}
 		t.Run(tc.id, func(t *testing.T) {
@@ -254,7 +288,9 @@ func runLiveCase(t *testing.T, signer Signer, tc liveSmokeCase) {
 	budget := NewBudget(time.Now, NewMemoryReceiptStore())
 	if err := budget.SetAgentBudget("smoke-agent", BudgetConfig{
 		PerCallMaxUSDC: tc.maxPriceUSDC,
-		DailyCapUSDC:   "5.000",
+		// Daily cap is $10 — wide enough for Venice's $5 top-up
+		// plus the per-call envelope of every other smoke target.
+		DailyCapUSDC: "10.000",
 	}); err != nil {
 		t.Fatalf("SetAgentBudget: %v", err)
 	}
@@ -270,6 +306,7 @@ func runLiveCase(t *testing.T, signer Signer, tc liveSmokeCase) {
 		Transport: transport,
 		Budget:    budget,
 	}
+	requestPath := tc.path
 	if tc.siwxDomain != "" {
 		// Resolve the wallet's Base address — SIWX uses the
 		// EVM-style checksummed pubkey as the message subject.
@@ -285,6 +322,9 @@ func runLiveCase(t *testing.T, signer Signer, tc liveSmokeCase) {
 			WalletAddress: addr,
 			Signer:        siwx.NewOWSSigner(owsSigner.Client, owsSigner.WalletName),
 		}
+		// Resolve the {walletAddress} placeholder so the test
+		// source itself stays free of any specific dev address.
+		requestPath = strings.ReplaceAll(requestPath, "{walletAddress}", addr)
 	}
 	backend := NewBackend(backendOpts)
 
@@ -292,12 +332,12 @@ func runLiveCase(t *testing.T, signer Signer, tc liveSmokeCase) {
 	if tc.method == "POST" {
 		headers["Content-Type"] = "application/json"
 	}
-	t.Logf("%s %s", tc.method, tc.endpointHost+tc.path)
+	t.Logf("%s %s", tc.method, tc.endpointHost+requestPath)
 
 	result, err := backend.Call(ctx, CallParams{
 		AgentID:      "smoke-agent",
 		ServiceID:    manifest.ID,
-		Path:         tc.path,
+		Path:         requestPath,
 		Method:       tc.method,
 		Headers:      headers,
 		Body:         tc.body,
@@ -392,12 +432,13 @@ type liveFixture struct {
 }
 
 func writeLiveFixture(tc liveSmokeCase, rt *capturingRoundTripper) error {
+	exchanges := redactSensitive(rt.captured)
 	out := liveFixture{
 		Service:       tc.manifestID,
 		Method:        tc.method,
 		URL:           tc.endpointHost + tc.path,
 		CapturedAtUTC: time.Now().UTC().Format(time.RFC3339),
-		Exchanges:     rt.captured,
+		Exchanges:     exchanges,
 	}
 	raw, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
@@ -405,6 +446,42 @@ func writeLiveFixture(tc liveSmokeCase, rt *capturingRoundTripper) error {
 	}
 	path := filepath.Join("testdata", tc.id+".json")
 	return os.WriteFile(path, append(raw, '\n'), 0o644)
+}
+
+// redactSensitive scrubs wallet-attributed material from captured
+// exchanges before they hit disk. The X-Sign-In-With-X envelope
+// embeds the wallet address, the SIWE message, and the EIP-191
+// signature; all three are wallet-bound and we don't want them
+// committed to the repo. X-PAYMENT envelopes (per-call x402) are
+// left in place — they're tied to a single nonce + blockhash and
+// have already been committed for the other smokes; their inclusion
+// in fixtures makes the structural tests possible.
+func redactSensitive(in []capturedExchange) []capturedExchange {
+	out := make([]capturedExchange, len(in))
+	for i, e := range in {
+		copy := e
+		copy.RequestHeaders = redactHeaders(e.RequestHeaders)
+		copy.ResponseHeaders = redactHeaders(e.ResponseHeaders)
+		out[i] = copy
+	}
+	return out
+}
+
+func redactHeaders(h http.Header) http.Header {
+	if h == nil {
+		return nil
+	}
+	out := make(http.Header, len(h))
+	for k, vs := range h {
+		if strings.EqualFold(k, "X-Sign-In-With-X") {
+			out[k] = []string{"<REDACTED>"}
+			continue
+		}
+		copies := make([]string, len(vs))
+		copy(copies, vs)
+		out[k] = copies
+	}
+	return out
 }
 
 func truncate(b []byte, n int) string {
