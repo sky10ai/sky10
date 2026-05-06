@@ -24,6 +24,9 @@ TOOLS_BIN ?= $(CURDIR)/.tools/bin
 GOEXE := $(shell go env GOEXE)
 GOLANGCI_LINT_VERSION ?= v2.11.4
 GOLANGCI_LINT := $(TOOLS_BIN)/golangci-lint$(GOEXE)
+MODULE_PATH := $(shell go list -m -f '{{.Path}}' 2>/dev/null || echo github.com/sky10/sky10)
+COVERAGE_PACKAGES := $(shell go list -f '{{.ImportPath}}' ./... | grep -Ev '^$(MODULE_PATH)/(commands|external)(/|$$)' | paste -sd, -)
+COVERAGE_TEST_PACKAGES := $(shell go list -f '{{.ImportPath}}' ./... | grep -Ev '^$(MODULE_PATH)/(commands|external)(/|$$)')
 
 export CGO_ENABLED := 0
 
@@ -41,7 +44,7 @@ endif
 MENU_SOURCE_DATE_EPOCH := $(shell git log -1 --format=%ct 2>/dev/null || echo 0)
 MENU_RUSTFLAGS := --remap-path-prefix=$(CURDIR)=/workspace $(MENU_LINK_RUSTFLAGS)
 
-.PHONY: all build build-go build-web build-menu web-dev test test-skyfs test-skyfs-cli test-skyfs-cli-v test-skyfs-p2p-integration test-skyfs-daemon-integration ensure-web-dist check vet fmt lint verify tools clean install dev-install restart-daemon go-install reproduce reproduce-menu platforms checksums
+.PHONY: all build build-go build-web build-menu web-dev test test-skyfs test-skyfs-cli test-skyfs-cli-v test-skyfs-p2p-integration test-skyfs-daemon-integration coverage coverage-func coverage-html ensure-web-dist check vet fmt lint verify tools clean install dev-install restart-daemon go-install reproduce reproduce-menu platforms checksums
 
 # --- Default ---
 
@@ -80,6 +83,7 @@ build-go:
 #   make test-skyfs-cli-v         Go tests verbose
 #   make test-skyfs-p2p-integration     tagged FS p2p integration tests
 #   make test-skyfs-daemon-integration  tagged FS daemon process integration tests
+#   make coverage                       write coverage.out and print total coverage
 
 test: test-skyfs
 
@@ -99,6 +103,19 @@ test-skyfs-p2p-integration:
 test-skyfs-daemon-integration:
 	@echo "=== test-skyfs-daemon-integration (Go, tagged) ==="
 	go test ./integration -tags=integration,skyfs_daemon -run 'TestIntegration.*FS' -v -count=1
+
+coverage.out: | ensure-web-dist
+	go test $(COVERAGE_TEST_PACKAGES) -count=1 -coverprofile=$@.tmp -covermode=atomic -coverpkg=$(COVERAGE_PACKAGES)
+	mv $@.tmp $@
+
+coverage: coverage.out
+	@go tool cover -func=coverage.out | awk '/^total:/ {print $$0}'
+
+coverage-func: coverage.out
+	go tool cover -func=coverage.out
+
+coverage-html: coverage.out
+	go tool cover -html=coverage.out -o coverage.html
 
 # --- Lint ---
 
