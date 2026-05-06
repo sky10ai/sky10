@@ -121,6 +121,35 @@ func liveSmokeCases() []liveSmokeCase {
 			maxPriceUSDC: "0.020",
 			networks:     []Network{NetworkSolana},
 		},
+
+		// Messari exposes the same paid endpoint on both Base and
+		// Solana mainnet (the catalog only lists the Base side; the
+		// live 402 challenge advertises both). Using two manifest
+		// IDs and the networks field to drive PreferAndCheapest to
+		// the right tier per case. Each call costs $0.10 — pricier
+		// than the others but worth it to cover Messari's distinct
+		// SVM facilitator (Hc3sdEAs…) and confirm the same code path
+		// settles cleanly across multiple operators.
+		{
+			id:           "messari-roi-base",
+			manifestID:   "api-messari-io-base",
+			displayName:  "Messari Metrics (Base)",
+			endpointHost: "https://api.messari.io",
+			path:         "/metrics/v2/assets/roi?slugs=bitcoin",
+			method:       "GET",
+			maxPriceUSDC: "0.150",
+			networks:     []Network{NetworkBase},
+		},
+		{
+			id:           "messari-roi-solana",
+			manifestID:   "api-messari-io-solana",
+			displayName:  "Messari Metrics (Solana)",
+			endpointHost: "https://api.messari.io",
+			path:         "/metrics/v2/assets/roi?slugs=bitcoin",
+			method:       "GET",
+			maxPriceUSDC: "0.150",
+			networks:     []Network{NetworkSolana},
+		},
 	}
 }
 
@@ -193,8 +222,8 @@ func runLiveCase(t *testing.T, signer Signer, tc liveSmokeCase) {
 
 	budget := NewBudget(time.Now, NewMemoryReceiptStore())
 	if err := budget.SetAgentBudget("smoke-agent", BudgetConfig{
-		PerCallMaxUSDC: "0.050",
-		DailyCapUSDC:   "1.000",
+		PerCallMaxUSDC: tc.maxPriceUSDC,
+		DailyCapUSDC:   "5.000",
 	}); err != nil {
 		t.Fatalf("SetAgentBudget: %v", err)
 	}

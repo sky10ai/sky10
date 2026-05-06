@@ -131,24 +131,34 @@ func encodePaymentV2(req PaymentRequirements, inner json.RawMessage, resource *R
 
 // parseReceipt extracts a PaymentReceipt from a Payment-Response or
 // X-PAYMENT-RESPONSE header value. The wire is messy in the wild:
-// some services emit plain JSON, others base64 JSON, the tx field
-// is sometimes `tx` and sometimes `transaction`, and the same
-// service might use a v1-named header with v2-encoded content
-// (Blockrun ships X-Payment-Response containing base64 JSON with a
-// `transaction` field). This parser is intentionally version-blind
-// because the receipt's encoding doesn't track the request/response
-// version cleanly.
+//
+//   - some services emit plain JSON ({"tx": "0x…", "network": "base"})
+//   - some emit base64-wrapped JSON with `transaction` instead of `tx`
+//     (Blockrun does this even under the v1-named X-Payment-Response)
+//   - some emit the bare tx identifier with no JSON wrapper at all
+//     (Messari sets X-Payment-Response to "0x<64 hex>" on Base or an
+//     88-character base58 string on Solana)
+//
+// The parser is version-blind because the receipt encoding doesn't
+// track the request/response version cleanly. We try the JSON paths
+// first; if they fail we fall back to treating the value as a bare
+// tx identifier.
 func parseReceipt(value string) (PaymentReceipt, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return PaymentReceipt{}, errors.New("empty receipt header")
 	}
-	// First try base64 → JSON (the v2-style encoding most current
-	// servers ship). Fall back to plain JSON for v1-era servers.
-	raw, err := decodePaymentB64(value)
-	if err != nil {
-		raw = []byte(value)
+	if r, ok := parseReceiptJSON(value); ok {
+		return r, nil
 	}
+	if r, ok := parseReceiptBareTx(value); ok {
+		return r, nil
+	}
+	return PaymentReceipt{}, fmt.Errorf("receipt parse: unrecognized format (length=%d)", len(value))
+}
+
+// parseReceiptJSON tries plain JSON, then base64-decoded JSON.
+func parseReceiptJSON(value string) (PaymentReceipt, bool) {
 	var loose struct {
 		Success     bool    `json:"success,omitempty"`
 		Transaction string  `json:"transaction,omitempty"`
@@ -158,13 +168,18 @@ func parseReceipt(value string) (PaymentReceipt, error) {
 		Asset       string  `json:"asset,omitempty"`
 		AmountUSDC  string  `json:"amount_usdc,omitempty"`
 	}
-	if err := json.Unmarshal(raw, &loose); err != nil {
-		// As a last resort, try the original value as JSON (handles
-		// the "wasn't actually base64" case where decodePaymentB64's
-		// permissive variants happened to match noise bytes).
-		if jerr := json.Unmarshal([]byte(value), &loose); jerr != nil {
-			return PaymentReceipt{}, fmt.Errorf("receipt parse: %w", err)
+	tryDecode := func(b []byte) bool {
+		if err := json.Unmarshal(b, &loose); err != nil {
+			return false
 		}
+		return loose.Tx != "" || loose.Transaction != ""
+	}
+	if tryDecode([]byte(value)) {
+		// matched plain JSON
+	} else if raw, err := decodePaymentB64(value); err == nil && tryDecode(raw) {
+		// matched base64-wrapped JSON
+	} else {
+		return PaymentReceipt{}, false
 	}
 	tx := loose.Transaction
 	if tx == "" {
@@ -174,7 +189,62 @@ func parseReceipt(value string) (PaymentReceipt, error) {
 		Tx:         tx,
 		Network:    loose.Network,
 		AmountUSDC: loose.AmountUSDC,
-	}, nil
+	}, true
+}
+
+// parseReceiptBareTx detects a header value that's just a raw tx
+// identifier with no JSON wrapper. Two formats observed in the
+// wild:
+//
+//   - "0x" + 64 hex chars: an EVM (Base) tx hash
+//   - 86–88 base58 chars: a Solana signature (the canonical tx
+//     identifier on SVM, 64 raw bytes encoded as base58)
+//
+// Network is left blank when we can't infer it from the format
+// alone — the caller can backfill from the manifest if needed.
+func parseReceiptBareTx(value string) (PaymentReceipt, bool) {
+	if strings.HasPrefix(value, "0x") || strings.HasPrefix(value, "0X") {
+		hex := value[2:]
+		if len(hex) == 64 && isHex(hex) {
+			return PaymentReceipt{Tx: value, Network: NetworkBase}, true
+		}
+	}
+	if l := len(value); l >= 86 && l <= 88 && isBase58(value) {
+		return PaymentReceipt{Tx: value, Network: NetworkSolana}, true
+	}
+	return PaymentReceipt{}, false
+}
+
+// isHex reports whether every rune is a hex digit (0-9 a-f A-F).
+func isHex(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'f':
+		case r >= 'A' && r <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// isBase58 reports whether every rune is in the Bitcoin/Solana
+// base58 alphabet (no 0, O, I, l).
+func isBase58(s string) bool {
+	const alpha = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !strings.ContainsRune(alpha, r) {
+			return false
+		}
+	}
+	return true
 }
 
 // decodePaymentB64 decodes a base64 string permissively: standard,

@@ -1,0 +1,99 @@
+{
+  "service": "api-messari-io-solana",
+  "method": "GET",
+  "url": "https://api.messari.io/metrics/v2/assets/roi?slugs=bitcoin",
+  "captured_at_utc": "2026-05-06T10:27:46Z",
+  "exchanges": [
+    {
+      "request_method": "GET",
+      "request_url": "https://api.messari.io/metrics/v2/assets/roi?slugs=bitcoin",
+      "request_headers": {},
+      "response_status": 402,
+      "response_headers": {
+        "Alt-Svc": [
+          "h3=\":443\"; ma=86400"
+        ],
+        "Cf-Cache-Status": [
+          "BYPASS"
+        ],
+        "Cf-Ray": [
+          "9f774b45ab9ad8ce-OMA"
+        ],
+        "Content-Length": [
+          "1392"
+        ],
+        "Content-Type": [
+          "application/json"
+        ],
+        "Date": [
+          "Wed, 06 May 2026 10:27:43 GMT"
+        ],
+        "Payment-Required": [
+          "eyJ4NDAyVmVyc2lvbiI6MiwiZXJyb3IiOiJQYXltZW50IFJlcXVpcmVkIiwicmVzb3VyY2UiOnsidXJsIjoiaHR0cHM6Ly9hcGkubWVzc2FyaS5pby9tZXRyaWNzL3YyL2Fzc2V0cy9yb2kiLCJkZXNjcmlwdGlvbiI6IkdldCBtdWx0aS13aW5kb3cgUk9JIHNuYXBzaG90cyBmb3Igb25lIG9yIG1vcmUgY3J5cHRvY3VycmVuY3kgYXNzZXRzLiJ9LCJhY2NlcHRzIjpbeyJzY2hlbWUiOiJleGFjdCIsIm5ldHdvcmsiOiJlaXAxNTU6ODQ1MyIsImFzc2V0IjoiMHg4MzM1ODlmQ0Q2ZURiNkUwOGY0YzdDMzJENGY3MWI1NGJkQTAyOTEzIiwiYW1vdW50IjoiMTAwMDAwIiwicGF5VG8iOiIweDc1RGRkM2M0MmVBY2UxM2M1OUVBMENEMTE0MUI4ODZBMWM3MEQyQTUiLCJtYXhUaW1lb3V0U2Vjb25kcyI6NjAsImV4dHJhIjp7Im5hbWUiOiJVU0QgQ29pbiIsInZlcnNpb24iOiIyIn19LHsic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoic29sYW5hOjVleWt0NFVzRnY4UDhOSmRUUkVwWTF2enFLcVpLdmRwIiwiYXNzZXQiOiJFUGpGV2RkNUF1ZnFTU3FlTTJxTjF4enliYXBDOEc0d0VHR2tad3lURHQxdiIsImFtb3VudCI6IjEwMDAwMCIsInBheVRvIjoialB0MmRmZm1QaTdXRXRWOEo2VUZISlFhYXRFSlZ5dVNGbXo1YjRESEZHOCIsIm1heFRpbWVvdXRTZWNvbmRzIjo2MCwiZXh0cmEiOnsiZmVlUGF5ZXIiOiJIYzNzZEVBc0NHUWNwZ2Zpdnl3b2c5dXd0azhnVUJVWmdzeGRNRTFFSnk4OCJ9fV0sImV4dGVuc2lvbnMiOnsiYmF6YWFyIjp7ImluZm8iOnsiaW5wdXQiOnsibWV0aG9kIjoiR0VUIiwicXVlcnlQYXJhbXMiOnsiY2F0ZWdvcnkiOiJzbWFydC1jb250cmFjdC1wbGF0Zm9ybSIsImlkcyI6ImJpdGNvaW4sZXRoZXJldW0iLCJsaW1pdCI6NTAsInNlYXJjaCI6ImJpdGNvaW4iLCJzZWN0b3IiOiJsYXllci0xIiwic2x1Z3MiOiJiaXRjb2luLGV0aGVyZXVtIiwidGFncyI6WyJzdG9yZS1vZi12YWx1ZSJdfSwidHlwZSI6Imh0dHAifSwib3V0cHV0Ijp7ImV4YW1wbGUiOnsiZGF0YSI6W3siaWQiOiJidGMiLCJyb2lfMzBkIjowfV19fX0sInNjaGVtYSI6eyJwcm9wZXJ0aWVzIjp7ImNhdGVnb3J5Ijp7InR5cGUiOiJzdHJpbmcifSwiaWRzIjp7ImRlc2NyaXB0aW9uIjoiQ29tbWEtc2VwYXJhdGVkIGFzc2V0IGlkcy4iLCJ0eXBlIjoic3RyaW5nIn0sImxpbWl0Ijp7Im1pbmltdW0iOjEsInR5cGUiOiJpbnRlZ2VyIn0sInNlYXJjaCI6eyJ0eXBlIjoic3RyaW5nIn0sInNlY3RvciI6eyJ0eXBlIjoic3RyaW5nIn0sInNsdWdzIjp7ImRlc2NyaXB0aW9uIjoiQ29tbWEtc2VwYXJhdGVkIGFzc2V0IHNsdWdzLiIsInR5cGUiOiJzdHJpbmcifSwidGFncyI6eyJpdGVtcyI6eyJ0eXBlIjoic3RyaW5nIn0sInR5cGUiOiJhcnJheSJ9fSwidHlwZSI6Im9iamVjdCJ9fX19"
+        ],
+        "Server": [
+          "cloudflare"
+        ],
+        "X-Request-Id": [
+          "9b622b9f-7094-4528-9dc0-402f82969c42"
+        ]
+      },
+      "response_body": "{\"x402Version\":2,\"error\":\"Payment Required\",\"resource\":{\"url\":\"https://api.messari.io/metrics/v2/assets/roi\",\"description\":\"Get multi-window ROI snapshots for one or more cryptocurrency assets.\"},\"accepts\":[{\"scheme\":\"exact\",\"network\":\"eip155:8453\",\"asset\":\"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913\",\"amount\":\"100000\",\"payTo\":\"0x75Ddd3c42eAce13c59EA0CD1141B886A1c70D2A5\",\"maxTimeoutSeconds\":60,\"extra\":{\"name\":\"USD Coin\",\"version\":\"2\"}},{\"scheme\":\"exact\",\"network\":\"solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp\",\"asset\":\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\"amount\":\"100000\",\"payTo\":\"jPt2dffmPi7WEtV8J6UFHJQaatEJVyuSFmz5b4DHFG8\",\"maxTimeoutSeconds\":60,\"extra\":{\"feePayer\":\"Hc3sdEAsCGQcpgfivywog9uwtk8gUBUZgsxdME1EJy88\"}}],\"extensions\":{\"bazaar\":{\"info\":{\"input\":{\"method\":\"GET\",\"queryParams\":{\"category\":\"smart-contract-platform\",\"ids\":\"bitcoin,ethereum\",\"limit\":50,\"search\":\"bitcoin\",\"sector\":\"layer-1\",\"slugs\":\"bitcoin,ethereum\",\"tags\":[\"store-of-value\"]},\"type\":\"http\"},\"output\":{\"example\":{\"data\":[{\"id\":\"btc\",\"roi_30d\":0}]}}},\"schema\":{\"properties\":{\"category\":{\"type\":\"string\"},\"ids\":{\"description\":\"Comma-separated asset ids.\",\"type\":\"string\"},\"limit\":{\"minimum\":1,\"type\":\"integer\"},\"search\":{\"type\":\"string\"},\"sector\":{\"type\":\"string\"},\"slugs\":{\"description\":\"Comma-separated asset slugs.\",\"type\":\"string\"},\"tags\":{\"items\":{\"type\":\"string\"},\"type\":\"array\"}},\"type\":\"object\"}}}}"
+    },
+    {
+      "request_method": "GET",
+      "request_url": "https://api.messari.io/metrics/v2/assets/roi?slugs=bitcoin",
+      "request_headers": {
+        "Payment-Signature": [
+          "eyJ4NDAyVmVyc2lvbiI6MiwiYWNjZXB0ZWQiOnsic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoic29sYW5hOjVleWt0NFVzRnY4UDhOSmRUUkVwWTF2enFLcVpLdmRwIiwiYW1vdW50IjoiMTAwMDAwIiwicGF5VG8iOiJqUHQyZGZmbVBpN1dFdFY4SjZVRkhKUWFhdEVKVnl1U0ZtejViNERIRkc4IiwibWF4VGltZW91dFNlY29uZHMiOjYwLCJhc3NldCI6IkVQakZXZGQ1QXVmcVNTcWVNMnFOMXh6eWJhcEM4RzR3RUdHa1p3eVREdDF2IiwiZXh0cmEiOnsiZmVlUGF5ZXIiOiJIYzNzZEVBc0NHUWNwZ2Zpdnl3b2c5dXd0azhnVUJVWmdzeGRNRTFFSnk4OCJ9fSwicmVzb3VyY2UiOnsidXJsIjoiaHR0cHM6Ly9hcGkubWVzc2FyaS5pby9tZXRyaWNzL3YyL2Fzc2V0cy9yb2kiLCJkZXNjcmlwdGlvbiI6IkdldCBtdWx0aS13aW5kb3cgUk9JIHNuYXBzaG90cyBmb3Igb25lIG9yIG1vcmUgY3J5cHRvY3VycmVuY3kgYXNzZXRzLiIsIm1pbWVUeXBlIjoiIn0sInBheWxvYWQiOnsidHJhbnNhY3Rpb24iOiJBZ0FBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQURuYjV4VExDMnE3a05qYWI3a0VubFgyU0wwZVkwZGtpV0hPRU9xM0Rja2xhdDNsUHEzUU80Umd2SXM5ZTRtNUo4ajdBeUJxMVJaV1RreVZSdUdoYWdMZ0FJQUJBajJ0WkZGamRNZUoxRlU2c2xnNUlGSlhYSGZCSUhaekNHdEZodW9yVTVsTlFiblg1NnI0alJsR25ScW4wWjlidzVKOHZlUlN1TXZXNXlqK2hXSUpvNEM2WldXamR2VUJWUkJoZDRDS1g0VEV3MFdVaVpsLzZSV0JOcnJMRzdLWXlJcjA3cmk1dXVOWFFXTzBlUzlBRWp2VU11YmdGT1U5Y1ZEMitsUkNQNWJMTWI2ZXZPKzI2MDZQV1h6YXF2SmRER3h1K1RDMHZiZzVIeW1BZ05GTDExaEJ0MzI0ZGRsb1pQWnkrRkd6dXQ1ckJ5MGhlMWZXemVST296MWhYNy9BS2tGU2xOYW1Ta2hCazBrNkhGZzJqaDhmRFcxM2J5U3U0SGtINmhBUVFWRWpRTUdSbS9sSVJjeS8reXR1bkxEbStlOGpPVzd4ZmNTYXl4RG16cEFBQUFBMTQxTjFPdUJTbWxIekIwcWRsR2VFYmcvb0ZGMjVWL0NxSkNON2VWTHBOY0VCd0FGQWlCT0FBQUhBQWtEQVFBQUFBQUFBQUFGQkFJRUF3RUtES0NHQVFBQUFBQUFCZ1lBSURObU9XRXhZak5oTmpjM01HWTRPV1F3TURBeFpUbG1OMll6TW1NNU0ySTFBQT09In19"
+        ],
+        "X-Payment": [
+          "eyJ4NDAyVmVyc2lvbiI6MiwiYWNjZXB0ZWQiOnsic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoic29sYW5hOjVleWt0NFVzRnY4UDhOSmRUUkVwWTF2enFLcVpLdmRwIiwiYW1vdW50IjoiMTAwMDAwIiwicGF5VG8iOiJqUHQyZGZmbVBpN1dFdFY4SjZVRkhKUWFhdEVKVnl1U0ZtejViNERIRkc4IiwibWF4VGltZW91dFNlY29uZHMiOjYwLCJhc3NldCI6IkVQakZXZGQ1QXVmcVNTcWVNMnFOMXh6eWJhcEM4RzR3RUdHa1p3eVREdDF2IiwiZXh0cmEiOnsiZmVlUGF5ZXIiOiJIYzNzZEVBc0NHUWNwZ2Zpdnl3b2c5dXd0azhnVUJVWmdzeGRNRTFFSnk4OCJ9fSwicmVzb3VyY2UiOnsidXJsIjoiaHR0cHM6Ly9hcGkubWVzc2FyaS5pby9tZXRyaWNzL3YyL2Fzc2V0cy9yb2kiLCJkZXNjcmlwdGlvbiI6IkdldCBtdWx0aS13aW5kb3cgUk9JIHNuYXBzaG90cyBmb3Igb25lIG9yIG1vcmUgY3J5cHRvY3VycmVuY3kgYXNzZXRzLiIsIm1pbWVUeXBlIjoiIn0sInBheWxvYWQiOnsidHJhbnNhY3Rpb24iOiJBZ0FBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQURuYjV4VExDMnE3a05qYWI3a0VubFgyU0wwZVkwZGtpV0hPRU9xM0Rja2xhdDNsUHEzUU80Umd2SXM5ZTRtNUo4ajdBeUJxMVJaV1RreVZSdUdoYWdMZ0FJQUJBajJ0WkZGamRNZUoxRlU2c2xnNUlGSlhYSGZCSUhaekNHdEZodW9yVTVsTlFiblg1NnI0alJsR25ScW4wWjlidzVKOHZlUlN1TXZXNXlqK2hXSUpvNEM2WldXamR2VUJWUkJoZDRDS1g0VEV3MFdVaVpsLzZSV0JOcnJMRzdLWXlJcjA3cmk1dXVOWFFXTzBlUzlBRWp2VU11YmdGT1U5Y1ZEMitsUkNQNWJMTWI2ZXZPKzI2MDZQV1h6YXF2SmRER3h1K1RDMHZiZzVIeW1BZ05GTDExaEJ0MzI0ZGRsb1pQWnkrRkd6dXQ1ckJ5MGhlMWZXemVST296MWhYNy9BS2tGU2xOYW1Ta2hCazBrNkhGZzJqaDhmRFcxM2J5U3U0SGtINmhBUVFWRWpRTUdSbS9sSVJjeS8reXR1bkxEbStlOGpPVzd4ZmNTYXl4RG16cEFBQUFBMTQxTjFPdUJTbWxIekIwcWRsR2VFYmcvb0ZGMjVWL0NxSkNON2VWTHBOY0VCd0FGQWlCT0FBQUhBQWtEQVFBQUFBQUFBQUFGQkFJRUF3RUtES0NHQVFBQUFBQUFCZ1lBSURObU9XRXhZak5oTmpjM01HWTRPV1F3TURBeFpUbG1OMll6TW1NNU0ySTFBQT09In19"
+        ]
+      },
+      "response_status": 200,
+      "response_headers": {
+        "Alt-Svc": [
+          "h3=\":443\"; ma=86400"
+        ],
+        "Cf-Cache-Status": [
+          "BYPASS"
+        ],
+        "Cf-Ray": [
+          "9f774b47bd8bd8ce-OMA"
+        ],
+        "Content-Type": [
+          "application/json"
+        ],
+        "Date": [
+          "Wed, 06 May 2026 10:27:46 GMT"
+        ],
+        "Server": [
+          "cloudflare"
+        ],
+        "Set-Cookie": [
+          "messari_device_id=; Path=/; Domain=messari.io; Expires=Wed, 13 May 2026 10:27:46 GMT; HttpOnly; Secure; SameSite=Strict"
+        ],
+        "Vary": [
+          "Origin"
+        ],
+        "X-Device-Id": [
+          ""
+        ],
+        "X-Payment-Response": [
+          "4cTQWGhLe1Vmnhgu6esqpVACojzPfXqhK1jRC65ZV4Me4TFdG81t2HWH77YLF3yhbbdCkhCizeeAzyFw6MppTCGz"
+        ],
+        "X-Request-Duration": [
+          "2.921702701s"
+        ],
+        "X-Request-Id": [
+          "5a853e31-e6a7-4a4e-a925-1eb57cc130a2"
+        ],
+        "X-Upstream-Response-Time": [
+          "9.429242ms"
+        ]
+      },
+      "response_body": "{\"error\":null,\"data\":[{\"id\":\"1e31218a-e44e-4285-820c-8282ee222035\",\"name\":\"Bitcoin\",\"slug\":\"bitcoin\",\"symbol\":\"BTC\",\"category\":\"Cryptocurrency\",\"sector\":\"Cryptocurrency\",\"tags\":[\"Proof-of-Work\"],\"returnOnInvestment\":{\"priceChange24h\":1.4460784602930437,\"priceChange7d\":5.699913991869664,\"priceChange30d\":17.559474447863867,\"priceChange1y\":-12.707011764250678,\"priceChange3y\":188.31715064560248,\"priceChange5y\":42.90055318303394,\"priceChangeMTD\":7.421769528719614,\"priceChangeQTD\":20.207553364312105,\"priceChangeYTD\":-6.265656312509983}}],\"metadata\":{\"pageSize\":1000,\"page\":1,\"totalRows\":1,\"totalPages\":1}}\n"
+    }
+  ]
+}
