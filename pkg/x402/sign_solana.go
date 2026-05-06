@@ -59,9 +59,9 @@ func (s *OWSSigner) signSolanaExact(ctx context.Context, req PaymentRequirements
 	if strings.TrimSpace(req.Asset) == "" {
 		return PaymentPayload{}, errors.New("ows signer: solana requirement missing asset (token mint)")
 	}
-	amount, err := solanaAmount(req.MaxAmountRequired)
+	amount, err := solanaAmount(req.MaxAmount())
 	if err != nil {
-		return PaymentPayload{}, fmt.Errorf("ows signer: parse maxAmountRequired: %w", err)
+		return PaymentPayload{}, fmt.Errorf("ows signer: parse amount: %w", err)
 	}
 	memo, _ := req.Extra["memo"].(string)
 
@@ -91,12 +91,12 @@ func (s *OWSSigner) signSolanaExact(ctx context.Context, req PaymentRequirements
 	}, nil
 }
 
-// solanaAmount parses MaxAmountRequired into the integer SPL token
-// base unit. The x402 SVM spec quotes amounts as the integer base
-// unit directly (e.g. "1000" for 0.001 USDC at 6 decimals), unlike
-// the EVM path which uses a decimal string. We accept both: integers
-// pass through unchanged, decimals are converted to micros via the
-// shared parser.
+// solanaAmount parses the requirement's amount into the integer SPL
+// token base unit. The x402 SVM spec quotes amounts as the integer
+// base unit directly (e.g. "1000" for 0.001 USDC at 6 decimals),
+// unlike the EVM path which uses a decimal string. We accept both:
+// integers pass through unchanged, decimals are converted to micros
+// via the shared parser.
 func solanaAmount(s string) (uint64, error) {
 	trimmed := strings.TrimSpace(s)
 	if trimmed == "" {

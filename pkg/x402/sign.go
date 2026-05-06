@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
@@ -286,22 +287,66 @@ func owsSignTypedData(ctx context.Context, client *skywallet.Client, walletName,
 	return resp.Signature, nil
 }
 
-// microsForRequirement returns the maxAmountRequired field from the
-// requirement, expressed as the integer USDC base unit (micro-USDC,
-// 6 decimals). The value goes into the EIP-3009 authorization.
+// microsForRequirement returns the requirement's amount expressed as
+// integer USDC base units (micro-USDC, 6 decimals). The value goes
+// into the EIP-3009 authorization. The two wire shapes differ in
+// units:
+//
+//   - v1 services use `maxAmountRequired` as a decimal USDC string
+//     (e.g. "0.005" → 5000 micros)
+//   - v2 services use `amount` as the integer base unit directly
+//     (e.g. "1000" → 1000 micros = 0.001 USDC)
+//
+// We disambiguate by which field the wire populated: v2's `amount`
+// is interpreted as base units, v1's `maxAmountRequired` as decimal.
+// A string without a decimal point in the v1 field is treated as
+// already-micros, matching the Solana path's tolerance.
 func microsForRequirement(req PaymentRequirements) (string, error) {
-	amount := strings.TrimSpace(req.MaxAmountRequired)
-	if amount == "" {
-		return "", errors.New("requirement missing maxAmountRequired")
+	if v := strings.TrimSpace(req.Amount); v != "" {
+		micros, err := parseIntegerBaseUnits(v)
+		if err != nil {
+			return "", fmt.Errorf("parse amount %q: %w", v, err)
+		}
+		return micros.String(), nil
 	}
-	micros, err := parseUSDC(amount)
+	v := strings.TrimSpace(req.MaxAmountRequired)
+	if v == "" {
+		return "", errors.New("requirement missing amount")
+	}
+	if !strings.Contains(v, ".") {
+		// v1 server emitting integer base units in the v1 field.
+		micros, err := parseIntegerBaseUnits(v)
+		if err != nil {
+			return "", fmt.Errorf("parse maxAmountRequired %q: %w", v, err)
+		}
+		return micros.String(), nil
+	}
+	micros, err := parseUSDC(v)
 	if err != nil {
-		return "", fmt.Errorf("parse maxAmountRequired %q: %w", amount, err)
+		return "", fmt.Errorf("parse maxAmountRequired %q: %w", v, err)
 	}
 	if micros.Sign() <= 0 {
-		return "", fmt.Errorf("maxAmountRequired %q must be positive", amount)
+		return "", fmt.Errorf("maxAmountRequired %q must be positive", v)
 	}
 	return micros.String(), nil
+}
+
+// parseIntegerBaseUnits parses an integer base-unit amount string
+// like "1000" into a positive *big.Int. Rejects empty, non-digit, or
+// non-positive values.
+func parseIntegerBaseUnits(s string) (*big.Int, error) {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return nil, errors.New("amount required")
+	}
+	if !isAllDigits(trimmed) {
+		return nil, fmt.Errorf("amount %q must be integer base units", trimmed)
+	}
+	v, ok := new(big.Int).SetString(trimmed, 10)
+	if !ok || v.Sign() <= 0 {
+		return nil, fmt.Errorf("amount %q must be positive", trimmed)
+	}
+	return v, nil
 }
 
 // randomNonceHex returns a 0x-prefixed 32-byte hex nonce suitable

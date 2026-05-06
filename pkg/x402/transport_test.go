@@ -2,6 +2,7 @@ package x402
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -15,9 +16,12 @@ import (
 )
 
 // x402TestServer is a minimal x402-compliant server used in tests.
-// First request without X-PAYMENT returns 402 with the standard
-// PaymentChallenge body; second request with a valid header returns
-// 200 with an X-PAYMENT-RESPONSE header.
+// In v1 mode (default) it emits the challenge in the response body
+// and the receipt on X-PAYMENT-RESPONSE. In v2 mode (set Version =
+// X402ProtocolV2) it emits the challenge on the Payment-Required
+// response header (base64 JSON) with `amount` instead of
+// `maxAmountRequired`, and the receipt on Payment-Response (also
+// base64 JSON).
 type x402TestServer struct {
 	mu           sync.Mutex
 	calls        atomic.Int64
@@ -25,6 +29,9 @@ type x402TestServer struct {
 	bodies       [][]byte
 	respondWith  json.RawMessage
 	requirements PaymentRequirements
+	// Version controls which x402 wire shape the fake emits. Zero
+	// means v1 (legacy body-based challenge).
+	Version int
 }
 
 func newX402TestServer(respond json.RawMessage) *x402TestServer {
@@ -43,13 +50,7 @@ func (s *x402TestServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	paymentValue := r.Header.Get(HeaderPayment)
 	if paymentValue == "" {
-		challenge := PaymentChallenge{
-			X402Version: X402ProtocolVersion,
-			Accepts:     []PaymentRequirements{s.requirements},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusPaymentRequired)
-		_ = json.NewEncoder(w).Encode(challenge)
+		s.writeChallenge(w)
 		return
 	}
 
@@ -63,16 +64,59 @@ func (s *x402TestServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	receipt := PaymentReceipt{
 		Tx:         "0xdeadbeef",
 		Network:    Network(payload.Network),
-		AmountUSDC: s.requirements.MaxAmountRequired,
+		AmountUSDC: s.requirements.MaxAmount(),
 		SettledAt:  time.Now().UTC(),
 	}
 	receiptJSON, _ := json.Marshal(receipt)
-	w.Header().Set(HeaderPaymentResponse, string(receiptJSON))
+	if s.Version == X402ProtocolV2 {
+		w.Header().Set(HeaderPaymentResponseV2, base64.StdEncoding.EncodeToString(receiptJSON))
+	} else {
+		w.Header().Set(HeaderPaymentResponse, string(receiptJSON))
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if s.respondWith != nil {
 		_, _ = w.Write(s.respondWith)
 	}
+}
+
+// writeChallenge emits the 402 challenge in whatever shape the
+// configured Version dictates.
+func (s *x402TestServer) writeChallenge(w http.ResponseWriter) {
+	if s.Version == X402ProtocolV2 {
+		// v2: challenge in Payment-Required header, body is the
+		// short error blob real services tend to emit.
+		req := s.requirements
+		// v2 quotes amount as integer base units (micro-USDC), not
+		// decimal USDC. If the test's sample populated the v1
+		// decimal field, convert: "0.005" → "5000".
+		if req.Amount == "" && req.MaxAmountRequired != "" {
+			micros, err := parseUSDC(req.MaxAmountRequired)
+			if err != nil {
+				http.Error(w, "v2 amount conversion: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			req.Amount = micros.String()
+			req.MaxAmountRequired = ""
+		}
+		challenge := PaymentChallenge{
+			X402Version: X402ProtocolV2,
+			Accepts:     []PaymentRequirements{req},
+		}
+		raw, _ := json.Marshal(challenge)
+		w.Header().Set(HeaderPaymentRequiredV2, base64.StdEncoding.EncodeToString(raw))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusPaymentRequired)
+		_, _ = w.Write([]byte(`{"error":"payment required"}`))
+		return
+	}
+	challenge := PaymentChallenge{
+		X402Version: X402ProtocolV1,
+		Accepts:     []PaymentRequirements{s.requirements},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusPaymentRequired)
+	_ = json.NewEncoder(w).Encode(challenge)
 }
 
 func mustParseAddr(t *testing.T, srv *httptest.Server) string {
@@ -114,8 +158,8 @@ func TestTransportCallSignsAndRetries(t *testing.T) {
 		t.Fatalf("payments seen = %d, want 1", len(fake.gotPayments))
 	}
 	pay := fake.gotPayments[0]
-	if pay.X402Version != X402ProtocolVersion {
-		t.Fatalf("version = %d", pay.X402Version)
+	if pay.X402Version != X402ProtocolV1 {
+		t.Fatalf("payload x402Version = %d, want %d (v1 challenge should round-trip)", pay.X402Version, X402ProtocolV1)
 	}
 	if pay.Scheme != "exact" || pay.Network != "base" {
 		t.Fatalf("scheme/network = %s/%s", pay.Scheme, pay.Network)
@@ -126,6 +170,37 @@ func TestTransportCallSignsAndRetries(t *testing.T) {
 	}
 	if !strings.HasPrefix(exact.Signature, "fake-sig:") {
 		t.Fatalf("signature = %q, want fake-sig prefix", exact.Signature)
+	}
+}
+
+func TestTransportCallSignsAndRetriesV2(t *testing.T) {
+	t.Parallel()
+	fake := newX402TestServer(json.RawMessage(`{"answer":"42"}`))
+	fake.Version = X402ProtocolV2
+	srv := httptest.NewServer(fake)
+	defer srv.Close()
+
+	tx := NewTransport(NewFakeSigner("0x0000000000000000000000000000000000000abc"))
+	resp, err := tx.Call(context.Background(), CallRequest{
+		Method: "POST",
+		URL:    mustParseAddr(t, srv) + "/contents",
+		Body:   []byte(`{"q":"hi"}`),
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if resp.Status != 200 {
+		t.Fatalf("status = %d, want 200", resp.Status)
+	}
+	if resp.Receipt == nil || resp.Receipt.Tx != "0xdeadbeef" {
+		t.Fatalf("receipt = %+v, want tx 0xdeadbeef from base64-encoded Payment-Response", resp.Receipt)
+	}
+	if len(fake.gotPayments) != 1 {
+		t.Fatalf("payments seen = %d, want 1", len(fake.gotPayments))
+	}
+	pay := fake.gotPayments[0]
+	if pay.X402Version != X402ProtocolV2 {
+		t.Fatalf("payload x402Version = %d, want %d (v2 challenge should round-trip)", pay.X402Version, X402ProtocolV2)
 	}
 }
 

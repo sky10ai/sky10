@@ -31,22 +31,44 @@ const (
 // this scheme; future schemes (e.g. streaming, batched) plug in here.
 const SchemeExact = "exact"
 
-// X402ProtocolVersion is the protocol revision this implementation
-// targets. Outgoing X-PAYMENT headers carry it; incoming challenges
-// are accepted at any version we recognize.
-const X402ProtocolVersion = 1
+// X402 protocol versions this implementation knows about. v1 was the
+// original spec where the 402 challenge lived in the response body
+// under `accepts` and the amount field was named `maxAmountRequired`.
+// v2 (the current revision live on agentic.market) moves the
+// challenge into a `Payment-Required` response header carrying
+// base64-JSON, and renames the amount field to `amount`. We accept
+// either shape on the read path and echo the challenge's version on
+// the X-PAYMENT response so a v1 server keeps seeing v1 and a v2
+// server keeps seeing v2.
+const (
+	X402ProtocolV1 = 1
+	X402ProtocolV2 = 2
+	// X402ProtocolVersion is the version we stamp on outgoing
+	// payloads when no challenge has supplied one to echo. Defaults
+	// to v2 because that is what current services emit.
+	X402ProtocolVersion = X402ProtocolV2
+)
 
-// PaymentRequirements is one entry in a 402 response's `accepts`
+// PaymentRequirements is one entry in a 402 challenge's `accepts`
 // array. The server emits one of these per acceptable payment scheme/
 // network combination; the client picks one and signs against it.
 //
-// Fields follow the x402 spec at https://x402.org. Unknown fields are
-// preserved on the wire envelope so we can reproduce the exact server
-// directive when computing the EIP-712 message.
+// Fields follow the x402 spec at https://x402.org. Both v1 (`maxAmountRequired`)
+// and v2 (`amount`) field names are accepted on the read path; callers
+// should use MaxAmount() rather than the raw fields. Unknown fields
+// are preserved on the wire envelope so we can reproduce the exact
+// server directive when computing the EIP-712 message.
 type PaymentRequirements struct {
-	Scheme            string                 `json:"scheme"`
-	Network           string                 `json:"network"`
-	MaxAmountRequired string                 `json:"maxAmountRequired"`
+	Scheme  string `json:"scheme"`
+	Network string `json:"network"`
+	// Amount is the v2 field name for the payment amount in the
+	// asset's base unit (micro-USDC for USDC). Read with MaxAmount()
+	// rather than directly so v1 servers' `maxAmountRequired` is
+	// also honored.
+	Amount string `json:"amount,omitempty"`
+	// MaxAmountRequired is the v1 field name for the same value.
+	// Kept on the struct so v1 challenges round-trip cleanly.
+	MaxAmountRequired string                 `json:"maxAmountRequired,omitempty"`
 	Resource          string                 `json:"resource,omitempty"`
 	Description       string                 `json:"description,omitempty"`
 	MimeType          string                 `json:"mimeType,omitempty"`
@@ -55,6 +77,17 @@ type PaymentRequirements struct {
 	MaxTimeoutSeconds int64                  `json:"maxTimeoutSeconds,omitempty"`
 	Asset             string                 `json:"asset"`
 	Extra             map[string]interface{} `json:"extra,omitempty"`
+}
+
+// MaxAmount returns the payment amount as a base-unit decimal string,
+// picking the v2 `amount` field when present and falling back to the
+// v1 `maxAmountRequired` field otherwise. Empty string if neither
+// was supplied.
+func (r PaymentRequirements) MaxAmount() string {
+	if v := strings.TrimSpace(r.Amount); v != "" {
+		return v
+	}
+	return strings.TrimSpace(r.MaxAmountRequired)
 }
 
 // PaymentChallenge is the parsed body of a 402 response. Servers

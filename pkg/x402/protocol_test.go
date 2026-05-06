@@ -67,6 +67,61 @@ func TestSelectRequirementsPreferences(t *testing.T) {
 	}
 }
 
+func TestPaymentRequirementsMaxAmountPrefersV2Field(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		req  PaymentRequirements
+		want string
+	}{
+		{
+			name: "v1 only",
+			req:  PaymentRequirements{MaxAmountRequired: "1000"},
+			want: "1000",
+		},
+		{
+			name: "v2 only",
+			req:  PaymentRequirements{Amount: "2000"},
+			want: "2000",
+		},
+		{
+			name: "both populated, v2 wins",
+			req:  PaymentRequirements{Amount: "2000", MaxAmountRequired: "1000"},
+			want: "2000",
+		},
+		{
+			name: "neither populated",
+			req:  PaymentRequirements{},
+			want: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.req.MaxAmount(); got != tc.want {
+				t.Fatalf("MaxAmount() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPaymentRequirementsUnmarshalAcceptsV2AmountField(t *testing.T) {
+	t.Parallel()
+	raw := `{"scheme":"exact","network":"eip155:8453","amount":"1000","payTo":"0x0","asset":"0x0"}`
+	var req PaymentRequirements
+	if err := json.Unmarshal([]byte(raw), &req); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if req.Amount != "1000" {
+		t.Fatalf("Amount = %q, want 1000", req.Amount)
+	}
+	if req.MaxAmountRequired != "" {
+		t.Fatalf("MaxAmountRequired = %q, want empty", req.MaxAmountRequired)
+	}
+	if got := req.MaxAmount(); got != "1000" {
+		t.Fatalf("MaxAmount() = %q, want 1000", got)
+	}
+}
+
 func TestSelectRequirementsNoMatch(t *testing.T) {
 	t.Parallel()
 	c := PaymentChallenge{
