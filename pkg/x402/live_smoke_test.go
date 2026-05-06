@@ -12,6 +12,7 @@ import (
 	"time"
 
 	skywallet "github.com/sky10/sky10/pkg/wallet"
+	"github.com/sky10/sky10/pkg/x402/siwx"
 )
 
 // liveSmokeCase describes one paid call against a live x402 service.
@@ -34,6 +35,15 @@ type liveSmokeCase struct {
 	// explicitly so PreferAndCheapest skips the Base entries servers
 	// like Quicknode advertise alongside Solana.
 	networks []Network
+	// siwxDomain enables Sign-In-With-X authentication for services
+	// like Venice that require a wallet-signed session header on
+	// every request. Empty disables SIWX (the default).
+	siwxDomain string
+	// expectFreeOK marks a case where 200 is expected without any
+	// payment exchange — Venice's /balance endpoint, for instance,
+	// is SIWX-only and does not charge. Defaults to false (the
+	// regular paid-call assertion model).
+	expectFreeOK bool
 }
 
 func liveSmokeCases() []liveSmokeCase {
@@ -150,6 +160,26 @@ func liveSmokeCases() []liveSmokeCase {
 			maxPriceUSDC: "0.150",
 			networks:     []Network{NetworkSolana},
 		},
+
+		// --- SIWX-authenticated services ---
+		// Venice's /x402/balance/{wallet} is gated on SIWX but
+		// doesn't charge — perfect free smoke for the SIWX header
+		// path. Backend.Call attaches X-Sign-In-With-X (built from
+		// our wallet) and Venice returns the wallet's spendable
+		// balance. Verifies the SIWE message construction and
+		// EIP-191 signature reach Venice's verifier intact.
+		{
+			id:           "venice-balance",
+			manifestID:   "venice-ai",
+			displayName:  "Venice AI",
+			endpointHost: "https://api.venice.ai",
+			path:         "/api/v1/x402/balance/0xdD12DEcbea4bd0Bc414af635a3398f50FA291e45",
+			method:       "GET",
+			maxPriceUSDC: "0.005",
+			networks:     []Network{NetworkBase},
+			siwxDomain:   "api.venice.ai",
+			expectFreeOK: true,
+		},
 	}
 }
 
@@ -212,6 +242,7 @@ func runLiveCase(t *testing.T, signer Signer, tc liveSmokeCase) {
 		Networks:     networks,
 		MaxPriceUSDC: tc.maxPriceUSDC,
 		UpdatedAt:    time.Now().UTC(),
+		SIWXDomain:   tc.siwxDomain,
 	}
 	if err := registry.AddManifest(manifest); err != nil {
 		t.Fatalf("AddManifest: %v", err)
@@ -233,11 +264,29 @@ func runLiveCase(t *testing.T, signer Signer, tc liveSmokeCase) {
 		HTTP:   &http.Client{Transport: rt, Timeout: 3 * time.Minute},
 		Signer: signer,
 	}
-	backend := NewBackend(BackendOptions{
+
+	backendOpts := BackendOptions{
 		Registry:  registry,
 		Transport: transport,
 		Budget:    budget,
-	})
+	}
+	if tc.siwxDomain != "" {
+		// Resolve the wallet's Base address — SIWX uses the
+		// EVM-style checksummed pubkey as the message subject.
+		owsSigner, ok := signer.(*OWSSigner)
+		if !ok {
+			t.Skipf("SIWX smoke needs an OWSSigner; got %T", signer)
+		}
+		addr, err := owsSigner.AddressForChain(ctx, owsSigner.WalletName, string(NetworkBase))
+		if err != nil {
+			t.Fatalf("resolve Base address for SIWX: %v", err)
+		}
+		backendOpts.SIWX = &SIWXContext{
+			WalletAddress: addr,
+			Signer:        siwx.NewOWSSigner(owsSigner.Client, owsSigner.WalletName),
+		}
+	}
+	backend := NewBackend(backendOpts)
 
 	headers := map[string]string{}
 	if tc.method == "POST" {
@@ -269,11 +318,12 @@ func runLiveCase(t *testing.T, signer Signer, tc liveSmokeCase) {
 	// 200 status is itself proof of settlement (the service ran the
 	// real work). receipt + tx hash are bonus, logged when present;
 	// some services (Browserbase) don't echo a Payment-Response header
-	// at all even though the on-chain transfer happened.
+	// at all even though the on-chain transfer happened. Free SIWX
+	// endpoints (Venice /balance) never produce a receipt.
 	if result.Receipt != nil {
 		t.Logf("receipt: tx=%s network=%s amount=%s",
 			result.Receipt.Tx, result.Receipt.Network, result.Receipt.AmountUSDC)
-	} else {
+	} else if !tc.expectFreeOK {
 		t.Logf("receipt: <none — server did not echo a Payment-Response header>")
 	}
 	t.Logf("response body (first 200 bytes): %s", truncate(result.Body, 200))

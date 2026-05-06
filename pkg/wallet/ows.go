@@ -419,6 +419,38 @@ func (c *Client) RunSignMessageJSON(ctx context.Context, walletName, chain strin
 	return out, nil
 }
 
+// RunSignPersonalMessageJSON runs `ows sign message --chain <chain>
+// --wallet <name> --message <text> --json` and returns the structured
+// JSON output. The signature is computed with EIP-191 personal_sign
+// (no typed-data, no prefix munging on the caller's part — OWS adds
+// the standard "\x19Ethereum Signed Message" framing).
+//
+// Used by SIWX flows that need a wallet-bound signature on a SIWE
+// (EIP-4361) message string; pkg/x402/siwx wraps this for Venice and
+// any other deposit-style service.
+func (c *Client) RunSignPersonalMessageJSON(ctx context.Context, walletName, chain, message string) ([]byte, error) {
+	if c == nil {
+		return nil, ErrNotInstalled
+	}
+	if strings.TrimSpace(walletName) == "" {
+		return nil, fmt.Errorf("wallet name required")
+	}
+	if strings.TrimSpace(chain) == "" {
+		return nil, fmt.Errorf("chain required")
+	}
+	out, err := c.runWithPassphrase(ctx,
+		"sign", "message",
+		"--chain", owsChainArg(chain),
+		"--wallet", walletName,
+		"--message", message,
+		"--json",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ows sign message: %w", err)
+	}
+	return out, nil
+}
+
 // RunSignTxJSON shells out to `ows sign tx` with the supplied
 // hex-encoded unsigned transaction bytes and returns the structured
 // JSON output. Used by pkg/x402's Solana signer to produce

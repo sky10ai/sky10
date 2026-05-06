@@ -224,6 +224,16 @@ type ServiceManifest struct {
 	Networks     []Network `json:"networks"`
 	MaxPriceUSDC string    `json:"max_price_usdc"`
 	UpdatedAt    time.Time `json:"updated_at,omitempty"`
+
+	// SIWXDomain enables Sign-In-With-X authentication on every
+	// request to this service. When non-empty, Backend.Call attaches
+	// an X-Sign-In-With-X header (signed with the wallet) to each
+	// outgoing request — required by deposit-style services like
+	// Venice that gate API access on wallet-bound session auth
+	// rather than per-call x402 payments. The value is the domain
+	// the SIWE (EIP-4361) message names (e.g. "api.venice.ai");
+	// empty disables SIWX for the service.
+	SIWXDomain string `json:"siwx_domain,omitempty"`
 }
 
 // EIP712TypedData is the JSON shape consumed by `ows sign message

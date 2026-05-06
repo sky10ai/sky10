@@ -39,11 +39,18 @@ type capturedExchangeOnDisk struct {
 // depend on downstream (non-empty Accepts, supported scheme/network,
 // AmountMicros parses positive). Failure here means a real x402
 // service has shipped a wire shape we no longer round-trip cleanly.
+//
+// Skipped for fixtures whose first response is 200 — those are
+// SIWX-only or otherwise free endpoints that never produce a 402
+// challenge to parse (Venice /balance, etc.).
 func TestFixtureChallengesParseToCanonical(t *testing.T) {
 	t.Parallel()
 	for _, fx := range loadAllFixtures(t) {
 		fx := fx
 		t.Run(stripExt(fx.path), func(t *testing.T) {
+			if !fixtureHas402(fx.fixture) {
+				t.Skip("fixture has no 402 exchange — likely a free SIWX-only endpoint")
+			}
 			challenge := findChallengeExchange(t, fx.fixture)
 			version, parsed, err := parseFixtureChallenge(challenge)
 			if err != nil {
@@ -86,6 +93,9 @@ func TestFixturePaymentEnvelopeMatchesVersion(t *testing.T) {
 	for _, fx := range loadAllFixtures(t) {
 		fx := fx
 		t.Run(stripExt(fx.path), func(t *testing.T) {
+			if !fixtureHasXPayment(fx.fixture) {
+				t.Skip("fixture has no X-PAYMENT request — likely a free SIWX-only endpoint")
+			}
 			retry := findRetryExchange(t, fx.fixture)
 			payment := getHeaderCanonical(retry.RequestHeaders, "X-Payment")
 			if payment == "" {
@@ -126,6 +136,9 @@ func TestFixtureReceiptsParseToCanonical(t *testing.T) {
 	for _, fx := range loadAllFixtures(t) {
 		fx := fx
 		t.Run(stripExt(fx.path), func(t *testing.T) {
+			if !fixtureHasXPayment(fx.fixture) {
+				t.Skip("fixture has no X-PAYMENT request — likely a free SIWX-only endpoint")
+			}
 			retry := findRetryExchange(t, fx.fixture)
 			if retry.ResponseStatus != 200 {
 				t.Skipf("retry status = %d, no receipt expected", retry.ResponseStatus)
@@ -177,6 +190,31 @@ func loadAllFixtures(t *testing.T) []fixtureEntry {
 		out = append(out, fixtureEntry{path: m, fixture: fx})
 	}
 	return out
+}
+
+// fixtureHas402 reports whether any exchange in the fixture
+// returned a 402 challenge. SIWX-only endpoints (Venice /balance)
+// return 200 directly and have no challenge to parse.
+func fixtureHas402(fx liveFixtureWire) bool {
+	for _, e := range fx.Exchanges {
+		if e.ResponseStatus == 402 {
+			return true
+		}
+	}
+	return false
+}
+
+// fixtureHasXPayment reports whether any exchange in the fixture
+// carried an X-Payment request header. A 402 alone with no retry
+// (or no payment at all) means the test that needs the envelope
+// should skip.
+func fixtureHasXPayment(fx liveFixtureWire) bool {
+	for _, e := range fx.Exchanges {
+		if getHeaderCanonical(e.RequestHeaders, "X-Payment") != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func findChallengeExchange(t *testing.T, fx liveFixtureWire) capturedExchangeOnDisk {

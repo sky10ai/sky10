@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/sky10/sky10/pkg/x402/siwx"
 )
 
 // Backend is the host-side API the agent-facing comms handlers
@@ -23,15 +25,35 @@ type Backend struct {
 	transport *Transport
 	budget    *Budget
 	clock     func() time.Time
+	siwx      *SIWXContext
+}
+
+// SIWXContext bundles the wallet identity and signer Backend uses to
+// build X-Sign-In-With-X headers on services that require Sign-In
+// With-X authentication (manifests carrying SIWXDomain). When nil
+// the Backend's SIWX path is disabled — calls to SIWX-required
+// services will fail at the server with 401/402 as if no client
+// were attached.
+type SIWXContext struct {
+	// WalletAddress is the wallet's checksummed Ethereum-style
+	// address. Embedded into the SIWE message body and the envelope.
+	WalletAddress string
+	// Signer produces the EIP-191 personal_sign signature for the
+	// SIWE message bytes. siwx.NewOWSSigner is the production wiring.
+	Signer siwx.Signer
 }
 
 // BackendOptions wires the Backend's collaborators. All fields are
-// required; misuse panics in NewBackend.
+// required except SIWX; misuse panics in NewBackend.
 type BackendOptions struct {
 	Registry  *Registry
 	Transport *Transport
 	Budget    *Budget
 	Clock     func() time.Time
+	// SIWX, when non-nil, enables Sign-In-With-X authentication on
+	// services whose manifest carries SIWXDomain. Leave nil to
+	// disable SIWX entirely.
+	SIWX *SIWXContext
 }
 
 // NewBackend constructs a Backend.
@@ -54,6 +76,7 @@ func NewBackend(opts BackendOptions) *Backend {
 		transport: opts.Transport,
 		budget:    opts.Budget,
 		clock:     clock,
+		siwx:      opts.SIWX,
 	}
 }
 
@@ -142,10 +165,32 @@ func (b *Backend) Call(ctx context.Context, params CallParams) (*CallResult, err
 	if err != nil {
 		return nil, err
 	}
+
+	headers := params.Headers
+	if manifest.SIWXDomain != "" {
+		if b.siwx == nil {
+			return nil, fmt.Errorf("service %q requires SIWX but no SIWX signer is wired", params.ServiceID)
+		}
+		builder := &siwx.Builder{
+			Address: b.siwx.WalletAddress,
+			Domain:  manifest.SIWXDomain,
+			Signer:  b.siwx.Signer,
+			Now:     b.clock,
+		}
+		header, err := builder.Header(ctx, target)
+		if err != nil {
+			return nil, fmt.Errorf("siwx header: %w", err)
+		}
+		// Don't mutate caller's map.
+		headers = mergeHeaders(params.Headers, map[string]string{
+			siwx.HeaderName: header,
+		})
+	}
+
 	resp, err := b.transport.Call(ctx, CallRequest{
 		Method:         params.Method,
 		URL:            target,
-		Headers:        params.Headers,
+		Headers:        headers,
 		Body:           params.Body,
 		PreferNetworks: manifest.Networks,
 	})
@@ -201,6 +246,23 @@ func (b *Backend) BudgetStatus(_ context.Context, agentID string) (Snapshot, err
 		return Snapshot{}, errors.New("agentID required")
 	}
 	return b.budget.Status(agentID), nil
+}
+
+// mergeHeaders returns a new map with all entries from base copied
+// in first, then overlay overriding any conflicts. Returns nil only
+// when both inputs are nil.
+func mergeHeaders(base, overlay map[string]string) map[string]string {
+	if len(base) == 0 && len(overlay) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(base)+len(overlay))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range overlay {
+		out[k] = v
+	}
+	return out
 }
 
 // joinEndpointPath joins the manifest's endpoint URL with a per-call
