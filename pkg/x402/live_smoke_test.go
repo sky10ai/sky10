@@ -107,6 +107,20 @@ func liveSmokeCases() []liveSmokeCase {
 			maxPriceUSDC: "0.005",
 			networks:     []Network{NetworkSolana},
 		},
+		// Coingecko's onchain APIs use a third-party SVM facilitator
+		// (D6ZhtNQ5nT9…), not the BENrLoU… Coinbase one used by
+		// Alchemy/Quicknode. Useful for catching facilitator-specific
+		// regressions. Costs $0.01 per call rather than $0.001.
+		{
+			id:           "coingecko-solana-trending-pools",
+			manifestID:   "pro-api-coingecko-com-solana",
+			displayName:  "Coingecko OnChain (Solana)",
+			endpointHost: "https://pro-api.coingecko.com",
+			path:         "/api/v3/x402/onchain/networks/solana/trending_pools",
+			method:       "GET",
+			maxPriceUSDC: "0.020",
+			networks:     []Network{NetworkSolana},
+		},
 	}
 }
 
