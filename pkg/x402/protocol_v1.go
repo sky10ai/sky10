@@ -115,13 +115,3 @@ func encodePaymentV1(req PaymentRequirements, inner json.RawMessage) (string, er
 	}
 	return base64.StdEncoding.EncodeToString(raw), nil
 }
-
-// parseReceiptV1 parses a v1 X-PAYMENT-RESPONSE header value as plain
-// JSON into the canonical PaymentReceipt.
-func parseReceiptV1(value string) (PaymentReceipt, error) {
-	var r PaymentReceipt
-	if err := json.Unmarshal([]byte(value), &r); err != nil {
-		return r, fmt.Errorf("v1 receipt parse: %w", err)
-	}
-	return r, nil
-}

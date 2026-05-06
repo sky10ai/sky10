@@ -1,0 +1,182 @@
+{
+  "service": "exa-ai",
+  "method": "POST",
+  "url": "https://api.exa.ai/contents",
+  "captured_at_utc": "2026-05-06T03:40:54Z",
+  "exchanges": [
+    {
+      "request_method": "POST",
+      "request_url": "https://api.exa.ai/contents",
+      "request_headers": {
+        "Content-Type": [
+          "application/json"
+        ]
+      },
+      "request_body": "{\"urls\":[\"https://example.com\"],\"text\":true}",
+      "response_status": 402,
+      "response_headers": {
+        "Access-Control-Allow-Credentials": [
+          "true"
+        ],
+        "Access-Control-Expose-Headers": [
+          "PAYMENT-REQUIRED,PAYMENT-RESPONSE,payment-required,payment-response"
+        ],
+        "Cf-Cache-Status": [
+          "DYNAMIC"
+        ],
+        "Cf-Ray": [
+          "9f74f743688818b6-OMA"
+        ],
+        "Content-Length": [
+          "129"
+        ],
+        "Content-Security-Policy": [
+          "frame-ancestors 'self'"
+        ],
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ],
+        "Cross-Origin-Opener-Policy": [
+          "same-origin"
+        ],
+        "Cross-Origin-Resource-Policy": [
+          "same-origin"
+        ],
+        "Date": [
+          "Wed, 06 May 2026 03:40:51 GMT"
+        ],
+        "Etag": [
+          "W/\"81-Xp1V2TBfghWotc60MUG+qaUsnE0\""
+        ],
+        "Origin-Agent-Cluster": [
+          "?1"
+        ],
+        "Payment-Required": [
+          "eyJ4NDAyVmVyc2lvbiI6MiwicmVzb3VyY2UiOnsidXJsIjoiaHR0cHM6Ly9hcGkuZXhhLmFpL2NvbnRlbnRzIiwiZGVzY3JpcHRpb24iOiJFeGEgL2NvbnRlbnRzIGVuZHBvaW50IiwibWltZVR5cGUiOiJhcHBsaWNhdGlvbi9qc29uIn0sImFjY2VwdHMiOlt7InNjaGVtZSI6ImV4YWN0IiwibmV0d29yayI6ImVpcDE1NTo4NDUzIiwiYW1vdW50IjoiMTAwMCIsInBheVRvIjoiMHg2ZDZFNjk1YjA5ODYxNDY3YzdkNDYyZjVBQUYzMWNGMzU0MEI5MTkyIiwibWF4VGltZW91dFNlY29uZHMiOjYwLCJhc3NldCI6IjB4ODMzNTg5ZkNENmVEYjZFMDhmNGM3QzMyRDRmNzFiNTRiZEEwMjkxMyIsImV4dHJhIjp7Im5hbWUiOiJVU0QgQ29pbiIsInZlcnNpb24iOiIyIiwiYnJlYWtkb3duIjp7InRleHQiOjAuMDAxfSwidG90YWxVc2QiOjAuMDAxfX1dLCJlcnJvciI6IlBheW1lbnQgcmVxdWlyZWQgdG8gYWNjZXNzIHRoaXMgcmVzb3VyY2UiLCJleHRlbnNpb25zIjp7ImJhemFhciI6eyJpbmZvIjp7ImlucHV0Ijp7InR5cGUiOiJodHRwIiwiYm9keVR5cGUiOiJqc29uIiwiYm9keSI6eyJ1cmxzIjpbImh0dHBzOi8vZXhhbXBsZS5jb20iXSwidGV4dCI6dHJ1ZX0sIm1ldGhvZCI6IlBPU1QifSwib3V0cHV0Ijp7InR5cGUiOiJqc29uIiwiZXhhbXBsZSI6eyJyZXN1bHRzIjpbeyJ1cmwiOiJodHRwczovL2V4YW1wbGUuY29tIiwidGl0bGUiOiJFeGFtcGxlIiwidGV4dCI6IlBhZ2UgY29udGVudC4uLiJ9XX19fSwic2NoZW1hIjp7IiRzY2hlbWEiOiJodHRwczovL2pzb24tc2NoZW1hLm9yZy9kcmFmdC8yMDIwLTEyL3NjaGVtYSIsInR5cGUiOiJvYmplY3QiLCJwcm9wZXJ0aWVzIjp7ImlucHV0Ijp7InR5cGUiOiJvYmplY3QiLCJwcm9wZXJ0aWVzIjp7InR5cGUiOnsidHlwZSI6InN0cmluZyIsImNvbnN0IjoiaHR0cCJ9LCJtZXRob2QiOnsidHlwZSI6InN0cmluZyIsImVudW0iOlsiUE9TVCJdfSwiYm9keVR5cGUiOnsidHlwZSI6InN0cmluZyIsImVudW0iOlsianNvbiIsImZvcm0tZGF0YSIsInRleHQiXX0sImJvZHkiOnsidHlwZSI6Im9iamVjdCIsInByb3BlcnRpZXMiOnsiaWRzIjp7InR5cGUiOiJhcnJheSIsImRlc2NyaXB0aW9uIjoiQXJyYXkgb2YgRXhhIGRvY3VtZW50IElEcyB0byByZXRyaWV2ZSBjb250ZW50IGZvciJ9LCJ1cmxzIjp7InR5cGUiOiJhcnJheSIsImRlc2NyaXB0aW9uIjoiQXJyYXkgb2YgVVJMcyB0byByZXRyaWV2ZSBjb250ZW50IGZvciJ9LCJ0ZXh0Ijp7InR5cGUiOiJib29sZWFuIiwiZGVzY3JpcHRpb24iOiJJbmNsdWRlIGZ1bGwgdGV4dCBjb250ZW50In0sImhpZ2hsaWdodHMiOnsidHlwZSI6ImJvb2xlYW4iLCJkZXNjcmlwdGlvbiI6IkluY2x1ZGUgdGV4dCBoaWdobGlnaHRzIn0sInN1bW1hcnkiOnsidHlwZSI6ImJvb2xlYW4iLCJkZXNjcmlwdGlvbiI6IkluY2x1ZGUgQUkgc3VtbWFyeSJ9fX19LCJyZXF1aXJlZCI6WyJ0eXBlIiwiYm9keVR5cGUiLCJib2R5IiwibWV0aG9kIl0sImFkZGl0aW9uYWxQcm9wZXJ0aWVzIjpmYWxzZX0sIm91dHB1dCI6eyJ0eXBlIjoib2JqZWN0IiwicHJvcGVydGllcyI6eyJ0eXBlIjp7InR5cGUiOiJzdHJpbmcifSwiZXhhbXBsZSI6eyJ0eXBlIjoib2JqZWN0In19LCJyZXF1aXJlZCI6WyJ0eXBlIl19fSwicmVxdWlyZWQiOlsiaW5wdXQiXX19LCJhZ2VudGtpdCI6eyJpbmZvIjp7InZlcnNpb24iOiIxIiwic3RhdGVtZW50IjoiVmVyaWZ5IHlvdXIgYWdlbnQgaXMgYmFja2VkIGJ5IGEgcmVhbCBodW1hbiB0byBhY2Nlc3MgRXhhIiwiZG9tYWluIjoiYXBpLmV4YS5haSIsInVyaSI6Imh0dHBzOi8vYXBpLmV4YS5haS9jb250ZW50cyIsIm5vbmNlIjoiMDRmMjRlNGM1NjA4NDQyMGE0NzIzZDI2Yjk4YjZlMGQiLCJpc3N1ZWRBdCI6IjIwMjYtMDUtMDZUMDM6NDA6NTEuMTY4WiIsInJlc291cmNlcyI6WyJodHRwczovL2FwaS5leGEuYWkvY29udGVudHMiXX0sInN1cHBvcnRlZENoYWlucyI6W3siY2hhaW5JZCI6ImVpcDE1NTo0ODAiLCJ0eXBlIjoiZWlwMTkxIn0seyJjaGFpbklkIjoiZWlwMTU1OjQ4MCIsInR5cGUiOiJlaXAxMjcxIn1dLCJzY2hlbWEiOnsiJHNjaGVtYSI6Imh0dHBzOi8vanNvbi1zY2hlbWEub3JnL2RyYWZ0LzIwMjAtMTIvc2NoZW1hIiwidHlwZSI6Im9iamVjdCIsInByb3BlcnRpZXMiOnsiZG9tYWluIjp7InR5cGUiOiJzdHJpbmcifSwiYWRkcmVzcyI6eyJ0eXBlIjoic3RyaW5nIn0sInN0YXRlbWVudCI6eyJ0eXBlIjoic3RyaW5nIn0sInVyaSI6eyJ0eXBlIjoic3RyaW5nIiwiZm9ybWF0IjoidXJpIn0sInZlcnNpb24iOnsidHlwZSI6InN0cmluZyJ9LCJjaGFpbklkIjp7InR5cGUiOiJzdHJpbmcifSwidHlwZSI6eyJ0eXBlIjoic3RyaW5nIn0sIm5vbmNlIjp7InR5cGUiOiJzdHJpbmcifSwiaXNzdWVkQXQiOnsidHlwZSI6InN0cmluZyIsImZvcm1hdCI6ImRhdGUtdGltZSJ9LCJleHBpcmF0aW9uVGltZSI6eyJ0eXBlIjoic3RyaW5nIiwiZm9ybWF0IjoiZGF0ZS10aW1lIn0sIm5vdEJlZm9yZSI6eyJ0eXBlIjoic3RyaW5nIiwiZm9ybWF0IjoiZGF0ZS10aW1lIn0sInJlcXVlc3RJZCI6eyJ0eXBlIjoic3RyaW5nIn0sInJlc291cmNlcyI6eyJ0eXBlIjoiYXJyYXkiLCJpdGVtcyI6eyJ0eXBlIjoic3RyaW5nIiwiZm9ybWF0IjoidXJpIn19LCJzaWduYXR1cmUiOnsidHlwZSI6InN0cmluZyJ9fSwicmVxdWlyZWQiOlsiZG9tYWluIiwiYWRkcmVzcyIsInVyaSIsInZlcnNpb24iLCJjaGFpbklkIiwidHlwZSIsIm5vbmNlIiwiaXNzdWVkQXQiLCJzaWduYXR1cmUiXX0sIl9vcHRpb25zIjp7InN0YXRlbWVudCI6IlZlcmlmeSB5b3VyIGFnZW50IGlzIGJhY2tlZCBieSBhIHJlYWwgaHVtYW4gdG8gYWNjZXNzIEV4YSIsIm1vZGUiOnsidHlwZSI6ImZyZWUtdHJpYWwiLCJ1c2VzIjoxMDB9LCJuZXR3b3JrIjoiZWlwMTU1OjQ4MCJ9fX19"
+        ],
+        "Referrer-Policy": [
+          "no-referrer"
+        ],
+        "Server": [
+          "cloudflare"
+        ],
+        "Server-Timing": [
+          "cfCacheStatus;desc=\"DYNAMIC\"",
+          "cfEdge;dur=42,cfOrigin;dur=41"
+        ],
+        "Strict-Transport-Security": [
+          "max-age=31536000; includeSubDomains"
+        ],
+        "Vary": [
+          "Origin"
+        ],
+        "X-Content-Type-Options": [
+          "nosniff"
+        ],
+        "X-Dns-Prefetch-Control": [
+          "off"
+        ],
+        "X-Download-Options": [
+          "noopen"
+        ],
+        "X-Frame-Options": [
+          "DENY"
+        ],
+        "X-Permitted-Cross-Domain-Policies": [
+          "none"
+        ],
+        "X-Xss-Protection": [
+          "0"
+        ]
+      },
+      "response_body": "{\"requestId\":\"d7b6689ad8842941f19733fdcd7411c8\",\"error\":\"Payment required to access this resource\",\"tag\":\"X402_PAYMENT_REQUIRED\"}"
+    },
+    {
+      "request_method": "POST",
+      "request_url": "https://api.exa.ai/contents",
+      "request_headers": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "X-Payment": [
+          "eyJ4NDAyVmVyc2lvbiI6MiwiYWNjZXB0ZWQiOnsic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoiZWlwMTU1Ojg0NTMiLCJhbW91bnQiOiIxMDAwIiwicGF5VG8iOiIweDZkNkU2OTViMDk4NjE0NjdjN2Q0NjJmNUFBRjMxY0YzNTQwQjkxOTIiLCJtYXhUaW1lb3V0U2Vjb25kcyI6NjAsImFzc2V0IjoiMHg4MzM1ODlmQ0Q2ZURiNkUwOGY0YzdDMzJENGY3MWI1NGJkQTAyOTEzIiwiZXh0cmEiOnsiYnJlYWtkb3duIjp7InRleHQiOjAuMDAxfSwibmFtZSI6IlVTRCBDb2luIiwidG90YWxVc2QiOjAuMDAxLCJ2ZXJzaW9uIjoiMiJ9fSwicmVzb3VyY2UiOnsidXJsIjoiaHR0cHM6Ly9hcGkuZXhhLmFpL2NvbnRlbnRzIiwiZGVzY3JpcHRpb24iOiJFeGEgL2NvbnRlbnRzIGVuZHBvaW50IiwibWltZVR5cGUiOiJhcHBsaWNhdGlvbi9qc29uIn0sInBheWxvYWQiOnsic2lnbmF0dXJlIjoiMHg1YWMyNjZhN2IzYTNkZTM3ZWM2ZTg1YzI2ZTY0NTY0MDZiMDE5YTc3ZDc3ODFlODAyYTIyYjhjZDE1MjAxMjAwNjE5YTM5MDUxOTJiMzEzMDVkNjAxZjljMDUwNTg0MDllYzk1OWQ5N2FiZjgxNDQ5YmQxY2FhMjNkZDQyZDIyMTFiIiwiYXV0aG9yaXphdGlvbiI6eyJmcm9tIjoiMHhkRDEyREVjYmVhNGJkMEJjNDE0YWY2MzVhMzM5OGY1MEZBMjkxZTQ1IiwidG8iOiIweDZkNkU2OTViMDk4NjE0NjdjN2Q0NjJmNUFBRjMxY0YzNTQwQjkxOTIiLCJ2YWx1ZSI6IjEwMDAiLCJ2YWxpZEFmdGVyIjoiMCIsInZhbGlkQmVmb3JlIjoiMTc3ODAzODkxMSIsIm5vbmNlIjoiMHhlZDAwNDA3YTlmNzc4YTE0ZTUyNDQ4ZjZmYWQ2ZTM2NTVhNTQwYjRiMGUyMGE2M2I1MTg2NGEzMTUyZDAyYTE1In19fQ=="
+        ]
+      },
+      "request_body": "{\"urls\":[\"https://example.com\"],\"text\":true}",
+      "response_status": 200,
+      "response_headers": {
+        "Access-Control-Allow-Credentials": [
+          "true"
+        ],
+        "Access-Control-Expose-Headers": [
+          "PAYMENT-REQUIRED,PAYMENT-RESPONSE,payment-required,payment-response"
+        ],
+        "Cf-Cache-Status": [
+          "DYNAMIC"
+        ],
+        "Cf-Ray": [
+          "9f74f744aaad18b6-OMA"
+        ],
+        "Content-Security-Policy": [
+          "frame-ancestors 'self'"
+        ],
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ],
+        "Cross-Origin-Opener-Policy": [
+          "same-origin"
+        ],
+        "Cross-Origin-Resource-Policy": [
+          "same-origin"
+        ],
+        "Date": [
+          "Wed, 06 May 2026 03:40:54 GMT"
+        ],
+        "Etag": [
+          "W/\"293-bfJ14BQQmwjLwEykIPkL/9tMTGs\""
+        ],
+        "Origin-Agent-Cluster": [
+          "?1"
+        ],
+        "Payment-Response": [
+          "eyJzdWNjZXNzIjp0cnVlLCJ0cmFuc2FjdGlvbiI6IjB4MWRkZmFjOTE2YjA4OTJmNGQ3Nzc2ZWJhY2ExNWY5NTljMjlhYjllYjZlNzQ4ZDZiNTk4NGMxNWEzY2Y1ZmQyZCIsIm5ldHdvcmsiOiJlaXAxNTU6ODQ1MyIsInBheWVyIjoiMHhkRDEyREVjYmVhNGJkMEJjNDE0YWY2MzVhMzM5OGY1MEZBMjkxZTQ1In0="
+        ],
+        "Referrer-Policy": [
+          "no-referrer"
+        ],
+        "Server": [
+          "cloudflare"
+        ],
+        "Server-Timing": [
+          "cfCacheStatus;desc=\"DYNAMIC\"",
+          "cfEdge;dur=40,cfOrigin;dur=2817"
+        ],
+        "Strict-Transport-Security": [
+          "max-age=31536000; includeSubDomains"
+        ],
+        "Vary": [
+          "Origin"
+        ],
+        "X-Content-Type-Options": [
+          "nosniff"
+        ],
+        "X-Dns-Prefetch-Control": [
+          "off"
+        ],
+        "X-Download-Options": [
+          "noopen"
+        ],
+        "X-Frame-Options": [
+          "DENY"
+        ],
+        "X-Permitted-Cross-Domain-Policies": [
+          "none"
+        ],
+        "X-Xss-Protection": [
+          "0"
+        ]
+      },
+      "response_body": "{\"requestId\":\"eeaee903ed3375edafa179586d076a5f\",\"results\":[{\"id\":\"https://example.com\",\"title\":\"Example Domain\",\"url\":\"https://example.com\",\"author\":null,\"text\":\"Example Domain\\n\\n# Example Domain\\n\\nThis domain is for use in documentation examples without needing permission. Avoid use in operations.\\n\\nExample Domain\\n# Example Domain\\nThis domain is for use in documentation examples without needing permission. Avoid use in operations.\\n[Learn more](https://iana.org/domains/example)\"}],\"statuses\":[{\"id\":\"https://example.com\",\"status\":\"success\",\"source\":\"cached\"}],\"costDollars\":{\"total\":0.001,\"contents\":{\"text\":0.001}},\"searchTime\":20.490879999939352}"
+    }
+  ]
+}

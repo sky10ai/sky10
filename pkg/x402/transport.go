@@ -183,12 +183,13 @@ func encodePayment(version int, req PaymentRequirements, inner json.RawMessage, 
 	}
 }
 
-// readCallResponse builds the CallResponse from the retry response,
-// dispatching the receipt parser to the matching version. The free
-// (unmetered) success path falls through with version=v1; both paths
-// just look at the v1 then v2 header in the absence of a known
-// version.
-func readCallResponse(resp *http.Response, version int) (*CallResponse, error) {
+// readCallResponse builds the CallResponse from the retry response.
+// The version argument is unused for receipt parsing — receipts are
+// version-blind in practice (servers mix the v1-named
+// X-Payment-Response header with v2-encoded base64 content) — but is
+// kept on the signature so callers preserve the wire-version
+// awareness for future use.
+func readCallResponse(resp *http.Response, _ int) (*CallResponse, error) {
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -199,8 +200,8 @@ func readCallResponse(resp *http.Response, version int) (*CallResponse, error) {
 		Body:    body,
 		Headers: extractStringHeaders(resp.Header),
 	}
-	if rec := receiptHeaderForVersion(resp.Header, version); rec != "" {
-		parsed, err := parseReceiptForVersion(version, rec)
+	if rec := readReceiptHeader(resp.Header); rec != "" {
+		parsed, err := parseReceipt(rec)
 		if err == nil {
 			out.Receipt = &parsed
 		}
@@ -212,28 +213,14 @@ func readCallResponse(resp *http.Response, version int) (*CallResponse, error) {
 	return out, nil
 }
 
-func receiptHeaderForVersion(h http.Header, version int) string {
-	switch version {
-	case X402ProtocolV2:
-		if v := h.Get(HeaderPaymentResponseV2); v != "" {
-			return v
-		}
-		return h.Get(HeaderPaymentResponse)
-	default:
-		if v := h.Get(HeaderPaymentResponse); v != "" {
-			return v
-		}
-		return h.Get(HeaderPaymentResponseV2)
+// readReceiptHeader picks the first non-empty receipt header value,
+// preferring the v2-named lowercase form but falling back to the
+// v1-named X-PAYMENT-RESPONSE for servers still on the legacy name.
+func readReceiptHeader(h http.Header) string {
+	if v := h.Get(HeaderPaymentResponseV2); v != "" {
+		return v
 	}
-}
-
-func parseReceiptForVersion(version int, value string) (PaymentReceipt, error) {
-	switch version {
-	case X402ProtocolV2:
-		return parseReceiptV2(value)
-	default:
-		return parseReceiptV1(value)
-	}
+	return h.Get(HeaderPaymentResponse)
 }
 
 // extractStringHeaders flattens an http.Header into a single-value

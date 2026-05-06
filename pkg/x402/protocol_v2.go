@@ -129,14 +129,25 @@ func encodePaymentV2(req PaymentRequirements, inner json.RawMessage, resource *R
 	return base64.StdEncoding.EncodeToString(raw), nil
 }
 
-// parseReceiptV2 parses a v2 Payment-Response header. The value is
-// base64-encoded JSON; field names differ from v1 (transaction vs
-// tx) so we decode into a permissive intermediate struct first.
-func parseReceiptV2(value string) (PaymentReceipt, error) {
-	raw, err := decodePaymentB64(strings.TrimSpace(value))
+// parseReceipt extracts a PaymentReceipt from a Payment-Response or
+// X-PAYMENT-RESPONSE header value. The wire is messy in the wild:
+// some services emit plain JSON, others base64 JSON, the tx field
+// is sometimes `tx` and sometimes `transaction`, and the same
+// service might use a v1-named header with v2-encoded content
+// (Blockrun ships X-Payment-Response containing base64 JSON with a
+// `transaction` field). This parser is intentionally version-blind
+// because the receipt's encoding doesn't track the request/response
+// version cleanly.
+func parseReceipt(value string) (PaymentReceipt, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return PaymentReceipt{}, errors.New("empty receipt header")
+	}
+	// First try base64 → JSON (the v2-style encoding most current
+	// servers ship). Fall back to plain JSON for v1-era servers.
+	raw, err := decodePaymentB64(value)
 	if err != nil {
-		// Some servers might not base64-encode; try direct JSON.
-		raw = []byte(strings.TrimSpace(value))
+		raw = []byte(value)
 	}
 	var loose struct {
 		Success     bool    `json:"success,omitempty"`
@@ -148,7 +159,12 @@ func parseReceiptV2(value string) (PaymentReceipt, error) {
 		AmountUSDC  string  `json:"amount_usdc,omitempty"`
 	}
 	if err := json.Unmarshal(raw, &loose); err != nil {
-		return PaymentReceipt{}, fmt.Errorf("v2 receipt parse: %w", err)
+		// As a last resort, try the original value as JSON (handles
+		// the "wasn't actually base64" case where decodePaymentB64's
+		// permissive variants happened to match noise bytes).
+		if jerr := json.Unmarshal([]byte(value), &loose); jerr != nil {
+			return PaymentReceipt{}, fmt.Errorf("receipt parse: %w", err)
+		}
 	}
 	tx := loose.Transaction
 	if tx == "" {

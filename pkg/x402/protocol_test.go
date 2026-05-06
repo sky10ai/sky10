@@ -112,10 +112,14 @@ func TestEncodePaymentV1(t *testing.T) {
 	}
 }
 
-// TestParseReceiptV1 demonstrates v1's plain-JSON X-PAYMENT-RESPONSE.
-func TestParseReceiptV1(t *testing.T) {
+// TestParseReceiptPlainJSON exercises the v1-era plain-JSON receipt
+// shape. parseReceipt is version-blind by design (some servers ship
+// a v2-encoded base64 receipt under the v1 X-PAYMENT-RESPONSE
+// header, so dispatching on the header name doesn't track the
+// content reliably).
+func TestParseReceiptPlainJSON(t *testing.T) {
 	t.Parallel()
-	r, err := parseReceiptV1(`{"tx":"0xdead","network":"base","amount_usdc":"0.005"}`)
+	r, err := parseReceipt(`{"tx":"0xdead","network":"base","amount_usdc":"0.005"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,9 +249,10 @@ func TestEncodePaymentV2(t *testing.T) {
 	}
 }
 
-// TestParseReceiptV2 demonstrates v2's base64-JSON Payment-Response,
-// where the tx hash arrives under `transaction` (not `tx`).
-func TestParseReceiptV2(t *testing.T) {
+// TestParseReceiptBase64Transaction exercises the v2-era encoding:
+// base64-wrapped JSON with the tx hash under the `transaction` field
+// instead of `tx`. parseReceipt is permissive about both axes.
+func TestParseReceiptBase64Transaction(t *testing.T) {
 	t.Parallel()
 	body, _ := json.Marshal(map[string]any{
 		"success":     true,
@@ -256,9 +261,9 @@ func TestParseReceiptV2(t *testing.T) {
 		"payer":       "0xclient",
 	})
 	headerValue := base64.StdEncoding.EncodeToString(body)
-	r, err := parseReceiptV2(headerValue)
+	r, err := parseReceipt(headerValue)
 	if err != nil {
-		t.Fatalf("parseReceiptV2: %v", err)
+		t.Fatalf("parseReceipt: %v", err)
 	}
 	if r.Tx != "0xdeadbeef" {
 		t.Fatalf("Tx = %q, want 0xdeadbeef (parsed from `transaction` field)", r.Tx)
