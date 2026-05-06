@@ -293,6 +293,55 @@ func TestSelectRequirementsPicksFirstSupported(t *testing.T) {
 	}
 }
 
+// TestPreferAndCheapestPicksCheapestInPreferredNetwork mirrors the
+// Quicknode solana-mainnet shape: a multi-chain, multi-tier accept
+// list. The manifest restricts payment to Solana mainnet, so we
+// expect to skip the Base entries and pick the cheaper of the two
+// Solana entries even though the more expensive one comes first
+// in the accepts list.
+func TestPreferAndCheapestPicksCheapestInPreferredNetwork(t *testing.T) {
+	t.Parallel()
+	c := PaymentChallenge{
+		Version: X402ProtocolV2,
+		Accepts: []PaymentRequirements{
+			{Scheme: "exact", Network: "eip155:8453", AmountMicros: "1000", PayTo: "0xb", Asset: "0xUSDC-base"},
+			{Scheme: "exact", Network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", AmountMicros: "10000000", PayTo: "p1", Asset: "USDC"},
+			{Scheme: "exact", Network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", AmountMicros: "1000", PayTo: "p1", Asset: "USDC"},
+		},
+	}
+	req, err := c.PreferAndCheapest([]Network{NetworkSolana})
+	if err != nil {
+		t.Fatalf("PreferAndCheapest: %v", err)
+	}
+	if req.AmountMicros != "1000" {
+		t.Fatalf("AmountMicros = %q, want 1000 (cheapest Solana)", req.AmountMicros)
+	}
+	if !strings.HasPrefix(req.Network, "solana:") {
+		t.Fatalf("Network = %q, want Solana", req.Network)
+	}
+}
+
+// TestPreferAndCheapestNoPreferenceFallsBackToCheapestSupported ensures
+// passing nil prefer matches the historical SelectRequirements
+// semantics (any compatible) but with cheapest-among-compatible.
+func TestPreferAndCheapestNoPreferenceFallsBackToCheapestSupported(t *testing.T) {
+	t.Parallel()
+	c := PaymentChallenge{
+		Version: X402ProtocolV2,
+		Accepts: []PaymentRequirements{
+			{Scheme: "exact", Network: "eip155:8453", AmountMicros: "10000", PayTo: "0xb", Asset: "0xUSDC-base"},
+			{Scheme: "exact", Network: "eip155:8453", AmountMicros: "100", PayTo: "0xb", Asset: "0xUSDC-base"},
+		},
+	}
+	req, err := c.PreferAndCheapest(nil)
+	if err != nil {
+		t.Fatalf("PreferAndCheapest: %v", err)
+	}
+	if req.AmountMicros != "100" {
+		t.Fatalf("AmountMicros = %q, want 100", req.AmountMicros)
+	}
+}
+
 func TestSelectRequirementsNoMatch(t *testing.T) {
 	t.Parallel()
 	c := PaymentChallenge{

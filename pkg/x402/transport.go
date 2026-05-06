@@ -66,6 +66,13 @@ type CallRequest struct {
 	URL     string
 	Headers map[string]string
 	Body    []byte
+	// PreferNetworks restricts requirement selection to the listed
+	// canonical networks. Used by Backend to prefer the network the
+	// service manifest was approved for when the server offers a
+	// multi-chain accept list (e.g. Quicknode's solana-mainnet
+	// endpoint advertises 22 entries spanning Base, Polygon, and
+	// Solana). When empty, any supported network is acceptable.
+	PreferNetworks []Network
 }
 
 // CallResponse is the output of Transport.Call after a successful
@@ -112,7 +119,7 @@ func (t *Transport) Call(ctx context.Context, req CallRequest) (*CallResponse, e
 	if err != nil {
 		return nil, fmt.Errorf("parse 402 challenge: %w", err)
 	}
-	requirement, err := challenge.SelectRequirements()
+	requirement, err := challenge.PreferAndCheapest(req.PreferNetworks)
 	if err != nil {
 		return nil, err
 	}

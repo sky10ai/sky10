@@ -3,6 +3,7 @@ package x402
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"strconv"
 	"strings"
 	"time"
@@ -82,19 +83,79 @@ type PaymentChallenge struct {
 }
 
 // SelectRequirements returns the first PaymentRequirements compatible
-// with our supported schemes and networks. ErrNoCompatibleRequirements
-// is returned when none of the offered options can be honored.
+// with our supported schemes and networks. Equivalent to
+// PreferAndCheapest(nil) — kept for callers that don't care about
+// network preference.
 func (c PaymentChallenge) SelectRequirements() (PaymentRequirements, error) {
-	for _, req := range c.Accepts {
+	return c.PreferAndCheapest(nil)
+}
+
+// PreferAndCheapest picks the cheapest compatible requirement,
+// optionally restricted to a preferred network set. Real services
+// often offer multiple price tiers and multiple chains in a single
+// challenge — Quicknode's /solana-mainnet/ ships 22 entries spanning
+// Base/Polygon/Solana with prices from $0.0001 to $10. A naive
+// "first compatible" pick lands on a 10-USDC daily-pass entry that
+// blows past any reasonable per-call budget.
+//
+//   - When prefer is non-empty, only requirements whose canonical
+//     network is in that list are considered. ErrNoCompatibleRequirements
+//     is returned if none match.
+//   - Among matches, the smallest AmountMicros wins. Ties pick the
+//     first occurrence to keep ordering deterministic.
+func (c PaymentChallenge) PreferAndCheapest(prefer []Network) (PaymentRequirements, error) {
+	prefSet := make(map[Network]struct{}, len(prefer))
+	for _, n := range prefer {
+		prefSet[n] = struct{}{}
+	}
+	var best *PaymentRequirements
+	var bestMicros *big.Int
+	for i := range c.Accepts {
+		req := c.Accepts[i]
 		if !isSupportedScheme(req.Scheme) {
 			continue
 		}
-		if !isSupportedNetwork(req.Network) {
+		canon, ok := canonicalizeNetwork(req.Network)
+		if !ok {
 			continue
 		}
-		return req, nil
+		if len(prefSet) > 0 {
+			if _, want := prefSet[canon]; !want {
+				continue
+			}
+		}
+		micros, err := parseIntegerBaseUnits(req.AmountMicros)
+		if err != nil {
+			continue
+		}
+		if best == nil || micros.Cmp(bestMicros) < 0 {
+			r := req
+			best = &r
+			bestMicros = micros
+		}
 	}
-	return PaymentRequirements{}, ErrNoCompatibleRequirements
+	if best == nil {
+		return PaymentRequirements{}, ErrNoCompatibleRequirements
+	}
+	return *best, nil
+}
+
+// parseIntegerBaseUnits is the canonical-amount parser used in
+// PreferAndCheapest's price comparison. v1 and v2 wires both store
+// AmountMicros as integer base units after canonicalization.
+func parseIntegerBaseUnits(s string) (*big.Int, error) {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return nil, errors.New("empty amount")
+	}
+	if !isAllDigits(trimmed) {
+		return nil, fmt.Errorf("amount %q must be integer base units", trimmed)
+	}
+	v, ok := new(big.Int).SetString(trimmed, 10)
+	if !ok || v.Sign() <= 0 {
+		return nil, fmt.Errorf("amount %q must be positive", trimmed)
+	}
+	return v, nil
 }
 
 // ErrNoCompatibleRequirements indicates the server's 402 challenge

@@ -29,6 +29,11 @@ type liveSmokeCase struct {
 	method       string
 	body         []byte
 	maxPriceUSDC string
+	// networks restricts which network this call can settle on.
+	// Defaults to Base when empty. Solana cases must list NetworkSolana
+	// explicitly so PreferAndCheapest skips the Base entries servers
+	// like Quicknode advertise alongside Solana.
+	networks []Network
 }
 
 func liveSmokeCases() []liveSmokeCase {
@@ -81,6 +86,25 @@ func liveSmokeCases() []liveSmokeCase {
 			body:         []byte(`{"estimatedMinutes":5}`),
 			maxPriceUSDC: "0.020",
 		},
+
+		// --- Solana mainnet (v2) ---
+		// Quicknode's solana-mainnet endpoint advertises 22 accept
+		// entries spanning Base, Polygon, and Solana — the Solana
+		// mainnet tier is the cheapest (1000 base units = $0.001 USDC).
+		// PreferAndCheapest with networks=[NetworkSolana] skips the
+		// EVM entries and picks the cheap SVM tier. Settlement
+		// requires the wallet's Solana address to hold USDC.
+		{
+			id:           "quicknode-solana-mainnet",
+			manifestID:   "quicknode-rpc-solana",
+			displayName:  "Quicknode Solana RPC",
+			endpointHost: "https://x402.quicknode.com",
+			path:         "/solana-mainnet/",
+			method:       "POST",
+			body:         []byte(`{"jsonrpc":"2.0","id":1,"method":"getSlot"}`),
+			maxPriceUSDC: "0.005",
+			networks:     []Network{NetworkSolana},
+		},
 	}
 }
 
@@ -132,11 +156,15 @@ func runLiveCase(t *testing.T, signer Signer, tc liveSmokeCase) {
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
+	networks := tc.networks
+	if len(networks) == 0 {
+		networks = []Network{NetworkBase}
+	}
 	manifest := ServiceManifest{
 		ID:           tc.manifestID,
 		DisplayName:  tc.displayName,
 		Endpoint:     tc.endpointHost,
-		Networks:     []Network{NetworkBase},
+		Networks:     networks,
 		MaxPriceUSDC: tc.maxPriceUSDC,
 		UpdatedAt:    time.Now().UTC(),
 	}

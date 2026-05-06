@@ -143,10 +143,11 @@ func (b *Backend) Call(ctx context.Context, params CallParams) (*CallResult, err
 		return nil, err
 	}
 	resp, err := b.transport.Call(ctx, CallRequest{
-		Method:  params.Method,
-		URL:     target,
-		Headers: params.Headers,
-		Body:    params.Body,
+		Method:         params.Method,
+		URL:            target,
+		Headers:        params.Headers,
+		Body:           params.Body,
+		PreferNetworks: manifest.Networks,
 	})
 	if err != nil {
 		return nil, err
