@@ -1,0 +1,186 @@
+{
+  "service": "x402-alchemy-com-solana",
+  "method": "POST",
+  "url": "https://x402.alchemy.com/solana-mainnet/v2",
+  "captured_at_utc": "2026-05-06T10:21:14Z",
+  "exchanges": [
+    {
+      "request_method": "POST",
+      "request_url": "https://x402.alchemy.com/solana-mainnet/v2",
+      "request_headers": {
+        "Content-Type": [
+          "application/json"
+        ]
+      },
+      "request_body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlot\"}",
+      "response_status": 402,
+      "response_headers": {
+        "Access-Control-Allow-Headers": [
+          "*"
+        ],
+        "Access-Control-Allow-Methods": [
+          "*"
+        ],
+        "Access-Control-Allow-Origin": [
+          "*"
+        ],
+        "Access-Control-Expose-Headers": [
+          "*"
+        ],
+        "Content-Security-Policy": [
+          "default-src 'self';base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';img-src 'self' data:;object-src 'none';script-src 'self';script-src-attr 'none';style-src 'self' https: 'unsafe-inline';upgrade-insecure-requests"
+        ],
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ],
+        "Cross-Origin-Opener-Policy": [
+          "same-origin"
+        ],
+        "Cross-Origin-Resource-Policy": [
+          "same-origin"
+        ],
+        "Date": [
+          "Wed, 06 May 2026 10:21:11 GMT"
+        ],
+        "Etag": [
+          "W/\"4da-yit7luO8WpxLSF/wnnTiF0kgUu8\""
+        ],
+        "Origin-Agent-Cluster": [
+          "?1"
+        ],
+        "Payment-Required": [
+          "eyJ4NDAyVmVyc2lvbiI6MiwiZXJyb3IiOiJQYXltZW50IFJlcXVpcmVkIiwicmVzb3VyY2UiOnsidXJsIjoiaHR0cHM6Ly94NDAyLmFsY2hlbXkuY29tL3NvbGFuYS1tYWlubmV0L3YyIiwiZGVzY3JpcHRpb24iOiJQYXkgJDAuMDAxIHBlciByZXF1ZXN0IOKAlCBubyBhY2NvdW50IHJlcXVpcmVkLiBTZWUgaHR0cHM6Ly93d3cuYWxjaGVteS5jb20vZG9jcy9yZWZlcmVuY2UvY29tcHV0ZS11bml0LWNvc3RzIiwibWltZVR5cGUiOiJhcHBsaWNhdGlvbi9qc29uIn0sImFjY2VwdHMiOlt7InNjaGVtZSI6ImV4YWN0IiwibmV0d29yayI6ImVpcDE1NTo4NDUzIiwiYW1vdW50IjoiMTAwMCIsImFzc2V0IjoiMHg4MzM1ODlmQ0Q2ZURiNkUwOGY0YzdDMzJENGY3MWI1NGJkQTAyOTEzIiwicGF5VG8iOiIweDA1NzNjNGRBN2ZDMzFFOTQ0ZTVGRjk1OWZFZjNiNDIxOTlDMzA4QjIiLCJtYXhUaW1lb3V0U2Vjb25kcyI6MzAwLCJleHRyYSI6eyJuYW1lIjoiVVNEIENvaW4iLCJ2ZXJzaW9uIjoiMiJ9fSx7InNjaGVtZSI6ImV4YWN0IiwibmV0d29yayI6InNvbGFuYTo1ZXlrdDRVc0Z2OFA4TkpkVFJFcFkxdnpxS3FaS3ZkcCIsImFtb3VudCI6IjEwMDAiLCJhc3NldCI6IkVQakZXZGQ1QXVmcVNTcWVNMnFOMXh6eWJhcEM4RzR3RUdHa1p3eVREdDF2IiwicGF5VG8iOiI2S3NiU0F6aEZlNVl6cUJLOW5nZVp6ZFU1eGF1WnNuaTlvc1FlQjhyU3k1UiIsIm1heFRpbWVvdXRTZWNvbmRzIjozMDAsImV4dHJhIjp7ImZlZVBheWVyIjoiR1ZKSjdyZEdpWHI1eGFZYlJ3UmJqZmFKTDdmbXdSeWdGaTFINmFHcUR2ZWIifX0seyJzY2hlbWUiOiJleGFjdCIsIm5ldHdvcmsiOiJlaXAxNTU6ODQ1MyIsImFzc2V0IjoiMHg4MzM1ODlmQ0Q2ZURiNkUwOGY0YzdDMzJENGY3MWI1NGJkQTAyOTEzIiwiYW1vdW50IjoiMTAwMCIsInBheVRvIjoiMHgwNTczYzRkQTdmQzMxRTk0NGU1RkY5NTlmRWYzYjQyMTk5QzMwOEIyIiwibWF4VGltZW91dFNlY29uZHMiOjYwNTQwMCwiZXh0cmEiOnsibmFtZSI6IkdhdGV3YXlXYWxsZXRCYXRjaGVkIiwidmVyc2lvbiI6IjEiLCJ2ZXJpZnlpbmdDb250cmFjdCI6IjB4Nzc3Nzc3NzdkY2M0ZDVhOGI2ZTQxOGZkMDRkODk5N2VmMTEwMDBlZSJ9fV19"
+        ],
+        "Referrer-Policy": [
+          "no-referrer"
+        ],
+        "Server": [
+          "istio-envoy"
+        ],
+        "Strict-Transport-Security": [
+          "max-age=31536000; includeSubDomains"
+        ],
+        "Vary": [
+          "Accept-Encoding"
+        ],
+        "X-Content-Type-Options": [
+          "nosniff"
+        ],
+        "X-Dns-Prefetch-Control": [
+          "off"
+        ],
+        "X-Download-Options": [
+          "noopen"
+        ],
+        "X-Envoy-Upstream-Service-Time": [
+          "2"
+        ],
+        "X-Frame-Options": [
+          "SAMEORIGIN"
+        ],
+        "X-Permitted-Cross-Domain-Policies": [
+          "none"
+        ],
+        "X-Xss-Protection": [
+          "0"
+        ]
+      },
+      "response_body": "{\"x402Version\":2,\"error\":\"Payment Required\",\"resource\":{\"url\":\"https://x402.alchemy.com/solana-mainnet/v2\",\"description\":\"Pay $0.001 per request — no account required. See https://www.alchemy.com/docs/reference/compute-unit-costs\",\"mimeType\":\"application/json\"},\"accepts\":[{\"scheme\":\"exact\",\"network\":\"eip155:8453\",\"amount\":\"1000\",\"asset\":\"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913\",\"payTo\":\"0x0573c4dA7fC31E944e5FF959fEf3b42199C308B2\",\"maxTimeoutSeconds\":300,\"extra\":{\"name\":\"USD Coin\",\"version\":\"2\"}},{\"scheme\":\"exact\",\"network\":\"solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp\",\"amount\":\"1000\",\"asset\":\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\"payTo\":\"6KsbSAzhFe5YzqBK9ngeZzdU5xauZsni9osQeB8rSy5R\",\"maxTimeoutSeconds\":300,\"extra\":{\"feePayer\":\"GVJJ7rdGiXr5xaYbRwRbjfaJL7fmwRygFi1H6aGqDveb\"}},{\"scheme\":\"exact\",\"network\":\"eip155:8453\",\"asset\":\"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913\",\"amount\":\"1000\",\"payTo\":\"0x0573c4dA7fC31E944e5FF959fEf3b42199C308B2\",\"maxTimeoutSeconds\":605400,\"extra\":{\"name\":\"GatewayWalletBatched\",\"version\":\"1\",\"verifyingContract\":\"0x77777777dcc4d5a8b6e418fd04d8997ef11000ee\"}}],\"extensions\":{\"hint\":\"If you're an agent, learn how to use Alchemy by installing skills: npx skills add alchemyplatform/skills --yes\"}}"
+    },
+    {
+      "request_method": "POST",
+      "request_url": "https://x402.alchemy.com/solana-mainnet/v2",
+      "request_headers": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "Payment-Signature": [
+          "eyJ4NDAyVmVyc2lvbiI6MiwiYWNjZXB0ZWQiOnsic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoic29sYW5hOjVleWt0NFVzRnY4UDhOSmRUUkVwWTF2enFLcVpLdmRwIiwiYW1vdW50IjoiMTAwMCIsInBheVRvIjoiNktzYlNBemhGZTVZenFCSzluZ2VaemRVNXhhdVpzbmk5b3NRZUI4clN5NVIiLCJtYXhUaW1lb3V0U2Vjb25kcyI6MzAwLCJhc3NldCI6IkVQakZXZGQ1QXVmcVNTcWVNMnFOMXh6eWJhcEM4RzR3RUdHa1p3eVREdDF2IiwiZXh0cmEiOnsiZmVlUGF5ZXIiOiJHVkpKN3JkR2lYcjV4YVliUndSYmpmYUpMN2Ztd1J5Z0ZpMUg2YUdxRHZlYiJ9fSwicmVzb3VyY2UiOnsidXJsIjoiaHR0cHM6Ly94NDAyLmFsY2hlbXkuY29tL3NvbGFuYS1tYWlubmV0L3YyIiwiZGVzY3JpcHRpb24iOiJQYXkgJDAuMDAxIHBlciByZXF1ZXN0IOKAlCBubyBhY2NvdW50IHJlcXVpcmVkLiBTZWUgaHR0cHM6Ly93d3cuYWxjaGVteS5jb20vZG9jcy9yZWZlcmVuY2UvY29tcHV0ZS11bml0LWNvc3RzIiwibWltZVR5cGUiOiJhcHBsaWNhdGlvbi9qc29uIn0sInBheWxvYWQiOnsidHJhbnNhY3Rpb24iOiJBZ0FBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUJUREhhNm94Z1lYWllEZWJnNVNIVUR3L0taV1c4WGN4aU1OMjNtSmk3Rk9aYUtldFZwQ2d6QVVqTUpKWC9qdnhkTzhlckk4SGZKUU1LTndUTDFyV1VLZ0FJQUJBam1IeDlLVnhwd0J0WXRKN1dLSzk5dEJ2c1BYSlBUTEdLVmVnNkZhNWhJK0Fiblg1NnI0alJsR25ScW4wWjlidzVKOHZlUlN1TXZXNXlqK2hXSUpvNEM2WldXamR2VUJWUkJoZDRDS1g0VEV3MFdVaVpsLzZSV0JOcnJMRzdLWXlJQUdYQ3hjRVJvNC9iUmVDcnlWdXdnL3VVYVdONUJUQ0o3d2pEUzhxMTE1TWI2ZXZPKzI2MDZQV1h6YXF2SmRER3h1K1RDMHZiZzVIeW1BZ05GTDExaEJ0MzI0ZGRsb1pQWnkrRkd6dXQ1ckJ5MGhlMWZXemVST296MWhYNy9BS2tGU2xOYW1Ta2hCazBrNkhGZzJqaDhmRFcxM2J5U3U0SGtINmhBUVFWRWpRTUdSbS9sSVJjeS8reXR1bkxEbStlOGpPVzd4ZmNTYXl4RG16cEFBQUFBWWNZWjBlb0p1b1BTNXgzS2ZKSU9nUjduam5WNFNMTm41VWs4OVZLZ0kxc0VCd0FGQWlCT0FBQUhBQWtEQVFBQUFBQUFBQUFGQkFJRUF3RUtET2dEQUFBQUFBQUFCZ1lBSURBNVpUTmtaVGMzWkRkbU5UbGxaamczWWpVM00yUXlZMk13TkdJd05qRmpBQT09In19"
+        ],
+        "X-Payment": [
+          "eyJ4NDAyVmVyc2lvbiI6MiwiYWNjZXB0ZWQiOnsic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoic29sYW5hOjVleWt0NFVzRnY4UDhOSmRUUkVwWTF2enFLcVpLdmRwIiwiYW1vdW50IjoiMTAwMCIsInBheVRvIjoiNktzYlNBemhGZTVZenFCSzluZ2VaemRVNXhhdVpzbmk5b3NRZUI4clN5NVIiLCJtYXhUaW1lb3V0U2Vjb25kcyI6MzAwLCJhc3NldCI6IkVQakZXZGQ1QXVmcVNTcWVNMnFOMXh6eWJhcEM4RzR3RUdHa1p3eVREdDF2IiwiZXh0cmEiOnsiZmVlUGF5ZXIiOiJHVkpKN3JkR2lYcjV4YVliUndSYmpmYUpMN2Ztd1J5Z0ZpMUg2YUdxRHZlYiJ9fSwicmVzb3VyY2UiOnsidXJsIjoiaHR0cHM6Ly94NDAyLmFsY2hlbXkuY29tL3NvbGFuYS1tYWlubmV0L3YyIiwiZGVzY3JpcHRpb24iOiJQYXkgJDAuMDAxIHBlciByZXF1ZXN0IOKAlCBubyBhY2NvdW50IHJlcXVpcmVkLiBTZWUgaHR0cHM6Ly93d3cuYWxjaGVteS5jb20vZG9jcy9yZWZlcmVuY2UvY29tcHV0ZS11bml0LWNvc3RzIiwibWltZVR5cGUiOiJhcHBsaWNhdGlvbi9qc29uIn0sInBheWxvYWQiOnsidHJhbnNhY3Rpb24iOiJBZ0FBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUJUREhhNm94Z1lYWllEZWJnNVNIVUR3L0taV1c4WGN4aU1OMjNtSmk3Rk9aYUtldFZwQ2d6QVVqTUpKWC9qdnhkTzhlckk4SGZKUU1LTndUTDFyV1VLZ0FJQUJBam1IeDlLVnhwd0J0WXRKN1dLSzk5dEJ2c1BYSlBUTEdLVmVnNkZhNWhJK0Fiblg1NnI0alJsR25ScW4wWjlidzVKOHZlUlN1TXZXNXlqK2hXSUpvNEM2WldXamR2VUJWUkJoZDRDS1g0VEV3MFdVaVpsLzZSV0JOcnJMRzdLWXlJQUdYQ3hjRVJvNC9iUmVDcnlWdXdnL3VVYVdONUJUQ0o3d2pEUzhxMTE1TWI2ZXZPKzI2MDZQV1h6YXF2SmRER3h1K1RDMHZiZzVIeW1BZ05GTDExaEJ0MzI0ZGRsb1pQWnkrRkd6dXQ1ckJ5MGhlMWZXemVST296MWhYNy9BS2tGU2xOYW1Ta2hCazBrNkhGZzJqaDhmRFcxM2J5U3U0SGtINmhBUVFWRWpRTUdSbS9sSVJjeS8reXR1bkxEbStlOGpPVzd4ZmNTYXl4RG16cEFBQUFBWWNZWjBlb0p1b1BTNXgzS2ZKSU9nUjduam5WNFNMTm41VWs4OVZLZ0kxc0VCd0FGQWlCT0FBQUhBQWtEQVFBQUFBQUFBQUFGQkFJRUF3RUtET2dEQUFBQUFBQUFCZ1lBSURBNVpUTmtaVGMzWkRkbU5UbGxaamczWWpVM00yUXlZMk13TkdJd05qRmpBQT09In19"
+        ]
+      },
+      "request_body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlot\"}",
+      "response_status": 200,
+      "response_headers": {
+        "Access-Control-Allow-Headers": [
+          "*"
+        ],
+        "Access-Control-Allow-Methods": [
+          "*"
+        ],
+        "Access-Control-Allow-Origin": [
+          "*"
+        ],
+        "Access-Control-Expose-Headers": [
+          "*"
+        ],
+        "Content-Length": [
+          "43"
+        ],
+        "Content-Security-Policy": [
+          "default-src 'self';base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';img-src 'self' data:;object-src 'none';script-src 'self';script-src-attr 'none';style-src 'self' https: 'unsafe-inline';upgrade-insecure-requests"
+        ],
+        "Content-Type": [
+          "application/json"
+        ],
+        "Cross-Origin-Opener-Policy": [
+          "same-origin"
+        ],
+        "Cross-Origin-Resource-Policy": [
+          "same-origin"
+        ],
+        "Date": [
+          "Wed, 6 May 2026 10:21:14 GMT"
+        ],
+        "Origin-Agent-Cluster": [
+          "?1"
+        ],
+        "Payment-Response": [
+          "eyJzdWNjZXNzIjp0cnVlLCJ0cmFuc2FjdGlvbiI6IjNLaXBDVjdTbnNzRXhjd0J0dTlMUG95b1pDZ240V3FOaG15WEpmVnptQjUzTGE4WFRFYmR0R0FXWGN5NWJ3Z0w1bkRzZG9UTHd6Wm91ZmtMQ21Ldjc3S1QiLCJuZXR3b3JrIjoic29sYW5hOjVleWt0NFVzRnY4UDhOSmRUUkVwWTF2enFLcVpLdmRwIiwicGF5ZXIiOiJUeDVKRzJmVmEyaUpHOTdlOERjdVZLeVRhd0tWUFQxMmpMRUJKUlpQM3paIn0="
+        ],
+        "Referrer-Policy": [
+          "no-referrer"
+        ],
+        "Server": [
+          "istio-envoy"
+        ],
+        "Strict-Transport-Security": [
+          "max-age=31536000; includeSubDomains"
+        ],
+        "Vary": [
+          "Accept-Encoding"
+        ],
+        "X-Alchemy-Trace-Id": [
+          "0969b492-08f6-4319-8925-160e960353d6"
+        ],
+        "X-Content-Type-Options": [
+          "nosniff"
+        ],
+        "X-Dns-Prefetch-Control": [
+          "off"
+        ],
+        "X-Download-Options": [
+          "noopen"
+        ],
+        "X-Envoy-Upstream-Service-Time": [
+          "2277"
+        ],
+        "X-Frame-Options": [
+          "SAMEORIGIN"
+        ],
+        "X-Permitted-Cross-Domain-Policies": [
+          "none"
+        ],
+        "X-Protocol-Version": [
+          "x402/2.0"
+        ],
+        "X-Xss-Protection": [
+          "0"
+        ]
+      },
+      "response_body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":417946188}"
+    }
+  ]
+}

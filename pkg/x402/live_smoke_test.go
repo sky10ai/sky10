@@ -88,18 +88,20 @@ func liveSmokeCases() []liveSmokeCase {
 		},
 
 		// --- Solana mainnet (v2) ---
-		// Quicknode's solana-mainnet endpoint advertises 22 accept
-		// entries spanning Base, Polygon, and Solana — the Solana
-		// mainnet tier is the cheapest (1000 base units = $0.001 USDC).
-		// PreferAndCheapest with networks=[NetworkSolana] skips the
-		// EVM entries and picks the cheap SVM tier. Settlement
-		// requires the wallet's Solana address to hold USDC.
+		// Alchemy's Solana RPC settles cleanly through our v0
+		// versioned tx (compute-budget × 2, transfer-checked, memo).
+		// Quicknode advertises the same wire shape and the same
+		// SVM facilitator (BENrLoU…) but rejects with an opaque
+		// "Unexpected error verifying payment" — service-specific
+		// quirk we have not been able to debug without packet
+		// captures from a known-working Solana x402 client. Keep
+		// Alchemy as the smoke target; drop Quicknode for now.
 		{
-			id:           "quicknode-solana-mainnet",
-			manifestID:   "quicknode-rpc-solana",
-			displayName:  "Quicknode Solana RPC",
-			endpointHost: "https://x402.quicknode.com",
-			path:         "/solana-mainnet/",
+			id:           "alchemy-solana-mainnet",
+			manifestID:   "x402-alchemy-com-solana",
+			displayName:  "Alchemy Solana RPC",
+			endpointHost: "https://x402.alchemy.com",
+			path:         "/solana-mainnet/v2",
 			method:       "POST",
 			body:         []byte(`{"jsonrpc":"2.0","id":1,"method":"getSlot"}`),
 			maxPriceUSDC: "0.005",
