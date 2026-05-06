@@ -332,7 +332,7 @@ func TestBuildTransferWithAuthorizationTypedData(t *testing.T) {
 		t.Fatalf("auth: %+v", auth)
 	}
 	if auth.ValidAfter != "0" {
-		t.Fatalf("validAfter = %q, want 0", auth.ValidAfter)
+		t.Fatalf("validAfter = %q, want 0 (Coinbase facilitator rejects non-zero)", auth.ValidAfter)
 	}
 	wantValidBefore := now.Add(60 * time.Second).Unix()
 	if auth.ValidBefore != fmtInt(wantValidBefore) {

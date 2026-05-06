@@ -1,0 +1,96 @@
+{
+  "service": "x402-browserbase-com",
+  "method": "POST",
+  "url": "https://x402.browserbase.com/browser/session/create",
+  "captured_at_utc": "2026-05-06T04:01:44Z",
+  "exchanges": [
+    {
+      "request_method": "POST",
+      "request_url": "https://x402.browserbase.com/browser/session/create",
+      "request_headers": {
+        "Content-Type": [
+          "application/json"
+        ]
+      },
+      "request_body": "{\"estimatedMinutes\":5}",
+      "response_status": 402,
+      "response_headers": {
+        "Content-Length": [
+          "993"
+        ],
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ],
+        "Date": [
+          "Wed, 06 May 2026 04:01:43 GMT"
+        ],
+        "Etag": [
+          "W/\"3e1-us5XGu/I4j1+VJll14qlBS7LiZM\""
+        ],
+        "Via": [
+          "1.1 2808d4518b8251e6457a363885208d94.cloudfront.net (CloudFront)"
+        ],
+        "X-Amz-Cf-Id": [
+          "l87Q-xMwnbKt98e65vejHf7TzVfgAiA67B3FzyB_HDOpn5HecGpsjw=="
+        ],
+        "X-Amz-Cf-Pop": [
+          "MCI50-P4"
+        ],
+        "X-Cache": [
+          "Error from cloudfront"
+        ],
+        "X-Powered-By": [
+          "Express"
+        ]
+      },
+      "response_body": "{\"x402Version\":1,\"error\":\"X-PAYMENT header is required\",\"accepts\":[{\"scheme\":\"exact\",\"network\":\"base\",\"maxAmountRequired\":\"10000\",\"resource\":\"https://x402.browserbase.com/browser/session/create\",\"description\":\"Create a Browserbase browser session with prepaid time. Returns a WebSocket connection URL for browser automation.\",\"mimeType\":\"\",\"payTo\":\"0x314F738d0D5961528054cb53cf5e1Cf08FfC3423\",\"maxTimeoutSeconds\":300,\"asset\":\"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913\",\"extra\":{\"name\":\"USD Coin\",\"version\":\"2\"},\"outputSchema\":{\"input\":{\"type\":\"http\",\"method\":\"POST\",\"discoverable\":true,\"queryParams\":{},\"body\":{\"estimatedMinutes\":{\"type\":\"number\",\"description\":\"Estimated number of minutes you plan to use the browser session\",\"required\":true}}},\"output\":{\"type\":\"object\",\"properties\":{\"sessionId\":{\"type\":\"string\"},\"connectUrl\":{\"type\":\"string\"},\"paidMinutes\":{\"type\":\"number\"}}}}}],\"paymentIntentId\":\"pi_3TTweYGhqv5yXZ431Mr9sZ8c\",\"payToAddress\":\"0x314f738d0d5961528054cb53cf5e1cf08ffc3423\"}"
+    },
+    {
+      "request_method": "POST",
+      "request_url": "https://x402.browserbase.com/browser/session/create",
+      "request_headers": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "Payment-Signature": [
+          "eyJ4NDAyVmVyc2lvbiI6MSwic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoiYmFzZSIsInBheWxvYWQiOnsic2lnbmF0dXJlIjoiMHhhODhkNzdiN2UzMDI3ZGZiNGQ5OWM1MWQzNWYxOTlkNzAwOWQ2MmZlN2U3ODEyNmQyOTIwMTgyNjZlYzMxMGIzN2YxODg2ODkxMWQwNzRhMDM5NTdkMzYxMzE1YjYzODNkY2M2OTViNzM1YjVlODFjNDJiNjkwMGZjMzkwNWU5ODFiIiwiYXV0aG9yaXphdGlvbiI6eyJmcm9tIjoiMHhkRDEyREVjYmVhNGJkMEJjNDE0YWY2MzVhMzM5OGY1MEZBMjkxZTQ1IiwidG8iOiIweDMxNEY3MzhkMEQ1OTYxNTI4MDU0Y2I1M2NmNWUxQ2YwOEZmQzM0MjMiLCJ2YWx1ZSI6IjEwMDAwIiwidmFsaWRBZnRlciI6IjAiLCJ2YWxpZEJlZm9yZSI6IjE3NzgwNDA0MDMiLCJub25jZSI6IjB4MjRiNDQwNjFkZGZiZmE3ZmZlMGExOTM1OWIyYjIwZGQyZDFmNDViMjY4OWFlNGM5OGM1MDQ4YzE4YTFkZmRmOCJ9fX0="
+        ],
+        "X-Payment": [
+          "eyJ4NDAyVmVyc2lvbiI6MSwic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoiYmFzZSIsInBheWxvYWQiOnsic2lnbmF0dXJlIjoiMHhhODhkNzdiN2UzMDI3ZGZiNGQ5OWM1MWQzNWYxOTlkNzAwOWQ2MmZlN2U3ODEyNmQyOTIwMTgyNjZlYzMxMGIzN2YxODg2ODkxMWQwNzRhMDM5NTdkMzYxMzE1YjYzODNkY2M2OTViNzM1YjVlODFjNDJiNjkwMGZjMzkwNWU5ODFiIiwiYXV0aG9yaXphdGlvbiI6eyJmcm9tIjoiMHhkRDEyREVjYmVhNGJkMEJjNDE0YWY2MzVhMzM5OGY1MEZBMjkxZTQ1IiwidG8iOiIweDMxNEY3MzhkMEQ1OTYxNTI4MDU0Y2I1M2NmNWUxQ2YwOEZmQzM0MjMiLCJ2YWx1ZSI6IjEwMDAwIiwidmFsaWRBZnRlciI6IjAiLCJ2YWxpZEJlZm9yZSI6IjE3NzgwNDA0MDMiLCJub25jZSI6IjB4MjRiNDQwNjFkZGZiZmE3ZmZlMGExOTM1OWIyYjIwZGQyZDFmNDViMjY4OWFlNGM5OGM1MDQ4YzE4YTFkZmRmOCJ9fX0="
+        ]
+      },
+      "request_body": "{\"estimatedMinutes\":5}",
+      "response_status": 200,
+      "response_headers": {
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ],
+        "Date": [
+          "Wed, 06 May 2026 04:01:44 GMT"
+        ],
+        "Etag": [
+          "W/\"437-C+hF6chnPllVBPYotsrMyy6Nvkc\""
+        ],
+        "Vary": [
+          "Accept-Encoding"
+        ],
+        "Via": [
+          "1.1 2808d4518b8251e6457a363885208d94.cloudfront.net (CloudFront)"
+        ],
+        "X-Amz-Cf-Id": [
+          "JdJ4adZhU4i2-2-QRLdJNob3qozJZV3ytx6bluvzc3fYjPhsd-BXLA=="
+        ],
+        "X-Amz-Cf-Pop": [
+          "MCI50-P4"
+        ],
+        "X-Cache": [
+          "Miss from cloudfront"
+        ],
+        "X-Powered-By": [
+          "Express"
+        ]
+      },
+      "response_body": "{\"sessionId\":\"session_6fe0258b-fd0e-4044-8871-c54f2ada794d\",\"connectUrl\":\"wss://connect-v2.usw2.browserbase.com/?signingKey=eyJhbGciOiJBMjU2S1ciLCJlbmMiOiJBMjU2R0NNIn0.AjTVcnUX6dPsAn6_6VOrMrIYsuk_iHV1t_hguocdOQ0kVD_2HmMgVA.VTW2IvEABIizYlo4.UCEq7mBb_gID6tSRyPd1kBA3RqvQx_ERdgwxddtQc_H1eCG_4k-KQQkBgMlJN_npDSSqeqT1WjbyRNoKJJbIctd3JXpKW22pfrFvaOu3BFkir6yf5OlkJ1bDcL3rOlneRrCsr9AdUPLVg61L0KpEFkHAumFivvEa9pYj3wJxEqiWUCvUrl5ouOqTfzAHhlVOrGMNYMuvKIp6qw-KsW7VlxLfQ4vwJBswuYihuEop-O9IQbYL1KuVI6d0AgPg0n8c9c46bMUnVDuGMcpJVuGn985SVPXe9fCqgCp_GyrPO4wZUoRPQ9gyqK0RJBo8QWAd9R8GpksiUNmxR_xIeVSNrJD6CgJCdbp68qxIvXQoWShB_OzUhtXI2VvGTX91wbovLTCX7uFA7rv-UQ24OxzZw0AC1m-wTEVYdGWjKv5qwjVkIw.owfxdMI3p8GSvBlQmPv6tQ\",\"liveUrl\":\"https://www.browserbase.com/devtools-fullscreen/inspector.html?wss=connect-v2.usw2.browserbase.com/debug/bde049e8-d353-4194-8a85-a22193c98f6b/devtools/page/0D1BFAAC5CEA9B7ABA75FE1EDDE4147C?debug=true\",\"authToken\":\"4437e022-4be1-461f-9ac3-819c3b49899c\",\"paidMinutes\":5,\"expiresAt\":\"2026-05-06T04:06:44.081Z\",\"pricing\":{\"ratePerHour\":0.12,\"amountPaid\":0.01,\"currency\":\"USD\"}}"
+    }
+  ]
+}

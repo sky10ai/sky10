@@ -1,0 +1,99 @@
+{
+  "service": "api-smartflowproai-com",
+  "method": "GET",
+  "url": "https://api.smartflowproai.com/bazaar/health-check",
+  "captured_at_utc": "2026-05-06T04:01:42Z",
+  "exchanges": [
+    {
+      "request_method": "GET",
+      "request_url": "https://api.smartflowproai.com/bazaar/health-check",
+      "request_headers": {},
+      "response_status": 402,
+      "response_headers": {
+        "Access-Control-Allow-Headers": [
+          "Content-Type, Authorization, X-PAYMENT, PAYMENT-RESPONSE, PAYMENT-REQUIRED"
+        ],
+        "Access-Control-Allow-Methods": [
+          "GET, POST, OPTIONS"
+        ],
+        "Access-Control-Allow-Origin": [
+          "*"
+        ],
+        "Connection": [
+          "keep-alive"
+        ],
+        "Content-Length": [
+          "2"
+        ],
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ],
+        "Date": [
+          "Wed, 06 May 2026 04:01:40 GMT"
+        ],
+        "Etag": [
+          "W/\"2-vyGp6PvFo4RvsFtPoIWeCReyIC8\""
+        ],
+        "Payment-Required": [
+          "eyJ4NDAyVmVyc2lvbiI6MiwiZXJyb3IiOiJQYXltZW50IHJlcXVpcmVkIiwicmVzb3VyY2UiOnsidXJsIjoiaHR0cHM6Ly9hcGkuc21hcnRmbG93cHJvYWkuY29tL2JhemFhci9oZWFsdGgtY2hlY2siLCJkZXNjcmlwdGlvbiI6IlJlYWwtdGltZSB4NDAyIGVuZHBvaW50IGhlYWx0aCB2ZXJpZmljYXRpb24gZm9yIGFueSB4NDAyLWVuYWJsZWQgQVBJIiwibWltZVR5cGUiOiIifSwiYWNjZXB0cyI6W3sic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoiZWlwMTU1Ojg0NTMiLCJhbW91bnQiOiIxMDAwIiwiYXNzZXQiOiIweDgzMzU4OWZDRDZlRGI2RTA4ZjRjN0MzMkQ0ZjcxYjU0YmRBMDI5MTMiLCJwYXlUbyI6IjB4ZDc3OWNFNDY1NjdkMjFiOTkxOEYyNGYwNjQwY0E1QWQ2MDU4Qzg5MyIsIm1heFRpbWVvdXRTZWNvbmRzIjozMDAsImV4dHJhIjp7Im5hbWUiOiJVU0QgQ29pbiIsInZlcnNpb24iOiIyIn19XSwiZXh0ZW5zaW9ucyI6eyJiYXphYXIiOnsiaW5mbyI6eyJpbnB1dCI6eyJ0eXBlIjoiaHR0cCIsInF1ZXJ5UGFyYW1zIjp7InVybCI6Imh0dHBzOi8vZXhhbXBsZS5jb20vYXBpIn0sIm1ldGhvZCI6IkdFVCJ9LCJvdXRwdXQiOnsidHlwZSI6Impzb24iLCJleGFtcGxlIjp7InN0YXR1cyI6ImhlYWx0aHkiLCJyZXNwb25zZVRpbWUiOjE0MiwieDQwMkhlYWRlclByZXNlbnQiOnRydWUsInBheW1lbnRTY2hlbWUiOiJleGFjdCIsIm5ldHdvcmsiOiJlaXAxNTU6ODQ1MyIsImNoZWNrZWRBdCI6IjIwMjYtMDQtMTZUMTI6MDA6MDBaIn19fSwic2NoZW1hIjp7IiRzY2hlbWEiOiJodHRwczovL2pzb24tc2NoZW1hLm9yZy9kcmFmdC8yMDIwLTEyL3NjaGVtYSIsInR5cGUiOiJvYmplY3QiLCJwcm9wZXJ0aWVzIjp7ImlucHV0Ijp7InR5cGUiOiJvYmplY3QiLCJwcm9wZXJ0aWVzIjp7InR5cGUiOnsidHlwZSI6InN0cmluZyIsImNvbnN0IjoiaHR0cCJ9LCJtZXRob2QiOnsidHlwZSI6InN0cmluZyIsImVudW0iOlsiR0VUIl19LCJxdWVyeVBhcmFtcyI6eyJ0eXBlIjoib2JqZWN0IiwicHJvcGVydGllcyI6eyJ1cmwiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiVGhlIHg0MDItZW5hYmxlZCBlbmRwb2ludCBVUkwgdG8gdmVyaWZ5In19LCJyZXF1aXJlZCI6WyJ1cmwiXX19LCJyZXF1aXJlZCI6WyJ0eXBlIiwibWV0aG9kIl0sImFkZGl0aW9uYWxQcm9wZXJ0aWVzIjpmYWxzZX0sIm91dHB1dCI6eyJ0eXBlIjoib2JqZWN0IiwicHJvcGVydGllcyI6eyJ0eXBlIjp7InR5cGUiOiJzdHJpbmcifSwiZXhhbXBsZSI6eyJ0eXBlIjoib2JqZWN0In19LCJyZXF1aXJlZCI6WyJ0eXBlIl19fSwicmVxdWlyZWQiOlsiaW5wdXQiXX19fX0="
+        ],
+        "Server": [
+          "nginx/1.24.0 (Ubuntu)"
+        ],
+        "X-Powered-By": [
+          "Express"
+        ]
+      },
+      "response_body": "{}"
+    },
+    {
+      "request_method": "GET",
+      "request_url": "https://api.smartflowproai.com/bazaar/health-check",
+      "request_headers": {
+        "Payment-Signature": [
+          "eyJ4NDAyVmVyc2lvbiI6MiwiYWNjZXB0ZWQiOnsic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoiZWlwMTU1Ojg0NTMiLCJhbW91bnQiOiIxMDAwIiwicGF5VG8iOiIweGQ3NzljRTQ2NTY3ZDIxYjk5MThGMjRmMDY0MGNBNUFkNjA1OEM4OTMiLCJtYXhUaW1lb3V0U2Vjb25kcyI6MzAwLCJhc3NldCI6IjB4ODMzNTg5ZkNENmVEYjZFMDhmNGM3QzMyRDRmNzFiNTRiZEEwMjkxMyIsImV4dHJhIjp7Im5hbWUiOiJVU0QgQ29pbiIsInZlcnNpb24iOiIyIn19LCJyZXNvdXJjZSI6eyJ1cmwiOiJodHRwczovL2FwaS5zbWFydGZsb3dwcm9haS5jb20vYmF6YWFyL2hlYWx0aC1jaGVjayIsImRlc2NyaXB0aW9uIjoiUmVhbC10aW1lIHg0MDIgZW5kcG9pbnQgaGVhbHRoIHZlcmlmaWNhdGlvbiBmb3IgYW55IHg0MDItZW5hYmxlZCBBUEkiLCJtaW1lVHlwZSI6IiJ9LCJwYXlsb2FkIjp7InNpZ25hdHVyZSI6IjB4NDlhNWNlNmYyOGZiNGE4ZGM1MjAzNjI1N2Q5MGJmMTY5ZDBjMWE1MWIwZjIzOTczMThiMmY3NWI4OWY3ODUzMTY0MWU2MTRkODJjMjIwOTg2MmE5OTg1ZGRiOWNmZDQ3MTMxNWQ1OGY4ZTA5NzJjZDZmMGVlYTRkNjhiNDVjYTIxYiIsImF1dGhvcml6YXRpb24iOnsiZnJvbSI6IjB4ZEQxMkRFY2JlYTRiZDBCYzQxNGFmNjM1YTMzOThmNTBGQTI5MWU0NSIsInRvIjoiMHhkNzc5Y0U0NjU2N2QyMWI5OTE4RjI0ZjA2NDBjQTVBZDYwNThDODkzIiwidmFsdWUiOiIxMDAwIiwidmFsaWRBZnRlciI6IjAiLCJ2YWxpZEJlZm9yZSI6IjE3NzgwNDA0MDAiLCJub25jZSI6IjB4Mzc4MTk4OTllMzI0ODIzNmM4YmI0MjRjYWFkY2MyMWQ0N2M3NTk0ZmZhOTI2YTU1M2I3NTI0YTQ0MmY5MzZlNCJ9fX0="
+        ],
+        "X-Payment": [
+          "eyJ4NDAyVmVyc2lvbiI6MiwiYWNjZXB0ZWQiOnsic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoiZWlwMTU1Ojg0NTMiLCJhbW91bnQiOiIxMDAwIiwicGF5VG8iOiIweGQ3NzljRTQ2NTY3ZDIxYjk5MThGMjRmMDY0MGNBNUFkNjA1OEM4OTMiLCJtYXhUaW1lb3V0U2Vjb25kcyI6MzAwLCJhc3NldCI6IjB4ODMzNTg5ZkNENmVEYjZFMDhmNGM3QzMyRDRmNzFiNTRiZEEwMjkxMyIsImV4dHJhIjp7Im5hbWUiOiJVU0QgQ29pbiIsInZlcnNpb24iOiIyIn19LCJyZXNvdXJjZSI6eyJ1cmwiOiJodHRwczovL2FwaS5zbWFydGZsb3dwcm9haS5jb20vYmF6YWFyL2hlYWx0aC1jaGVjayIsImRlc2NyaXB0aW9uIjoiUmVhbC10aW1lIHg0MDIgZW5kcG9pbnQgaGVhbHRoIHZlcmlmaWNhdGlvbiBmb3IgYW55IHg0MDItZW5hYmxlZCBBUEkiLCJtaW1lVHlwZSI6IiJ9LCJwYXlsb2FkIjp7InNpZ25hdHVyZSI6IjB4NDlhNWNlNmYyOGZiNGE4ZGM1MjAzNjI1N2Q5MGJmMTY5ZDBjMWE1MWIwZjIzOTczMThiMmY3NWI4OWY3ODUzMTY0MWU2MTRkODJjMjIwOTg2MmE5OTg1ZGRiOWNmZDQ3MTMxNWQ1OGY4ZTA5NzJjZDZmMGVlYTRkNjhiNDVjYTIxYiIsImF1dGhvcml6YXRpb24iOnsiZnJvbSI6IjB4ZEQxMkRFY2JlYTRiZDBCYzQxNGFmNjM1YTMzOThmNTBGQTI5MWU0NSIsInRvIjoiMHhkNzc5Y0U0NjU2N2QyMWI5OTE4RjI0ZjA2NDBjQTVBZDYwNThDODkzIiwidmFsdWUiOiIxMDAwIiwidmFsaWRBZnRlciI6IjAiLCJ2YWxpZEJlZm9yZSI6IjE3NzgwNDA0MDAiLCJub25jZSI6IjB4Mzc4MTk4OTllMzI0ODIzNmM4YmI0MjRjYWFkY2MyMWQ0N2M3NTk0ZmZhOTI2YTU1M2I3NTI0YTQ0MmY5MzZlNCJ9fX0="
+        ]
+      },
+      "response_status": 200,
+      "response_headers": {
+        "Access-Control-Allow-Headers": [
+          "Content-Type, Authorization, X-PAYMENT, PAYMENT-RESPONSE, PAYMENT-REQUIRED"
+        ],
+        "Access-Control-Allow-Methods": [
+          "GET, POST, OPTIONS"
+        ],
+        "Access-Control-Allow-Origin": [
+          "*"
+        ],
+        "Connection": [
+          "keep-alive"
+        ],
+        "Content-Length": [
+          "173"
+        ],
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ],
+        "Date": [
+          "Wed, 06 May 2026 04:01:42 GMT"
+        ],
+        "Etag": [
+          "W/\"ad-QCozCI17DQ5ZhearF7ezVdPW9bw\""
+        ],
+        "Payment-Response": [
+          "eyJzdWNjZXNzIjp0cnVlLCJwYXllciI6IjB4ZEQxMkRFY2JlYTRiZDBCYzQxNGFmNjM1YTMzOThmNTBGQTI5MWU0NSIsInRyYW5zYWN0aW9uIjoiMHg4YmM5YjEyNDdhYTNjZTQyNTg2ZTU5NmEwYjRlY2M0MDBiZjFmNWMzYWQ2NjA3NWEyNzM2YjBiYWY1ZTllMjZmIiwibmV0d29yayI6ImVpcDE1NTo4NDUzIn0="
+        ],
+        "Server": [
+          "nginx/1.24.0 (Ubuntu)"
+        ],
+        "X-Powered-By": [
+          "Express"
+        ]
+      },
+      "response_body": "{\"status\":\"healthy\",\"responseTime\":71,\"x402HeaderPresent\":true,\"paymentScheme\":\"exact\",\"network\":\"eip155:8453\",\"checkedAt\":\"2026-05-06T04:01:41.018Z\",\"provider\":\"SmartFlow\"}"
+    }
+  ]
+}

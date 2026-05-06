@@ -65,8 +65,13 @@ func parseChallengeV1Body(raw []byte) (PaymentChallenge, error) {
 }
 
 // toCanonicalV1 converts a v1 wire requirement into the canonical
-// form. `maxAmountRequired` is parsed as decimal USDC and stored as
-// integer micro-USDC.
+// form. The v1 spec said `maxAmountRequired` was a decimal USDC
+// string ("0.005"), but every live v1 server we've probed (Heurist
+// mesh agents, Browserbase x402, Strale preflight) actually emits
+// the integer base unit ("1000" = 0.001 USDC) under that field
+// name — they kept the v1 envelope but adopted v2's amount units.
+// We disambiguate on the presence of a decimal point: a `.` means
+// decimal USDC, no `.` means integer base units.
 func toCanonicalV1(r paymentRequirementsV1) (PaymentRequirements, error) {
 	if strings.TrimSpace(r.Scheme) == "" {
 		return PaymentRequirements{}, errors.New("requirement missing scheme")
@@ -77,25 +82,51 @@ func toCanonicalV1(r paymentRequirementsV1) (PaymentRequirements, error) {
 	if strings.TrimSpace(r.PayTo) == "" {
 		return PaymentRequirements{}, errors.New("requirement missing payTo")
 	}
-	if strings.TrimSpace(r.MaxAmountRequired) == "" {
+	amount := strings.TrimSpace(r.MaxAmountRequired)
+	if amount == "" {
 		return PaymentRequirements{}, errors.New("requirement missing maxAmountRequired")
 	}
-	micros, err := parseUSDC(r.MaxAmountRequired)
+	micros, err := parseV1Amount(amount)
 	if err != nil {
-		return PaymentRequirements{}, fmt.Errorf("v1 maxAmountRequired %q: %w", r.MaxAmountRequired, err)
-	}
-	if micros.Sign() <= 0 {
-		return PaymentRequirements{}, fmt.Errorf("v1 maxAmountRequired %q must be positive", r.MaxAmountRequired)
+		return PaymentRequirements{}, fmt.Errorf("v1 maxAmountRequired %q: %w", amount, err)
 	}
 	return PaymentRequirements{
 		Scheme:            r.Scheme,
 		Network:           r.Network,
-		AmountMicros:      micros.String(),
+		AmountMicros:      micros,
 		PayTo:             r.PayTo,
 		Asset:             r.Asset,
 		MaxTimeoutSeconds: r.MaxTimeoutSeconds,
 		Extra:             r.Extra,
 	}, nil
+}
+
+// parseV1Amount handles both v1 amount conventions:
+//
+//   - decimal USDC ("0.005") — original spec, converted to micros
+//   - integer base units ("1000" = 0.001 USDC) — what live v1 servers
+//     actually emit today
+//
+// Disambiguation is on the presence of a decimal point. Returns the
+// micro-USDC integer string.
+func parseV1Amount(amount string) (string, error) {
+	if strings.Contains(amount, ".") {
+		micros, err := parseUSDC(amount)
+		if err != nil {
+			return "", err
+		}
+		if micros.Sign() <= 0 {
+			return "", fmt.Errorf("amount %q must be positive", amount)
+		}
+		return micros.String(), nil
+	}
+	if !isAllDigits(amount) {
+		return "", fmt.Errorf("amount %q must be integer base units or decimal USDC", amount)
+	}
+	if strings.Trim(amount, "0") == "" {
+		return "", fmt.Errorf("amount %q must be positive", amount)
+	}
+	return amount, nil
 }
 
 // encodePaymentV1 builds the X-PAYMENT base64 string for a v1 server.

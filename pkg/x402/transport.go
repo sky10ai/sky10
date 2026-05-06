@@ -20,13 +20,19 @@ var ErrPaymentNotAccepted = errors.New("x402: payment not accepted by service")
 // Header names used on the x402 wire. v1 used the X- prefixed forms
 // on responses and put the challenge in the response body; v2 moved
 // the challenge into a Payment-Required header and the receipt into
-// a Payment-Response header. We read both and write the legacy
-// X-PAYMENT request header (case-insensitive on the server side).
+// a Payment-Response header.
+//
+// On retry we set BOTH X-Payment and Payment-Signature with the
+// same base64 envelope value — that's what OWS pay request emits
+// and some servers (Smartflow) check the Payment-Signature header
+// rather than X-Payment. Receipts are read from either Payment-Response
+// or X-Payment-Response, whichever the server sets first.
 const (
-	HeaderPayment           = "X-PAYMENT"
-	HeaderPaymentResponse   = "X-PAYMENT-RESPONSE"
-	HeaderPaymentRequiredV2 = "Payment-Required"
-	HeaderPaymentResponseV2 = "Payment-Response"
+	HeaderPayment            = "X-PAYMENT"
+	HeaderPaymentSignatureV2 = "Payment-Signature"
+	HeaderPaymentResponse    = "X-PAYMENT-RESPONSE"
+	HeaderPaymentRequiredV2  = "Payment-Required"
+	HeaderPaymentResponseV2  = "Payment-Response"
 )
 
 // Transport performs one x402-aware HTTP round-trip: initial request,
@@ -150,6 +156,7 @@ func (t *Transport) do(ctx context.Context, req CallRequest, paymentHeader strin
 	}
 	if paymentHeader != "" {
 		httpReq.Header.Set(HeaderPayment, paymentHeader)
+		httpReq.Header.Set(HeaderPaymentSignatureV2, paymentHeader)
 	}
 	return t.HTTP.Do(httpReq)
 }

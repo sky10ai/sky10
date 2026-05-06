@@ -105,10 +105,16 @@ var ErrNoCompatibleRequirements = errors.New("x402: no compatible payment requir
 // servers include it in the challenge and expect it echoed back on
 // the X-PAYMENT envelope so the facilitator can verify the client
 // targeted exactly the resource it offered.
+//
+// All three fields are kept on the wire even when empty. Some
+// facilitators (Smartflow) reject envelopes whose echoed resource
+// has a different key set than what they sent — so an empty
+// `mimeType` in the challenge must round-trip as `"mimeType": ""`,
+// not be dropped via omitempty.
 type Resource struct {
-	URL         string `json:"url,omitempty"`
-	Description string `json:"description,omitempty"`
-	MimeType    string `json:"mimeType,omitempty"`
+	URL         string `json:"url"`
+	Description string `json:"description"`
+	MimeType    string `json:"mimeType"`
 }
 
 // ExactSchemePayload is the inner X-PAYMENT payload when scheme ==
@@ -208,6 +214,11 @@ func BuildTransferWithAuthorizationTypedData(req PaymentRequirements, fromAddres
 	}
 	validBefore := now.UTC().Add(time.Duration(timeout) * time.Second).Unix()
 
+	// validAfter = "0" (epoch). Some facilitators (Coinbase's, used
+	// by Exa) require this — rejecting validAfter=now with HTTP 400
+	// "facilitator returned 400". Setting validAfter=now broke Exa
+	// even though it matches OWS's local-server behavior, so we keep
+	// the wire-conservative "0" value.
 	auth := EIP3009Authorization{
 		From:        fromAddress,
 		To:          req.PayTo,
