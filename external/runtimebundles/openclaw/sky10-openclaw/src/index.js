@@ -278,6 +278,8 @@ function resolveSky10Account({ cfg, accountId }) {
     tools,
     prompt: typeof manifest.prompt === "string" ? manifest.prompt.trim() : "",
     description: typeof manifest.description === "string" ? manifest.description.trim() : "",
+    manifest,
+    manifestPath,
     gatewayToken: typeof merged.gatewayToken === "string" ? merged.gatewayToken.trim() : "",
     x402WsUrl: typeof merged.x402WsUrl === "string" ? merged.x402WsUrl.trim() : "",
     x402HelperPath: typeof merged.x402HelperPath === "string" && merged.x402HelperPath.trim()
@@ -426,7 +428,54 @@ async function collectOutputRefs(outputDir) {
   return refs;
 }
 
-function buildToolCallPrompt(content, outputDir, account, x402Context) {
+function buildAgentContractPrompt(manifest) {
+  const spec = manifest && typeof manifest === "object" ? manifest : {};
+  const lines = [];
+  if (typeof spec.prompt === "string" && spec.prompt.trim()) {
+    lines.push("Original user prompt:");
+    lines.push(spec.prompt.trim());
+    lines.push("");
+  }
+  if (typeof spec.description === "string" && spec.description.trim()) {
+    lines.push(`Agent purpose: ${spec.description.trim()}`);
+  }
+  if (Array.isArray(spec.tools) && spec.tools.length > 0) {
+    lines.push("Exported tools:");
+    for (const tool of spec.tools) {
+      if (!tool || typeof tool !== "object") continue;
+      const name = typeof tool.name === "string" ? tool.name.trim() : "";
+      const capability = typeof tool.capability === "string" ? tool.capability.trim() : "";
+      const description = typeof tool.description === "string" ? tool.description.trim() : "";
+      if (name || capability || description) {
+        lines.push(`- ${name || capability}${capability && capability !== name ? ` (${capability})` : ""}: ${description}`);
+      }
+    }
+  }
+  if (Array.isArray(spec.inputs) && spec.inputs.length > 0) {
+    lines.push("Expected inputs:");
+    for (const input of spec.inputs) {
+      if (!input || typeof input !== "object") continue;
+      lines.push(`- ${input.kind || "input"}: ${input.description || ""}`);
+    }
+  }
+  if (Array.isArray(spec.outputs) && spec.outputs.length > 0) {
+    lines.push("Expected outputs:");
+    for (const output of spec.outputs) {
+      if (!output || typeof output !== "object") continue;
+      lines.push(`- ${output.kind || "artifact"}: ${output.description || ""}`);
+    }
+  }
+  if (Array.isArray(spec.secret_bindings) && spec.secret_bindings.length > 0) {
+    lines.push("Available secret bindings:");
+    for (const binding of spec.secret_bindings) {
+      if (!binding || typeof binding !== "object") continue;
+      lines.push(`- ${binding.env || ""}${binding.required ? " (required)" : " (optional)"}`);
+    }
+  }
+  return lines.join("\n").trim();
+}
+
+function buildToolCallPrompt(content, outputDir, account = {}, x402Context) {
   const payload = content && typeof content === "object" ? content : {};
   const jobContext = payload.job_context && typeof payload.job_context === "object" ? payload.job_context : {};
   const payloadRefs = [];
@@ -443,21 +492,31 @@ function buildToolCallPrompt(content, outputDir, account, x402Context) {
     input: Object.prototype.hasOwnProperty.call(payload, "input") ? payload.input : {},
     payload_refs: payloadRefs,
     output_dir: outputDir,
+    job_context: jobContext,
     budget: payload.budget,
     bid_id: payload.bid_id,
   };
+  const manifest = account?.manifest && typeof account.manifest === "object"
+    ? account.manifest
+    : {
+        prompt: account?.prompt,
+        description: account?.description,
+        tools: account?.tools,
+      };
+  const contractPrompt = buildAgentContractPrompt(manifest);
   const lines = [
-    "You are fulfilling a sky10 durable agent tool call.",
+    contractPrompt ? "You are this sky10 agent. Follow the agent contract below." : "You are a sky10 durable agent.",
   ];
-  if (account?.prompt) {
-    lines.push("Agent instructions:", account.prompt, "");
-  } else if (account?.description) {
-    lines.push("Agent description:", account.description, "");
+  if (contractPrompt) {
+    lines.push(contractPrompt, "");
   }
   lines.push(
+    "You are fulfilling a sky10 durable agent tool call.",
     "Complete the requested tool call autonomously using the tools and credentials available in this VM.",
-    "If the request involves audio or video, infer the media workflow yourself: inspect/extract/convert/mux with ffmpeg when useful, and use configured provider APIs such as ElevenLabs when a voice transformation requires them.",
-    `Treat payload_refs as input handles. Write generated artifacts under this directory: ${outputDir}`,
+    "Infer the workflow yourself from the original prompt, exported tool contract, input payloads, available files, installed packages, and configured provider secrets.",
+    `Treat payload_refs as input handles and write generated artifacts under this directory: ${outputDir}`,
+    "Use job_context.update_methods when you need to report progress, completion, or failure through sky10.",
+    "Respect any budget, pricing, or payment context attached to the tool call.",
     "Return a concise result summary and include any output artifact paths or URIs.",
   );
   const x402Prompt = formatX402PromptContext(x402Context);

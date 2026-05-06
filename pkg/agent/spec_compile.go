@@ -160,6 +160,7 @@ func compileSpecFiles(spec AgentSpec, runtime AgentCompiledRuntime, secretBindin
 	var warnings []string
 	files := []AgentCompiledFile{
 		{Path: "agent-manifest.json", Mode: compiledFileMode},
+		{Path: "workspace/AGENTS.md", Mode: compiledFileMode, Content: compileAgentInstructions(spec, runtime, secretBindings)},
 		{Path: ".env.example", Mode: compiledFileMode, Content: compileEnvExample(spec, secretBindings)},
 		{Path: "README.md", Mode: compiledFileMode, Content: compileREADME(spec, runtime, secretBindings)},
 	}
@@ -253,6 +254,93 @@ func compileEnvExample(spec AgentSpec, secretBindings []AgentCompiledSecretBindi
 		}
 		fmt.Fprintf(&b, "%s=\n", binding.Env)
 	}
+	return b.String()
+}
+
+func compileAgentInstructions(spec AgentSpec, runtime AgentCompiledRuntime, secretBindings []AgentCompiledSecretBinding) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s\n\n", spec.Name)
+	b.WriteString("You are the provisioned sky10 agent described by this contract.\n")
+	b.WriteString("Use the runtime tools available in this sandbox to complete jobs according to the original user request.\n\n")
+	if strings.TrimSpace(spec.Prompt) != "" {
+		fmt.Fprintf(&b, "Original user prompt:\n\n```text\n%s\n```\n\n", spec.Prompt)
+	}
+	if strings.TrimSpace(spec.Description) != "" {
+		fmt.Fprintf(&b, "Purpose: %s\n\n", spec.Description)
+	}
+	fmt.Fprintf(&b, "Runtime: %s", runtime.Target)
+	if runtime.Provider != "" {
+		fmt.Fprintf(&b, " via %s", runtime.Provider)
+	}
+	if runtime.Template != "" {
+		fmt.Fprintf(&b, " using %s", runtime.Template)
+	}
+	if runtime.Harness != "" {
+		fmt.Fprintf(&b, " with %s", runtime.Harness)
+	}
+	b.WriteString("\n\n")
+
+	if len(spec.Tools) > 0 {
+		b.WriteString("Exported tools:\n\n")
+		for _, tool := range spec.Tools {
+			capability := strings.TrimSpace(tool.Capability)
+			if capability == "" {
+				capability = tool.Name
+			}
+			fmt.Fprintf(&b, "- `%s` (%s): %s\n", tool.Name, capability, tool.Description)
+		}
+		b.WriteString("\n")
+	}
+
+	if len(spec.Inputs) > 0 {
+		b.WriteString("Inputs:\n\n")
+		for _, input := range spec.Inputs {
+			required := "optional"
+			if input.Required {
+				required = "required"
+			}
+			fmt.Fprintf(&b, "- `%s` (%s): %s\n", input.Kind, required, input.Description)
+		}
+		b.WriteString("\n")
+	}
+
+	if len(spec.Outputs) > 0 {
+		b.WriteString("Outputs:\n\n")
+		for _, output := range spec.Outputs {
+			required := "optional"
+			if output.Required {
+				required = "required"
+			}
+			fmt.Fprintf(&b, "- `%s` (%s): %s\n", output.Kind, required, output.Description)
+		}
+		b.WriteString("\n")
+	}
+
+	if len(runtime.Packages) > 0 {
+		b.WriteString("Installed runtime packages requested by the spec:\n\n")
+		for _, pkg := range runtime.Packages {
+			fmt.Fprintf(&b, "- `%s`\n", pkg)
+		}
+		b.WriteString("\n")
+	}
+
+	if len(secretBindings) > 0 {
+		b.WriteString("Secret bindings are available as environment variables when configured:\n\n")
+		for _, binding := range secretBindings {
+			required := "optional"
+			if binding.Required {
+				required = "required"
+			}
+			fmt.Fprintf(&b, "- `%s` from sky10 secret `%s` (%s)\n", binding.Env, binding.Secret, required)
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("Job rules:\n\n")
+	b.WriteString("- Treat each sky10 tool call as durable work, not casual chat.\n")
+	b.WriteString("- Write generated artifacts under the job output directory supplied by sky10.\n")
+	b.WriteString("- Report clear failures when required inputs, tools, or secrets are unavailable.\n")
+	b.WriteString("- Do not invent successful artifacts; complete the requested workflow or explain what blocks it.\n")
 	return b.String()
 }
 

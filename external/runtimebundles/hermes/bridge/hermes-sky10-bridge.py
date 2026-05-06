@@ -716,7 +716,55 @@ def collect_output_refs(output_dir: str) -> list[dict[str, Any]]:
     return refs
 
 
-def build_tool_call_prompt(content: dict[str, Any], output_dir: str, x402_context: str = "") -> str:
+def build_agent_contract_prompt(manifest: dict[str, Any] | None) -> str:
+    spec = manifest if isinstance(manifest, dict) else {}
+    lines: list[str] = []
+    prompt = str(spec.get("prompt") or "").strip()
+    if prompt:
+        lines.extend(["Original user prompt:", prompt, ""])
+    description = str(spec.get("description") or "").strip()
+    if description:
+        lines.append(f"Agent purpose: {description}")
+    tools = spec.get("tools")
+    if isinstance(tools, list) and tools:
+        lines.append("Exported tools:")
+        for raw in tools:
+            if not isinstance(raw, dict):
+                continue
+            name = str(raw.get("name") or raw.get("capability") or "").strip()
+            capability = str(raw.get("capability") or "").strip()
+            description = str(raw.get("description") or "").strip()
+            if name or capability or description:
+                suffix = f" ({capability})" if capability and capability != name else ""
+                lines.append(f"- {name or capability}{suffix}: {description}")
+    inputs = spec.get("inputs")
+    if isinstance(inputs, list) and inputs:
+        lines.append("Expected inputs:")
+        for raw in inputs:
+            if isinstance(raw, dict):
+                lines.append(f"- {raw.get('kind') or 'input'}: {raw.get('description') or ''}")
+    outputs = spec.get("outputs")
+    if isinstance(outputs, list) and outputs:
+        lines.append("Expected outputs:")
+        for raw in outputs:
+            if isinstance(raw, dict):
+                lines.append(f"- {raw.get('kind') or 'artifact'}: {raw.get('description') or ''}")
+    bindings = spec.get("secret_bindings")
+    if isinstance(bindings, list) and bindings:
+        lines.append("Available secret bindings:")
+        for raw in bindings:
+            if isinstance(raw, dict):
+                required = "required" if raw.get("required") else "optional"
+                lines.append(f"- {raw.get('env') or ''} ({required})")
+    return "\n".join(line for line in lines if line is not None).strip()
+
+
+def build_tool_call_prompt(
+    content: dict[str, Any],
+    output_dir: str,
+    manifest: dict[str, Any] | None = None,
+    x402_context: str = "",
+) -> str:
     tool = str(content.get("tool") or "").strip() or "tool"
     capability = str(content.get("capability") or "").strip()
     job_context = content.get("job_context") if isinstance(content.get("job_context"), dict) else {}
@@ -735,16 +783,27 @@ def build_tool_call_prompt(content: dict[str, Any], output_dir: str, x402_contex
         "input": content.get("input") if "input" in content else {},
         "payload_refs": payload_refs,
         "output_dir": output_dir,
+        "job_context": job_context,
         "budget": content.get("budget"),
         "bid_id": content.get("bid_id"),
     }
+    contract_prompt = build_agent_contract_prompt(manifest)
     lines = [
-        "You are fulfilling a sky10 durable agent tool call.",
-        "Complete the requested tool call autonomously using the tools and credentials available in this VM.",
-        "If the request involves audio or video, infer the media workflow yourself: inspect/extract/convert/mux with ffmpeg when useful, and use configured provider APIs such as ElevenLabs when a voice transformation requires them.",
-        f"Treat payload_refs as input handles. Write generated artifacts under this directory: {output_dir}",
-        "Return a concise result summary and include any output artifact paths or URIs.",
+        "You are this sky10 agent. Follow the agent contract below." if contract_prompt else "You are a sky10 durable agent.",
     ]
+    if contract_prompt:
+        lines.extend([contract_prompt, ""])
+    lines.extend(
+        [
+            "You are fulfilling a sky10 durable agent tool call.",
+            "Complete the requested tool call autonomously using the tools and credentials available in this VM.",
+            "Infer the workflow yourself from the original prompt, exported tool contract, input payloads, available files, installed packages, and configured provider secrets.",
+            f"Treat payload_refs as input handles and write generated artifacts under this directory: {output_dir}",
+            "Use job_context.update_methods when you need to report progress, completion, or failure through sky10.",
+            "Respect any budget, pricing, or payment context attached to the tool call.",
+            "Return a concise result summary and include any output artifact paths or URIs.",
+        ]
+    )
     if x402_context:
         lines.extend(["", x402_context])
     lines.extend(["", "Tool call:", json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True)])
@@ -1280,6 +1339,7 @@ class Bridge:
 
         manifest_path = str(config.get("manifest_path") or DEFAULT_MANIFEST_PATH).strip() or DEFAULT_MANIFEST_PATH
         manifest = read_agent_manifest(manifest_path)
+        self.manifest = manifest
         manifest_name = str(manifest.get("name") or "").strip()
         self.agent_name = str(config.get("agent_name") or "").strip() or manifest_name or "hermes"
         self.agent_key_name = str(config.get("agent_key_name") or "").strip() or self.agent_name
@@ -1498,7 +1558,7 @@ class Bridge:
             x402_context = self.x402_prompt_context()
             reply = self.hermes.stream(
                 job_id,
-                {"text": build_tool_call_prompt(content, output_dir, x402_context)},
+                {"text": build_tool_call_prompt(content, output_dir, self.manifest, x402_context)},
                 lambda _chunk: None,
             )
             output_refs = collect_output_refs(output_dir)

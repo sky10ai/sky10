@@ -75,8 +75,9 @@ func TestAgentSpecProvisionCreatesSandboxWithFilesAndSecretBindings(t *testing.T
 		t.Fatalf("secret bindings = %#v, want ElevenLabs binding", provisioner.params.SecretBindings)
 	}
 	if !sandboxFilesContain(provisioner.params.Files, "compose.yaml") ||
-		!sandboxFilesContain(provisioner.params.Files, "agent-manifest.json") {
-		t.Fatalf("files = %#v, want compose.yaml and agent-manifest.json", provisioner.params.Files)
+		!sandboxFilesContain(provisioner.params.Files, "agent-manifest.json") ||
+		!sandboxFilesContain(provisioner.params.Files, "workspace/AGENTS.md") {
+		t.Fatalf("files = %#v, want compose.yaml, agent-manifest.json, and workspace/AGENTS.md", provisioner.params.Files)
 	}
 }
 

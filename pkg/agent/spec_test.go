@@ -355,6 +355,18 @@ func TestCompileAgentSpecProducesMediaRuntimePreview(t *testing.T) {
 	if strings.Contains(env, "elevenlabs-key") {
 		t.Fatalf(".env.example leaked secret payload: %q", env)
 	}
+
+	instructions := compiledFileContent(t, compiled, "workspace/AGENTS.md")
+	for _, want := range []string{
+		"Original user prompt:",
+		canonicalMediaAccentPrompt,
+		"`media.convert` (media.convert)",
+		"Write generated artifacts under the job output directory",
+	} {
+		if !strings.Contains(instructions, want) {
+			t.Fatalf("workspace/AGENTS.md missing %q:\n%s", want, instructions)
+		}
+	}
 }
 
 func TestCompileAgentSpecDefaultsOmittedSandboxRuntimeToOpenClaw(t *testing.T) {
@@ -429,7 +441,7 @@ func TestCompileAgentSpecFixturesProduceRuntimeArtifacts(t *testing.T) {
 			if err != nil {
 				t.Fatalf("CompileAgentSpec(%s) error: %v", entry.Name(), err)
 			}
-			for _, path := range []string{"agent-manifest.json", ".env.example", "README.md"} {
+			for _, path := range []string{"agent-manifest.json", ".env.example", "README.md", "workspace/AGENTS.md"} {
 				if content := compiledFileContent(t, compiled, path); strings.TrimSpace(content) == "" {
 					t.Fatalf("%s is empty", path)
 				}
