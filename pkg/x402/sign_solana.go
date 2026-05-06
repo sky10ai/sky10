@@ -63,6 +63,9 @@ func (s *OWSSigner) signSolanaExact(ctx context.Context, req PaymentRequirements
 	if err != nil {
 		return SignedPayload{}, fmt.Errorf("ows signer: parse amount: %w", err)
 	}
+	if err := s.preflightUSDCBalance(ctx, string(NetworkSolana), req.AmountMicros); err != nil {
+		return SignedPayload{}, err
+	}
 	memo, _ := req.Extra["memo"].(string)
 
 	fullUnsignedHex, messageHex, err := s.BuildSolanaTx(ctx, addr, req.PayTo, feePayer, req.Asset, amount, memo)

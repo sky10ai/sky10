@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -163,6 +164,18 @@ type OWSSigner struct {
 	// is what the signer signs over. Tests substitute a fake;
 	// production wraps pkg/wallet.BuildX402SolanaTransferTx.
 	BuildSolanaTx func(ctx context.Context, from, to, feePayer, mint string, amount uint64, memo string) (fullUnsignedTxHex, messageHex string, err error)
+
+	// BalanceMicros returns the wallet's USDC balance for a chain
+	// in micro-USDC base units (6-decimal). Used as a preflight
+	// before signing: if the wallet's balance is below the
+	// requirement amount, the signer returns ErrWalletNotFunded
+	// with a precise diagnostic instead of producing an
+	// authorization that's guaranteed to fail at settlement.
+	//
+	// nil disables the preflight (signing always proceeds and any
+	// failure surfaces server-side). Best-effort: probe errors are
+	// swallowed and signing continues.
+	BalanceMicros func(ctx context.Context, walletName, chain string) (uint64, error)
 }
 
 // NewOWSSigner builds a signer that uses the supplied wallet client.
@@ -187,6 +200,23 @@ func NewOWSSigner(client *skywallet.Client, walletName string) *OWSSigner {
 		return owsSignTx(ctx, client, name, chain, txHex)
 	}
 	s.BuildSolanaTx = owsBuildSolanaTx
+	s.BalanceMicros = func(ctx context.Context, name, chain string) (uint64, error) {
+		bal, err := client.BalanceForChain(ctx, name, chain)
+		if err != nil {
+			return 0, err
+		}
+		for _, tok := range bal.Tokens {
+			if !strings.EqualFold(tok.Symbol, "USDC") {
+				continue
+			}
+			micros, err := parseUSDC(tok.Balance)
+			if err != nil || !micros.IsUint64() {
+				return 0, err
+			}
+			return micros.Uint64(), nil
+		}
+		return 0, nil
+	}
 	return s
 }
 
@@ -224,6 +254,9 @@ func (s *OWSSigner) signEVMExact(ctx context.Context, req PaymentRequirements) (
 	}
 	if strings.TrimSpace(addr) == "" {
 		return SignedPayload{}, fmt.Errorf("ows signer: wallet %q has no base address", s.WalletName)
+	}
+	if err := s.preflightUSDCBalance(ctx, string(NetworkBase), req.AmountMicros); err != nil {
+		return SignedPayload{}, err
 	}
 	nonceHex, err := randomNonceHex()
 	if err != nil {
@@ -338,6 +371,31 @@ func normalizeSignature(sig string) string {
 		return sig
 	}
 	return "0x" + sig
+}
+
+// preflightUSDCBalance probes the wallet's USDC balance via the
+// configured BalanceMicros hook and returns ErrWalletNotFunded
+// when the on-hand balance is below the requirement amount. The
+// check is best-effort: when the hook isn't configured or the
+// probe errors, we let the signing path proceed and surface any
+// downstream failure server-side.
+func (s *OWSSigner) preflightUSDCBalance(ctx context.Context, chain, amountMicros string) error {
+	if s.BalanceMicros == nil {
+		return nil
+	}
+	need, err := strconv.ParseUint(strings.TrimSpace(amountMicros), 10, 64)
+	if err != nil || need == 0 {
+		return nil
+	}
+	have, err := s.BalanceMicros(ctx, s.WalletName, chain)
+	if err != nil {
+		return nil
+	}
+	if have < need {
+		return fmt.Errorf("%w: wallet %q has %d micro-USDC on %s, requirement asks for %d",
+			ErrWalletNotFunded, s.WalletName, have, chain, need)
+	}
+	return nil
 }
 
 // marshalExact wraps an ExactSchemePayload into the SignedPayload

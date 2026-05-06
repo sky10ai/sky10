@@ -1,6 +1,6 @@
 ---
 created: 2026-04-26
-updated: 2026-04-26
+updated: 2026-05-06
 model: claude-opus-4-7
 ---
 
@@ -14,225 +14,178 @@ x402's agent-facing surface lives at `pkg/sandbox/comms/x402/` —
 a per-intent websocket endpoint at `/comms/x402/ws` whose handlers
 delegate to `pkg/x402`. See
 [sandbox-comms](../sandbox-comms/) for the per-intent endpoint
-architecture and shared transport plumbing. The shared plumbing
-(M1 of sandbox-comms) must land before the x402 endpoint can; M1–M4
-of x402 below are pure host-side work and can run in parallel.
+architecture and shared transport plumbing.
 
-## Pre-flight
+## M1 — protocol core — **landed**
 
-- [ ] Confirm answers to the open questions in the
-  [README](README.md#open-questions).
-- [ ] Verify state of `pkg/wallet/{base.go,evm.go}` — what is already
-  capable on Base mainnet, what gaps need filling for SIWE + USDC
-  transfers.
-- [ ] Confirm [sandbox-comms M1](../sandbox-comms/implementation-plan.md#m1-shared-transport-plumbing)
-  is the foundation this rides on.
+`pkg/x402` implements the wire protocol. Real OWS-backed signing on
+Base **and** Solana mainnet works end-to-end against multiple live
+facilitators — this milestone is now well past its original "Base
+testnet smoke" exit criteria.
 
-## M1 — protocol core — **landed 2026-04-27**
+Wire shape evolved across the iteration:
 
-`pkg/x402` implements the protocol against a manually-pinned
-manifest; no discovery yet. **Host-side; not blocked by agent bus.**
-
-Landed in commit `<filled by commit>`. Files match the list below
-plus a Backend type that the comms adapter wires into. Tests cover
-402 round-trip with a httptest fake (initial 402 → sign with
-FakeSigner → retry with X-PAYMENT → 200 with X-PAYMENT-RESPONSE),
-pin enforcement, budget gates, and the full Backend.Call path.
-
-Real OWS-backed signing on Base testnet is a follow-up: sign.go
-ships `StubSigner` (returns ErrSignerNotConfigured) as the default
-production wiring; the OWSSigner implementation that bridges to
-`pkg/wallet.Client` lands once we settle how OWS exposes a sign-
-only command (today its `pay request <url>` does the whole flow).
+- v1 + v2 dual-version support. v1 carries the challenge in the body
+  with `maxAmountRequired`; v2 carries it in a `Payment-Required`
+  response header with `amount` (integer base units). Per-version
+  parsers live in `protocol_v1.go` / `protocol_v2.go`; transport
+  detects which version a server speaks from the response shape and
+  dispatches.
+- Three retry header names: `X-Payment` (Coinbase / Exa),
+  `Payment-Signature` (Smartflow), `X-402-Payment` (Venice). All
+  three carry the same envelope; servers pick the one they read.
+- v2 envelope is a hybrid: top-level `scheme`+`network` (canonical
+  x402 npm shape, Venice requires it) alongside `accepted` (echoed
+  verbatim via `RawWire` so vendor extensions round-trip) and an
+  optional `resource` block.
+- Receipt parsing is version-blind: tries plain JSON, then base64
+  JSON, then a bare tx-hash fallback (Messari's wire form).
 
 Files:
 
-- `pkg/x402/doc.go`
-- `pkg/x402/protocol.go` — `PaymentChallenge`, `PaymentReceipt`,
-  `ServiceManifest`, `Tier`
-- `pkg/x402/transport.go` — `http.RoundTripper`
-- `pkg/x402/sign.go` — SIWE + SIWS via `pkg/wallet`
-- `pkg/x402/registry.go` + `pkg/x402/registry_store.go`
-- `pkg/x402/budget.go`
-- `pkg/x402/policy.go`
-- `pkg/x402/pin.go`
-- Tests: 402 round-trip with `httptest`, signing fixtures, pin
-  enforcement, budget gate.
+- `pkg/x402/protocol.go` — shared canonical types
+- `pkg/x402/protocol_v1.go` / `protocol_v2.go` — version-specific
+  parsers and encoders
+- `pkg/x402/transport.go` — http round-trip with version dispatch,
+  PreferAndCheapest tier-and-network selection
+- `pkg/x402/sign.go` + `sign_solana.go` — OWS-backed Signer with
+  EIP-3009 EVM and v0 versioned Solana signing paths
+- `pkg/x402/registry.go`, `budget.go`, `pin.go`, `policy.go`
+- `pkg/x402/backend.go` — single Backend used by both the host RPC
+  and the comms handlers
+- `pkg/x402/testdata/` — captured live wire fixtures from each
+  smoked service
 
-Exit criteria: a Go test makes a real x402 call against a sandbox
-service (or an `httptest` fake) end-to-end with USDC on a Base
-testnet.
+Live verified against (in `pkg/x402/live_smoke_test.go`):
 
-## M2 — discovery and refresh — **landed 2026-04-27 (live ingestion + periodic ticker)**
+- Exa `/contents` (v2, Base, POST $0.001)
+- Blockrun (v2, Base, GET $0.001)
+- Smartflow (v2, Base, GET $0.001)
+- Browserbase (v1, Base, POST $0.010)
+- Alchemy `/solana-mainnet/v2` (v2, Solana mainnet, $0.001)
+- Coingecko (v2, Solana mainnet, GET $0.010 — third-party SVM facilitator)
+- Messari (v2, both Base and Solana, GET $0.10)
+- Venice top-up + chat-completions + balance (SIWX, see M9)
 
-`pkg/x402/discovery` adds catalog ingestion. **Host-side.**
+## M2 — discovery and refresh — **landed**
 
-Landed alongside daemon seeding in `commands/serve_x402.go`. The
-package ships:
+`pkg/x402/discovery` ingests the agentic.market catalog plus a
+curated overlay. Daemon seeds the registry on startup, then refreshes
+hourly with ±10min jitter.
 
-- `Source` interface; `StaticSource` for the curated builtin
-  primitive set baked into the binary
-- `Diff` + `Classify` covering new, removed, relisted, unchanged,
-  metadata-only, price-decreased (safe), price-increased,
-  endpoint-changed, breaking (risky)
-- `Refresh` orchestrator: pulls every source, classifies each
-  observation, applies safe diffs to the registry, queues risky
-  ones for re-approval, marks removals; per-source errors do not
-  abort other sources
-- `Overlay` loader from embedded `overlay.json` carrying
-  sky10-curated tier/default-on/hint metadata for the
-  primitive set plus the major LLM/search/convenience services
+Files: `pkg/x402/discovery/{client.go, refresh.go, diff.go,
+overlay.go, sources.go, agentic.go, static.go}`.
 
-On daemon start, `seedX402Registry` runs one Refresh against the
-combined source list — `AgenticMarketSource` first (live
-agentic.market data) and `StaticSource` second (curated
-primitives, used as a fallback when the API is unreachable).
-A background goroutine then runs `Refresh` every hour with
-±10min jitter, cancellable via the daemon context.
+## M3 — host-side RPC for Web UI — **landed (CLI is out of scope)**
 
-Files:
+`pkg/x402/rpc/handler.go` ships `x402.listServices`, `x402.setEnabled`,
+`x402.budgetStatus`, `x402.receipts`. The Web UI in M6 drives all
+four. Per-agent approval methods (`x402.approve`/`x402.revoke`) and
+the `sky10 market` CLI are deferred — the RPC surface alone covers
+every flow we have a consumer for today.
 
-- `pkg/x402/discovery/client.go`
-- `pkg/x402/discovery/refresh.go`
-- `pkg/x402/discovery/diff.go`
-- `pkg/x402/discovery/overlay.go` + `overlay.json`
-- `pkg/x402/discovery/sources.go`
-- Tests: diff classifier, refresh loop with fake source, overlay
-  merge.
+## M4 — wallet preflight — **landed**
 
-Exit criteria: a manual host-side refresh populates the local
-registry from the live `/v1/services` endpoint and per-service
-`/.well-known` manifests.
-
-## M3 — host-side RPC for CLI / Web UI — **partially done 2026-04-27**
-
-The host's existing unix-socket RPC gets the `x402.*` handlers so
-that **host-side consumers** (CLI, Web UI, host tools) can drive
-catalog management, approval, and budget. Sandboxed agents do not
-use this surface; they use the bus envelopes (see M5).
-
-`pkg/x402/rpc/handler.go` ships with `x402.listServices` and
-`x402.setEnabled`. The Web UI (M6) drives both. CLI surface
-(`sky10 market ...`) and the remaining methods (approve/revoke at
-agent granularity, budget status, receipts) follow when needed.
-
-Files landed:
-
-- `pkg/x402/rpc/handler.go` — `x402.listServices`, `x402.setEnabled`
-- `commands/serve_x402.go` registers the handler on the daemon RPC
-
-Files remaining:
-
-- `x402.approve` / `x402.revoke` (per-agent approval)
-- `x402.budgetStatus` / `x402.receipts`
-- `sky10 market` CLI
-
-Exit criteria for full M3: `sky10 market list/search/approve/budget/receipts`
-work from the CLI on the host.
-
-## M4 — subwallet integration
-
-Even though the user landed on "use existing OWS wallet directly"
-(see [`wallet-and-budget.md`](wallet-and-budget.md)), x402 still
-needs to gate calls on the wallet being installed and funded.
+`pkg/x402/wallet.go` defines `ErrWalletNotInstalled` and
+`ErrWalletNotFunded`. The OWS signer probes the wallet's USDC
+balance via `BalanceMicros` before signing the EIP-3009 (Base) or
+v0 versioned (Solana) authorization; if balance is below the
+requirement amount, the signer short-circuits with
+`ErrWalletNotFunded`. The probe is best-effort — RPC failures fall
+through to signing so a flaky balance endpoint doesn't block the
+agent.
 
 Files:
 
-- `pkg/x402/wallet.go` — preflight checks (OWS installed, funded for
-  the network the call needs)
-- Tests: preflight failure modes return clear typed errors.
+- `pkg/x402/wallet.go` — typed errors
+- `pkg/x402/sign.go` — `OWSSigner.BalanceMicros` hook +
+  `preflightUSDCBalance` helper invoked from `signEVMExact`
+- `pkg/x402/sign_solana.go` — same hook invoked from
+  `signSolanaExact`
+- `pkg/x402/wallet_test.go` — unit tests covering the underfunded,
+  funded, probe-error, and disabled-hook paths
 
-Exit criteria: an unfunded wallet causes `x402.service_call` to
-return `wallet_not_funded` cleanly; the catalog remains browsable
-without funding.
+## M5 — x402 endpoint on sandbox comms — **landed**
 
-## M5 — x402 endpoint on sandbox comms — **done 2026-04-27**
-
-This is the agent-facing surface. Landed alongside
-[sandbox-comms M2](../sandbox-comms/implementation-plan.md#m2-x402-capability-done-2026-04-27).
-Daemon wiring lives in `commands/serve_x402.go`; the endpoint
-mounts at `/comms/x402/ws` with agent identity resolved from the
+Agent-facing surface at `/comms/x402/ws`. Daemon wiring lives in
+`commands/serve_x402.go`; agent identity is resolved from the
 `agent` query parameter against the existing agent registry.
 
-Files (in `pkg/sandbox/comms/x402/`):
+Files: `pkg/sandbox/comms/x402/{endpoint.go, list_services.go,
+service_call.go, budget_status.go, changes.go}`.
 
-- `endpoint.go` — registers `/comms/x402/ws` and the four envelope types
-- `list_services.go` — `x402.list_services` handler
-- `service_call.go` — `x402.service_call` handler (sync, idempotent on payment-binding nonce)
-- `budget_status.go` — `x402.budget_status` handler
-- `changes.go` — `x402.changes` push (host-initiated)
-- Each handler delegates to `pkg/x402` with `requester = env.AgentID`
-  for scope filtering
-- Daemon wiring in `commands/serve.go` to register the endpoint
-  (host only; explicitly **not** registered in guest sky10
-  instances)
-- Tests: scope (agent only sees services it has been approved for),
-  budget enforcement, sync-on-async correlation, idempotency on the
-  payment-binding nonce
+## M6 — Web UI — **landed**
 
-Exit criteria: an agent inside a Lima VM makes a real paid call to a
-service via `/comms/x402/ws`. The wallet stays on host. The agent
-never sees the 402 challenge.
+Settings → Services page covers the catalog browser, per-service
+approve/revoke with explicit per-call max price, budget card,
+receipts table, search, and tier+status filters. Wallet-status
+banner surfaces "OWS not installed" / "no wallet yet" so the
+toggle isn't misleading. Per-agent approve/revoke and the changes
+panel are deferred (the user-level enable + budget caps cover
+the immediate safety story).
 
-## M6 — Web UI — **services browser landed 2026-04-27**
+Files: `web/src/pages/SettingsServices.tsx`, `web/src/lib/rpc.ts`,
+plus the `Settings.tsx` landing card.
 
-Settings → Services page exists at `/settings/services`.
-`SettingsServices.tsx` renders an "Agentic.Market" section with
-the curated catalog: each service shows display name, blurb,
-category, chain, tier, max price, and an enable toggle that
-roundtrips through `x402.setEnabled`.
+## M7 — telemetry and overlay tuning — *deferred*
 
-Files landed:
+Receipt records would carry `was_browser_attempted_first` from the
+agent's tool-call log; aggregate dashboard would surface "paid
+services that beat browse-it-yourself" so we can iterate
+`overlay.json` defaults from real signal. Not started — needs the
+OpenClaw plugin (M10) to produce the signal.
 
-- `web/src/pages/SettingsServices.tsx`
-- `web/src/lib/rpc.ts` — `x402.listServices`, `x402.setEnabled`
-- `web/src/App.tsx` route
-- `web/src/lib/pinnablePages.ts` entry
-- Settings landing card in `web/src/pages/Settings.tsx`
+## M8 — quality and reputation — *deferred*
 
-Files remaining for full M6:
+See [`threat-model.md`](threat-model.md). Outcome scoring,
+auto-quarantine, volume anomaly detection. Stays out of scope until
+we have enough live agent traffic to learn from.
 
-- Search and tier filter on the services page
-- Per-agent approve/revoke (current toggle is user-level)
-- Budget panel with caps + today's spend + receipt log
-- Changes panel (new / review / removed)
-- Wallet status banner: "wallet not funded — agents cannot call x402
-  services until funded"
+## M9 — Sign-In-With-X (SIWX) integration — **landed**
 
-Exit criteria: a user can install sky10, fund the wallet, approve a
-service, and see receipts populate from the UI alone.
+Deposit-style services (Venice, Stablephone, Run402) authenticate
+via SIWE-signed session headers instead of per-call x402 payments.
+`pkg/x402/siwx` owns the message construction (EIP-4361 text via
+canonical x402 npm shape), envelope encoding (base64 JSON of
+`{address, message, signature, timestamp, chainId}`), and an
+OWS-backed signer for EIP-191 personal_sign.
 
-## M7 — telemetry and overlay tuning
+`ServiceManifest.SIWXDomain` opts a service into the flow:
+`Backend.Call` builds a fresh SIWX header per request and attaches
+it as `X-Sign-In-With-X`. The same per-call x402 path runs on top —
+top-up endpoints get paid via `X-PAYMENT`, balance endpoints serve
+on SIWX alone.
 
-- Receipt records carry `was_browser_attempted_first` from the
-  agent's recent tool-call log (sourced from the bus audit log).
-- Aggregate dashboard surfaces "paid services that beat
-  browse-it-yourself".
-- Iterate `overlay.json` defaults from this signal.
+Live verified end-to-end against Venice — top-up settles a $5 USDC
+deposit, chat-completions burns from the credit balance, balance
+queries land cleanly without payment.
 
-## M8 — quality and reputation (deferred)
+Files: `pkg/x402/siwx/{doc.go, siwx.go, ows_signer.go,
+siwx_test.go}`, `pkg/x402/backend_siwx_test.go`.
 
-Detect (not just bound) malicious or broken services. See
-[`threat-model.md`](threat-model.md) for the full threat list.
+## M10 — OpenClaw plugin — *deferred*
 
-- Outcome scoring on every call: caller reports via a follow-up
-  envelope (`x402.call_outcome`) whether the response was usable;
-  aggregate into a per-service quality score persisted with receipts.
-- Auto-quarantine for services with sustained low quality.
-- Volume anomaly detection on the receipt log.
-- Per-agent-per-service caps so one runtime cannot dominate spend.
-- Optional opt-in shared reputation feed (Sybil-resistant design is
-  its own problem and is out of scope for the first version).
+Agents in the VM call paid services through the comms endpoint.
+Closes the loop from "user funds wallet" to "agent uses paid
+service" with the safety story (per-agent caps, audit trail) the
+sandbox-comms architecture provides. Not started.
 
 ## Out of scope for first cut
 
 - Per-service typed Go clients (`pkg/x402/wrappers/...`) — driven
   later by usage signal.
-- Non-x402 payment protocols.
+- Non-x402 payment protocols (MPP, etc).
 - Replacing existing API-key flows where users already have
   credentials.
 - Webhooks / SSE from agentic.market for push catalog updates (poll
   is fine to start).
-- A standalone MCP server for x402. Removed: agents go through the
-  bus, not through MCP. If a future runtime really needs MCP, we
-  add an MCP→bus adapter then.
+- A standalone MCP server for x402. Removed: agents go through
+  comms, not MCP.
+- `sky10 market` CLI. The host RPC covers every consumer we have;
+  CLI is purely cosmetic.
+- Per-(agent, service) approval UI. Today every approved agent
+  shares the user-level enable; tightening this is a known safety
+  hole tracked separately.
+- Auto top-up. Deposit-style services require an explicit user
+  action to fund credits — Backend doesn't quietly drain on
+  insufficient-balance 402s.
