@@ -349,19 +349,26 @@ func isSupportedNetwork(network string) bool {
 	return ok
 }
 
+// solanaMainnetClusterID is the genesis hash CAIP-2 uses to identify
+// Solana mainnet-beta. Devnet and testnet have different cluster IDs;
+// PreferAndCheapest skips them when a manifest specifies NetworkSolana
+// because we have no way to settle on those clusters today.
+const solanaMainnetClusterID = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+
 // canonicalizeNetwork maps the wire-level `network` field — which may
 // be a bare name ("base", "solana") or a CAIP-2 identifier
 // ("eip155:8453", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp") — to the
-// package's canonical Network value. Only Base (chain id 8453) is
-// accepted on the EVM side; other eip155 chains return false even
-// though we recognize the namespace.
+// package's canonical Network value. Only Base (chain id 8453) and
+// Solana mainnet are accepted; other eip155 chains and other Solana
+// clusters return false even though we recognize the namespace.
 func canonicalizeNetwork(network string) (Network, bool) {
-	raw := strings.ToLower(strings.TrimSpace(network))
+	raw := strings.TrimSpace(network)
 	if raw == "" {
 		return "", false
 	}
-	if strings.HasPrefix(raw, "eip155:") {
-		id, err := strconv.ParseInt(strings.TrimPrefix(raw, "eip155:"), 10, 64)
+	lower := strings.ToLower(raw)
+	if strings.HasPrefix(lower, "eip155:") {
+		id, err := strconv.ParseInt(strings.TrimPrefix(lower, "eip155:"), 10, 64)
 		if err != nil {
 			return "", false
 		}
@@ -370,10 +377,16 @@ func canonicalizeNetwork(network string) (Network, bool) {
 		}
 		return "", false
 	}
-	if strings.HasPrefix(raw, "solana:") {
-		return NetworkSolana, true
+	if strings.HasPrefix(lower, "solana:") {
+		// Compare cluster ID case-sensitively — Solana base58 is
+		// case-significant, the genesis hash includes mixed case.
+		cluster := raw[len("solana:"):]
+		if cluster == solanaMainnetClusterID {
+			return NetworkSolana, true
+		}
+		return "", false
 	}
-	switch raw {
+	switch lower {
 	case string(NetworkBase):
 		return NetworkBase, true
 	case string(NetworkSolana):

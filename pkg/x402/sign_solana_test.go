@@ -89,8 +89,18 @@ func TestSolanaAmountAcceptsBaseUnitAndDecimal(t *testing.T) {
 
 func TestOWSSignerSolanaHappyPath(t *testing.T) {
 	t.Parallel()
-	const fakeUnsignedHex = "deadbeef00"
-	const fakeSignedHex = "cafebabe11"
+	// fakeUnsignedHex is a 200-byte synthetic v0 versioned tx layout:
+	// compactU16(2)=0x02, two 64-byte zero signature slots, then a
+	// short pretend-message. Real txs are bigger but we only care
+	// about layout correctness in this unit test.
+	const fakeUnsignedHex = "02" +
+		"0000000000000000000000000000000000000000000000000000000000000000" + // slot 0 (32 bytes)
+		"0000000000000000000000000000000000000000000000000000000000000000" + // slot 0 (32 bytes)
+		"0000000000000000000000000000000000000000000000000000000000000000" + // slot 1 (32 bytes)
+		"0000000000000000000000000000000000000000000000000000000000000000" + // slot 1 (32 bytes)
+		"deadbeefcafebabe" // pretend message (8 bytes)
+	const fakeMessageHex = "deadbeefcafebabe"
+	const fakeSig64Hex = "11111111111111111111111111111111111111111111111111111111111111112222222222222222222222222222222222222222222222222222222222222222"
 	signTxCalls := 0
 	buildCalls := 0
 	signer := &OWSSigner{
@@ -102,7 +112,7 @@ func TestOWSSignerSolanaHappyPath(t *testing.T) {
 			}
 			return "ClientSoLAddrxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", nil
 		},
-		BuildSolanaTx: func(_ context.Context, from, to, feePayer, mint string, amount uint64, memo string) (string, error) {
+		BuildSolanaTx: func(_ context.Context, from, to, feePayer, mint string, amount uint64, memo string) (string, string, error) {
 			buildCalls++
 			if from != "ClientSoLAddrxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" {
 				t.Fatalf("from = %q", from)
@@ -122,7 +132,7 @@ func TestOWSSignerSolanaHappyPath(t *testing.T) {
 			if memo != "service:perplexity" {
 				t.Fatalf("memo = %q", memo)
 			}
-			return fakeUnsignedHex, nil
+			return fakeUnsignedHex, fakeMessageHex, nil
 		},
 		SignTx: func(_ context.Context, walletName, chain, txHex string) (string, error) {
 			signTxCalls++
@@ -133,9 +143,9 @@ func TestOWSSignerSolanaHappyPath(t *testing.T) {
 				t.Fatalf("chain = %q", chain)
 			}
 			if txHex != fakeUnsignedHex {
-				t.Fatalf("txHex = %q, want %q", txHex, fakeUnsignedHex)
+				t.Fatalf("txHex = %q, want full unsigned tx hex %q (OWS expects full tx, signs message internally)", txHex, fakeUnsignedHex)
 			}
-			return fakeSignedHex, nil
+			return fakeSig64Hex, nil
 		},
 	}
 
@@ -153,11 +163,24 @@ func TestOWSSignerSolanaHappyPath(t *testing.T) {
 	if err := json.Unmarshal(signed.Inner, &inner); err != nil {
 		t.Fatalf("decode inner: %v", err)
 	}
-	wantBytes, _ := hex.DecodeString(fakeSignedHex)
-	wantB64 := base64.StdEncoding.EncodeToString(wantBytes)
+	// Expected wire form: original unsigned tx with the 64-byte
+	// signature inserted into slot 1 (bytes [65..129)).
+	want := append([]byte{}, decodeHex(t, fakeUnsignedHex)...)
+	copy(want[1+64:1+64+64], decodeHex(t, fakeSig64Hex))
+	wantB64 := base64.StdEncoding.EncodeToString(want)
 	if inner.Transaction != wantB64 {
-		t.Fatalf("transaction = %q, want %q", inner.Transaction, wantB64)
+		t.Fatalf("transaction = %q, want %q (signature inserted into slot 1)", inner.Transaction, wantB64)
 	}
+}
+
+// decodeHex is a t.Fatal-on-error variant of hex.DecodeString.
+func decodeHex(t *testing.T, h string) []byte {
+	t.Helper()
+	b, err := hex.DecodeString(strings.TrimPrefix(strings.TrimPrefix(h, "0x"), "0X"))
+	if err != nil {
+		t.Fatalf("decode hex %q: %v", h, err)
+	}
+	return b
 }
 
 func TestOWSSignerSolanaRejectsMissingFeePayer(t *testing.T) {
@@ -166,9 +189,9 @@ func TestOWSSignerSolanaRejectsMissingFeePayer(t *testing.T) {
 		WalletName:      "agent-wallet",
 		Now:             nowFromString("2026-04-28T12:00:00Z"),
 		AddressForChain: func(_ context.Context, _, _ string) (string, error) { return "client", nil },
-		BuildSolanaTx: func(_ context.Context, _, _, _, _ string, _ uint64, _ string) (string, error) {
+		BuildSolanaTx: func(_ context.Context, _, _, _, _ string, _ uint64, _ string) (string, string, error) {
 			t.Fatal("BuildSolanaTx should not be called when feePayer is missing")
-			return "", nil
+			return "", "", nil
 		},
 		SignTx: func(_ context.Context, _, _, _ string) (string, error) {
 			t.Fatal("SignTx should not be called when feePayer is missing")
@@ -190,9 +213,9 @@ func TestOWSSignerSolanaSurfacesAddressError(t *testing.T) {
 		AddressForChain: func(_ context.Context, _, _ string) (string, error) {
 			return "", errors.New("ows offline")
 		},
-		BuildSolanaTx: func(_ context.Context, _, _, _, _ string, _ uint64, _ string) (string, error) {
+		BuildSolanaTx: func(_ context.Context, _, _, _, _ string, _ uint64, _ string) (string, string, error) {
 			t.Fatal("BuildSolanaTx should not run when address fails")
-			return "", nil
+			return "", "", nil
 		},
 		SignTx: func(_ context.Context, _, _, _ string) (string, error) {
 			t.Fatal("SignTx should not run when address fails")

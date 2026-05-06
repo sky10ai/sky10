@@ -65,20 +65,45 @@ func (s *OWSSigner) signSolanaExact(ctx context.Context, req PaymentRequirements
 	}
 	memo, _ := req.Extra["memo"].(string)
 
-	unsignedHex, err := s.BuildSolanaTx(ctx, addr, req.PayTo, feePayer, req.Asset, amount, memo)
+	fullUnsignedHex, messageHex, err := s.BuildSolanaTx(ctx, addr, req.PayTo, feePayer, req.Asset, amount, memo)
 	if err != nil {
 		return SignedPayload{}, fmt.Errorf("ows signer: build solana tx: %w", err)
 	}
+	unsignedBytes, err := hex.DecodeString(strings.TrimPrefix(strings.TrimPrefix(fullUnsignedHex, "0x"), "0X"))
+	if err != nil {
+		return SignedPayload{}, fmt.Errorf("ows signer: decode unsigned tx hex: %w", err)
+	}
 
-	signedHex, err := s.SignTx(ctx, s.WalletName, string(NetworkSolana), unsignedHex)
+	// OWS's `sign tx` expects the full serialized transaction (with
+	// placeholder signature slots) as input. It internally extracts
+	// the message portion, signs that, and returns the raw 64-byte
+	// ed25519 signature.
+	_ = messageHex
+	signedHex, err := s.SignTx(ctx, s.WalletName, string(NetworkSolana), fullUnsignedHex)
 	if err != nil {
 		return SignedPayload{}, fmt.Errorf("ows signer: %w", err)
 	}
-	signedBytes, err := hex.DecodeString(strings.TrimPrefix(strings.TrimPrefix(signedHex, "0x"), "0X"))
+	sigBytes, err := hex.DecodeString(strings.TrimPrefix(strings.TrimPrefix(signedHex, "0x"), "0X"))
 	if err != nil {
-		return SignedPayload{}, fmt.Errorf("ows signer: decode signed tx hex: %w", err)
+		return SignedPayload{}, fmt.Errorf("ows signer: decode signature hex: %w", err)
 	}
-	encoded := base64.StdEncoding.EncodeToString(signedBytes)
+	if len(sigBytes) != 64 {
+		return SignedPayload{}, fmt.Errorf("ows signer: expected 64-byte ed25519 signature, got %d bytes", len(sigBytes))
+	}
+
+	// Assemble the partially-signed transaction: take the unsigned
+	// bytes (with two 64-byte zero signature slots) and overwrite
+	// slot 1 (client signer; slot 0 is the facilitator's fee payer
+	// that the server fills server-side after verifying our payload).
+	// compactU16(2) is one byte (0x02) since 2 < 0x80; slot 0
+	// occupies bytes [1..65), slot 1 occupies bytes [65..129).
+	if len(unsignedBytes) < 1+64+64 {
+		return SignedPayload{}, fmt.Errorf("ows signer: unsigned tx too short to hold two signatures (%d bytes)", len(unsignedBytes))
+	}
+	signedTxBytes := make([]byte, len(unsignedBytes))
+	copy(signedTxBytes, unsignedBytes)
+	copy(signedTxBytes[1+64:1+64+64], sigBytes)
+	encoded := base64.StdEncoding.EncodeToString(signedTxBytes)
 	inner, err := json.Marshal(SolanaExactPayload{Transaction: encoded})
 	if err != nil {
 		return SignedPayload{}, err
@@ -138,6 +163,6 @@ func solanaAmountForBig(v *big.Int) (uint64, error) {
 
 // owsBuildSolanaTx is the production wiring for OWSSigner.BuildSolanaTx;
 // it forwards to the wallet package builder. Tests substitute a fake.
-func owsBuildSolanaTx(ctx context.Context, from, to, feePayer, mint string, amount uint64, memo string) (string, error) {
+func owsBuildSolanaTx(ctx context.Context, from, to, feePayer, mint string, amount uint64, memo string) (fullUnsignedTxHex, messageHex string, err error) {
 	return skywallet.BuildX402SolanaTransferTx(ctx, from, to, feePayer, mint, amount, memo)
 }

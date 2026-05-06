@@ -22,64 +22,66 @@ const memoProgram = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
 //
 //   - slot 0: the facilitator's `feePayer` pubkey (left as zeros;
 //     the facilitator signs server-side after verification)
-//   - slot 1: the client's `from` pubkey (OWS fills this slot when
-//     it signs the bytes)
+//   - slot 1: the client's `from` pubkey (the caller fills this
+//     slot after signing the message bytes returned alongside)
 //
 // The instruction layout is one SPL Token Transfer from the client's
 // associated token account to the recipient's ATA, optionally
 // preceded by a memo instruction when memo is non-empty.
 //
-// Returns hex-encoded bytes ready for `ows sign tx --chain solana
-// --tx <hex>`. Both the client's and recipient's ATAs must already
-// exist; this builder does not include CreateATA instructions
-// because x402 services generally have a long-standing receiving
-// account.
+// Returns the full unsigned transaction (with placeholder signature
+// slots) and the message-only bytes — both as hex. Solana signers
+// sign the message bytes; the full-tx form is what the wire payload
+// looks like once the client's signature is inserted into slot 1.
+// Both the client's and recipient's ATAs must already exist; this
+// builder does not include CreateATA instructions because x402
+// services generally have a long-standing receiving account.
 func BuildX402SolanaTransferTx(
 	ctx context.Context,
 	from, to, feePayer, mint string,
 	amount uint64,
 	memo string,
-) (string, error) {
+) (fullUnsignedHex, messageHex string, _ error) {
 	if amount == 0 {
-		return "", errors.New("amount must be positive")
+		return "", "", errors.New("amount must be positive")
 	}
 	fromKey, err := base58Decode(from)
 	if err != nil {
-		return "", fmt.Errorf("decoding sender: %w", err)
+		return "", "", fmt.Errorf("decoding sender: %w", err)
 	}
 	toKey, err := base58Decode(to)
 	if err != nil {
-		return "", fmt.Errorf("decoding recipient: %w", err)
+		return "", "", fmt.Errorf("decoding recipient: %w", err)
 	}
 	feePayerKey, err := base58Decode(feePayer)
 	if err != nil {
-		return "", fmt.Errorf("decoding fee payer: %w", err)
+		return "", "", fmt.Errorf("decoding fee payer: %w", err)
 	}
 	mintKey, err := base58Decode(mint)
 	if err != nil {
-		return "", fmt.Errorf("decoding mint: %w", err)
+		return "", "", fmt.Errorf("decoding mint: %w", err)
 	}
 	tokProgKey, err := base58Decode(tokenProgram)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	srcATA, err := findAssociatedTokenAddress(fromKey, mintKey, tokProgKey, mustB58(ataProgram))
 	if err != nil {
-		return "", fmt.Errorf("computing sender ATA: %w", err)
+		return "", "", fmt.Errorf("computing sender ATA: %w", err)
 	}
 	dstATA, err := findAssociatedTokenAddress(toKey, mintKey, tokProgKey, mustB58(ataProgram))
 	if err != nil {
-		return "", fmt.Errorf("computing recipient ATA: %w", err)
+		return "", "", fmt.Errorf("computing recipient ATA: %w", err)
 	}
 
 	blockhash, err := getLatestBlockhash(ctx)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	bhBytes, err := base58Decode(blockhash)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	// SPL Token Transfer instruction data: [3 (u8 = Transfer), amount (u64 LE)].
@@ -101,7 +103,7 @@ func BuildX402SolanaTransferTx(
 	// numReadonlyUnsigned).
 	hasMemo := len(memo) > 0
 	if hasMemo && len(memo) > 256 {
-		return "", errors.New("memo must be <= 256 bytes")
+		return "", "", errors.New("memo must be <= 256 bytes")
 	}
 
 	var msg bytes.Buffer
@@ -156,14 +158,16 @@ func BuildX402SolanaTransferTx(
 	// v0 address-table-lookups (none).
 	msg.Write(compactU16(0))
 
+	messageBytes := msg.Bytes()
+
 	// Assemble unsigned transaction: 2 zero signature placeholders
 	// + message.
 	var tx bytes.Buffer
 	tx.Write(compactU16(2))
 	tx.Write(make([]byte, 64*2))
-	tx.Write(msg.Bytes())
+	tx.Write(messageBytes)
 
-	return hex.EncodeToString(tx.Bytes()), nil
+	return hex.EncodeToString(tx.Bytes()), hex.EncodeToString(messageBytes), nil
 }
 
 // mustB58 panics if the canonical Solana program address fails to

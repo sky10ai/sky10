@@ -155,11 +155,14 @@ type OWSSigner struct {
 	// `ows sign tx --json` via the wallet client.
 	SignTx func(ctx context.Context, walletName, chain, unsignedTxHex string) (string, error)
 
-	// BuildSolanaTx constructs the partially-signed v0 versioned
-	// Solana transfer transaction the Solana branch hands to OWS
-	// for signing. Tests substitute a fake; production wraps
-	// pkg/wallet.BuildX402SolanaTransferTx.
-	BuildSolanaTx func(ctx context.Context, from, to, feePayer, mint string, amount uint64, memo string) (string, error)
+	// BuildSolanaTx constructs the unsigned v0 versioned Solana
+	// transfer transaction the Solana branch hands to OWS for
+	// signing. Returns (fullUnsignedTxHex, messageOnlyHex): the
+	// full form is what eventually goes on the wire (with our
+	// signature inserted into slot 1), and the message-only form
+	// is what the signer signs over. Tests substitute a fake;
+	// production wraps pkg/wallet.BuildX402SolanaTransferTx.
+	BuildSolanaTx func(ctx context.Context, from, to, feePayer, mint string, amount uint64, memo string) (fullUnsignedTxHex, messageHex string, err error)
 }
 
 // NewOWSSigner builds a signer that uses the supplied wallet client.
