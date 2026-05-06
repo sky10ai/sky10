@@ -22,6 +22,116 @@ function tierBadgeClasses(tier: X402ServiceListing["tier"]): string {
   return "bg-secondary-container/30 text-secondary";
 }
 
+function tierLabel(tier: X402ServiceListing["tier"]): string {
+  if (tier === "primitive") return "Core capability";
+  return "Optional shortcut";
+}
+
+function tierTooltip(tier: X402ServiceListing["tier"]): string {
+  if (tier === "primitive") {
+    return "Useful when local tools cannot provide the capability directly.";
+  }
+  return "Useful when a paid API saves time compared with local tools.";
+}
+
+function categoryLabel(category: string | undefined): string {
+  if (!category) return "—";
+  return category
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function serviceIconName(service: X402ServiceListing): string {
+  const id = service.id.toLowerCase();
+  const name = service.display_name.toLowerCase();
+  const category = service.category?.toLowerCase() ?? "";
+  const text =
+    `${id} ${name} ${category} ${service.description ?? ""}`.toLowerCase();
+
+  if (
+    text.includes("deepgram") ||
+    text.includes("speech") ||
+    text.includes("audio")
+  ) {
+    return "graphic_eq";
+  }
+  if (
+    text.includes("fal") ||
+    text.includes("image") ||
+    text.includes("video")
+  ) {
+    return "auto_awesome";
+  }
+  if (
+    text.includes("e2b") ||
+    text.includes("code") ||
+    text.includes("sandbox")
+  ) {
+    return "terminal";
+  }
+  if (text.includes("browserbase") || text.includes("browser")) {
+    return "public";
+  }
+  if (
+    text.includes("openai") ||
+    text.includes("anthropic") ||
+    text.includes("venice") ||
+    text.includes("llm")
+  ) {
+    return "smart_toy";
+  }
+  if (
+    text.includes("perplexity") ||
+    text.includes("exa") ||
+    text.includes("search")
+  ) {
+    return "travel_explore";
+  }
+  if (
+    text.includes("messari") ||
+    text.includes("coingecko") ||
+    text.includes("market")
+  ) {
+    return "query_stats";
+  }
+  if (
+    text.includes("alchemy") ||
+    text.includes("quicknode") ||
+    text.includes("rpc")
+  ) {
+    return "hub";
+  }
+  if (text.includes("tripadvisor") || text.includes("travel")) {
+    return "map";
+  }
+  if (text.includes("apollo") || text.includes("contact")) {
+    return "contacts";
+  }
+  if (category.includes("infrastructure")) return "dns";
+  if (category.includes("media")) return "perm_media";
+  if (category.includes("data")) return "database";
+  return "apps";
+}
+
+function serviceIconClasses(service: X402ServiceListing): string {
+  const category = service.category?.toLowerCase() ?? "";
+  if (category.includes("media")) {
+    return "bg-sky-500/10 text-sky-700 dark:text-sky-200";
+  }
+  if (category.includes("infrastructure")) {
+    return "bg-violet-500/10 text-violet-700 dark:text-violet-200";
+  }
+  if (category.includes("search") || category.includes("data")) {
+    return "bg-amber-500/10 text-amber-700 dark:text-amber-200";
+  }
+  if (service.tier === "primitive") {
+    return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-200";
+  }
+  return "bg-secondary-container/30 text-secondary";
+}
+
 function formatTimestamp(value: string | undefined): string {
   if (!value) return "—";
   const dt = new Date(value);
@@ -70,66 +180,77 @@ function ServiceCard({
   return (
     <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-5 shadow-sm">
       <div className="flex flex-col gap-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex-1 space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-base font-semibold text-on-surface">
-                {service.display_name || service.id}
-              </h3>
-              <span
-                className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${tierBadgeClasses(service.tier)}`}
-              >
-                {service.tier}
-              </span>
-              {service.enabled ? (
-                <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-200">
-                  Approved
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <div
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${serviceIconClasses(service)}`}
+              aria-hidden="true"
+            >
+              <Icon className="text-2xl" name={serviceIconName(service)} />
+            </div>
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-base font-semibold text-on-surface">
+                  {service.display_name || service.id}
+                </h3>
+                <span
+                  title={tierTooltip(service.tier)}
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${tierBadgeClasses(service.tier)}`}
+                >
+                  {tierLabel(service.tier)}
                 </span>
+                {service.enabled ? (
+                  <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-200">
+                    Approved
+                  </span>
+                ) : null}
+              </div>
+              {service.description ? (
+                <p className="text-sm text-secondary">{service.description}</p>
+              ) : null}
+              {service.hint ? (
+                <p className="rounded-md bg-surface-container/40 px-2 py-1 text-xs italic text-secondary">
+                  {service.hint}
+                </p>
+              ) : null}
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-secondary sm:grid-cols-3">
+                <div>
+                  <dt className="font-medium uppercase tracking-wider text-outline">
+                    Category
+                  </dt>
+                  <dd>{categoryLabel(service.category)}</dd>
+                </div>
+                <div>
+                  <dt className="font-medium uppercase tracking-wider text-outline">
+                    Chain
+                  </dt>
+                  <dd>{networkLabel(service.networks)}</dd>
+                </div>
+                <div>
+                  <dt className="font-medium uppercase tracking-wider text-outline">
+                    Listed price
+                  </dt>
+                  <dd>
+                    {service.max_price_usdc
+                      ? `$${service.max_price_usdc} USDC`
+                      : "—"}
+                  </dd>
+                </div>
+              </dl>
+              {service.enabled ? (
+                <p className="text-xs text-secondary">
+                  Approved {formatTimestamp(service.approved_at)} · max $
+                  {service.approved_max_price_usdc ?? "—"}/call
+                </p>
+              ) : null}
+              {error ? (
+                <p className="text-xs text-red-600 dark:text-red-300">
+                  {error}
+                </p>
               ) : null}
             </div>
-            {service.description ? (
-              <p className="text-sm text-secondary">{service.description}</p>
-            ) : null}
-            {service.hint ? (
-              <p className="rounded-md bg-surface-container/40 px-2 py-1 text-xs italic text-secondary">
-                {service.hint}
-              </p>
-            ) : null}
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-secondary sm:grid-cols-3">
-              <div>
-                <dt className="font-medium uppercase tracking-wider text-outline">
-                  Category
-                </dt>
-                <dd>{service.category || "—"}</dd>
-              </div>
-              <div>
-                <dt className="font-medium uppercase tracking-wider text-outline">
-                  Chain
-                </dt>
-                <dd>{networkLabel(service.networks)}</dd>
-              </div>
-              <div>
-                <dt className="font-medium uppercase tracking-wider text-outline">
-                  Listed price
-                </dt>
-                <dd>
-                  {service.max_price_usdc
-                    ? `$${service.max_price_usdc} USDC`
-                    : "—"}
-                </dd>
-              </div>
-            </dl>
-            {service.enabled ? (
-              <p className="text-xs text-secondary">
-                Approved {formatTimestamp(service.approved_at)} · max $
-                {service.approved_max_price_usdc ?? "—"}/call
-              </p>
-            ) : null}
-            {error ? (
-              <p className="text-xs text-red-600 dark:text-red-300">{error}</p>
-            ) : null}
           </div>
-          <div className="flex items-start gap-2">
+          <div className="flex shrink-0 items-start gap-2">
             {!service.enabled && !editing ? (
               <button
                 type="button"
@@ -421,6 +542,7 @@ export default function SettingsServices() {
         s.display_name,
         s.description,
         s.category,
+        tierLabel(s.tier),
       ]
         .filter(Boolean)
         .join(" ")
@@ -485,9 +607,9 @@ export default function SettingsServices() {
             }
             className="rounded-full border border-outline-variant/30 bg-surface-container-lowest px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
           >
-            <option value="all">All tiers</option>
-            <option value="primitive">Primitive</option>
-            <option value="convenience">Convenience</option>
+            <option value="all">All service types</option>
+            <option value="primitive">Core capabilities</option>
+            <option value="convenience">Optional shortcuts</option>
           </select>
           <select
             value={statusFilter}
@@ -513,16 +635,16 @@ export default function SettingsServices() {
 
         {!error && services.length === 0 && !loading ? (
           <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 text-sm text-secondary">
-            No services available yet. The daemon seeds the curated primitive
-            set on startup; if this list stays empty, check the daemon log for
-            x402 seed errors.
+            No services available yet. The daemon seeds the starter catalog on
+            startup; if this list stays empty, check the daemon log for x402
+            seed errors.
           </div>
         ) : null}
 
         {!error && services.length > 0 && filtered.length === 0 ? (
           <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 text-sm text-secondary">
             No services match your filters. Adjust the search or change the
-            tier/status dropdowns.
+            service type/status dropdowns.
           </div>
         ) : null}
 
