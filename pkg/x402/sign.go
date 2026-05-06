@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"strings"
 	"time"
 
@@ -19,8 +18,21 @@ import (
 // Backend when a Call would need to sign but cannot.
 var ErrSignerNotConfigured = errors.New("x402: signer not configured")
 
-// Signer turns a PaymentRequirements directive into a fully-signed
-// PaymentPayload the transport encodes onto the X-PAYMENT header.
+// SignedPayload is what a Signer produces: the inner JSON of an
+// X-PAYMENT envelope (an ExactSchemePayload for EVM, a
+// SolanaExactPayload for SVM) plus the scheme/network metadata the
+// transport needs to assemble the version-specific outer envelope.
+//
+// Transport, not Signer, owns the v1-vs-v2 wire decision. The same
+// Signer serves both versions.
+type SignedPayload struct {
+	Scheme  string
+	Network string
+	Inner   json.RawMessage
+}
+
+// Signer turns a PaymentRequirements directive into the inner
+// signed payload the transport places in the X-PAYMENT envelope.
 //
 // Implementations bridge to whichever wallet primitive the host has —
 // OWS in production, a fake in tests.
@@ -29,7 +41,7 @@ var ErrSignerNotConfigured = errors.New("x402: signer not configured")
 // in-flight envelopes; the underlying wallet is expected to handle
 // its own concurrency.
 type Signer interface {
-	Sign(ctx context.Context, req PaymentRequirements) (PaymentPayload, error)
+	Sign(ctx context.Context, req PaymentRequirements) (SignedPayload, error)
 }
 
 // FakeSigner is the test-side Signer. It produces deterministic
@@ -53,20 +65,20 @@ func NewFakeSigner(fromAddress string) FakeSigner {
 // a synthetic signature ("fake-sig:<random-nonce>"); transport tests
 // observe the structure end-to-end without performing any real
 // signing.
-func (s FakeSigner) Sign(_ context.Context, req PaymentRequirements) (PaymentPayload, error) {
+func (s FakeSigner) Sign(_ context.Context, req PaymentRequirements) (SignedPayload, error) {
 	if !isSupportedScheme(req.Scheme) {
-		return PaymentPayload{}, fmt.Errorf("fake signer: unsupported scheme %q", req.Scheme)
+		return SignedPayload{}, fmt.Errorf("fake signer: unsupported scheme %q", req.Scheme)
 	}
 	if !isSupportedNetwork(req.Network) {
-		return PaymentPayload{}, fmt.Errorf("fake signer: unsupported network %q", req.Network)
+		return SignedPayload{}, fmt.Errorf("fake signer: unsupported network %q", req.Network)
 	}
 	nonceHex, err := randomNonceHex()
 	if err != nil {
-		return PaymentPayload{}, err
+		return SignedPayload{}, err
 	}
 	value, err := microsForRequirement(req)
 	if err != nil {
-		return PaymentPayload{}, err
+		return SignedPayload{}, err
 	}
 	now := s.Now()
 	if now.IsZero() {
@@ -78,13 +90,13 @@ func (s FakeSigner) Sign(_ context.Context, req PaymentRequirements) (PaymentPay
 	}
 	_, auth, err := BuildTransferWithAuthorizationTypedData(req, from, value, nonceHex, now)
 	if err != nil {
-		return PaymentPayload{}, err
+		return SignedPayload{}, err
 	}
 	exact := ExactSchemePayload{
 		Signature:     "fake-sig:" + nonceHex,
 		Authorization: auth,
 	}
-	return marshalExactPayload(req, exact)
+	return marshalExact(req, exact)
 }
 
 // StubSigner is the placeholder signer for production when OWS is
@@ -102,11 +114,11 @@ func NewStubSigner(reason string) StubSigner {
 }
 
 // Sign implements Signer; always returns ErrSignerNotConfigured.
-func (s StubSigner) Sign(_ context.Context, _ PaymentRequirements) (PaymentPayload, error) {
+func (s StubSigner) Sign(_ context.Context, _ PaymentRequirements) (SignedPayload, error) {
 	if s.Reason != "" {
-		return PaymentPayload{}, fmt.Errorf("%w: %s", ErrSignerNotConfigured, s.Reason)
+		return SignedPayload{}, fmt.Errorf("%w: %s", ErrSignerNotConfigured, s.Reason)
 	}
-	return PaymentPayload{}, ErrSignerNotConfigured
+	return SignedPayload{}, ErrSignerNotConfigured
 }
 
 // OWSSigner produces real x402 payment payloads by shelling out to
@@ -115,11 +127,8 @@ func (s StubSigner) Sign(_ context.Context, _ PaymentRequirements) (PaymentPaylo
 //   - `ows wallet list` (cached on the wrapped Client) to resolve
 //     the wallet's address on the requirement's network
 //   - `ows sign message --typed-data <json> --json` to sign the
-//     EIP-712 TransferWithAuthorization
-//
-// The Solana network path is not yet wired; signing on Solana
-// requires a different message construction and falls through to a
-// clear error so callers know the OWS-side work is the gap.
+//     EIP-712 TransferWithAuthorization (Base) or
+//     `ows sign tx --json` to sign a partially-signed Solana tx.
 type OWSSigner struct {
 	Client     *skywallet.Client
 	WalletName string
@@ -179,16 +188,16 @@ func NewOWSSigner(client *skywallet.Client, walletName string) *OWSSigner {
 }
 
 // Sign implements Signer.
-func (s *OWSSigner) Sign(ctx context.Context, req PaymentRequirements) (PaymentPayload, error) {
+func (s *OWSSigner) Sign(ctx context.Context, req PaymentRequirements) (SignedPayload, error) {
 	if s == nil {
-		return PaymentPayload{}, ErrSignerNotConfigured
+		return SignedPayload{}, ErrSignerNotConfigured
 	}
 	if !isSupportedScheme(req.Scheme) {
-		return PaymentPayload{}, fmt.Errorf("ows signer: unsupported scheme %q", req.Scheme)
+		return SignedPayload{}, fmt.Errorf("ows signer: unsupported scheme %q", req.Scheme)
 	}
 	network, ok := canonicalizeNetwork(req.Network)
 	if !ok {
-		return PaymentPayload{}, fmt.Errorf("ows signer: network %q not supported", req.Network)
+		return SignedPayload{}, fmt.Errorf("ows signer: network %q not supported", req.Network)
 	}
 	switch network {
 	case NetworkBase:
@@ -196,48 +205,48 @@ func (s *OWSSigner) Sign(ctx context.Context, req PaymentRequirements) (PaymentP
 	case NetworkSolana:
 		return s.signSolanaExact(ctx, req)
 	default:
-		return PaymentPayload{}, fmt.Errorf("ows signer: network %q has no signing path", network)
+		return SignedPayload{}, fmt.Errorf("ows signer: network %q has no signing path", network)
 	}
 }
 
 // signEVMExact handles EIP-3009 TransferWithAuthorization signing on
 // Base. The flow lifts straight from the x402 spec for EVM.
-func (s *OWSSigner) signEVMExact(ctx context.Context, req PaymentRequirements) (PaymentPayload, error) {
+func (s *OWSSigner) signEVMExact(ctx context.Context, req PaymentRequirements) (SignedPayload, error) {
 	if s.SignTypedData == nil || s.AddressForChain == nil {
-		return PaymentPayload{}, ErrSignerNotConfigured
+		return SignedPayload{}, ErrSignerNotConfigured
 	}
 	addr, err := s.AddressForChain(ctx, s.WalletName, string(NetworkBase))
 	if err != nil {
-		return PaymentPayload{}, fmt.Errorf("ows signer: resolving wallet %q address: %w", s.WalletName, err)
+		return SignedPayload{}, fmt.Errorf("ows signer: resolving wallet %q address: %w", s.WalletName, err)
 	}
 	if strings.TrimSpace(addr) == "" {
-		return PaymentPayload{}, fmt.Errorf("ows signer: wallet %q has no base address", s.WalletName)
+		return SignedPayload{}, fmt.Errorf("ows signer: wallet %q has no base address", s.WalletName)
 	}
 	nonceHex, err := randomNonceHex()
 	if err != nil {
-		return PaymentPayload{}, err
+		return SignedPayload{}, err
 	}
 	value, err := microsForRequirement(req)
 	if err != nil {
-		return PaymentPayload{}, err
+		return SignedPayload{}, err
 	}
 	td, auth, err := BuildTransferWithAuthorizationTypedData(req, addr, value, nonceHex, s.Now())
 	if err != nil {
-		return PaymentPayload{}, err
+		return SignedPayload{}, err
 	}
 	tdJSON, err := json.Marshal(td)
 	if err != nil {
-		return PaymentPayload{}, err
+		return SignedPayload{}, err
 	}
 	sig, err := s.SignTypedData(ctx, s.WalletName, string(NetworkBase), tdJSON)
 	if err != nil {
-		return PaymentPayload{}, fmt.Errorf("ows signer: %w", err)
+		return SignedPayload{}, fmt.Errorf("ows signer: %w", err)
 	}
 	exact := ExactSchemePayload{
 		Signature:     normalizeSignature(sig),
 		Authorization: auth,
 	}
-	return marshalExactPayload(req, exact)
+	return marshalExact(req, exact)
 }
 
 // owsSignTx runs `ows sign tx --chain <chain> --wallet <name>
@@ -268,8 +277,9 @@ func owsSignTx(ctx context.Context, client *skywallet.Client, walletName, chain,
 }
 
 // owsSignTypedData runs `ows sign message --chain <network> --wallet
-// <name> --typed-data <json> --json --no-passphrase` and returns the
-// signature hex.
+// <name> --typed-data <json> --json` and returns the signature hex.
+// The OWS_PASSPHRASE env var is set to empty by the wallet client so
+// the daemon's non-interactive flow doesn't hang on a stdin prompt.
 func owsSignTypedData(ctx context.Context, client *skywallet.Client, walletName, network string, typedData []byte) (string, error) {
 	out, err := client.RunSignMessageJSON(ctx, walletName, network, typedData)
 	if err != nil {
@@ -287,64 +297,20 @@ func owsSignTypedData(ctx context.Context, client *skywallet.Client, walletName,
 	return resp.Signature, nil
 }
 
-// microsForRequirement returns the requirement's amount expressed as
-// integer USDC base units (micro-USDC, 6 decimals). The value goes
-// into the EIP-3009 authorization. The two wire shapes differ in
-// units:
-//
-//   - v1 services use `maxAmountRequired` as a decimal USDC string
-//     (e.g. "0.005" → 5000 micros)
-//   - v2 services use `amount` as the integer base unit directly
-//     (e.g. "1000" → 1000 micros = 0.001 USDC)
-//
-// We disambiguate by which field the wire populated: v2's `amount`
-// is interpreted as base units, v1's `maxAmountRequired` as decimal.
-// A string without a decimal point in the v1 field is treated as
-// already-micros, matching the Solana path's tolerance.
+// microsForRequirement returns the canonical AmountMicros field as a
+// validated decimal string. The canonical PaymentRequirements always
+// stores micros (parser converts from whichever wire form supplied
+// the value), so this helper is mostly an "is this positive" guard.
 func microsForRequirement(req PaymentRequirements) (string, error) {
-	if v := strings.TrimSpace(req.Amount); v != "" {
-		micros, err := parseIntegerBaseUnits(v)
-		if err != nil {
-			return "", fmt.Errorf("parse amount %q: %w", v, err)
-		}
-		return micros.String(), nil
-	}
-	v := strings.TrimSpace(req.MaxAmountRequired)
+	v := strings.TrimSpace(req.AmountMicros)
 	if v == "" {
 		return "", errors.New("requirement missing amount")
 	}
-	if !strings.Contains(v, ".") {
-		// v1 server emitting integer base units in the v1 field.
-		micros, err := parseIntegerBaseUnits(v)
-		if err != nil {
-			return "", fmt.Errorf("parse maxAmountRequired %q: %w", v, err)
-		}
-		return micros.String(), nil
+	if !isAllDigits(v) {
+		return "", fmt.Errorf("amount %q must be integer base units", v)
 	}
-	micros, err := parseUSDC(v)
-	if err != nil {
-		return "", fmt.Errorf("parse maxAmountRequired %q: %w", v, err)
-	}
-	if micros.Sign() <= 0 {
-		return "", fmt.Errorf("maxAmountRequired %q must be positive", v)
-	}
-	return micros.String(), nil
-}
-
-// parseIntegerBaseUnits parses an integer base-unit amount string
-// like "1000" into a positive *big.Int. Rejects empty, non-digit, or
-// non-positive values.
-func parseIntegerBaseUnits(s string) (*big.Int, error) {
-	trimmed := strings.TrimSpace(s)
-	if trimmed == "" {
-		return nil, errors.New("amount required")
-	}
-	if !isAllDigits(trimmed) {
-		return nil, fmt.Errorf("amount %q must be integer base units", trimmed)
-	}
-	v, ok := new(big.Int).SetString(trimmed, 10)
-	if !ok || v.Sign() <= 0 {
-		return nil, fmt.Errorf("amount %q must be positive", trimmed)
+	if strings.Trim(v, "0") == "" {
+		return "", fmt.Errorf("amount %q must be positive", v)
 	}
 	return v, nil
 }
@@ -371,18 +337,17 @@ func normalizeSignature(sig string) string {
 	return "0x" + sig
 }
 
-// marshalExactPayload wraps an ExactSchemePayload into the outer
-// PaymentPayload envelope. Pulled out so FakeSigner and OWSSigner
-// share encoding behavior.
-func marshalExactPayload(req PaymentRequirements, exact ExactSchemePayload) (PaymentPayload, error) {
+// marshalExact wraps an ExactSchemePayload into the SignedPayload
+// shape the transport consumes. Shared between FakeSigner and
+// OWSSigner.signEVMExact.
+func marshalExact(req PaymentRequirements, exact ExactSchemePayload) (SignedPayload, error) {
 	inner, err := json.Marshal(exact)
 	if err != nil {
-		return PaymentPayload{}, err
+		return SignedPayload{}, err
 	}
-	return PaymentPayload{
-		X402Version: X402ProtocolVersion,
-		Scheme:      req.Scheme,
-		Network:     req.Network,
-		Payload:     inner,
+	return SignedPayload{
+		Scheme:  req.Scheme,
+		Network: req.Network,
+		Inner:   inner,
 	}, nil
 }

@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -381,6 +382,11 @@ func (c *Client) BalanceForChain(ctx context.Context, walletName, chain string) 
 //
 // chain is the OWS chain identifier expected by `--chain` (e.g.
 // "base", "ethereum", or a CAIP-2 ID like "eip155:8453").
+//
+// The wallet's passphrase is taken from the OWS_PASSPHRASE environment
+// variable. We default it to empty when unset so an unencrypted-wallet
+// install signs without prompting; encrypted-wallet users must export
+// OWS_PASSPHRASE before invoking the daemon.
 func (c *Client) RunSignMessageJSON(ctx context.Context, walletName, chain string, typedData []byte) ([]byte, error) {
 	if c == nil {
 		return nil, ErrNotInstalled
@@ -394,13 +400,18 @@ func (c *Client) RunSignMessageJSON(ctx context.Context, walletName, chain strin
 	if len(typedData) == 0 {
 		return nil, fmt.Errorf("typed data required")
 	}
-	out, err := c.run(ctx,
+	// OWS 1.3.2's clap config makes --message a required argument
+	// even when --typed-data is supplied (typed-data takes precedence
+	// for EVM signing). Pass an empty placeholder so argument
+	// validation succeeds; OWS ignores --message when --typed-data
+	// is set.
+	out, err := c.runWithPassphrase(ctx,
 		"sign", "message",
 		"--chain", owsChainArg(chain),
 		"--wallet", walletName,
+		"--message", "",
 		"--typed-data", string(typedData),
 		"--json",
-		"--no-passphrase",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("ows sign message: %w", err)
@@ -416,7 +427,8 @@ func (c *Client) RunSignMessageJSON(ctx context.Context, walletName, chain strin
 // chain accepts the same identifiers OWS accepts on --chain
 // ("solana", "ethereum", "base", "eip155:8453", etc.). The output
 // is the raw bytes of `ows sign tx --json`; callers parse the
-// signature/tx fields they need.
+// signature/tx fields they need. Passphrase handling matches
+// RunSignMessageJSON.
 func (c *Client) RunSignTxJSON(ctx context.Context, walletName, chain, txHex string) ([]byte, error) {
 	if c == nil {
 		return nil, ErrNotInstalled
@@ -430,7 +442,7 @@ func (c *Client) RunSignTxJSON(ctx context.Context, walletName, chain, txHex str
 	if strings.TrimSpace(txHex) == "" {
 		return nil, fmt.Errorf("tx hex required")
 	}
-	out, err := c.run(ctx,
+	out, err := c.runWithPassphrase(ctx,
 		"sign", "tx",
 		"--chain", owsChainArg(chain),
 		"--wallet", walletName,
@@ -570,6 +582,31 @@ func (c *Client) transferSolana(ctx context.Context, walletName, to, amount, tok
 // run executes the ows CLI with the given arguments.
 func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, c.bin, args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return nil, fmt.Errorf("%s", msg)
+	}
+	return bytes.TrimSpace(stdout.Bytes()), nil
+}
+
+// runWithPassphrase executes ows with an OWS_PASSPHRASE env override.
+// If OWS_PASSPHRASE is already set in the parent environment it is
+// passed through unchanged (encrypted wallets); otherwise we set it
+// to the empty string so OWS does not prompt on stdin and hang the
+// non-interactive daemon flow.
+func (c *Client) runWithPassphrase(ctx context.Context, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, c.bin, args...)
+	env := os.Environ()
+	if _, ok := os.LookupEnv("OWS_PASSPHRASE"); !ok {
+		env = append(env, "OWS_PASSPHRASE=")
+	}
+	cmd.Env = env
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

@@ -12,32 +12,31 @@ import (
 	"github.com/sky10/sky10/pkg/x402"
 )
 
-// fakeX402Server is a minimal x402-compliant test server: 402 with
-// challenge on first hit, 200 with X-PAYMENT-RESPONSE on retry. Used
-// to exercise the adapter end-to-end against a real pkg/x402.Backend.
+// fakeX402Server is a minimal x402-compliant v1 test server: 402 with
+// the v1 challenge body on first hit, 200 with X-PAYMENT-RESPONSE on
+// retry. Used to exercise the adapter end-to-end against a real
+// pkg/x402.Backend. The v1 wire shape is hand-rolled here (rather
+// than via x402's internal types) so the test fixture is explicit
+// about what's being matched.
 func fakeX402Server(t *testing.T) *httptest.Server {
 	t.Helper()
+	challenge, _ := json.Marshal(map[string]any{
+		"x402Version": x402.X402ProtocolV1,
+		"accepts": []map[string]any{{
+			"scheme":            "exact",
+			"network":           "base",
+			"maxAmountRequired": "0.005",
+			"payTo":             "0x000000000000000000000000000000000000beef",
+			"asset":             "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+			"maxTimeoutSeconds": 60,
+			"extra":             map[string]any{"name": "USD Coin", "version": "2"},
+		}},
+	})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-PAYMENT") == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusPaymentRequired)
-			_ = json.NewEncoder(w).Encode(x402.PaymentChallenge{
-				X402Version: x402.X402ProtocolVersion,
-				Accepts: []x402.PaymentRequirements{
-					{
-						Scheme:            "exact",
-						Network:           "base",
-						MaxAmountRequired: "0.005",
-						PayTo:             "0x000000000000000000000000000000000000beef",
-						Asset:             "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-						MaxTimeoutSeconds: 60,
-						Extra: map[string]interface{}{
-							"name":    "USD Coin",
-							"version": "2",
-						},
-					},
-				},
-			})
+			_, _ = w.Write(challenge)
 			return
 		}
 		w.Header().Set("X-PAYMENT-RESPONSE", `{"tx":"0xtest","network":"base","amount_usdc":"0.005"}`)

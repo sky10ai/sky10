@@ -14,7 +14,7 @@ func sampleSolanaRequirement() PaymentRequirements {
 	return PaymentRequirements{
 		Scheme:            "exact",
 		Network:           "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
-		MaxAmountRequired: "1000",
+		AmountMicros:      "1000",
 		PayTo:             "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
 		Asset:             "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 		MaxTimeoutSeconds: 60,
@@ -139,21 +139,18 @@ func TestOWSSignerSolanaHappyPath(t *testing.T) {
 		},
 	}
 
-	payload, err := signer.Sign(context.Background(), sampleSolanaRequirement())
+	signed, err := signer.Sign(context.Background(), sampleSolanaRequirement())
 	if err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
 	if buildCalls != 1 || signTxCalls != 1 {
 		t.Fatalf("build=%d sign=%d, want 1/1", buildCalls, signTxCalls)
 	}
-	if payload.X402Version != X402ProtocolVersion {
-		t.Fatalf("version = %d", payload.X402Version)
-	}
-	if !strings.HasPrefix(strings.ToLower(payload.Network), "solana") {
-		t.Fatalf("network = %q", payload.Network)
+	if !strings.HasPrefix(strings.ToLower(signed.Network), "solana") {
+		t.Fatalf("network = %q", signed.Network)
 	}
 	var inner SolanaExactPayload
-	if err := json.Unmarshal(payload.Payload, &inner); err != nil {
+	if err := json.Unmarshal(signed.Inner, &inner); err != nil {
 		t.Fatalf("decode inner: %v", err)
 	}
 	wantBytes, _ := hex.DecodeString(fakeSignedHex)

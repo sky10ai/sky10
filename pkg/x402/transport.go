@@ -3,7 +3,6 @@ package x402
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -65,8 +64,8 @@ type CallRequest struct {
 
 // CallResponse is the output of Transport.Call after a successful
 // payment-and-retrieve cycle. Receipt is populated when the service
-// returned an X-PAYMENT-RESPONSE header on the retry; for free
-// (unmetered) endpoints Receipt is nil.
+// returned a Payment-Response (v2) or X-PAYMENT-RESPONSE (v1) header
+// on the retry; for free (unmetered) endpoints Receipt is nil.
 type CallResponse struct {
 	Status  int
 	Headers map[string]string
@@ -74,14 +73,18 @@ type CallResponse struct {
 	Receipt *PaymentReceipt
 }
 
-// Call performs the full x402 round-trip. The flow:
+// Call performs the full x402 round-trip, dispatching on the
+// detected protocol version:
 //
 //  1. issue the request unauthorized
 //  2. if 200, return as-is (free endpoint or already authorized)
-//  3. if 402, parse the challenge, sign via Transport.Signer, retry
-//     with X-PAYMENT
-//  4. on the retry, parse the X-PAYMENT-RESPONSE header into a
-//     PaymentReceipt and return alongside the body
+//  3. if 402, detect v1 vs v2 from response shape, parse the
+//     challenge, sign via Transport.Signer, retry with X-PAYMENT
+//  4. on the retry, parse the appropriate receipt header and return
+//     it alongside the body
+//
+// The version is fixed once detected; we never mix v1 and v2 wire
+// shapes on the same request.
 func (t *Transport) Call(ctx context.Context, req CallRequest) (*CallResponse, error) {
 	if t == nil || t.HTTP == nil {
 		return nil, errors.New("x402: transport not configured")
@@ -95,10 +98,10 @@ func (t *Transport) Call(ctx context.Context, req CallRequest) (*CallResponse, e
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusPaymentRequired {
-		return readCallResponse(resp)
+		return readCallResponse(resp, X402ProtocolV1)
 	}
 
-	challenge, err := parseChallenge(resp)
+	version, challenge, err := readChallenge(resp)
 	resp.Body.Close()
 	if err != nil {
 		return nil, fmt.Errorf("parse 402 challenge: %w", err)
@@ -108,18 +111,12 @@ func (t *Transport) Call(ctx context.Context, req CallRequest) (*CallResponse, e
 		return nil, err
 	}
 
-	payload, err := t.Signer.Sign(ctx, requirement)
+	signed, err := t.Signer.Sign(ctx, requirement)
 	if err != nil {
 		return nil, fmt.Errorf("sign payment: %w", err)
 	}
-	// Echo the challenge's version so v1 servers see v1 and v2
-	// servers see v2. The signer fills in its default (X402ProtocolVersion)
-	// when constructing the payload; we override here once we know
-	// what the server speaks.
-	if challenge.X402Version > 0 {
-		payload.X402Version = challenge.X402Version
-	}
-	encoded, err := payload.Encode()
+
+	encoded, err := encodePayment(version, requirement, signed.Inner, challenge.Resource)
 	if err != nil {
 		return nil, fmt.Errorf("encode payment header: %w", err)
 	}
@@ -132,7 +129,7 @@ func (t *Transport) Call(ctx context.Context, req CallRequest) (*CallResponse, e
 		retry.Body.Close()
 		return nil, ErrPaymentNotAccepted
 	}
-	return readCallResponse(retry)
+	return readCallResponse(retry, version)
 }
 
 func (t *Transport) do(ctx context.Context, req CallRequest, paymentHeader string) (*http.Response, error) {
@@ -157,70 +154,41 @@ func (t *Transport) do(ctx context.Context, req CallRequest, paymentHeader strin
 	return t.HTTP.Do(httpReq)
 }
 
-// parseChallenge decodes the 402 challenge from either the v2
-// Payment-Required response header (base64 JSON) or the v1 response
-// body (raw JSON), preferring the header when both are present so
-// servers transitioning between versions still work.
-func parseChallenge(resp *http.Response) (PaymentChallenge, error) {
+// readChallenge dispatches between v1 (body-encoded) and v2
+// (header-encoded) challenge shapes. v2 takes precedence so a
+// dual-emitting server does not regress to v1 parsing.
+func readChallenge(resp *http.Response) (int, PaymentChallenge, error) {
 	if hdr := strings.TrimSpace(resp.Header.Get(HeaderPaymentRequiredV2)); hdr != "" {
-		raw, err := decodePaymentB64(hdr)
-		if err != nil {
-			return PaymentChallenge{}, fmt.Errorf("decode %s header: %w", HeaderPaymentRequiredV2, err)
-		}
-		return decodeAndValidateChallenge(raw)
+		c, err := parseChallengeV2Header(hdr)
+		return X402ProtocolV2, c, err
 	}
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return PaymentChallenge{}, err
+		return 0, PaymentChallenge{}, err
 	}
-	return decodeAndValidateChallenge(raw)
+	c, err := parseChallengeV1Body(raw)
+	return X402ProtocolV1, c, err
 }
 
-// decodeAndValidateChallenge parses the raw JSON challenge bytes and
-// enforces the field-level invariants we depend on downstream.
-func decodeAndValidateChallenge(raw []byte) (PaymentChallenge, error) {
-	var c PaymentChallenge
-	if err := json.Unmarshal(raw, &c); err != nil {
-		return c, err
+// encodePayment dispatches the X-PAYMENT envelope encoding to the
+// matching version.
+func encodePayment(version int, req PaymentRequirements, inner json.RawMessage, resource *Resource) (string, error) {
+	switch version {
+	case X402ProtocolV1:
+		return encodePaymentV1(req, inner)
+	case X402ProtocolV2:
+		return encodePaymentV2(req, inner, resource)
+	default:
+		return "", fmt.Errorf("unsupported x402 version %d", version)
 	}
-	if len(c.Accepts) == 0 {
-		return c, errors.New("challenge offered no payment options")
-	}
-	for _, req := range c.Accepts {
-		if strings.TrimSpace(req.Scheme) == "" {
-			return c, errors.New("challenge requirement missing scheme")
-		}
-		if strings.TrimSpace(req.Network) == "" {
-			return c, errors.New("challenge requirement missing network")
-		}
-		if strings.TrimSpace(req.PayTo) == "" {
-			return c, errors.New("challenge requirement missing payTo")
-		}
-		if strings.TrimSpace(req.MaxAmount()) == "" {
-			return c, errors.New("challenge requirement missing amount")
-		}
-	}
-	return c, nil
 }
 
-// decodePaymentB64 decodes a base64 string permissively: standard,
-// raw-standard, URL-safe, and raw-URL-safe forms are all accepted so
-// we don't break against a server that picks a different variant.
-func decodePaymentB64(value string) ([]byte, error) {
-	for _, enc := range []*base64.Encoding{
-		base64.StdEncoding,
-		base64.RawStdEncoding,
-		base64.URLEncoding,
-		base64.RawURLEncoding,
-	} {
-		if raw, err := enc.DecodeString(value); err == nil {
-			return raw, nil
-		}
-	}
-	return nil, errors.New("not valid base64")
-}
-
-func readCallResponse(resp *http.Response) (*CallResponse, error) {
+// readCallResponse builds the CallResponse from the retry response,
+// dispatching the receipt parser to the matching version. The free
+// (unmetered) success path falls through with version=v1; both paths
+// just look at the v1 then v2 header in the absence of a known
+// version.
+func readCallResponse(resp *http.Response, version int) (*CallResponse, error) {
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -231,21 +199,41 @@ func readCallResponse(resp *http.Response) (*CallResponse, error) {
 		Body:    body,
 		Headers: extractStringHeaders(resp.Header),
 	}
-	rec := resp.Header.Get(HeaderPaymentResponseV2)
-	if rec == "" {
-		rec = resp.Header.Get(HeaderPaymentResponse)
-	}
-	if rec != "" {
-		parsed, err := parsePaymentReceipt(rec)
+	if rec := receiptHeaderForVersion(resp.Header, version); rec != "" {
+		parsed, err := parseReceiptForVersion(version, rec)
 		if err == nil {
 			out.Receipt = &parsed
 		}
-		// A malformed receipt header is logged-and-ignored to avoid
-		// blocking the agent on a server's bookkeeping mistake; the
+		// Malformed receipt headers are logged-and-ignored so a
+		// server bookkeeping mistake doesn't block the agent; the
 		// budget package re-derives spend from the request side via
 		// the challenge amount when needed.
 	}
 	return out, nil
+}
+
+func receiptHeaderForVersion(h http.Header, version int) string {
+	switch version {
+	case X402ProtocolV2:
+		if v := h.Get(HeaderPaymentResponseV2); v != "" {
+			return v
+		}
+		return h.Get(HeaderPaymentResponse)
+	default:
+		if v := h.Get(HeaderPaymentResponse); v != "" {
+			return v
+		}
+		return h.Get(HeaderPaymentResponseV2)
+	}
+}
+
+func parseReceiptForVersion(version int, value string) (PaymentReceipt, error) {
+	switch version {
+	case X402ProtocolV2:
+		return parseReceiptV2(value)
+	default:
+		return parseReceiptV1(value)
+	}
 }
 
 // extractStringHeaders flattens an http.Header into a single-value
@@ -258,22 +246,4 @@ func extractStringHeaders(h http.Header) map[string]string {
 		out[k] = strings.Join(v, ", ")
 	}
 	return out
-}
-
-// parsePaymentReceipt accepts the X-PAYMENT-RESPONSE / Payment-Response
-// header value, which is plain JSON in v1 servers and base64-encoded
-// JSON in v2 servers. Try plain first, fall back to base64 decode.
-func parsePaymentReceipt(value string) (PaymentReceipt, error) {
-	var r PaymentReceipt
-	if err := json.Unmarshal([]byte(value), &r); err == nil {
-		return r, nil
-	}
-	raw, err := decodePaymentB64(strings.TrimSpace(value))
-	if err != nil {
-		return r, err
-	}
-	if err := json.Unmarshal(raw, &r); err != nil {
-		return r, err
-	}
-	return r, nil
 }

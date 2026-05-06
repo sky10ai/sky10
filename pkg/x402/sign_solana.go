@@ -38,56 +38,55 @@ type SolanaExactPayload struct {
 // path has not yet been verified end-to-end against a live Solana
 // x402 facilitator. When something rejects the constructed tx, the
 // signing-time logs make it easy to localize the failure.
-func (s *OWSSigner) signSolanaExact(ctx context.Context, req PaymentRequirements) (PaymentPayload, error) {
+func (s *OWSSigner) signSolanaExact(ctx context.Context, req PaymentRequirements) (SignedPayload, error) {
 	if s.SignTx == nil || s.AddressForChain == nil || s.BuildSolanaTx == nil {
-		return PaymentPayload{}, ErrSignerNotConfigured
+		return SignedPayload{}, ErrSignerNotConfigured
 	}
 	addr, err := s.AddressForChain(ctx, s.WalletName, string(NetworkSolana))
 	if err != nil {
-		return PaymentPayload{}, fmt.Errorf("ows signer: resolving wallet %q solana address: %w", s.WalletName, err)
+		return SignedPayload{}, fmt.Errorf("ows signer: resolving wallet %q solana address: %w", s.WalletName, err)
 	}
 	if strings.TrimSpace(addr) == "" {
-		return PaymentPayload{}, fmt.Errorf("ows signer: wallet %q has no solana address", s.WalletName)
+		return SignedPayload{}, fmt.Errorf("ows signer: wallet %q has no solana address", s.WalletName)
 	}
 	feePayer, ok := req.Extra["feePayer"].(string)
 	if !ok || strings.TrimSpace(feePayer) == "" {
-		return PaymentPayload{}, errors.New("ows signer: solana requirement missing extra.feePayer")
+		return SignedPayload{}, errors.New("ows signer: solana requirement missing extra.feePayer")
 	}
 	if strings.TrimSpace(req.PayTo) == "" {
-		return PaymentPayload{}, errors.New("ows signer: solana requirement missing payTo")
+		return SignedPayload{}, errors.New("ows signer: solana requirement missing payTo")
 	}
 	if strings.TrimSpace(req.Asset) == "" {
-		return PaymentPayload{}, errors.New("ows signer: solana requirement missing asset (token mint)")
+		return SignedPayload{}, errors.New("ows signer: solana requirement missing asset (token mint)")
 	}
-	amount, err := solanaAmount(req.MaxAmount())
+	amount, err := solanaAmount(req.AmountMicros)
 	if err != nil {
-		return PaymentPayload{}, fmt.Errorf("ows signer: parse amount: %w", err)
+		return SignedPayload{}, fmt.Errorf("ows signer: parse amount: %w", err)
 	}
 	memo, _ := req.Extra["memo"].(string)
 
 	unsignedHex, err := s.BuildSolanaTx(ctx, addr, req.PayTo, feePayer, req.Asset, amount, memo)
 	if err != nil {
-		return PaymentPayload{}, fmt.Errorf("ows signer: build solana tx: %w", err)
+		return SignedPayload{}, fmt.Errorf("ows signer: build solana tx: %w", err)
 	}
 
 	signedHex, err := s.SignTx(ctx, s.WalletName, string(NetworkSolana), unsignedHex)
 	if err != nil {
-		return PaymentPayload{}, fmt.Errorf("ows signer: %w", err)
+		return SignedPayload{}, fmt.Errorf("ows signer: %w", err)
 	}
 	signedBytes, err := hex.DecodeString(strings.TrimPrefix(strings.TrimPrefix(signedHex, "0x"), "0X"))
 	if err != nil {
-		return PaymentPayload{}, fmt.Errorf("ows signer: decode signed tx hex: %w", err)
+		return SignedPayload{}, fmt.Errorf("ows signer: decode signed tx hex: %w", err)
 	}
 	encoded := base64.StdEncoding.EncodeToString(signedBytes)
 	inner, err := json.Marshal(SolanaExactPayload{Transaction: encoded})
 	if err != nil {
-		return PaymentPayload{}, err
+		return SignedPayload{}, err
 	}
-	return PaymentPayload{
-		X402Version: X402ProtocolVersion,
-		Scheme:      req.Scheme,
-		Network:     req.Network,
-		Payload:     inner,
+	return SignedPayload{
+		Scheme:  req.Scheme,
+		Network: req.Network,
+		Inner:   inner,
 	}, nil
 }
 

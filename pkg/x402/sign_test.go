@@ -9,20 +9,23 @@ import (
 	"time"
 )
 
-func TestFakeSignerProducesValidPayload(t *testing.T) {
+// sampleRequirement returns the canonical PaymentRequirements that
+// the signer-side tests share. AmountMicros = 5000 (= 0.005 USDC).
+func sampleRequirement() PaymentRequirements {
+	return canonicalSampleRequirement()
+}
+
+func TestFakeSignerProducesValidSignedPayload(t *testing.T) {
 	t.Parallel()
-	payload, err := NewFakeSigner("0x0000000000000000000000000000000000000abc").Sign(context.Background(), sampleRequirement())
+	signed, err := NewFakeSigner("0x0000000000000000000000000000000000000abc").Sign(context.Background(), sampleRequirement())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if payload.X402Version != X402ProtocolVersion {
-		t.Fatalf("version = %d", payload.X402Version)
-	}
-	if payload.Scheme != "exact" || payload.Network != "base" {
-		t.Fatalf("scheme/network: %s/%s", payload.Scheme, payload.Network)
+	if signed.Scheme != "exact" || signed.Network != "base" {
+		t.Fatalf("scheme/network: %s/%s", signed.Scheme, signed.Network)
 	}
 	var exact ExactSchemePayload
-	if err := json.Unmarshal(payload.Payload, &exact); err != nil {
+	if err := json.Unmarshal(signed.Inner, &exact); err != nil {
 		t.Fatalf("decode inner: %v", err)
 	}
 	if !strings.HasPrefix(exact.Signature, "fake-sig:") {
@@ -32,7 +35,7 @@ func TestFakeSignerProducesValidPayload(t *testing.T) {
 		t.Fatalf("from = %q", exact.Authorization.From)
 	}
 	if exact.Authorization.Value != "5000" {
-		t.Fatalf("value = %q, want 5000 (0.005 USDC = 5000 micro-USDC)", exact.Authorization.Value)
+		t.Fatalf("value = %q, want 5000 (canonical AmountMicros flows into the authorization)", exact.Authorization.Value)
 	}
 }
 
@@ -85,7 +88,7 @@ func TestOWSSignerHappyPath(t *testing.T) {
 		},
 	}
 
-	payload, err := signer.Sign(context.Background(), sampleRequirement())
+	signed, err := signer.Sign(context.Background(), sampleRequirement())
 	if err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
@@ -93,7 +96,7 @@ func TestOWSSignerHappyPath(t *testing.T) {
 		t.Fatalf("SignTypedData called %d times, want 1", signCalls)
 	}
 	var exact ExactSchemePayload
-	if err := json.Unmarshal(payload.Payload, &exact); err != nil {
+	if err := json.Unmarshal(signed.Inner, &exact); err != nil {
 		t.Fatalf("decode inner: %v", err)
 	}
 	if exact.Signature != expectedSig {
@@ -104,7 +107,7 @@ func TestOWSSignerHappyPath(t *testing.T) {
 	}
 }
 
-func TestOWSSignerRejectsSolana(t *testing.T) {
+func TestOWSSignerRejectsSolanaWithoutSolanaHooks(t *testing.T) {
 	t.Parallel()
 	signer := &OWSSigner{
 		WalletName: "agent-wallet",
@@ -121,7 +124,7 @@ func TestOWSSignerRejectsSolana(t *testing.T) {
 	req := sampleRequirement()
 	req.Network = "solana"
 	if _, err := signer.Sign(context.Background(), req); err == nil {
-		t.Fatal("expected error for solana network")
+		t.Fatal("expected error for solana network without Solana hooks")
 	}
 }
 

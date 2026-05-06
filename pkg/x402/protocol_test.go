@@ -1,17 +1,22 @@
 package x402
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
 
-func sampleRequirement() PaymentRequirements {
+// canonicalSampleRequirement returns a canonical PaymentRequirements
+// most signing/typed-data tests use as a baseline. AmountMicros is
+// 5000 = 0.005 USDC at 6 decimals.
+func canonicalSampleRequirement() PaymentRequirements {
 	return PaymentRequirements{
 		Scheme:            "exact",
 		Network:           "base",
-		MaxAmountRequired: "0.005",
+		AmountMicros:      "5000",
 		PayTo:             "0x000000000000000000000000000000000000beef",
 		Asset:             "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
 		MaxTimeoutSeconds: 60,
@@ -22,40 +27,256 @@ func sampleRequirement() PaymentRequirements {
 	}
 }
 
-func TestPaymentPayloadEncodeRoundTrip(t *testing.T) {
+// --- v1 wire tests ----------------------------------------------------------
+
+// TestParseChallengeV1Body demonstrates the v1 wire format and round-
+// trips it into the canonical PaymentChallenge. v1 quotes amount as
+// decimal USDC under `maxAmountRequired`.
+func TestParseChallengeV1Body(t *testing.T) {
 	t.Parallel()
-	original := PaymentPayload{
-		X402Version: 1,
-		Scheme:      "exact",
-		Network:     "base",
-		Payload:     json.RawMessage(`{"hello":"world"}`),
-	}
-	encoded, err := original.Encode()
+	wire := []byte(`{
+        "x402Version": 1,
+        "accepts": [{
+            "scheme": "exact",
+            "network": "base",
+            "maxAmountRequired": "0.005",
+            "payTo": "0x000000000000000000000000000000000000beef",
+            "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "maxTimeoutSeconds": 60,
+            "extra": {"name": "USD Coin", "version": "2"}
+        }]
+    }`)
+	c, err := parseChallengeV1Body(wire)
 	if err != nil {
-		t.Fatalf("encode: %v", err)
+		t.Fatalf("parseChallengeV1Body: %v", err)
 	}
-	decoded, err := DecodePaymentPayload(encoded)
-	if err != nil {
-		t.Fatalf("decode: %v", err)
+	if c.Version != X402ProtocolV1 {
+		t.Fatalf("Version = %d, want 1", c.Version)
 	}
-	if decoded.X402Version != original.X402Version {
-		t.Fatalf("version mismatch: %d vs %d", decoded.X402Version, original.X402Version)
+	if len(c.Accepts) != 1 {
+		t.Fatalf("len(Accepts) = %d, want 1", len(c.Accepts))
 	}
-	if decoded.Scheme != original.Scheme || decoded.Network != original.Network {
-		t.Fatalf("scheme/network mismatch")
+	got := c.Accepts[0]
+	if got.AmountMicros != "5000" {
+		t.Fatalf("AmountMicros = %q, want %q (0.005 USDC = 5000 micros)", got.AmountMicros, "5000")
 	}
-	if string(decoded.Payload) != string(original.Payload) {
-		t.Fatalf("payload mismatch: %s vs %s", decoded.Payload, original.Payload)
+	if got.Scheme != "exact" || got.Network != "base" {
+		t.Fatalf("scheme/network = %s/%s", got.Scheme, got.Network)
+	}
+	if got.PayTo != "0x000000000000000000000000000000000000beef" {
+		t.Fatalf("PayTo = %q", got.PayTo)
 	}
 }
 
-func TestSelectRequirementsPreferences(t *testing.T) {
+// TestEncodePaymentV1 demonstrates the v1 outgoing X-PAYMENT envelope:
+// flat top-level scheme/network with a JSON-encoded ExactSchemePayload
+// under `payload`. No `accepted` or `resource` fields.
+func TestEncodePaymentV1(t *testing.T) {
+	t.Parallel()
+	req := canonicalSampleRequirement()
+	exact := ExactSchemePayload{
+		Signature: "0xabc",
+		Authorization: EIP3009Authorization{
+			From: "0xfrom", To: "0xto", Value: "5000",
+			ValidAfter: "0", ValidBefore: "1", Nonce: "0xnonce",
+		},
+	}
+	inner, _ := json.Marshal(exact)
+
+	encoded, err := encodePaymentV1(req, inner)
+	if err != nil {
+		t.Fatalf("encodePaymentV1: %v", err)
+	}
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("base64 decode: %v", err)
+	}
+	var top map[string]any
+	if err := json.Unmarshal(raw, &top); err != nil {
+		t.Fatalf("decode top: %v", err)
+	}
+	if top["x402Version"] != float64(X402ProtocolV1) {
+		t.Fatalf("x402Version = %v, want %d", top["x402Version"], X402ProtocolV1)
+	}
+	if top["scheme"] != "exact" || top["network"] != "base" {
+		t.Fatalf("scheme/network at top level: %v/%v", top["scheme"], top["network"])
+	}
+	if _, exists := top["accepted"]; exists {
+		t.Fatalf("v1 envelope should NOT carry `accepted`; got %v", top["accepted"])
+	}
+	if _, exists := top["resource"]; exists {
+		t.Fatalf("v1 envelope should NOT carry `resource`; got %v", top["resource"])
+	}
+	if _, ok := top["payload"]; !ok {
+		t.Fatalf("v1 envelope missing payload")
+	}
+}
+
+// TestParseReceiptV1 demonstrates v1's plain-JSON X-PAYMENT-RESPONSE.
+func TestParseReceiptV1(t *testing.T) {
+	t.Parallel()
+	r, err := parseReceiptV1(`{"tx":"0xdead","network":"base","amount_usdc":"0.005"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Tx != "0xdead" || r.Network != NetworkBase || r.AmountUSDC != "0.005" {
+		t.Fatalf("unexpected receipt: %+v", r)
+	}
+}
+
+// --- v2 wire tests ----------------------------------------------------------
+
+// TestParseChallengeV2Header demonstrates the v2 wire format. The
+// challenge is delivered base64-encoded in a Payment-Required header,
+// the amount is integer base units under `amount`, and a `resource`
+// block at the top level describes the paid endpoint.
+func TestParseChallengeV2Header(t *testing.T) {
+	t.Parallel()
+	inner := map[string]any{
+		"x402Version": 2,
+		"resource": map[string]any{
+			"url":         "https://api.exa.ai/contents",
+			"description": "Exa /contents",
+			"mimeType":    "application/json",
+		},
+		"accepts": []map[string]any{{
+			"scheme":            "exact",
+			"network":           "eip155:8453",
+			"amount":            "1000",
+			"payTo":             "0xpayto",
+			"asset":             "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+			"maxTimeoutSeconds": 60,
+			"extra":             map[string]any{"name": "USD Coin", "version": "2"},
+		}},
+	}
+	raw, _ := json.Marshal(inner)
+	headerValue := base64.StdEncoding.EncodeToString(raw)
+
+	c, err := parseChallengeV2Header(headerValue)
+	if err != nil {
+		t.Fatalf("parseChallengeV2Header: %v", err)
+	}
+	if c.Version != X402ProtocolV2 {
+		t.Fatalf("Version = %d, want 2", c.Version)
+	}
+	if c.Resource == nil || c.Resource.URL != "https://api.exa.ai/contents" {
+		t.Fatalf("Resource = %+v", c.Resource)
+	}
+	if len(c.Accepts) != 1 {
+		t.Fatalf("len(Accepts) = %d, want 1", len(c.Accepts))
+	}
+	got := c.Accepts[0]
+	if got.AmountMicros != "1000" {
+		t.Fatalf("AmountMicros = %q, want 1000 (v2 amount passes through as base units)", got.AmountMicros)
+	}
+	if got.Network != "eip155:8453" {
+		t.Fatalf("Network = %q, want eip155:8453 (CAIP-2 form preserved)", got.Network)
+	}
+}
+
+// TestEncodePaymentV2 demonstrates the v2 outgoing X-PAYMENT envelope:
+// no top-level scheme/network (those live inside `accepted`), with the
+// resource block echoed back.
+func TestEncodePaymentV2(t *testing.T) {
+	t.Parallel()
+	req := PaymentRequirements{
+		Scheme:            "exact",
+		Network:           "eip155:8453",
+		AmountMicros:      "1000",
+		PayTo:             "0xpayto",
+		Asset:             "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+		MaxTimeoutSeconds: 60,
+		Extra:             map[string]interface{}{"name": "USD Coin", "version": "2"},
+	}
+	resource := &Resource{
+		URL:         "https://api.exa.ai/contents",
+		Description: "Exa /contents",
+		MimeType:    "application/json",
+	}
+	exact := ExactSchemePayload{
+		Signature: "0xabc",
+		Authorization: EIP3009Authorization{
+			From: "0xfrom", To: "0xto", Value: "1000",
+			ValidAfter: "0", ValidBefore: "1", Nonce: "0xnonce",
+		},
+	}
+	inner, _ := json.Marshal(exact)
+
+	encoded, err := encodePaymentV2(req, inner, resource)
+	if err != nil {
+		t.Fatalf("encodePaymentV2: %v", err)
+	}
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("base64 decode: %v", err)
+	}
+	var top map[string]any
+	if err := json.Unmarshal(raw, &top); err != nil {
+		t.Fatalf("decode top: %v", err)
+	}
+	if top["x402Version"] != float64(X402ProtocolV2) {
+		t.Fatalf("x402Version = %v, want %d", top["x402Version"], X402ProtocolV2)
+	}
+	if _, exists := top["scheme"]; exists {
+		t.Fatalf("v2 envelope should NOT carry top-level `scheme`; got %v", top["scheme"])
+	}
+	if _, exists := top["network"]; exists {
+		t.Fatalf("v2 envelope should NOT carry top-level `network`; got %v", top["network"])
+	}
+	accepted, ok := top["accepted"].(map[string]any)
+	if !ok {
+		t.Fatalf("v2 envelope missing `accepted` object: %v", top["accepted"])
+	}
+	if accepted["amount"] != "1000" {
+		t.Fatalf("accepted.amount = %v, want \"1000\"", accepted["amount"])
+	}
+	if accepted["scheme"] != "exact" || accepted["network"] != "eip155:8453" {
+		t.Fatalf("accepted scheme/network: %v/%v", accepted["scheme"], accepted["network"])
+	}
+	res, ok := top["resource"].(map[string]any)
+	if !ok {
+		t.Fatalf("v2 envelope missing `resource` object: %v", top["resource"])
+	}
+	if res["url"] != "https://api.exa.ai/contents" {
+		t.Fatalf("resource.url = %v", res["url"])
+	}
+	if _, ok := top["payload"]; !ok {
+		t.Fatalf("v2 envelope missing payload")
+	}
+}
+
+// TestParseReceiptV2 demonstrates v2's base64-JSON Payment-Response,
+// where the tx hash arrives under `transaction` (not `tx`).
+func TestParseReceiptV2(t *testing.T) {
+	t.Parallel()
+	body, _ := json.Marshal(map[string]any{
+		"success":     true,
+		"transaction": "0xdeadbeef",
+		"network":     "eip155:8453",
+		"payer":       "0xclient",
+	})
+	headerValue := base64.StdEncoding.EncodeToString(body)
+	r, err := parseReceiptV2(headerValue)
+	if err != nil {
+		t.Fatalf("parseReceiptV2: %v", err)
+	}
+	if r.Tx != "0xdeadbeef" {
+		t.Fatalf("Tx = %q, want 0xdeadbeef (parsed from `transaction` field)", r.Tx)
+	}
+	if r.Network != "eip155:8453" {
+		t.Fatalf("Network = %q", r.Network)
+	}
+}
+
+// --- shared / non-version-specific tests -----------------------------------
+
+func TestSelectRequirementsPicksFirstSupported(t *testing.T) {
 	t.Parallel()
 	c := PaymentChallenge{
-		X402Version: 1,
+		Version: X402ProtocolV2,
 		Accepts: []PaymentRequirements{
-			{Scheme: "exact", Network: "polygon", MaxAmountRequired: "0.005", PayTo: "0xa", Asset: "0x"},
-			sampleRequirement(),
+			{Scheme: "exact", Network: "polygon", AmountMicros: "5000", PayTo: "0xa", Asset: "0x"},
+			canonicalSampleRequirement(),
 		},
 	}
 	req, err := c.SelectRequirements()
@@ -67,67 +288,12 @@ func TestSelectRequirementsPreferences(t *testing.T) {
 	}
 }
 
-func TestPaymentRequirementsMaxAmountPrefersV2Field(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name string
-		req  PaymentRequirements
-		want string
-	}{
-		{
-			name: "v1 only",
-			req:  PaymentRequirements{MaxAmountRequired: "1000"},
-			want: "1000",
-		},
-		{
-			name: "v2 only",
-			req:  PaymentRequirements{Amount: "2000"},
-			want: "2000",
-		},
-		{
-			name: "both populated, v2 wins",
-			req:  PaymentRequirements{Amount: "2000", MaxAmountRequired: "1000"},
-			want: "2000",
-		},
-		{
-			name: "neither populated",
-			req:  PaymentRequirements{},
-			want: "",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := tc.req.MaxAmount(); got != tc.want {
-				t.Fatalf("MaxAmount() = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestPaymentRequirementsUnmarshalAcceptsV2AmountField(t *testing.T) {
-	t.Parallel()
-	raw := `{"scheme":"exact","network":"eip155:8453","amount":"1000","payTo":"0x0","asset":"0x0"}`
-	var req PaymentRequirements
-	if err := json.Unmarshal([]byte(raw), &req); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
-	}
-	if req.Amount != "1000" {
-		t.Fatalf("Amount = %q, want 1000", req.Amount)
-	}
-	if req.MaxAmountRequired != "" {
-		t.Fatalf("MaxAmountRequired = %q, want empty", req.MaxAmountRequired)
-	}
-	if got := req.MaxAmount(); got != "1000" {
-		t.Fatalf("MaxAmount() = %q, want 1000", got)
-	}
-}
-
 func TestSelectRequirementsNoMatch(t *testing.T) {
 	t.Parallel()
 	c := PaymentChallenge{
-		X402Version: 1,
+		Version: X402ProtocolV1,
 		Accepts: []PaymentRequirements{
-			{Scheme: "lightning", Network: "btc", MaxAmountRequired: "1", PayTo: "lnbc...", Asset: "btc"},
+			{Scheme: "lightning", Network: "btc", AmountMicros: "1", PayTo: "lnbc...", Asset: "btc"},
 		},
 	}
 	if _, err := c.SelectRequirements(); !errors.Is(err, ErrNoCompatibleRequirements) {
@@ -139,10 +305,10 @@ func TestBuildTransferWithAuthorizationTypedData(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
 	td, auth, err := BuildTransferWithAuthorizationTypedData(
-		sampleRequirement(),
+		canonicalSampleRequirement(),
 		"0x0000000000000000000000000000000000000abc",
 		"5000",
-		"0x"+repeatHex("11", 32),
+		"0x"+strings.Repeat("11", 32),
 		now,
 	)
 	if err != nil {
@@ -157,32 +323,19 @@ func TestBuildTransferWithAuthorizationTypedData(t *testing.T) {
 	if td.Domain.Name != "USD Coin" || td.Domain.Version != "2" {
 		t.Fatalf("domain name/version: %+v", td.Domain)
 	}
-	if auth.From != "0x0000000000000000000000000000000000000abc" {
-		t.Fatalf("from = %q", auth.From)
-	}
-	if auth.Value != "5000" {
-		t.Fatalf("value = %q", auth.Value)
+	if auth.From != "0x0000000000000000000000000000000000000abc" || auth.Value != "5000" {
+		t.Fatalf("auth: %+v", auth)
 	}
 	if auth.ValidAfter != "0" {
 		t.Fatalf("validAfter = %q, want 0", auth.ValidAfter)
 	}
 	wantValidBefore := now.Add(60 * time.Second).Unix()
-	if auth.ValidBefore != intToStr(wantValidBefore) {
+	if auth.ValidBefore != fmtInt(wantValidBefore) {
 		t.Fatalf("validBefore = %q, want %d", auth.ValidBefore, wantValidBefore)
 	}
 }
 
-func repeatHex(b string, n int) string {
-	s := ""
-	for i := 0; i < n; i++ {
-		s += b
-	}
-	return s
-}
-
-func intToStr(v int64) string {
-	return formatInt64(v)
-}
+func fmtInt(v int64) string { return formatInt64(v) }
 
 func formatInt64(v int64) string {
 	if v == 0 {
