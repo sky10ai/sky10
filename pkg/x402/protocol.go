@@ -340,7 +340,16 @@ func chainIDForNetwork(network string) (int64, bool) {
 	}
 }
 
+// isSupportedScheme reports whether the wire-level scheme value
+// is one we know how to sign. The empty string is treated as the
+// implicit "exact" default — Venice's /x402/top-up endpoint, for
+// example, omits the field entirely. "exact" is the only scheme
+// in deployment today, so a missing value is unambiguous.
 func isSupportedScheme(scheme string) bool {
+	scheme = strings.TrimSpace(scheme)
+	if scheme == "" {
+		return true
+	}
 	return strings.EqualFold(scheme, SchemeExact)
 }
 

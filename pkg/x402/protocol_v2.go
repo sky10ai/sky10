@@ -75,10 +75,13 @@ func parseChallengeV2Header(value string) (PaymentChallenge, error) {
 // toCanonicalV2 converts a v2 wire requirement into the canonical
 // form. `amount` is already the integer base unit; we validate and
 // pass it through unchanged into AmountMicros.
+//
+// `scheme` is optional — Venice's /x402/top-up endpoint omits the
+// field entirely (substitutes a top-level `protocol: "x402"` field
+// not in the spec). When absent we leave the canonical Scheme
+// empty; isSupportedScheme treats that as the implicit "exact"
+// default, which is the only scheme we currently sign for anyway.
 func toCanonicalV2(r paymentRequirementsV2) (PaymentRequirements, error) {
-	if strings.TrimSpace(r.Scheme) == "" {
-		return PaymentRequirements{}, errors.New("requirement missing scheme")
-	}
 	if strings.TrimSpace(r.Network) == "" {
 		return PaymentRequirements{}, errors.New("requirement missing network")
 	}
