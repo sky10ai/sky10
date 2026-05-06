@@ -1,6 +1,7 @@
 package x402
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -220,10 +221,14 @@ func liveSmokeCases() []liveSmokeCase {
 //
 //   - Gated on X402_LIVE=1 because it charges real USDC.
 //   - Wallet is selected via X402_LIVE_WALLET (defaults to "default").
-//   - Skip individual cases by setting X402_LIVE_ONLY=<id>.
+//   - Skip individual cases by setting X402_LIVE_ONLY=<prefix>.
+//   - Reads .env from the repo root and exports any keys not already
+//     set in the shell, so a one-time `cp .env.example .env` setup
+//     keeps these flags out of every shell invocation.
 //   - Captured fixtures are loaded by TestParseChallengeFromFixture
 //     and TestParseReceiptFromFixture in fixtures_test.go.
 func TestX402LiveSmoke(t *testing.T) {
+	loadDotEnv()
 	if os.Getenv("X402_LIVE") == "" {
 		t.Skip("set X402_LIVE=1 to run; this charges real USDC")
 	}
@@ -489,4 +494,62 @@ func truncate(b []byte, n int) string {
 		return string(b)
 	}
 	return string(b[:n]) + "…"
+}
+
+// loadDotEnv reads a `.env` file from the repo root (or the current
+// directory) and sets any KEY=VALUE pair as an environment variable
+// when that key isn't already set in the shell. Lines starting with
+// `#` and blank lines are ignored. Quoting is intentionally not
+// supported — values are taken verbatim after the first `=`.
+//
+// Missing file is not an error; the smoke gate just skips when
+// X402_LIVE remains unset. .env is in the top-level .gitignore so
+// committed source never carries wallet-attributed material.
+func loadDotEnv() {
+	for _, candidate := range dotEnvSearchPaths() {
+		f, err := os.Open(candidate)
+		if err != nil {
+			continue
+		}
+		defer f.Close()
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			eq := strings.IndexByte(line, '=')
+			if eq <= 0 {
+				continue
+			}
+			key := strings.TrimSpace(line[:eq])
+			val := line[eq+1:]
+			if _, set := os.LookupEnv(key); set {
+				continue
+			}
+			_ = os.Setenv(key, val)
+		}
+		return
+	}
+}
+
+// dotEnvSearchPaths walks up from the test's working directory
+// (typically pkg/x402/) looking for the first `.env`. Returns
+// absolute paths in search order; the loader stops on the first
+// readable file.
+func dotEnvSearchPaths() []string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for dir := wd; ; {
+		out = append(out, filepath.Join(dir, ".env"))
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return out
 }
