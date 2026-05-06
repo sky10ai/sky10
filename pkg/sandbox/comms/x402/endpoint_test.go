@@ -45,9 +45,12 @@ func TestRegisterOnMuxIntegration(t *testing.T) {
 	url := "ws" + strings.TrimPrefix(srv.URL, "http") + EndpointPath
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	conn, _, err := websocket.Dial(ctx, url, nil)
+	conn, dialResp, err := websocket.Dial(ctx, url, nil)
 	if err != nil {
 		t.Fatalf("dial err = %v", err)
+	}
+	if dialResp != nil && dialResp.Body != nil {
+		_ = dialResp.Body.Close()
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
@@ -108,9 +111,12 @@ func TestEndpointRoutesServiceCallToBackend(t *testing.T) {
 	url := "ws" + strings.TrimPrefix(srv.URL, "http") + EndpointPath
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	conn, _, err := websocket.Dial(ctx, url, nil)
+	conn, dialResp, err := websocket.Dial(ctx, url, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if dialResp != nil && dialResp.Body != nil {
+		_ = dialResp.Body.Close()
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
@@ -168,9 +174,12 @@ func TestEndpointRejectsServiceCallValidationFailure(t *testing.T) {
 	url := "ws" + strings.TrimPrefix(srv.URL, "http") + EndpointPath
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	conn, _, err := websocket.Dial(ctx, url, nil)
+	conn, dialResp, err := websocket.Dial(ctx, url, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if dialResp != nil && dialResp.Body != nil {
+		_ = dialResp.Body.Close()
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
 

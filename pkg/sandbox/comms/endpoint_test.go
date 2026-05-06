@@ -95,9 +95,12 @@ func integrationEndpoint(t *testing.T, specs []TypeSpec, resolver IdentityResolv
 
 func dialClient(t *testing.T, ctx context.Context, url string) *websocket.Conn {
 	t.Helper()
-	conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{})
+	conn, resp, err := websocket.Dial(ctx, url, &websocket.DialOptions{})
 	if err != nil {
 		t.Fatalf("dial err = %v", err)
+	}
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
 	}
 	return conn
 }

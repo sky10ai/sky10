@@ -3,7 +3,6 @@ package comms
 import (
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"sync/atomic"
@@ -67,7 +66,7 @@ func NewEndpoint(name string, resolver IdentityResolver, opts ...Option) *Endpoi
 		e.audit = NoopAuditWriter{}
 	}
 	if e.logger == nil {
-		e.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+		e.logger = slog.New(slog.DiscardHandler)
 	}
 	if e.replay == nil {
 		e.replay = NewReplayStore(2*time.Minute, 10*time.Minute, e.clock)
