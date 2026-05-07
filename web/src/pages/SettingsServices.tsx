@@ -23,15 +23,15 @@ function tierBadgeClasses(tier: X402ServiceListing["tier"]): string {
 }
 
 function tierLabel(tier: X402ServiceListing["tier"]): string {
-  if (tier === "primitive") return "Core capability";
-  return "Structured API";
+  if (tier === "primitive") return "Hard to do locally";
+  return "Browser/API alternative";
 }
 
 function tierTooltip(tier: X402ServiceListing["tier"]): string {
   if (tier === "primitive") {
-    return "Useful when local tools cannot provide the capability directly.";
+    return "Use when the agent needs something local tools usually cannot provide.";
   }
-  return "Useful when a paid API returns structured data faster than local tools.";
+  return "Use when a paid API is worth it even though browser or search may also work.";
 }
 
 function categoryLabel(category: string | undefined): string {
@@ -607,9 +607,9 @@ export default function SettingsServices() {
             }
             className="rounded-full border border-outline-variant/30 bg-surface-container-lowest px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
           >
-            <option value="all">All service types</option>
-            <option value="primitive">Core capabilities</option>
-            <option value="convenience">Structured APIs</option>
+            <option value="all">All routing types</option>
+            <option value="primitive">Hard to do locally</option>
+            <option value="convenience">Browser/API alternatives</option>
           </select>
           <select
             value={statusFilter}
@@ -644,7 +644,7 @@ export default function SettingsServices() {
         {!error && services.length > 0 && filtered.length === 0 ? (
           <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 text-sm text-secondary">
             No services match your filters. Adjust the search or change the
-            service type/status dropdowns.
+            routing/status dropdowns.
           </div>
         ) : null}
 
