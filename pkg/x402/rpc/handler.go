@@ -5,7 +5,7 @@
 //
 // The methods here are *host* RPC: they live on the daemon's local
 // unix socket alongside wallet.*, secrets.*, etc. They are not part
-// of the sandbox-comms surface — agents do not call x402.* directly;
+// of the sandbox bridge surface — agents do not call x402.* directly;
 // they go through pkg/sandbox/comms/x402's envelope handlers, which
 // in turn delegate to pkg/x402.Backend.
 package rpc

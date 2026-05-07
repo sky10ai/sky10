@@ -1,6 +1,6 @@
 ---
 created: 2026-04-26
-updated: 2026-04-26
+updated: 2026-05-07
 model: claude-opus-4-7
 ---
 
@@ -23,7 +23,7 @@ direct concern.**
 - **Bounded by:** per-call cap, per-service daily cap, daily total cap.
 - **Not detected by:** anything in the first cut.
 - **Future mitigations (deferred):**
-  - **Outcome scoring.** Caller (OpenClaw plugin / MCP server) reports
+  - **Outcome scoring.** Caller (OpenClaw, Hermes, or MCP surface) reports
     whether the response was usable (parsed cleanly, non-empty,
     matched expected schema). Aggregate into a per-service quality
     score persisted with receipts.

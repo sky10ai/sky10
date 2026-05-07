@@ -48,7 +48,7 @@ discovers paths the original allowlist designer didn't consider.
 
 ## What we do instead
 
-Per-intent websocket endpoints under `pkg/sandbox/comms/`, one
+Per-intent sandbox bridge endpoints backed by `pkg/sandbox/comms/`, one
 per capability, each with its own URL path, its own subpackage,
 and its own envelope handlers. The Go HTTP mux routes by path —
 the URL is the dispatch. There is no central bus, no shared
@@ -66,11 +66,11 @@ This is more secure at two levels:
 - **Frame.** The shape of the code (raw bytes from the wire,
   identity injected by infrastructure, one handler per file)
   keeps "trust this" code visibly out of place.
-- **Blast radius.** A capability bug in `/comms/wallet/ws`
-  cannot affect `/comms/metered-services/ws` because the code paths don't
+- **Blast radius.** A capability bug in `/bridge/wallet/ws`
+  cannot affect `/bridge/metered-services/ws` because the code paths don't
   intersect. There is no shared dispatcher to compromise.
 
-See [`docs/work/current/sandbox-comms/`](../work/current/sandbox-comms/)
+See [`docs/work/current/sandbox-bridge/`](../work/current/sandbox-bridge/)
 for the full design and the rules that hold the frame in place.
 
 ## Why per-intent and not one bus with discipline rules

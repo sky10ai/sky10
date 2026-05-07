@@ -1,6 +1,6 @@
 ---
 created: 2026-04-26
-updated: 2026-04-26
+updated: 2026-05-07
 model: claude-opus-4-7
 ---
 
@@ -15,28 +15,31 @@ model: claude-opus-4-7
                               │
                               ▼  poll, validate, pin
               ┌────────────────────────────────────┐
-              │ pkg/x402                           │
-              │   discovery → registry             │
+              │ host sky10 pkg/x402                │
+              │   discovery -> registry            │
               │   transport (RoundTripper)         │
               │   policy + budget + receipts       │
               │   wallet binding (Base + Solana)   │
               └─────┬───────────────────┬──────────┘
-                    │ daemon RPC        │
+                    │ host RPC          │ sandbox bridge
                     ▼                   ▼
        ┌─────────────────────┐  ┌────────────────────────┐
-       │ OpenClaw plugin     │  │ sky10-x402-mcp         │
-       │ → x402 tools        │  │ MCP server →           │
-       │                     │  │ hermes / codex / etc   │
-       └─────────────────────┘  └────────────────────────┘
-                    ▲                       ▲
-                    └───────────┬───────────┘
-                                │
-                       Web UI + sky10 market CLI
+       │ Web UI + CLI        │  │ guest sky10             │
+       │ x402 catalog/admin  │  │ /bridge/metered-        │
+       │                     │  │ services/ws             │
+       └─────────────────────┘  └───────────┬────────────┘
+                                            ▼
+                              ┌───────────────────────────┐
+                              │ runtime adapters          │
+                              │ OpenClaw helper           │
+                              │ Hermes bridge/manifest    │
+                              └───────────────────────────┘
 ```
 
-The daemon owns the wallet, the registry, and the policy gate. Every
-consumer goes through `x402.serviceCall` over loopback RPC. No agent
-process ever sees signed authority.
+The host daemon owns the wallet, the registry, and the policy gate. Host UI
+and CLI use host RPC for catalog/admin operations. Sandboxed agents use the
+host-owned sandbox bridge and x402 envelope handlers. No agent process ever
+sees signed authority.
 
 ## Package layout
 
@@ -61,7 +64,7 @@ pkg/x402/
 └── rpc/
     └── handler.go               Dispatch(method, params) for x402.* RPC
 
-cmd/sky10-x402-mcp/              standalone MCP server (later milestone)
+cmd/sky10-x402-mcp/              future non-sandbox MCP surface
 ```
 
 ## Trust model
@@ -83,15 +86,21 @@ cmd/sky10-x402-mcp/              standalone MCP server (later milestone)
 ## Data flow: agent calls a paid service
 
 ```
-1. Agent (e.g. OpenClaw) decides to call service X
-2. Agent sends RPC: x402.serviceCall { service_id, path, body, max_price_usdc }
-3. Daemon checks: approved? not removed? within per-call cap? budget left?
-4. Daemon issues HTTP request via x402 transport
-5. Upstream returns 402 with payment challenge
-6. Transport signs USDC payment with the x402 subwallet (Base or Solana per challenge)
-7. Transport re-issues request with X-PAYMENT header
-8. Upstream returns 200 with response body and X-PAYMENT-RESPONSE receipt
-9. Daemon records receipt, decrements budget, returns response to agent
+1. Agent runtime (OpenClaw, Hermes, etc.) decides to call service X.
+2. Runtime adapter sends guest-local envelope:
+   `x402.service_call { service_id, path, body, max_price_usdc }`.
+3. Guest sky10 validates the envelope and forwards it over the host-owned
+   sandbox bridge.
+4. Host sky10 checks: approved? not removed? within per-call cap? budget
+   left?
+5. Host sky10 issues HTTP request via x402 transport.
+6. Upstream returns 402 with payment challenge.
+7. Transport signs USDC payment with the x402 subwallet (Base or Solana per
+   challenge).
+8. Transport re-issues request with X-PAYMENT header.
+9. Upstream returns 200 with response body and X-PAYMENT-RESPONSE receipt.
+10. Host sky10 records receipt, decrements budget, and returns response to
+    the runtime over the bridge.
 ```
 
 If any step fails, the transport returns a typed error without ever
@@ -121,8 +130,8 @@ exposing payment details to the agent:
 
 Each method returns a typed result and well-formed JSON-RPC errors.
 The handler lives in `pkg/x402/rpc/handler.go` and registers under the
-existing daemon dispatcher alongside `agent.*`, `home.*`, `wallet.*`,
-etc.
+existing daemon dispatcher alongside `agent.*`, `home.*`, `wallet.*`, etc.
+Sandboxed agents do not call these RPC methods directly.
 
 ## Cross-platform readiness
 

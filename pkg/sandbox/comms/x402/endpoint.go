@@ -18,7 +18,7 @@ const EndpointPath = "/comms/metered-services/ws"
 //
 // One handler per method, one method per file (see list_services.go,
 // service_call.go, budget_status.go), per the discipline rules in
-// docs/work/current/sandbox-comms/handler-discipline.md.
+// docs/work/current/sandbox-bridge/handler-discipline.md.
 type handlers struct {
 	backend Backend
 }

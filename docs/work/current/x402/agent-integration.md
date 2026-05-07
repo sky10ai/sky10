@@ -6,7 +6,7 @@ model: claude-opus-4-7
 
 # x402 Agent Integration
 
-## Two surfaces
+## Runtime surfaces
 
 Agent runtimes consume x402 services through narrow runtime surfaces.
 For Lima sandboxes, that surface must be carried over the existing
@@ -14,6 +14,10 @@ host-owned guest connection path. The guest must not dial the host
 daemon directly via host gateway aliases or any other host callback
 address; `user-v2` sandboxes intentionally expose guest services to the
 host, not host services to the guest.
+
+OpenClaw and Hermes should get the same approved service descriptors,
+pricing hints, and `list`/`budget`/`call` behavior. The runtime-specific
+part is only how those tools are presented to the agent.
 
 Host UI and CLI continue to use the `x402.*` JSON-RPC methods for
 catalog management.
@@ -24,17 +28,15 @@ catalog management.
 sky10 to OpenClaw. The first shipped surface is a `sky10-x402`
 helper that:
 
-- queries approved x402 services through a host-owned sandbox comms
-  bridge
+- queries approved x402 services through a host-owned sandbox bridge
 - is written to `~/.openclaw/sky10-x402.mjs`
 - supports `list`, `budget`, and `call` commands
 - proxies calls through `x402.service_call`, so the daemon handles
   payment, receipts, budget checks, and wallet signing
 
-Do not configure OpenClaw with a direct host gateway URL for
-`/comms/x402/ws`. That violates the Lima security boundary. The host
-must initiate the guest connection and broker x402 envelopes across that
-existing channel.
+Do not configure OpenClaw with a direct host gateway URL. That violates
+the Lima security boundary. The host must initiate the guest connection
+and broker x402 envelopes across that existing channel.
 
 Durable tool-call prompts include the approved services and the helper
 commands. The agent never handles wallet state, x402 payment headers,
@@ -42,12 +44,25 @@ or x402 challenges. Native OpenClaw tool registration remains the next
 step once the runtime tool API is stable enough to bind each service
 directly.
 
-### 2. Standalone MCP server (universal hookup)
+### 2. Hermes bridge
 
-`cmd/sky10-x402-mcp` exposes the same registry as MCP tools so any
-MCP-aware runtime — Hermes, Codex, future ones — picks them up with no
-per-runtime code. OpenClaw eventually adopts MCP too; the plugin path
-remains for sky10-specific integrations beyond x402.
+`external/runtimebundles/hermes/bridge/hermes-sky10-bridge.py` already
+registers Hermes with sky10 and reads runtime tools from `bridge.json` or
+`/shared/agent-manifest.json`. The x402 integration should feed the same
+approved service descriptors into that Hermes surface and give Hermes a
+guest-local caller that uses `/bridge/metered-services/ws`.
+
+Do not configure Hermes with a direct host gateway URL for x402. Hermes
+must see tool descriptions and a guest-local bridge caller, not host RPC,
+wallet state, payment headers, or x402 challenges.
+
+### 3. Standalone MCP server (later, non-sandbox hookup)
+
+`cmd/sky10-x402-mcp` can expose the same registry as MCP tools for runtimes
+that are not running inside a Lima sandbox bridge. It is not the required
+path for Hermes sandbox support. OpenClaw can adopt MCP later too; the
+runtime-specific bridge paths remain for sky10-specific integrations beyond
+x402.
 
 ## Tool description format
 
@@ -104,7 +119,7 @@ through:
 - what budget pressure it applies (`price_quote_too_high` errors when
   budget is tight)
 
-This is intentional. A paid x402 API and OpenClaw browsing/search may
+This is intentional. A paid x402 API and runtime browsing/search may
 both be valid; the LLM reads the description, sees the price, sees the
 hint, and decides. We do not hardcode vendor-specific routing choices.
 
@@ -112,7 +127,7 @@ hint, and decides. We do not hardcode vendor-specific routing choices.
 
 | Tier | Default state | Rationale |
 |---|---|---|
-| `primitive` | ON for opted-in starter set | OpenClaw genuinely cannot DIY: audio, GPU, market data, residential IPs, premium LLMs |
+| `primitive` | ON for opted-in starter set | The sandbox runtime genuinely cannot DIY: audio, GPU, market data, residential IPs, premium LLMs |
 | `convenience` | OFF | Browser+search likely matches or beats them; user opts in if they have a specific reason |
 
 Even primitives with `default_on=true` in the overlay still require

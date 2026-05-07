@@ -1,12 +1,12 @@
 ---
 created: 2026-04-26
-updated: 2026-04-26
+updated: 2026-05-07
 model: claude-opus-4-7
 ---
 
 # Envelope Handler Discipline
 
-Sandbox comms is **secure-by-default-frame**: handlers receive raw
+Sandbox bridge handlers are **secure-by-default-frame**: handlers receive raw
 bytes from the wire and the *shape* of the code makes "trust this"
 visibly out of place. The frame only delivers if every handler is
 written in a shape that enforces it. These six rules turn the frame
@@ -82,7 +82,7 @@ Layout within a capability:
 
 ```
 pkg/sandbox/comms/x402/
-├── endpoint.go            registers /comms/metered-services/ws
+├── endpoint.go            registers the metered-services bridge endpoint
 ├── list_services.go       envelope x402.list_services
 ├── service_call.go        envelope x402.service_call
 ├── budget_status.go       envelope x402.budget_status
@@ -197,6 +197,6 @@ package, behind a single-purpose URL" — the shape itself
 encourages the right code.
 
 If you find yourself wanting to share helpers across capabilities,
-that's the signal to move that logic into a non-comms package
+that's the signal to move that logic into a non-bridge package
 (e.g. `pkg/x402`, `pkg/wallet`) and have both capabilities call
-into it. The comms package is glue, not business logic.
+into it. The bridge/comms package is glue, not business logic.

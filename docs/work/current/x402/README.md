@@ -1,6 +1,6 @@
 ---
 created: 2026-04-26
-updated: 2026-04-26
+updated: 2026-05-07
 model: claude-opus-4-7
 ---
 
@@ -13,7 +13,8 @@ agents and human users out of the box, without per-service adapters and
 without exposing the wallet to agent processes. This is achieved by
 implementing the x402 payment protocol once at the daemon's HTTP
 transport layer and exposing a single registry to agent runtimes
-(OpenClaw today, MCP-compatible runtimes in general).
+(OpenClaw and Hermes in Lima sandboxes today, MCP-compatible runtimes
+later).
 
 ## Why now
 
@@ -24,8 +25,8 @@ transport layer and exposing a single registry to agent runtimes
 - sky10 already ships wallet infrastructure (`pkg/wallet`) with Solana
   USDC transfers via OWS. The marginal cost to support all 573
   services is one transport implementation, not 573 adapters.
-- OpenClaw and other agent runtimes already plug into the daemon; they
-  need a tool surface that lets the LLM choose paid services
+- OpenClaw, Hermes, and other agent runtimes already plug into the daemon;
+  they need a tool surface that lets the LLM choose paid services
   intelligently versus doing the work locally with browser/web-search
   tools.
 
@@ -43,7 +44,7 @@ transport layer and exposing a single registry to agent runtimes
 | Protocol | x402 over HTTPS; SIWE + SIWS signing; Base + Solana USDC |
 | Discovery | agentic.market `/v1/services` + per-service `/.well-known/x402.json` + user-added URLs |
 | Catalog freshness | Hourly refresh, change classification, manifest pinning, repo-curated overlay |
-| Agent surface | x402 envelope types on the [sandbox comms](../sandbox-comms/) |
+| Agent surface | x402 envelope types on the [sandbox bridge](../sandbox-bridge/) |
 | Human surface | Web UI services browser + `sky10 market` CLI |
 | Safety | Dedicated x402 subwallet, daily/per-call/per-service budget caps, receipt log |
 
@@ -60,13 +61,14 @@ transport layer and exposing a single registry to agent runtimes
   cannot be substituted locally: Deepgram, fal.ai, E2B, Browserbase.
   LLM and search primitives default OFF (most users have direct API
   keys).
-- 2026-04-26 — agent surface rebased onto per-intent sandbox comms
+- 2026-04-26 — agent surface rebased onto per-intent sandbox bridge
   endpoints under `pkg/sandbox/comms/`. x402 ships as a single
   websocket endpoint `/comms/metered-services/ws` with its own narrow handler
-  package, not as envelopes on a unified bus. OpenClaw plugin and
-  MCP server milestones removed from this plan. See
-  [sandbox-comms](../sandbox-comms/) for the comms architecture and
-  [sandbox-comms/implementation-plan.md](../sandbox-comms/implementation-plan.md)
+  package, not as envelopes on a unified bus. Runtime adapter work moved out
+  of the protocol-core milestones and is now tracked under M10 and
+  sandbox-bridge. See
+  [sandbox-bridge](../sandbox-bridge/) for the bridge architecture and
+  [sandbox-bridge/implementation-plan.md](../sandbox-bridge/implementation-plan.md)
   for the M2 x402 capability milestone where the handlers land.
 - 2026-04-27 — narrowed branch scope: only x402 ships under
   `pkg/sandbox/comms/` in this branch. Wallet and messengers comms
@@ -87,7 +89,7 @@ transport layer and exposing a single registry to agent runtimes
   parameter against the existing agent registry; budget defaults
   apply per-agent on first sight. Adapter translates between
   pkg/x402 native types and the comms wire shape. With this,
-  sandbox-comms M2 and x402 plan M5 are both complete.
+  sandbox bridge M2 and x402 plan M5 are both complete.
 - 2026-04-27 — M2 (discovery and refresh) landed in
   `pkg/x402/discovery/`. Source interface, StaticSource with the
   builtin primitive set, Refresh orchestrator with diff
@@ -158,17 +160,22 @@ transport layer and exposing a single registry to agent runtimes
   status dropdown filters Approved vs Not approved. A "Showing X
   of Y" indicator runs alongside so the catalog stays usable once
   agentic.market lights up the full 500+ entries.
-- 2026-05-07 — OpenClaw runtime bridge got the first x402 agent path:
-  it installs a `sky10-x402` helper, lists approved services over
-  `/comms/x402/ws`, and injects those APIs into durable tool-call
+- 2026-05-07 — Runtime bridge work got the first x402 agent path for
+  OpenClaw: it installs a `sky10-x402` helper, lists approved services over
+  a WebSocket endpoint, and injects those APIs into durable tool-call
   prompts so agents can call paid services without handling wallets or
-  payment headers.
+  payment headers. The helper still points at the stale `/comms/x402/ws`
+  route, and Hermes still needs the same approved-service descriptors wired
+  into its bridge/tool manifest. The secure sandbox flow needs the
+  host-owned bridge and final `/bridge/metered-services/ws` route described
+  in [sandbox-bridge](../sandbox-bridge/).
 
 ## Documents
 
 - [Architecture](architecture.md) — packages, components, trust model
 - [Auto-update](auto-update.md) — catalog refresh and change handling
-- [Agent integration](agent-integration.md) — OpenClaw, MCP, when-to-use routing
+- [Agent integration](agent-integration.md) — OpenClaw, Hermes, MCP follow-up,
+  when-to-use routing
 - [Wallet and budget](wallet-and-budget.md) — subwallet, caps, receipts
 - [Threat model](threat-model.md) — malicious-service threats, what is mitigated, what is deferred
 - [Implementation plan](implementation-plan.md) — milestones in dependency order
@@ -181,7 +188,8 @@ transport layer and exposing a single registry to agent runtimes
    everything OFF and force opt-in?
 3. **Subwallet UX** — auto-derive on first approval, or require an
    explicit "fund x402 wallet" action by the user?
-4. **MCP server** — same milestone or follow-up?
-5. **Web/CLI scope** — full UI in the first PR, or land daemon + plugin
-   first and add Web/CLI in a second?
+4. **Hermes tool source** — write generated x402 tools into `bridge.json`,
+   `/shared/agent-manifest.json`, or both?
+5. **MCP shape** — later non-sandbox runtime surface only, or also a
+   runtime adapter option once sandbox bridge works?
 6. **Networks** — Base + Solana day one, or Base-only first?

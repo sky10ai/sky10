@@ -64,7 +64,7 @@ func TestHandlersValidateBeforeUse(t *testing.T) {
 			first := fd.Body.List[0]
 			if !looksLikeValidation(first) {
 				pos := fset.Position(first.Pos())
-				t.Errorf("%s:%d %s: first non-trivial statement must validate (call parse*, validate*, or json.Unmarshal); see docs/work/current/sandbox-comms/handler-discipline.md rule 5",
+				t.Errorf("%s:%d %s: first non-trivial statement must validate (call parse*, validate*, or json.Unmarshal); see docs/work/current/sandbox-bridge/handler-discipline.md rule 5",
 					path, pos.Line, fd.Name.Name)
 			}
 		}

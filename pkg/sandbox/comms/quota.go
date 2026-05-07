@@ -10,7 +10,7 @@ import (
 // tokens per second, and a successful Check call consumes one token.
 //
 // QuotaStore is in-memory; daemon restart resets all buckets. This is
-// acceptable for the sandbox-comms threat model: an agent that wants
+// acceptable for the sandbox bridge threat model: an agent that wants
 // to evade per-window limits would need to crash the daemon repeatedly,
 // which is louder than abuse.
 type QuotaStore struct {

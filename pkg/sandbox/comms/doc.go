@@ -17,6 +17,6 @@
 // scoped to one endpoint's registered set; per-intent endpoints are the
 // only multiplexer in this design.
 //
-// See docs/work/current/sandbox-comms/ for the full architecture and
+// See docs/work/current/sandbox-bridge/ for the full architecture and
 // docs/learned/sandbox-rpc-isolation.md for the historical rationale.
 package comms

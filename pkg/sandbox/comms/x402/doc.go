@@ -8,7 +8,7 @@
 // 402-round-trip; none of that is reachable from the guest. Agents
 // see a narrow envelope contract, nothing more.
 //
-// See docs/work/current/sandbox-comms/ for the comms architecture and
+// See docs/work/current/sandbox-bridge/ for the bridge architecture and
 // docs/work/current/x402/ for the host-side x402 design behind the
 // Backend interface.
 package x402
