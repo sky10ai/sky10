@@ -33,6 +33,13 @@ export const PINNABLE_PAGES = [
     to: "/settings/messaging",
   },
   {
+    id: "ai-connections",
+    icon: "smart_toy",
+    label: "AI Connections",
+    matchPrefixes: ["/settings/ai-connections"],
+    to: "/settings/ai-connections",
+  },
+  {
     id: "network",
     icon: "hub",
     label: "Network",

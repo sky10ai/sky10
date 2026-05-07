@@ -27,7 +27,7 @@ slice.
 
 That distinction matters for ordinary model mistakes and for worse failures:
 rogue agents, compromised runtimes, malicious plugins, and supply-chain
-vulnerabilities in adapter or agent glue. If a runtime goes bad, its northbound
+vulnerabilities in adapter or agent glue. If a runtime goes bad, its host
 shim still only has the exposure granted to it. If adapter code goes bad, it
 still does not own policy or user approval. The goal is not just convenience;
 it is to make "connect Slack/Gmail/etc." safe enough that users do not feel
@@ -114,12 +114,12 @@ describe email or identity-bearing connections cleanly.
 
 The architecture is split into three layers:
 
-- Platform adapters are southbound. They talk to Slack, IMAP/SMTP, Gmail,
+- Platform adapters are guest. They talk to Slack, IMAP/SMTP, Gmail,
   Telegram, and future platforms.
 - The Sky10 messaging broker is the authority boundary. It owns connection
   lifecycle, secrets references, policy, approvals, normalized storage,
   workflows, and event fanout.
-- Agent shims are northbound. They expose a narrow normalized interface to
+- Agent shims are host. They expose a narrow normalized interface to
   runtimes without giving those runtimes raw provider credentials or direct
   adapter access.
 
@@ -146,17 +146,17 @@ Primary code anchors:
 - [`pkg/messaging/broker`](../../../../../pkg/messaging/broker) owns inbound,
   outbound, policy, approval, search, management, and runtime orchestration.
 - [`pkg/messaging/protocol`](../../../../../pkg/messaging/protocol) defines
-  the southbound adapter protocol.
+  the guest adapter protocol.
 - [`pkg/messaging/runtime`](../../../../../pkg/messaging/runtime) supervises
   adapter processes and speaks JSON-RPC over stdio.
 - [`pkg/messaging/shim`](../../../../../pkg/messaging/shim) exposes the
-  northbound runtime-facing service surface.
+  host runtime-facing service surface.
 - [`pkg/messaging/rpc`](../../../../../pkg/messaging/rpc) exposes daemon RPC
   methods for UI/operator control.
 
 ## Adapter Protocol And Runtime
 
-The southbound adapter protocol landed as JSON-RPC over stdio. The broker
+The guest adapter protocol landed as JSON-RPC over stdio. The broker
 writes requests to adapter stdin, adapters write protocol responses to stdout,
 and logs go to stderr. Large binary payloads stay out of JSON-RPC and are
 represented as broker-owned blob/staging references.
@@ -371,7 +371,7 @@ existing Vite large-chunk warning.
 
 ## Agent Shim Surface
 
-The northbound shim layer is the runtime-facing side of the policy boundary.
+The host shim layer is the runtime-facing side of the policy boundary.
 It is exposure-bound and strips credential-like metadata before giving data to
 a runtime.
 

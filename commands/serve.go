@@ -17,6 +17,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	skyagent "github.com/sky10/sky10/pkg/agent"
 	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
+	skyllm "github.com/sky10/sky10/pkg/ai/llm"
 	skyapps "github.com/sky10/sky10/pkg/apps"
 	skycodex "github.com/sky10/sky10/pkg/codex"
 	"github.com/sky10/sky10/pkg/config"
@@ -197,6 +198,19 @@ func ServeCmd() *cobra.Command {
 			secretsStore := secrets.New(backend, bundle, secrets.Config{BootstrapKV: kvStore}, nil)
 			secretsRPC := secrets.NewRPCHandler(secretsStore)
 			server.RegisterHandler(secretsRPC)
+			llmStore, err := skyllm.NewDefaultStore()
+			if err != nil {
+				return fmt.Errorf("creating AI connection store: %w", err)
+			}
+			server.RegisterHandler(skyllm.NewRPCHandler(llmStore, server.Emit))
+			llmHost := skyllm.NewHostHTTPHandler(skyllm.HostHTTPOptions{
+				ModelLister: skyllm.StoreModelLister(llmStore),
+			})
+			server.HandleHTTP("/v1/health", llmHost.HandleHealth)
+			server.HandleHTTP("/v1/models", llmHost.HandleModels)
+			server.HandleHTTP("/models", llmHost.HandleModels)
+			server.HandleHTTP("/v1/chat/completions", llmHost.HandleChatCompletions)
+			server.HandleHTTP("/chat/completions", llmHost.HandleChatCompletions)
 			server.RegisterHandler(skycodex.NewRPCHandler(skycodex.NewService(server.Emit)))
 			server.RegisterHandler(skyrootagent.NewRPCHandler(skyrootagent.NewStore(server.Emit)))
 			secretsRunErr := make(chan error, 1)

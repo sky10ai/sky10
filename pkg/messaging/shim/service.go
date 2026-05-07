@@ -12,7 +12,7 @@ import (
 	messagingstore "github.com/sky10/sky10/pkg/messaging/store"
 )
 
-// Method is one stable northbound shim operation.
+// Method is one stable host shim operation.
 type Method string
 
 const (
@@ -64,7 +64,7 @@ type Config struct {
 	ExposureID messaging.ExposureID
 }
 
-// Service is an exposure-bound northbound shim. Every method is scoped to the
+// Service is an exposure-bound host shim. Every method is scoped to the
 // configured exposure and delegates mutations through the broker.
 type Service struct {
 	broker     Broker

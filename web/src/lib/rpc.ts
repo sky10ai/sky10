@@ -358,6 +358,16 @@ export const codex = {
   }) => rpc<CodexChatResult>("codex.chat", p),
 };
 
+// -- AI connections --
+export const aiConnections = {
+  providers: () => rpc<AIProvidersResult>("inference.providers"),
+  connections: () => rpc<AIConnectionsResult>("inference.connections"),
+  save: (p: { connection: AIConnection }) =>
+    rpc<AIConnectionSaveResult>("inference.connectionSave", p),
+  delete: (p: { id: string }) =>
+    rpc<{ status: string }>("inference.connectionDelete", p),
+};
+
 // -- messaging --
 export const messaging = {
   adapters: () => rpc<MessagingAdaptersResult>("messaging.adapters"),
@@ -1807,6 +1817,54 @@ export interface CodexChatResult {
   response_id?: string;
   text: string;
   usage?: CodexChatUsage;
+}
+
+export interface AIConnectionAuth {
+  method: string;
+  api_key_env?: string;
+  secret_ref?: string;
+  api_version?: string;
+  wallet?: string;
+  network?: string;
+  service_id?: string;
+  max_price_usdc?: string;
+  daily_cap_usdc?: string;
+}
+
+export interface AIConnection {
+  id: string;
+  label: string;
+  provider: string;
+  base_url: string;
+  default_model?: string;
+  models?: string[];
+  auth: AIConnectionAuth;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface AIProviderInfo {
+  id: string;
+  display_name: string;
+  endpoint_style: string;
+  auth_methods: string[];
+  default_base_url: string;
+  default_model: string;
+  default_models?: string[];
+  default_auth: AIConnectionAuth;
+}
+
+export interface AIProvidersResult {
+  providers: AIProviderInfo[];
+}
+
+export interface AIConnectionsResult {
+  connections: AIConnection[];
+  count: number;
+}
+
+export interface AIConnectionSaveResult {
+  connection: AIConnection;
 }
 
 export type RootAgentRunStatus = "complete" | "error" | "running";

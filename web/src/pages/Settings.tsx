@@ -109,6 +109,13 @@ const settingsLinks = [
     to: "/settings/codex",
   },
   {
+    description: "Named AI endpoints and credentials",
+    icon: "smart_toy",
+    iconClassName: "bg-sky-500/10 text-sky-700 dark:text-sky-200",
+    label: "AI Connections",
+    to: "/settings/ai-connections",
+  },
+  {
     description: "Slack and app connections",
     icon: "forum",
     iconClassName: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-200",
