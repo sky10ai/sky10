@@ -124,6 +124,57 @@ func TestOWSSignerSolanaChargeUsesCustomTokenProgram(t *testing.T) {
 	}
 }
 
+func TestOWSSignerSignsPaySHMPPFixture(t *testing.T) {
+	t.Parallel()
+	fixture := loadPaySHMPPFixture(t, "pay-sh-google-airquality-402.json")
+	challenges, err := ParseChallenges(fixture.Response.Headers)
+	if err != nil {
+		t.Fatalf("ParseChallenges: %v", err)
+	}
+	if len(challenges) != 1 {
+		t.Fatalf("challenges = %d, want 1", len(challenges))
+	}
+
+	signature := bytesOf(0x33, 64)
+	signer := &OWSSigner{
+		WalletName: "default",
+		AddressForChain: func(context.Context, string, string) (string, error) {
+			return testSolanaFrom, nil
+		},
+		BuildTx: func(ctx context.Context, opts skywallet.SolanaPaymentTxOptions) (*skywallet.SolanaPaymentTx, error) {
+			if opts.Amount != 1000 || opts.Mint != "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" {
+				t.Fatalf("payment opts = %+v", opts)
+			}
+			if opts.FeePayer == "" || opts.RecentBlockhash == "" {
+				t.Fatalf("fixture did not supply fee payer/blockhash: %+v", opts)
+			}
+			if len(opts.Splits) != 2 || opts.Splits[0].Amount != 250 || opts.Splits[1].Amount != 1 {
+				t.Fatalf("splits = %+v", opts.Splits)
+			}
+			return skywallet.BuildSolanaPaymentTx(ctx, opts)
+		},
+		SignTx: func(context.Context, string, string, string) (string, error) {
+			return hex.EncodeToString(signature), nil
+		},
+	}
+
+	header, err := signer.Sign(context.Background(), challenges[0])
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	credential := decodeCredential(t, header)
+	if credential.Source != "did:pkh:solana:mainnet-beta:"+testSolanaFrom {
+		t.Fatalf("source = %q", credential.Source)
+	}
+	signed, err := base64.StdEncoding.DecodeString(credential.Payload.Transaction)
+	if err != nil {
+		t.Fatalf("decode tx: %v", err)
+	}
+	if len(signed) == 0 {
+		t.Fatal("signed transaction empty")
+	}
+}
+
 func testChargeChallenge(t *testing.T, request map[string]any) Challenge {
 	t.Helper()
 	encoded, err := base64URLEncodeJSON(request)

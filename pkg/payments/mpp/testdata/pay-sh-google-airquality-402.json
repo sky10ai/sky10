@@ -1,0 +1,40 @@
+{
+  "captured_at": "2026-05-07T04:58:48Z",
+  "request": {
+    "method": "POST",
+    "url": "https://airquality.google.gateway-402.com/v1/currentConditions:lookup"
+  },
+  "response": {
+    "status": 402,
+    "headers": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Www-Authenticate": [
+        "Payment id=\"CNb9AHEWZbZZOxkYCSYQJhIQAg2XAjhW1X8CfOF5bpU\", realm=\"MPP Payment\", method=\"solana\", intent=\"charge\", request=\"eyJhbW91bnQiOiIxMDAwIiwiY3VycmVuY3kiOiJFUGpGV2RkNUF1ZnFTU3FlTTJxTjF4enliYXBDOEc0d0VHR2tad3lURHQxdiIsImRlc2NyaXB0aW9uIjoiTG9vayB1cCBjdXJyZW50IGhvdXJseSBhaXIgcXVhbGl0eSBmb3IgYSBsb2NhdGlvbiwgaW5jbHVkaW5nIEFRSSwgcG9sbHV0YW50cywgaGVhbHRoIGFkdmljZSwgYW5kIGxvY2FsIGluZGV4ZXMuIiwibWV0aG9kRGV0YWlscyI6eyJkZWNpbWFscyI6NiwiZmVlUGF5ZXIiOnRydWUsImZlZVBheWVyS2V5IjoiQmNkd0xBNjJVUEVBdlJuN0FXYXVNVVhLdFlNWHhkTHpUUGFTUWc1dE5hRmMiLCJuZXR3b3JrIjoibWFpbm5ldCIsInJlY2VudEJsb2NraGFzaCI6InBqVnRSbU1qckFFNFFyQmZxQ2ZlTER1SjRpbnNqUmFrYXpIQ25ncTFCb2MiLCJzcGxpdHMiOlt7ImFtb3VudCI6IjI1MCIsImxhYmVsIjoiT3BlcmF0b3IiLCJtZW1vIjoiT3BlcmF0b3IgZmVlIiwicmVjaXBpZW50IjoiQ3MyemRmVU5vblJkUkdzaVpVUVFMZFR4enhWdkpabWdpWDJtcExZS3VFcVAifSx7ImFtb3VudCI6IjEiLCJsYWJlbCI6IlBsYXRmb3JtIiwibWVtbyI6IlBsYXRmb3JtIGZlZSIsInJlY2lwaWVudCI6IkNzMnpkZlVOb25SZFJHc2laVVFRTGRUeHp4VnZKWm1naVgybXBMWUt1RXFQIn1dLCJ0b2tlblByb2dyYW0iOiJUb2tlbmtlZ1FmZVp5aU53QUpiTmJHS1BGWENXdUJ2ZjlTczYyM1ZRNURBIn0sInJlY2lwaWVudCI6IkNzMnpkZlVOb25SZFJHc2laVVFRTGRUeHp4VnZKWm1naVgybXBMWUt1RXFQIn0\", expires=\"2026-05-07T05:03:48.864623864Z\""
+      ]
+    },
+    "body": {
+      "endpoint": {
+        "method": "POST",
+        "path": "v1/currentConditions:lookup"
+      },
+      "error": "payment_required",
+      "message": "This endpoint requires payment.",
+      "payment": {
+        "challenges": 3,
+        "protocol": "mpp"
+      },
+      "pricing": {
+        "dimensions": [
+          {
+            "direction": "usage",
+            "price_usd": 0.001,
+            "scale": 1,
+            "unit": "requests"
+          }
+        ]
+      }
+    }
+  }
+}

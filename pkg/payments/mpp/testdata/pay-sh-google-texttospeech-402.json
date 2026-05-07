@@ -1,0 +1,40 @@
+{
+  "captured_at": "2026-05-07T04:58:48Z",
+  "request": {
+    "method": "POST",
+    "url": "https://texttospeech.google.gateway-402.com/v1/text:synthesize"
+  },
+  "response": {
+    "status": 402,
+    "headers": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Www-Authenticate": [
+        "Payment id=\"lOTvMrQ2f2quV2dC3hXV_cX22a_om2pWzIxgs9Jmg44\", realm=\"MPP Payment\", method=\"solana\", intent=\"charge\", request=\"eyJhbW91bnQiOiIzMCIsImN1cnJlbmN5IjoiRVBqRldkZDVBdWZxU1NxZU0ycU4xeHp5YmFwQzhHNHdFR0drWnd5VER0MXYiLCJkZXNjcmlwdGlvbiI6IlN5bnRoZXNpemUgc3BlZWNoIHN5bmNocm9ub3VzbHkgZnJvbSB0ZXh0IG9yIFNTTUwgYW5kIHJldHVybiBnZW5lcmF0ZWQgYXVkaW8gaW4gdGhlIHJlcXVlc3RlZCBmb3JtYXQuIiwibWV0aG9kRGV0YWlscyI6eyJkZWNpbWFscyI6NiwiZmVlUGF5ZXIiOnRydWUsImZlZVBheWVyS2V5IjoiQmNkd0xBNjJVUEVBdlJuN0FXYXVNVVhLdFlNWHhkTHpUUGFTUWc1dE5hRmMiLCJuZXR3b3JrIjoibWFpbm5ldCIsInJlY2VudEJsb2NraGFzaCI6InBqVnRSbU1qckFFNFFyQmZxQ2ZlTER1SjRpbnNqUmFrYXpIQ25ncTFCb2MiLCJ0b2tlblByb2dyYW0iOiJUb2tlbmtlZ1FmZVp5aU53QUpiTmJHS1BGWENXdUJ2ZjlTczYyM1ZRNURBIn0sInJlY2lwaWVudCI6IkNzMnpkZlVOb25SZFJHc2laVVFRTGRUeHp4VnZKWm1naVgybXBMWUt1RXFQIn0\", expires=\"2026-05-07T05:03:48.833666114Z\""
+      ]
+    },
+    "body": {
+      "endpoint": {
+        "method": "POST",
+        "path": "v1/text:synthesize"
+      },
+      "error": "payment_required",
+      "message": "This endpoint requires payment.",
+      "payment": {
+        "challenges": 3,
+        "protocol": "mpp"
+      },
+      "pricing": {
+        "dimensions": [
+          {
+            "direction": "usage",
+            "price_usd": 30.0,
+            "scale": 1000000,
+            "unit": "characters"
+          }
+        ]
+      }
+    }
+  }
+}

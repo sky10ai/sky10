@@ -3,8 +3,10 @@ package mpp
 import (
 	"encoding/base64"
 	"encoding/json"
+	"math"
 	"net/http"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -101,55 +103,140 @@ func TestFormatAuthorizationEncodesCredential(t *testing.T) {
 	}
 }
 
-func TestParsePaySHMPPChallengeFixture(t *testing.T) {
+func TestParsePaySHMPPChallengeFixtures(t *testing.T) {
 	t.Parallel()
-	raw, err := os.ReadFile("testdata/pay-sh-google-vision-402.json")
+	tests := []struct {
+		name       string
+		path       string
+		amount     string
+		priceUSD   float64
+		scale      int
+		unit       string
+		splitCount int
+	}{
+		{
+			name:       "vision",
+			path:       "v1/images:annotate",
+			amount:     "1500",
+			priceUSD:   1.5,
+			scale:      1000,
+			unit:       "requests",
+			splitCount: 2,
+		},
+		{
+			name:     "texttospeech",
+			path:     "v1/text:synthesize",
+			amount:   "30",
+			priceUSD: 30.0,
+			scale:    1000000,
+			unit:     "characters",
+		},
+		{
+			name:       "airquality",
+			path:       "v1/currentConditions:lookup",
+			amount:     "1000",
+			priceUSD:   0.001,
+			scale:      1,
+			unit:       "requests",
+			splitCount: 2,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			fixture := loadPaySHMPPFixture(t, "pay-sh-google-"+tt.name+"-402.json")
+			if fixture.Response.Status != http.StatusPaymentRequired || fixture.Response.Body.Payment.Protocol != "mpp" {
+				t.Fatalf("fixture response = %+v", fixture.Response)
+			}
+			if fixture.Response.Body.Endpoint.Method != http.MethodPost || fixture.Response.Body.Endpoint.Path != tt.path {
+				t.Fatalf("endpoint = %+v", fixture.Response.Body.Endpoint)
+			}
+			if fixture.Response.Body.Payment.Challenges != 3 {
+				t.Fatalf("advertised challenges = %d, want 3", fixture.Response.Body.Payment.Challenges)
+			}
+			if len(fixture.Response.Body.Pricing.Dimensions) != 1 {
+				t.Fatalf("pricing dimensions = %+v", fixture.Response.Body.Pricing.Dimensions)
+			}
+			dim := fixture.Response.Body.Pricing.Dimensions[0]
+			if math.Abs(dim.PriceUSD-tt.priceUSD) > 0.0000001 || dim.Scale != tt.scale || dim.Unit != tt.unit {
+				t.Fatalf("pricing dimension = %+v", dim)
+			}
+
+			challenges, err := ParseChallenges(fixture.Response.Headers)
+			if err != nil {
+				t.Fatalf("ParseChallenges: %v", err)
+			}
+			if len(challenges) != 1 {
+				t.Fatalf("challenges = %d, want 1 captured challenge", len(challenges))
+			}
+			if challenges[0].Method != "solana" || challenges[0].Intent != "charge" {
+				t.Fatalf("challenge = %+v", challenges[0])
+			}
+			req, details, err := challenges[0].DecodeChargeRequest()
+			if err != nil {
+				t.Fatalf("DecodeChargeRequest: %v", err)
+			}
+			if req.Amount != tt.amount || req.Currency != "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" {
+				t.Fatalf("charge request = %+v", req)
+			}
+			if req.Recipient == "" || req.Description == "" {
+				t.Fatalf("charge request missing recipient/description: %+v", req)
+			}
+			if details.Network != "mainnet" || details.Decimals == nil || *details.Decimals != 6 {
+				t.Fatalf("method details = %+v", details)
+			}
+			if details.FeePayer == nil || !*details.FeePayer || details.FeePayerKey == "" || details.RecentBlockhash == "" {
+				t.Fatalf("fee payer/blockhash details = %+v", details)
+			}
+			if details.TokenProgram != "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" {
+				t.Fatalf("token program = %q", details.TokenProgram)
+			}
+			if len(details.Splits) != tt.splitCount {
+				t.Fatalf("splits = %+v, want %d", details.Splits, tt.splitCount)
+			}
+			if tt.splitCount > 0 && (details.Splits[0].Amount != "250" || details.Splits[1].Amount != "1") {
+				t.Fatalf("splits = %+v", details.Splits)
+			}
+		})
+	}
+}
+
+type paySHMPPFixture struct {
+	Response struct {
+		Status  int         `json:"status"`
+		Headers http.Header `json:"headers"`
+		Body    struct {
+			Endpoint struct {
+				Method string `json:"method"`
+				Path   string `json:"path"`
+			} `json:"endpoint"`
+			Error   string `json:"error"`
+			Payment struct {
+				Protocol   string `json:"protocol"`
+				Challenges int    `json:"challenges"`
+			} `json:"payment"`
+			Pricing struct {
+				Dimensions []struct {
+					Direction string  `json:"direction"`
+					PriceUSD  float64 `json:"price_usd"`
+					Scale     int     `json:"scale"`
+					Unit      string  `json:"unit"`
+				} `json:"dimensions"`
+			} `json:"pricing"`
+		} `json:"body"`
+	} `json:"response"`
+}
+
+func loadPaySHMPPFixture(t *testing.T, name string) paySHMPPFixture {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", name))
 	if err != nil {
-		t.Fatalf("read fixture: %v", err)
+		t.Fatalf("read fixture %s: %v", name, err)
 	}
-	var fixture struct {
-		Response struct {
-			Status  int         `json:"status"`
-			Headers http.Header `json:"headers"`
-			Body    struct {
-				Error   string `json:"error"`
-				Payment struct {
-					Protocol   string `json:"protocol"`
-					Challenges int    `json:"challenges"`
-				} `json:"payment"`
-			} `json:"body"`
-		} `json:"response"`
-	}
+	var fixture paySHMPPFixture
 	if err := json.Unmarshal(raw, &fixture); err != nil {
-		t.Fatalf("unmarshal fixture: %v", err)
+		t.Fatalf("unmarshal fixture %s: %v", name, err)
 	}
-	if fixture.Response.Status != http.StatusPaymentRequired || fixture.Response.Body.Payment.Protocol != "mpp" {
-		t.Fatalf("fixture response = %+v", fixture.Response)
-	}
-	challenges, err := ParseChallenges(fixture.Response.Headers)
-	if err != nil {
-		t.Fatalf("ParseChallenges: %v", err)
-	}
-	if len(challenges) != 1 {
-		t.Fatalf("challenges = %d, want 1 captured challenge", len(challenges))
-	}
-	req, details, err := challenges[0].DecodeChargeRequest()
-	if err != nil {
-		t.Fatalf("DecodeChargeRequest: %v", err)
-	}
-	if req.Amount != "1500" || req.Currency != "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" {
-		t.Fatalf("charge request = %+v", req)
-	}
-	if details.Network != "mainnet" || details.Decimals == nil || *details.Decimals != 6 {
-		t.Fatalf("method details = %+v", details)
-	}
-	if details.FeePayer == nil || !*details.FeePayer || details.FeePayerKey == "" {
-		t.Fatalf("fee payer details = %+v", details)
-	}
-	if details.TokenProgram != "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" {
-		t.Fatalf("token program = %q", details.TokenProgram)
-	}
-	if len(details.Splits) != 2 || details.Splits[0].Amount != "250" || details.Splits[1].Amount != "1" {
-		t.Fatalf("splits = %+v", details.Splits)
-	}
+	return fixture
 }
