@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -202,6 +203,84 @@ func TestParsePaySHMPPChallengeFixtures(t *testing.T) {
 	}
 }
 
+func TestPaySHMPPSettledAirQualityFixture(t *testing.T) {
+	t.Parallel()
+	raw, err := os.ReadFile(filepath.Join("testdata", paySHAirQualityFixture))
+	if err != nil {
+		t.Fatalf("read paid fixture: %v", err)
+	}
+	var fixture paySHMPPLiveFixture
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatalf("unmarshal paid fixture: %v", err)
+	}
+	if fixture.Service != "pay.sh/solana-foundation/google/airquality" || fixture.SpendCap != "0.002 USDC" {
+		t.Fatalf("fixture metadata = %+v", fixture)
+	}
+	if len(fixture.Exchanges) != 2 {
+		t.Fatalf("exchanges = %d, want 2", len(fixture.Exchanges))
+	}
+	initial := fixture.Exchanges[0]
+	retry := fixture.Exchanges[1]
+	if initial.ResponseStatus != http.StatusPaymentRequired {
+		t.Fatalf("initial status = %d, want 402", initial.ResponseStatus)
+	}
+	if retry.ResponseStatus != http.StatusOK {
+		t.Fatalf("retry status = %d, want 200", retry.ResponseStatus)
+	}
+	if got := retry.RequestHeaders.Get(HeaderAuthorization); got != "<REDACTED: real MPP Authorization header sent>" {
+		t.Fatalf("authorization redaction = %q", got)
+	}
+
+	challenges, err := ParseChallenges(initial.ResponseHeaders)
+	if err != nil {
+		t.Fatalf("ParseChallenges: %v", err)
+	}
+	if len(challenges) != 3 {
+		t.Fatalf("challenges = %d, want 3", len(challenges))
+	}
+	challenge := findUSDCChallenge(t, challenges)
+	req, details, err := challenge.DecodeChargeRequest()
+	if err != nil {
+		t.Fatalf("DecodeChargeRequest: %v", err)
+	}
+	if req.Amount != "1000" || req.Currency != paySHSolanaUSDCMainnet {
+		t.Fatalf("charge request = %+v", req)
+	}
+	amount, splitTotal, err := paySHChargeMicros(req, details)
+	if err != nil {
+		t.Fatalf("charge amounts: %v", err)
+	}
+	if amount != 1000 || splitTotal != 251 {
+		t.Fatalf("amount/splits micro-USDC = %d/%d, want 1000/251", amount, splitTotal)
+	}
+
+	receipt, err := ParseReceipt(retry.ResponseHeaders.Get(HeaderPaymentReceipt))
+	if err != nil {
+		t.Fatalf("ParseReceipt: %v", err)
+	}
+	if receipt == nil || receipt.Status != "success" || receipt.Method != "solana" || strings.TrimSpace(receipt.Reference) == "" {
+		t.Fatalf("receipt = %+v", receipt)
+	}
+	if receipt.ChallengeID != challenge.ID {
+		t.Fatalf("receipt challenge = %q, want %q", receipt.ChallengeID, challenge.ID)
+	}
+
+	var body struct {
+		DateTime string `json:"dateTime"`
+		Indexes  []struct {
+			Code        string `json:"code"`
+			DisplayName string `json:"displayName"`
+			AQI         int    `json:"aqi"`
+		} `json:"indexes"`
+	}
+	if err := json.Unmarshal([]byte(retry.ResponseBody), &body); err != nil {
+		t.Fatalf("unmarshal paid response: %v", err)
+	}
+	if body.DateTime == "" || len(body.Indexes) == 0 || body.Indexes[0].Code != "uaqi" || body.Indexes[0].AQI == 0 {
+		t.Fatalf("paid response body = %+v", body)
+	}
+}
+
 type paySHMPPFixture struct {
 	Response struct {
 		Status  int         `json:"status"`
@@ -226,6 +305,21 @@ type paySHMPPFixture struct {
 			} `json:"pricing"`
 		} `json:"body"`
 	} `json:"response"`
+}
+
+func findUSDCChallenge(t *testing.T, challenges []Challenge) Challenge {
+	t.Helper()
+	for _, challenge := range challenges {
+		req, _, err := challenge.DecodeChargeRequest()
+		if err != nil {
+			t.Fatalf("DecodeChargeRequest: %v", err)
+		}
+		if req.Currency == paySHSolanaUSDCMainnet {
+			return challenge
+		}
+	}
+	t.Fatal("USDC MPP challenge not found")
+	return Challenge{}
 }
 
 func loadPaySHMPPFixture(t *testing.T, name string) paySHMPPFixture {

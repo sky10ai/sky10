@@ -1,0 +1,101 @@
+{
+  "service": "pay.sh/solana-foundation/google/airquality",
+  "captured_at_utc": "2026-05-07T05:11:53Z",
+  "spend_cap": "0.002 USDC",
+  "exchanges": [
+    {
+      "request_method": "POST",
+      "request_url": "https://airquality.google.gateway-402.com/v1/currentConditions:lookup",
+      "request_headers": {
+        "Content-Type": [
+          "application/json"
+        ]
+      },
+      "request_body": "{\"location\":{\"latitude\":37.422131,\"longitude\":-122.084801},\"extraComputations\":[\"LOCAL_AQI\"],\"languageCode\":\"en\"}",
+      "response_status": 402,
+      "response_headers": {
+        "Alt-Svc": [
+          "h3=\":443\"; ma=2592000"
+        ],
+        "Content-Length": [
+          "277"
+        ],
+        "Content-Type": [
+          "application/json"
+        ],
+        "Date": [
+          "Thu, 07 May 2026 05:11:52 GMT"
+        ],
+        "Server": [
+          "Google Frontend"
+        ],
+        "Via": [
+          "1.1 google"
+        ],
+        "Www-Authenticate": [
+          "Payment id=\"ZdcaJUcXYk2kITifButAfG0r1J9ThkJtpoy2nC2cexs\", realm=\"MPP Payment\", method=\"solana\", intent=\"charge\", request=\"eyJhbW91bnQiOiIxMDAwIiwiY3VycmVuY3kiOiJFUGpGV2RkNUF1ZnFTU3FlTTJxTjF4enliYXBDOEc0d0VHR2tad3lURHQxdiIsImRlc2NyaXB0aW9uIjoiTG9vayB1cCBjdXJyZW50IGhvdXJseSBhaXIgcXVhbGl0eSBmb3IgYSBsb2NhdGlvbiwgaW5jbHVkaW5nIEFRSSwgcG9sbHV0YW50cywgaGVhbHRoIGFkdmljZSwgYW5kIGxvY2FsIGluZGV4ZXMuIiwibWV0aG9kRGV0YWlscyI6eyJkZWNpbWFscyI6NiwiZmVlUGF5ZXIiOnRydWUsImZlZVBheWVyS2V5IjoiQmNkd0xBNjJVUEVBdlJuN0FXYXVNVVhLdFlNWHhkTHpUUGFTUWc1dE5hRmMiLCJuZXR3b3JrIjoibWFpbm5ldCIsInJlY2VudEJsb2NraGFzaCI6IkdRYUdXc2pHVDl0RkNRUUx5Z2tmZXBZWEhlcUU3cmZGTTh3b2o2Vk0yQVB1Iiwic3BsaXRzIjpbeyJhbW91bnQiOiIyNTAiLCJsYWJlbCI6Ik9wZXJhdG9yIiwibWVtbyI6Ik9wZXJhdG9yIGZlZSIsInJlY2lwaWVudCI6IkNzMnpkZlVOb25SZFJHc2laVVFRTGRUeHp4VnZKWm1naVgybXBMWUt1RXFQIn0seyJhbW91bnQiOiIxIiwibGFiZWwiOiJQbGF0Zm9ybSIsIm1lbW8iOiJQbGF0Zm9ybSBmZWUiLCJyZWNpcGllbnQiOiJDczJ6ZGZVTm9uUmRSR3NpWlVRUUxkVHh6eFZ2SlptZ2lYMm1wTFlLdUVxUCJ9XSwidG9rZW5Qcm9ncmFtIjoiVG9rZW5rZWdRZmVaeWlOd0FKYk5iR0tQRlhDV3VCdmY5U3M2MjNWUTVEQSJ9LCJyZWNpcGllbnQiOiJDczJ6ZGZVTm9uUmRSR3NpWlVRUUxkVHh6eFZ2SlptZ2lYMm1wTFlLdUVxUCJ9\", expires=\"2026-05-07T05:16:52.445629894Z\"",
+          "Payment id=\"lIOBIFv65MiAaUMcTl5B-6rrMM_2j5KLEK41M7uDlmo\", realm=\"MPP Payment\", method=\"solana\", intent=\"charge\", request=\"eyJhbW91bnQiOiIxMDAwIiwiY3VycmVuY3kiOiJFczl2TUZyemFDRVJtSmZyRjRIMkZZRDRLQ29Oa1kxMU1jQ2U4QmVud05ZQiIsImRlc2NyaXB0aW9uIjoiTG9vayB1cCBjdXJyZW50IGhvdXJseSBhaXIgcXVhbGl0eSBmb3IgYSBsb2NhdGlvbiwgaW5jbHVkaW5nIEFRSSwgcG9sbHV0YW50cywgaGVhbHRoIGFkdmljZSwgYW5kIGxvY2FsIGluZGV4ZXMuIiwibWV0aG9kRGV0YWlscyI6eyJkZWNpbWFscyI6NiwiZmVlUGF5ZXIiOnRydWUsImZlZVBheWVyS2V5IjoiQmNkd0xBNjJVUEVBdlJuN0FXYXVNVVhLdFlNWHhkTHpUUGFTUWc1dE5hRmMiLCJuZXR3b3JrIjoibWFpbm5ldCIsInJlY2VudEJsb2NraGFzaCI6IkdRYUdXc2pHVDl0RkNRUUx5Z2tmZXBZWEhlcUU3cmZGTTh3b2o2Vk0yQVB1Iiwic3BsaXRzIjpbeyJhbW91bnQiOiIyNTAiLCJsYWJlbCI6Ik9wZXJhdG9yIiwibWVtbyI6Ik9wZXJhdG9yIGZlZSIsInJlY2lwaWVudCI6IkNzMnpkZlVOb25SZFJHc2laVVFRTGRUeHp4VnZKWm1naVgybXBMWUt1RXFQIn0seyJhbW91bnQiOiIxIiwibGFiZWwiOiJQbGF0Zm9ybSIsIm1lbW8iOiJQbGF0Zm9ybSBmZWUiLCJyZWNpcGllbnQiOiJDczJ6ZGZVTm9uUmRSR3NpWlVRUUxkVHh6eFZ2SlptZ2lYMm1wTFlLdUVxUCJ9XSwidG9rZW5Qcm9ncmFtIjoiVG9rZW5rZWdRZmVaeWlOd0FKYk5iR0tQRlhDV3VCdmY5U3M2MjNWUTVEQSJ9LCJyZWNpcGllbnQiOiJDczJ6ZGZVTm9uUmRSR3NpWlVRUUxkVHh6eFZ2SlptZ2lYMm1wTFlLdUVxUCJ9\", expires=\"2026-05-07T05:16:52.530193404Z\"",
+          "Payment id=\"bL9sfxLlJDc4udVmotuxwA4VSruZ_5gRHPDa7P9RI-k\", realm=\"MPP Payment\", method=\"solana\", intent=\"charge\", request=\"eyJhbW91bnQiOiIxMDAwIiwiY3VycmVuY3kiOiJDQVNIeDlLSlVTdHlmdExGV0d2RVZmNTlTR2VHOXNoNUZmY25aTVZQQ0FTSCIsImRlc2NyaXB0aW9uIjoiTG9vayB1cCBjdXJyZW50IGhvdXJseSBhaXIgcXVhbGl0eSBmb3IgYSBsb2NhdGlvbiwgaW5jbHVkaW5nIEFRSSwgcG9sbHV0YW50cywgaGVhbHRoIGFkdmljZSwgYW5kIGxvY2FsIGluZGV4ZXMuIiwibWV0aG9kRGV0YWlscyI6eyJkZWNpbWFscyI6NiwiZmVlUGF5ZXIiOnRydWUsImZlZVBheWVyS2V5IjoiQmNkd0xBNjJVUEVBdlJuN0FXYXVNVVhLdFlNWHhkTHpUUGFTUWc1dE5hRmMiLCJuZXR3b3JrIjoibWFpbm5ldCIsInJlY2VudEJsb2NraGFzaCI6IkdRYUdXc2pHVDl0RkNRUUx5Z2tmZXBZWEhlcUU3cmZGTTh3b2o2Vk0yQVB1Iiwic3BsaXRzIjpbeyJhbW91bnQiOiIyNTAiLCJsYWJlbCI6Ik9wZXJhdG9yIiwibWVtbyI6Ik9wZXJhdG9yIGZlZSIsInJlY2lwaWVudCI6IkNzMnpkZlVOb25SZFJHc2laVVFRTGRUeHp4VnZKWm1naVgybXBMWUt1RXFQIn0seyJhbW91bnQiOiIxIiwibGFiZWwiOiJQbGF0Zm9ybSIsIm1lbW8iOiJQbGF0Zm9ybSBmZWUiLCJyZWNpcGllbnQiOiJDczJ6ZGZVTm9uUmRSR3NpWlVRUUxkVHh6eFZ2SlptZ2lYMm1wTFlLdUVxUCJ9XSwidG9rZW5Qcm9ncmFtIjoiVG9rZW56UWRCTmJMcVA1VkVoZGtBUzZFUEZMQzFQSG5CcUNYRXBQeHVFYiJ9LCJyZWNpcGllbnQiOiJDczJ6ZGZVTm9uUmRSR3NpWlVRUUxkVHh6eFZ2SlptZ2lYMm1wTFlLdUVxUCJ9\", expires=\"2026-05-07T05:16:52.609785301Z\""
+        ],
+        "X-Cloud-Trace-Context": [
+          "4cb998411fdf18c973033b91ddb85a26;o=1"
+        ]
+      },
+      "response_body": "{\"endpoint\":{\"method\":\"POST\",\"path\":\"v1/currentConditions:lookup\"},\"error\":\"payment_required\",\"message\":\"This endpoint requires payment.\",\"payment\":{\"challenges\":3,\"protocol\":\"mpp\"},\"pricing\":{\"dimensions\":[{\"direction\":\"usage\",\"price_usd\":0.001,\"scale\":1,\"unit\":\"requests\"}]}}"
+    },
+    {
+      "request_method": "POST",
+      "request_url": "https://airquality.google.gateway-402.com/v1/currentConditions:lookup",
+      "request_headers": {
+        "Authorization": [
+          "\u003cREDACTED: real MPP Authorization header sent\u003e"
+        ],
+        "Content-Type": [
+          "application/json"
+        ]
+      },
+      "request_body": "{\"location\":{\"latitude\":37.422131,\"longitude\":-122.084801},\"extraComputations\":[\"LOCAL_AQI\"],\"languageCode\":\"en\"}",
+      "response_status": 200,
+      "response_headers": {
+        "Alt-Svc": [
+          "h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000",
+          "h3=\":443\"; ma=2592000"
+        ],
+        "Content-Length": [
+          "616"
+        ],
+        "Content-Type": [
+          "application/json; charset=UTF-8"
+        ],
+        "Date": [
+          "Thu, 07 May 2026 05:11:53 GMT"
+        ],
+        "Payment-Receipt": [
+          "eyJjaGFsbGVuZ2VJZCI6IlpkY2FKVWNYWWsya0lUaWZCdXRBZkcwcjFKOVRoa0p0cG95Mm5DMmNleHMiLCJtZXRob2QiOiJzb2xhbmEiLCJyZWZlcmVuY2UiOiI0Z0hMemZ3Q1B4VkxWdDlyQ290ZzdydHhRNHU0N29peTFYZXg0OVBxRWJmUk1VbUNkVXdDWHN3SjFKOFpOMVlwSlJDeTkxa1ZRMjc2WkRTMmkxWE5tSzFFIiwic3RhdHVzIjoic3VjY2VzcyIsInRpbWVzdGFtcCI6IjIwMjYtMDUtMDdUMDU6MTE6NTMuNzY3MTUzODI5WiJ9"
+        ],
+        "Server": [
+          "Google Frontend"
+        ],
+        "Vary": [
+          "Referer"
+        ],
+        "Via": [
+          "1.1 google"
+        ],
+        "X-Cloud-Trace-Context": [
+          "d87676decf8b3dc373033b91ddb857f2"
+        ],
+        "X-Content-Type-Options": [
+          "nosniff"
+        ],
+        "X-Frame-Options": [
+          "SAMEORIGIN"
+        ],
+        "X-Xss-Protection": [
+          "0"
+        ]
+      },
+      "response_body": "{\n  \"dateTime\": \"2026-05-07T05:00:00Z\",\n  \"regionCode\": \"us\",\n  \"indexes\": [\n    {\n      \"code\": \"uaqi\",\n      \"displayName\": \"Universal AQI\",\n      \"aqi\": 78,\n      \"aqiDisplay\": \"78\",\n      \"color\": {\n        \"red\": 0.3764706,\n        \"green\": 0.75686276,\n        \"blue\": 0.20392157\n      },\n      \"category\": \"Good air quality\",\n      \"dominantPollutant\": \"o3\"\n    },\n    {\n      \"code\": \"usa_epa\",\n      \"displayName\": \"AQI (US)\",\n      \"aqi\": 38,\n      \"aqiDisplay\": \"38\",\n      \"color\": {\n        \"green\": 0.89411765\n      },\n      \"category\": \"Good air quality\",\n      \"dominantPollutant\": \"pm25\"\n    }\n  ]\n}\n"
+    }
+  ]
+}
