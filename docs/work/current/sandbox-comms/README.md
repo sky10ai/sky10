@@ -41,7 +41,7 @@ pkg/sandbox/comms/wallet/             # future, not in this branch
 pkg/sandbox/comms/messengers/         # future, not in this branch
 ```
 
-URL paths: `/comms/x402/ws`, future `/comms/wallet/ws`,
+URL paths: `/comms/metered-services/ws`, future `/comms/wallet/ws`,
 `/comms/messengers/ws`. Existing chat at
 `/rpc/agents/{agent}/chat` is **not touched**.
 

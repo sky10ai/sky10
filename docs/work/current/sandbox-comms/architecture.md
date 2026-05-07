@@ -16,7 +16,7 @@ model: claude-opus-4-7
              │ ws (host-local; libp2p stream cross-device)
              │
    ┌─────────┴───────────┬─────────────────────┬─────────────────┐
-   │ /comms/x402/ws      │ /comms/wallet/ws    │ /comms/messengers/ws
+   │ /comms/metered-services/ws      │ /comms/wallet/ws    │ /comms/messengers/ws
    │ (this branch)       │ (future)            │ (future)
    ▼                     ▼                     ▼
 ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
@@ -70,7 +70,7 @@ pkg/sandbox/comms/                # shared transport plumbing (M1)
 ```
 pkg/sandbox/comms/x402/           # x402 capability (M2)
 ├── doc.go
-├── endpoint.go        registers /comms/x402/ws via comms.Endpoint
+├── endpoint.go        registers /comms/metered-services/ws via comms.Endpoint
 ├── list_services.go   handler for x402.list_services
 ├── service_call.go    handler for x402.service_call (sync)
 ├── budget_status.go   handler for x402.budget_status (sync)
@@ -118,7 +118,7 @@ own route:
 
 ```go
 // In each capability's endpoint.go
-mux.HandleFunc("/comms/x402/ws", x402Endpoint.HandleWS)
+mux.HandleFunc("/comms/metered-services/ws", x402Endpoint.HandleWS)
 ```
 
 Inside one endpoint's handler, after envelope unwrapping, there is

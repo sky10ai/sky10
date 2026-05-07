@@ -62,7 +62,7 @@ transport layer and exposing a single registry to agent runtimes
   keys).
 - 2026-04-26 — agent surface rebased onto per-intent sandbox comms
   endpoints under `pkg/sandbox/comms/`. x402 ships as a single
-  websocket endpoint `/comms/x402/ws` with its own narrow handler
+  websocket endpoint `/comms/metered-services/ws` with its own narrow handler
   package, not as envelopes on a unified bus. OpenClaw plugin and
   MCP server milestones removed from this plan. See
   [sandbox-comms](../sandbox-comms/) for the comms architecture and
@@ -82,7 +82,7 @@ transport layer and exposing a single registry to agent runtimes
   StubSigner so misconfiguration fails with a typed error rather
   than a panic.
 - 2026-04-27 — Daemon wiring landed in `commands/serve_x402.go`.
-  The x402 endpoint is mounted at `/comms/x402/ws` when the
+  The x402 endpoint is mounted at `/comms/metered-services/ws` when the
   daemon starts; identity is resolved from the `agent` query
   parameter against the existing agent registry; budget defaults
   apply per-agent on first sight. Adapter translates between

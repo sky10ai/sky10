@@ -14,7 +14,7 @@ import (
 // Endpoint is one capability's per-intent websocket endpoint. Construct
 // it with NewEndpoint, declare every envelope type it accepts via
 // Register, and mount its Handler() at a unique URL on the daemon's
-// HTTP mux (e.g. /comms/x402/ws).
+// HTTP mux (e.g. /comms/metered-services/ws).
 //
 // Endpoints are intentionally not generic: by design each capability
 // owns one Endpoint with a small registered type set, and there is no

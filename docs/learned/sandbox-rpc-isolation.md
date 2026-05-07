@@ -67,7 +67,7 @@ This is more secure at two levels:
   identity injected by infrastructure, one handler per file)
   keeps "trust this" code visibly out of place.
 - **Blast radius.** A capability bug in `/comms/wallet/ws`
-  cannot affect `/comms/x402/ws` because the code paths don't
+  cannot affect `/comms/metered-services/ws` because the code paths don't
   intersect. There is no shared dispatcher to compromise.
 
 See [`docs/work/current/sandbox-comms/`](../work/current/sandbox-comms/)

@@ -7,10 +7,10 @@ import (
 	"github.com/sky10/sky10/pkg/sandbox/comms"
 )
 
-// EndpointPath is the URL path the x402 comms endpoint registers at.
+// EndpointPath is the URL path the metered-services comms endpoint registers at.
 // The daemon mounts the endpoint by calling RegisterOnMux which uses
 // this path; importers don't need to spell it themselves.
-const EndpointPath = "/comms/x402/ws"
+const EndpointPath = "/comms/metered-services/ws"
 
 // handlers groups the per-envelope handlers around their shared
 // Backend dependency. Methods on this type are the actual envelope
@@ -23,7 +23,7 @@ type handlers struct {
 	backend Backend
 }
 
-// NewEndpoint builds a configured comms.Endpoint serving the x402
+// NewEndpoint builds a configured comms.Endpoint serving the metered-service
 // envelope set against the supplied Backend. Caller mounts the
 // returned http.HandlerFunc on its mux at EndpointPath.
 //
@@ -36,7 +36,7 @@ func NewEndpoint(backend Backend, resolver comms.IdentityResolver, opts ...comms
 		panic("x402: NewEndpoint requires a non-nil Backend")
 	}
 	h := &handlers{backend: backend}
-	e := comms.NewEndpoint("x402", resolver, opts...)
+	e := comms.NewEndpoint("metered-services", resolver, opts...)
 	e.Register(comms.TypeSpec{
 		Name:           "x402.list_services",
 		Direction:      comms.DirectionRequestResponse,

@@ -82,7 +82,7 @@ Layout within a capability:
 
 ```
 pkg/sandbox/comms/x402/
-├── endpoint.go            registers /comms/x402/ws
+├── endpoint.go            registers /comms/metered-services/ws
 ├── list_services.go       envelope x402.list_services
 ├── service_call.go        envelope x402.service_call
 ├── budget_status.go       envelope x402.budget_status

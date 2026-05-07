@@ -45,7 +45,7 @@ type ServiceListing struct {
 	Hint        string `json:"hint,omitempty"`
 }
 
-// CallParams describes one x402 service invocation. AgentID is filled
+// CallParams describes one metered-service invocation. AgentID is filled
 // in by the handler from the bus-stamped envelope identity, never
 // from the payload.
 type CallParams struct {
@@ -74,7 +74,7 @@ type CallResult struct {
 	Receipt *Receipt          `json:"receipt,omitempty"`
 }
 
-// Receipt is the settlement record for one paid x402 call.
+// Receipt is the settlement record for one paid service call.
 type Receipt struct {
 	Tx         string `json:"tx"`
 	Network    string `json:"network"`

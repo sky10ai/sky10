@@ -26,8 +26,8 @@ import (
 	x402rpc "github.com/sky10/sky10/pkg/x402/rpc"
 )
 
-// installX402Endpoint mounts /comms/x402/ws on the daemon's RPC
-// server, backed by an in-memory x402 service registry persisted to
+// installX402Endpoint mounts /comms/metered-services/ws on the daemon's RPC
+// server, backed by an in-memory metered-service registry persisted to
 // a JSON file under the sky10 root directory. Identity for incoming
 // connections is resolved against the agent registry: the URL must
 // carry an `agent` query parameter naming a registered agent.

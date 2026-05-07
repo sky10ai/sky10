@@ -1,11 +1,11 @@
-// Package x402 is the per-intent comms endpoint for x402 service
-// access from sandboxed agents. It mounts at /comms/x402/ws and
-// accepts a small set of envelope types whose handlers delegate to
+// Package x402 is the per-intent comms endpoint for metered service
+// access from sandboxed agents. It mounts at /comms/metered-services/ws
+// and accepts a small set of envelope types whose handlers delegate to
 // a Backend (typically pkg/x402 on the host).
 //
 // The endpoint is the agent-facing surface. The Backend implementation
-// owns catalog, discovery, budget enforcement, and the actual x402
-// 402-round-trip — none of which is reachable from the guest. Agents
+// owns catalog, discovery, budget enforcement, and the actual x402/MPP
+// 402-round-trip; none of that is reachable from the guest. Agents
 // see a narrow envelope contract, nothing more.
 //
 // See docs/work/current/sandbox-comms/ for the comms architecture and

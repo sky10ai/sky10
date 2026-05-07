@@ -74,7 +74,7 @@ integration yet, no x402 yet.
 
 ## M2 — x402 capability — **done 2026-04-27**
 
-`pkg/sandbox/comms/x402/`. Registers `/comms/x402/ws` on the
+`pkg/sandbox/comms/x402/`. Registers `/comms/metered-services/ws` on the
 daemon HTTP server. Handlers delegate to `pkg/x402` (host-side
 catalog/budget logic from the [x402 plan](../x402/)).
 
@@ -82,7 +82,7 @@ The handlers, the Backend interface, full test coverage, the
 real Backend implementation in `pkg/x402`, and the daemon wiring
 in `commands/serve_x402.go` are all in place. The endpoint is
 registered when the daemon starts; agents reach it at
-`/comms/x402/ws?agent=<name-or-id>` (identity resolved against
+`/comms/metered-services/ws?agent=<name-or-id>` (identity resolved against
 the existing agent registry). M1 wiring uses pkg/x402's
 StubSigner — calls fail with ErrSignerNotConfigured rather than
 charging an unconfigured wallet; OWS-backed signing follows.
@@ -126,7 +126,7 @@ Files:
     nonce returns cached signed result, not double-charge
   - sync correlation: response carries matching `request_id`
 - Integration test (skippable behind env flag): an in-test
-  websocket client opens `/comms/x402/ws`, calls `list_services`
+  websocket client opens `/comms/metered-services/ws`, calls `list_services`
   and `service_call` against an `httptest`-based fake x402 endpoint.
 
 Exit criteria: a Go test where an in-test client successfully

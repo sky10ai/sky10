@@ -34,7 +34,7 @@ because the same telemetry feeds both.
 ## M10 — OpenClaw plugin — *deferred*
 
 Agents in the VM call paid services through the comms endpoint at
-`/comms/x402/ws`. Closes the loop from "user funds wallet" to
+`/comms/metered-services/ws`. Closes the loop from "user funds wallet" to
 "agent uses paid service" with the safety story (per-agent caps,
 audit trail) the sandbox-comms architecture provides. Not started.
 
