@@ -36,7 +36,7 @@ function protocolBadgeClasses(protocol: string): string {
   if (protocol === "mpp") {
     return "bg-indigo-500/10 text-indigo-700 dark:text-indigo-200";
   }
-  return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-200";
+  return "bg-amber-500/10 text-amber-700 dark:text-amber-200";
 }
 
 function tierBadgeClasses(tier: X402ServiceListing["tier"]): string {
