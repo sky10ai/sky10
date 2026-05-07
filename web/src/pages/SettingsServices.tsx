@@ -856,6 +856,27 @@ export default function SettingsServices() {
               it available to any agent on this device, with a per-call max price
               you set.
             </p>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+              <span className="text-secondary">Catalog sources</span>
+              <a
+                href="https://agentic.market"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-medium text-primary transition-colors hover:text-on-surface"
+              >
+                Agentic.Market
+                <Icon className="text-sm" name="open_in_new" />
+              </a>
+              <a
+                href="https://pay.sh"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-medium text-primary transition-colors hover:text-on-surface"
+              >
+                Pay.sh
+                <Icon className="text-sm" name="open_in_new" />
+              </a>
+            </div>
           </div>
           {loading ? (
             <Icon className="text-base text-outline" name="progress_activity" />
