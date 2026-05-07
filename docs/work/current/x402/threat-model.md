@@ -119,8 +119,8 @@ agentic.market itself is compromised and lists hostile services.
 A compromised agent runtime tries to extract the signing key.
 
 - **Mitigated by design.** No wallet delegation. Daemon holds keys;
-  agents call `x402.serviceCall` over loopback RPC; no signed
-  authority ever leaves the daemon process.
+  sandboxed agents call the guest-local metered-services bridge, and no
+  signed authority ever leaves the daemon process.
 
 ### T10 — Network-level censorship / MITM
 

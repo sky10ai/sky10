@@ -27,22 +27,31 @@ Use [milestones.md](milestones.md) as the active checklist.
   `/shared/agent-manifest.json`.
 - [x] Direct guest-to-host callback attempts were reverted and covered by
   regression tests.
+- [x] Generic host-owned WebSocket request/response transport exists in
+  `pkg/sandbox/bridge`.
+- [x] Metered-services canonical route is `/bridge/metered-services/ws`,
+  with `/comms/metered-services/ws` left as a compatibility shim.
+- [x] Host bridge connection management is wired into sandbox ready and
+  reconnect flows for OpenClaw and Hermes templates.
+- [x] Guest-local metered-services calls forward over the host-opened bridge
+  socket and return `host_bridge_disconnected` when no upstream is attached.
+- [x] Host metered-services bridge handler calls the existing `pkg/x402`
+  backend through the current daemon adapter.
+- [x] OpenClaw defaults to the guest-local bridge route.
+- [x] Hermes installs a guest-local `sky10-x402` helper and injects approved
+  x402 service context into tool-call prompts.
 
 ## Remaining
 
-- [ ] Rename the public capability route from `/comms/metered-services/ws`
-  to `/bridge/metered-services/ws`.
-- [ ] Add host-owned bridge connection management for sandbox records.
-- [ ] Add guest-side forwarding backend that uses the host-opened socket.
-- [ ] Wire guest-local metered-services calls through that forwarding backend.
-- [ ] Point OpenClaw helper defaults at the guest-local bridge route.
-- [ ] Feed the same approved x402 service descriptors into Hermes via
-  `bridge.json`, `/shared/agent-manifest.json`, or another guest-local Hermes
-  adapter surface.
 - [ ] Add end-to-end tests for guest-local helper -> bridge -> host x402
-  backend.
-- [ ] Update x402 docs and code comments once the route and package names are
-  settled.
+  backend inside a live sandbox.
+- [ ] Add Hermes live smoke coverage for service listing and one bridged call
+  with no direct host callback URL.
+- [ ] Keep live x402 spending tests behind explicit env/build guards.
+- [ ] Decide whether bridge status should be persisted in sandbox state, not
+  just logs.
+- [ ] Decide whether the host-opened bridge should get a daemon-issued
+  ephemeral handshake before broader capability rollout.
 
 ## Package Direction
 

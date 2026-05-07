@@ -7,10 +7,14 @@ import (
 	"github.com/sky10/sky10/pkg/sandbox/comms"
 )
 
-// EndpointPath is the URL path the metered-services comms endpoint registers at.
+// EndpointPath is the canonical URL path the metered-services bridge endpoint registers at.
 // The daemon mounts the endpoint by calling RegisterOnMux which uses
 // this path; importers don't need to spell it themselves.
-const EndpointPath = "/comms/metered-services/ws"
+const EndpointPath = "/bridge/metered-services/ws"
+
+// LegacyEndpointPath is the pre-bridge path kept as a short compatibility
+// shim while runtime helpers migrate to EndpointPath.
+const LegacyEndpointPath = "/comms/metered-services/ws"
 
 // handlers groups the per-envelope handlers around their shared
 // Backend dependency. Methods on this type are the actual envelope
@@ -38,7 +42,7 @@ func NewEndpoint(backend Backend, resolver comms.IdentityResolver, opts ...comms
 	h := &handlers{backend: backend}
 	e := comms.NewEndpoint("metered-services", resolver, opts...)
 	e.Register(comms.TypeSpec{
-		Name:           "x402.list_services",
+		Name:           TypeListServices,
 		Direction:      comms.DirectionRequestResponse,
 		MaxPayloadSize: 4 * 1024,
 		RateLimit: comms.RateLimit{
@@ -51,7 +55,7 @@ func NewEndpoint(backend Backend, resolver comms.IdentityResolver, opts ...comms
 		Handler:     h.handleListServices,
 	})
 	e.Register(comms.TypeSpec{
-		Name:           "x402.service_call",
+		Name:           TypeServiceCall,
 		Direction:      comms.DirectionRequestResponse,
 		MaxPayloadSize: 256 * 1024,
 		RateLimit: comms.RateLimit{
@@ -64,7 +68,7 @@ func NewEndpoint(backend Backend, resolver comms.IdentityResolver, opts ...comms
 		Handler:     h.handleServiceCall,
 	})
 	e.Register(comms.TypeSpec{
-		Name:           "x402.budget_status",
+		Name:           TypeBudgetStatus,
 		Direction:      comms.DirectionRequestResponse,
 		MaxPayloadSize: 1 * 1024,
 		RateLimit: comms.RateLimit{
@@ -84,5 +88,7 @@ func NewEndpoint(backend Backend, resolver comms.IdentityResolver, opts ...comms
 // for any other purpose.
 func RegisterOnMux(mux *http.ServeMux, backend Backend, resolver comms.IdentityResolver, opts ...comms.Option) {
 	e := NewEndpoint(backend, resolver, opts...)
-	mux.HandleFunc("GET "+EndpointPath, e.Handler())
+	handler := e.Handler()
+	mux.HandleFunc("GET "+EndpointPath, handler)
+	mux.HandleFunc("GET "+LegacyEndpointPath, handler)
 }

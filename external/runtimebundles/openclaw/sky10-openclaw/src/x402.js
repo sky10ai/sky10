@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
-const X402_ENDPOINT_PATH = "/comms/x402/ws";
+const X402_ENDPOINT_PATH = "/bridge/metered-services/ws";
 const DEFAULT_RPC_URL = "http://localhost:9101";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_HELPER_PATH = path.join(os.homedir(), ".openclaw", "sky10-x402.mjs");

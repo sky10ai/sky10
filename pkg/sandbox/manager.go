@@ -335,6 +335,8 @@ type Manager struct {
 	issueIdentityInvite      func(context.Context) (*IdentityInvite, error)
 	hostRPC                  func(context.Context, string, interface{}, interface{}) error
 	guestRPC                 func(context.Context, string, string, interface{}, interface{}) error
+	bridgeConnect            func(context.Context, Record) error
+	bridgeClose              func(string)
 	forwardedPortStart       int
 	localPortAvailable       func(host string, port int) bool
 	reconnectInterval        time.Duration
@@ -377,6 +379,11 @@ func (m *Manager) SetOpenClawSharedEnvResolver(fn func(context.Context) (map[str
 
 func (m *Manager) SetHermesSharedEnvResolver(fn func(context.Context) (map[string]string, error)) {
 	m.resolveHermesSharedEnv = fn
+}
+
+func (m *Manager) SetBridgeConnector(connect func(context.Context, Record) error, close func(string)) {
+	m.bridgeConnect = connect
+	m.bridgeClose = close
 }
 
 func (m *Manager) SetSecretLookup(fn ProviderSecretLookup) {
@@ -806,6 +813,7 @@ func (m *Manager) Stop(ctx context.Context, name string) (*Record, error) {
 	if err != nil {
 		return nil, err
 	}
+	m.closeSandboxBridge(rec.Slug)
 	limactl, err := m.ensureManagedApp(ctx, skyapps.AppLima, true)
 	if err != nil {
 		return nil, err
@@ -842,6 +850,7 @@ func (m *Manager) Delete(ctx context.Context, name string) (*Record, error) {
 	if err != nil {
 		return nil, err
 	}
+	m.closeSandboxBridge(rec.Slug)
 	limactl, err := m.ensureManagedApp(ctx, skyapps.AppLima, true)
 	if err != nil {
 		return nil, err

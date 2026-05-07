@@ -32,7 +32,7 @@ model: claude-opus-4-7
                               ┌───────────────────────────┐
                               │ runtime adapters          │
                               │ OpenClaw helper           │
-                              │ Hermes bridge/manifest    │
+                              │ Hermes bridge/helper      │
                               └───────────────────────────┘
 ```
 

@@ -1,5 +1,5 @@
-// Package x402 is the per-intent comms endpoint for metered service
-// access from sandboxed agents. It mounts at /comms/metered-services/ws
+// Package x402 is the per-intent bridge endpoint for metered service
+// access from sandboxed agents. It mounts at /bridge/metered-services/ws
 // and accepts a small set of envelope types whose handlers delegate to
 // a Backend (typically pkg/x402 on the host).
 //

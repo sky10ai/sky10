@@ -1,6 +1,6 @@
 ---
 created: 2026-04-26
-updated: 2026-04-26
+updated: 2026-05-07
 model: claude-opus-4-7
 ---
 
@@ -9,10 +9,10 @@ model: claude-opus-4-7
 ## No wallet delegation
 
 The daemon holds the keys, signs every payment, and never hands
-signed authority to any agent process. Agents call `x402.serviceCall`
-over loopback RPC and receive responses or typed errors. The wallet
-is not visible in agent process memory, agent logs, or agent disk
-state.
+signed authority to any agent process. Sandboxed agents call the
+guest-local metered-services bridge, which forwards to the host daemon;
+host UI and host-local tools use `x402.*` RPC. The wallet is not visible
+in agent process memory, agent logs, or agent disk state.
 
 This rules out a class of failure: a buggy agent or a compromised
 runtime cannot exfiltrate signing capability. It also keeps the rule

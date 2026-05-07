@@ -137,7 +137,10 @@ func (m *Manager) finishGuestReadyFlow(
 		return err
 	}
 	return m.runReadyProgressStep(name, "ready.host.connect", "Connecting host to guest...", "Host connected to guest.", func() error {
-		return m.ensureHostConnectedGuestAgent(ctx, *updatedRec, hostIdentity)
+		if err := m.ensureHostConnectedGuestAgent(ctx, *updatedRec, hostIdentity); err != nil {
+			return err
+		}
+		return m.ensureSandboxBridge(ctx, *updatedRec)
 	})
 }
 

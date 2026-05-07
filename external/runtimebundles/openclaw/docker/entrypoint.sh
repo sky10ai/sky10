@@ -229,7 +229,7 @@ PY
 
 trap cleanup EXIT INT TERM
 
-sky10 serve >/tmp/sky10.log 2>&1 &
+SKY10_SANDBOX_GUEST=1 sky10 serve >/tmp/sky10.log 2>&1 &
 sky10_pid=$!
 wait_for_sky10
 

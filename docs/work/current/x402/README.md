@@ -164,11 +164,19 @@ later).
   OpenClaw: it installs a `sky10-x402` helper, lists approved services over
   a WebSocket endpoint, and injects those APIs into durable tool-call
   prompts so agents can call paid services without handling wallets or
-  payment headers. The helper still points at the stale `/comms/x402/ws`
-  route, and Hermes still needs the same approved-service descriptors wired
-  into its bridge/tool manifest. The secure sandbox flow needs the
-  host-owned bridge and final `/bridge/metered-services/ws` route described
-  in [sandbox-bridge](../sandbox-bridge/).
+  payment headers.
+- 2026-05-07 — The secure sandbox path now uses the host-owned sandbox
+  bridge at `/bridge/metered-services/ws`. Host sky10 dials the guest
+  endpoint after sandbox readiness, guest-local x402 calls forward over that
+  host-opened socket, and the host stamps trusted sandbox identity before
+  calling the existing `pkg/x402` backend. `/comms/metered-services/ws`
+  remains a compatibility shim; `/comms/x402/ws` is not a supported helper
+  route.
+- 2026-05-07 — Hermes now gets the same x402 surface through its guest
+  bridge: the bundled bridge installs `sky10-x402`, fetches approved service
+  descriptors from the guest-local bridge route, injects them into tool-call
+  prompts, and exposes `list`, `budget`, and `call` without any host callback
+  URL.
 
 ## Documents
 
@@ -188,8 +196,9 @@ later).
    everything OFF and force opt-in?
 3. **Subwallet UX** — auto-derive on first approval, or require an
    explicit "fund x402 wallet" action by the user?
-4. **Hermes tool source** — write generated x402 tools into `bridge.json`,
-   `/shared/agent-manifest.json`, or both?
+4. **Hermes manifest follow-up** — the first cut injects x402 context at
+   prompt/tool-call time; should generated descriptors also be written into
+   `bridge.json`, `/shared/agent-manifest.json`, or both?
 5. **MCP shape** — later non-sandbox runtime surface only, or also a
    runtime adapter option once sandbox bridge works?
 6. **Networks** — Base + Solana day one, or Base-only first?

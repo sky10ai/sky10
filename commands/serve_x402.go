@@ -18,6 +18,7 @@ import (
 	skyconfig "github.com/sky10/sky10/pkg/config"
 	"github.com/sky10/sky10/pkg/payments/mpp"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
+	skysandbox "github.com/sky10/sky10/pkg/sandbox"
 	"github.com/sky10/sky10/pkg/sandbox/comms"
 	commsx402 "github.com/sky10/sky10/pkg/sandbox/comms/x402"
 	skywallet "github.com/sky10/sky10/pkg/wallet"
@@ -26,7 +27,7 @@ import (
 	x402rpc "github.com/sky10/sky10/pkg/x402/rpc"
 )
 
-// installX402Endpoint mounts /comms/metered-services/ws on the daemon's RPC
+// installX402Endpoint mounts /bridge/metered-services/ws on the daemon's RPC
 // server, backed by an in-memory metered-service registry persisted to
 // a JSON file under the sky10 root directory. Identity for incoming
 // connections is resolved against the agent registry: the URL must
@@ -36,7 +37,7 @@ import (
 // `ows sign message --typed-data` for each x402 challenge; otherwise
 // the daemon falls back to a stub signer that returns a typed error
 // on any call requiring payment.
-func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegistry *skyagent.Registry, logger *slog.Logger) error {
+func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegistry *skyagent.Registry, sandboxManager *skysandbox.Manager, logger *slog.Logger) error {
 	if server == nil {
 		return errors.New("x402: nil rpc server")
 	}
@@ -89,11 +90,41 @@ func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegist
 	adapter := newX402Adapter(backend, budget, defaultX402BudgetConfig(), logger)
 	resolver := newAgentIdentityResolver(agentRegistry)
 
-	endpoint := commsx402.NewEndpoint(adapter, resolver, comms.WithLogger(logger))
-	server.HandleHTTP("GET "+commsx402.EndpointPath, endpoint.Handler())
+	forwarder := commsx402.NewForwardingBackend()
+	endpointBackend := meteredServicesEndpointBackend(adapter, forwarder)
+	endpoint := commsx402.NewEndpoint(endpointBackend, resolver, comms.WithLogger(logger))
+	localHandler := endpoint.Handler()
+	server.HandleHTTP("GET "+commsx402.EndpointPath, commsx402.HandlerWithHostBridge(localHandler, forwarder))
+	server.HandleHTTP("GET "+commsx402.LegacyEndpointPath, localHandler)
+
+	if sandboxManager != nil {
+		bridgeManager := skysandbox.NewMeteredServicesBridgeManager(adapter, logger)
+		sandboxManager.SetBridgeConnector(bridgeManager.Connect, bridgeManager.Close)
+	}
 
 	server.RegisterHandler(x402rpc.NewHandler(registry, budget))
 	return nil
+}
+
+const sandboxGuestEnv = "SKY10_SANDBOX_GUEST"
+
+func meteredServicesEndpointBackend(local commsx402.Backend, forwarder *commsx402.ForwardingBackend) commsx402.Backend {
+	if sandboxGuestMode() {
+		return forwarder
+	}
+	return commsx402.PreferForwardingBackend{
+		Forwarder: forwarder,
+		Local:     local,
+	}
+}
+
+func sandboxGuestMode() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(sandboxGuestEnv))) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
+	}
 }
 
 // seedX402Registry runs one Refresh on daemon startup so the

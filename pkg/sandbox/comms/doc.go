@@ -8,8 +8,8 @@
 //   - imports comms,
 //   - constructs an Endpoint with NewEndpoint,
 //   - registers one TypeSpec per envelope it accepts via Register,
-//   - registers the endpoint's HTTP handler on the daemon's mux at
-//     /comms/<capability>/ws.
+//   - registers the endpoint's HTTP handler on a capability-specific
+//     bridge route such as /bridge/metered-services/ws.
 //
 // The plumbing handles connection lifecycle, identity injection, replay
 // protection, audit logging, and per-(agent, type) rate limiting. It does

@@ -41,8 +41,9 @@ Canonical first endpoint:
 
 `/bridge/metered-services/ws`
 
-Existing code currently uses `/comms/metered-services/ws`; renaming that
-route is an explicit milestone, not completed work.
+The legacy `/comms/metered-services/ws` route remains mounted as a short
+compatibility shim. The removed `/comms/x402/ws` helper route is not a
+supported bridge path.
 
 ## Working Model
 
@@ -63,18 +64,22 @@ Host sky10
 
 The runtime sees only the guest-local bridge endpoint. It never sees host
 URLs, wallet state, x402 challenges, payment headers, or host sockets.
+OpenClaw and Hermes sandbox templates mark guest sky10 with
+`SKY10_SANDBOX_GUEST=1`, which disables the local x402 payment backend for
+runtime calls and forces use of the host-opened bridge.
 
 ## Existing Work To Keep
 
 | Area | Status | Notes |
 |---|---:|---|
+| `pkg/sandbox/bridge/` | done | Generic request/response framing over a host-owned WebSocket |
 | `pkg/sandbox/comms/` | done | WebSocket endpoint helper, envelope shape, identity stamping, replay checks, audit, quota, tests |
-| `pkg/sandbox/comms/x402/` | done | `x402.list_services`, `x402.budget_status`, `x402.service_call` handlers and validation |
+| `pkg/sandbox/comms/x402/` | done | `x402.list_services`, `x402.budget_status`, `x402.service_call` handlers, validation, guest forwarding backend, and host bridge handler |
 | `pkg/x402/` | done enough for bridge | Registry, discovery overlay, approvals/user-enabled services, budgets, transport, wallet signer, receipts |
-| OpenClaw helper | partial | Can list/budget/call through a WebSocket endpoint, but still needs the final bridge route/defaults |
-| Hermes bridge | partial | Already registers Hermes with sky10 and reads tools from `bridge.json` or `/shared/agent-manifest.json`; needs x402 tool metadata and bridge calls wired to the guest-local endpoint |
-| Host-owned bridge | missing | Host must dial guest and hold the capability socket |
-| Guest forwarding backend | missing | Guest must forward local metered-service calls over the host-opened bridge |
+| OpenClaw helper | wired | Lists approved services and calls `list`, `budget`, and `call` through the guest-local bridge route |
+| Hermes bridge | wired | Installs a `sky10-x402` guest helper, injects approved service context into tool-call prompts, and uses the guest-local bridge route |
+| Host-owned bridge | wired | Daemon connects after guest readiness and reconnects while the sandbox is alive |
+| Guest forwarding backend | wired | Guest-local metered-service calls forward over the host-opened socket |
 
 ## Documents
 
@@ -103,10 +108,8 @@ URLs, wallet state, x402 challenges, payment headers, or host sockets.
 2. How should the host-opened connection be authenticated or attached:
    lifecycle-owned dial only, WebSocket subprotocol/header, or a
    daemon-issued ephemeral handshake?
-3. Should guest-local agent callers use the same route as the host-held
-   upstream connection, or should the host-held connection be internal-only
-   while the agent-facing route remains `/bridge/metered-services/ws`?
-4. Where should bridge status appear: sandbox state, daemon logs, or both?
-5. What is the exact failure response when the host bridge is disconnected?
-6. Should Hermes x402 tools be written into generated `bridge.json`,
-   `/shared/agent-manifest.json`, or both?
+3. Should bridge status also appear in persisted sandbox state, or are
+   lifecycle logs enough for the first cut?
+4. Should Hermes x402 descriptors later move from prompt/tool context into
+   generated `bridge.json`, `/shared/agent-manifest.json`, or both?
+5. What live-sandbox smoke should gate the first real-USDC x402 run?

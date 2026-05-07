@@ -77,6 +77,9 @@ func (m *Manager) reconnectRunningSandbox(ctx context.Context, _ string, hostIde
 	if err == nil {
 		err = m.ensureHostConnectedGuestAgent(reconnectCtx, rec, hostIdentity)
 	}
+	if err == nil {
+		err = m.ensureSandboxBridge(reconnectCtx, rec)
+	}
 	cancel()
 	if err != nil {
 		m.logger.Warn("sandbox reconnect failed", "sandbox", rec.Slug, "error", err)

@@ -51,18 +51,18 @@ function resetFakeWebSocket() {
   FakeWebSocket.nextResponse = null;
 }
 
-test("deriveX402WsUrl derives comms endpoint from sky10 RPC URL", () => {
+test("deriveX402WsUrl derives bridge endpoint from sky10 RPC URL", () => {
   assert.equal(
     deriveX402WsUrl({ rpcUrl: "http://localhost:9101", agentName: "travel-agent" }),
-    "ws://localhost:9101/comms/x402/ws?agent=travel-agent",
+    "ws://localhost:9101/bridge/metered-services/ws?agent=travel-agent",
   );
   assert.equal(
     deriveX402WsUrl({ rpcUrl: "https://sky10.example/rpc", agentName: "agent/a" }),
-    "wss://sky10.example/comms/x402/ws?agent=agent%2Fa",
+    "wss://sky10.example/bridge/metered-services/ws?agent=agent%2Fa",
   );
 });
 
-test("client lists services over the x402 comms websocket", async () => {
+test("client lists services over the x402 bridge websocket", async () => {
   resetFakeWebSocket();
   FakeWebSocket.nextResponse = (envelope) => ({
     type: envelope.type,
@@ -79,7 +79,7 @@ test("client lists services over the x402 comms websocket", async () => {
   });
   const result = await client.listServices();
 
-  assert.equal(FakeWebSocket.instances[0].url, "ws://localhost:9101/comms/x402/ws?agent=travel-agent");
+  assert.equal(FakeWebSocket.instances[0].url, "ws://localhost:9101/bridge/metered-services/ws?agent=travel-agent");
   assert.equal(FakeWebSocket.instances[0].sent[0].type, "x402.list_services");
   assert.equal(result.services[0].id, "structured-travel-api");
 });

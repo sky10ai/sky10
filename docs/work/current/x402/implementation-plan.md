@@ -34,23 +34,23 @@ because the same telemetry feeds both.
 ## M10 — Runtime Bridge Adapters — *in progress*
 
 Agents in the VM should call paid services through the sandbox bridge
-endpoint at `/bridge/metered-services/ws`. The existing daemon endpoint
-still uses `/comms/metered-services/ws`, and the OpenClaw helper still
-defaults to the stale `/comms/x402/ws` route. Hermes already has a bridge
-that registers tools from `bridge.json` or `/shared/agent-manifest.json`,
-but it does not yet receive x402 service descriptors or a guest-local x402
-caller. Route migration, Hermes wiring, and the host-owned bridge are
-tracked in [`../sandbox-bridge/`](../sandbox-bridge/). This closes the loop
-from "user funds wallet" to "agent uses paid service" with the safety story
-(per-agent caps, audit trail) the sandbox bridge architecture provides.
+endpoint at `/bridge/metered-services/ws`. That route is now the daemon's
+canonical metered-services bridge endpoint, with
+`/comms/metered-services/ws` left as a short compatibility shim. The stale
+`/comms/x402/ws` helper route is not used.
 
 Current slice: the OpenClaw sky10 bridge installs a stable `sky10-x402`
 helper and injects Settings-approved x402 services plus helper usage into
-durable tool-call prompts. The endpoint-to-adapter path is covered by an
-end-to-end websocket test; the remaining work is to put that path behind the
-host-owned sandbox bridge instead of a direct helper route, then feed the
-same descriptors and caller into Hermes. Native OpenClaw tool registration
-and cross-runtime MCP remain follow-ups.
+durable tool-call prompts. The Hermes bridge installs the same guest-local
+helper, injects approved service context into tool-call prompts, and exposes
+`list`, `budget`, and `call`. Host sky10 owns the upstream socket into the
+guest, guest sky10 forwards local x402 envelopes over that socket, and host
+sky10 stamps trusted sandbox identity before calling `pkg/x402`.
+
+Remaining work is live-sandbox smoke coverage for OpenClaw and Hermes,
+real-USDC x402 smoke behind explicit env/build guards, and later native
+OpenClaw tool registration or cross-runtime MCP if the runtime surface needs
+it.
 
 ## Out of scope
 

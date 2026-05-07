@@ -157,6 +157,7 @@ RestartSec=2
 WorkingDirectory=${HOME}
 Environment=HOME=${HOME}
 Environment=PATH=${HOME}/.bin:/usr/local/bin:/usr/bin:/bin
+Environment=SKY10_SANDBOX_GUEST=1
 
 [Install]
 WantedBy=default.target

@@ -379,6 +379,7 @@ func assertBundledDockerRuntimeEntrypointUsesIsolatedSky10Runtime(t *testing.T, 
 		`export SKY10_RUNTIME_DIR="/run/sky10"`,
 		`mkdir -p "${SKY10_RUNTIME_DIR}"`,
 		`rm -f "${SKY10_RUNTIME_DIR}/daemon.pid" "${SKY10_RUNTIME_DIR}/sky10.sock"`,
+		`SKY10_SANDBOX_GUEST=1 sky10 serve`,
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("bundled Docker runtime entrypoint missing %q: %q", want, script)

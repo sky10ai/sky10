@@ -9,7 +9,10 @@ import hashlib
 import mimetypes
 import os
 import re
+import shlex
 import signal
+import socket
+import struct
 import sys
 import tempfile
 import threading
@@ -30,6 +33,9 @@ DEFAULT_MANIFEST_PATH = "/shared/agent-manifest.json"
 WARMUP_PROMPT = "Reply with exactly OK."
 MEDIA_ROOT = os.path.join(tempfile.gettempdir(), "sky10-hermes-media")
 DEFAULT_JOB_OUTPUT_ROOT = "/shared/jobs"
+DEFAULT_X402_ENDPOINT_PATH = "/bridge/metered-services/ws"
+DEFAULT_X402_HELPER_PATH = os.path.join(os.path.expanduser("~"), ".local", "bin", "sky10-x402")
+X402_CONTEXT_SERVICE_LIMIT = 12
 
 
 class BridgeError(RuntimeError):
@@ -53,6 +59,161 @@ def env_flag(name: str, default: bool) -> bool:
     if raw == "":
         return default
     return raw in {"1", "true", "yes", "on"}
+
+
+def derive_x402_ws_url(rpc_url: str, agent_name: str = "", ws_url: str = "") -> str:
+    raw = str(ws_url or "").strip()
+    base = raw or str(rpc_url or "http://127.0.0.1:9101").strip() or "http://127.0.0.1:9101"
+    parsed = urllib.parse.urlparse(base)
+    scheme = parsed.scheme
+    if scheme == "http":
+        scheme = "ws"
+    elif scheme == "https":
+        scheme = "wss"
+    elif scheme not in {"ws", "wss"}:
+        scheme = "ws"
+        parsed = urllib.parse.urlparse("http://" + base)
+    netloc = parsed.netloc
+    path = parsed.path or ""
+    if not raw or path in {"", "/", "/rpc"}:
+        path = DEFAULT_X402_ENDPOINT_PATH
+    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    if agent_name and not any(key == "agent" for key, _ in query):
+        query.append(("agent", agent_name))
+    return urllib.parse.urlunparse((scheme, netloc, path, "", urllib.parse.urlencode(query), ""))
+
+
+def websocket_frame(payload: bytes) -> bytes:
+    mask = os.urandom(4)
+    length = len(payload)
+    if length < 126:
+        header = bytes([0x81, 0x80 | length])
+    elif length <= 0xFFFF:
+        header = bytes([0x81, 0x80 | 126]) + struct.pack("!H", length)
+    else:
+        header = bytes([0x81, 0x80 | 127]) + struct.pack("!Q", length)
+    masked = bytes(byte ^ mask[i % 4] for i, byte in enumerate(payload))
+    return header + mask + masked
+
+
+def read_exact(sock: socket.socket, size: int) -> bytes:
+    chunks: list[bytes] = []
+    remaining = size
+    while remaining > 0:
+        chunk = sock.recv(remaining)
+        if not chunk:
+            raise BridgeError("x402 websocket closed unexpectedly")
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def read_websocket_text(sock: socket.socket) -> str:
+    for _ in range(16):
+        first, second = read_exact(sock, 2)
+        opcode = first & 0x0F
+        masked = second & 0x80
+        length = second & 0x7F
+        if length == 126:
+            length = struct.unpack("!H", read_exact(sock, 2))[0]
+        elif length == 127:
+            length = struct.unpack("!Q", read_exact(sock, 8))[0]
+        mask = read_exact(sock, 4) if masked else b""
+        payload = read_exact(sock, length) if length else b""
+        if masked:
+            payload = bytes(byte ^ mask[i % 4] for i, byte in enumerate(payload))
+        if opcode == 0x1:
+            return payload.decode("utf-8")
+        if opcode == 0x8:
+            raise BridgeError("x402 websocket closed before response")
+        if opcode == 0x9:
+            # Ping; this short-lived helper waits for the actual response.
+            continue
+    raise BridgeError("x402 websocket did not return a text response")
+
+
+def x402_ws_request(ws_url: str, envelope: dict[str, Any], timeout: float = 30.0) -> dict[str, Any]:
+    parsed = urllib.parse.urlparse(ws_url)
+    if parsed.scheme not in {"ws", "wss"}:
+        raise BridgeError(f"x402 websocket URL must use ws or wss, got {parsed.scheme!r}")
+    if parsed.scheme == "wss":
+        raise BridgeError("x402 helper does not support wss from the sandbox; use guest-local ws")
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 80
+    path = parsed.path or DEFAULT_X402_ENDPOINT_PATH
+    if parsed.query:
+        path += "?" + parsed.query
+    key = base64.b64encode(os.urandom(16)).decode("ascii")
+    request = "\r\n".join(
+        [
+            f"GET {path} HTTP/1.1",
+            f"Host: {host}:{port}",
+            "Upgrade: websocket",
+            "Connection: Upgrade",
+            f"Sec-WebSocket-Key: {key}",
+            "Sec-WebSocket-Version: 13",
+            "",
+            "",
+        ]
+    ).encode("ascii")
+    with socket.create_connection((host, port), timeout=timeout) as sock:
+        sock.settimeout(timeout)
+        sock.sendall(request)
+        response = b""
+        while b"\r\n\r\n" not in response:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            response += chunk
+            if len(response) > 65536:
+                raise BridgeError("x402 websocket handshake response too large")
+        status = response.split(b"\r\n", 1)[0].decode("ascii", errors="replace")
+        if " 101 " not in status:
+            raise BridgeError(f"x402 websocket upgrade failed: {status}")
+        sock.sendall(websocket_frame(json.dumps(envelope, separators=(",", ":")).encode("utf-8")))
+        body = read_websocket_text(sock)
+    return json.loads(body)
+
+
+def x402_request(ws_url: str, typ: str, payload: dict[str, Any] | None = None) -> Any:
+    request_id = str(uuid.uuid4())
+    envelope = {
+        "type": typ,
+        "request_id": request_id,
+        "nonce": str(uuid.uuid4()),
+        "payload": payload or {},
+    }
+    response = x402_ws_request(ws_url, envelope)
+    if response.get("request_id") != request_id:
+        raise BridgeError("x402 websocket returned a mismatched request_id")
+    if response.get("error"):
+        err = response["error"]
+        raise BridgeError(f"x402 {err.get('code', 'error')}: {err.get('message', '')}".strip())
+    return response.get("payload")
+
+
+def x402_list_services(ws_url: str) -> list[dict[str, Any]]:
+    payload = x402_request(ws_url, "x402.list_services", {})
+    services = payload.get("services") if isinstance(payload, dict) else []
+    return services if isinstance(services, list) else []
+
+
+def install_x402_helper(helper_path: str, script_path: str, ws_url: str) -> str:
+    path = str(helper_path or DEFAULT_X402_HELPER_PATH).strip() or DEFAULT_X402_HELPER_PATH
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    body = "\n".join(
+        [
+            "#!/bin/sh",
+            "set -e",
+            f"export SKY10_X402_WS_URL={shlex.quote(ws_url)}",
+            f"exec /usr/bin/env python3 {shlex.quote(script_path)} --x402 \"$@\"",
+            "",
+        ]
+    )
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(body)
+    os.chmod(path, 0o755)
+    return path
 
 
 def read_agent_manifest(path: str) -> dict[str, Any]:
@@ -420,6 +581,108 @@ def resolve_job_output_dir(job_id: str, content: dict[str, Any]) -> str:
     return os.path.join(root, job_id, "outputs")
 
 
+def compact_text(value: Any, limit: int = 180) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "..."
+
+
+def x402_service_line(service: dict[str, Any]) -> str:
+    parts = [str(service.get("id") or service.get("display_name") or "x402-service").strip()]
+    display = str(service.get("display_name") or "").strip()
+    if display and display != parts[0]:
+        parts.append(f"({display})")
+    price = str(service.get("price_usdc") or "").strip()
+    if price:
+        parts.append(f"cost ~{price} USDC")
+    tier = str(service.get("tier") or "").strip()
+    if tier:
+        parts.append(f"tier {tier}")
+    hint = compact_text(service.get("hint") or service.get("description"), 220)
+    if hint:
+        parts.append(f"- {hint}")
+    return " ".join(part for part in parts if part)
+
+
+def x402_endpoint_lines(service: dict[str, Any], limit: int = 3) -> list[str]:
+    endpoints = service.get("endpoints")
+    if not isinstance(endpoints, list):
+        return []
+    lines: list[str] = []
+    for endpoint in endpoints[:limit]:
+        if not isinstance(endpoint, dict):
+            continue
+        method = str(endpoint.get("method") or "GET").upper()
+        url = str(endpoint.get("url") or "").strip()
+        price = str(endpoint.get("price_usdc") or "").strip()
+        description = compact_text(endpoint.get("description"), 120)
+        parts = [f"  endpoints: {method} {url}".strip()]
+        if price:
+            parts.append(f"~{price} USDC")
+        if description:
+            parts.append(description)
+        lines.append(" - ".join(parts))
+    if len(endpoints) > limit:
+        lines.append(f"  endpoints: ...{len(endpoints) - limit} more; run the list command for the full catalog.")
+    return lines
+
+
+def format_x402_prompt_context(services: list[dict[str, Any]], helper_path: str) -> str:
+    if not services:
+        return ""
+    shown = services[:X402_CONTEXT_SERVICE_LIMIT]
+    lines = [
+        "Settings-approved x402 APIs are available.",
+        "Routing rule: use browser or web-search for casual browsing and unstructured reading. Use x402 only when an approved service's hint, description, or endpoint list advertises structured/API-grade data that directly matches the task.",
+        "Prefer the listed service's x402 API over browser/search when you need the exact records described below; otherwise use free local tools first.",
+        "The sky10 helper handles x402 payment, receipts, and wallet signing; do not manage wallets, payment headers, or x402 challenges yourself.",
+        f"List services: {helper_path} list",
+        f"Check budget: {helper_path} budget",
+        f"Call a service: {helper_path} call '{{\"service_id\":\"SERVICE_ID\",\"path\":\"/PATH\",\"method\":\"GET\",\"max_price_usdc\":\"0.01\"}}'",
+        "For calls, use service_id from the list and pass a relative path plus any query string; do not pass a full URL.",
+        "Approved services:",
+    ]
+    for service in shown:
+        if not isinstance(service, dict):
+            continue
+        lines.append(f"- {x402_service_line(service)}")
+        lines.extend(x402_endpoint_lines(service))
+    if len(services) > len(shown):
+        lines.append(f"- ...{len(services) - len(shown)} more; run the list command for the full catalog.")
+    return "\n".join(lines)
+
+
+def ensure_x402_tool(tools: list[dict[str, Any]], helper_path: str) -> list[dict[str, Any]]:
+    for tool in tools:
+        if str(tool.get("name") or "") == "sky10.x402":
+            return tools
+    merged = list(tools)
+    merged.append(
+        {
+            "name": "sky10.x402",
+            "capability": "x402",
+            "description": "Call Settings-approved paid x402 APIs through the guest-local sky10 bridge. Use browser/search first unless the service description explicitly advertises the needed structured/API-grade data.",
+            "audience": "agent",
+            "scope": "sandbox",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "enum": ["list", "budget", "call"]},
+                    "params": {"type": "object"},
+                },
+            },
+            "fulfillment": {
+                "mode": "shell",
+                "note": f"Use {helper_path} list, {helper_path} budget, or {helper_path} call '<json>'.",
+            },
+            "pricing": {"model": "x402", "currency": "USDC"},
+            "meta": {"bridge_endpoint": DEFAULT_X402_ENDPOINT_PATH},
+        }
+    )
+    return merged
+
+
 def file_digest(path: str) -> str:
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
@@ -453,7 +716,7 @@ def collect_output_refs(output_dir: str) -> list[dict[str, Any]]:
     return refs
 
 
-def build_tool_call_prompt(content: dict[str, Any], output_dir: str) -> str:
+def build_tool_call_prompt(content: dict[str, Any], output_dir: str, x402_context: str = "") -> str:
     tool = str(content.get("tool") or "").strip() or "tool"
     capability = str(content.get("capability") or "").strip()
     job_context = content.get("job_context") if isinstance(content.get("job_context"), dict) else {}
@@ -475,18 +738,17 @@ def build_tool_call_prompt(content: dict[str, Any], output_dir: str) -> str:
         "budget": content.get("budget"),
         "bid_id": content.get("bid_id"),
     }
-    return "\n".join(
-        [
-            "You are fulfilling a sky10 durable agent tool call.",
-            "Complete the requested tool call autonomously using the tools and credentials available in this VM.",
-            "If the request involves audio or video, infer the media workflow yourself: inspect/extract/convert/mux with ffmpeg when useful, and use configured provider APIs such as ElevenLabs when a voice transformation requires them.",
-            f"Treat payload_refs as input handles. Write generated artifacts under this directory: {output_dir}",
-            "Return a concise result summary and include any output artifact paths or URIs.",
-            "",
-            "Tool call:",
-            json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True),
-        ]
-    )
+    lines = [
+        "You are fulfilling a sky10 durable agent tool call.",
+        "Complete the requested tool call autonomously using the tools and credentials available in this VM.",
+        "If the request involves audio or video, infer the media workflow yourself: inspect/extract/convert/mux with ffmpeg when useful, and use configured provider APIs such as ElevenLabs when a voice transformation requires them.",
+        f"Treat payload_refs as input handles. Write generated artifacts under this directory: {output_dir}",
+        "Return a concise result summary and include any output artifact paths or URIs.",
+    ]
+    if x402_context:
+        lines.extend(["", x402_context])
+    lines.extend(["", "Tool call:", json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True)])
+    return "\n".join(lines)
 
 
 def env_truthy(name: str) -> bool:
@@ -1025,8 +1287,15 @@ class Bridge:
         if not self.sky10_rpc_url:
             raise BridgeError("Hermes bridge config is missing sky10_rpc_url")
 
+        self.x402_ws_url = derive_x402_ws_url(
+            self.sky10_rpc_url,
+            self.agent_name,
+            str(config.get("x402_ws_url") or "").strip(),
+        )
+        self.x402_helper_path = str(config.get("x402_helper_path") or DEFAULT_X402_HELPER_PATH).strip() or DEFAULT_X402_HELPER_PATH
         raw_skills = config.get("skills") or []
         self.tools = normalize_tools(config.get("tools") or manifest.get("tools"))
+        self.tools = ensure_x402_tool(self.tools, self.x402_helper_path)
         manifest_skills = skills_from_tools(self.tools)
         self.skills = [str(skill).strip() for skill in raw_skills if str(skill).strip()] or manifest_skills or list(DEFAULT_AGENT_SKILLS)
         self.sky10 = Sky10Client(self.sky10_rpc_url)
@@ -1040,6 +1309,7 @@ class Bridge:
         self.seen_messages: OrderedDict[str, float] = OrderedDict()
 
     def run(self) -> None:
+        self.install_x402_helper()
         self.hermes.wait_until_ready(self.stop_event)
         self.ensure_registered()
         warmup_thread = None
@@ -1071,6 +1341,23 @@ class Bridge:
     def ensure_registered(self) -> None:
         self.agent_id = self.sky10.register(self.agent_name, self.agent_key_name, self.skills, self.tools)
         log(f"Registered Hermes bridge as {self.agent_id} ({self.agent_name})")
+
+    def install_x402_helper(self) -> None:
+        try:
+            path = install_x402_helper(self.x402_helper_path, os.path.abspath(sys.argv[0]), self.x402_ws_url)
+            log(f"Installed sky10 x402 helper at {path}")
+        except Exception as exc:
+            log(f"Failed to install sky10 x402 helper: {exc}")
+
+    def x402_prompt_context(self) -> str:
+        try:
+            services = x402_list_services(self.x402_ws_url)
+        except Exception as exc:
+            log(f"x402 service discovery unavailable: {exc}")
+            return ""
+        if services:
+            log(f"x402 approved services available: {len(services)}")
+        return format_x402_prompt_context(services, self.x402_helper_path)
 
     def _warm_up_background(self) -> None:
         try:
@@ -1208,9 +1495,10 @@ class Bridge:
         try:
             os.makedirs(output_dir, exist_ok=True)
             self.sky10.update_job_status(job_id, "running", f"Running {tool}")
+            x402_context = self.x402_prompt_context()
             reply = self.hermes.stream(
                 job_id,
-                {"text": build_tool_call_prompt(content, output_dir)},
+                {"text": build_tool_call_prompt(content, output_dir, x402_context)},
                 lambda _chunk: None,
             )
             output_refs = collect_output_refs(output_dir)
@@ -1246,7 +1534,47 @@ class Bridge:
             self.seen_messages[message_id] = now
         return True
 
+
+def run_x402_cli(args: list[str]) -> int:
+    command = args[0] if args else ""
+    raw = args[1] if len(args) > 1 else ""
+    ws_url = os.environ.get("SKY10_X402_WS_URL", "").strip()
+    if not ws_url:
+        config_path = os.environ.get("SKY10_BRIDGE_CONFIG_PATH", "/sandbox-state/bridge.json").strip()
+        if config_path and os.path.exists(config_path):
+            with open(config_path, "r", encoding="utf-8") as fh:
+                config = json.load(fh)
+            agent_name = str(config.get("agent_name") or "").strip()
+            ws_url = derive_x402_ws_url(str(config.get("sky10_rpc_url") or "http://127.0.0.1:9101"), agent_name, str(config.get("x402_ws_url") or ""))
+        else:
+            ws_url = derive_x402_ws_url("http://127.0.0.1:9101")
+
+    def parse_arg(label: str) -> dict[str, Any]:
+        if not raw:
+            return {}
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise BridgeError(f"{label} must be JSON: {exc}") from exc
+        return value if isinstance(value, dict) else {}
+
+    if command == "list":
+        result = x402_request(ws_url, "x402.list_services", parse_arg("list params"))
+    elif command == "budget":
+        result = x402_request(ws_url, "x402.budget_status", {})
+    elif command == "call":
+        result = x402_request(ws_url, "x402.service_call", parse_arg("call params"))
+    else:
+        print("usage: sky10-x402 <list [json] | budget | call json>", file=sys.stderr)
+        return 2
+    print(json.dumps(result, ensure_ascii=True, indent=2, sort_keys=True))
+    return 0
+
+
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "--x402":
+        return run_x402_cli(sys.argv[2:])
+
     config_path = os.environ.get("SKY10_BRIDGE_CONFIG_PATH", "/sandbox-state/bridge.json").strip()
     if not config_path:
         raise BridgeError("SKY10_BRIDGE_CONFIG_PATH is empty")

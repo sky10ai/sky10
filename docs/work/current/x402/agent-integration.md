@@ -48,9 +48,10 @@ directly.
 
 `external/runtimebundles/hermes/bridge/hermes-sky10-bridge.py` already
 registers Hermes with sky10 and reads runtime tools from `bridge.json` or
-`/shared/agent-manifest.json`. The x402 integration should feed the same
-approved service descriptors into that Hermes surface and give Hermes a
-guest-local caller that uses `/bridge/metered-services/ws`.
+`/shared/agent-manifest.json`. The x402 integration now installs a
+guest-local `sky10-x402` helper, fetches approved service descriptors from
+`/bridge/metered-services/ws`, injects them into Hermes tool-call prompts,
+and gives Hermes a guest-local caller for `list`, `budget`, and `call`.
 
 Do not configure Hermes with a direct host gateway URL for x402. Hermes
 must see tool descriptions and a guest-local bridge caller, not host RPC,

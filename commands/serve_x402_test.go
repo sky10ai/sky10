@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/sky10/sky10/pkg/sandbox/bridge"
 	commsx402 "github.com/sky10/sky10/pkg/sandbox/comms/x402"
 	"github.com/sky10/sky10/pkg/x402"
 )
@@ -316,5 +318,44 @@ func TestAdapterEnsureBudgetOnFirstSight(t *testing.T) {
 	}
 	if !a.enrolled["A-1"] {
 		t.Fatal("expected agent to be marked enrolled after first call")
+	}
+}
+
+func TestMeteredServicesEndpointBackendGuestModeRequiresBridge(t *testing.T) {
+	t.Setenv(sandboxGuestEnv, "1")
+	srv := fakeX402Server(t)
+	defer srv.Close()
+	local := newTestAdapter(t, srv)
+	forwarder := commsx402.NewForwardingBackend()
+
+	backend := meteredServicesEndpointBackend(local, forwarder)
+	if backend != forwarder {
+		t.Fatalf("backend = %T, want guest forwarding backend", backend)
+	}
+
+	_, err := backend.ListServices(context.Background(), "A-1")
+	var bridgeErr *bridge.Error
+	if !errors.As(err, &bridgeErr) {
+		t.Fatalf("ListServices err = %T %v, want *bridge.Error", err, err)
+	}
+	if bridgeErr.Code != commsx402.ErrCodeHostBridgeDisconnected {
+		t.Fatalf("bridge error code = %q, want %q", bridgeErr.Code, commsx402.ErrCodeHostBridgeDisconnected)
+	}
+}
+
+func TestMeteredServicesEndpointBackendHostModeUsesLocalFallback(t *testing.T) {
+	t.Setenv(sandboxGuestEnv, "")
+	srv := fakeX402Server(t)
+	defer srv.Close()
+	local := newTestAdapter(t, srv)
+	forwarder := commsx402.NewForwardingBackend()
+
+	backend := meteredServicesEndpointBackend(local, forwarder)
+	services, err := backend.ListServices(context.Background(), "A-1")
+	if err != nil {
+		t.Fatalf("ListServices: %v", err)
+	}
+	if len(services) != 1 || services[0].ID != "perplexity" {
+		t.Fatalf("services = %+v, want local fallback", services)
 	}
 }

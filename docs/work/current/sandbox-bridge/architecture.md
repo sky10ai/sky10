@@ -50,13 +50,15 @@ Final route:
 
 `/bridge/metered-services/ws`
 
-Current code route:
+Compatibility route:
 
 `/comms/metered-services/ws`
 
-The route rename is part of the implementation plan. The important rule is
-that the path is per capability. We do not introduce a generic
-`/bridge/ws` endpoint that multiplexes unrelated capabilities.
+The compatibility route is a short-window shim for callers that already
+used the earlier metered-services endpoint. New runtime adapters use the
+canonical bridge route. The important rule is that the path is per
+capability. We do not introduce a generic `/bridge/ws` endpoint that
+multiplexes unrelated capabilities.
 
 Future routes, if needed:
 
@@ -84,6 +86,8 @@ capability layer:
 - `x402.service_call`
 - payload validation before business logic
 - adapter interface named `Backend`
+- guest forwarding backend for calls from runtime adapters
+- host bridge handler that stamps trusted sandbox identity
 
 `pkg/x402/` is the host-side domain engine:
 
@@ -95,20 +99,26 @@ capability layer:
 - wallet signing
 - receipt persistence
 
-The bridge should reuse those packages rather than replacing them.
+`pkg/sandbox/bridge/` is the capability-neutral host-owned WebSocket
+transport used by the metered-services bridge:
 
-## Missing Packages
+- request/response frame shape
+- structured bridge errors
+- context-bound calls
+- close semantics that fail pending calls
 
-The missing pieces are:
+The bridge reuses the comms and x402 packages rather than replacing them.
 
-- host-side sandbox bridge manager
-- guest-side bridge forwarding backend
-- route rename from `/comms/metered-services/ws` to
-  `/bridge/metered-services/ws`
-- OpenClaw helper and Hermes bridge/tool-manifest defaults pointed at the
-  guest-local bridge route
-- tests that prove guest-local agent calls reach the host x402 backend
-  without any direct guest-to-host callback
+## Remaining Pieces
+
+The first implementation slice now has the core packages in place. Remaining
+work is operational and smoke coverage:
+
+- live sandbox smoke for OpenClaw and Hermes
+- live x402 smoke with real USDC behind explicit env/build guards
+- optional bridge status in persisted sandbox state
+- optional authentication hardening for the host-opened upstream socket
+- eventual package rename cleanup after the capability is proven
 
 ## Identity
 
@@ -121,10 +131,10 @@ handlers see an `Envelope` with `AgentID` and `DeviceID` stamped by the
 transport layer. The bridge work must preserve that invariant when a
 guest-local request is forwarded to the host.
 
-Open design point: whether the guest stamps local agent identity before
-forwarding and host verifies it against the sandbox record, or the host
-maps the bridge connection plus guest agent name to the trusted identity.
-Either way, payload identity remains untrusted.
+For the current bridge slice, the host bridge manager maps the bridge
+connection to the sandbox record and the host handler stamps the trusted
+sandbox slug as the x402 agent identity. Payload identity remains untrusted
+and cannot override that host-stamped value.
 
 ## Request Flow
 
@@ -134,6 +144,9 @@ Either way, payload identity remains untrusted.
 3. Guest sky10 records that host-owned socket as the active upstream for
    metered services.
 4. The runtime adapter opens guest-local `/bridge/metered-services/ws`.
+   Sandbox guest daemons run with `SKY10_SANDBOX_GUEST=1`, so the endpoint is
+   bridge-only and returns `host_bridge_disconnected` until the host upstream
+   is attached.
 5. Guest sky10 validates the local x402 envelope with existing
    `pkg/sandbox/comms/x402` handlers or equivalent handler code.
 6. Guest bridge backend forwards the typed request over the host-owned

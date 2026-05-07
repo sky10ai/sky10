@@ -749,6 +749,9 @@ func TestBundledOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), "cat > \"${UNIT_DIR}/sky10.service\" <<EOF") {
 		t.Fatalf("bundled user script missing guest sky10 systemd unit: %q", string(body))
 	}
+	if !strings.Contains(string(body), "Environment=SKY10_SANDBOX_GUEST=1") {
+		t.Fatalf("bundled user script missing guest x402 bridge-only marker: %q", string(body))
+	}
 	if strings.Contains(string(body), "ExecStartPost=%h/.bin/sky10-managed-reconnect") {
 		t.Fatalf("bundled user script should not install guest-to-host reconnect hook: %q", string(body))
 	}
@@ -1815,6 +1818,9 @@ func TestBundledHermesUserScriptKeepsSharedEnv(t *testing.T) {
 	if !strings.Contains(script, "sky10.service") {
 		t.Fatalf("bundled Hermes user script missing guest sky10 service unit: %q", script)
 	}
+	if !strings.Contains(script, "Environment=SKY10_SANDBOX_GUEST=1") {
+		t.Fatalf("bundled Hermes user script missing guest x402 bridge-only marker: %q", script)
+	}
 	if !strings.Contains(script, "hermes config set auxiliary.vision.provider main") {
 		t.Fatalf("bundled Hermes user script missing auxiliary vision config: %q", script)
 	}
@@ -2012,6 +2018,15 @@ func TestBundledHermesBridgeAssetRegistersWithSky10(t *testing.T) {
 	}
 	if strings.Contains(script, "host_rpc_url") {
 		t.Fatalf("bundled Hermes bridge should not accept legacy host_rpc_url config: %q", script)
+	}
+	if !strings.Contains(script, `DEFAULT_X402_ENDPOINT_PATH = "/bridge/metered-services/ws"`) {
+		t.Fatalf("bundled Hermes bridge missing guest-local x402 bridge endpoint: %q", script)
+	}
+	if !strings.Contains(script, `"name": "sky10.x402"`) {
+		t.Fatalf("bundled Hermes bridge missing x402 tool registration: %q", script)
+	}
+	if !strings.Contains(script, "install_x402_helper") {
+		t.Fatalf("bundled Hermes bridge missing x402 helper install path: %q", script)
 	}
 	if !strings.Contains(script, "/responses") {
 		t.Fatalf("bundled Hermes bridge missing Hermes Responses API call: %q", script)
