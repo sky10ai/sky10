@@ -25,6 +25,7 @@ import FileBrowser from "./pages/FileBrowser";
 import Bucket from "./pages/Bucket";
 import Activity from "./pages/Activity";
 import Settings from "./pages/Settings";
+import SettingsAIConnections from "./pages/SettingsAIConnections";
 import SettingsApps from "./pages/SettingsApps";
 import SettingsCodex from "./pages/SettingsCodex";
 import SettingsIdentity from "./pages/SettingsIdentity";
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="settings/network" element={<Network />} />
           <Route path="settings/kv" element={<KVStore />} />
           <Route path="settings/activity" element={<Activity />} />
+          <Route path="settings/ai-connections" element={<SettingsAIConnections />} />
           <Route path="settings/apps" element={<SettingsApps />} />
           <Route path="settings/codex" element={<SettingsCodex />} />
           <Route path="settings/identity" element={<SettingsIdentity />} />
