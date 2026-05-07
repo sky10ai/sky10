@@ -226,14 +226,16 @@ type PaymentReceipt struct {
 // needs to validate and execute future calls without re-asking the
 // upstream service or the directory.
 type ServiceManifest struct {
-	ID           string    `json:"id"`
-	DisplayName  string    `json:"display_name"`
-	Category     string    `json:"category,omitempty"`
-	Description  string    `json:"description,omitempty"`
-	Endpoint     string    `json:"endpoint"`
-	Networks     []Network `json:"networks"`
-	MaxPriceUSDC string    `json:"max_price_usdc"`
-	UpdatedAt    time.Time `json:"updated_at,omitempty"`
+	ID           string            `json:"id"`
+	DisplayName  string            `json:"display_name"`
+	Category     string            `json:"category,omitempty"`
+	Description  string            `json:"description,omitempty"`
+	Endpoint     string            `json:"endpoint"`
+	ServiceURL   string            `json:"service_url,omitempty"`
+	Endpoints    []ServiceEndpoint `json:"endpoints,omitempty"`
+	Networks     []Network         `json:"networks"`
+	MaxPriceUSDC string            `json:"max_price_usdc"`
+	UpdatedAt    time.Time         `json:"updated_at,omitempty"`
 
 	// SIWXDomain enables Sign-In-With-X authentication on every
 	// request to this service. When non-empty, Backend.Call attaches
@@ -244,6 +246,18 @@ type ServiceManifest struct {
 	// the SIWE (EIP-4361) message names (e.g. "api.venice.ai");
 	// empty disables SIWX for the service.
 	SIWXDomain string `json:"siwx_domain,omitempty"`
+}
+
+// ServiceEndpoint is display metadata for one callable URL advertised
+// by a service directory. Backend.Call still routes through Endpoint
+// plus the caller-provided path; these entries help humans and agents
+// inspect the available URLs and costs.
+type ServiceEndpoint struct {
+	URL         string  `json:"url"`
+	Method      string  `json:"method,omitempty"`
+	Description string  `json:"description,omitempty"`
+	PriceUSDC   string  `json:"price_usdc,omitempty"`
+	Network     Network `json:"network,omitempty"`
 }
 
 // EIP712TypedData is the JSON shape consumed by `ows sign message

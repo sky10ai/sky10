@@ -98,10 +98,13 @@ func manifestHash(m ServiceManifest) (string, error) {
 // canonicalManifestJSON returns a JSON encoding of m with stable field
 // ordering. Go's encoding/json emits struct fields in declaration
 // order, which is deterministic; we zero out the UpdatedAt timestamp
-// before hashing so a refresh that only bumps the timestamp does not
-// trigger spurious re-approval.
+// and display-only catalog metadata before hashing so a refresh that
+// only changes UI copy or endpoint descriptions does not trigger
+// spurious re-approval.
 func canonicalManifestJSON(m ServiceManifest) ([]byte, error) {
 	clone := m
 	clone.UpdatedAt = time.Time{}
+	clone.ServiceURL = ""
+	clone.Endpoints = nil
 	return json.Marshal(clone)
 }

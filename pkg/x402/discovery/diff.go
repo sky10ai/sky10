@@ -1,6 +1,8 @@
 package discovery
 
 import (
+	"reflect"
+
 	"github.com/sky10/sky10/pkg/x402"
 )
 
@@ -156,9 +158,11 @@ func Classify(prev *x402.ServiceManifest, curr x402.ServiceManifest) Diff {
 	}
 	if prev.DisplayName != curr.DisplayName ||
 		prev.Description != curr.Description ||
-		prev.Category != curr.Category {
+		prev.Category != curr.Category ||
+		prev.ServiceURL != curr.ServiceURL ||
+		!reflect.DeepEqual(prev.Endpoints, curr.Endpoints) {
 		d.Kind = DiffKindMetadataOnly
-		d.Reason = "metadata text changed"
+		d.Reason = "metadata changed"
 		return d
 	}
 	d.Kind = DiffKindUnchanged

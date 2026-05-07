@@ -146,17 +146,20 @@ func (h *Handler) receipts(params json.RawMessage) (interface{}, error, bool) {
 // returns. Carries enough information for the Web UI to render the
 // service card without secondary RPC calls.
 type ServiceListing struct {
-	ID                   string         `json:"id"`
-	DisplayName          string         `json:"display_name"`
-	Description          string         `json:"description,omitempty"`
-	Category             string         `json:"category,omitempty"`
-	Networks             []x402.Network `json:"networks,omitempty"`
-	MaxPriceUSDC         string         `json:"max_price_usdc,omitempty"`
-	Tier                 x402.Tier      `json:"tier"`
-	Hint                 string         `json:"hint,omitempty"`
-	Enabled              bool           `json:"enabled"`
-	ApprovedAt           string         `json:"approved_at,omitempty"`
-	ApprovedMaxPriceUSDC string         `json:"approved_max_price_usdc,omitempty"`
+	ID                   string                 `json:"id"`
+	DisplayName          string                 `json:"display_name"`
+	Description          string                 `json:"description,omitempty"`
+	Category             string                 `json:"category,omitempty"`
+	Endpoint             string                 `json:"endpoint,omitempty"`
+	ServiceURL           string                 `json:"service_url,omitempty"`
+	Endpoints            []x402.ServiceEndpoint `json:"endpoints,omitempty"`
+	Networks             []x402.Network         `json:"networks,omitempty"`
+	MaxPriceUSDC         string                 `json:"max_price_usdc,omitempty"`
+	Tier                 x402.Tier              `json:"tier"`
+	Hint                 string                 `json:"hint,omitempty"`
+	Enabled              bool                   `json:"enabled"`
+	ApprovedAt           string                 `json:"approved_at,omitempty"`
+	ApprovedMaxPriceUSDC string                 `json:"approved_max_price_usdc,omitempty"`
 }
 
 // ListServicesResult is the response shape for x402.listServices.
@@ -173,6 +176,9 @@ func (h *Handler) listServices(_ json.RawMessage) (interface{}, error, bool) {
 			DisplayName:  m.DisplayName,
 			Description:  m.Description,
 			Category:     m.Category,
+			Endpoint:     m.Endpoint,
+			ServiceURL:   listingServiceURL(m),
+			Endpoints:    listingEndpoints(m),
 			Networks:     m.Networks,
 			MaxPriceUSDC: m.MaxPriceUSDC,
 			Tier:         x402.TierConvenience,
@@ -191,6 +197,42 @@ func (h *Handler) listServices(_ json.RawMessage) (interface{}, error, bool) {
 		out = append(out, entry)
 	}
 	return ListServicesResult{Services: out}, nil, true
+}
+
+func listingServiceURL(m x402.ServiceManifest) string {
+	if home := x402.ServiceHomeURL(m.ServiceURL); home != "" {
+		return home
+	}
+	if home := x402.ServiceHomeURL(m.Endpoint); home != "" {
+		return home
+	}
+	for _, ep := range m.Endpoints {
+		if home := x402.ServiceHomeURL(ep.URL); home != "" {
+			return home
+		}
+	}
+	return ""
+}
+
+func listingEndpoints(m x402.ServiceManifest) []x402.ServiceEndpoint {
+	out := make([]x402.ServiceEndpoint, 0, len(m.Endpoints))
+	for _, ep := range m.Endpoints {
+		if strings.TrimSpace(ep.URL) == "" {
+			continue
+		}
+		out = append(out, ep)
+	}
+	if len(out) > 0 || strings.TrimSpace(m.Endpoint) == "" {
+		return out
+	}
+	fallback := x402.ServiceEndpoint{
+		URL:       m.Endpoint,
+		PriceUSDC: m.MaxPriceUSDC,
+	}
+	if len(m.Networks) > 0 {
+		fallback.Network = m.Networks[0]
+	}
+	return []x402.ServiceEndpoint{fallback}
 }
 
 // SetEnabledParams is the request shape for x402.setEnabled.

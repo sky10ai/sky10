@@ -110,21 +110,25 @@ type agenticService struct {
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
 	Description string            `json:"description"`
+	Domain      string            `json:"domain"`
+	ProviderURL string            `json:"providerUrl"`
 	Category    string            `json:"category"`
 	Networks    []string          `json:"networks"`
 	Endpoints   []agenticEndpoint `json:"endpoints"`
 }
 
 type agenticEndpoint struct {
-	URL     string         `json:"url"`
-	Pricing agenticPricing `json:"pricing"`
-	Method  string         `json:"method"`
+	URL         string         `json:"url"`
+	Description string         `json:"description"`
+	Pricing     agenticPricing `json:"pricing"`
+	Method      string         `json:"method"`
 }
 
 type agenticPricing struct {
-	Amount   string `json:"amount"`
-	Currency string `json:"currency"`
-	Network  string `json:"network"`
+	Amount    string `json:"amount"`
+	MaxAmount string `json:"maxAmount"`
+	Currency  string `json:"currency"`
+	Network   string `json:"network"`
 }
 
 // convertAgenticService projects one upstream service onto a
@@ -151,6 +155,8 @@ func convertAgenticService(svc agenticService) (x402.ServiceManifest, bool) {
 		Description:  svc.Description,
 		Category:     svc.Category,
 		Endpoint:     endpoint,
+		ServiceURL:   canonicalServiceURL(svc.ProviderURL, svc.Domain),
+		Endpoints:    serviceEndpoints(svc.Endpoints),
 		Networks:     normalizeNetworks(svc.Networks),
 		MaxPriceUSDC: maxPrice,
 	}, true
@@ -161,21 +167,78 @@ func convertAgenticService(svc agenticService) (x402.ServiceManifest, bool) {
 // false.
 func canonicalEndpoint(endpoints []agenticEndpoint) (string, bool) {
 	for _, ep := range endpoints {
-		raw := strings.TrimSpace(ep.URL)
-		if raw == "" {
+		u, ok := parseHTTPURL(ep.URL)
+		if !ok {
 			continue
 		}
-		u, err := url.Parse(raw)
-		if err != nil || u.Host == "" {
-			continue
-		}
-		scheme := u.Scheme
-		if scheme == "" {
-			scheme = "https"
-		}
-		return scheme + "://" + u.Host, true
+		return u.Scheme + "://" + u.Host, true
 	}
 	return "", false
+}
+
+func serviceEndpoints(endpoints []agenticEndpoint) []x402.ServiceEndpoint {
+	out := make([]x402.ServiceEndpoint, 0, len(endpoints))
+	for _, ep := range endpoints {
+		u, ok := parseHTTPURL(ep.URL)
+		if !ok {
+			continue
+		}
+		entry := x402.ServiceEndpoint{
+			URL:         u.String(),
+			Method:      strings.ToUpper(strings.TrimSpace(ep.Method)),
+			Description: strings.TrimSpace(ep.Description),
+			PriceUSDC:   endpointPriceUSDC(ep),
+			Network:     normalizeNetwork(ep.Pricing.Network),
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func endpointPriceUSDC(ep agenticEndpoint) string {
+	amount := endpointMaxAmount(ep)
+	if amount == "" {
+		return ""
+	}
+	if _, err := x402.CompareUSDC(amount, "0"); err != nil {
+		return ""
+	}
+	return amount
+}
+
+func endpointMaxAmount(ep agenticEndpoint) string {
+	if maxAmount := strings.TrimSpace(ep.Pricing.MaxAmount); maxAmount != "" {
+		return maxAmount
+	}
+	return strings.TrimSpace(ep.Pricing.Amount)
+}
+
+func canonicalServiceURL(providerURL, domain string) string {
+	if home := x402.ServiceHomeURL(providerURL); home != "" {
+		return home
+	}
+	return x402.ServiceHomeURL(domain)
+}
+
+func parseHTTPURL(raw string) (*url.URL, bool) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return nil, false
+	}
+	if !strings.Contains(value, "://") {
+		value = "https://" + value
+	}
+	u, err := url.Parse(value)
+	if err != nil || u.Host == "" {
+		return nil, false
+	}
+	if u.Scheme == "" {
+		u.Scheme = "https"
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, false
+	}
+	return u, true
 }
 
 // maxEndpointPrice returns the largest non-empty USDC price across
@@ -186,7 +249,7 @@ func canonicalEndpoint(endpoints []agenticEndpoint) (string, bool) {
 func maxEndpointPrice(endpoints []agenticEndpoint) (string, error) {
 	var best *big.Int
 	for _, ep := range endpoints {
-		amt := strings.TrimSpace(ep.Pricing.Amount)
+		amt := endpointMaxAmount(ep)
 		if amt == "" {
 			continue
 		}
@@ -276,22 +339,28 @@ func normalizeNetworks(in []string) []x402.Network {
 	out := make([]x402.Network, 0, len(in))
 	seen := make(map[x402.Network]struct{}, len(in))
 	for _, raw := range in {
-		switch strings.ToLower(strings.TrimSpace(raw)) {
-		case "base":
-			if _, ok := seen[x402.NetworkBase]; ok {
-				continue
-			}
-			seen[x402.NetworkBase] = struct{}{}
-			out = append(out, x402.NetworkBase)
-		case "solana":
-			if _, ok := seen[x402.NetworkSolana]; ok {
-				continue
-			}
-			seen[x402.NetworkSolana] = struct{}{}
-			out = append(out, x402.NetworkSolana)
+		network := normalizeNetwork(raw)
+		if network == "" {
+			continue
 		}
+		if _, ok := seen[network]; ok {
+			continue
+		}
+		seen[network] = struct{}{}
+		out = append(out, network)
 	}
 	return out
+}
+
+func normalizeNetwork(raw string) x402.Network {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "base":
+		return x402.NetworkBase
+	case "solana":
+		return x402.NetworkSolana
+	default:
+		return ""
+	}
 }
 
 // ErrInvalidAgenticPayload signals a Fetch failed because the upstream

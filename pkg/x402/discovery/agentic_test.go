@@ -15,10 +15,12 @@ const fakeAgenticPayload = `{
       "id": "exa",
       "name": "Exa",
       "description": "AI-powered web search",
+      "domain": "exa.ai",
+      "providerUrl": "https://exa.ai",
       "category": "Search",
       "networks": ["Base"],
       "endpoints": [
-        {"url":"https://api.exa.ai/search","pricing":{"amount":"0.007","currency":"USDC","network":"Base"},"method":"POST"},
+        {"url":"https://api.exa.ai/search","pricing":{"amount":"0.007","maxAmount":"0.015","currency":"USDC","network":"Base"},"method":"POST"},
         {"url":"https://api.exa.ai/contents","pricing":{"amount":"0.001","currency":"USDC","network":"Base"},"method":"POST"}
       ]
     },
@@ -74,8 +76,20 @@ func TestAgenticMarketSourceFetchHappyPath(t *testing.T) {
 	if exa.Endpoint != "https://api.exa.ai" {
 		t.Fatalf("exa endpoint = %q, want https://api.exa.ai", exa.Endpoint)
 	}
-	if exa.MaxPriceUSDC != "0.007" {
-		t.Fatalf("exa max price = %q, want 0.007 (the larger of 0.001/0.007)", exa.MaxPriceUSDC)
+	if exa.MaxPriceUSDC != "0.015" {
+		t.Fatalf("exa max price = %q, want 0.015 (the larger endpoint max)", exa.MaxPriceUSDC)
+	}
+	if exa.ServiceURL != "https://exa.ai" {
+		t.Fatalf("exa service URL = %q, want https://exa.ai", exa.ServiceURL)
+	}
+	if len(exa.Endpoints) != 2 {
+		t.Fatalf("exa endpoints = %d, want 2", len(exa.Endpoints))
+	}
+	if exa.Endpoints[0].URL != "https://api.exa.ai/search" || exa.Endpoints[0].Method != "POST" {
+		t.Fatalf("exa endpoint[0] = %+v", exa.Endpoints[0])
+	}
+	if exa.Endpoints[0].PriceUSDC != "0.015" {
+		t.Fatalf("exa endpoint[0] price = %q, want 0.015", exa.Endpoints[0].PriceUSDC)
 	}
 	if len(exa.Networks) != 1 || exa.Networks[0] != x402.NetworkBase {
 		t.Fatalf("exa networks = %+v, want [base]", exa.Networks)

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { Icon } from "../components/Icon";
 import { SettingsPage } from "../components/SettingsPage";
@@ -6,6 +6,7 @@ import {
   wallet,
   x402,
   type X402Receipt,
+  type X402ServiceEndpoint,
   type X402ServiceListing,
 } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
@@ -24,14 +25,14 @@ function tierBadgeClasses(tier: X402ServiceListing["tier"]): string {
 
 function tierLabel(tier: X402ServiceListing["tier"]): string {
   if (tier === "primitive") return "Hard to do locally";
-  return "Browser/API alternative";
+  return "Optional paid API";
 }
 
 function tierTooltip(tier: X402ServiceListing["tier"]): string {
   if (tier === "primitive") {
     return "Use when the agent needs something local tools usually cannot provide.";
   }
-  return "Use when a paid API is worth it even though browser or search may also work.";
+  return "Use when a paid API is worth the cost for this workflow.";
 }
 
 function categoryLabel(category: string | undefined): string {
@@ -145,6 +146,198 @@ function truncate(value: string | undefined, n = 10): string {
   return `${value.slice(0, n)}…${value.slice(-n)}`;
 }
 
+function serviceEndpoints(service: X402ServiceListing): X402ServiceEndpoint[] {
+  const seen = new Set<string>();
+  const endpoints = (service.endpoints ?? []).filter((ep) => {
+    if (!ep.url) return false;
+    const key = endpointKey(ep);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  if (endpoints.length > 0) return endpoints;
+  if (!service.endpoint) return [];
+  return [
+    {
+      url: service.endpoint,
+      price_usdc: service.max_price_usdc,
+      network: service.networks?.[0],
+    },
+  ];
+}
+
+function endpointKey(endpoint: X402ServiceEndpoint): string {
+  return JSON.stringify([
+    endpoint.method ?? "",
+    endpoint.url,
+    endpoint.description ?? "",
+    endpoint.price_usdc ?? "",
+    endpoint.network ?? "",
+  ]);
+}
+
+function serviceLink(service: X402ServiceListing): string {
+  return service.service_url || service.endpoint || service.endpoints?.[0]?.url || "";
+}
+
+function endpointPathLabel(endpointURL: string): string {
+  try {
+    const parsed = new URL(endpointURL);
+    const path = `${parsed.pathname}${parsed.search}`;
+    if (path && path !== "/") return path;
+    return parsed.host;
+  } catch {
+    return endpointURL;
+  }
+}
+
+function endpointHostLabel(endpointURL: string): string {
+  try {
+    return new URL(endpointURL).host;
+  } catch {
+    return endpointURL;
+  }
+}
+
+function endpointDisplayLabel(endpoint: X402ServiceEndpoint): string {
+  return endpoint.description || endpointPathLabel(endpoint.url);
+}
+
+function endpointMetaParts(endpoint: X402ServiceEndpoint): string[] {
+  return [
+    endpoint.description ? endpointPathLabel(endpoint.url) : undefined,
+    endpoint.network ? networkLabel([endpoint.network]) : undefined,
+    endpoint.price_usdc ? `$${endpoint.price_usdc}` : undefined,
+  ]
+    .filter(Boolean)
+    .map(String);
+}
+
+interface EndpointDropdownProps {
+  endpoints: X402ServiceEndpoint[];
+  selectedEndpoint: X402ServiceEndpoint | undefined;
+  onSelect: (key: string) => void;
+}
+
+function EndpointDropdown({
+  endpoints,
+  selectedEndpoint,
+  onSelect,
+}: EndpointDropdownProps) {
+  const [open, setOpen] = useState(false);
+  if (!selectedEndpoint) return null;
+  const metaParts = endpointMetaParts(selectedEndpoint);
+  const selectedEndpointKey = endpointKey(selectedEndpoint);
+
+  return (
+    <div
+      className="relative w-full max-w-2xl space-y-2"
+      onBlur={(event) => {
+        const next = event.relatedTarget;
+        if (!(next instanceof Node) || !event.currentTarget.contains(next)) {
+          setOpen(false);
+        }
+      }}
+    >
+      <div className="mb-1 flex items-center gap-2">
+        <span className="text-xs font-medium uppercase tracking-wider text-outline">
+          Endpoints
+        </span>
+        <span className="rounded-full bg-surface-container px-2 py-0.5 text-[10px] font-medium text-secondary">
+          {endpoints.length}
+        </span>
+      </div>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full min-w-0 items-center gap-3 rounded-lg border border-outline-variant/30 bg-surface px-3 py-2 text-left transition-colors hover:bg-surface-container-low focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+      >
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-surface-container text-secondary">
+          <Icon className="text-base" name="route" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-2">
+            {selectedEndpoint.method ? (
+              <span className="shrink-0 rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] font-bold text-emerald-700 dark:text-emerald-200">
+                {selectedEndpoint.method}
+              </span>
+            ) : null}
+            <span className="truncate text-sm font-medium text-on-surface">
+              {endpointDisplayLabel(selectedEndpoint)}
+            </span>
+          </span>
+          <span className="mt-0.5 block truncate text-xs text-secondary">
+            {[endpointHostLabel(selectedEndpoint.url), ...metaParts].join(
+              " · ",
+            )}
+          </span>
+        </span>
+        <Icon
+          className={`shrink-0 text-base text-outline transition-transform ${
+            open ? "rotate-180" : ""
+          }`}
+          name="expand_more"
+        />
+      </button>
+
+      {open ? (
+        <div className="absolute left-0 top-full z-30 mt-2 max-h-72 w-full overflow-y-auto overflow-x-hidden overscroll-contain rounded-lg border border-outline-variant/20 bg-surface-container-lowest p-1 shadow-xl">
+          {endpoints.map((endpoint) => {
+            const key = endpointKey(endpoint);
+            const selected = key === selectedEndpointKey;
+            const parts = endpointMetaParts(endpoint);
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => {
+                  onSelect(key);
+                  setOpen(false);
+                }}
+                className={`flex w-full min-w-0 items-start gap-3 overflow-hidden rounded-md px-3 py-2 text-left transition-colors ${
+                  selected
+                    ? "bg-emerald-500/10 text-on-surface"
+                    : "text-secondary hover:bg-surface-container hover:text-on-surface"
+                }`}
+              >
+                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded bg-surface">
+                  <Icon
+                    className="text-sm"
+                    name={selected ? "check" : "link"}
+                  />
+                </span>
+                <span className="min-w-0 flex-1 space-y-1">
+                  <span className="flex min-w-0 items-center gap-2">
+                    {endpoint.method ? (
+                      <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 font-mono text-[10px] font-bold">
+                        {endpoint.method}
+                      </span>
+                    ) : null}
+                    <span className="truncate text-sm font-medium">
+                      {endpointDisplayLabel(endpoint)}
+                    </span>
+                  </span>
+                  <span className="block truncate font-mono text-[11px]">
+                    {endpoint.url}
+                  </span>
+                  {endpoint.description || parts.length > 0 ? (
+                    <span className="block truncate text-xs">
+                      {[endpoint.description, ...parts]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 interface ServiceCardProps {
   service: X402ServiceListing;
   busy: boolean;
@@ -162,6 +355,23 @@ function ServiceCard({
 }: ServiceCardProps) {
   const [editing, setEditing] = useState(false);
   const [maxPrice, setMaxPrice] = useState(service.max_price_usdc ?? "");
+  const endpoints = useMemo(() => serviceEndpoints(service), [service]);
+  const [selectedEndpointKey, setSelectedEndpointKey] = useState(
+    endpoints[0] ? endpointKey(endpoints[0]) : "",
+  );
+  const selectedEndpoint =
+    endpoints.find((ep) => endpointKey(ep) === selectedEndpointKey) ??
+    endpoints[0];
+  const currentServiceLink = serviceLink(service);
+
+  useEffect(() => {
+    const firstEndpointKey = endpoints[0] ? endpointKey(endpoints[0]) : "";
+    setSelectedEndpointKey((prev) =>
+      endpoints.some((ep) => endpointKey(ep) === prev)
+        ? prev
+        : firstEndpointKey,
+    );
+  }, [endpoints]);
 
   const startApprove = useCallback(() => {
     setEditing(true);
@@ -191,14 +401,33 @@ function ServiceCard({
             <div className="min-w-0 flex-1 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-base font-semibold text-on-surface">
-                  {service.display_name || service.id}
+                  {currentServiceLink ? (
+                    <a
+                      href={currentServiceLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex min-w-0 items-center gap-1 transition-colors hover:text-primary"
+                    >
+                      <span className="truncate">
+                        {service.display_name || service.id}
+                      </span>
+                      <Icon
+                        className="shrink-0 text-sm text-outline"
+                        name="open_in_new"
+                      />
+                    </a>
+                  ) : (
+                    service.display_name || service.id
+                  )}
                 </h3>
-                <span
-                  title={tierTooltip(service.tier)}
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${tierBadgeClasses(service.tier)}`}
-                >
-                  {tierLabel(service.tier)}
-                </span>
+                {service.tier === "primitive" ? (
+                  <span
+                    title={tierTooltip(service.tier)}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${tierBadgeClasses(service.tier)}`}
+                  >
+                    {tierLabel(service.tier)}
+                  </span>
+                ) : null}
                 {service.enabled ? (
                   <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-200">
                     Approved
@@ -237,6 +466,15 @@ function ServiceCard({
                   </dd>
                 </div>
               </dl>
+              {endpoints.length > 0 ? (
+                <div className="space-y-2 border-t border-outline-variant/10 pt-3">
+                  <EndpointDropdown
+                    endpoints={endpoints}
+                    selectedEndpoint={selectedEndpoint}
+                    onSelect={setSelectedEndpointKey}
+                  />
+                </div>
+              ) : null}
               {service.enabled ? (
                 <p className="text-xs text-secondary">
                   Approved {formatTimestamp(service.approved_at)} · max $
@@ -609,7 +847,7 @@ export default function SettingsServices() {
           >
             <option value="all">All routing types</option>
             <option value="primitive">Hard to do locally</option>
-            <option value="convenience">Browser/API alternatives</option>
+            <option value="convenience">Optional paid APIs</option>
           </select>
           <select
             value={statusFilter}

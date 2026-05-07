@@ -76,3 +76,20 @@ func TestPinVerifyTolerantToUpdatedAtDrift(t *testing.T) {
 		t.Fatalf("UpdatedAt drift err = %v, want nil", err)
 	}
 }
+
+func TestPinVerifyTolerantToDisplayEndpointMetadata(t *testing.T) {
+	t.Parallel()
+	pin, _ := PinFromManifest(sampleManifest())
+	updated := sampleManifest()
+	updated.ServiceURL = "https://perplexity.ai"
+	updated.Endpoints = []ServiceEndpoint{{
+		URL:         "https://api.perplexity.ai/search",
+		Method:      "POST",
+		Description: "Search endpoint",
+		PriceUSDC:   "0.005",
+		Network:     NetworkBase,
+	}}
+	if err := pin.Verify(updated); err != nil {
+		t.Fatalf("display endpoint metadata err = %v, want nil", err)
+	}
+}

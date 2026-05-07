@@ -77,8 +77,40 @@ func TestListServicesReturnsCatalog(t *testing.T) {
 	if got.Hint == "" {
 		t.Fatal("Hint should be populated from overlay")
 	}
+	if got.Endpoint != "https://api.perplexity.ai" {
+		t.Fatalf("Endpoint = %q, want https://api.perplexity.ai", got.Endpoint)
+	}
+	if got.ServiceURL != "https://perplexity.ai" {
+		t.Fatalf("ServiceURL = %q, want https://perplexity.ai fallback", got.ServiceURL)
+	}
+	if len(got.Endpoints) != 1 || got.Endpoints[0].URL != "https://api.perplexity.ai" {
+		t.Fatalf("Endpoints = %+v, want endpoint fallback", got.Endpoints)
+	}
 	if got.Enabled {
 		t.Fatal("freshly-loaded service should be Enabled=false")
+	}
+}
+
+func TestListServicesNormalizesServiceLinkDomain(t *testing.T) {
+	t.Parallel()
+	r, err := x402.NewRegistry(x402.NewMemoryRegistryStore(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.AddManifest(x402.ServiceManifest{
+		ID:           "run402",
+		DisplayName:  "Run402",
+		Endpoint:     "https://api.run402.com",
+		Networks:     []x402.Network{x402.NetworkBase},
+		MaxPriceUSDC: "0.001",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(r, x402.NewBudget(nil, nil))
+	res, _, _ := h.Dispatch(context.Background(), "x402.listServices", nil)
+	listing := res.(ListServicesResult).Services[0]
+	if listing.ServiceURL != "https://run402.com" {
+		t.Fatalf("ServiceURL = %q, want https://run402.com", listing.ServiceURL)
 	}
 }
 

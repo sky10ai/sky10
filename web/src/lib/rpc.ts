@@ -1847,11 +1847,22 @@ export interface RootAgentRunSaveResult {
 
 export type X402Network = "base" | "solana";
 
+export interface X402ServiceEndpoint {
+  url: string;
+  method?: string;
+  description?: string;
+  price_usdc?: string;
+  network?: X402Network;
+}
+
 export interface X402ServiceListing {
   id: string;
   display_name: string;
   description?: string;
   category?: string;
+  endpoint?: string;
+  service_url?: string;
+  endpoints?: X402ServiceEndpoint[];
   networks?: X402Network[];
   max_price_usdc?: string;
   tier: "primitive" | "convenience";
