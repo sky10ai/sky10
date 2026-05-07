@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"os"
 	"testing"
 )
 
@@ -97,5 +98,58 @@ func TestFormatAuthorizationEncodesCredential(t *testing.T) {
 	}
 	if decoded.Challenge.ID != "abc" || decoded.Payload.Type != "transaction" || decoded.Payload.Transaction != "base64tx" {
 		t.Fatalf("decoded = %+v", decoded)
+	}
+}
+
+func TestParsePaySHMPPChallengeFixture(t *testing.T) {
+	t.Parallel()
+	raw, err := os.ReadFile("testdata/pay-sh-google-vision-402.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	var fixture struct {
+		Response struct {
+			Status  int         `json:"status"`
+			Headers http.Header `json:"headers"`
+			Body    struct {
+				Error   string `json:"error"`
+				Payment struct {
+					Protocol   string `json:"protocol"`
+					Challenges int    `json:"challenges"`
+				} `json:"payment"`
+			} `json:"body"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatalf("unmarshal fixture: %v", err)
+	}
+	if fixture.Response.Status != http.StatusPaymentRequired || fixture.Response.Body.Payment.Protocol != "mpp" {
+		t.Fatalf("fixture response = %+v", fixture.Response)
+	}
+	challenges, err := ParseChallenges(fixture.Response.Headers)
+	if err != nil {
+		t.Fatalf("ParseChallenges: %v", err)
+	}
+	if len(challenges) != 1 {
+		t.Fatalf("challenges = %d, want 1 captured challenge", len(challenges))
+	}
+	req, details, err := challenges[0].DecodeChargeRequest()
+	if err != nil {
+		t.Fatalf("DecodeChargeRequest: %v", err)
+	}
+	if req.Amount != "1500" || req.Currency != "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" {
+		t.Fatalf("charge request = %+v", req)
+	}
+	if details.Network != "mainnet" || details.Decimals == nil || *details.Decimals != 6 {
+		t.Fatalf("method details = %+v", details)
+	}
+	if details.FeePayer == nil || !*details.FeePayer || details.FeePayerKey == "" {
+		t.Fatalf("fee payer details = %+v", details)
+	}
+	if details.TokenProgram != "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" {
+		t.Fatalf("token program = %q", details.TokenProgram)
+	}
+	if len(details.Splits) != 2 || details.Splits[0].Amount != "250" || details.Splits[1].Amount != "1" {
+		t.Fatalf("splits = %+v", details.Splits)
 	}
 }

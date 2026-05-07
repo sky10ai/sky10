@@ -111,11 +111,16 @@ func convertPaySHProvider(provider paySHProvider, updatedAt time.Time) (x402.Ser
 		price = "0"
 	}
 	return x402.ServiceManifest{
-		ID:           "pay.sh/" + fqn,
-		DisplayName:  displayName,
-		Category:     strings.TrimSpace(provider.Category),
-		Description:  strings.TrimSpace(provider.Description),
-		Endpoint:     endpoint,
+		ID:          "pay.sh/" + fqn,
+		DisplayName: displayName,
+		Category:    strings.TrimSpace(provider.Category),
+		Description: strings.TrimSpace(provider.Description),
+		Endpoint:    endpoint,
+		ServiceURL:  endpoint,
+		Endpoints: []x402.ServiceEndpoint{{
+			URL:       endpoint,
+			PriceUSDC: price,
+		}},
 		Networks:     []x402.Network{x402.NetworkBase, x402.NetworkSolana},
 		MaxPriceUSDC: price,
 		UpdatedAt:    updatedAt,

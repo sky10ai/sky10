@@ -1,0 +1,77 @@
+{
+  "version": 2,
+  "generated_at": "2026-05-07T01:23:54Z",
+  "provider_count": 72,
+  "providers": [
+    {
+      "fqn": "agentmail/email",
+      "title": "AgentMail",
+      "description": "Create and operate dedicated email inboxes for AI agents. Supports programmatic inbox creation, outbound sending, inbound message retrieval, unique agent addresses, workflow automation, and no manual account setup for email-based agent tasks.",
+      "use_case": "Use for giving agents their own email address, sending outbound email, receiving replies, monitoring inboxes, automating email-based workflows, collecting verification messages, routing support mail, and managing correspondence without manual setup.",
+      "category": "messaging",
+      "service_url": "https://x402.api.agentmail.to",
+      "endpoint_count": 83,
+      "has_metering": true,
+      "has_free_tier": true,
+      "min_price_usd": 0.0,
+      "max_price_usd": 10.0,
+      "sha": "c39acd601c54f2ae"
+    },
+    {
+      "fqn": "paysponge/coingecko",
+      "title": "CoinGecko Onchain DEX API",
+      "description": "Access onchain DEX data from CoinGecko, including trending pools, tokens, OHLCV, trades, pools, and network-specific market data for DeFi research and analytics.",
+      "use_case": "Use for onchain token and pool market data, DEX trending pools, price and volume analytics, liquidity discovery, and DeFi market research.",
+      "category": "finance",
+      "service_url": "https://pro-api.coingecko.com/api/v3/x402/onchain",
+      "endpoint_count": 19,
+      "has_metering": false,
+      "has_free_tier": true,
+      "min_price_usd": 0.0,
+      "max_price_usd": 0.0,
+      "sha": "c24e0e05fdd59f0a"
+    },
+    {
+      "fqn": "purch/marketplace",
+      "title": "Purch",
+      "description": "Search and buy products from Amazon and Shopify with USDC on Solana. Includes an AI shopping assistant, dynamic-priced product purchase flow, and Purch Vault for digital goods (skills, knowledge, personas) with downloadable artifacts.",
+      "use_case": "Use for product search, Amazon and Shopify shopping, AI shopping assistance, price and review comparison, agent-initiated purchases with shipping address, and buying or downloading Purch Vault digital items like skills, knowledge bases, and personas.",
+      "category": "shopping",
+      "service_url": "https://api.purch.xyz",
+      "endpoint_count": 6,
+      "has_metering": true,
+      "has_free_tier": true,
+      "min_price_usd": 0.01,
+      "max_price_usd": 0.01,
+      "sha": "7a2ac3f29a26c8f2"
+    },
+    {
+      "fqn": "solana-foundation/google/texttospeech",
+      "title": "Cloud Text-to-Speech API",
+      "description": "Generate natural-sounding speech from text or SSML in 50+ languages and 380+ voices. Supports pitch, speed, effects profiles, MP3/WAV/OGG output, long-form synthesis, and Neural2/Studio voice models for production audio.",
+      "use_case": "Use for voiceovers, IVR and phone prompts, accessibility audio, audiobook generation, language learning, pronunciation previews, product narration, support bots, podcast snippets, SSML-controlled speech, and long-form narration.",
+      "category": "ai_ml",
+      "service_url": "https://texttospeech.google.gateway-402.com",
+      "endpoint_count": 2,
+      "has_metering": true,
+      "has_free_tier": true,
+      "min_price_usd": 0.00003,
+      "max_price_usd": 0.00003,
+      "sha": "cb07d81eda2f635b"
+    },
+    {
+      "fqn": "solana-foundation/google/vision",
+      "title": "Cloud Vision API",
+      "description": "Analyze images with Google Cloud Vision, including labels, OCR, safe search, faces, landmarks, logos, objects, crop hints, image properties, and web detection.",
+      "use_case": "Use for image understanding, OCR, document screenshots, moderation signals, visual search, product and object detection, landmarks, logos, and extracting structured data from images.",
+      "category": "ai_ml",
+      "service_url": "https://vision.google.gateway-402.com",
+      "endpoint_count": 1,
+      "has_metering": true,
+      "has_free_tier": true,
+      "min_price_usd": 0.0015,
+      "max_price_usd": 0.0015,
+      "sha": "b886a4931f3277be"
+    }
+  ]
+}

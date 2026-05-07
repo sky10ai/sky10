@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -13,39 +14,17 @@ import (
 
 func TestPaySHSourceFetchConvertsProviders(t *testing.T) {
 	t.Parallel()
+	fixture, err := os.ReadFile("testdata/pay-sh-catalog.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/catalog" {
 			http.NotFound(w, r)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
-			"version": 2,
-			"generated_at": "2026-05-05T13:42:43Z",
-			"providers": [
-				{
-					"fqn": "paysponge/perplexity",
-					"title": "Perplexity AI API",
-					"description": "Search the web with citations.",
-					"category": "ai_ml",
-					"service_url": "https://pplx.x402.paysponge.com/",
-					"max_price_usd": 0.01
-				},
-				{
-					"fqn": "solana-foundation/google/texttospeech",
-					"title": "Cloud Text-to-Speech API",
-					"description": "Generate speech.",
-					"category": "ai_ml",
-					"service_url": "https://pay.sh/api/gateway/google/texttospeech",
-					"max_price_usd": 0.00003
-				},
-				{
-					"fqn": "missing-url",
-					"title": "Missing URL",
-					"max_price_usd": 1
-				}
-			]
-		}`))
+		_, _ = w.Write(fixture)
 	}))
 	defer srv.Close()
 
@@ -54,24 +33,28 @@ func TestPaySHSourceFetchConvertsProviders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("manifests = %d, want 2", len(got))
+	if len(got) != 5 {
+		t.Fatalf("manifests = %d, want 5", len(got))
 	}
-	first := got[0]
-	if first.ID != "pay.sh/paysponge/perplexity" || first.Endpoint != "https://pplx.x402.paysponge.com" {
-		t.Fatalf("first manifest = %+v", first)
+	tts := findManifest(got, "pay.sh/solana-foundation/google/texttospeech")
+	if tts.Endpoint != "https://texttospeech.google.gateway-402.com" || tts.ServiceURL != tts.Endpoint {
+		t.Fatalf("tts manifest = %+v", tts)
 	}
-	if first.MaxPriceUSDC != "0.01" || first.DisplayName != "Perplexity AI API" || first.Category != "ai_ml" {
-		t.Fatalf("first metadata = %+v", first)
+	if tts.MaxPriceUSDC != "0.00003" || tts.DisplayName != "Cloud Text-to-Speech API" || tts.Category != "ai_ml" {
+		t.Fatalf("tts metadata = %+v", tts)
 	}
-	if !networksEqual(first.Networks, []x402.Network{x402.NetworkBase, x402.NetworkSolana}) {
-		t.Fatalf("networks = %+v", first.Networks)
+	if len(tts.Endpoints) != 1 || tts.Endpoints[0].URL != tts.Endpoint || tts.Endpoints[0].PriceUSDC != "0.00003" {
+		t.Fatalf("tts endpoints = %+v", tts.Endpoints)
 	}
-	if first.UpdatedAt != time.Date(2026, 5, 5, 13, 42, 43, 0, time.UTC) {
-		t.Fatalf("UpdatedAt = %s", first.UpdatedAt)
+	if !networksEqual(tts.Networks, []x402.Network{x402.NetworkBase, x402.NetworkSolana}) {
+		t.Fatalf("networks = %+v", tts.Networks)
 	}
-	if got[1].MaxPriceUSDC != "0.00003" {
-		t.Fatalf("second max price = %q", got[1].MaxPriceUSDC)
+	if tts.UpdatedAt != time.Date(2026, 5, 7, 1, 23, 54, 0, time.UTC) {
+		t.Fatalf("UpdatedAt = %s", tts.UpdatedAt)
+	}
+	agentmail := findManifest(got, "pay.sh/agentmail/email")
+	if agentmail.MaxPriceUSDC != "10" {
+		t.Fatalf("agentmail max price = %q", agentmail.MaxPriceUSDC)
 	}
 }
 
