@@ -8,7 +8,7 @@ updated: 2026-04-25
 ## Product Rule
 
 The AI-first app should make user-configurable daemon capabilities available
-from the RootAssistant by default.
+from the RootAgent by default.
 
 The source of truth remains the Go daemon and its JSON-RPC surface. The root
 assistant should expose curated model-facing tools over those RPC methods using
@@ -25,7 +25,7 @@ experience should be:
 ## Default Exposure
 
 If a user can configure it through an ordinary UI page or CLI path backed by
-RPC, it should be eligible for the root assistant.
+RPC, it should be eligible for the root agent.
 
 Examples that should become assistant-addressable:
 
@@ -44,7 +44,7 @@ approval-gated with visible parameters, expected effects, and audit records.
 
 ## Not Enabled By Default
 
-These surfaces should not become ordinary root-assistant tools just because an
+These surfaces should not become ordinary root-agent tools just because an
 RPC method exists:
 
 - raw debug and repair endpoints, including low-level S3 debug list/delete
@@ -95,7 +95,7 @@ Tool definitions should carry:
 - platform availability
 - audit fields
 
-In code, the default shape is `web/src/lib/rootAssistantTools.ts`: AI SDK tool
+In code, the default shape is `web/src/lib/rootAgentTools.ts`: AI SDK tool
 definitions with `inputSchema`, `execute`, and `needsApproval` for mutating
 RPCs. Assistant flows should depend on that registry instead of importing raw
 RPC clients directly.

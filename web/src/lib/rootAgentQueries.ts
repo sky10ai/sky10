@@ -1,7 +1,7 @@
 import type { DriveListResult } from "./rpc";
 import {
-  type RootAssistantHooks,
-  type RootAssistantResult,
+  type RootAgentHooks,
+  type RootAgentResult,
   recordTool,
   streamParagraphs,
   summarizeActivity,
@@ -10,10 +10,10 @@ import {
   summarizeHealth,
   summarizeNetwork,
   summarizeSandboxes,
-} from "./rootAssistantShared";
-import { rootAssistantToolRunners } from "./rootAssistantTools";
+} from "./rootAgentShared";
+import { rootAgentToolRunners } from "./rootAgentTools";
 
-export async function runDaemonVersion(hooks: RootAssistantHooks): Promise<RootAssistantResult> {
+export async function runDaemonVersion(hooks: RootAgentHooks): Promise<RootAgentResult> {
   hooks.onStatus?.("Checking the daemon build and node health.");
   const health = await recordTool(
     hooks,
@@ -21,7 +21,7 @@ export async function runDaemonVersion(hooks: RootAssistantHooks): Promise<RootA
     "system.health",
     "Read daemon version",
     "Fetching the daemon build string and current health snapshot.",
-    () => rootAssistantToolRunners.daemon_getHealth(),
+    () => rootAgentToolRunners.daemon_getHealth(),
     (result) => `version ${result.version} · ${result.uptime} uptime`
   );
 
@@ -40,7 +40,7 @@ export async function runDaemonVersion(hooks: RootAssistantHooks): Promise<RootA
   };
 }
 
-export async function runDrives(hooks: RootAssistantHooks): Promise<RootAssistantResult> {
+export async function runDrives(hooks: RootAgentHooks): Promise<RootAgentResult> {
   hooks.onStatus?.("Inspecting drives and sync health.");
   const [drives, health] = await Promise.all([
     recordTool(
@@ -49,7 +49,7 @@ export async function runDrives(hooks: RootAssistantHooks): Promise<RootAssistan
       "skyfs.driveList",
       "List drives",
       "Reading configured drive inventory.",
-      () => rootAssistantToolRunners.drives_list(),
+      () => rootAgentToolRunners.drives_list(),
       (result: DriveListResult) => `${result.drives.length} drive${result.drives.length === 1 ? "" : "s"} found`
     ),
     recordTool(
@@ -58,7 +58,7 @@ export async function runDrives(hooks: RootAssistantHooks): Promise<RootAssistan
       "system.health",
       "Read storage health",
       "Checking drive runtime and sync counters.",
-      () => rootAssistantToolRunners.daemon_getHealth(),
+      () => rootAgentToolRunners.daemon_getHealth(),
       summarizeHealth
     ),
   ]);
@@ -94,7 +94,7 @@ export async function runDrives(hooks: RootAssistantHooks): Promise<RootAssistan
   };
 }
 
-export async function runDevices(hooks: RootAssistantHooks): Promise<RootAssistantResult> {
+export async function runDevices(hooks: RootAgentHooks): Promise<RootAgentResult> {
   hooks.onStatus?.("Checking device membership and last-seen data.");
   const devices = await recordTool(
     hooks,
@@ -102,7 +102,7 @@ export async function runDevices(hooks: RootAssistantHooks): Promise<RootAssista
     "identity.deviceList",
     "List devices",
     "Reading identity device membership and metadata.",
-    () => rootAssistantToolRunners.devices_list(),
+    () => rootAgentToolRunners.devices_list(),
     summarizeDevices
   );
 
@@ -134,7 +134,7 @@ export async function runDevices(hooks: RootAssistantHooks): Promise<RootAssista
   };
 }
 
-export async function runAgents(hooks: RootAssistantHooks): Promise<RootAssistantResult> {
+export async function runAgents(hooks: RootAgentHooks): Promise<RootAgentResult> {
   hooks.onStatus?.("Inspecting registered agents.");
   const agents = await recordTool(
     hooks,
@@ -142,7 +142,7 @@ export async function runAgents(hooks: RootAssistantHooks): Promise<RootAssistan
     "agent.list",
     "List agents",
     "Reading the live agent registry.",
-    () => rootAssistantToolRunners.agents_list(),
+    () => rootAgentToolRunners.agents_list(),
     summarizeAgents
   );
 
@@ -171,7 +171,7 @@ export async function runAgents(hooks: RootAssistantHooks): Promise<RootAssistan
   };
 }
 
-export async function runSandboxes(hooks: RootAssistantHooks): Promise<RootAssistantResult> {
+export async function runSandboxes(hooks: RootAgentHooks): Promise<RootAgentResult> {
   hooks.onStatus?.("Reading sandbox inventory.");
   const sandboxes = await recordTool(
     hooks,
@@ -179,7 +179,7 @@ export async function runSandboxes(hooks: RootAssistantHooks): Promise<RootAssis
     "sandbox.list",
     "List sandboxes",
     "Inspecting managed runtime inventory.",
-    () => rootAssistantToolRunners.sandboxes_list(),
+    () => rootAgentToolRunners.sandboxes_list(),
     summarizeSandboxes
   );
 
@@ -206,7 +206,7 @@ export async function runSandboxes(hooks: RootAssistantHooks): Promise<RootAssis
   };
 }
 
-export async function runNetwork(hooks: RootAssistantHooks): Promise<RootAssistantResult> {
+export async function runNetwork(hooks: RootAgentHooks): Promise<RootAgentResult> {
   hooks.onStatus?.("Inspecting peer connectivity and delivery health.");
   const network = await recordTool(
     hooks,
@@ -214,7 +214,7 @@ export async function runNetwork(hooks: RootAssistantHooks): Promise<RootAssista
     "skylink.status",
     "Read network status",
     "Inspecting peer counts, delivery health, and published addresses.",
-    () => rootAssistantToolRunners.network_getStatus(),
+    () => rootAgentToolRunners.network_getStatus(),
     summarizeNetwork
   );
 
@@ -236,7 +236,7 @@ export async function runNetwork(hooks: RootAssistantHooks): Promise<RootAssista
   };
 }
 
-export async function runSyncActivity(hooks: RootAssistantHooks): Promise<RootAssistantResult> {
+export async function runSyncActivity(hooks: RootAgentHooks): Promise<RootAgentResult> {
   hooks.onStatus?.("Reviewing sync activity, conflicts, and path issues.");
   const activity = await recordTool(
     hooks,
@@ -244,7 +244,7 @@ export async function runSyncActivity(hooks: RootAssistantHooks): Promise<RootAs
     "skyfs.syncActivity",
     "Read sync activity",
     "Inspecting pending transfers, conflicts, and path normalization issues.",
-    () => rootAssistantToolRunners.sync_activity(),
+    () => rootAgentToolRunners.sync_activity(),
     summarizeActivity
   );
 

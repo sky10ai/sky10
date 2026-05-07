@@ -12,7 +12,7 @@ These milestones are ordered to prove the architecture in the smallest useful
 increments:
 
 1. make the app visibly AI-first
-2. make the root assistant genuinely useful with read-only tools
+2. make the root agent genuinely useful with read-only tools
 3. add safe RPC write paths and approvals
 4. turn natural-language requests into durable agent specs
 5. add jobs and artifacts so work persists beyond chat
@@ -47,16 +47,16 @@ device onboarding.
       find their agents.
 - [ ] Existing non-AI surfaces remain reachable without regression.
 
-## Milestone 2: Root Assistant MVP
+## Milestone 2: Root Agent MVP
 
 ### Outcome
 
-The root assistant can inspect and explain the current node using the existing
+The root agent can inspect and explain the current node using the existing
 RPC surface through a model/tool runtime.
 
 ### Checklist
 
-- [ ] Add an assistant session model for the root assistant.
+- [ ] Add an assistant session model for the root agent.
 - [ ] Add streaming response support for assistant runs.
 - [ ] Add tool trace UI so users can see what the assistant inspected.
 - [ ] Implement read-only model-facing tools backed by current RPC methods.
@@ -107,7 +107,7 @@ The assistant can propose mutating actions without silently applying them.
 
 ### Outcome
 
-The root assistant can turn "create me an agent that..." into a reviewable and
+The root agent can turn "create me an agent that..." into a reviewable and
 provisionable durable agent spec.
 
 ### Checklist
@@ -115,7 +115,7 @@ provisionable durable agent spec.
 - [ ] Define an `AgentSpec` schema covering name, purpose, runtime, tools,
       permissions, secrets, inputs, outputs, and triggers.
 - [ ] Add a draft/review/approve UI for agent creation.
-- [ ] Teach the root assistant to ask only for missing specification details.
+- [ ] Teach the root agent to ask only for missing specification details.
 - [ ] Add runtime selection logic for local device, sandbox, or remote target
       where appropriate.
 - [ ] Add provisioning steps for workspace creation, secret binding, and agent
@@ -166,7 +166,7 @@ user goal.
 
 - [ ] Use the prompt:
       `make me an ai agent that can process media files to change the accent to british`
-- [ ] Ensure the root assistant decomposes the request into media ingestion,
+- [ ] Ensure the root agent decomposes the request into media ingestion,
       voice/accent conversion, ffmpeg rendering, optional transcription, and
       output artifacts rather than getting stuck on the wording.
 - [ ] Ask only for the missing details: provider choice, output location,

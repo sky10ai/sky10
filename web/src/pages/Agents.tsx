@@ -11,8 +11,8 @@ import {
 import { RelativeTime } from "../components/RelativeTime";
 import { StatusBadge } from "../components/StatusBadge";
 import { AGENT_EVENT_TYPES } from "../lib/events";
-import { executeRootAssistantPrompt } from "../lib/rootAssistant";
-import { agent, rootAssistant, type AgentSpec } from "../lib/rpc";
+import { executeRootAgentPrompt } from "../lib/rootAgent";
+import { agent, rootAgent, type AgentSpec } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
 const MEDIA_ACCENT_PROMPT =
@@ -369,7 +369,7 @@ export default function Agents() {
 
   async function saveRun(nextRun: WorkspaceRun) {
     try {
-      await rootAssistant.runSave({ run: nextRun });
+      await rootAgent.runSave({ run: nextRun });
     } catch {
       setBuilderStatus("Save failed.");
     }
@@ -392,7 +392,7 @@ export default function Agents() {
     };
 
     try {
-      const result = await executeRootAssistantPrompt(
+      const result = await executeRootAgentPrompt(
         trimmed,
         {
           onStatus(value) {

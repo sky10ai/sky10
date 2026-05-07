@@ -62,7 +62,7 @@ present tool names and schemas that are clear for both users and models.
 
 ### 4. Product orchestration layer
 
-The root assistant should add product-level behavior on top of tools:
+The root agent should add product-level behavior on top of tools:
 
 - ask only for missing information
 - produce a plan before destructive actions
@@ -127,7 +127,7 @@ Examples:
 
 ### Admin/debug
 
-Sharp tools that should not be casually placed in the root assistant's default
+Sharp tools that should not be casually placed in the root agent's default
 tool list.
 
 Examples:
@@ -140,7 +140,7 @@ Examples:
 
 ## Assistant Types
 
-### Root assistant
+### Root agent
 
 The top-level user-facing assistant embedded in the app.
 
@@ -176,7 +176,7 @@ For a simple request like "what version is the daemon?":
 For a creation request like "make me an ai agent that can process media files
 to change the accent to british":
 
-1. Root assistant parses the outcome.
+1. Root agent parses the outcome.
 2. It asks only the missing questions.
 3. It drafts an `AgentSpec`.
 4. User approves.

@@ -1,4 +1,4 @@
-package rootassistant
+package rootagent
 
 import (
 	"context"
@@ -7,34 +7,34 @@ import (
 	"strings"
 )
 
-// RPCHandler exposes daemon-backed RootAssistant UI state.
+// RPCHandler exposes daemon-backed RootAgent UI state.
 type RPCHandler struct {
 	store *Store
 }
 
-// NewRPCHandler creates a RootAssistant RPC handler.
+// NewRPCHandler creates a RootAgent RPC handler.
 func NewRPCHandler(store *Store) *RPCHandler {
 	return &RPCHandler{store: store}
 }
 
 // Dispatch implements rpc.Handler.
 func (h *RPCHandler) Dispatch(_ context.Context, method string, params json.RawMessage) (interface{}, error, bool) {
-	if !strings.HasPrefix(method, "rootAssistant.") {
+	if !strings.HasPrefix(method, "rootAgent.") {
 		return nil, nil, false
 	}
 	if h == nil || h.store == nil {
-		return nil, fmt.Errorf("rootAssistant history store is not configured"), true
+		return nil, fmt.Errorf("rootAgent history store is not configured"), true
 	}
 
 	switch method {
-	case "rootAssistant.historyList":
+	case "rootAgent.historyList":
 		var parsed HistoryListParams
 		if err := decodeParams(params, &parsed); err != nil {
 			return nil, err, true
 		}
 		result, err := h.store.List(parsed)
 		return result, err, true
-	case "rootAssistant.runSave":
+	case "rootAgent.runSave":
 		var parsed RunSaveParams
 		if err := decodeParams(params, &parsed); err != nil {
 			return nil, err, true

@@ -2,8 +2,8 @@ import {
   detectIntent,
   type AgentAudience,
   type AssistantIntent,
-  type RootAssistantHooks,
-  type RootAssistantResult,
+  type RootAgentHooks,
+  type RootAgentResult,
   recordTool,
   streamParagraphs,
   summarizeAgents,
@@ -11,15 +11,15 @@ import {
   summarizeHealth,
   summarizeNetwork,
   summarizeSandboxes,
-} from "./rootAssistantShared";
+} from "./rootAgentShared";
 import {
-  disabledRootAssistantRPCs,
-  rootAssistantApprovalRequiredToolNames,
-  rootAssistantReadOnlyToolNames,
-  rootAssistantToolMetadata,
-  rootAssistantToolRunners,
-  type RootAssistantToolName,
-} from "./rootAssistantTools";
+  disabledRootAgentRPCs,
+  rootAgentApprovalRequiredToolNames,
+  rootAgentReadOnlyToolNames,
+  rootAgentToolMetadata,
+  rootAgentToolRunners,
+  type RootAgentToolName,
+} from "./rootAgentTools";
 import { codex } from "./rpc";
 import {
   runAgents,
@@ -29,15 +29,15 @@ import {
   runNetwork,
   runSandboxes,
   runSyncActivity,
-} from "./rootAssistantQueries";
+} from "./rootAgentQueries";
 
 export type {
   AgentAudience,
-  RootAssistantHooks,
-  RootAssistantResult,
-  RootAssistantStatus,
-  RootAssistantToolTrace,
-} from "./rootAssistantShared";
+  RootAgentHooks,
+  RootAgentResult,
+  RootAgentStatus,
+  RootAgentToolTrace,
+} from "./rootAgentShared";
 
 interface ExecuteOptions {
   audience?: AgentAudience;
@@ -58,10 +58,10 @@ const PLANNABLE_INTENTS: AssistantIntent[] = [
   "sync_activity",
 ];
 
-function plannerToolSummary(names: readonly RootAssistantToolName[]) {
+function plannerToolSummary(names: readonly RootAgentToolName[]) {
   return names
     .map((name) => {
-      const metadata = rootAssistantToolMetadata[name];
+      const metadata = rootAgentToolMetadata[name];
       return `- ${name}: ${metadata.title} (${metadata.rpcMethods.join(", ")})`;
     })
     .join("\n");
@@ -85,7 +85,7 @@ function parsePlannerIntent(text: string): AssistantIntent | null {
 
 async function planIntentWithModel(
   prompt: string,
-  hooks: RootAssistantHooks,
+  hooks: RootAgentHooks,
 ): Promise<AssistantIntent | null> {
   hooks.onStatus?.("Asking the model to choose a sky10 tool path.");
 
@@ -108,12 +108,12 @@ async function planIntentWithModel(
             `Request: ${prompt}`,
             "",
             "Read-only AI SDK tools:",
-            plannerToolSummary(rootAssistantReadOnlyToolNames),
+            plannerToolSummary(rootAgentReadOnlyToolNames),
             "",
             "Approval-gated AI SDK tools:",
-            plannerToolSummary(rootAssistantApprovalRequiredToolNames),
+            plannerToolSummary(rootAgentApprovalRequiredToolNames),
             "",
-            `Disabled RPCs: ${disabledRootAssistantRPCs.join(", ")}`,
+            `Disabled RPCs: ${disabledRootAgentRPCs.join(", ")}`,
           ].join("\n"),
         },
       ],
@@ -137,7 +137,7 @@ function soundsCommercial(prompt: string) {
   );
 }
 
-async function runNodeDiagnosis(hooks: RootAssistantHooks): Promise<RootAssistantResult> {
+async function runNodeDiagnosis(hooks: RootAgentHooks): Promise<RootAgentResult> {
   hooks.onStatus?.("Scanning storage, network, agents, sandboxes, and activity.");
   const health = await recordTool(
     hooks,
@@ -145,7 +145,7 @@ async function runNodeDiagnosis(hooks: RootAssistantHooks): Promise<RootAssistan
     "system.health",
     "Read daemon health",
     "Inspecting storage health, queue depth, and runtime counters.",
-    () => rootAssistantToolRunners.daemon_getHealth(),
+    () => rootAgentToolRunners.daemon_getHealth(),
     summarizeHealth
   );
   const network = await recordTool(
@@ -154,7 +154,7 @@ async function runNodeDiagnosis(hooks: RootAssistantHooks): Promise<RootAssistan
     "skylink.status",
     "Read network status",
     "Checking peer connectivity and delivery health.",
-    () => rootAssistantToolRunners.network_getStatus(),
+    () => rootAgentToolRunners.network_getStatus(),
     summarizeNetwork
   );
   const activity = await recordTool(
@@ -163,7 +163,7 @@ async function runNodeDiagnosis(hooks: RootAssistantHooks): Promise<RootAssistan
     "skyfs.syncActivity",
     "Read sync activity",
     "Inspecting pending transfers, conflicts, and path issues.",
-    () => rootAssistantToolRunners.sync_activity(),
+    () => rootAgentToolRunners.sync_activity(),
     (result) => `${result.pending.length} pending · ${result.conflicts.length} conflicts · ${result.path_issues.length} path issues`
   );
   const sandboxes = await recordTool(
@@ -172,7 +172,7 @@ async function runNodeDiagnosis(hooks: RootAssistantHooks): Promise<RootAssistan
     "sandbox.list",
     "List sandboxes",
     "Checking managed runtimes for provisioning errors or busy state.",
-    () => rootAssistantToolRunners.sandboxes_list(),
+    () => rootAgentToolRunners.sandboxes_list(),
     summarizeSandboxes
   );
   const agents = await recordTool(
@@ -181,7 +181,7 @@ async function runNodeDiagnosis(hooks: RootAssistantHooks): Promise<RootAssistan
     "agent.list",
     "List agents",
     "Reviewing registered agent presence.",
-    () => rootAssistantToolRunners.agents_list(),
+    () => rootAgentToolRunners.agents_list(),
     summarizeAgents
   );
 
@@ -259,9 +259,9 @@ async function runNodeDiagnosis(hooks: RootAssistantHooks): Promise<RootAssistan
 
 async function runAgentCreatePrompt(
   prompt: string,
-  hooks: RootAssistantHooks,
+  hooks: RootAgentHooks,
   audience: AgentAudience
-): Promise<RootAssistantResult> {
+): Promise<RootAgentResult> {
   hooks.onStatus?.("Reading...");
   const [agents, sandboxes] = await Promise.all([
     recordTool(
@@ -270,7 +270,7 @@ async function runAgentCreatePrompt(
       "agent.list",
       "List agents",
       "Checking what agents already exist.",
-      () => rootAssistantToolRunners.agents_list(),
+      () => rootAgentToolRunners.agents_list(),
       summarizeAgents
     ),
     recordTool(
@@ -279,7 +279,7 @@ async function runAgentCreatePrompt(
       "sandbox.list",
       "List sandboxes",
       "Checking available managed runtimes.",
-      () => rootAssistantToolRunners.sandboxes_list(),
+      () => rootAgentToolRunners.sandboxes_list(),
       summarizeSandboxes
     ),
   ]);
@@ -320,8 +320,8 @@ async function runAgentCreatePrompt(
 
 async function runConfigurationPrompt(
   prompt: string,
-  hooks: RootAssistantHooks
-): Promise<RootAssistantResult> {
+  hooks: RootAgentHooks
+): Promise<RootAgentResult> {
   hooks.onStatus?.("Checking live RPC state and assistant policy boundaries.");
   const [health, drives, devices, sandboxes, agents] = await Promise.all([
     recordTool(
@@ -330,7 +330,7 @@ async function runConfigurationPrompt(
       "system.health",
       "Read daemon health",
       "Checking current daemon and storage state.",
-      () => rootAssistantToolRunners.daemon_getHealth(),
+      () => rootAgentToolRunners.daemon_getHealth(),
       summarizeHealth
     ),
     recordTool(
@@ -339,7 +339,7 @@ async function runConfigurationPrompt(
       "skyfs.driveList",
       "List drives",
       "Reading configured drive inventory before planning changes.",
-      () => rootAssistantToolRunners.drives_list(),
+      () => rootAgentToolRunners.drives_list(),
       (result) => `${result.drives.length} drive${result.drives.length === 1 ? "" : "s"} configured`
     ),
     recordTool(
@@ -348,7 +348,7 @@ async function runConfigurationPrompt(
       "identity.deviceList",
       "List devices",
       "Reading current device membership.",
-      () => rootAssistantToolRunners.devices_list(),
+      () => rootAgentToolRunners.devices_list(),
       summarizeDevices
     ),
     recordTool(
@@ -357,7 +357,7 @@ async function runConfigurationPrompt(
       "sandbox.list",
       "List sandboxes",
       "Reading managed runtime inventory.",
-      () => rootAssistantToolRunners.sandboxes_list(),
+      () => rootAgentToolRunners.sandboxes_list(),
       summarizeSandboxes
     ),
     recordTool(
@@ -366,7 +366,7 @@ async function runConfigurationPrompt(
       "agent.list",
       "List agents",
       "Reading registered agent inventory.",
-      () => rootAssistantToolRunners.agents_list(),
+      () => rootAgentToolRunners.agents_list(),
       summarizeAgents
     ),
   ]);
@@ -375,7 +375,7 @@ async function runConfigurationPrompt(
     `I would treat \`${prompt}\` as an approval-gated RPC configuration request, not as a separate settings-page workflow.`,
     `Current context: ${summarizeHealth(health)} · ${drives.drives.length} drive${drives.drives.length === 1 ? "" : "s"} · ${devices.devices.length} device${devices.devices.length === 1 ? "" : "s"} · ${sandboxes.sandboxes.length} sandbox${sandboxes.sandboxes.length === 1 ? "" : "es"} · ${agents.count} agent${agents.count === 1 ? "" : "s"}.`,
     "The AI-first contract is that user-configurable RPC surfaces should be model-addressable through curated tools. Mutating operations need a visible plan, exact parameters, and approval before execution.",
-    `This build has ${rootAssistantApprovalRequiredToolNames.length} approval-gated AI SDK tool wrappers for RPC writes such as drives, secrets, sandboxes, apps, updates, device invites, and wallet setup. The next step is wiring approval cards to execute those tools after user confirmation.`,
+    `This build has ${rootAgentApprovalRequiredToolNames.length} approval-gated AI SDK tool wrappers for RPC writes such as drives, secrets, sandboxes, apps, updates, device invites, and wallet setup. The next step is wiring approval cards to execute those tools after user confirmation.`,
   ]);
 
   return {
@@ -389,7 +389,7 @@ async function runConfigurationPrompt(
   };
 }
 
-async function runFallback(prompt: string, hooks: RootAssistantHooks): Promise<RootAssistantResult> {
+async function runFallback(prompt: string, hooks: RootAgentHooks): Promise<RootAgentResult> {
   hooks.onStatus?.("Building a quick read-only overview of the node.");
   const [health, agents, devices, network] = await Promise.all([
     recordTool(
@@ -398,7 +398,7 @@ async function runFallback(prompt: string, hooks: RootAssistantHooks): Promise<R
       "system.health",
       "Read daemon health",
       "Checking the daemon health snapshot.",
-      () => rootAssistantToolRunners.daemon_getHealth(),
+      () => rootAgentToolRunners.daemon_getHealth(),
       summarizeHealth
     ),
     recordTool(
@@ -407,7 +407,7 @@ async function runFallback(prompt: string, hooks: RootAssistantHooks): Promise<R
       "agent.list",
       "List agents",
       "Reviewing the current agent registry.",
-      () => rootAssistantToolRunners.agents_list(),
+      () => rootAgentToolRunners.agents_list(),
       summarizeAgents
     ),
     recordTool(
@@ -416,7 +416,7 @@ async function runFallback(prompt: string, hooks: RootAssistantHooks): Promise<R
       "identity.deviceList",
       "List devices",
       "Reviewing current device membership.",
-      () => rootAssistantToolRunners.devices_list(),
+      () => rootAgentToolRunners.devices_list(),
       summarizeDevices
     ),
     recordTool(
@@ -425,7 +425,7 @@ async function runFallback(prompt: string, hooks: RootAssistantHooks): Promise<R
       "skylink.status",
       "Read network status",
       "Inspecting peer connectivity.",
-      () => rootAssistantToolRunners.network_getStatus(),
+      () => rootAgentToolRunners.network_getStatus(),
       summarizeNetwork
     ),
   ]);
@@ -443,11 +443,11 @@ async function runFallback(prompt: string, hooks: RootAssistantHooks): Promise<R
   };
 }
 
-export async function executeRootAssistantPrompt(
+export async function executeRootAgentPrompt(
   prompt: string,
-  hooks: RootAssistantHooks = {},
+  hooks: RootAgentHooks = {},
   options: ExecuteOptions = {}
-): Promise<RootAssistantResult> {
+): Promise<RootAgentResult> {
   const intent =
     options.intent ??
     (await planIntentWithModel(prompt, hooks)) ??

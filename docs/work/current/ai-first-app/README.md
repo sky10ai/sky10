@@ -25,7 +25,7 @@ The desired user experience is:
 This workstream covers:
 
 - AI-first information architecture and home screen
-- root-assistant runtime shape
+- root-agent runtime shape
 - tool calling over the existing RPC surface
 - approval and policy boundaries
 - durable agent creation from natural-language intent

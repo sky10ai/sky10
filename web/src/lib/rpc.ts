@@ -370,12 +370,12 @@ export const messaging = {
     rpc<{ status: string }>("messaging.disableConnection", p),
 };
 
-// -- rootAssistant --
-export const rootAssistant = {
+// -- rootAgent --
+export const rootAgent = {
   historyList: (p?: { limit?: number }) =>
-    rpc<RootAssistantHistoryListResult>("rootAssistant.historyList", p),
-  runSave: (p: { run: RootAssistantRunRecord }) =>
-    rpc<RootAssistantRunSaveResult>("rootAssistant.runSave", p),
+    rpc<RootAgentHistoryListResult>("rootAgent.historyList", p),
+  runSave: (p: { run: RootAgentRunRecord }) =>
+    rpc<RootAgentRunSaveResult>("rootAgent.runSave", p),
 };
 
 // ---- Types matching actual daemon responses ----
@@ -1809,37 +1809,37 @@ export interface CodexChatResult {
   usage?: CodexChatUsage;
 }
 
-export type RootAssistantRunStatus = "complete" | "error" | "running";
-export type RootAssistantRunAudience = "for_me" | "for_others";
+export type RootAgentRunStatus = "complete" | "error" | "running";
+export type RootAgentRunAudience = "for_me" | "for_others";
 
-export interface RootAssistantToolTrace {
+export interface RootAgentToolTrace {
   id: string;
   title: string;
   tool: string;
   rpcMethod: string;
-  status: RootAssistantRunStatus;
+  status: RootAgentRunStatus;
   detail: string;
   startedAt: string;
   finishedAt?: string;
 }
 
-export interface RootAssistantRunRecord {
+export interface RootAgentRunRecord {
   id: string;
-  audience: RootAssistantRunAudience;
+  audience: RootAgentRunAudience;
   prompt: string;
   answer: string;
-  status: RootAssistantRunStatus;
+  status: RootAgentRunStatus;
   createdAt: string;
   updatedAt: string;
-  toolTraces: RootAssistantToolTrace[];
+  toolTraces: RootAgentToolTrace[];
   followUps?: string[];
 }
 
-export interface RootAssistantHistoryListResult {
-  runs: RootAssistantRunRecord[];
+export interface RootAgentHistoryListResult {
+  runs: RootAgentRunRecord[];
 }
 
-export interface RootAssistantRunSaveResult {
+export interface RootAgentRunSaveResult {
   status: string;
 }
 

@@ -3,26 +3,26 @@ import type {
   DeviceListResult,
   HealthResult,
   LinkStatus,
-  RootAssistantToolTrace,
+  RootAgentToolTrace,
   SandboxListResult,
   SyncActivityResult,
 } from "./rpc";
 
-export type { RootAssistantToolTrace } from "./rpc";
+export type { RootAgentToolTrace } from "./rpc";
 
-export type RootAssistantStatus = "complete" | "error" | "running";
+export type RootAgentStatus = "complete" | "error" | "running";
 export type AgentAudience = "for_me" | "for_others";
 
-export interface RootAssistantResult {
+export interface RootAgentResult {
   answer: string;
   followUps?: string[];
-  status: Exclude<RootAssistantStatus, "running">;
+  status: Exclude<RootAgentStatus, "running">;
 }
 
-export interface RootAssistantHooks {
+export interface RootAgentHooks {
   onStatus?: (value: string) => void;
   onText?: (value: string) => void;
-  onTool?: (trace: RootAssistantToolTrace) => void;
+  onTool?: (trace: RootAgentToolTrace) => void;
 }
 
 export type AssistantIntent =
@@ -209,7 +209,7 @@ export function summarizeActivity(result: SyncActivityResult) {
 }
 
 export async function recordTool<T>(
-  hooks: RootAssistantHooks,
+  hooks: RootAgentHooks,
   tool: string,
   rpcMethod: string,
   title: string,
@@ -260,7 +260,7 @@ export async function recordTool<T>(
   }
 }
 
-export async function streamParagraphs(hooks: RootAssistantHooks, paragraphs: string[]) {
+export async function streamParagraphs(hooks: RootAgentHooks, paragraphs: string[]) {
   let buffer = "";
   for (const paragraph of paragraphs) {
     buffer = buffer ? `${buffer}\n\n${paragraph}` : paragraph;

@@ -31,7 +31,7 @@ Success criteria:
 - the UI clearly promises outcome-driven interaction
 - existing infrastructure views remain accessible
 
-## Phase 2: Root Assistant MVP
+## Phase 2: Root Agent MVP
 
 Goal: ship a read-only assistant that can inspect and explain the current node.
 
@@ -100,7 +100,7 @@ Success criteria:
 
 ## Phase 4: AgentSpec And Provisioning
 
-Goal: let the root assistant turn natural-language requests into durable managed
+Goal: let the root agent turn natural-language requests into durable managed
 agents.
 
 Deliverables:
@@ -160,7 +160,7 @@ Candidate:
 Flow:
 
 1. user describes the goal in one sentence
-2. root assistant asks for missing inputs
+2. root agent asks for missing inputs
 3. user approves the spec
 4. system provisions runtime and tooling
 5. agent processes a sample media file
@@ -185,7 +185,7 @@ Success criteria:
 Build only:
 
 - Home workspace shell
-- root assistant MVP
+- root agent MVP
 - read-only RPC-backed tools
 - tool trace UI
 

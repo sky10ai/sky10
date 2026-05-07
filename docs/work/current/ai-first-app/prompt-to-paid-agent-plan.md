@@ -175,7 +175,7 @@ policy.
 ## Prompt-To-Agent Flow
 
 1. User enters a prompt on `/agents`.
-2. Root assistant classifies it as `agent_create`.
+2. Root agent classifies it as `agent_create`.
 3. The model creates a versioned `AgentSpec`.
 4. The system enriches the spec with deterministic checks:
    - available templates
@@ -284,7 +284,7 @@ Initial storage can be JSONL while the model settles:
 - `.sky10/agents/receipts.jsonl`
 
 Records should be append-only snapshots keyed by stable IDs, matching the
-RootAssistant history pattern. If the shape stabilizes, move to a richer store
+RootAgent history pattern. If the shape stabilizes, move to a richer store
 later.
 
 Do not persist secret values in specs, job records, or receipts. Persist only
@@ -295,7 +295,7 @@ secret names, binding metadata, digests, and payload refs.
 ### Milestone 1: Spec And Review
 
 - define `AgentSpec`, `ToolSpec`, pricing, fulfillment, availability, effects
-- add `agent.spec.create` backed by the root assistant
+- add `agent.spec.create` backed by the root agent
 - add review UI on `/agents`
 - support free/private tools only
 - make "charge for this tool" visibly optional and off by default

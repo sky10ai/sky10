@@ -37,9 +37,9 @@ Example prompt:
 
 `make me an ai agent that can process media files to change the accent to british`
 
-## Root Assistant Interaction
+## Root Agent Interaction
 
-The root assistant should not drop users into a blank wizard. It should:
+The root agent should not drop users into a blank wizard. It should:
 
 1. infer the likely task decomposition
 2. explain the draft plan briefly
@@ -74,7 +74,7 @@ than "AI is producing text."
 The main creation flow should be:
 
 1. User describes the outcome.
-2. Root assistant drafts an `AgentSpec`.
+2. Root agent drafts an `AgentSpec`.
 3. User reviews the plan.
 4. User approves provisioning.
 5. `sky10` creates runtime, tools, secrets, workspace, and registration.

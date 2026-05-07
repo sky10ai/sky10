@@ -24,13 +24,13 @@ import {
   type SyncActivityResult,
 } from "./rpc";
 
-export type RootAssistantToolPolicy =
+export type RootAgentToolPolicy =
   | "approval_required"
   | "disabled"
   | "read_only";
 
-export interface RootAssistantToolMetadata {
-  policy: RootAssistantToolPolicy;
+export interface RootAgentToolMetadata {
+  policy: RootAgentToolPolicy;
   risk: "low" | "medium" | "high";
   rpcMethods: readonly string[];
   title: string;
@@ -45,7 +45,7 @@ function approvalRequiredTool<INPUT, OUTPUT>(config: Tool<INPUT, OUTPUT>): Tool<
   } as Tool<INPUT, OUTPUT>);
 }
 
-export const rootAssistantTools = {
+export const rootAgentTools = {
   daemon_getHealth: tool({
     description: "Read live daemon health, storage counters, and version details.",
     inputSchema: emptySchema,
@@ -500,13 +500,13 @@ export const rootAssistantTools = {
   }),
 } satisfies ToolSet;
 
-export type RootAssistantToolName = keyof typeof rootAssistantTools;
-export type RootAssistantToolInput<T extends RootAssistantToolName> =
-  InferToolInput<(typeof rootAssistantTools)[T]>;
-export type RootAssistantToolOutput<T extends RootAssistantToolName> =
-  InferToolOutput<(typeof rootAssistantTools)[T]>;
+export type RootAgentToolName = keyof typeof rootAgentTools;
+export type RootAgentToolInput<T extends RootAgentToolName> =
+  InferToolInput<(typeof rootAgentTools)[T]>;
+export type RootAgentToolOutput<T extends RootAgentToolName> =
+  InferToolOutput<(typeof rootAgentTools)[T]>;
 
-export const rootAssistantToolMetadata = {
+export const rootAgentToolMetadata = {
   daemon_getHealth: { policy: "read_only", risk: "low", rpcMethods: ["system.health"], title: "Read daemon health" },
   drives_list: { policy: "read_only", risk: "low", rpcMethods: ["skyfs.driveList"], title: "List drives" },
   drives_create: { policy: "approval_required", risk: "medium", rpcMethods: ["skyfs.driveCreate"], title: "Create drive" },
@@ -571,9 +571,9 @@ export const rootAssistantToolMetadata = {
   wallet_install: { policy: "approval_required", risk: "high", rpcMethods: ["wallet.install"], title: "Install wallet" },
   wallet_uninstall: { policy: "approval_required", risk: "high", rpcMethods: ["wallet.uninstall"], title: "Uninstall wallet" },
   wallet_create: { policy: "approval_required", risk: "medium", rpcMethods: ["wallet.create"], title: "Create wallet" },
-} as const satisfies Record<RootAssistantToolName, RootAssistantToolMetadata>;
+} as const satisfies Record<RootAgentToolName, RootAgentToolMetadata>;
 
-export const disabledRootAssistantRPCs = [
+export const disabledRootAgentRPCs = [
   "agent.mailbox.ack",
   "agent.mailbox.approve",
   "agent.mailbox.claim",
@@ -587,48 +587,48 @@ export const disabledRootAssistantRPCs = [
   "wallet.transfer",
 ] as const;
 
-export const rootAssistantToolNames = Object.keys(rootAssistantTools) as RootAssistantToolName[];
-export const rootAssistantReadOnlyToolNames = rootAssistantToolNames.filter(
-  (name) => rootAssistantToolMetadata[name].policy === "read_only"
+export const rootAgentToolNames = Object.keys(rootAgentTools) as RootAgentToolName[];
+export const rootAgentReadOnlyToolNames = rootAgentToolNames.filter(
+  (name) => rootAgentToolMetadata[name].policy === "read_only"
 );
-export const rootAssistantApprovalRequiredToolNames = rootAssistantToolNames.filter(
-  (name) => rootAssistantToolMetadata[name].policy === "approval_required"
+export const rootAgentApprovalRequiredToolNames = rootAgentToolNames.filter(
+  (name) => rootAgentToolMetadata[name].policy === "approval_required"
 );
 
-export async function executeRootAssistantTool<OUTPUT = unknown>(
-  name: RootAssistantToolName,
+export async function executeRootAgentTool<OUTPUT = unknown>(
+  name: RootAgentToolName,
   input: unknown,
   options: { approved?: boolean } = {}
 ): Promise<OUTPUT> {
-  const metadata = rootAssistantToolMetadata[name];
+  const metadata = rootAgentToolMetadata[name];
   if (metadata.policy === "approval_required" && !options.approved) {
     throw new Error(`${metadata.title} requires approval before execution.`);
   }
 
-  const selectedTool = rootAssistantTools[name] as Tool<unknown, OUTPUT>;
+  const selectedTool = rootAgentTools[name] as Tool<unknown, OUTPUT>;
   if (!selectedTool.execute) {
     throw new Error(`${metadata.title} cannot be executed directly.`);
   }
 
   const result = await selectedTool.execute(input, {
     messages: [],
-    toolCallId: `root-assistant-${name}`,
+    toolCallId: `root-agent-${name}`,
   });
   return result as OUTPUT;
 }
 
-export const rootAssistantToolRunners = {
-  agents_list: () => executeRootAssistantTool<AgentListResult>("agents_list", {}),
+export const rootAgentToolRunners = {
+  agents_list: () => executeRootAgentTool<AgentListResult>("agents_list", {}),
   agents_getSpec: (id: string) =>
-    executeRootAssistantTool<AgentSpecResult>("agents_getSpec", { id }),
+    executeRootAgentTool<AgentSpecResult>("agents_getSpec", { id }),
   agents_compileSpec: (id: string) =>
-    executeRootAssistantTool<AgentSpecCompileResult>("agents_compileSpec", { id }),
+    executeRootAgentTool<AgentSpecCompileResult>("agents_compileSpec", { id }),
   agents_listSpecs: (input: { limit?: number; status?: string } = {}) =>
-    executeRootAssistantTool<AgentSpecListResult>("agents_listSpecs", input),
-  daemon_getHealth: () => executeRootAssistantTool<HealthResult>("daemon_getHealth", {}),
-  devices_list: () => executeRootAssistantTool<DeviceListResult>("devices_list", {}),
-  drives_list: () => executeRootAssistantTool<DriveListResult>("drives_list", {}),
-  network_getStatus: () => executeRootAssistantTool<LinkStatus>("network_getStatus", {}),
-  sandboxes_list: () => executeRootAssistantTool<SandboxListResult>("sandboxes_list", {}),
-  sync_activity: () => executeRootAssistantTool<SyncActivityResult>("sync_activity", {}),
+    executeRootAgentTool<AgentSpecListResult>("agents_listSpecs", input),
+  daemon_getHealth: () => executeRootAgentTool<HealthResult>("daemon_getHealth", {}),
+  devices_list: () => executeRootAgentTool<DeviceListResult>("devices_list", {}),
+  drives_list: () => executeRootAgentTool<DriveListResult>("drives_list", {}),
+  network_getStatus: () => executeRootAgentTool<LinkStatus>("network_getStatus", {}),
+  sandboxes_list: () => executeRootAgentTool<SandboxListResult>("sandboxes_list", {}),
+  sync_activity: () => executeRootAgentTool<SyncActivityResult>("sync_activity", {}),
 };

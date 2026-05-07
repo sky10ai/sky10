@@ -27,7 +27,7 @@ import (
 	"github.com/sky10/sky10/pkg/kv"
 	"github.com/sky10/sky10/pkg/link"
 	"github.com/sky10/sky10/pkg/logging"
-	skyrootassistant "github.com/sky10/sky10/pkg/rootassistant"
+	skyrootagent "github.com/sky10/sky10/pkg/rootagent"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
 	skysandbox "github.com/sky10/sky10/pkg/sandbox"
 	"github.com/sky10/sky10/pkg/secrets"
@@ -198,7 +198,7 @@ func ServeCmd() *cobra.Command {
 			secretsRPC := secrets.NewRPCHandler(secretsStore)
 			server.RegisterHandler(secretsRPC)
 			server.RegisterHandler(skycodex.NewRPCHandler(skycodex.NewService(server.Emit)))
-			server.RegisterHandler(skyrootassistant.NewRPCHandler(skyrootassistant.NewStore(server.Emit)))
+			server.RegisterHandler(skyrootagent.NewRPCHandler(skyrootagent.NewStore(server.Emit)))
 			secretsRunErr := make(chan error, 1)
 			go func() {
 				secretsRunErr <- secretsStore.Run(ctx)

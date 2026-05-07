@@ -59,7 +59,7 @@ The AI-first direction from `docs/work/current/ai-first-app/` remains the
 guiding architecture:
 
 - The Go daemon and existing HTTP/JSON-RPC layer stay the source of truth.
-- The root assistant orchestrates daemon capabilities instead of replacing
+- The root agent orchestrates daemon capabilities instead of replacing
   them.
 - Model-facing tools are curated Vercel AI SDK `tool()` wrappers over RPCs,
   not raw backend method names exposed directly to the model.
@@ -71,7 +71,7 @@ guiding architecture:
 This branch kept that split: the model can plan or draft, but provisioning
 still flows through typed daemon RPCs and sandbox managers.
 
-## Root Assistant And UI
+## Root Agent And UI
 
 The current app work moved toward an AI-first layout while keeping the existing
 infrastructure surfaces reachable. The active implementation converged on
@@ -87,15 +87,15 @@ The `Agents` page now carries the practical agent-creation UI:
 - Prompt suggestion pills start with action verbs, such as "Watch my
   downloads..." and "Summarize new meeting...".
 - The primary action is `Create agent`, not `Draft`.
-- A secondary `Ask AI` path still routes through the root assistant run card,
-  so the root-assistant workflow and the structured spec workflow can coexist.
+- A secondary `Ask AI` path still routes through the root agent run card,
+  so the root-agent workflow and the structured spec workflow can coexist.
 - Recent specs are listed separately from registered agents.
 - A selected spec can be edited, saved, approved, or discarded.
 
-Root assistant history is daemon-owned JSONL under `.sky10`, not browser local
+Root agent history is daemon-owned JSONL under `.sky10`, not browser local
 storage. The active records are stored under:
 
-- `.sky10/rootassistant/runs.jsonl`
+- `.sky10/rootagent/runs.jsonl`
 - `.sky10/agents/specs.jsonl`
 - `.sky10/agents/jobs.jsonl`
 
@@ -209,7 +209,7 @@ needs, without storing raw secret values in the spec or generated manifest.
 
 ## RPC And AI Tool Surface
 
-The root assistant tool registry in `web/src/lib/rootAssistantTools.ts` uses
+The root agent tool registry in `web/src/lib/rootAgentTools.ts` uses
 Vercel AI SDK `tool()` definitions with schemas, execution functions, and
 approval policy in one place. The branch added spec/provision wrappers to that
 registry, including:
@@ -380,7 +380,7 @@ open pieces are:
 - the actual ElevenLabs plus `ffmpeg` worker implementation for changing an
   audio/video voice to a British accent
 - durable job UI that makes artifacts easier to inspect than chat history
-- approval cards for executing mutating root-assistant tools from the AI run
+- approval cards for executing mutating root-agent tools from the AI run
   surface
 - a better warm runtime/image strategy so fresh VM creation does not depend on
   pulling large images from GHCR during user-visible provisioning

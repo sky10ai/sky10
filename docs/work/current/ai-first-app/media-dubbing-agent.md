@@ -26,13 +26,13 @@ The request decomposes into at least these capabilities:
 - optional transcript and subtitle artifacts
 
 The phrase "change the accent to british" is an outcome, not an implementation
-detail. The root assistant should infer ffmpeg, media input/output handling,
+detail. The root agent should infer ffmpeg, media input/output handling,
 provider choices, and required secrets instead of forcing the user to know those
 terms.
 
 ## Minimal Clarifying Questions
 
-The root assistant should ask only for missing details such as:
+The root agent should ask only for missing details such as:
 
 - use local models or external APIs?
 - save outputs where?
