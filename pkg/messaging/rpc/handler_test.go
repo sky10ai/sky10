@@ -33,8 +33,8 @@ func TestHandlerListAdaptersAndConnections(t *testing.T) {
 		t.Fatal("Dispatch(adapters) handled = false, want true")
 	}
 	body := result.(map[string]interface{})
-	if body["count"].(int) != 1 {
-		t.Fatalf("adapter count = %v, want 1", body["count"])
+	if body["count"].(int) != 2 {
+		t.Fatalf("adapter count = %v, want 2", body["count"])
 	}
 
 	result, err, handled = handler.Dispatch(context.Background(), "messaging.connections", nil)
@@ -63,8 +63,8 @@ func TestHandlerListExternalAdapters(t *testing.T) {
 		t.Fatal("Dispatch(adapters) handled = false, want true")
 	}
 	body := result.(map[string]interface{})
-	if body["count"].(int) != 2 {
-		t.Fatalf("adapter count = %v, want 2", body["count"])
+	if body["count"].(int) != 3 {
+		t.Fatalf("adapter count = %v, want 3", body["count"])
 	}
 	adapters := body["adapters"].([]adapterInfo)
 	var slack adapterInfo

@@ -5,12 +5,14 @@ import (
 
 	"github.com/sky10/sky10/pkg/messengers/adapters/imapsmtp"
 	"github.com/sky10/sky10/pkg/messengers/adapters/shared"
+	"github.com/sky10/sky10/pkg/messengers/adapters/telegram"
 )
 
 type Definition = shared.Definition
 
 var builtins = []Definition{
 	imapsmtp.Definition,
+	telegram.Definition,
 }
 
 // Builtins returns the built-in adapter definitions in stable name order.

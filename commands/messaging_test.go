@@ -17,8 +17,13 @@ func TestMessagingCmdRegistersBuiltInAdapters(t *testing.T) {
 			t.Fatalf("subcommand %q Hidden = false, want true", sub.Name())
 		}
 	}
-	want := []string{"imap-smtp"}
-	if len(got) != len(want) || got[0] != want[0] {
+	want := []string{"imap-smtp", "telegram"}
+	if len(got) != len(want) {
 		t.Fatalf("MessagingCmd() subcommands = %v, want %v", got, want)
+	}
+	for idx := range want {
+		if got[idx] != want[idx] {
+			t.Fatalf("MessagingCmd() subcommands = %v, want %v", got, want)
+		}
 	}
 }

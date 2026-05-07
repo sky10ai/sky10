@@ -10,7 +10,7 @@ func TestBuiltinsReturnsStableSortedNames(t *testing.T) {
 	t.Parallel()
 
 	names := Names()
-	want := []string{"imap-smtp"}
+	want := []string{"imap-smtp", "telegram"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("Names() = %v, want %v", names, want)
 	}
@@ -42,6 +42,9 @@ func TestLookupFindsRegisteredAdapter(t *testing.T) {
 	if _, ok := Lookup("missing"); ok {
 		t.Fatal("Lookup(missing) = true, want false")
 	}
+	if definition, ok := Lookup("telegram"); !ok || definition.Name != "telegram" {
+		t.Fatalf("Lookup(telegram) = %+v, %v; want telegram", definition, ok)
+	}
 }
 
 func TestBuiltinProcessSpec(t *testing.T) {
@@ -60,6 +63,13 @@ func TestBuiltinProcessSpec(t *testing.T) {
 
 	if _, err := BuiltinProcessSpec("", "imap-smtp"); err == nil {
 		t.Fatal("BuiltinProcessSpec(empty executable) error = nil, want error")
+	}
+	spec, err = BuiltinProcessSpec("/tmp/sky10", "telegram")
+	if err != nil {
+		t.Fatalf("BuiltinProcessSpec(telegram) error = %v", err)
+	}
+	if !slices.Equal(spec.Args, []string{"messaging", "telegram"}) {
+		t.Fatalf("telegram spec.Args = %v, want [messaging telegram]", spec.Args)
 	}
 	if _, err := BuiltinProcessSpec("/tmp/sky10", "missing"); err == nil {
 		t.Fatal("BuiltinProcessSpec(missing adapter) error = nil, want error")
