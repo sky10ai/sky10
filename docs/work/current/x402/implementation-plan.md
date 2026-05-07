@@ -1,6 +1,6 @@
 ---
 created: 2026-04-26
-updated: 2026-05-06
+updated: 2026-05-07
 model: claude-opus-4-7
 ---
 
@@ -31,12 +31,19 @@ auto-quarantine, volume anomaly detection. Stays out of scope until
 we have enough live agent traffic to learn from. Sequenced after M7
 because the same telemetry feeds both.
 
-## M10 — OpenClaw plugin — *deferred*
+## M10 — OpenClaw plugin — *in progress*
 
 Agents in the VM call paid services through the comms endpoint at
 `/comms/metered-services/ws`. Closes the loop from "user funds wallet" to
 "agent uses paid service" with the safety story (per-agent caps,
-audit trail) the sandbox-comms architecture provides. Not started.
+audit trail) the sandbox-comms architecture provides.
+
+Current slice: the OpenClaw sky10 bridge installs a stable
+`sky10-x402` helper, discovers Settings-approved x402 services over
+the comms websocket, and injects those services plus the helper usage
+into durable tool-call prompts. The endpoint-to-adapter path is covered
+by an end-to-end websocket test. Native OpenClaw tool registration and
+cross-runtime MCP remain follow-ups.
 
 ## Out of scope
 

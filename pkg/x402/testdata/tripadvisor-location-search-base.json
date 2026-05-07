@@ -1,0 +1,116 @@
+{
+  "service": "tripadvisor-content-api-readme-io",
+  "method": "GET",
+  "url": "https://tripadvisor.x402.paysponge.com/api/v1/location/search?searchQuery=Chicago",
+  "captured_at_utc": "2026-05-07T04:36:54Z",
+  "exchanges": [
+    {
+      "request_method": "GET",
+      "request_url": "https://tripadvisor.x402.paysponge.com/api/v1/location/search?searchQuery=Chicago",
+      "request_headers": {},
+      "response_status": 402,
+      "response_headers": {
+        "Access-Control-Allow-Credentials": [
+          "true"
+        ],
+        "Alt-Svc": [
+          "h3=\":443\"; ma=86400"
+        ],
+        "Cf-Cache-Status": [
+          "DYNAMIC"
+        ],
+        "Cf-Ray": [
+          "9f7d86accc9e764a-OMA"
+        ],
+        "Content-Type": [
+          "application/json"
+        ],
+        "Date": [
+          "Thu, 07 May 2026 04:36:51 GMT"
+        ],
+        "Nel": [
+          "{\"report_to\":\"cf-nel\",\"success_fraction\":0.0,\"max_age\":604800}"
+        ],
+        "Payment-Required": [
+          "eyJ4NDAyVmVyc2lvbiI6MiwiZXJyb3IiOiJQYXltZW50IHJlcXVpcmVkIiwicmVzb3VyY2UiOnsidXJsIjoiaHR0cHM6Ly90cmlwYWR2aXNvci54NDAyLnBheXNwb25nZS5jb20vYXBpL3YxL2xvY2F0aW9uL3NlYXJjaCIsImRlc2NyaXB0aW9uIjoiU2VydmljZTogVHJpcGFkdmlzb3IgKGh0dHBzOi8vdHJpcGFkdmlzb3IueDQwMi5wYXlzcG9uZ2UuY29tL2FwaS92MS9sb2NhdGlvbi9zZWFyY2gpIiwibWltZVR5cGUiOiJhcHBsaWNhdGlvbi9qc29uIn0sImFjY2VwdHMiOlt7InNjaGVtZSI6ImV4YWN0IiwibmV0d29yayI6ImVpcDE1NTo4NDUzIiwiYW1vdW50IjoiMTAwMDAiLCJhc3NldCI6IjB4ODMzNTg5ZkNENmVEYjZFMDhmNGM3QzMyRDRmNzFiNTRiZEEwMjkxMyIsInBheVRvIjoiMHhENzM5MTJCQTMwODMyMzI4YTNkYjk2QmVFNzNlYmZhQjU4Yjc0MjlmIiwibWF4VGltZW91dFNlY29uZHMiOjMwMCwiZXh0cmEiOnsibmFtZSI6IlVTRCBDb2luIiwidmVyc2lvbiI6IjIifX0seyJzY2hlbWUiOiJleGFjdCIsIm5ldHdvcmsiOiJzb2xhbmE6NWV5a3Q0VXNGdjhQOE5KZFRSRXBZMXZ6cUtxWkt2ZHAiLCJhbW91bnQiOiIxMDAwMCIsImFzc2V0IjoiRVBqRldkZDVBdWZxU1NxZU0ycU4xeHp5YmFwQzhHNHdFR0drWnd5VER0MXYiLCJwYXlUbyI6IjlodzlQeTl1TUd0WFJOcEFCWmppZmNLMXQzc3V3emp5cmk5TDlRWUtnNnpaIiwibWF4VGltZW91dFNlY29uZHMiOjMwMCwiZXh0cmEiOnsiZmVlUGF5ZXIiOiIyd0t1cExSOXE2d1hZcHB3OEdyMk52V3hLQlVxbTRQUEpLa1Fmb3hIREJnNCJ9fV0sImV4dGVuc2lvbnMiOnsiYmF6YWFyIjp7ImluZm8iOnsiaW5wdXQiOnsidHlwZSI6Imh0dHAiLCJtZXRob2QiOiJHRVQiLCJxdWVyeVBhcmFtcyI6e319LCJvdXRwdXQiOnsidHlwZSI6Impzb24iLCJleGFtcGxlIjp7fX19LCJzY2hlbWEiOnsiJHNjaGVtYSI6Imh0dHBzOi8vanNvbi1zY2hlbWEub3JnL2RyYWZ0LzIwMjAtMTIvc2NoZW1hIiwidHlwZSI6Im9iamVjdCIsInByb3BlcnRpZXMiOnsiaW5wdXQiOnsidHlwZSI6Im9iamVjdCIsInByb3BlcnRpZXMiOnsidHlwZSI6eyJ0eXBlIjoic3RyaW5nIiwiY29uc3QiOiJodHRwIn0sIm1ldGhvZCI6eyJ0eXBlIjoic3RyaW5nIiwiZW51bSI6WyJHRVQiLCJIRUFEIiwiREVMRVRFIl19LCJxdWVyeVBhcmFtcyI6eyJ0eXBlIjoib2JqZWN0IiwicHJvcGVydGllcyI6e30sImFkZGl0aW9uYWxQcm9wZXJ0aWVzIjpmYWxzZX19LCJyZXF1aXJlZCI6WyJ0eXBlIiwibWV0aG9kIl0sImFkZGl0aW9uYWxQcm9wZXJ0aWVzIjpmYWxzZX0sIm91dHB1dCI6eyJ0eXBlIjoib2JqZWN0IiwicHJvcGVydGllcyI6eyJ0eXBlIjp7InR5cGUiOiJzdHJpbmciLCJjb25zdCI6Impzb24ifSwiZXhhbXBsZSI6eyJ0eXBlIjoib2JqZWN0IiwiYWRkaXRpb25hbFByb3BlcnRpZXMiOnRydWV9fSwicmVxdWlyZWQiOlsidHlwZSJdLCJhZGRpdGlvbmFsUHJvcGVydGllcyI6ZmFsc2V9fSwicmVxdWlyZWQiOlsiaW5wdXQiXSwiYWRkaXRpb25hbFByb3BlcnRpZXMiOmZhbHNlfX19fQ=="
+        ],
+        "Report-To": [
+          "{\"group\":\"cf-nel\",\"max_age\":604800,\"endpoints\":[{\"url\":\"https://a.nel.cloudflare.com/report/v4?s=7ioh1TM4SO36Zljpnf0OFLyu3hpvj8ubVccBnyr%2FObTUTEGgHHPf8%2BzXiDELgOoLHrtrPw6g3aHYEsiYSN2KhOJ4dnPzIZ8FPus8kf6CnP7h7vNZYXzJ2KKeMg%2F7lesMYE1L21kxdsvhp1CUDt6bG%2Fg%3D\"}]}"
+        ],
+        "Rndr-Id": [
+          "251733bd-164a-4bae"
+        ],
+        "Server": [
+          "cloudflare"
+        ],
+        "Vary": [
+          "Origin",
+          "Accept-Encoding"
+        ],
+        "X-Render-Origin-Server": [
+          "Render"
+        ]
+      },
+      "response_body": "{\"x402Version\":2,\"error\":\"Payment required\",\"resource\":{\"url\":\"https://tripadvisor.x402.paysponge.com/api/v1/location/search\",\"description\":\"Service: Tripadvisor (https://tripadvisor.x402.paysponge.com/api/v1/location/search)\",\"mimeType\":\"application/json\"},\"accepts\":[{\"scheme\":\"exact\",\"network\":\"eip155:8453\",\"amount\":\"10000\",\"asset\":\"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913\",\"payTo\":\"0xD73912BA30832328a3db96BeE73ebfaB58b7429f\",\"maxTimeoutSeconds\":300,\"extra\":{\"name\":\"USD Coin\",\"version\":\"2\"}},{\"scheme\":\"exact\",\"network\":\"solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp\",\"amount\":\"10000\",\"asset\":\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\"payTo\":\"9hw9Py9uMGtXRNpABZjifcK1t3suwzjyri9L9QYKg6zZ\",\"maxTimeoutSeconds\":300,\"extra\":{\"feePayer\":\"2wKupLR9q6wXYppw8Gr2NvWxKBUqm4PPJKkQfoxHDBg4\"}}],\"extensions\":{\"bazaar\":{\"info\":{\"input\":{\"type\":\"http\",\"method\":\"GET\",\"queryParams\":{}},\"output\":{\"type\":\"json\",\"example\":{}}},\"schema\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"properties\":{\"input\":{\"type\":\"object\",\"properties\":{\"type\":{\"type\":\"string\",\"const\":\"http\"},\"method\":{\"type\":\"string\",\"enum\":[\"GET\",\"HEAD\",\"DELETE\"]},\"queryParams\":{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}},\"required\":[\"type\",\"method\"],\"additionalProperties\":false},\"output\":{\"type\":\"object\",\"properties\":{\"type\":{\"type\":\"string\",\"const\":\"json\"},\"example\":{\"type\":\"object\",\"additionalProperties\":true}},\"required\":[\"type\"],\"additionalProperties\":false}},\"required\":[\"input\"],\"additionalProperties\":false}}}}"
+    },
+    {
+      "request_method": "GET",
+      "request_url": "https://tripadvisor.x402.paysponge.com/api/v1/location/search?searchQuery=Chicago",
+      "request_headers": {
+        "Payment-Signature": [
+          "eyJ4NDAyVmVyc2lvbiI6Miwic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoiYmFzZSIsImFjY2VwdGVkIjp7InNjaGVtZSI6ImV4YWN0IiwibmV0d29yayI6ImVpcDE1NTo4NDUzIiwiYW1vdW50IjoiMTAwMDAiLCJhc3NldCI6IjB4ODMzNTg5ZkNENmVEYjZFMDhmNGM3QzMyRDRmNzFiNTRiZEEwMjkxMyIsInBheVRvIjoiMHhENzM5MTJCQTMwODMyMzI4YTNkYjk2QmVFNzNlYmZhQjU4Yjc0MjlmIiwibWF4VGltZW91dFNlY29uZHMiOjMwMCwiZXh0cmEiOnsibmFtZSI6IlVTRCBDb2luIiwidmVyc2lvbiI6IjIifX0sInJlc291cmNlIjp7InVybCI6Imh0dHBzOi8vdHJpcGFkdmlzb3IueDQwMi5wYXlzcG9uZ2UuY29tL2FwaS92MS9sb2NhdGlvbi9zZWFyY2giLCJkZXNjcmlwdGlvbiI6IlNlcnZpY2U6IFRyaXBhZHZpc29yIChodHRwczovL3RyaXBhZHZpc29yLng0MDIucGF5c3BvbmdlLmNvbS9hcGkvdjEvbG9jYXRpb24vc2VhcmNoKSIsIm1pbWVUeXBlIjoiYXBwbGljYXRpb24vanNvbiJ9LCJwYXlsb2FkIjp7InNpZ25hdHVyZSI6IjB4M2ExZjMzYzIzNzRkMWQxMmJjN2NjNWNiODU1OGJlODBiYTE1MzBhMzQ5YmFiNTZhYTQ0YjJlOWI0YmNkZjI0NzVhMzlmYjA2YmUzMmY5YmRmMjQ2MzI3NjgxMTEwNjRkNGI1NDkxNjhhYmZjNjllOTA5MmJlOGVlNWI2MThjNTYxYiIsImF1dGhvcml6YXRpb24iOnsiZnJvbSI6IjB4ZEQxMkRFY2JlYTRiZDBCYzQxNGFmNjM1YTMzOThmNTBGQTI5MWU0NSIsInRvIjoiMHhENzM5MTJCQTMwODMyMzI4YTNkYjk2QmVFNzNlYmZhQjU4Yjc0MjlmIiwidmFsdWUiOiIxMDAwMCIsInZhbGlkQWZ0ZXIiOiIwIiwidmFsaWRCZWZvcmUiOiIxNzc4MTI4OTExIiwibm9uY2UiOiIweDA4OWMwMjFkNmZlZWVmNWMxYmYwMzM2NGIzZTM0NWNiMzZlZjJkNmU2MTRkMWU1YmQxOGQzMWRmMDhlNWU3YzIifX19"
+        ],
+        "X-402-Payment": [
+          "eyJ4NDAyVmVyc2lvbiI6Miwic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoiYmFzZSIsImFjY2VwdGVkIjp7InNjaGVtZSI6ImV4YWN0IiwibmV0d29yayI6ImVpcDE1NTo4NDUzIiwiYW1vdW50IjoiMTAwMDAiLCJhc3NldCI6IjB4ODMzNTg5ZkNENmVEYjZFMDhmNGM3QzMyRDRmNzFiNTRiZEEwMjkxMyIsInBheVRvIjoiMHhENzM5MTJCQTMwODMyMzI4YTNkYjk2QmVFNzNlYmZhQjU4Yjc0MjlmIiwibWF4VGltZW91dFNlY29uZHMiOjMwMCwiZXh0cmEiOnsibmFtZSI6IlVTRCBDb2luIiwidmVyc2lvbiI6IjIifX0sInJlc291cmNlIjp7InVybCI6Imh0dHBzOi8vdHJpcGFkdmlzb3IueDQwMi5wYXlzcG9uZ2UuY29tL2FwaS92MS9sb2NhdGlvbi9zZWFyY2giLCJkZXNjcmlwdGlvbiI6IlNlcnZpY2U6IFRyaXBhZHZpc29yIChodHRwczovL3RyaXBhZHZpc29yLng0MDIucGF5c3BvbmdlLmNvbS9hcGkvdjEvbG9jYXRpb24vc2VhcmNoKSIsIm1pbWVUeXBlIjoiYXBwbGljYXRpb24vanNvbiJ9LCJwYXlsb2FkIjp7InNpZ25hdHVyZSI6IjB4M2ExZjMzYzIzNzRkMWQxMmJjN2NjNWNiODU1OGJlODBiYTE1MzBhMzQ5YmFiNTZhYTQ0YjJlOWI0YmNkZjI0NzVhMzlmYjA2YmUzMmY5YmRmMjQ2MzI3NjgxMTEwNjRkNGI1NDkxNjhhYmZjNjllOTA5MmJlOGVlNWI2MThjNTYxYiIsImF1dGhvcml6YXRpb24iOnsiZnJvbSI6IjB4ZEQxMkRFY2JlYTRiZDBCYzQxNGFmNjM1YTMzOThmNTBGQTI5MWU0NSIsInRvIjoiMHhENzM5MTJCQTMwODMyMzI4YTNkYjk2QmVFNzNlYmZhQjU4Yjc0MjlmIiwidmFsdWUiOiIxMDAwMCIsInZhbGlkQWZ0ZXIiOiIwIiwidmFsaWRCZWZvcmUiOiIxNzc4MTI4OTExIiwibm9uY2UiOiIweDA4OWMwMjFkNmZlZWVmNWMxYmYwMzM2NGIzZTM0NWNiMzZlZjJkNmU2MTRkMWU1YmQxOGQzMWRmMDhlNWU3YzIifX19"
+        ],
+        "X-Payment": [
+          "eyJ4NDAyVmVyc2lvbiI6Miwic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoiYmFzZSIsImFjY2VwdGVkIjp7InNjaGVtZSI6ImV4YWN0IiwibmV0d29yayI6ImVpcDE1NTo4NDUzIiwiYW1vdW50IjoiMTAwMDAiLCJhc3NldCI6IjB4ODMzNTg5ZkNENmVEYjZFMDhmNGM3QzMyRDRmNzFiNTRiZEEwMjkxMyIsInBheVRvIjoiMHhENzM5MTJCQTMwODMyMzI4YTNkYjk2QmVFNzNlYmZhQjU4Yjc0MjlmIiwibWF4VGltZW91dFNlY29uZHMiOjMwMCwiZXh0cmEiOnsibmFtZSI6IlVTRCBDb2luIiwidmVyc2lvbiI6IjIifX0sInJlc291cmNlIjp7InVybCI6Imh0dHBzOi8vdHJpcGFkdmlzb3IueDQwMi5wYXlzcG9uZ2UuY29tL2FwaS92MS9sb2NhdGlvbi9zZWFyY2giLCJkZXNjcmlwdGlvbiI6IlNlcnZpY2U6IFRyaXBhZHZpc29yIChodHRwczovL3RyaXBhZHZpc29yLng0MDIucGF5c3BvbmdlLmNvbS9hcGkvdjEvbG9jYXRpb24vc2VhcmNoKSIsIm1pbWVUeXBlIjoiYXBwbGljYXRpb24vanNvbiJ9LCJwYXlsb2FkIjp7InNpZ25hdHVyZSI6IjB4M2ExZjMzYzIzNzRkMWQxMmJjN2NjNWNiODU1OGJlODBiYTE1MzBhMzQ5YmFiNTZhYTQ0YjJlOWI0YmNkZjI0NzVhMzlmYjA2YmUzMmY5YmRmMjQ2MzI3NjgxMTEwNjRkNGI1NDkxNjhhYmZjNjllOTA5MmJlOGVlNWI2MThjNTYxYiIsImF1dGhvcml6YXRpb24iOnsiZnJvbSI6IjB4ZEQxMkRFY2JlYTRiZDBCYzQxNGFmNjM1YTMzOThmNTBGQTI5MWU0NSIsInRvIjoiMHhENzM5MTJCQTMwODMyMzI4YTNkYjk2QmVFNzNlYmZhQjU4Yjc0MjlmIiwidmFsdWUiOiIxMDAwMCIsInZhbGlkQWZ0ZXIiOiIwIiwidmFsaWRCZWZvcmUiOiIxNzc4MTI4OTExIiwibm9uY2UiOiIweDA4OWMwMjFkNmZlZWVmNWMxYmYwMzM2NGIzZTM0NWNiMzZlZjJkNmU2MTRkMWU1YmQxOGQzMWRmMDhlNWU3YzIifX19"
+        ]
+      },
+      "response_status": 200,
+      "response_headers": {
+        "Access-Control-Allow-Credentials": [
+          "true"
+        ],
+        "Alt-Svc": [
+          "h3=\":443\"; ma=86400"
+        ],
+        "Cf-Cache-Status": [
+          "DYNAMIC"
+        ],
+        "Cf-Ray": [
+          "9f7d86af381a764a-OMA"
+        ],
+        "Content-Type": [
+          "application/json"
+        ],
+        "Date": [
+          "Thu, 07 May 2026 04:36:54 GMT"
+        ],
+        "Nel": [
+          "{\"report_to\":\"cf-nel\",\"success_fraction\":0.0,\"max_age\":604800}"
+        ],
+        "Payment-Response": [
+          "eyJzdWNjZXNzIjp0cnVlLCJwYXllciI6IjB4ZGQxMmRlY2JlYTRiZDBiYzQxNGFmNjM1YTMzOThmNTBmYTI5MWU0NSIsInRyYW5zYWN0aW9uIjoiMHg5N2M4YTFiNmFmN2I5YjBjNzM5ZDIwNDQzNjM3MzVkMzE5MWRlMDk3N2IxOTRlZGYxMjVlZGY3Y2E1ODE2Y2VhIiwibmV0d29yayI6ImJhc2UifQ=="
+        ],
+        "Report-To": [
+          "{\"group\":\"cf-nel\",\"max_age\":604800,\"endpoints\":[{\"url\":\"https://a.nel.cloudflare.com/report/v4?s=rLLlW5lQljAcdgor6hwm1szyQiqpweIDyCr35wn%2FAXxwAZUQ804P3j2VwaEDvpvwboNLdKP2JoNRDw%2BRU2J5l2GKspdHwm1qqbMvcK76zekXacNsNFqaYMaLXaUiXOK%2BozD5i1%2BMPvo%2FxY5IY9EIu08%3D\"}]}"
+        ],
+        "Rndr-Id": [
+          "c174698c-de7f-4b95"
+        ],
+        "Server": [
+          "cloudflare"
+        ],
+        "Vary": [
+          "Origin",
+          "Accept-Encoding"
+        ],
+        "X-Render-Origin-Server": [
+          "Render"
+        ]
+      },
+      "response_body": "{\"data\":[{\"location_id\":\"35805\",\"name\":\"Chicago\",\"address_obj\":{\"state\":\"Illinois\",\"country\":\"United States\",\"address_string\":\"Chicago, IL\"}},{\"location_id\":\"11452109\",\"name\":\"Chicago Architecture River Cruise\",\"address_obj\":{\"city\":\"Chicago\",\"state\":\"Illinois\",\"country\":\"United States\",\"address_string\":\"Chicago, IL\"}},{\"location_id\":\"12548391\",\"name\":\"Viceroy Chicago\",\"address_obj\":{\"street1\":\"1118 North State Street\",\"city\":\"Chicago\",\"state\":\"Illinois\",\"country\":\"United States\",\"postalcode\":\"60610\",\"address_string\":\"1118 North State Street, Chicago, IL 60610\"}},{\"location_id\":\"114581\",\"name\":\"Swissotel Chicago\",\"address_obj\":{\"street1\":\"323 East Wacker Drive\",\"city\":\"Chicago\",\"state\":\"Illinois\",\"country\":\"United States\",\"postalcode\":\"60601\",\"address_string\":\"323 East Wacker Drive, Chicago, IL 60601\"}},{\"location_id\":\"87590\",\"name\":\"Hilton Chicago\",\"address_obj\":{\"street1\":\"720 South Michigan Avenue\",\"street2\":\"\",\"city\":\"Chicago\",\"state\":\"Illinois\",\"country\":\"United States\",\"postalcode\":\"60605\",\"address_string\":\"720 South Michigan Avenue, Chicago, IL 60605\"}},{\"location_id\":\"87617\",\"name\":\"Hyatt Regency Chicago\",\"address_obj\":{\"street1\":\"151 East Wacker Drive\",\"street2\":\"\",\"city\":\"Chicago\",\"state\":\"Illinois\",\"country\":\"United States\",\"postalcode\":\"60601-3709\",\"address_string\":\"151 East Wacker Drive, Chicago, IL 60601-3709\"}},{\"location_id\":\"23228472\",\"name\":\"Pendry Chicago\",\"address_obj\":{\"street1\":\"230 N Michigan Ave\",\"city\":\"Chicago\",\"state\":\"Illinois\",\"country\":\"United States\",\"postalcode\":\"60601-5906\",\"address_string\":\"230 N Michigan Ave, Chicago, IL 60601-5906\"}},{\"location_id\":\"12463204\",\"name\":\"Chicago CityPASSR\",\"address_obj\":{\"city\":\"Chicago\",\"state\":\"Illinois\",\"country\":\"United States\",\"address_string\":\"Chicago, IL\"}},{\"location_id\":\"3743225\",\"name\":\"Chicago Riverwalk\",\"address_obj\":{\"street1\":\"22 E Wacker Dr\",\"city\":\"Chicago\",\"state\":\"Illinois\",\"country\":\"United States\",\"postalcode\":\"60601\",\"address_string\":\"22 E Wacker Dr, Chicago, IL 60601\"}},{\"location_id\":\"4046139\",\"name\":\"The Langham, Chicago\",\"address_obj\":{\"street1\":\"330 N. Wabash Avenue\",\"city\":\"Chicago\",\"state\":\"Illinois\",\"country\":\"United States\",\"postalcode\":\"60611\",\"address_string\":\"330 N. Wabash Avenue, Chicago, IL 60611\"}}]}"
+    }
+  ]
+}

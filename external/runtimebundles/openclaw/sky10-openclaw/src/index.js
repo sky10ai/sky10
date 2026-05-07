@@ -17,12 +17,15 @@ import { createChannelReplyPipeline } from "/usr/lib/node_modules/openclaw/dist/
 
 import { Sky10Client } from "./sky10.js";
 import { buildOutboundChatContent, extractInboundMediaContext } from "./media.js";
+import { createX402Client, deriveX402WsUrl, formatX402PromptContext, installX402Helper } from "./x402.js";
 
 const CHANNEL_ID = "sky10";
 const CHANNEL_LABEL = "Sky10";
 const DEFAULT_ACCOUNT_ID = "default";
 const DEFAULT_SKILLS = ["code", "shell", "browser", "web-search", "file-ops"];
 const DEFAULT_MANIFEST_PATH = "/shared/agent-manifest.json";
+const DEFAULT_X402_HELPER_PATH = path.join(os.homedir(), ".openclaw", "sky10-x402.mjs");
+const X402_CONTEXT_TTL_MS = 30_000;
 const GLOBAL_STATE_KEY = Symbol.for("sky10.openclaw.bridge");
 const DEDUP_TTL_MS = 30_000;
 const CLAIM_PRUNE_INTERVAL_MS = 60_000;
@@ -42,6 +45,8 @@ const SKY10_ACCOUNT_PROPERTIES = {
   },
   manifestPath: { type: "string" },
   gatewayToken: { type: "string" },
+  x402WsUrl: { type: "string" },
+  x402HelperPath: { type: "string" },
 };
 const SKY10_CHANNEL_CONFIG_SCHEMA = {
   schema: {
@@ -61,6 +66,8 @@ const SKY10_CHANNEL_CONFIG_SCHEMA = {
       },
       manifestPath: { type: "string" },
       gatewayToken: { type: "string" },
+      x402WsUrl: { type: "string" },
+      x402HelperPath: { type: "string" },
       defaultAccount: { type: "string" },
       healthMonitor: {
         type: "object",
@@ -88,6 +95,7 @@ function getBridgeState() {
       client: null,
       agentId: null,
       pluginRuntime: null,
+      x402: null,
       lastClaimPruneAt: 0,
       seenIds: new Map(),
     };
@@ -268,7 +276,13 @@ function resolveSky10Account({ cfg, accountId }) {
     agentName,
     skills: resolveSkills(merged.skills, tools),
     tools,
+    prompt: typeof manifest.prompt === "string" ? manifest.prompt.trim() : "",
+    description: typeof manifest.description === "string" ? manifest.description.trim() : "",
     gatewayToken: typeof merged.gatewayToken === "string" ? merged.gatewayToken.trim() : "",
+    x402WsUrl: typeof merged.x402WsUrl === "string" ? merged.x402WsUrl.trim() : "",
+    x402HelperPath: typeof merged.x402HelperPath === "string" && merged.x402HelperPath.trim()
+      ? merged.x402HelperPath.trim()
+      : DEFAULT_X402_HELPER_PATH,
   };
 }
 
@@ -412,7 +426,7 @@ async function collectOutputRefs(outputDir) {
   return refs;
 }
 
-function buildToolCallPrompt(content, outputDir) {
+function buildToolCallPrompt(content, outputDir, account, x402Context) {
   const payload = content && typeof content === "object" ? content : {};
   const jobContext = payload.job_context && typeof payload.job_context === "object" ? payload.job_context : {};
   const payloadRefs = [];
@@ -432,16 +446,30 @@ function buildToolCallPrompt(content, outputDir) {
     budget: payload.budget,
     bid_id: payload.bid_id,
   };
-  return [
+  const lines = [
     "You are fulfilling a sky10 durable agent tool call.",
+  ];
+  if (account?.prompt) {
+    lines.push("Agent instructions:", account.prompt, "");
+  } else if (account?.description) {
+    lines.push("Agent description:", account.description, "");
+  }
+  lines.push(
     "Complete the requested tool call autonomously using the tools and credentials available in this VM.",
     "If the request involves audio or video, infer the media workflow yourself: inspect/extract/convert/mux with ffmpeg when useful, and use configured provider APIs such as ElevenLabs when a voice transformation requires them.",
     `Treat payload_refs as input handles. Write generated artifacts under this directory: ${outputDir}`,
     "Return a concise result summary and include any output artifact paths or URIs.",
+  );
+  const x402Prompt = formatX402PromptContext(x402Context);
+  if (x402Prompt) {
+    lines.push("", x402Prompt);
+  }
+  lines.push(
     "",
     "Tool call:",
     JSON.stringify(toolCall, null, 2),
-  ].join("\n");
+  );
+  return lines.join("\n");
 }
 
 function resolveToolCallJobID(content, msg) {
@@ -469,6 +497,47 @@ async function ensureRegistered(log, account, setStatus) {
     rpcUrl: account.rpcUrl,
   });
   log.info(`sky10: registered as ${state.agentId} (${account.agentName})`);
+  await refreshX402RuntimeContext(log, account, { force: true });
+}
+
+async function refreshX402RuntimeContext(log, account, opts = {}) {
+  const state = getBridgeState();
+  const now = Date.now();
+  if (!opts.force && state.x402 && now - state.x402.refreshedAt < X402_CONTEXT_TTL_MS) {
+    return state.x402;
+  }
+
+  const next = {
+    wsUrl: "",
+    helperPath: account.x402HelperPath || DEFAULT_X402_HELPER_PATH,
+    services: [],
+    error: "",
+    refreshedAt: now,
+  };
+
+  try {
+    next.wsUrl = deriveX402WsUrl({
+      wsUrl: account.x402WsUrl,
+      rpcUrl: account.rpcUrl,
+      agentName: account.agentName,
+    });
+    next.helperPath = installX402Helper({
+      helperPath: account.x402HelperPath,
+      wsUrl: next.wsUrl,
+      rpcUrl: account.rpcUrl,
+      agentName: account.agentName,
+    });
+    const client = createX402Client({ wsUrl: next.wsUrl, timeoutMs: 5_000 });
+    const listed = await client.listServices();
+    next.services = Array.isArray(listed?.services) ? listed.services : [];
+    log.info(`sky10: x402 approved services available: ${next.services.length}`);
+  } catch (err) {
+    next.error = err?.message ?? String(err);
+    log.warn(`sky10: x402 service discovery unavailable: ${next.error}`);
+  }
+
+  state.x402 = next;
+  return next;
 }
 
 function resolveInboundRouteEnvelope(runtime, cfg, accountId, peer, conversationLabel, rawBody, timestamp) {
@@ -707,11 +776,12 @@ async function dispatchToolCall(log, ctx, account, msg) {
   try {
     fs.mkdirSync(outputDir, { recursive: true });
     await state.client.updateJobStatus(jobId, "running", `Running ${tool}`);
+    const x402Context = await refreshX402RuntimeContext(log, account);
     const toolMsg = {
       ...msg,
       session_id: jobId,
       content: {
-        text: buildToolCallPrompt(content, outputDir),
+        text: buildToolCallPrompt(content, outputDir, account, x402Context),
       },
     };
     const inbound = extractInboundMediaContext(toolMsg.content, jobId);

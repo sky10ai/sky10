@@ -80,6 +80,22 @@ func liveSmokeCases() []liveSmokeCase {
 			maxPriceUSDC: "0.005",
 		},
 
+		// --- Travel services ---
+		// Tripadvisor is the lowest-cost travel smoke in the current
+		// agentic.market catalog. It proves a Settings-enabled service
+		// can be called through Backend without handing wallet or x402
+		// payment details to the agent.
+		{
+			id:           "tripadvisor-location-search-base",
+			manifestID:   "tripadvisor-content-api-readme-io",
+			displayName:  "Tripadvisor",
+			endpointHost: "https://tripadvisor.x402.paysponge.com",
+			path:         "/api/v1/location/search?searchQuery=Chicago",
+			method:       "GET",
+			maxPriceUSDC: "0.020",
+			networks:     []Network{NetworkBase},
+		},
+
 		// --- v1 services (body-based challenge, integer-units-in-v1-field) ---
 		// x402-browserbase requires estimatedMinutes >= 5 in the
 		// request body and charges per minute, so this case spends

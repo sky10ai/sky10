@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 	commsx402 "github.com/sky10/sky10/pkg/sandbox/comms/x402"
 	"github.com/sky10/sky10/pkg/x402"
 )
@@ -55,7 +58,12 @@ func newTestAdapter(t *testing.T, srv *httptest.Server) *x402Adapter {
 	}
 	manifest := x402.ServiceManifest{
 		ID: "perplexity", DisplayName: "Perplexity",
-		Endpoint: srv.URL, Networks: []x402.Network{x402.NetworkBase},
+		Description: "Current events search",
+		Endpoint:    srv.URL, Networks: []x402.Network{x402.NetworkBase},
+		ServiceURL: "https://perplexity.ai",
+		Endpoints: []x402.ServiceEndpoint{
+			{URL: srv.URL + "/search", Method: "POST", Description: "Search", PriceUSDC: "0.005", Network: x402.NetworkBase},
+		},
 		MaxPriceUSDC: "0.005",
 	}
 	if err := registry.AddManifest(manifest); err != nil {
@@ -104,6 +112,15 @@ func TestAdapterListServicesTranslatesFields(t *testing.T) {
 	if got.Hint == "" {
 		t.Fatal("Hint missing — overlay metadata should propagate")
 	}
+	if got.Description != "Current events search" || got.ServiceURL != "https://perplexity.ai" {
+		t.Fatalf("metadata = %+v, want manifest description and service URL", got)
+	}
+	if len(got.Endpoints) != 1 || got.Endpoints[0].URL == "" || got.Endpoints[0].Network != string(x402.NetworkBase) {
+		t.Fatalf("endpoints = %+v, want manifest endpoint metadata", got.Endpoints)
+	}
+	if len(got.Networks) != 1 || got.Networks[0] != string(x402.NetworkBase) {
+		t.Fatalf("networks = %+v, want base", got.Networks)
+	}
 }
 
 func TestAdapterCallTranslatesRequestAndReceipt(t *testing.T) {
@@ -143,6 +160,99 @@ func TestAdapterCallTranslatesRequestAndReceipt(t *testing.T) {
 	}
 	if _, err := time.Parse(time.RFC3339Nano, resp.Receipt.SettledAt); err != nil {
 		t.Fatalf("SettledAt %q not RFC3339Nano: %v", resp.Receipt.SettledAt, err)
+	}
+}
+
+func TestAdapterCommsWebSocketCallsThroughPaymentBackend(t *testing.T) {
+	t.Parallel()
+	srv := fakeX402Server(t)
+	defer srv.Close()
+	a := newTestAdapter(t, srv)
+
+	mux := http.NewServeMux()
+	commsx402.RegisterOnMux(mux, a, func(*http.Request) (string, string, error) {
+		return "A-1", "D-1", nil
+	})
+	wsServer := httptest.NewServer(mux)
+	defer wsServer.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(wsServer.URL, "http") + commsx402.EndpointPath
+	conn, dialResp, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	if dialResp != nil && dialResp.Body != nil {
+		_ = dialResp.Body.Close()
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	if err := wsjson.Write(ctx, conn, map[string]any{
+		"type":       "x402.list_services",
+		"request_id": "list-1",
+		"nonce":      "nonce-list-1",
+		"payload":    map[string]any{},
+	}); err != nil {
+		t.Fatalf("write list_services: %v", err)
+	}
+	var listResp struct {
+		RequestID string `json:"request_id"`
+		Error     *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error,omitempty"`
+		Payload struct {
+			Services []commsx402.ServiceListing `json:"services"`
+		} `json:"payload"`
+	}
+	if err := wsjson.Read(ctx, conn, &listResp); err != nil {
+		t.Fatalf("read list_services: %v", err)
+	}
+	if listResp.Error != nil {
+		t.Fatalf("list_services error: %+v", listResp.Error)
+	}
+	if listResp.RequestID != "list-1" || len(listResp.Payload.Services) != 1 || listResp.Payload.Services[0].ID != "perplexity" {
+		t.Fatalf("list response = %+v, want one perplexity service", listResp)
+	}
+
+	if err := wsjson.Write(ctx, conn, map[string]any{
+		"type":       "x402.service_call",
+		"request_id": "call-1",
+		"nonce":      "nonce-call-1",
+		"payload": map[string]any{
+			"service_id":     "perplexity",
+			"path":           "/search",
+			"method":         "POST",
+			"body":           json.RawMessage(`{"q":"hi"}`),
+			"max_price_usdc": "0.005",
+			"payment_nonce":  "payment-1",
+		},
+	}); err != nil {
+		t.Fatalf("write service_call: %v", err)
+	}
+	var callResp struct {
+		RequestID string `json:"request_id"`
+		Error     *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error,omitempty"`
+		Payload commsx402.CallResult `json:"payload"`
+	}
+	if err := wsjson.Read(ctx, conn, &callResp); err != nil {
+		t.Fatalf("read service_call: %v", err)
+	}
+	if callResp.Error != nil {
+		t.Fatalf("service_call error: %+v", callResp.Error)
+	}
+	if callResp.RequestID != "call-1" {
+		t.Fatalf("request_id = %q, want call-1", callResp.RequestID)
+	}
+	if callResp.Payload.Status != http.StatusOK || string(callResp.Payload.Body) != `{"answer":"42"}` {
+		t.Fatalf("payload = %+v, want paid upstream response", callResp.Payload)
+	}
+	if callResp.Payload.Receipt == nil || callResp.Payload.Receipt.Tx != "0xtest" || callResp.Payload.Receipt.Network != string(x402.NetworkBase) {
+		t.Fatalf("receipt = %+v, want base x402 payment receipt", callResp.Payload.Receipt)
 	}
 }
 

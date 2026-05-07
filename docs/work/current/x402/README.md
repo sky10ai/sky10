@@ -158,6 +158,11 @@ transport layer and exposing a single registry to agent runtimes
   status dropdown filters Approved vs Not approved. A "Showing X
   of Y" indicator runs alongside so the catalog stays usable once
   agentic.market lights up the full 500+ entries.
+- 2026-05-07 — OpenClaw runtime bridge got the first x402 agent path:
+  it installs a `sky10-x402` helper, lists approved services over
+  `/comms/x402/ws`, and injects those APIs into durable tool-call
+  prompts so agents can call paid services without handling wallets or
+  payment headers.
 
 ## Documents
 

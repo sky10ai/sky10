@@ -59,6 +59,9 @@ func TestRegistryListApprovedScopesByAgent(t *testing.T) {
 	if listed[0].Tier != TierPrimitive || listed[0].Hint == "" {
 		t.Fatalf("policy overlay not applied: %+v", listed[0])
 	}
+	if listed[0].Endpoint != "https://api.perplexity.ai" || len(listed[0].Networks) != 1 || listed[0].Networks[0] != NetworkBase {
+		t.Fatalf("manifest metadata not propagated: %+v", listed[0])
+	}
 	if got := r.ListApproved("A-other"); len(got) != 0 {
 		t.Fatalf("agent without approvals returned %d listings", len(got))
 	}

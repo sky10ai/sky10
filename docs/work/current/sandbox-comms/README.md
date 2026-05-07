@@ -1,16 +1,18 @@
 ---
 created: 2026-04-26
-updated: 2026-04-26
+updated: 2026-05-07
 model: claude-opus-4-7
 ---
 
 # Sandbox Comms
 
 Per-intent websocket endpoints that carry cross-trust-boundary
-operations between sandboxed agents and the host daemon. The
-architecture exists *because of* sandbox isolation; the package
-lives at `pkg/sandbox/comms/` to make that dependency direction
-explicit.
+operations between sandboxed agents and the host daemon. For Lima
+`user-v2` sandboxes, this must ride a host-owned connection to the
+guest; the guest must not open a direct callback to host services
+through gateway aliases or loopback shortcuts. The architecture exists
+*because of* sandbox isolation; the package lives at
+`pkg/sandbox/comms/` to make that dependency direction explicit.
 
 ## Why this is in `pkg/sandbox/`, not `pkg/bus/`
 
@@ -42,8 +44,10 @@ pkg/sandbox/comms/messengers/         # future, not in this branch
 ```
 
 URL paths: `/comms/metered-services/ws`, future `/comms/wallet/ws`,
-`/comms/messengers/ws`. Existing chat at
-`/rpc/agents/{agent}/chat` is **not touched**.
+`/comms/messengers/ws`. These paths describe per-capability envelope
+contracts, not permission for the guest to dial host loopback or
+gateway aliases directly. Existing chat at `/rpc/agents/{agent}/chat`
+is **not touched**.
 
 ## Why per-intent and not one bus
 
@@ -63,8 +67,9 @@ for the historical lesson behind this.
 
 ## Goals
 
-- Sandboxed agents reach **only** the capabilities they need,
-  through endpoints that physically cannot serve other capabilities.
+- Sandboxed agents reach **only** the capabilities they need, over a
+  host-owned guest connection, through endpoints that physically
+  cannot serve other capabilities.
 - Identity is bus-stamped at each endpoint from the authenticated
   websocket — payloads cannot lie about who they're from.
 - Per-handler discipline rules keep each handler narrow and

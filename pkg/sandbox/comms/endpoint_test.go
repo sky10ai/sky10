@@ -158,6 +158,29 @@ func TestEndpointRoundTripIdentityIsBusStamped(t *testing.T) {
 	}
 }
 
+func TestEndpointRejectsHostCallbackOrigin(t *testing.T) {
+	t.Parallel()
+	url, closeFn := integrationEndpoint(t, []TypeSpec{validSpec()}, nil)
+	defer closeFn()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, resp, err := websocket.Dial(ctx, url, &websocket.DialOptions{
+		HTTPHeader: http.Header{
+			"Origin": []string{"http://host-callback.invalid:9101"},
+		},
+	})
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	if conn != nil {
+		_ = conn.Close(websocket.StatusNormalClosure, "")
+	}
+	if err == nil {
+		t.Fatal("expected host callback origin to be rejected; sandbox guests must not connect directly to host comms endpoints")
+	}
+}
+
 func TestEndpointTypeUnregistered(t *testing.T) {
 	t.Parallel()
 	url, closeFn := integrationEndpoint(t, []TypeSpec{validSpec()}, nil)

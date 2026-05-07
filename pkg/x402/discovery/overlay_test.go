@@ -26,6 +26,13 @@ func TestLoadOverlayParsesEmbeddedJSON(t *testing.T) {
 	if tripadvisor.Tier != x402.TierConvenience || tripadvisor.DefaultOn {
 		t.Fatalf("tripadvisor entry = %+v, want tier=convenience default_on=false", tripadvisor)
 	}
+	amadeus, ok := o.For("developers-amadeus-com")
+	if !ok {
+		t.Fatal("expected Amadeus travel service entry in overlay")
+	}
+	if amadeus.Tier != x402.TierConvenience || amadeus.DefaultOn || amadeus.Hint == "" {
+		t.Fatalf("amadeus entry = %+v, want convenience/default_off with hint", amadeus)
+	}
 }
 
 func TestLoadOverlayBytesEmpty(t *testing.T) {

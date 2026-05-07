@@ -12,7 +12,16 @@ func TestListServicesReturnsBackendResult(t *testing.T) {
 	t.Parallel()
 	backend := &fakeBackend{
 		listResult: []ServiceListing{
-			{ID: "perplexity", DisplayName: "Perplexity", Tier: "primitive", PriceUSDC: "0.005"},
+			{
+				ID:          "perplexity",
+				DisplayName: "Perplexity",
+				Description: "Search current web data",
+				Endpoint:    "https://api.perplexity.ai",
+				Endpoints:   []ServiceEndpoint{{URL: "https://api.perplexity.ai/search", Method: "POST", PriceUSDC: "0.005", Network: "base"}},
+				Networks:    []string{"base"},
+				Tier:        "primitive",
+				PriceUSDC:   "0.005",
+			},
 			{ID: "deepgram", DisplayName: "Deepgram", Tier: "primitive", PriceUSDC: "0.003", Category: "audio"},
 		},
 	}
@@ -30,6 +39,9 @@ func TestListServicesReturnsBackendResult(t *testing.T) {
 	}
 	if len(got.Services) != 2 {
 		t.Fatalf("services count = %d, want 2", len(got.Services))
+	}
+	if got.Services[0].Description == "" || len(got.Services[0].Endpoints) != 1 || len(got.Services[0].Networks) != 1 {
+		t.Fatalf("service metadata = %+v, want description/endpoints/networks", got.Services[0])
 	}
 	if backend.listCalls[0] != "A-1" {
 		t.Fatalf("backend got agentID %q, want A-1", backend.listCalls[0])

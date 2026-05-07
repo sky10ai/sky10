@@ -1,4 +1,4 @@
-updated: 2026-04-19
+updated: 2026-05-07
 ---
 
 # AGENTS.md
@@ -55,6 +55,28 @@ should use this file directly.
 - When you find a Windows-specific gap or blocker, either fix it in the
   current change or record it in `docs/work/todo/windows-support.md` so
   the repo keeps converging on Windows readiness instead of regressing.
+
+## Sandbox And VM Security
+
+- Lima sandboxes use `user-v2` and intentionally expose guest services
+  through host-owned forwarded endpoints. The guest cannot and should
+  not call host daemon RPC, host loopback, host gateway aliases, or
+  other host callback addresses directly.
+- For any VM or sandbox capability, preserve the direction: the host
+  dials or owns the guest connection, and guest-to-host communication
+  must ride that approved host-owned channel. Do not add guest-to-host
+  HTTP/WebSocket shortcuts, port forwards, proxies, or origin exceptions
+  to make something work.
+- Do not configure sandbox runtimes, OpenClaw plugins, x402 helpers, MCP
+  servers, or tests to use host gateway URLs, host `127.0.0.1`, or host
+  Unix sockets from inside the guest.
+- If a design appears to require direct guest-to-host access, stop and
+  redesign around the existing forwarded guest RPC/WebSocket path. Record
+  any missing tunnel or broker work in `docs/work/current/...` instead
+  of weakening the sandbox boundary.
+- For x402 specifically, the wallet and payment adapter stay host-side.
+  Sandbox agents must reach them only through a host-mediated comms
+  bridge, never by dialing the host x402 endpoint directly.
 
 ## Git And GitHub
 

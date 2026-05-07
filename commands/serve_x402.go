@@ -320,13 +320,46 @@ func (a *x402Adapter) ListServices(ctx context.Context, agentID string) ([]comms
 		out = append(out, commsx402.ServiceListing{
 			ID:          l.ID,
 			DisplayName: l.DisplayName,
+			Description: l.Description,
 			Category:    l.Category,
+			Endpoint:    l.Endpoint,
+			ServiceURL:  l.ServiceURL,
+			Endpoints:   commsServiceEndpoints(l.Endpoints),
+			Networks:    commsNetworks(l.Networks),
 			Tier:        string(l.Tier),
 			PriceUSDC:   l.PriceUSDC,
 			Hint:        l.Hint,
 		})
 	}
 	return out, nil
+}
+
+func commsServiceEndpoints(in []x402.ServiceEndpoint) []commsx402.ServiceEndpoint {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]commsx402.ServiceEndpoint, 0, len(in))
+	for _, ep := range in {
+		out = append(out, commsx402.ServiceEndpoint{
+			URL:         ep.URL,
+			Method:      ep.Method,
+			Description: ep.Description,
+			PriceUSDC:   ep.PriceUSDC,
+			Network:     string(ep.Network),
+		})
+	}
+	return out
+}
+
+func commsNetworks(in []x402.Network) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for _, n := range in {
+		out = append(out, string(n))
+	}
+	return out
 }
 
 // Call satisfies commsx402.Backend.

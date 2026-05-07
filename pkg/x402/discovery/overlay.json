@@ -54,6 +54,18 @@
     "hint": "Browser tool can scrape this for free. Prefer browser unless you need structured ratings."
   },
   {
+    "service_id": "developers-amadeus-com",
+    "tier": "convenience",
+    "default_on": false,
+    "hint": "Flights, hotels, activities, transfers, and travel reference data. Do not book, cancel, or modify orders without explicit user confirmation."
+  },
+  {
+    "service_id": "www-flightaware-com",
+    "tier": "convenience",
+    "default_on": false,
+    "hint": "Flight status, airport operations, weather, and disruption data. Use for structured operational flight data rather than general travel search."
+  },
+  {
     "service_id": "apollo",
     "tier": "convenience",
     "default_on": false,

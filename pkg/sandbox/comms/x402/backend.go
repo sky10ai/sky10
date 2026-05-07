@@ -37,12 +37,28 @@ type Backend interface {
 // tool list; the price field lets the agent reason about cost vs
 // alternatives.
 type ServiceListing struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"display_name"`
-	Category    string `json:"category,omitempty"`
-	Tier        string `json:"tier"`
+	ID          string            `json:"id"`
+	DisplayName string            `json:"display_name"`
+	Description string            `json:"description,omitempty"`
+	Category    string            `json:"category,omitempty"`
+	Endpoint    string            `json:"endpoint,omitempty"`
+	ServiceURL  string            `json:"service_url,omitempty"`
+	Endpoints   []ServiceEndpoint `json:"endpoints,omitempty"`
+	Networks    []string          `json:"networks,omitempty"`
+	Tier        string            `json:"tier"`
+	PriceUSDC   string            `json:"price_usdc,omitempty"`
+	Hint        string            `json:"hint,omitempty"`
+}
+
+// ServiceEndpoint is one callable URL advertised by a service catalog.
+// It is display/routing metadata for agents; service calls still pass
+// service_id plus a relative path through the adapter.
+type ServiceEndpoint struct {
+	URL         string `json:"url"`
+	Method      string `json:"method,omitempty"`
+	Description string `json:"description,omitempty"`
 	PriceUSDC   string `json:"price_usdc,omitempty"`
-	Hint        string `json:"hint,omitempty"`
+	Network     string `json:"network,omitempty"`
 }
 
 // CallParams describes one metered-service invocation. AgentID is filled

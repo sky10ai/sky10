@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -285,7 +286,12 @@ func (r *Registry) Pin(agentID, serviceID string) (Pin, error) {
 type ListApprovedListing struct {
 	ID          string
 	DisplayName string
+	Description string
 	Category    string
+	Endpoint    string
+	ServiceURL  string
+	Endpoints   []ServiceEndpoint
+	Networks    []Network
 	Tier        Tier
 	PriceUSDC   string
 	Hint        string
@@ -333,7 +339,12 @@ func (r *Registry) listingLocked(m ServiceManifest, defaultTier Tier) ListApprov
 	entry := ListApprovedListing{
 		ID:          m.ID,
 		DisplayName: m.DisplayName,
+		Description: m.Description,
 		Category:    m.Category,
+		Endpoint:    m.Endpoint,
+		ServiceURL:  m.ServiceURL,
+		Endpoints:   listingEndpoints(m),
+		Networks:    append([]Network(nil), m.Networks...),
 		Tier:        defaultTier,
 		PriceUSDC:   m.MaxPriceUSDC,
 	}
@@ -342,6 +353,23 @@ func (r *Registry) listingLocked(m ServiceManifest, defaultTier Tier) ListApprov
 		entry.Hint = p.Hint
 	}
 	return entry
+}
+
+func listingEndpoints(m ServiceManifest) []ServiceEndpoint {
+	if len(m.Endpoints) > 0 {
+		return append([]ServiceEndpoint(nil), m.Endpoints...)
+	}
+	if strings.TrimSpace(m.Endpoint) == "" {
+		return nil
+	}
+	fallback := ServiceEndpoint{
+		URL:       m.Endpoint,
+		PriceUSDC: m.MaxPriceUSDC,
+	}
+	if len(m.Networks) > 0 {
+		fallback.Network = m.Networks[0]
+	}
+	return []ServiceEndpoint{fallback}
 }
 
 func (r *Registry) persistLocked() error {
