@@ -526,6 +526,9 @@ func ServeCmd() *cobra.Command {
 			agentRPC.SetSpecStore(agentSpecStore)
 			agentRPC.SetJobStore(agentJobStore)
 			agentRPC.SetSandboxProvisioner(sandboxManager)
+			if err := installAgentJobBridgeEndpoint(server, agentRPC, agentJobStore, sandboxManager, logRuntime.Logger); err != nil {
+				logger.Warn("agent job bridge endpoint not installed", "error", err)
+			}
 			server.RegisterHandler(agentRPC)
 			server.HandleHTTP("GET /rpc/agent-jobs/artifact", agentJobStore.HandleArtifactDownload)
 			agentChatWS := skyagent.NewChatWebSocketHandler(agentRegistry, agentRPC, agentMessageHub, logRuntime.Logger)

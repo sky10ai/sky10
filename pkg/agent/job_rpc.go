@@ -179,7 +179,11 @@ func (h *RPCHandler) rpcJobUpdateStatus(ctx context.Context, params json.RawMess
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
-	return store.UpdateStatus(ctx, p)
+	result, err := store.UpdateStatus(ctx, p)
+	if err != nil && h.jobFwd != nil && isAgentJobNotFound(err) {
+		return h.jobFwd.UpdateStatus(ctx, p)
+	}
+	return result, err
 }
 
 func (h *RPCHandler) rpcJobComplete(ctx context.Context, params json.RawMessage) (interface{}, error) {
@@ -191,7 +195,11 @@ func (h *RPCHandler) rpcJobComplete(ctx context.Context, params json.RawMessage)
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
-	return store.Complete(ctx, p)
+	result, err := store.Complete(ctx, p)
+	if err != nil && h.jobFwd != nil && isAgentJobNotFound(err) {
+		return h.jobFwd.Complete(ctx, p)
+	}
+	return result, err
 }
 
 func (h *RPCHandler) rpcJobFail(ctx context.Context, params json.RawMessage) (interface{}, error) {
@@ -203,7 +211,11 @@ func (h *RPCHandler) rpcJobFail(ctx context.Context, params json.RawMessage) (in
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
-	return store.Fail(ctx, p)
+	result, err := store.Fail(ctx, p)
+	if err != nil && h.jobFwd != nil && isAgentJobNotFound(err) {
+		return h.jobFwd.Fail(ctx, p)
+	}
+	return result, err
 }
 
 func (h *RPCHandler) resolveCallTarget(ctx context.Context, agentRef, toolRef string) (AgentInfo, AgentToolSpec, error) {
@@ -265,6 +277,14 @@ func normalizeAgentCallRef(ref string) string {
 	ref = strings.TrimPrefix(ref, "agent://")
 	ref = strings.TrimPrefix(ref, "sky10://")
 	return ref
+}
+
+func isAgentJobNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "agent job ") && strings.Contains(msg, " not found")
 }
 
 func toolForCall(agent AgentInfo, toolRef string) (AgentToolSpec, bool) {

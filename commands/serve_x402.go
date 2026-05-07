@@ -99,7 +99,7 @@ func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegist
 
 	if sandboxManager != nil {
 		bridgeManager := skysandbox.NewMeteredServicesBridgeManager(adapter, logger)
-		sandboxManager.SetBridgeConnector(bridgeManager.Connect, bridgeManager.Close)
+		sandboxManager.AddBridgeConnector(bridgeManager.Connect, bridgeManager.Close)
 	}
 
 	server.RegisterHandler(x402rpc.NewHandler(registry, budget))

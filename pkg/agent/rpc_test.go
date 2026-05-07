@@ -57,6 +57,28 @@ func (f *fakeDirectAgentSource) SendDirectAgentMessage(_ context.Context, msg Me
 	return SendResult{}, false, nil
 }
 
+type fakeJobForwarder struct {
+	updates []AgentJobStatusParams
+	result  *AgentJobResult
+	err     error
+}
+
+func (f *fakeJobForwarder) UpdateStatus(_ context.Context, params AgentJobStatusParams) (*AgentJobResult, error) {
+	f.updates = append(f.updates, params)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.result, nil
+}
+
+func (f *fakeJobForwarder) Complete(context.Context, AgentJobCompleteParams) (*AgentJobResult, error) {
+	return nil, nil
+}
+
+func (f *fakeJobForwarder) Fail(context.Context, AgentJobFailParams) (*AgentJobResult, error) {
+	return nil, nil
+}
+
 func TestRPCDispatchPrefix(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()
@@ -333,6 +355,38 @@ func TestRPCAgentCallDispatchesToolCallThroughDirectAgentSource(t *testing.T) {
 	}
 	if call.Job.Delivery.DurableTransport != "" || call.Job.Delivery.DurableUsed {
 		t.Fatalf("delivery = %#v, want no durable private-network fallback", call.Job.Delivery)
+	}
+}
+
+func TestRPCAgentJobUpdateForwardsWhenGuestStoreDoesNotHaveHostJob(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	h.SetJobStore(NewJobStore(nil))
+	forwarder := &fakeJobForwarder{
+		result: &AgentJobResult{Job: AgentJob{
+			JobID:     "j_host_owned",
+			AgentID:   "A-sandbox00000000",
+			AgentName: "sandbox-agent",
+			WorkState: JobWorkRunning,
+		}},
+	}
+	h.SetJobForwarder(forwarder)
+
+	raw, err, handled := h.Dispatch(context.Background(), "agent.job.updateStatus", mustJSON(t, AgentJobStatusParams{
+		JobID:     "j_host_owned",
+		WorkState: JobWorkRunning,
+		Message:   "Running agent.run",
+	}))
+	if !handled || err != nil {
+		t.Fatalf("agent.job.updateStatus: handled=%v err=%v", handled, err)
+	}
+	if len(forwarder.updates) != 1 || forwarder.updates[0].JobID != "j_host_owned" {
+		t.Fatalf("forwarded updates = %#v, want host job update", forwarder.updates)
+	}
+	result := raw.(*AgentJobResult)
+	if result.Job.WorkState != JobWorkRunning {
+		t.Fatalf("result work_state = %s, want running", result.Job.WorkState)
 	}
 }
 

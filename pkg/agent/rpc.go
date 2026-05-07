@@ -28,6 +28,7 @@ type RPCHandler struct {
 	specs    *SpecStore
 	jobs     *JobStore
 	sandbox  SandboxProvisioner
+	jobFwd   JobForwarder
 	emit     Emitter
 	notify   PeerNotifier
 }
@@ -55,6 +56,13 @@ func (h *RPCHandler) SetSpecStore(store *SpecStore) {
 // SetJobStore attaches durable agent job storage.
 func (h *RPCHandler) SetJobStore(store *JobStore) {
 	h.jobs = store
+}
+
+// SetJobForwarder attaches a sandbox bridge forwarder for guest runtimes that
+// receive host-owned tool calls and must report job lifecycle updates back to
+// the host daemon.
+func (h *RPCHandler) SetJobForwarder(forwarder JobForwarder) {
+	h.jobFwd = forwarder
 }
 
 // SetSandboxProvisioner attaches the sandbox runtime used by agent spec
@@ -168,6 +176,12 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 
 type SandboxProvisioner interface {
 	Create(context.Context, skysandbox.CreateParams) (*skysandbox.Record, error)
+}
+
+type JobForwarder interface {
+	UpdateStatus(context.Context, AgentJobStatusParams) (*AgentJobResult, error)
+	Complete(context.Context, AgentJobCompleteParams) (*AgentJobResult, error)
+	Fail(context.Context, AgentJobFailParams) (*AgentJobResult, error)
 }
 
 func (h *RPCHandler) requireSpecStore() (*SpecStore, error) {

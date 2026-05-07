@@ -335,12 +335,16 @@ type Manager struct {
 	issueIdentityInvite      func(context.Context) (*IdentityInvite, error)
 	hostRPC                  func(context.Context, string, interface{}, interface{}) error
 	guestRPC                 func(context.Context, string, string, interface{}, interface{}) error
-	bridgeConnect            func(context.Context, Record) error
-	bridgeClose              func(string)
+	bridgeConnectors         []bridgeConnector
 	forwardedPortStart       int
 	localPortAvailable       func(host string, port int) bool
 	reconnectInterval        time.Duration
 	reconnectSweepTimeout    time.Duration
+}
+
+type bridgeConnector struct {
+	connect func(context.Context, Record) error
+	close   func(string)
 }
 
 func NewManager(emit Emitter, logger *slog.Logger) (*Manager, error) {
@@ -382,8 +386,18 @@ func (m *Manager) SetHermesSharedEnvResolver(fn func(context.Context) (map[strin
 }
 
 func (m *Manager) SetBridgeConnector(connect func(context.Context, Record) error, close func(string)) {
-	m.bridgeConnect = connect
-	m.bridgeClose = close
+	if connect == nil && close == nil {
+		m.bridgeConnectors = nil
+		return
+	}
+	m.bridgeConnectors = []bridgeConnector{{connect: connect, close: close}}
+}
+
+func (m *Manager) AddBridgeConnector(connect func(context.Context, Record) error, close func(string)) {
+	if connect == nil && close == nil {
+		return
+	}
+	m.bridgeConnectors = append(m.bridgeConnectors, bridgeConnector{connect: connect, close: close})
 }
 
 func (m *Manager) SetSecretLookup(fn ProviderSecretLookup) {

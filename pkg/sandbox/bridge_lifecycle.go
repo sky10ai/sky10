@@ -7,7 +7,7 @@ import (
 )
 
 func (m *Manager) ensureSandboxBridge(ctx context.Context, rec Record) error {
-	if m.bridgeConnect == nil {
+	if len(m.bridgeConnectors) == 0 {
 		return nil
 	}
 	if !isOpenClawTemplate(rec.Template) && !isHermesTemplate(rec.Template) {
@@ -16,16 +16,25 @@ func (m *Manager) ensureSandboxBridge(ctx context.Context, rec Record) error {
 	if strings.TrimSpace(guestSky10RPCAddress(rec)) == "" {
 		return fmt.Errorf("resolving guest bridge endpoint for sandbox %q: endpoint unavailable", rec.Name)
 	}
-	if err := m.bridgeConnect(ctx, rec); err != nil {
-		return fmt.Errorf("connecting sandbox bridge for %q: %w", rec.Name, err)
+	for _, connector := range m.bridgeConnectors {
+		if connector.connect == nil {
+			continue
+		}
+		if err := connector.connect(ctx, rec); err != nil {
+			return fmt.Errorf("connecting sandbox bridge for %q: %w", rec.Name, err)
+		}
 	}
-	m.appendLog(rec.Slug, "stdout", "host connected metered-services bridge")
+	m.appendLog(rec.Slug, "stdout", "host connected sandbox bridges")
 	return nil
 }
 
 func (m *Manager) closeSandboxBridge(slug string) {
-	if m.bridgeClose == nil {
+	if len(m.bridgeConnectors) == 0 {
 		return
 	}
-	m.bridgeClose(slug)
+	for _, connector := range m.bridgeConnectors {
+		if connector.close != nil {
+			connector.close(slug)
+		}
+	}
 }
