@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/sky10/sky10/pkg/payments/mpp"
 )
 
 // ErrPaymentNotAccepted indicates the upstream service returned 402
@@ -46,8 +48,9 @@ const (
 // payment authorization and budget enforcement that don't fit cleanly
 // into the RoundTripper contract.
 type Transport struct {
-	HTTP   *http.Client
-	Signer Signer
+	HTTP      *http.Client
+	Signer    Signer
+	MPPSigner mpp.Signer
 }
 
 // NewTransport constructs a Transport with sensible defaults. The
@@ -119,6 +122,17 @@ func (t *Transport) Call(ctx context.Context, req CallRequest) (*CallResponse, e
 		return readCallResponse(resp, X402ProtocolV1)
 	}
 
+	if strings.TrimSpace(resp.Header.Get(HeaderPaymentRequiredV2)) == "" {
+		challenges, err := mpp.ParseChallenges(resp.Header)
+		if err != nil {
+			resp.Body.Close()
+			return nil, fmt.Errorf("parse MPP challenge: %w", err)
+		}
+		if len(challenges) > 0 {
+			return t.callMPP(ctx, req, resp, challenges)
+		}
+	}
+
 	version, challenge, err := readChallenge(resp)
 	resp.Body.Close()
 	if err != nil {
@@ -151,6 +165,16 @@ func (t *Transport) Call(ctx context.Context, req CallRequest) (*CallResponse, e
 }
 
 func (t *Transport) do(ctx context.Context, req CallRequest, paymentHeader string) (*http.Response, error) {
+	extra := map[string]string{}
+	if paymentHeader != "" {
+		extra[HeaderPayment] = paymentHeader
+		extra[HeaderPaymentSignatureV2] = paymentHeader
+		extra[HeaderPaymentVenice] = paymentHeader
+	}
+	return t.doWithHeaders(ctx, req, extra)
+}
+
+func (t *Transport) doWithHeaders(ctx context.Context, req CallRequest, extraHeaders map[string]string) (*http.Response, error) {
 	method := strings.ToUpper(strings.TrimSpace(req.Method))
 	if method == "" {
 		method = http.MethodGet
@@ -166,12 +190,105 @@ func (t *Transport) do(ctx context.Context, req CallRequest, paymentHeader strin
 	for k, v := range req.Headers {
 		httpReq.Header.Set(k, v)
 	}
-	if paymentHeader != "" {
-		httpReq.Header.Set(HeaderPayment, paymentHeader)
-		httpReq.Header.Set(HeaderPaymentSignatureV2, paymentHeader)
-		httpReq.Header.Set(HeaderPaymentVenice, paymentHeader)
+	for k, v := range extraHeaders {
+		httpReq.Header.Set(k, v)
 	}
 	return t.HTTP.Do(httpReq)
+}
+
+func (t *Transport) callMPP(ctx context.Context, req CallRequest, initial *http.Response, challenges []mpp.Challenge) (*CallResponse, error) {
+	initial.Body.Close()
+	if t.MPPSigner == nil {
+		return nil, ErrSignerNotConfigured
+	}
+	challenge, err := selectMPPChallenge(challenges, req.PreferNetworks)
+	if err != nil {
+		return nil, err
+	}
+	auth, err := t.MPPSigner.Sign(ctx, challenge)
+	if err != nil {
+		return nil, fmt.Errorf("sign MPP payment: %w", err)
+	}
+	retry, err := t.doWithHeaders(ctx, req, map[string]string{
+		mpp.HeaderAuthorization: auth,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if retry.StatusCode == http.StatusPaymentRequired {
+		retry.Body.Close()
+		return nil, ErrPaymentNotAccepted
+	}
+
+	mppReceipt, _ := mpp.ParseReceipt(retry.Header.Get(mpp.HeaderPaymentReceipt))
+	out, err := readCallResponse(retry, X402ProtocolV2)
+	if err != nil {
+		return nil, err
+	}
+	if mppReceipt != nil {
+		out.Receipt = mppReceiptToPaymentReceipt(mppReceipt)
+	}
+	return out, nil
+}
+
+func selectMPPChallenge(challenges []mpp.Challenge, prefer []Network) (mpp.Challenge, error) {
+	if len(prefer) > 0 {
+		allowed := false
+		for _, network := range prefer {
+			if network == NetworkSolana {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return mpp.Challenge{}, ErrNoCompatibleRequirements
+		}
+	}
+	for _, challenge := range challenges {
+		if !strings.EqualFold(challenge.Method, "solana") || !strings.EqualFold(challenge.Intent, "charge") {
+			continue
+		}
+		network, ok := mppChallengeNetwork(challenge)
+		if !ok || network != NetworkSolana {
+			continue
+		}
+		return challenge, nil
+	}
+	return mpp.Challenge{}, ErrNoCompatibleRequirements
+}
+
+func mppChallengeNetwork(challenge mpp.Challenge) (Network, bool) {
+	_, details, err := challenge.DecodeChargeRequest()
+	if err != nil {
+		return "", false
+	}
+	raw := strings.TrimSpace(details.Network)
+	if raw == "" {
+		return NetworkSolana, true
+	}
+	lower := strings.ToLower(raw)
+	switch lower {
+	case "mainnet", "mainnet-beta", "solana", "solana-mainnet":
+		return NetworkSolana, true
+	}
+	if strings.HasPrefix(lower, "solana:") && raw[len("solana:"):] == solanaMainnetClusterID {
+		return NetworkSolana, true
+	}
+	return "", false
+}
+
+func mppReceiptToPaymentReceipt(receipt *mpp.Receipt) *PaymentReceipt {
+	if receipt == nil {
+		return nil
+	}
+	out := &PaymentReceipt{
+		Tx:      receipt.Reference,
+		Network: NetworkSolana,
+	}
+	if ts, err := time.Parse(time.RFC3339Nano, receipt.Timestamp); err == nil {
+		out.SettledAt = ts
+	}
+	return out
 }
 
 // readChallenge dispatches between v1 (body-encoded) and v2

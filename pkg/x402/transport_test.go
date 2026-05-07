@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sky10/sky10/pkg/payments/mpp"
 )
 
 // x402TestServer is a minimal x402-compliant server used in tests.
@@ -280,6 +283,77 @@ func TestTransportCallV2RoundtripAssertsWireShape(t *testing.T) {
 	}
 }
 
+// --- MPP round-trip ---------------------------------------------------------
+
+func TestTransportCallMPPRoundtripUsesAuthorizationHeader(t *testing.T) {
+	t.Parallel()
+	request, _ := json.Marshal(map[string]any{
+		"amount":    "1000",
+		"currency":  "USDC",
+		"recipient": "HwdPHR1gnwujqzhB9Gb7pLw2XHZM5Mxo9pXQHBwhRcg9",
+		"methodDetails": map[string]any{
+			"network":  "mainnet-beta",
+			"decimals": 6,
+		},
+	})
+	encodedRequest := base64.RawURLEncoding.EncodeToString(request)
+
+	var sawAuthorization atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get(mpp.HeaderAuthorization)
+		if auth == "" {
+			w.Header().Set(mpp.HeaderWWWAuthenticate, fmt.Sprintf(
+				`Payment id="mpp-1", realm="test", method="solana", intent="charge", request="%s"`,
+				encodedRequest,
+			))
+			w.WriteHeader(http.StatusPaymentRequired)
+			_, _ = w.Write([]byte(`{"error":"payment required"}`))
+			return
+		}
+		if r.Header.Get(HeaderPayment) != "" {
+			http.Error(w, "MPP retry should not set x402 payment header", http.StatusBadRequest)
+			return
+		}
+		if !strings.HasPrefix(auth, "Payment ") {
+			http.Error(w, "bad MPP authorization header", http.StatusBadRequest)
+			return
+		}
+		sawAuthorization.Store(true)
+		receipt, _ := json.Marshal(map[string]any{
+			"status":      "success",
+			"method":      "solana",
+			"timestamp":   "2026-05-06T12:00:00Z",
+			"reference":   "mpp-solana-signature",
+			"challengeId": "mpp-1",
+		})
+		w.Header().Set(mpp.HeaderPaymentReceipt, base64.RawURLEncoding.EncodeToString(receipt))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	tx := NewTransport(NewFakeSigner("0x0"))
+	tx.MPPSigner = fakeMPPSigner{}
+	resp, err := tx.Call(context.Background(), CallRequest{
+		Method:         "POST",
+		URL:            srv.URL + "/mpp",
+		Body:           []byte(`{"q":"hi"}`),
+		PreferNetworks: []Network{NetworkSolana},
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if !sawAuthorization.Load() {
+		t.Fatal("server did not see MPP Authorization header")
+	}
+	if resp.Status != http.StatusOK || string(resp.Body) != `{"ok":true}` {
+		t.Fatalf("response = status %d body %q", resp.Status, resp.Body)
+	}
+	if resp.Receipt == nil || resp.Receipt.Tx != "mpp-solana-signature" || resp.Receipt.Network != NetworkSolana {
+		t.Fatalf("receipt = %+v, want MPP Solana receipt", resp.Receipt)
+	}
+}
+
 // --- shared edges -----------------------------------------------------------
 
 func TestTransportCallReturnsImmediateSuccess(t *testing.T) {
@@ -380,6 +454,28 @@ func TestTransportCallReturnsNoCompatibleRequirements(t *testing.T) {
 	if !errors.Is(err, ErrNoCompatibleRequirements) {
 		t.Fatalf("err = %v, want ErrNoCompatibleRequirements", err)
 	}
+}
+
+type fakeMPPSigner struct{}
+
+func (fakeMPPSigner) Sign(_ context.Context, challenge mpp.Challenge) (string, error) {
+	return mpp.FormatAuthorization(mpp.Credential{
+		Challenge: mpp.ChallengeEcho{
+			ID:      challenge.ID,
+			Realm:   challenge.Realm,
+			Method:  challenge.Method,
+			Intent:  challenge.Intent,
+			Request: challenge.Request,
+			Expires: challenge.Expires,
+			Digest:  challenge.Digest,
+			Opaque:  challenge.Opaque,
+		},
+		Source: "did:pkh:solana:mainnet-beta:6fSWeC5P1icuiW2DfWHxz3rxjjpZXccsNYXJfXYkjaZ4",
+		Payload: mpp.CredentialPayloadTransaction{
+			Type:        "transaction",
+			Transaction: base64.StdEncoding.EncodeToString([]byte("signed-tx")),
+		},
+	})
 }
 
 func assertJSONField(t *testing.T, top map[string]json.RawMessage, key string, want any) {

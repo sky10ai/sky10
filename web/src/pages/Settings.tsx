@@ -359,12 +359,12 @@ export default function Settings() {
                 Services
               </p>
               <h3 className="text-xl font-semibold text-on-surface">
-                Approve x402 services for your agents
+                Approve paid services for your agents
               </h3>
               <p className="max-w-md text-sm text-secondary">
-                Browse the Agentic.Market catalog and toggle services on or
-                off. Pay-per-request in USDC; calls only succeed once your
-                wallet is funded.
+                Browse the service catalog and toggle services on or off.
+                Pay-per-request in USDC; calls only succeed once your wallet is
+                funded.
               </p>
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-700 dark:text-amber-200">

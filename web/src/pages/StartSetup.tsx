@@ -85,7 +85,7 @@ export default function StartSetup() {
         title: "Local LLM",
       },
       {
-        description: "Prepare x402-style payments.",
+        description: "Prepare paid service calls.",
         href: links.wallet,
         title: "Fund wallet",
       },

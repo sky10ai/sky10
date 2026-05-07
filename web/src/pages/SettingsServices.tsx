@@ -564,8 +564,8 @@ function WalletStatusBanner() {
         <div className="flex-1">
           <p className="font-medium">OWS not installed.</p>
           <p>
-            Agents cannot make x402 calls until you install the wallet. Install
-            it from{" "}
+            Agents cannot make paid service calls until you install the wallet.
+            Install it from{" "}
             <Link className="underline" to="/settings/wallet">
               Settings → Wallet
             </Link>
@@ -610,8 +610,8 @@ function BudgetCard() {
   if (data.agents === 0) {
     return (
       <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-4 text-sm text-secondary">
-        No agents have used x402 yet. Defaults will apply ($0.10 per call,
-        $5.00 per day) the first time an agent calls a service.
+        No agents have used paid services yet. Defaults will apply ($0.10 per
+        call, $5.00 per day) the first time an agent calls a service.
       </div>
     );
   }
@@ -792,7 +792,7 @@ export default function SettingsServices() {
   return (
     <SettingsPage
       title="Services"
-      description="Approve external services your agents can call. Each service charges per request in USDC; calls only succeed once your wallet is installed and funded."
+      description="Approve external services your agents can call. Metered services charge per request in USDC; calls only succeed once your wallet is installed and funded."
       pinnablePageID="services"
     >
       <WalletStatusBanner />
@@ -811,12 +811,12 @@ export default function SettingsServices() {
         <header className="flex items-center justify-between gap-4">
           <div>
             <h2 className="text-lg font-semibold text-on-surface">
-              Agentic.Market
+              Service catalog
             </h2>
             <p className="text-sm text-secondary">
-              Curated catalog of x402-enabled services. Approve a service to
-              make it available to any agent on this device, with a per-call
-              max price you set.
+              Curated catalog of x402 and MPP services. Approve a service to make
+              it available to any agent on this device, with a per-call max price
+              you set.
             </p>
           </div>
           {loading ? (
@@ -874,7 +874,7 @@ export default function SettingsServices() {
         {!error && services.length === 0 && !loading ? (
           <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 text-sm text-secondary">
             No services available yet. The daemon seeds the starter catalog on
-            startup; if this list stays empty, check the daemon log for x402
+            startup; if this list stays empty, check the daemon log for catalog
             seed errors.
           </div>
         ) : null}

@@ -16,6 +16,7 @@ import (
 
 	skyagent "github.com/sky10/sky10/pkg/agent"
 	skyconfig "github.com/sky10/sky10/pkg/config"
+	"github.com/sky10/sky10/pkg/payments/mpp"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
 	"github.com/sky10/sky10/pkg/sandbox/comms"
 	commsx402 "github.com/sky10/sky10/pkg/sandbox/comms/x402"
@@ -64,6 +65,7 @@ func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegist
 	}
 	sources := []discovery.Source{
 		discovery.NewAgenticMarketSource("", nil),
+		discovery.NewPaySHSource("", nil),
 		discovery.NewStaticSource("builtin-primitives", discovery.BuiltinPrimitives()),
 	}
 
@@ -77,6 +79,7 @@ func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegist
 
 	budget := x402.NewBudget(nil, receiptStore)
 	transport := x402.NewTransport(buildX402Signer(logger))
+	transport.MPPSigner = buildMPPSigner(logger)
 	backend := x402.NewBackend(x402.BackendOptions{
 		Registry:  registry,
 		Transport: transport,
@@ -233,6 +236,29 @@ func buildX402Signer(logger *slog.Logger) x402.Signer {
 		return x402.NewStubSigner("OWS signer construction returned nil")
 	}
 	logger.Info("x402 signer: OWS-backed", "wallet", walletName)
+	return signer
+}
+
+// buildMPPSigner wires MPP onto the same wallet convention as x402. MPP is
+// optional at transport time: when OWS is missing, x402 keeps returning its
+// typed stub error and MPP challenges surface the same signer_not_configured
+// condition through Transport.Call.
+func buildMPPSigner(logger *slog.Logger) mpp.Signer {
+	client := skywallet.NewClient()
+	if client == nil {
+		logger.Info("mpp signer: OWS not installed; MPP calls that need payment will return signer_not_configured")
+		return nil
+	}
+	walletName := strings.TrimSpace(os.Getenv(x402DefaultWalletEnv))
+	if walletName == "" {
+		walletName = x402DefaultWalletFallback
+	}
+	signer := mpp.NewOWSSigner(client, walletName)
+	if signer == nil {
+		logger.Info("mpp signer: construction returned nil; MPP calls that need payment will return signer_not_configured")
+		return nil
+	}
+	logger.Info("mpp signer: OWS-backed", "wallet", walletName)
 	return signer
 }
 
