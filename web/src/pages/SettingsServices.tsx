@@ -24,14 +24,14 @@ function tierBadgeClasses(tier: X402ServiceListing["tier"]): string {
 
 function tierLabel(tier: X402ServiceListing["tier"]): string {
   if (tier === "primitive") return "Core capability";
-  return "Optional shortcut";
+  return "Structured API";
 }
 
 function tierTooltip(tier: X402ServiceListing["tier"]): string {
   if (tier === "primitive") {
     return "Useful when local tools cannot provide the capability directly.";
   }
-  return "Useful when a paid API saves time compared with local tools.";
+  return "Useful when a paid API returns structured data faster than local tools.";
 }
 
 function categoryLabel(category: string | undefined): string {
@@ -609,7 +609,7 @@ export default function SettingsServices() {
           >
             <option value="all">All service types</option>
             <option value="primitive">Core capabilities</option>
-            <option value="convenience">Optional shortcuts</option>
+            <option value="convenience">Structured APIs</option>
           </select>
           <select
             value={statusFilter}
