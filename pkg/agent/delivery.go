@@ -9,6 +9,7 @@ import (
 const (
 	DeliveryPolicyLiveOnly      = "live_only"
 	DeliveryPolicyMailboxBacked = "mailbox_backed"
+	DeliveryScopeSandbox        = "sandbox"
 )
 
 // DeliveryMetadata explains how a caller-visible send or mailbox operation was

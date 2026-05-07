@@ -25,6 +25,38 @@ func newTestRPCHandler(t *testing.T, r *Registry, emit Emitter) *RPCHandler {
 	return NewRPCHandler(r, owner, emit)
 }
 
+type fakeDirectAgentSource struct {
+	agents []AgentInfo
+	sent   []Message
+	result SendResult
+	err    error
+}
+
+func (f *fakeDirectAgentSource) ListAgents(context.Context) []AgentInfo {
+	return append([]AgentInfo(nil), f.agents...)
+}
+
+func (f *fakeDirectAgentSource) SendDirectAgentMessage(_ context.Context, msg Message) (SendResult, bool, error) {
+	for _, agent := range f.agents {
+		if msg.To != agent.ID && msg.To != agent.Name {
+			continue
+		}
+		f.sent = append(f.sent, msg)
+		if f.err != nil {
+			return SendResult{}, true, f.err
+		}
+		result := f.result
+		if result.ID == "" {
+			result.ID = msg.ID
+		}
+		if result.Status == "" {
+			result.Status = "sent"
+		}
+		return result, true, nil
+	}
+	return SendResult{}, false, nil
+}
+
 func TestRPCDispatchPrefix(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()
@@ -242,6 +274,65 @@ func TestRPCAgentCallCreatesAcceptedJobAndDispatchesToolCall(t *testing.T) {
 	}
 	if len(jobEvents) < 2 {
 		t.Fatalf("job events = %#v, want job change events", jobEvents)
+	}
+}
+
+func TestRPCAgentCallDispatchesToolCallThroughDirectAgentSource(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	h.SetJobStore(NewJobStore(nil))
+	router := NewRouter(r, nil, nil, r.DeviceID(), nil)
+	source := &fakeDirectAgentSource{
+		agents: []AgentInfo{{
+			ID:       "A-sandbox00000000",
+			Name:     "sandbox-agent",
+			DeviceID: "D-guest01",
+			Tools: []AgentToolSpec{{
+				Name:       "agent.run",
+				Capability: "agent.run",
+			}},
+		}},
+		result: SendResult{
+			Status: "sent",
+			Delivery: DeliveryMetadata{
+				Policy:        DeliveryPolicyLiveOnly,
+				Scope:         DeliveryScopeSandbox,
+				Status:        "sent",
+				LiveTransport: "sandbox_bridge",
+				LastTransport: "sandbox_bridge",
+				LiveAttempted: true,
+			},
+		},
+	}
+	router.AddDirectAgentSource(source)
+	h.SetRouter(router)
+
+	callRaw, err, handled := h.Dispatch(context.Background(), "agent.call", mustJSON(t, AgentCallParams{
+		Agent:          "A-sandbox00000000",
+		Tool:           "agent.run",
+		Input:          json.RawMessage(`{"request":"list x402 services"}`),
+		IdempotencyKey: "req_sandbox_direct_1",
+	}))
+	if !handled || err != nil {
+		t.Fatalf("agent.call: handled=%v err=%v", handled, err)
+	}
+	call := callRaw.(*AgentCallResultEnvelope)
+	if call.Job == nil || call.Job.WorkState != JobWorkAccepted {
+		t.Fatalf("call = %#v, want accepted job", call)
+	}
+	if len(source.sent) != 1 {
+		t.Fatalf("direct source sent %d messages, want 1", len(source.sent))
+	}
+	msg := source.sent[0]
+	if msg.To != "A-sandbox00000000" || msg.DeviceID != "D-guest01" || msg.Type != "tool_call" {
+		t.Fatalf("message = %#v, want sandbox tool_call with guest device", msg)
+	}
+	if call.Job.Delivery == nil || call.Job.Delivery.LiveTransport != "sandbox_bridge" {
+		t.Fatalf("delivery = %#v, want sandbox bridge delivery", call.Job.Delivery)
+	}
+	if call.Job.Delivery.DurableTransport != "" || call.Job.Delivery.DurableUsed {
+		t.Fatalf("delivery = %#v, want no durable private-network fallback", call.Job.Delivery)
 	}
 }
 

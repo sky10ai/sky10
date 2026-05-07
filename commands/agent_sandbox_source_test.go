@@ -98,6 +98,120 @@ func TestSandboxAgentSourceListsAgentsFromForwardedSky10Endpoint(t *testing.T) {
 	}
 }
 
+func TestSandboxAgentSourceSendsMessagesThroughForwardedSky10Endpoint(t *testing.T) {
+	var gotList bool
+	var gotSend skyagent.SendParams
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rpc" {
+			t.Fatalf("path = %q, want /rpc", r.URL.Path)
+		}
+		var req struct {
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		switch req.Method {
+		case "agent.list":
+			gotList = true
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"jsonrpc": "2.0",
+				"id":      1,
+				"result": map[string]interface{}{
+					"agents": []skyagent.AgentInfo{{
+						ID:       "A-clawdock",
+						Name:     "clawdock",
+						DeviceID: "D-guest",
+						Tools: []skyagent.AgentToolSpec{{
+							Name:       "agent.run",
+							Capability: "agent.run",
+						}},
+					}},
+				},
+			})
+		case "agent.send":
+			if err := json.Unmarshal(req.Params, &gotSend); err != nil {
+				t.Fatalf("decode send params: %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"jsonrpc": "2.0",
+				"id":      1,
+				"result": skyagent.SendResult{
+					ID:     "guest-message",
+					Status: "sent",
+					Delivery: skyagent.DeliveryMetadata{
+						Policy:        skyagent.DeliveryPolicyLiveOnly,
+						Scope:         "private_network",
+						Status:        "sent",
+						LiveTransport: "local_registry",
+						LastTransport: "local_registry",
+						LiveAttempted: true,
+					},
+				},
+			})
+		default:
+			t.Fatalf("method = %q, want agent.list or agent.send", req.Method)
+		}
+	}))
+	defer srv.Close()
+
+	host, port := hostPortFromTestURL(t, srv.URL)
+	source := newSandboxAgentSource(fakeSandboxAgentLister{
+		result: &skysandbox.ListResult{Sandboxes: []skysandbox.Record{{
+			Name:          "clawdock",
+			Slug:          "clawdock",
+			Status:        "ready",
+			VMStatus:      "Running",
+			GuestDeviceID: "D-guest",
+			ForwardedEndpoints: []skysandbox.ForwardedEndpoint{{
+				Name:     skysandbox.ForwardedEndpointSky10,
+				Host:     host,
+				HostPort: port,
+			}},
+		}}},
+	}, nil)
+
+	result, handled, err := source.SendDirectAgentMessage(context.Background(), skyagent.Message{
+		ID:        "host-message",
+		To:        "sky10://A-clawdock",
+		DeviceID:  "D-guest",
+		SessionID: "j_sandbox",
+		Type:      "tool_call",
+		Content:   json.RawMessage(`{"job_id":"j_sandbox"}`),
+	})
+	if err != nil || !handled {
+		t.Fatalf("SendDirectAgentMessage handled=%v err=%v", handled, err)
+	}
+	if !gotList {
+		t.Fatal("expected agent.list before direct send")
+	}
+	if gotSend.To != "A-clawdock" || gotSend.DeviceID != "" || gotSend.SessionID != "j_sandbox" || gotSend.Type != "tool_call" {
+		t.Fatalf("send params = %#v, want local guest send to A-clawdock", gotSend)
+	}
+	if string(gotSend.Content) != `{"job_id":"j_sandbox"}` {
+		t.Fatalf("send content = %s, want job payload", string(gotSend.Content))
+	}
+	if result.ID != "host-message" || result.Status != "sent" {
+		t.Fatalf("result = %#v, want host message sent", result)
+	}
+	if result.Delivery.Scope != skyagent.DeliveryScopeSandbox || result.Delivery.LiveTransport != "sandbox_bridge" || result.Delivery.DurableUsed {
+		t.Fatalf("delivery = %#v, want sandbox bridge live delivery", result.Delivery)
+	}
+
+	_, handled, err = source.SendDirectAgentMessage(context.Background(), skyagent.Message{
+		ID:        "host-message-mismatch",
+		To:        "A-clawdock",
+		DeviceID:  "D-other",
+		SessionID: "j_sandbox",
+		Type:      "tool_call",
+		Content:   json.RawMessage(`{}`),
+	})
+	if err != nil || handled {
+		t.Fatalf("device mismatch handled=%v err=%v, want unhandled nil", handled, err)
+	}
+}
+
 func TestSandboxAgentSourceListsManifestToolsBeforeGuestAgentIsReady(t *testing.T) {
 	source := newSandboxAgentSource(fakeSandboxAgentLister{
 		result: &skysandbox.ListResult{Sandboxes: []skysandbox.Record{{

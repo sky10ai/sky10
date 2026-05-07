@@ -30,6 +30,13 @@ type DirectAgentSource interface {
 	ListAgents(ctx context.Context) []AgentInfo
 }
 
+// DirectAgentSender optionally lets a DirectAgentSource deliver messages over
+// its daemon-local transport. Sandbox sources use this to avoid treating guest
+// agents as private-network peers.
+type DirectAgentSender interface {
+	SendDirectAgentMessage(ctx context.Context, msg Message) (SendResult, bool, error)
+}
+
 // Router dispatches messages locally via SSE or to remote devices via
 // skylink. It also aggregates agent lists across the swarm.
 type Router struct {
@@ -130,7 +137,20 @@ func (r *Router) AddDirectAgentSource(source DirectAgentSource) {
 func (r *Router) Send(ctx context.Context, msg Message) (interface{}, error) {
 	// Local delivery — target is a local agent or the device itself.
 	if msg.DeviceID == "" || msg.DeviceID == r.deviceID {
+		localAgent := false
+		if r.registry != nil {
+			localAgent = r.registry.Resolve(msg.To) != nil
+		}
+		if msg.DeviceID == r.deviceID || msg.To == r.deviceID || localAgent {
+			return r.routeIncoming(ctx, msg)
+		}
+		if result, ok, err := r.sendDirect(ctx, msg); ok || err != nil {
+			return result, err
+		}
 		return r.routeIncoming(ctx, msg)
+	}
+	if result, ok, err := r.sendDirect(ctx, msg); ok || err != nil {
+		return result, err
 	}
 	if err := r.validateRemotePrivateDevice(msg.DeviceID); err != nil {
 		return nil, err
@@ -148,6 +168,24 @@ func (r *Router) Send(ctx context.Context, msg Message) (interface{}, error) {
 		return r.queuedResult(msg.ID, record, "skylink", true), nil
 	}
 	return r.sentResult(msg.ID, agentmailbox.ScopePrivateNetwork, "skylink"), nil
+}
+
+func (r *Router) sendDirect(ctx context.Context, msg Message) (SendResult, bool, error) {
+	r.mu.RLock()
+	sources := append([]DirectAgentSource(nil), r.directSources...)
+	r.mu.RUnlock()
+
+	for _, source := range sources {
+		sender, ok := source.(DirectAgentSender)
+		if !ok {
+			continue
+		}
+		result, handled, err := sender.SendDirectAgentMessage(ctx, msg)
+		if handled || err != nil {
+			return result, handled, err
+		}
+	}
+	return SendResult{}, false, nil
 }
 
 // DeliverMailboxRecord retries a durable mailbox item through the direct

@@ -54,7 +54,7 @@ type sandboxAgentTarget struct {
 	BaseURL string
 }
 
-type sandboxAgentListRPCResponse struct {
+type sandboxAgentRPCResponse struct {
 	Result json.RawMessage `json:"result"`
 	Error  *struct {
 		Message string `json:"message"`
@@ -143,6 +143,111 @@ func (s *sandboxAgentSource) TryProxyChat(w http.ResponseWriter, r *http.Request
 		s.logger.Debug("sandbox agent websocket proxy stopped", "agent", agentName, "sandbox", target.Sandbox.Slug, "error", err)
 	}
 	return true
+}
+
+func (s *sandboxAgentSource) SendDirectAgentMessage(ctx context.Context, msg skyagent.Message) (skyagent.SendResult, bool, error) {
+	if s == nil || strings.TrimSpace(msg.To) == "" {
+		return skyagent.SendResult{}, false, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	target, ok := s.Resolve(ctx, msg.To)
+	if !ok {
+		return skyagent.SendResult{}, false, nil
+	}
+	if messageDeviceID, targetDeviceID := strings.TrimSpace(msg.DeviceID), strings.TrimSpace(target.Agent.DeviceID); messageDeviceID != "" && targetDeviceID != "" && messageDeviceID != targetDeviceID {
+		return skyagent.SendResult{}, false, nil
+	}
+	if strings.TrimSpace(target.BaseURL) == "" {
+		return skyagent.SendResult{}, false, nil
+	}
+
+	guestTo := strings.TrimSpace(target.Agent.ID)
+	if guestTo == "" {
+		guestTo = strings.TrimSpace(target.Agent.Name)
+	}
+	params := skyagent.SendParams{
+		To:        guestTo,
+		SessionID: msg.SessionID,
+		Type:      msg.Type,
+		Content:   msg.Content,
+	}
+	payload, err := json.Marshal(map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "agent.send",
+		"params":  params,
+	})
+	if err != nil {
+		return skyagent.SendResult{}, true, fmt.Errorf("%s agent.send marshal: %w", target.Sandbox.Slug, err)
+	}
+
+	timeout := s.endpointTimeout
+	if timeout <= 0 {
+		timeout = sandboxAgentEndpointTimeout
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, strings.TrimRight(target.BaseURL, "/")+"/rpc", bytes.NewReader(payload))
+	if err != nil {
+		return skyagent.SendResult{}, true, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := s.client
+	if client == nil {
+		client = &http.Client{Timeout: timeout}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return skyagent.SendResult{}, true, fmt.Errorf("%s agent.send: %w", target.Sandbox.Slug, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return skyagent.SendResult{}, true, fmt.Errorf("%s agent.send: HTTP %d", target.Sandbox.Slug, resp.StatusCode)
+	}
+
+	var rpcResp sandboxAgentRPCResponse
+	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
+		return skyagent.SendResult{}, true, fmt.Errorf("%s agent.send decode: %w", target.Sandbox.Slug, err)
+	}
+	if rpcResp.Error != nil {
+		message := strings.TrimSpace(rpcResp.Error.Message)
+		if message == "" {
+			message = "remote RPC error"
+		}
+		return skyagent.SendResult{}, true, fmt.Errorf("%s agent.send: %s", target.Sandbox.Slug, message)
+	}
+
+	var sent skyagent.SendResult
+	if len(rpcResp.Result) > 0 {
+		if err := json.Unmarshal(rpcResp.Result, &sent); err != nil {
+			return skyagent.SendResult{}, true, fmt.Errorf("%s agent.send result decode: %w", target.Sandbox.Slug, err)
+		}
+	}
+	if strings.TrimSpace(sent.Status) == "" {
+		sent.Status = "sent"
+	}
+	if strings.TrimSpace(msg.ID) != "" {
+		sent.ID = msg.ID
+	}
+	if strings.TrimSpace(sent.ID) == "" {
+		sent.ID = strings.TrimSpace(msg.SessionID)
+	}
+	sent.MailboxItemID = ""
+	sent.Delivery = skyagent.DeliveryMetadata{
+		Policy:        skyagent.DeliveryPolicyLiveOnly,
+		Scope:         skyagent.DeliveryScopeSandbox,
+		Status:        sent.Status,
+		LiveTransport: "sandbox_bridge",
+		LastTransport: "sandbox_bridge",
+		LiveAttempted: true,
+	}
+	return sent, true, nil
 }
 
 func (s *sandboxAgentSource) cachedAgentsIfFresh() ([]skyagent.AgentInfo, bool) {
@@ -383,7 +488,7 @@ func (s *sandboxAgentSource) querySandboxAgents(ctx context.Context, rec skysand
 		return nil, fmt.Errorf("%s agent.list: HTTP %d", rec.Slug, resp.StatusCode)
 	}
 
-	var rpcResp sandboxAgentListRPCResponse
+	var rpcResp sandboxAgentRPCResponse
 	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
 		return nil, fmt.Errorf("%s agent.list decode: %w", rec.Slug, err)
 	}
@@ -547,7 +652,7 @@ func normalizeSandboxAgentInfo(info skyagent.AgentInfo, rec skysandbox.Record, n
 }
 
 func sandboxAgentLookupKeys(nameOrID string) []string {
-	nameOrID = strings.TrimSpace(nameOrID)
+	nameOrID = normalizeSandboxAgentLookupRef(nameOrID)
 	if nameOrID == "" {
 		return nil
 	}
@@ -556,6 +661,13 @@ func sandboxAgentLookupKeys(nameOrID string) []string {
 		"name:" + nameOrID,
 		"name-lower:" + strings.ToLower(nameOrID),
 	}
+}
+
+func normalizeSandboxAgentLookupRef(ref string) string {
+	ref = strings.TrimSpace(ref)
+	ref = strings.TrimPrefix(ref, "agent://")
+	ref = strings.TrimPrefix(ref, "sky10://")
+	return ref
 }
 
 func sandboxAgentTargetKeys(info skyagent.AgentInfo) []string {
