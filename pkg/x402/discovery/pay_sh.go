@@ -122,6 +122,7 @@ func convertPaySHProvider(provider paySHProvider, updatedAt time.Time) (x402.Ser
 			PriceUSDC: price,
 		}},
 		Networks:     []x402.Network{x402.NetworkBase, x402.NetworkSolana},
+		Protocols:    []x402.PaymentProtocol{x402.ProtocolX402, x402.ProtocolMPP},
 		MaxPriceUSDC: price,
 		UpdatedAt:    updatedAt,
 	}, true

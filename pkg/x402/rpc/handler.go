@@ -154,6 +154,7 @@ type ServiceListing struct {
 	ServiceURL           string                 `json:"service_url,omitempty"`
 	Endpoints            []x402.ServiceEndpoint `json:"endpoints,omitempty"`
 	Networks             []x402.Network         `json:"networks,omitempty"`
+	Protocols            []x402.PaymentProtocol `json:"protocols,omitempty"`
 	MaxPriceUSDC         string                 `json:"max_price_usdc,omitempty"`
 	Tier                 x402.Tier              `json:"tier"`
 	Hint                 string                 `json:"hint,omitempty"`
@@ -180,6 +181,7 @@ func (h *Handler) listServices(_ json.RawMessage) (interface{}, error, bool) {
 			ServiceURL:   listingServiceURL(m),
 			Endpoints:    listingEndpoints(m),
 			Networks:     m.Networks,
+			Protocols:    listingProtocols(m),
 			MaxPriceUSDC: m.MaxPriceUSDC,
 			Tier:         x402.TierConvenience,
 		}
@@ -197,6 +199,30 @@ func (h *Handler) listServices(_ json.RawMessage) (interface{}, error, bool) {
 		out = append(out, entry)
 	}
 	return ListServicesResult{Services: out}, nil, true
+}
+
+func listingProtocols(m x402.ServiceManifest) []x402.PaymentProtocol {
+	if len(m.Protocols) == 0 {
+		return []x402.PaymentProtocol{x402.ProtocolX402}
+	}
+	out := make([]x402.PaymentProtocol, 0, len(m.Protocols))
+	seen := make(map[x402.PaymentProtocol]struct{}, len(m.Protocols))
+	for _, protocol := range m.Protocols {
+		switch protocol {
+		case x402.ProtocolX402, x402.ProtocolMPP:
+		default:
+			continue
+		}
+		if _, ok := seen[protocol]; ok {
+			continue
+		}
+		seen[protocol] = struct{}{}
+		out = append(out, protocol)
+	}
+	if len(out) == 0 {
+		return []x402.PaymentProtocol{x402.ProtocolX402}
+	}
+	return out
 }
 
 func listingServiceURL(m x402.ServiceManifest) string {

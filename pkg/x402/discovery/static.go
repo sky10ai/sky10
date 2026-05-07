@@ -69,6 +69,7 @@ func BuiltinPrimitives() []x402.ServiceManifest {
 			Description:  "Speech-to-text and audio analysis.",
 			Endpoint:     "https://api.deepgram.com",
 			Networks:     []x402.Network{x402.NetworkBase},
+			Protocols:    []x402.PaymentProtocol{x402.ProtocolX402},
 			MaxPriceUSDC: "0.005",
 		},
 		{
@@ -78,6 +79,7 @@ func BuiltinPrimitives() []x402.ServiceManifest {
 			Description:  "Image and video generation models.",
 			Endpoint:     "https://fal.run",
 			Networks:     []x402.Network{x402.NetworkBase},
+			Protocols:    []x402.PaymentProtocol{x402.ProtocolX402},
 			MaxPriceUSDC: "0.020",
 		},
 		{
@@ -87,6 +89,7 @@ func BuiltinPrimitives() []x402.ServiceManifest {
 			Description:  "Sandboxed code execution environments.",
 			Endpoint:     "https://api.e2b.dev",
 			Networks:     []x402.Network{x402.NetworkBase},
+			Protocols:    []x402.PaymentProtocol{x402.ProtocolX402},
 			MaxPriceUSDC: "0.010",
 		},
 		{
@@ -96,6 +99,7 @@ func BuiltinPrimitives() []x402.ServiceManifest {
 			Description:  "Residential-IP headless browser sessions.",
 			Endpoint:     "https://api.browserbase.com",
 			Networks:     []x402.Network{x402.NetworkBase},
+			Protocols:    []x402.PaymentProtocol{x402.ProtocolX402},
 			MaxPriceUSDC: "0.050",
 		},
 	}

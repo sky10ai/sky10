@@ -158,6 +158,7 @@ func convertAgenticService(svc agenticService) (x402.ServiceManifest, bool) {
 		ServiceURL:   canonicalServiceURL(svc.ProviderURL, svc.Domain),
 		Endpoints:    serviceEndpoints(svc.Endpoints),
 		Networks:     normalizeNetworks(svc.Networks),
+		Protocols:    []x402.PaymentProtocol{x402.ProtocolX402},
 		MaxPriceUSDC: maxPrice,
 	}, true
 }

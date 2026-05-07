@@ -16,6 +16,29 @@ function networkLabel(networks: X402ServiceListing["networks"]): string {
   return networks.map((n) => n.charAt(0).toUpperCase() + n.slice(1)).join(", ");
 }
 
+function serviceProtocols(
+  protocols: X402ServiceListing["protocols"],
+): NonNullable<X402ServiceListing["protocols"]> {
+  if (!protocols || protocols.length === 0) return ["x402"];
+  return protocols;
+}
+
+function protocolName(protocol: string): string {
+  if (protocol === "mpp") return "MPP";
+  return "x402";
+}
+
+function protocolLabel(protocols: X402ServiceListing["protocols"]): string {
+  return serviceProtocols(protocols).map(protocolName).join(", ");
+}
+
+function protocolBadgeClasses(protocol: string): string {
+  if (protocol === "mpp") {
+    return "bg-indigo-500/10 text-indigo-700 dark:text-indigo-200";
+  }
+  return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-200";
+}
+
 function tierBadgeClasses(tier: X402ServiceListing["tier"]): string {
   if (tier === "primitive") {
     return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-200";
@@ -420,6 +443,14 @@ function ServiceCard({
                     service.display_name || service.id
                   )}
                 </h3>
+                {serviceProtocols(service.protocols).map((protocol) => (
+                  <span
+                    key={protocol}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${protocolBadgeClasses(protocol)}`}
+                  >
+                    {protocolName(protocol)}
+                  </span>
+                ))}
                 {service.tier === "primitive" ? (
                   <span
                     title={tierTooltip(service.tier)}
@@ -442,7 +473,13 @@ function ServiceCard({
                   {service.hint}
                 </p>
               ) : null}
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-secondary sm:grid-cols-3">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-secondary sm:grid-cols-4">
+                <div>
+                  <dt className="font-medium uppercase tracking-wider text-outline">
+                    Protocol
+                  </dt>
+                  <dd>{protocolLabel(service.protocols)}</dd>
+                </div>
                 <div>
                   <dt className="font-medium uppercase tracking-wider text-outline">
                     Category
@@ -780,6 +817,7 @@ export default function SettingsServices() {
         s.display_name,
         s.description,
         s.category,
+        protocolLabel(s.protocols),
         tierLabel(s.tier),
       ]
         .filter(Boolean)

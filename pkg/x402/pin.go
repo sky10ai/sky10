@@ -99,12 +99,14 @@ func manifestHash(m ServiceManifest) (string, error) {
 // ordering. Go's encoding/json emits struct fields in declaration
 // order, which is deterministic; we zero out the UpdatedAt timestamp
 // and display-only catalog metadata before hashing so a refresh that
-// only changes UI copy or endpoint descriptions does not trigger
-// spurious re-approval.
+// only changes UI copy, endpoint descriptions, or protocol labels does
+// not trigger spurious re-approval. Transport validates the actual 402
+// protocol challenge at call time.
 func canonicalManifestJSON(m ServiceManifest) ([]byte, error) {
 	clone := m
 	clone.UpdatedAt = time.Time{}
 	clone.ServiceURL = ""
 	clone.Endpoints = nil
+	clone.Protocols = nil
 	return json.Marshal(clone)
 }

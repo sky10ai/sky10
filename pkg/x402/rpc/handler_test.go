@@ -17,6 +17,7 @@ func sampleManifest() x402.ServiceManifest {
 		Description:  "AI-powered search.",
 		Endpoint:     "https://api.perplexity.ai",
 		Networks:     []x402.Network{x402.NetworkBase},
+		Protocols:    []x402.PaymentProtocol{x402.ProtocolX402},
 		MaxPriceUSDC: "0.005",
 	}
 }
@@ -83,6 +84,9 @@ func TestListServicesReturnsCatalog(t *testing.T) {
 	if got.ServiceURL != "https://perplexity.ai" {
 		t.Fatalf("ServiceURL = %q, want https://perplexity.ai fallback", got.ServiceURL)
 	}
+	if len(got.Protocols) != 1 || got.Protocols[0] != x402.ProtocolX402 {
+		t.Fatalf("Protocols = %+v, want x402", got.Protocols)
+	}
 	if len(got.Endpoints) != 1 || got.Endpoints[0].URL != "https://api.perplexity.ai" {
 		t.Fatalf("Endpoints = %+v, want endpoint fallback", got.Endpoints)
 	}
@@ -111,6 +115,9 @@ func TestListServicesNormalizesServiceLinkDomain(t *testing.T) {
 	listing := res.(ListServicesResult).Services[0]
 	if listing.ServiceURL != "https://run402.com" {
 		t.Fatalf("ServiceURL = %q, want https://run402.com", listing.ServiceURL)
+	}
+	if len(listing.Protocols) != 1 || listing.Protocols[0] != x402.ProtocolX402 {
+		t.Fatalf("Protocols = %+v, want x402 fallback", listing.Protocols)
 	}
 }
 

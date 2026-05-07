@@ -18,6 +18,15 @@ const (
 	NetworkSolana Network = "solana"
 )
 
+// PaymentProtocol identifies the HTTP payment protocol a catalog entry may
+// negotiate at call time.
+type PaymentProtocol string
+
+const (
+	ProtocolX402 PaymentProtocol = "x402"
+	ProtocolMPP  PaymentProtocol = "mpp"
+)
+
 // Currency identifies the currency a service quotes payment in.
 // Today only USDC is in use across the agentic.market catalog;
 // future currencies plug in here.
@@ -234,6 +243,7 @@ type ServiceManifest struct {
 	ServiceURL   string            `json:"service_url,omitempty"`
 	Endpoints    []ServiceEndpoint `json:"endpoints,omitempty"`
 	Networks     []Network         `json:"networks"`
+	Protocols    []PaymentProtocol `json:"protocols,omitempty"`
 	MaxPriceUSDC string            `json:"max_price_usdc"`
 	UpdatedAt    time.Time         `json:"updated_at,omitempty"`
 

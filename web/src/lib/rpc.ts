@@ -1846,6 +1846,7 @@ export interface RootAgentRunSaveResult {
 // -- x402 services --
 
 export type X402Network = "base" | "solana";
+export type X402Protocol = "x402" | "mpp";
 
 export interface X402ServiceEndpoint {
   url: string;
@@ -1864,6 +1865,7 @@ export interface X402ServiceListing {
   service_url?: string;
   endpoints?: X402ServiceEndpoint[];
   networks?: X402Network[];
+  protocols?: X402Protocol[];
   max_price_usdc?: string;
   tier: "primitive" | "convenience";
   hint?: string;

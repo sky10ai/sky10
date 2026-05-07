@@ -49,6 +49,9 @@ func TestPaySHSourceFetchConvertsProviders(t *testing.T) {
 	if !networksEqual(tts.Networks, []x402.Network{x402.NetworkBase, x402.NetworkSolana}) {
 		t.Fatalf("networks = %+v", tts.Networks)
 	}
+	if !protocolsEqual(tts.Protocols, []x402.PaymentProtocol{x402.ProtocolX402, x402.ProtocolMPP}) {
+		t.Fatalf("protocols = %+v", tts.Protocols)
+	}
 	if tts.UpdatedAt != time.Date(2026, 5, 7, 1, 23, 54, 0, time.UTC) {
 		t.Fatalf("UpdatedAt = %s", tts.UpdatedAt)
 	}
@@ -78,4 +81,16 @@ func TestFormatPaySHPrice(t *testing.T) {
 
 func inputJSONNumber(value string) json.Number {
 	return json.Number(value)
+}
+
+func protocolsEqual(a, b []x402.PaymentProtocol) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
