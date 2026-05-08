@@ -55,39 +55,86 @@ function walletExplorerHref(chain: WalletTab, address: string) {
 
 const settingsTools = [
   {
-    description:
-      "Review authorized devices, invite new nodes, and remove old peers.",
+    description: "Trusted devices and invites",
     icon: "devices",
     label: "Devices",
     to: "/settings/devices",
   },
   {
-    description:
-      "Inspect durable queues, approvals, retries, and delivery history.",
+    description: "Queues, approvals, delivery history",
     icon: "inbox",
     label: "Mailbox",
     to: "/settings/mailbox",
   },
   {
-    description:
-      "Watch peers, relays, mailbox delivery health, and network events.",
+    description: "Peers, relays, delivery health",
     icon: "hub",
     label: "Network",
     to: "/settings/network",
   },
   {
-    description:
-      "Inspect replicated keys and edit the live distributed key-value store.",
+    description: "Live replicated key-value data",
     icon: "database",
     label: "Key-Value",
     to: "/settings/kv",
   },
   {
-    description:
-      "Track pending sync work and recent storage activity across drives.",
+    description: "Sync work and storage",
     icon: "monitor_heart",
     label: "Activity",
     to: "/settings/activity",
+  },
+] as const;
+
+const settingsLinks = [
+  {
+    description: "Theme and display mode",
+    icon: "palette",
+    iconClassName: "bg-primary/10 text-primary",
+    label: "Visuals",
+    to: "/settings/visuals",
+  },
+  {
+    description: "Isolated agent runtimes",
+    icon: "deployed_code",
+    iconClassName: "bg-primary/10 text-primary",
+    label: "Sandboxes",
+    to: "/settings/sandboxes",
+  },
+  {
+    description: "Codex account sign-in",
+    icon: "chat",
+    iconClassName: "bg-primary/10 text-primary",
+    label: "ChatGPT",
+    to: "/settings/codex",
+  },
+  {
+    description: "Slack and app connections",
+    icon: "forum",
+    iconClassName: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-200",
+    label: "Messaging",
+    to: "/settings/messaging",
+  },
+  {
+    description: "Paid tools for agents",
+    icon: "storefront",
+    iconClassName: "bg-amber-500/10 text-amber-700 dark:text-amber-200",
+    label: "Services",
+    to: "/settings/services",
+  },
+  {
+    description: "Encrypted keys and tokens",
+    icon: "key_vertical",
+    iconClassName: "bg-primary-fixed/60 text-on-primary-fixed-variant",
+    label: "Secrets",
+    to: "/settings/secrets",
+  },
+  {
+    description: "Local helper binaries",
+    icon: "download",
+    iconClassName: "bg-tertiary/10 text-tertiary",
+    label: "Managed Apps",
+    to: "/settings/apps",
   },
 ] as const;
 
@@ -236,237 +283,62 @@ export default function Settings() {
 
   return (
     <SettingsPage
-      description="Manage your local node, integrations, runtimes, and operational tools."
+      description="Manage node, integrations, and tools."
       title="Settings"
       width="wide"
     >
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Link
-          className="group rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
-          to="/settings/visuals"
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
-                Visuals
-              </p>
-              <h3 className="text-xl font-semibold text-on-surface">
-                Adjust interface appearance
-              </h3>
-              <p className="max-w-md text-sm text-secondary">
-                Choose whether sky10 follows your system theme or stays fixed in
-                light or dark mode.
-              </p>
+        {settingsLinks.map((link) => (
+          <Link
+            className="group flex min-h-32 items-center justify-between gap-4 rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
+            key={link.to}
+            to={link.to}
+          >
+            <div className="flex min-w-0 items-center gap-4">
+              <div
+                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${link.iconClassName}`}
+              >
+                <Icon className="text-2xl" name={link.icon} />
+              </div>
+              <div className="min-w-0 space-y-1">
+                <h3 className="text-xl font-semibold text-on-surface">
+                  {link.label}
+                </h3>
+                <p className="text-sm text-secondary">{link.description}</p>
+              </div>
             </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-              <Icon className="text-2xl" name="palette" />
-            </div>
-          </div>
-          <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary transition-colors group-hover:text-on-surface">
-            Open Visuals
-            <Icon className="text-base" name="arrow_forward" />
-          </div>
-        </Link>
-
-        <Link
-          className="group rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
-          to="/settings/sandboxes"
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
-                Sandboxes
-              </p>
-              <h3 className="text-xl font-semibold text-on-surface">
-                Provision isolated Linux runtimes
-              </h3>
-              <p className="max-w-md text-sm text-secondary">
-                Start a Lima-backed Ubuntu VM, watch provisioning logs, and
-                manage each sandbox from its own detail page.
-              </p>
-            </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-              <Icon className="text-2xl" name="deployed_code" />
-            </div>
-          </div>
-          <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary transition-colors group-hover:text-on-surface">
-            Open Sandboxes
-            <Icon className="text-base" name="arrow_forward" />
-          </div>
-        </Link>
-
-        <Link
-          className="group rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
-          to="/settings/codex"
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
-                ChatGPT
-              </p>
-              <h3 className="text-xl font-semibold text-on-surface">
-                Link Codex sign-in
-              </h3>
-              <p className="max-w-md text-sm text-secondary">
-                Link ChatGPT directly in sky10 so this device can broker
-                Codex-backed work without a manual API key.
-              </p>
-            </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-              <Icon className="text-2xl" name="chat" />
-            </div>
-          </div>
-          <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary transition-colors group-hover:text-on-surface">
-            Open ChatGPT Link
-            <Icon className="text-base" name="arrow_forward" />
-          </div>
-        </Link>
-
-        <Link
-          className="group rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
-          to="/settings/messaging"
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
-                Messaging
-              </p>
-              <h3 className="text-xl font-semibold text-on-surface">
-                Connect communication apps
-              </h3>
-              <p className="max-w-md text-sm text-secondary">
-                Link Slack and future messaging platforms through brokered
-                adapters, secrets, and policy-controlled connections.
-              </p>
-            </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-200">
-              <Icon className="text-2xl" name="forum" />
-            </div>
-          </div>
-          <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-emerald-700 transition-colors group-hover:text-on-surface dark:text-emerald-200">
-            Open Messaging
-            <Icon className="text-base" name="arrow_forward" />
-          </div>
-        </Link>
-
-        <Link
-          className="group rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
-          to="/settings/services"
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
-                Services
-              </p>
-              <h3 className="text-xl font-semibold text-on-surface">
-                Approve paid services for your agents
-              </h3>
-              <p className="max-w-md text-sm text-secondary">
-                Browse the service catalog and toggle services on or off.
-                Pay-per-request in USDC; calls only succeed once your wallet is
-                funded.
-              </p>
-            </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-700 dark:text-amber-200">
-              <Icon className="text-2xl" name="storefront" />
-            </div>
-          </div>
-          <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-amber-700 transition-colors group-hover:text-on-surface dark:text-amber-200">
-            Open Services
-            <Icon className="text-base" name="arrow_forward" />
-          </div>
-        </Link>
-
-        <Link
-          className="group rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
-          to="/settings/secrets"
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
-                Secrets
-              </p>
-              <h3 className="text-xl font-semibold text-on-surface">
-                Share private values across devices
-              </h3>
-              <p className="max-w-md text-sm text-secondary">
-                Store API keys, tokens, certs, and small encrypted artifacts
-                with trusted or explicit device scope.
-              </p>
-            </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-fixed/60 text-on-primary-fixed-variant">
-              <Icon className="text-2xl" name="key_vertical" />
-            </div>
-          </div>
-          <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-on-primary-fixed-variant transition-colors group-hover:text-on-surface">
-            Open Secrets
-            <Icon className="text-base" name="arrow_forward" />
-          </div>
-        </Link>
-
-        <Link
-          className="group rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
-          to="/settings/apps"
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
-                Managed Apps
-              </p>
-              <h3 className="text-xl font-semibold text-on-surface">
-                Install helper binaries
-              </h3>
-              <p className="max-w-md text-sm text-secondary">
-                Review and manage tools sky10 installs locally, like wallet
-                binaries and future sandbox dependencies.
-              </p>
-            </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-tertiary/10 text-tertiary">
-              <Icon className="text-2xl" name="download" />
-            </div>
-          </div>
-          <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-tertiary transition-colors group-hover:text-on-surface">
-            Open Managed Apps
-            <Icon className="text-base" name="arrow_forward" />
-          </div>
-        </Link>
+            <Icon
+              className="text-base text-primary transition-colors group-hover:text-on-surface"
+              name="arrow_forward"
+            />
+          </Link>
+        ))}
       </div>
 
       <section className="space-y-4">
         <div className="space-y-1">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
-            Operational Views
-          </p>
-          <h3 className="text-xl font-semibold text-on-surface">
-            Open runtime dashboards from Settings
-          </h3>
-          <p className="max-w-2xl text-sm text-secondary">
-            Devices, mailbox, networking, KV inspection, and sync activity now
-            live under the settings area instead of the primary sidebar.
-          </p>
+          <h3 className="text-xl font-semibold text-on-surface">Operations</h3>
         </div>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           {settingsTools.map((tool) => (
             <Link
               key={tool.to}
-              className="group rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
+              className="group flex items-center justify-between gap-4 rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
               to={tool.to}
             >
-              <div className="flex items-start justify-between gap-4">
-                <div className="space-y-2">
+              <div className="flex min-w-0 items-center gap-3">
+                <Icon className="text-xl text-primary" name={tool.icon} />
+                <div className="min-w-0">
                   <h4 className="text-lg font-semibold text-on-surface">
                     {tool.label}
                   </h4>
                   <p className="text-sm text-secondary">{tool.description}</p>
                 </div>
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-surface-container text-primary transition-colors group-hover:bg-primary/10">
-                  <Icon className="text-xl" name={tool.icon} />
-                </div>
               </div>
-              <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary transition-colors group-hover:text-on-surface">
-                Open {tool.label}
-                <Icon className="text-base" name="arrow_forward" />
-              </div>
+              <Icon
+                className="text-base text-primary transition-colors group-hover:text-on-surface"
+                name="arrow_forward"
+              />
             </Link>
           ))}
         </div>
@@ -482,7 +354,7 @@ export default function Settings() {
                   Identity
                 </h3>
                 <p className="text-sm text-secondary">
-                  Your unique identity across all devices.
+                  Local identity.
                 </p>
               </div>
               <span className="bg-primary/10 text-primary px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest">
@@ -544,7 +416,7 @@ export default function Settings() {
                 Skylink Mode
               </h3>
               <p className="text-xs text-primary-fixed-dim">
-                Control how this vault interacts with the decentralized cloud.
+                Cloud sync mode.
               </p>
             </div>
             <div
@@ -594,7 +466,7 @@ export default function Settings() {
                 Wallet
               </h3>
               <p className="text-sm text-secondary">
-                Agent payments powered by{" "}
+                Payments via{" "}
                 <a
                   href="https://openwallet.sh"
                   target="_blank"
@@ -622,8 +494,7 @@ export default function Settings() {
                   <Icon name="download" className="text-tertiary text-2xl" />
                 </div>
                 <p className="text-sm text-secondary text-center">
-                  Install the Open Wallet Standard to enable wallet access for
-                  Solana and Base.
+                  Install OWS for Solana and Base.
                 </p>
                 <button
                   onClick={handleInstall}
@@ -1015,7 +886,7 @@ export default function Settings() {
                 ) : (
                   <div className="rounded-lg bg-surface-container p-4 text-sm text-secondary">
                     {baseWalletError ||
-                      "No Base address is available for this wallet yet."}
+                      "No Base address yet."}
                   </div>
                 )}
 
@@ -1261,7 +1132,7 @@ export default function Settings() {
               Authorized Devices
             </h3>
             <p className="text-sm text-secondary">
-              Devices signed into this identity&apos;s manifest.
+              Signed-in devices.
             </p>
           </div>
           <div className="space-y-3">
