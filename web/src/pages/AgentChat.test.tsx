@@ -62,6 +62,7 @@ let fetchCalls: FetchCall[] = [];
 type FetchSetupOptions = {
   agentList?: "ready" | "pending";
   sandboxList?: "ready" | "pending";
+  sendLiveTransport?: string;
 };
 
 class FakeEventSource {
@@ -236,7 +237,7 @@ function setupFetch(options: FetchSetupOptions = {}) {
           delivery: {
             policy: "live_only",
             status: "sent",
-            live_transport: "local_registry",
+            live_transport: options.sendLiveTransport ?? "local_registry",
             live_attempted: true,
             durable_used: false,
           },
@@ -395,6 +396,40 @@ describe("AgentChat page", () => {
     expect(fetchCalls.some((call) => call.method === "agent.send")).toBe(false);
 
     await waitFor(() => page.textContent?.includes("Delivered") === true, "delivered state");
+  });
+
+  test("humanizes sandbox proxy delivery metadata in fallback mode", async () => {
+    setupFetch({ sendLiveTransport: "sandbox_proxy" });
+    const page = await renderAgentChatPage();
+    await waitFor(() => FakeWebSocket.instances.length > 0, "chat websocket");
+    FakeWebSocket.latest().close();
+
+    const fileInput = page.querySelector('input[type="file"]') as HTMLInputElement | null;
+    if (!fileInput) {
+      throw new Error("expected hidden file input");
+    }
+    const file = new File(["hello sandbox"], "sandbox.txt", { type: "text/plain" });
+    Object.defineProperty(fileInput, "files", {
+      configurable: true,
+      value: [file],
+    });
+    await act(async () => {
+      fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const sendButton = page.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
+    if (!sendButton) {
+      throw new Error("expected send button");
+    }
+    await waitFor(() => sendButton.disabled === false, "send button enabled");
+    await act(async () => {
+      sendButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    await waitFor(() => fetchCalls.some((call) => call.method === "agent.send"), "fallback agent.send");
+    await waitFor(() => page.textContent?.includes("Sent via guest sky10") === true, "sandbox proxy label");
+    expect(page.textContent).not.toContain("sandbox_proxy");
+    expect(page.textContent).not.toContain("sandbox_bridge");
   });
 
   test("uses route state while the fresh agent list is still pending", async () => {

@@ -321,8 +321,8 @@ func TestRPCAgentCallDispatchesToolCallThroughDirectAgentSource(t *testing.T) {
 				Policy:        DeliveryPolicyLiveOnly,
 				Scope:         DeliveryScopeSandbox,
 				Status:        "sent",
-				LiveTransport: "sandbox_bridge",
-				LastTransport: "sandbox_bridge",
+				LiveTransport: DeliveryTransportSandboxProxy,
+				LastTransport: DeliveryTransportSandboxProxy,
 				LiveAttempted: true,
 			},
 		},
@@ -350,8 +350,8 @@ func TestRPCAgentCallDispatchesToolCallThroughDirectAgentSource(t *testing.T) {
 	if msg.To != "A-sandbox00000000" || msg.DeviceID != "D-guest01" || msg.Type != "tool_call" {
 		t.Fatalf("message = %#v, want sandbox tool_call with guest device", msg)
 	}
-	if call.Job.Delivery == nil || call.Job.Delivery.LiveTransport != "sandbox_bridge" {
-		t.Fatalf("delivery = %#v, want sandbox bridge delivery", call.Job.Delivery)
+	if call.Job.Delivery == nil || call.Job.Delivery.LiveTransport != DeliveryTransportSandboxProxy {
+		t.Fatalf("delivery = %#v, want sandbox proxy delivery", call.Job.Delivery)
 	}
 	if call.Job.Delivery.DurableTransport != "" || call.Job.Delivery.DurableUsed {
 		t.Fatalf("delivery = %#v, want no durable private-network fallback", call.Job.Delivery)

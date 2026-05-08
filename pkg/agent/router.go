@@ -165,9 +165,9 @@ func (r *Router) Send(ctx context.Context, msg Message) (interface{}, error) {
 		if queueErr != nil {
 			return nil, queueErr
 		}
-		return r.queuedResult(msg.ID, record, "skylink", true), nil
+		return r.queuedResult(msg.ID, record, DeliveryTransportSkylink, true), nil
 	}
-	return r.sentResult(msg.ID, agentmailbox.ScopePrivateNetwork, "skylink"), nil
+	return r.sentResult(msg.ID, agentmailbox.ScopePrivateNetwork, DeliveryTransportSkylink), nil
 }
 
 func (r *Router) sendDirect(ctx context.Context, msg Message) (SendResult, bool, error) {
@@ -780,16 +780,16 @@ func (r *Router) routeIncoming(ctx context.Context, msg Message) (interface{}, e
 		r.emit("agent.message", msg)
 	}
 	if msg.To == r.deviceID {
-		return r.sentResult(msg.ID, agentmailbox.ScopePrivateNetwork, "local_registry"), nil
+		return r.sentResult(msg.ID, agentmailbox.ScopePrivateNetwork, DeliveryTransportLocalRegistry), nil
 	}
 	if r.mailbox != nil && r.registry.Resolve(msg.To) == nil {
 		record, err := r.queueLocalPending(ctx, msg)
 		if err != nil {
 			return nil, err
 		}
-		return r.queuedResult(msg.ID, record, "local_registry", false), nil
+		return r.queuedResult(msg.ID, record, DeliveryTransportLocalRegistry, false), nil
 	}
-	return r.sentResult(msg.ID, agentmailbox.ScopePrivateNetwork, "local_registry"), nil
+	return r.sentResult(msg.ID, agentmailbox.ScopePrivateNetwork, DeliveryTransportLocalRegistry), nil
 }
 
 func (r *Router) validateRemotePrivateDevice(deviceID string) error {

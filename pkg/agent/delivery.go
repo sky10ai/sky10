@@ -10,6 +10,10 @@ const (
 	DeliveryPolicyLiveOnly      = "live_only"
 	DeliveryPolicyMailboxBacked = "mailbox_backed"
 	DeliveryScopeSandbox        = "sandbox"
+
+	DeliveryTransportLocalRegistry = "local_registry"
+	DeliveryTransportSkylink       = "skylink"
+	DeliveryTransportSandboxProxy  = "sandbox_proxy"
 )
 
 // DeliveryMetadata explains how a caller-visible send or mailbox operation was
@@ -51,7 +55,7 @@ func deliveryPolicies(mailboxConfigured bool) map[string]DeliveryPolicyDescripti
 	agentSendPolicy := DeliveryPolicyDescription{
 		Policy:        DeliveryPolicyLiveOnly,
 		Scope:         agentmailbox.ScopePrivateNetwork,
-		LiveTransport: "local_registry,skylink",
+		LiveTransport: DeliveryTransportLocalRegistry + "," + DeliveryTransportSkylink,
 		Description:   "agent.send delivers directly to a local agent or a connected private-network device and fails fast when durable mailbox fallback is unavailable.",
 	}
 	if mailboxConfigured {
@@ -65,14 +69,14 @@ func deliveryPolicies(mailboxConfigured bool) map[string]DeliveryPolicyDescripti
 		"mailbox_private_network": {
 			Policy:           DeliveryPolicyMailboxBacked,
 			Scope:            agentmailbox.ScopePrivateNetwork,
-			LiveTransport:    "local_registry,skylink",
+			LiveTransport:    DeliveryTransportLocalRegistry + "," + DeliveryTransportSkylink,
 			DurableTransport: "private_mailbox",
 			Description:      "private-network mailbox items persist first, then deliver live on local registration or private-network reconnect.",
 		},
 		"mailbox_sky10_network": {
 			Policy:           DeliveryPolicyMailboxBacked,
 			Scope:            agentmailbox.ScopeSky10Network,
-			LiveTransport:    "skylink",
+			LiveTransport:    DeliveryTransportSkylink,
 			DurableTransport: "nostr_dropbox",
 			Description:      "sky10-network mailbox items try live skylink delivery first, then hand off through sealed Nostr dropbox relay when direct routing is unavailable.",
 		},
@@ -194,7 +198,7 @@ func firstAttemptedTransport(record agentmailbox.Record) string {
 
 func isLiveDeliveryTransport(transport string) bool {
 	switch strings.TrimSpace(transport) {
-	case "local_registry", "skylink":
+	case DeliveryTransportLocalRegistry, DeliveryTransportSkylink, DeliveryTransportSandboxProxy:
 		return true
 	default:
 		return false

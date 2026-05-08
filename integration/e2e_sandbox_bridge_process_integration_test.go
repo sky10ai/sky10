@@ -122,8 +122,8 @@ func TestIntegrationTwoProcessSandboxBridgeAgentJobs(t *testing.T) {
 	if call.Delivery == nil {
 		t.Fatal("agent.call returned nil delivery metadata")
 	}
-	if call.Delivery.Scope != skyagent.DeliveryScopeSandbox || call.Delivery.LiveTransport != "sandbox_bridge" || call.Delivery.DurableUsed {
-		t.Fatalf("agent.call delivery = %+v, want live sandbox bridge without durable fallback", *call.Delivery)
+	if call.Delivery.Scope != skyagent.DeliveryScopeSandbox || call.Delivery.LiveTransport != skyagent.DeliveryTransportSandboxProxy || call.Delivery.DurableUsed {
+		t.Fatalf("agent.call delivery = %+v, want live sandbox proxy without durable fallback", *call.Delivery)
 	}
 
 	completed := waitForAgentJobState(t, host.home, call.JobID, skyagent.JobWorkCompleted)

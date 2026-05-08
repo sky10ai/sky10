@@ -117,21 +117,42 @@ function parseChatTimestamp(value: unknown): Date {
   return new Date();
 }
 
+function transportLabel(transport: string): string {
+  switch (transport) {
+    case "guest_websocket":
+      return "chat websocket";
+    case "local_registry":
+      return "local agent";
+    case "sandbox_proxy":
+      return "guest sky10";
+    case "skylink":
+      return "skylink";
+    case "private_mailbox":
+      return "private mailbox";
+    case "nostr_dropbox":
+      return "Nostr dropbox";
+    case "nostr_queue":
+      return "Nostr queue";
+    default:
+      return transport.replaceAll("_", " ");
+  }
+}
+
 function deliveryLabel(delivery?: DeliveryMetadata): string | null {
   if (!delivery) return null;
   if (delivery.status === "queued") {
     return delivery.durable_transport
-      ? `Queued via ${delivery.durable_transport}`
+      ? `Queued via ${transportLabel(delivery.durable_transport)}`
       : "Queued";
   }
   if (delivery.status === "handed_off") {
     return delivery.durable_transport
-      ? `Handed off via ${delivery.durable_transport}`
+      ? `Handed off via ${transportLabel(delivery.durable_transport)}`
       : "Handed off";
   }
   if (delivery.status === "sent" || delivery.status === "delivered") {
     return delivery.live_transport
-      ? `Sent via ${delivery.live_transport}`
+      ? `Sent via ${transportLabel(delivery.live_transport)}`
       : "Sent";
   }
   return delivery.status.replaceAll("_", " ");
@@ -643,8 +664,8 @@ export default function AgentChat() {
     return timing;
   });
 
-  const applySendResult = useEffectEvent((userMessageID: string, result: AgentSendResult) => {
-    const delivered = transport === "websocket"
+  const applySendResult = useEffectEvent((userMessageID: string, result: AgentSendResult, sentOverWebSocket: boolean) => {
+    const delivered = sentOverWebSocket
       ? result.status === "sent"
       : result.status === "sent" && result.delivery.status === "sent";
     setMessages((prev) =>
@@ -653,7 +674,7 @@ export default function AgentChat() {
           ? {
               ...message,
               delivered,
-              delivery: transport === "websocket" ? undefined : result.delivery,
+              delivery: sentOverWebSocket ? undefined : result.delivery,
             }
           : message
       ))
@@ -1049,8 +1070,10 @@ export default function AgentChat() {
 
     try {
       let result: AgentSendResult;
+      let sentOverWebSocket = false;
       try {
         result = await sendWebSocketMessage(content, clientRequestID);
+        sentOverWebSocket = true;
       } catch (error) {
         if (!(error instanceof ChatWebSocketUnavailableError)) {
           throw error;
@@ -1071,7 +1094,7 @@ export default function AgentChat() {
               },
         });
       }
-      applySendResult(userMsg.id, result);
+      applySendResult(userMsg.id, result, sentOverWebSocket);
     } catch (error) {
       pendingTurnTimingsRef.current.delete(clientRequestID);
       setActiveStreamID(null);

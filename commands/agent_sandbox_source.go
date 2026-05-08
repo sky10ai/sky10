@@ -243,8 +243,8 @@ func (s *sandboxAgentSource) SendDirectAgentMessage(ctx context.Context, msg sky
 		Policy:        skyagent.DeliveryPolicyLiveOnly,
 		Scope:         skyagent.DeliveryScopeSandbox,
 		Status:        sent.Status,
-		LiveTransport: "sandbox_bridge",
-		LastTransport: "sandbox_bridge",
+		LiveTransport: skyagent.DeliveryTransportSandboxProxy,
+		LastTransport: skyagent.DeliveryTransportSandboxProxy,
 		LiveAttempted: true,
 	}
 	return sent, true, nil

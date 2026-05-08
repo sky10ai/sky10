@@ -444,8 +444,8 @@ func (h *RPCHandler) sendMessage(ctx context.Context, p SendParams) (interface{}
 			Policy:        DeliveryPolicyLiveOnly,
 			Scope:         agentmailbox.ScopePrivateNetwork,
 			Status:        "sent",
-			LiveTransport: "local_registry",
-			LastTransport: "local_registry",
+			LiveTransport: DeliveryTransportLocalRegistry,
+			LastTransport: DeliveryTransportLocalRegistry,
 			LiveAttempted: true,
 		},
 	}, nil

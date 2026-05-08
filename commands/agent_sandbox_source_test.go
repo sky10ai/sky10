@@ -195,8 +195,8 @@ func TestSandboxAgentSourceSendsMessagesThroughForwardedSky10Endpoint(t *testing
 	if result.ID != "host-message" || result.Status != "sent" {
 		t.Fatalf("result = %#v, want host message sent", result)
 	}
-	if result.Delivery.Scope != skyagent.DeliveryScopeSandbox || result.Delivery.LiveTransport != "sandbox_bridge" || result.Delivery.DurableUsed {
-		t.Fatalf("delivery = %#v, want sandbox bridge live delivery", result.Delivery)
+	if result.Delivery.Scope != skyagent.DeliveryScopeSandbox || result.Delivery.LiveTransport != skyagent.DeliveryTransportSandboxProxy || result.Delivery.DurableUsed {
+		t.Fatalf("delivery = %#v, want sandbox proxy live delivery", result.Delivery)
 	}
 
 	_, handled, err = source.SendDirectAgentMessage(context.Background(), skyagent.Message{
