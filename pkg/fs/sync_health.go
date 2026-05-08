@@ -94,7 +94,8 @@ func (dm *DriveManager) syncHealthSnapshot(id string) fsSyncHealthSnapshot {
 		return snap
 	}
 
-	peerOptional := runtime.daemon.store != nil && runtime.daemon.store.backend != nil
+	hasDurableStorage := runtime.daemon.store != nil && runtime.daemon.store.backend != nil
+	p2pEnabled := dm.p2pEnabled()
 
 	switch {
 	case issueCount > 0:
@@ -104,17 +105,17 @@ func (dm *DriveManager) syncHealthSnapshot(id string) fsSyncHealthSnapshot {
 		} else {
 			snap.SyncMessage = "Windows path issues prevent local materialization"
 		}
-	case !lastErrAt.IsZero() && lastErrAt.After(lastOK):
+	case peerCount == 0 && p2pEnabled && !hasDurableStorage:
+		snap.SyncState = "waiting"
+		snap.SyncMessage = "No connected private-network peers"
+	case p2pEnabled && peerCount > 0 && !lastErrAt.IsZero() && lastErrAt.After(lastOK):
 		snap.SyncState = "error"
 		if snap.LastSyncError != "" {
 			snap.SyncMessage = snap.LastSyncError
 		} else {
 			snap.SyncMessage = "Recent FS anti-entropy failed"
 		}
-	case peerCount == 0 && dm.p2pEnabled() && !peerOptional:
-		snap.SyncState = "waiting"
-		snap.SyncMessage = "No connected private-network peers"
-	case peerCount > 0 && dm.p2pEnabled() && lastOK.IsZero():
+	case peerCount > 0 && p2pEnabled && lastOK.IsZero():
 		snap.SyncState = "waiting"
 		snap.SyncMessage = "Connected peers found, but no successful FS anti-entropy yet"
 	default:

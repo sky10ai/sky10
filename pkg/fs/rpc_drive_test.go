@@ -927,6 +927,41 @@ func TestHealthRPCIncludesFSSyncHealthCounts(t *testing.T) {
 	}
 }
 
+func TestFSSyncHealthNoPeersWithoutStorageIsWaitingDespiteStalePeerError(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	id, _ := GenerateDeviceKey()
+	store := New(nil, id)
+	server := skyrpc.NewServer(filepath.Join(tmpDir, "test.sock"), "test", nil)
+	handler := NewFSHandler(store, server, filepath.Join(tmpDir, "drives.json"), nil, nil)
+
+	drive, err := handler.driveManager.CreateDrive("Agents", filepath.Join(tmpDir, "Sky10", "Drives", "Agents"), "Agents")
+	if err != nil {
+		t.Fatalf("create drive: %v", err)
+	}
+
+	now := time.Unix(2400, 0).UTC()
+	installSyncHealthRuntime(t, handler, drive.ID, "agents", nil, nil, fsReplicaSyncState{
+		NSID: "agents",
+		Peers: map[string]fsPeerSyncState{
+			"peer-a": {
+				LastSuccessAt: now.Add(-3 * time.Minute),
+				LastErrorAt:   now.Add(-1 * time.Minute),
+				LastError:     "requires S3 storage",
+			},
+		},
+	})
+
+	snap := handler.driveManager.syncHealthSnapshot(drive.ID)
+	if snap.SyncState != "waiting" {
+		t.Fatalf("sync_state = %q, want waiting", snap.SyncState)
+	}
+	if snap.SyncMessage != "No connected private-network peers" {
+		t.Fatalf("sync_message = %q, want no peers message", snap.SyncMessage)
+	}
+}
+
 func TestHealthRPCIncludesConflictCounts(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

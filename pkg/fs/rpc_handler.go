@@ -143,40 +143,49 @@ func (s *FSHandler) Dispatch(ctx context.Context, method string, params json.Raw
 		result, err = s.rpcLogs(ctx, params)
 	case "system.health", "skyfs.health":
 		result, err = s.rpcHealth(ctx)
-	case "skyfs.list", "skyfs.info", "skyfs.put", "skyfs.get",
-		"skyfs.remove", "skyfs.mkdir", "skyfs.versions",
-		"skyfs.compact", "skyfs.gc", "skyfs.reset",
-		"skyfs.syncStart", "skyfs.syncStop", "skyfs.syncStatus":
-		if s.store.backend == nil {
-			return nil, fmt.Errorf("requires storage — add S3 with 'sky10 storage add s3'"), true
-		}
+	case "skyfs.list":
+		result, err = s.rpcList(ctx, params)
+	case "skyfs.info":
+		result, err = s.rpcInfo(ctx)
+	case "skyfs.remove":
+		result, err = s.rpcRemove(ctx, params)
+	case "skyfs.mkdir":
+		result, err = s.rpcMkdir(ctx, params)
+	case "skyfs.compact":
+		result, err = s.rpcCompact(ctx, params)
+	case "skyfs.syncStart":
+		result, err = s.rpcSyncStart(ctx, params)
+	case "skyfs.syncStop":
+		result, err = s.rpcSyncStop(ctx)
+	case "skyfs.syncStatus":
+		result, err = s.rpcSyncStatus(ctx)
+	case "skyfs.put", "skyfs.get", "skyfs.versions", "skyfs.gc", "skyfs.reset":
 		switch method {
-		case "skyfs.list":
-			result, err = s.rpcList(ctx, params)
-		case "skyfs.info":
-			result, err = s.rpcInfo(ctx)
 		case "skyfs.put":
+			if s.store.backend == nil {
+				return nil, fmt.Errorf("requires storage — add S3 with 'sky10 storage add s3'"), true
+			}
 			result, err = s.rpcPut(ctx, params)
 		case "skyfs.get":
+			if s.store.backend == nil {
+				return nil, fmt.Errorf("requires storage — add S3 with 'sky10 storage add s3'"), true
+			}
 			result, err = s.rpcGet(ctx, params)
-		case "skyfs.remove":
-			result, err = s.rpcRemove(ctx, params)
-		case "skyfs.mkdir":
-			result, err = s.rpcMkdir(ctx, params)
 		case "skyfs.versions":
+			if s.store.backend == nil {
+				return nil, fmt.Errorf("requires storage — add S3 with 'sky10 storage add s3'"), true
+			}
 			result, err = s.rpcVersions(ctx, params)
-		case "skyfs.compact":
-			result, err = s.rpcCompact(ctx, params)
 		case "skyfs.gc":
+			if s.store.backend == nil {
+				return nil, fmt.Errorf("requires storage — add S3 with 'sky10 storage add s3'"), true
+			}
 			result, err = s.rpcGC(ctx, params)
 		case "skyfs.reset":
+			if s.store.backend == nil {
+				return nil, fmt.Errorf("requires storage — add S3 with 'sky10 storage add s3'"), true
+			}
 			result, err = s.rpcReset(ctx)
-		case "skyfs.syncStart":
-			result, err = s.rpcSyncStart(ctx, params)
-		case "skyfs.syncStop":
-			result, err = s.rpcSyncStop(ctx)
-		case "skyfs.syncStatus":
-			result, err = s.rpcSyncStatus(ctx)
 		}
 	case "skyfs.status":
 		result, err = s.rpcStatus(ctx)

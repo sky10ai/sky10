@@ -116,6 +116,35 @@ func TestRPCListEmpty(t *testing.T) {
 	}
 }
 
+func TestRPCListWorksWithoutStorage(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	id, _ := GenerateDeviceKey()
+	store := New(nil, id)
+	server := skyrpc.NewServer(filepath.Join(tmpDir, "test.sock"), "test", nil)
+	handler := NewFSHandler(store, server, filepath.Join(tmpDir, "drives.json"), nil, nil)
+
+	if _, err := handler.driveManager.CreateDrive("Agents", filepath.Join(tmpDir, "Sky10", "Drives", "Agents"), "Agents"); err != nil {
+		t.Fatalf("create drive: %v", err)
+	}
+
+	params, err := json.Marshal(listParams{Prefix: ""})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	result, err, handled := handler.Dispatch(context.Background(), "skyfs.list", params)
+	if err != nil {
+		t.Fatalf("skyfs.list without storage returned error: %v", err)
+	}
+	if !handled {
+		t.Fatal("skyfs.list was not handled")
+	}
+	if _, ok := result.(listResult); !ok {
+		t.Fatalf("skyfs.list result type = %T, want listResult", result)
+	}
+}
+
 func TestRPCStatus(t *testing.T) {
 	t.Parallel()
 	_, conn, _ := startTestRPC(t)
