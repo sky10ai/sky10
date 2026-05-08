@@ -1,6 +1,6 @@
 ---
 created: 2026-04-26
-updated: 2026-04-26
+updated: 2026-05-08
 model: claude-opus-4-7
 ---
 
@@ -70,8 +70,11 @@ This is more secure at two levels:
   cannot affect `/bridge/metered-services/ws` because the code paths don't
   intersect. There is no shared dispatcher to compromise.
 
-See [`docs/work/current/sandbox-bridge/`](../work/current/sandbox-bridge/)
-for the full design and the rules that hold the frame in place.
+See
+[`docs/work/past/2026/05/08-Sandbox-Bridge-Host-Owned-Metered-Services.md`](../work/past/2026/05/08-Sandbox-Bridge-Host-Owned-Metered-Services.md)
+for the archived design and
+[`docs/work/todo/sandbox-bridge-followup.md`](../work/todo/sandbox-bridge-followup.md)
+for remaining bridge smoke and hardening work.
 
 ## Why per-intent and not one bus with discipline rules
 

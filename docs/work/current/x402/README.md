@@ -1,6 +1,6 @@
 ---
 created: 2026-04-26
-updated: 2026-05-07
+updated: 2026-05-08
 model: claude-opus-4-7
 ---
 
@@ -44,7 +44,7 @@ later).
 | Protocol | x402 over HTTPS; SIWE + SIWS signing; Base + Solana USDC |
 | Discovery | agentic.market `/v1/services` + per-service `/.well-known/x402.json` + user-added URLs |
 | Catalog freshness | Hourly refresh, change classification, manifest pinning, repo-curated overlay |
-| Agent surface | x402 envelope types on the [sandbox bridge](../sandbox-bridge/) |
+| Agent surface | x402 envelope types on the archived sandbox bridge architecture |
 | Human surface | Web UI services browser + `sky10 market` CLI |
 | Safety | Dedicated x402 subwallet, daily/per-call/per-service budget caps, receipt log |
 
@@ -65,10 +65,11 @@ later).
   endpoints under `pkg/sandbox/bridge/`. x402 ships as a single
   websocket endpoint with its own narrow handler package, not as envelopes on
   a unified bus. Runtime adapter work moved out of the protocol-core
-  milestones and is now tracked under M10 and sandbox-bridge. See
-  [sandbox-bridge](../sandbox-bridge/) for the bridge architecture and
-  [sandbox-bridge/implementation-plan.md](../sandbox-bridge/implementation-plan.md)
-  for the M2 x402 capability milestone where the handlers land.
+  milestones and is now tracked under M10. The completed bridge architecture is
+  archived in
+  [Sandbox Bridge Host-Owned Metered Services](../../past/2026/05/08-Sandbox-Bridge-Host-Owned-Metered-Services.md);
+  remaining bridge smoke and hardening tasks are tracked in
+  [Sandbox Bridge Follow-Up](../../todo/sandbox-bridge-followup.md).
 - 2026-04-27 — narrowed branch scope: only x402 ships under
   `pkg/sandbox/bridge/` in this branch. Wallet and messenger bridge
   endpoints are future work; secrets stay out of the bridge entirely (VM env-var
