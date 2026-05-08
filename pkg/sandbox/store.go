@@ -316,6 +316,9 @@ func (m *Manager) shouldAutoRemoveMissingRecord(rec Record) bool {
 	if m.running[rec.Slug] || rec.Status == "creating" || rec.Status == "starting" {
 		return false
 	}
+	if rec.Provider != providerLima {
+		return false
+	}
 	return strings.TrimSpace(rec.GuestDevicePubKey) != ""
 }
 

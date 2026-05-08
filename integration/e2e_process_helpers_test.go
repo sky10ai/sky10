@@ -109,10 +109,12 @@ func startProcessNodeEnv(t *testing.T, env []string, bin, name, home string, ext
 	args := []string{
 		"--home", home,
 		"serve",
-		"--http-port", "0",
 		"--no-default-relays",
 		"--no-default-bootstrap",
 		"--link-listen", "/ip4/127.0.0.1/tcp/0",
+	}
+	if !hasServeFlag(extraServeArgs, "--http-port") {
+		args = append(args, "--http-port", "0")
 	}
 	args = append(args, extraServeArgs...)
 	cmd := exec.CommandContext(ctx, bin, args...)
@@ -140,6 +142,15 @@ func startProcessNodeEnv(t *testing.T, env []string, bin, name, home string, ext
 
 	waitForNodeReady(t, bin, home, logPath)
 	return node
+}
+
+func hasServeFlag(args []string, name string) bool {
+	for _, arg := range args {
+		if arg == name || strings.HasPrefix(arg, name+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 func startCLICommand(t *testing.T, env []string, bin, home string, args ...string) *runningCLI {

@@ -559,6 +559,97 @@ func TestReconnectRunningOpenClawSandboxesIncludesHermes(t *testing.T) {
 	}
 }
 
+func TestReconnectRunningDeclaredSandboxEndpointDoesNotRequireLima(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	m, err := NewManager(nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["declared-agent"] = Record{
+		Name:          "declared-agent",
+		Slug:          "declared-agent",
+		Provider:      "declared",
+		Template:      templateHermes,
+		Status:        "ready",
+		VMStatus:      "Running",
+		ForwardedHost: "127.0.0.1",
+		ForwardedPort: 41001,
+		SharedDir:     filepath.Join(t.TempDir(), "declared-agent"),
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+
+	var steps []string
+	m.appStatus = func(id skyapps.ID) (*skyapps.Status, error) {
+		steps = append(steps, "app-status:"+string(id))
+		return &skyapps.Status{ID: id}, nil
+	}
+	m.hostIdentity = func(context.Context) (string, error) {
+		steps = append(steps, "host-identity")
+		return "sky10-host", nil
+	}
+	m.hostRPC = func(ctx context.Context, method string, params interface{}, out interface{}) error {
+		steps = append(steps, "host."+method)
+		switch method {
+		case "agent.list":
+			body, err := json.Marshal(map[string]interface{}{
+				"agents": []map[string]string{{"name": "declared-agent"}},
+			})
+			if err != nil {
+				t.Fatalf("marshal host agent list: %v", err)
+			}
+			return json.Unmarshal(body, out)
+		default:
+			t.Fatalf("unexpected host RPC method %q", method)
+			return nil
+		}
+	}
+	m.guestRPC = func(ctx context.Context, address, method string, params interface{}, out interface{}) error {
+		steps = append(steps, method)
+		if address != "http://127.0.0.1:41001" {
+			t.Fatalf("guest RPC address = %q, want forwarded URL", address)
+		}
+		switch method {
+		case "identity.show":
+			body, err := json.Marshal(map[string]interface{}{"address": "sky10-host"})
+			if err != nil {
+				t.Fatalf("marshal guest identity show: %v", err)
+			}
+			return json.Unmarshal(body, out)
+		default:
+			t.Fatalf("unexpected guest RPC method %q", method)
+			return nil
+		}
+	}
+	var bridged string
+	m.AddBridgeConnector(func(ctx context.Context, rec Record) error {
+		steps = append(steps, "bridge."+rec.Slug)
+		bridged = rec.Slug
+		return nil
+	}, nil)
+
+	if err := m.ReconnectRunningOpenClawSandboxes(context.Background()); err != nil {
+		t.Fatalf("ReconnectRunningOpenClawSandboxes() error: %v", err)
+	}
+	if bridged != "declared-agent" {
+		t.Fatalf("bridge connected for %q, want declared-agent", bridged)
+	}
+
+	want := []string{
+		"app-status:lima",
+		"host-identity",
+		"identity.show",
+		"host.agent.list",
+		"bridge.declared-agent",
+	}
+	if strings.Join(steps, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("steps = %v, want %v", steps, want)
+	}
+}
+
 func TestRunManagedReconnectLoopRetriesAfterLaterGuestRecovery(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
 

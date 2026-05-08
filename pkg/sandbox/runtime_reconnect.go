@@ -6,8 +6,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	skyapps "github.com/sky10/sky10/pkg/apps"
 )
 
 func (m *Manager) ReconnectRunningOpenClawSandboxes(ctx context.Context) error {
@@ -16,14 +14,6 @@ func (m *Manager) ReconnectRunningOpenClawSandboxes(ctx context.Context) error {
 	}
 	if err := m.refreshRuntime(ctx); err != nil {
 		return err
-	}
-
-	limactl, err := m.ensureManagedApp(ctx, skyapps.AppLima, false)
-	if err != nil {
-		return err
-	}
-	if limactl == "" {
-		return nil
 	}
 
 	hostIdentity, err := m.hostIdentity(ctx)
@@ -55,7 +45,7 @@ func (m *Manager) ReconnectRunningOpenClawSandboxes(ctx context.Context) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := m.reconnectRunningSandbox(ctx, limactl, hostIdentity, rec); err != nil {
+			if err := m.reconnectRunningSandbox(ctx, hostIdentity, rec); err != nil {
 				errCh <- err
 			}
 		}()
@@ -71,7 +61,7 @@ func (m *Manager) ReconnectRunningOpenClawSandboxes(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) reconnectRunningSandbox(ctx context.Context, _ string, hostIdentity string, rec Record) error {
+func (m *Manager) reconnectRunningSandbox(ctx context.Context, hostIdentity string, rec Record) error {
 	reconnectCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	err := m.waitForGuestIdentityMatch(reconnectCtx, rec, hostIdentity)
 	if err == nil {
