@@ -57,7 +57,7 @@ RUN curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused \
   && apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 install -y nodejs \
   && rm -rf /var/lib/apt/lists/*
 
-ARG OPENCLAW_VERSION=2026.4.24
+ARG OPENCLAW_VERSION=2026.5.7
 
 RUN npm install -g "openclaw@${OPENCLAW_VERSION}" \
   && OPENCLAW_PACKAGE_ROOT="$(dirname "$(readlink -f "$(command -v openclaw)")")" \

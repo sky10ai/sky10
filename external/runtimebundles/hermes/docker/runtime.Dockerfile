@@ -19,7 +19,7 @@ RUN apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 update \
     xz-utils \
   && rm -rf /var/lib/apt/lists/*
 
-ARG HERMES_RELEASE_REF=v2026.4.23
+ARG HERMES_RELEASE_REF=v2026.5.7
 
 RUN curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused \
     -o /tmp/hermes-install.sh "https://raw.githubusercontent.com/NousResearch/hermes-agent/${HERMES_RELEASE_REF}/scripts/install.sh" \

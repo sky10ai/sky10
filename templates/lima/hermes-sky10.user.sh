@@ -5,7 +5,7 @@ export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${HOME}/.bin:/usr/local/bin:/
 export XDG_RUNTIME_DIR="/run/user/{{.UID}}"
 export HERMES_HOME="${HOME}/.hermes"
 export HERMES_MODEL="{{.Param.model}}"
-HERMES_RELEASE_REF=v2026.4.23
+HERMES_RELEASE_REF=v2026.5.7
 
 SHARED_DIR="/shared"
 WORKSPACE_DIR="${SHARED_DIR}/workspace"
