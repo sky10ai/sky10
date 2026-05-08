@@ -841,7 +841,7 @@ func TestBundledOpenClawSystemScriptPinsOpenClawVersion(t *testing.T) {
 		t.Fatalf("readBundledTemplateAsset(%q) error: %v", templateOpenClawSys, err)
 	}
 	script := string(body)
-	if !strings.Contains(script, `OPENCLAW_VERSION=2026.4.24`) {
+	if !strings.Contains(script, `OPENCLAW_VERSION=2026.5.7`) {
 		t.Fatalf("bundled system script missing pinned openclaw version: %q", script)
 	}
 	if !strings.Contains(script, `emit_progress begin guest.openclaw.install`) {
@@ -994,7 +994,7 @@ func TestBundledHermesScriptsEmitProgressMarkers(t *testing.T) {
 	if !strings.Contains(userScript, `emit_progress begin guest.hermes.install`) {
 		t.Fatalf("bundled hermes user script missing install progress markers: %q", userScript)
 	}
-	if !strings.Contains(userScript, `HERMES_RELEASE_REF=v2026.4.23`) {
+	if !strings.Contains(userScript, `HERMES_RELEASE_REF=v2026.5.7`) {
 		t.Fatalf("bundled hermes user script missing pinned release ref: %q", userScript)
 	}
 	if !strings.Contains(userScript, `--branch "${HERMES_RELEASE_REF}"`) {

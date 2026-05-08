@@ -813,7 +813,7 @@ func TestOpenClawSystemScriptPinsOpenClawVersion(t *testing.T) {
 		t.Fatalf("ReadFile(system script) error: %v", err)
 	}
 	script := string(body)
-	if !strings.Contains(script, `OPENCLAW_VERSION=2026.4.24`) {
+	if !strings.Contains(script, `OPENCLAW_VERSION=2026.5.7`) {
 		t.Fatalf("system script missing pinned openclaw version: %q", script)
 	}
 	if !strings.Contains(script, `npm install -g "openclaw@${OPENCLAW_VERSION}"`) {
@@ -952,7 +952,7 @@ func TestHermesUserScriptInstallsHelper(t *testing.T) {
 	if !strings.Contains(script, "hermes config set model \"${HERMES_MODEL}\"") {
 		t.Fatalf("user script missing upstream model config command: %q", script)
 	}
-	if !strings.Contains(script, "HERMES_RELEASE_REF=v2026.4.23") {
+	if !strings.Contains(script, "HERMES_RELEASE_REF=v2026.5.7") {
 		t.Fatalf("user script missing pinned Hermes release ref: %q", script)
 	}
 	if !strings.Contains(script, `--branch "${HERMES_RELEASE_REF}"`) {

@@ -30,8 +30,8 @@ func TestOpenClawManifestDeclaresRuntimeTuple(t *testing.T) {
 	if manifest.Runtime["sky10"] != "host" {
 		t.Fatalf("runtime.sky10 = %q, want host", manifest.Runtime["sky10"])
 	}
-	if manifest.Runtime["openclaw"] != "2026.4.24" {
-		t.Fatalf("runtime.openclaw = %q, want 2026.4.24", manifest.Runtime["openclaw"])
+	if manifest.Runtime["openclaw"] != "2026.5.7" {
+		t.Fatalf("runtime.openclaw = %q, want 2026.5.7", manifest.Runtime["openclaw"])
 	}
 	dockerImage := dockerImageArg(t, OpenClawDockerDir+"/Dockerfile", "SKY10_OPENCLAW_RUNTIME_IMAGE")
 	if manifest.Runtime["docker_image"] != dockerImage {
@@ -64,8 +64,8 @@ func TestHermesManifestDeclaresRuntimeTuple(t *testing.T) {
 	if manifest.Runtime["sky10"] != "host" {
 		t.Fatalf("runtime.sky10 = %q, want host", manifest.Runtime["sky10"])
 	}
-	if manifest.Runtime["hermes"] != "v2026.4.23" {
-		t.Fatalf("runtime.hermes = %q, want v2026.4.23", manifest.Runtime["hermes"])
+	if manifest.Runtime["hermes"] != "v2026.5.7" {
+		t.Fatalf("runtime.hermes = %q, want v2026.5.7", manifest.Runtime["hermes"])
 	}
 	if manifest.Runtime["adapter"] != "hermes-sky10-bridge@0.1.0" {
 		t.Fatalf("runtime.adapter = %q, want hermes-sky10-bridge@0.1.0", manifest.Runtime["adapter"])

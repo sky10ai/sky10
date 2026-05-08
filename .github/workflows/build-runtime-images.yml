@@ -24,12 +24,12 @@ jobs:
             context: external/runtimebundles/openclaw/docker
             file: external/runtimebundles/openclaw/docker/runtime.Dockerfile
             tags: |
-              ghcr.io/sky10ai/sky10-openclaw-runtime:2026.4.24-ubuntu24.04
+              ghcr.io/sky10ai/sky10-openclaw-runtime:2026.5.7-ubuntu24.04
           - name: hermes-runtime
             context: external/runtimebundles/hermes/docker
             file: external/runtimebundles/hermes/docker/runtime.Dockerfile
             tags: |
-              ghcr.io/sky10ai/sky10-hermes-runtime:v2026.4.23-ubuntu24.04
+              ghcr.io/sky10ai/sky10-hermes-runtime:v2026.5.7-ubuntu24.04
 
     steps:
       - uses: actions/checkout@v5
