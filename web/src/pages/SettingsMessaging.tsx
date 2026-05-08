@@ -275,12 +275,6 @@ type ComingSoonAdapter = {
 
 const COMING_SOON_ADAPTERS: ComingSoonAdapter[] = [
   {
-    id: "telegram",
-    displayName: "Telegram",
-    description:
-      "Bot and user-account integrations for groups, channels, and DMs.",
-  },
-  {
     id: "whatsapp",
     displayName: "WhatsApp",
     description:
@@ -365,6 +359,12 @@ export default function SettingsMessaging() {
 
   const adapters = (adapterData?.adapters ?? []).filter(
     (adapter) => adapter.settings && adapter.settings.length > 0,
+  );
+  const availableAdapterIDs = new Set(
+    adapters.map((adapter) => adapter.adapter?.id || adapter.name),
+  );
+  const comingSoonAdapters = COMING_SOON_ADAPTERS.filter(
+    (adapter) => !availableAdapterIDs.has(adapter.id),
   );
   const connections = connectionData?.connections ?? [];
   const [forms, setForms] = useState<Record<string, AdapterFormState[]>>({});
@@ -760,7 +760,7 @@ export default function SettingsMessaging() {
               screen can render setup controls.
             </p>
           </div>
-          {COMING_SOON_ADAPTERS.map((adapter) => (
+          {comingSoonAdapters.map((adapter) => (
             <ComingSoonAdapterSection adapter={adapter} key={adapter.id} />
           ))}
         </div>
@@ -867,7 +867,7 @@ export default function SettingsMessaging() {
             );
           })}
 
-          {COMING_SOON_ADAPTERS.map((adapter) => (
+          {comingSoonAdapters.map((adapter) => (
             <ComingSoonAdapterSection adapter={adapter} key={adapter.id} />
           ))}
         </div>
