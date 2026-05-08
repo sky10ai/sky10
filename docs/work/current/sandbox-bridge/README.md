@@ -41,9 +41,8 @@ Canonical first endpoint:
 
 `/bridge/metered-services/ws`
 
-The legacy `/comms/metered-services/ws` route remains mounted as a short
-compatibility shim. The removed `/comms/x402/ws` helper route is not a
-supported bridge path.
+The old `/comms/metered-services/ws` and `/comms/x402/ws` routes are not
+mounted. They are not supported bridge paths.
 
 ## Working Model
 

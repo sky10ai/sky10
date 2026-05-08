@@ -92,20 +92,22 @@ func TestRegisterOnMuxIntegration(t *testing.T) {
 	}
 }
 
-func TestRegisterOnMuxDoesNotMountOldX402Path(t *testing.T) {
+func TestRegisterOnMuxDoesNotMountOldCommsPaths(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
 	RegisterOnMux(mux, &fakeBackend{}, staticResolver("A-trusted", "D-1"))
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/comms/x402/ws")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("old x402 path status = %d, want 404", resp.StatusCode)
+	for _, path := range []string{"/comms/x402/ws", "/comms/metered-services/ws"} {
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("%s status = %d, want 404", path, resp.StatusCode)
+		}
 	}
 }
 

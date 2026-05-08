@@ -168,9 +168,8 @@ later).
   bridge at `/bridge/metered-services/ws`. Host sky10 dials the guest
   endpoint after sandbox readiness, guest-local x402 calls forward over that
   host-opened socket, and the host stamps trusted sandbox identity before
-  calling the existing `pkg/x402` backend. `/comms/metered-services/ws`
-  remains a compatibility shim; `/comms/x402/ws` is not a supported helper
-  route.
+  calling the existing `pkg/x402` backend. Old `/comms/...`
+  metered-services routes are not mounted.
 - 2026-05-07 — Hermes now gets the same x402 surface through its guest
   bridge: the bundled bridge installs `sky10-x402`, fetches approved service
   descriptors from the guest-local bridge route, injects them into tool-call

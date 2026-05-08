@@ -29,8 +29,8 @@ Use [milestones.md](milestones.md) as the active checklist.
   regression tests.
 - [x] Generic host-owned WebSocket request/response transport exists in
   `pkg/sandbox/bridge`.
-- [x] Metered-services canonical route is `/bridge/metered-services/ws`,
-  with `/comms/metered-services/ws` left as a compatibility shim.
+- [x] Metered-services canonical route is `/bridge/metered-services/ws`;
+  old `/comms/...` routes are not mounted.
 - [x] Host bridge connection management is wired into sandbox ready and
   reconnect flows for OpenClaw and Hermes templates.
 - [x] Guest-local metered-services calls forward over the host-opened bridge

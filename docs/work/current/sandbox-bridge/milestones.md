@@ -110,8 +110,7 @@ Acceptance:
 Settle the public endpoint and runtime defaults.
 
 - [x] Rename endpoint constant to `/bridge/metered-services/ws`.
-- [x] Keep or shim the old `/comms/metered-services/ws` only if needed for a
-  short compatibility window.
+- [x] Do not mount old `/comms/...` metered-services routes.
 - [x] Update OpenClaw helper default to guest-local
   `ws://127.0.0.1:9101/bridge/metered-services/ws`.
 - [x] Update helper tests away from `/comms/x402/ws`.
@@ -168,7 +167,6 @@ Acceptance:
 - [ ] Decide whether `pkg/sandbox/bridge/x402` should move to
   `pkg/sandbox/bridge/meteredservices`.
 - [x] Update active docs and comments after the package move.
-- [ ] Remove the legacy `/comms/metered-services/ws` compatibility route when
-  guest helpers no longer need it.
+- [x] Remove the legacy `/comms/metered-services/ws` compatibility route.
 - [x] Update `AGENTS.md` and `CLAUDE.md` if the final rule needs sharper
   wording.

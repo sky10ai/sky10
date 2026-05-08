@@ -35,9 +35,8 @@ because the same telemetry feeds both.
 
 Agents in the VM should call paid services through the sandbox bridge
 endpoint at `/bridge/metered-services/ws`. That route is now the daemon's
-canonical metered-services bridge endpoint, with
-`/comms/metered-services/ws` left as a short compatibility shim. The stale
-`/comms/x402/ws` helper route is not used.
+canonical metered-services bridge endpoint. Old `/comms/...` metered-services
+routes are not mounted.
 
 Current slice: the OpenClaw sky10 bridge installs a stable `sky10-x402`
 helper and injects Settings-approved x402 services plus helper usage into

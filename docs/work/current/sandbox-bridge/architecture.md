@@ -46,19 +46,13 @@ host-owned socket.
 
 ## Route
 
-Final route:
+Route:
 
 `/bridge/metered-services/ws`
 
-Compatibility route:
-
-`/comms/metered-services/ws`
-
-The compatibility route is a short-window shim for callers that already
-used the earlier metered-services endpoint. New runtime adapters use the
-canonical bridge route. The important rule is that the path is per
-capability. We do not introduce a generic `/bridge/ws` endpoint that
-multiplexes unrelated capabilities.
+Old `/comms/...` metered-services routes are intentionally not mounted. The
+important rule is that the path is per capability. We do not introduce a
+generic `/bridge/ws` endpoint that multiplexes unrelated capabilities.
 
 Future routes, if needed:
 

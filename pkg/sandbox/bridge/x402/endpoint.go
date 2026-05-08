@@ -12,10 +12,6 @@ import (
 // this path; importers don't need to spell it themselves.
 const EndpointPath = "/bridge/metered-services/ws"
 
-// LegacyEndpointPath is the pre-bridge path kept as a short compatibility
-// shim while runtime helpers migrate to EndpointPath.
-const LegacyEndpointPath = "/comms/metered-services/ws"
-
 // handlers groups the per-envelope handlers around their shared
 // Backend dependency. Methods on this type are the actual envelope
 // handlers; the constructor wires them into a bridge.Endpoint.
@@ -90,5 +86,4 @@ func RegisterOnMux(mux *http.ServeMux, backend Backend, resolver bridge.Identity
 	e := NewEndpoint(backend, resolver, opts...)
 	handler := e.Handler()
 	mux.HandleFunc("GET "+EndpointPath, handler)
-	mux.HandleFunc("GET "+LegacyEndpointPath, handler)
 }

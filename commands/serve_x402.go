@@ -95,7 +95,6 @@ func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegist
 	endpoint := bridgex402.NewEndpoint(endpointBackend, resolver, bridge.WithLogger(logger))
 	localHandler := endpoint.Handler()
 	server.HandleHTTP("GET "+bridgex402.EndpointPath, bridgex402.HandlerWithHostBridge(localHandler, forwarder))
-	server.HandleHTTP("GET "+bridgex402.LegacyEndpointPath, localHandler)
 
 	if sandboxManager != nil {
 		bridgeManager := skysandbox.NewMeteredServicesBridgeManager(adapter, logger)
