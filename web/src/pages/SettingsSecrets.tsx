@@ -91,8 +91,7 @@ export default function SettingsSecrets() {
     [devices],
   );
   const selectedSecret = useMemo(
-    () =>
-      items.find((item) => item.id === selectedSecretID) ?? items[0] ?? null,
+    () => items.find((item) => item.id === selectedSecretID) ?? null,
     [items, selectedSecretID],
   );
 
@@ -108,16 +107,6 @@ export default function SettingsSecrets() {
     if (nextKind) setDraftKind(nextKind);
     didPrefillFromQuery.current = true;
   }, [searchParams]);
-
-  useEffect(() => {
-    if (!selectedSecret) {
-      setSelectedSecretID(null);
-      return;
-    }
-    if (selectedSecretID === null) {
-      setSelectedSecretID(selectedSecret.id);
-    }
-  }, [selectedSecret, selectedSecretID]);
 
   useEffect(() => {
     if (!selectedSecret) {
@@ -702,32 +691,42 @@ export default function SettingsSecrets() {
             private files across your trusted devices.
           </div>
         ) : (
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_420px]">
-            <div className="space-y-3">
-              {items.map((item) => {
-                const active = item.id === selectedSecret?.id;
-                return (
-                  <button
-                    key={item.id}
-                    className={`w-full rounded-2xl border px-5 py-4 text-left transition-all ${
-                      active
-                        ? "border-primary/30 bg-primary/10 shadow-sm"
-                        : "border-outline-variant/10 bg-surface-container hover:bg-surface-container-high"
-                    }`}
-                    onClick={() => setSelectedSecretID(item.id)}
-                    type="button"
+          <div className="space-y-3">
+            {items.map((item) => {
+              const expanded = item.id === selectedSecret?.id;
+              const detailID = `secret-${item.id}-configuration`;
+              const refs = messagingRefs(item);
+
+              return (
+                <details
+                  key={item.id}
+                  className={`overflow-hidden rounded-2xl border transition-all ${
+                    expanded
+                      ? "border-primary/30 bg-primary/5 shadow-sm"
+                      : "border-outline-variant/10 bg-surface-container hover:bg-surface-container-high"
+                  }`}
+                  open={expanded}
+                >
+                  <summary
+                    aria-controls={detailID}
+                    aria-expanded={expanded}
+                    className="grid cursor-pointer list-none gap-4 px-5 py-4 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary/40 [&::-webkit-details-marker]:hidden"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setSelectedSecretID(expanded ? null : item.id);
+                    }}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div className="space-y-2">
+                      <div className="min-w-0 space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-lg font-semibold text-on-surface">
+                          <h3 className="break-all text-lg font-semibold text-on-surface">
                             {item.name}
                           </h3>
                           <StatusBadge tone="processing">
                             {item.scope}
                           </StatusBadge>
                           <StatusBadge tone="neutral">{item.kind}</StatusBadge>
-                          {messagingRefs(item).length > 0 && (
+                          {refs.length > 0 && (
                             <StatusBadge tone="success" icon="forum">
                               Managed by Messaging
                             </StatusBadge>
@@ -738,204 +737,211 @@ export default function SettingsSecrets() {
                           <span>{item.content_type}</span>
                           <span>Updated {timeAgo(item.updated_at)}</span>
                         </div>
-                        <p className="text-xs text-secondary">
+                        <p className="break-all text-xs text-secondary">
                           Recipients:{" "}
                           {visibleRecipientLabels(
                             item.recipient_device_ids,
                           ).join(", ")}
                         </p>
                       </div>
-                      <div className="text-xs text-secondary">
-                        {truncateSHA(item.sha256)}
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono text-xs text-secondary">
+                          {truncateSHA(item.sha256)}
+                        </span>
+                        <span
+                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors ${
+                            expanded
+                              ? "bg-primary/10 text-primary"
+                              : "bg-surface-container-high text-secondary"
+                          }`}
+                        >
+                          <Icon
+                            className={`text-base transition-transform ${
+                              expanded ? "" : "-rotate-90"
+                            }`}
+                            name="expand_more"
+                          />
+                        </span>
                       </div>
                     </div>
-                  </button>
-                );
-              })}
-            </div>
+                  </summary>
 
-            <aside className="rounded-3xl border border-outline-variant/10 bg-surface-container p-6">
-              {selectedSecret ? (
-                <div className="space-y-6">
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-2xl font-semibold text-on-surface">
-                        {selectedSecret.name}
-                      </h3>
-                      <StatusBadge tone="processing">
-                        {selectedSecret.scope}
-                      </StatusBadge>
-                    </div>
-                    <p className="text-sm text-secondary">
-                      {selectedSecret.kind} • {selectedSecret.content_type}
-                    </p>
-                  </div>
+                  {expanded && selectedSecret && (
+                    <div
+                      className="border-t border-outline-variant/10 bg-surface-container-lowest px-5 py-5"
+                      id={detailID}
+                    >
+                      <div className="space-y-6">
+                        {refs.length > 0 && (
+                          <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 text-sm text-on-surface">
+                            <div className="flex items-center gap-2 font-semibold text-primary">
+                              <Icon className="text-base" name="forum" />
+                              Managed by Messaging
+                            </div>
+                            <p className="mt-1 text-secondary">
+                              Edit or rotate this secret from the Messaging tab
+                              so the connection stays in sync.
+                            </p>
+                            <ul className="mt-2 space-y-1">
+                              {refs.map((ref, idx) => (
+                                <li
+                                  key={`${ref.kind}:${ref.subject ?? ""}:${idx}`}
+                                  className="text-secondary"
+                                >
+                                  <span className="font-medium text-on-surface">
+                                    {ref.subject || "(unnamed connection)"}
+                                  </span>
+                                  {ref.detail ? ` — ${ref.detail}` : ""}
+                                </li>
+                              ))}
+                            </ul>
+                            <Link
+                              className="mt-3 inline-flex items-center gap-1 text-primary hover:underline"
+                              to={refs[0]?.route ?? "/settings/messaging"}
+                            >
+                              Open Messaging settings
+                              <Icon
+                                className="text-xs"
+                                name="arrow_forward"
+                              />
+                            </Link>
+                          </div>
+                        )}
 
-                  {messagingRefs(selectedSecret).length > 0 && (
-                    <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 text-sm text-on-surface">
-                      <div className="flex items-center gap-2 font-semibold text-primary">
-                        <Icon className="text-base" name="forum" />
-                        Managed by Messaging
-                      </div>
-                      <p className="mt-1 text-secondary">
-                        Edit or rotate this secret from the Messaging tab so the
-                        connection stays in sync.
-                      </p>
-                      <ul className="mt-2 space-y-1">
-                        {messagingRefs(selectedSecret).map((ref, idx) => (
-                          <li
-                            key={`${ref.kind}:${ref.subject ?? ""}:${idx}`}
-                            className="text-secondary"
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                          <InfoTile
+                            label="Size"
+                            value={formatBytes(selectedSecret.size)}
+                          />
+                          <InfoTile
+                            label="Updated"
+                            value={timeAgo(selectedSecret.updated_at)}
+                          />
+                          <InfoTile
+                            label="Recipients"
+                            value={String(
+                              selectedSecret.recipient_device_ids.length,
+                            )}
+                          />
+                          <InfoTile
+                            label="SHA-256"
+                            mono
+                            value={truncateSHA(selectedSecret.sha256)}
+                          />
+                        </div>
+
+                        <div className="space-y-3">
+                          <div className="flex flex-wrap items-center gap-3">
+                            <button
+                              className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-lg transition-all active:scale-95 disabled:opacity-60"
+                              disabled={loadingSecret}
+                              onClick={() => void handleReveal()}
+                              type="button"
+                            >
+                              <Icon
+                                className={
+                                  loadingSecret
+                                    ? "animate-spin text-base"
+                                    : "text-base"
+                                }
+                                name={loadingSecret ? "sync" : "visibility"}
+                              />
+                              {loadingSecret
+                                ? "Loading..."
+                                : activeSecret?.id === selectedSecret.id
+                                  ? "Refresh Value"
+                                  : "Reveal Value"}
+                            </button>
+                            <button
+                              className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary transition-colors disabled:opacity-50"
+                              disabled={activeSecret?.id !== selectedSecret.id}
+                              onClick={handleDownload}
+                              type="button"
+                            >
+                              <Icon className="text-base" name="download" />
+                              Download
+                            </button>
+                            <button
+                              className="inline-flex items-center gap-2 rounded-full border border-error/30 px-4 py-2 text-sm font-semibold text-error transition-colors active:scale-95 disabled:opacity-60"
+                              disabled={deleting}
+                              onClick={() => void handleDelete()}
+                              type="button"
+                            >
+                              <Icon
+                                className={
+                                  deleting
+                                    ? "animate-spin text-base"
+                                    : "text-base"
+                                }
+                                name={deleting ? "sync" : "delete"}
+                              />
+                              {deleting ? "Deleting..." : "Delete Secret"}
+                            </button>
+                          </div>
+
+                          {activeSecret?.id === selectedSecret.id && preview ? (
+                            preview.text !== null ? (
+                              <pre className="max-h-72 overflow-auto rounded-3xl bg-surface-container-high p-5 font-mono text-xs text-on-surface">
+                                {preview.text}
+                              </pre>
+                            ) : (
+                              <div className="rounded-3xl bg-surface-container-high p-5 text-sm text-secondary">
+                                Binary payload loaded. Use Download to write the
+                                bytes locally.
+                              </div>
+                            )
+                          ) : (
+                            <div className="rounded-3xl bg-surface-container-high p-5 text-sm text-secondary">
+                              Reveal only loads the selected secret into this
+                              browser session on demand.
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
+                              Recipient Scope
+                            </p>
+                            <ScopeSelector
+                              currentLabel="Current device only"
+                              onChange={setRewrapScope}
+                              scope={rewrapScope}
+                              trustedLabel="All trusted devices"
+                            />
+                          </div>
+
+                          {rewrapScope === "explicit" && (
+                            <DevicePicker
+                              devices={devices}
+                              onChange={setRewrapRecipients}
+                              selected={rewrapRecipients}
+                            />
+                          )}
+
+                          <button
+                            className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary transition-colors active:scale-95 disabled:opacity-60"
+                            disabled={rewrapping}
+                            onClick={() => void handleRewrap()}
+                            type="button"
                           >
-                            <span className="font-medium text-on-surface">
-                              {ref.subject || "(unnamed connection)"}
-                            </span>
-                            {ref.detail ? ` — ${ref.detail}` : ""}
-                          </li>
-                        ))}
-                      </ul>
-                      <Link
-                        className="mt-3 inline-flex items-center gap-1 text-primary hover:underline"
-                        to={
-                          messagingRefs(selectedSecret)[0]?.route ??
-                          "/settings/messaging"
-                        }
-                      >
-                        Open Messaging settings
-                        <Icon className="text-xs" name="arrow_forward" />
-                      </Link>
+                            <Icon
+                              className={
+                                rewrapping
+                                  ? "animate-spin text-base"
+                                  : "text-base"
+                              }
+                              name="sync_lock"
+                            />
+                            {rewrapping ? "Updating..." : "Update Recipients"}
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   )}
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <InfoTile
-                      label="Size"
-                      value={formatBytes(selectedSecret.size)}
-                    />
-                    <InfoTile
-                      label="Updated"
-                      value={timeAgo(selectedSecret.updated_at)}
-                    />
-                    <InfoTile
-                      label="Recipients"
-                      value={String(selectedSecret.recipient_device_ids.length)}
-                    />
-                    <InfoTile
-                      label="SHA-256"
-                      mono
-                      value={truncateSHA(selectedSecret.sha256)}
-                    />
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <button
-                        className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-lg transition-all active:scale-95 disabled:opacity-60"
-                        disabled={loadingSecret}
-                        onClick={() => void handleReveal()}
-                        type="button"
-                      >
-                        <Icon
-                          className={
-                            loadingSecret
-                              ? "animate-spin text-base"
-                              : "text-base"
-                          }
-                          name={loadingSecret ? "sync" : "visibility"}
-                        />
-                        {loadingSecret
-                          ? "Loading..."
-                          : activeSecret?.id === selectedSecret.id
-                            ? "Refresh Value"
-                            : "Reveal Value"}
-                      </button>
-                      <button
-                        className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary transition-colors disabled:opacity-50"
-                        disabled={!activeSecret}
-                        onClick={handleDownload}
-                        type="button"
-                      >
-                        <Icon className="text-base" name="download" />
-                        Download
-                      </button>
-                      <button
-                        className="inline-flex items-center gap-2 rounded-full border border-error/30 px-4 py-2 text-sm font-semibold text-error transition-colors active:scale-95 disabled:opacity-60"
-                        disabled={deleting}
-                        onClick={() => void handleDelete()}
-                        type="button"
-                      >
-                        <Icon
-                          className={
-                            deleting ? "animate-spin text-base" : "text-base"
-                          }
-                          name={deleting ? "sync" : "delete"}
-                        />
-                        {deleting ? "Deleting..." : "Delete Secret"}
-                      </button>
-                    </div>
-
-                    {activeSecret?.id === selectedSecret.id && preview ? (
-                      preview.text !== null ? (
-                        <pre className="max-h-72 overflow-auto rounded-3xl bg-surface-container-high p-5 font-mono text-xs text-on-surface">
-                          {preview.text}
-                        </pre>
-                      ) : (
-                        <div className="rounded-3xl bg-surface-container-high p-5 text-sm text-secondary">
-                          Binary payload loaded. Use Download to write the bytes
-                          locally.
-                        </div>
-                      )
-                    ) : (
-                      <div className="rounded-3xl bg-surface-container-high p-5 text-sm text-secondary">
-                        Reveal only loads the selected secret into this browser
-                        session on demand.
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
-                        Recipient Scope
-                      </p>
-                      <ScopeSelector
-                        currentLabel="Current device only"
-                        onChange={setRewrapScope}
-                        scope={rewrapScope}
-                        trustedLabel="All trusted devices"
-                      />
-                    </div>
-
-                    {rewrapScope === "explicit" && (
-                      <DevicePicker
-                        devices={devices}
-                        onChange={setRewrapRecipients}
-                        selected={rewrapRecipients}
-                      />
-                    )}
-
-                    <button
-                      className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary transition-colors active:scale-95 disabled:opacity-60"
-                      disabled={rewrapping}
-                      onClick={() => void handleRewrap()}
-                      type="button"
-                    >
-                      <Icon
-                        className={
-                          rewrapping ? "animate-spin text-base" : "text-base"
-                        }
-                        name="sync_lock"
-                      />
-                      {rewrapping ? "Updating..." : "Update Recipients"}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-2xl bg-surface-container-high p-6 text-sm text-secondary">
-                  Select a secret to inspect or rewrap it.
-                </div>
-              )}
-            </aside>
+                </details>
+              );
+            })}
           </div>
         )}
       </section>
