@@ -32,6 +32,11 @@ const (
 	defaultMessagingPollInterval = 30 * time.Second
 )
 
+type messagingRuntime struct {
+	broker *messagingbroker.Broker
+	store  *messagingstore.Store
+}
+
 func setupMessaging(
 	ctx context.Context,
 	server *skyrpc.Server,
@@ -40,19 +45,19 @@ func setupMessaging(
 	secretsStore *skysecrets.Store,
 	secretsRPC *skysecrets.RPCHandler,
 	logger *slog.Logger,
-) error {
+) (*messagingRuntime, error) {
 	rootDir, err := skyconfig.RootDir()
 	if err != nil {
-		return fmt.Errorf("messaging root dir: %w", err)
+		return nil, fmt.Errorf("messaging root dir: %w", err)
 	}
 	executablePath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("messaging executable path: %w", err)
+		return nil, fmt.Errorf("messaging executable path: %w", err)
 	}
 
 	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(kvStore, defaultMessagingKVRoot))
 	if err != nil {
-		return fmt.Errorf("creating messaging store: %w", err)
+		return nil, fmt.Errorf("creating messaging store: %w", err)
 	}
 	installMessagingEventFanout(store, server.Emit)
 
@@ -63,7 +68,7 @@ func setupMessaging(
 		ApprovalMailbox:    mailboxStore,
 	})
 	if err != nil {
-		return fmt.Errorf("creating messaging broker: %w", err)
+		return nil, fmt.Errorf("creating messaging broker: %w", err)
 	}
 
 	externalRegistry, err := messagingexternal.NewMaterializedBundledRegistry(
@@ -73,7 +78,7 @@ func setupMessaging(
 		messagingexternal.ResolveOptions{BunPath: messagingBunPath()},
 	)
 	if err != nil {
-		return fmt.Errorf("discovering external messaging adapters: %w", err)
+		return nil, fmt.Errorf("discovering external messaging adapters: %w", err)
 	}
 
 	processResolver := func(adapterID string) (messagingruntime.ProcessSpec, error) {
@@ -91,7 +96,7 @@ func setupMessaging(
 		return process, nil
 	}
 	if err := restoreMessagingConnections(ctx, b, store, processResolver, logger); err != nil {
-		return err
+		return nil, err
 	}
 
 	server.RegisterHandler(messagingrpc.NewHandler(messagingrpc.Config{
@@ -107,7 +112,7 @@ func setupMessaging(
 	secretsRPC.AddReferenceResolver(messagingrpc.SecretReferenceResolver{Connections: store})
 
 	go runMessagingPollLoop(ctx, b, store, logging.WithComponent(logger, "messaging.poll"))
-	return nil
+	return &messagingRuntime{broker: b, store: store}, nil
 }
 
 func messagingBunPath() string {
