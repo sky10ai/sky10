@@ -203,7 +203,8 @@ func ServeCmd() *cobra.Command {
 			go func() {
 				secretsRunErr <- secretsStore.Run(ctx)
 			}()
-			if err := setupMessaging(ctx, server, kvStore, mailboxStore, secretsStore, secretsRPC, logger); err != nil {
+			messagingRuntime, err := setupMessaging(ctx, server, kvStore, mailboxStore, secretsStore, secretsRPC, logger)
+			if err != nil {
 				return err
 			}
 			reconcileTrustedSecrets := func(reason string) {
@@ -541,6 +542,9 @@ func ServeCmd() *cobra.Command {
 			skyagent.RegisterLinkHandlers(linkNode, agentRegistry, agentEventEmitter, agentRouter)
 			if err := installX402Endpoint(ctx, server, agentRegistry, sandboxManager, logRuntime.Logger); err != nil {
 				logger.Warn("x402 endpoint not installed", "error", err)
+			}
+			if err := installMessagingBridgeEndpoint(server, agentRegistry, messagingRuntime, sandboxAgentSource, sandboxManager, logRuntime.Logger); err != nil {
+				logger.Warn("messenger bridge endpoint not installed", "error", err)
 			}
 			agentRPC.SetPeerNotifier(func(ctx context.Context, topic string) {
 				linkNode.NotifyOwn(ctx, topic)
