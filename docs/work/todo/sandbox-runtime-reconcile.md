@@ -1,6 +1,6 @@
 ---
 created: 2026-04-25
-updated: 2026-04-25
+updated: 2026-05-08
 ---
 
 # Sandbox Runtime Reconcile And Auto-Update
@@ -12,6 +12,14 @@ Related context:
 
 - [`../past/2026/04/24-Lima-VM-Hardening.md`](../past/2026/04/24-Lima-VM-Hardening.md)
 - [`../past/2026/04/25-Lima-Sandbox-Hardening-Followup-And-Runtime-Drift.md`](../past/2026/04/25-Lima-Sandbox-Hardening-Followup-And-Runtime-Drift.md)
+
+Current branch note:
+
+- `7a86572c` `chore(sandbox): declare runtime bundle tuples` upgraded the
+  OpenClaw and Hermes runtime bundle manifests to schema 2 and added explicit
+  `bundle_version` / `runtime` tuple metadata for the host-selected
+  compatibility unit. This is intentionally only metadata plus validation; it
+  does not add reconcile, hashes, or automatic guest service restarts.
 
 ## Goal
 
@@ -39,7 +47,9 @@ That convergence should cover the pieces that need to move together:
 
 If this becomes active work later, the likely shape is:
 
-1. Define a runtime bundle manifest with expected versions and file hashes.
+1. Extend the schema 2 runtime bundle manifests beyond the current tuple
+   metadata if/when stronger validation is needed, likely with expected file
+   hashes.
 2. Expose or reuse guest RPCs that report actual guest `sky10`, OpenClaw, and
    plugin/runtime state.
 3. Keep `sandbox.runtime.status` observational: report current versus desired
@@ -66,7 +76,6 @@ If this becomes active work later, the likely shape is:
 
 ## Open Questions
 
-- What is the first runtime bundle manifest schema?
 - Which component owns the desired bundle version: host `sky10`, the bundle
   itself, or release metadata?
 - Should Linux security packages be part of this reconcile flow, or a separate
