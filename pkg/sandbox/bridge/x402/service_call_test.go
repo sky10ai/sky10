@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sky10/sky10/pkg/sandbox/comms"
+	"github.com/sky10/sky10/pkg/sandbox/bridge"
 )
 
 func TestServiceCallSuccess(t *testing.T) {
@@ -27,7 +27,7 @@ func TestServiceCallSuccess(t *testing.T) {
 		MaxPriceUSDC: "0.005",
 		PaymentNonce: "n1",
 	})
-	resp, err := h.handleServiceCall(context.Background(), comms.Envelope{
+	resp, err := h.handleServiceCall(context.Background(), bridge.Envelope{
 		AgentID: "A-1",
 		Payload: payload,
 	})
@@ -71,7 +71,7 @@ func TestServiceCallRejectsMissingFields(t *testing.T) {
 			t.Parallel()
 			h := &handlers{backend: &fakeBackend{}}
 			payload, _ := json.Marshal(tc.params)
-			_, err := h.handleServiceCall(context.Background(), comms.Envelope{
+			_, err := h.handleServiceCall(context.Background(), bridge.Envelope{
 				AgentID: "A-1",
 				Payload: payload,
 			})
@@ -88,7 +88,7 @@ func TestServiceCallRejectsMissingFields(t *testing.T) {
 func TestServiceCallRejectsEmptyPayload(t *testing.T) {
 	t.Parallel()
 	h := &handlers{backend: &fakeBackend{}}
-	_, err := h.handleServiceCall(context.Background(), comms.Envelope{
+	_, err := h.handleServiceCall(context.Background(), bridge.Envelope{
 		AgentID: "A-1",
 	})
 	if err == nil {
@@ -105,7 +105,7 @@ func TestServiceCallPropagatesBackendError(t *testing.T) {
 		MaxPriceUSDC: "0.001",
 		PaymentNonce: "n1",
 	})
-	_, err := h.handleServiceCall(context.Background(), comms.Envelope{
+	_, err := h.handleServiceCall(context.Background(), bridge.Envelope{
 		AgentID: "A-1",
 		Payload: payload,
 	})
@@ -130,7 +130,7 @@ func TestServiceCallBackendNeverSeesPayloadAgentID(t *testing.T) {
 		"payment_nonce": "n1",
 		"agent_id": "A-impostor"
 	}`)
-	if _, err := h.handleServiceCall(context.Background(), comms.Envelope{
+	if _, err := h.handleServiceCall(context.Background(), bridge.Envelope{
 		AgentID: "A-trusted",
 		Payload: rawPayload,
 	}); err != nil {

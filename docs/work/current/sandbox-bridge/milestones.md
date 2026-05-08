@@ -8,8 +8,8 @@ updated: 2026-05-07
 ## Goal
 
 Finish the host-owned WebSocket bridge for sandbox capabilities, starting
-with metered services/x402, while reusing the existing `pkg/sandbox/comms`,
-`pkg/sandbox/comms/x402`, and `pkg/x402` work.
+with metered services/x402, while reusing the existing `pkg/sandbox/bridge`,
+`pkg/sandbox/bridge/x402`, and `pkg/x402` work.
 
 The bridge must preserve the Lima `user-v2` boundary:
 
@@ -30,9 +30,9 @@ Canonical first endpoint:
   `docs/work/current/sandbox-bridge/`.
 - [x] Make `sandbox-bridge` the canonical current work directory.
 - [x] Preserve the existing handler discipline documentation.
-- [x] Mark `pkg/sandbox/comms` as existing bridge internals, not discarded
+- [x] Mark `pkg/sandbox/bridge` as existing bridge internals, not discarded
   work.
-- [x] Mark `pkg/sandbox/comms/x402` as existing metered-services envelope
+- [x] Mark `pkg/sandbox/bridge/x402` as existing metered-services envelope
   validation, not discarded work.
 - [x] Update remaining x402 docs that still link to `sandbox-comms`.
 - [x] Update code comments that point at `docs/work/current/sandbox-comms/`.
@@ -45,7 +45,7 @@ Canonical first endpoint:
 ## Milestone 1: Host-Owned Bridge Connection
 
 Build only the missing host/guest connection management. Do not replace the
-existing comms envelope layer.
+existing bridge envelope layer.
 
 - [x] Add a host-side sandbox bridge manager keyed by sandbox slug and
   capability.
@@ -70,7 +70,7 @@ Acceptance:
 Guest sky10 should expose the same agent-facing metered-services endpoint,
 but its backend forwards over the host-owned bridge.
 
-- [x] Implement a guest-side `pkg/sandbox/comms/x402.Backend`.
+- [x] Implement a guest-side `pkg/sandbox/bridge/x402.Backend`.
 - [x] Forward `ListServices` over the bridge.
 - [x] Forward `BudgetStatus` over the bridge.
 - [x] Forward `Call` over the bridge.
@@ -140,8 +140,8 @@ Acceptance:
 
 ## Milestone 5: End-To-End Tests
 
-- [x] Unit-test existing `pkg/sandbox/comms` still passes.
-- [x] Unit-test existing `pkg/sandbox/comms/x402` still passes.
+- [x] Unit-test existing `pkg/sandbox/bridge` still passes.
+- [x] Unit-test existing `pkg/sandbox/bridge/x402` still passes.
 - [x] Add integration test: guest-local WebSocket client ->
   `/bridge/metered-services/ws` -> host fake x402 backend.
 - [ ] Add sandbox-style smoke: agent can list approved services without any
@@ -154,22 +154,21 @@ Acceptance:
 
 Acceptance:
 
-- [x] Focused Go tests pass for `pkg/sandbox/comms`,
-  `pkg/sandbox/comms/x402`, `pkg/x402`, and the new bridge wiring.
+- [x] Focused Go tests pass for `pkg/sandbox/bridge`,
+  `pkg/sandbox/bridge/x402`, `pkg/x402`, and the new bridge wiring.
 - [ ] The sandbox smoke proves host-owned bridge directionality.
 
-## Milestone 6: Cleanup And Possible Rename
+## Milestone 6: Cleanup And Package Rename
 
-Only after metered services works end to end:
-
-- [ ] Decide whether `pkg/sandbox/comms` should be renamed to
-  `pkg/sandbox/bridge`.
-- [ ] Decide whether `pkg/sandbox/comms/x402` should move to
+- [x] Move the old `pkg/sandbox/comms/*` package tree under
+  `pkg/sandbox/bridge/*`.
+- [x] Keep frame-level `bridge.Option`/`bridge.Handler` names and rename the
+  moved endpoint constructor option and envelope handler types to avoid API
+  collisions.
+- [ ] Decide whether `pkg/sandbox/bridge/x402` should move to
   `pkg/sandbox/bridge/meteredservices`.
-- [ ] Update all docs and comments after that decision.
-- [ ] Remove any compatibility route if one was temporarily added.
-- [ ] Update `AGENTS.md` and `CLAUDE.md` if the final rule needs sharper
+- [x] Update active docs and comments after the package move.
+- [ ] Remove the legacy `/comms/metered-services/ws` compatibility route when
+  guest helpers no longer need it.
+- [x] Update `AGENTS.md` and `CLAUDE.md` if the final rule needs sharper
   wording.
-
-Do not do this cleanup before the first capability works. A premature rename
-will hide the actual missing bridge work.

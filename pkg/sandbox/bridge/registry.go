@@ -1,4 +1,4 @@
-package comms
+package bridge
 
 import (
 	"fmt"
@@ -89,7 +89,7 @@ type TypeSpec struct {
 
 	// Handler is the function the plumbing calls after identity
 	// stamping, replay, quota, and size checks have passed.
-	Handler Handler
+	Handler EnvelopeHandler
 }
 
 // validate panics with a clear message if any required field is unset.
@@ -97,27 +97,27 @@ type TypeSpec struct {
 // (typically daemon startup), not in production traffic.
 func (s TypeSpec) validate() {
 	if s.Name == "" {
-		panic("comms: TypeSpec.Name is required")
+		panic("bridge: TypeSpec.Name is required")
 	}
 	if s.Direction == 0 {
-		panic(fmt.Sprintf("comms: TypeSpec %q is missing Direction", s.Name))
+		panic(fmt.Sprintf("bridge: TypeSpec %q is missing Direction", s.Name))
 	}
 	if s.MaxPayloadSize <= 0 {
-		panic(fmt.Sprintf("comms: TypeSpec %q is missing MaxPayloadSize", s.Name))
+		panic(fmt.Sprintf("bridge: TypeSpec %q is missing MaxPayloadSize", s.Name))
 	}
 	if s.RateLimit.PerAgent <= 0 {
-		panic(fmt.Sprintf("comms: TypeSpec %q is missing RateLimit.PerAgent", s.Name))
+		panic(fmt.Sprintf("bridge: TypeSpec %q is missing RateLimit.PerAgent", s.Name))
 	}
 	if s.RateLimit.Burst <= 0 {
-		panic(fmt.Sprintf("comms: TypeSpec %q is missing RateLimit.Burst", s.Name))
+		panic(fmt.Sprintf("bridge: TypeSpec %q is missing RateLimit.Burst", s.Name))
 	}
 	if s.RateLimit.Window <= 0 {
-		panic(fmt.Sprintf("comms: TypeSpec %q is missing RateLimit.Window", s.Name))
+		panic(fmt.Sprintf("bridge: TypeSpec %q is missing RateLimit.Window", s.Name))
 	}
 	if s.NonceWindow <= 0 {
-		panic(fmt.Sprintf("comms: TypeSpec %q is missing NonceWindow", s.Name))
+		panic(fmt.Sprintf("bridge: TypeSpec %q is missing NonceWindow", s.Name))
 	}
 	if s.Handler == nil {
-		panic(fmt.Sprintf("comms: TypeSpec %q is missing Handler", s.Name))
+		panic(fmt.Sprintf("bridge: TypeSpec %q is missing Handler", s.Name))
 	}
 }

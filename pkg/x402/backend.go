@@ -11,15 +11,15 @@ import (
 	"github.com/sky10/sky10/pkg/x402/siwx"
 )
 
-// Backend is the host-side API the agent-facing comms handlers
+// Backend is the host-side API the agent-facing bridge handlers
 // delegate to (via a thin adapter at daemon wiring time). It is the
 // only place that touches the wallet and the registry; everything
 // outside Backend reads handler output, never internal state.
 //
 // Backend uses pkg/x402's native types (Pin, Approval, Receipt, etc.)
-// rather than the comms-side ServiceListing/CallResult shapes so the
-// package stays free of comms knowledge. Adapter code in the daemon
-// wiring maps Backend methods onto comms/x402.Backend.
+// rather than the bridge-side ServiceListing/CallResult shapes so the
+// package stays free of bridge knowledge. Adapter code in the daemon
+// wiring maps Backend methods onto bridge/x402.Backend.
 type Backend struct {
 	registry  *Registry
 	transport *Transport
@@ -82,7 +82,7 @@ func NewBackend(opts BackendOptions) *Backend {
 
 // ListServices returns the services this agent has been approved for,
 // joined with overlay metadata. The returned slice is suitable for
-// passing through the comms adapter to the agent.
+// passing through the bridge adapter to the agent.
 func (b *Backend) ListServices(_ context.Context, agentID string) ([]ListApprovedListing, error) {
 	if strings.TrimSpace(agentID) == "" {
 		return nil, errors.New("agentID required")
@@ -91,7 +91,7 @@ func (b *Backend) ListServices(_ context.Context, agentID string) ([]ListApprove
 }
 
 // CallParams is the input to Backend.Call. AgentID is bus-stamped by
-// the comms layer before the adapter calls into the Backend; pkg/x402
+// the bridge layer before the adapter calls into the Backend; pkg/x402
 // trusts it as authoritative.
 type CallParams struct {
 	AgentID      string
@@ -267,7 +267,7 @@ func mergeHeaders(base, overlay map[string]string) map[string]string {
 
 // joinEndpointPath joins the manifest's endpoint URL with a per-call
 // path. Both are trusted at this point (manifest came from the
-// registry, path was validated by the comms layer to start with /),
+// registry, path was validated by the bridge layer to start with /),
 // so the join is straightforward — but we explicitly disallow paths
 // that would escape the endpoint host via scheme or absolute URLs.
 func joinEndpointPath(endpoint, path string) (string, error) {
@@ -289,7 +289,7 @@ func joinEndpointPath(endpoint, path string) (string, error) {
 }
 
 // MarshalCallResultJSON renders a CallResult into the JSON shape the
-// comms adapter passes back to the agent. The body is preserved
+// bridge adapter passes back to the agent. The body is preserved
 // verbatim (raw JSON if the upstream returned JSON; opaque bytes
 // otherwise base64-wrapped on the way through).
 //

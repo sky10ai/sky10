@@ -1,4 +1,4 @@
-package comms
+package bridge
 
 import (
 	"crypto/sha256"

@@ -6,18 +6,18 @@ updated: 2026-05-07
 # Sandbox Bridge Implementation Plan
 
 This plan folds the older sandbox-comms work into the sandbox-bridge
-track. The existing `pkg/sandbox/comms` and `pkg/sandbox/comms/x402`
+track. The existing `pkg/sandbox/bridge` and `pkg/sandbox/bridge/x402`
 packages are retained as completed bridge internals for now.
 
 Use [milestones.md](milestones.md) as the active checklist.
 
 ## Done
 
-- [x] Shared WebSocket/envelope plumbing exists in `pkg/sandbox/comms/`.
+- [x] Shared WebSocket/envelope plumbing exists in `pkg/sandbox/bridge/`.
 - [x] Handler discipline exists in
   [handler-discipline.md](handler-discipline.md).
 - [x] x402/metered-services envelope handlers exist in
-  `pkg/sandbox/comms/x402/`.
+  `pkg/sandbox/bridge/x402/`.
 - [x] Host x402 domain backend exists in `pkg/x402/`.
 - [x] Daemon wiring exists for host-local testing in `commands/serve_x402.go`.
 - [x] OpenClaw helper work exists for listing services, checking budget, and
@@ -57,8 +57,8 @@ Use [milestones.md](milestones.md) as the active checklist.
 
 Current package names:
 
-- `pkg/sandbox/comms` - bridge envelope plumbing
-- `pkg/sandbox/comms/x402` - metered-services envelope handlers
+- `pkg/sandbox/bridge` - bridge envelope plumbing
+- `pkg/sandbox/bridge/x402` - metered-services envelope handlers
 - `pkg/x402` - x402 business logic and payment engine
 
 Potential later package names:
@@ -66,5 +66,5 @@ Potential later package names:
 - `pkg/sandbox/bridge`
 - `pkg/sandbox/bridge/meteredservices`
 
-Do not rename packages before the host/guest bridge works. The package
-boundary is easier to judge after one complete capability is live.
+Do not rename the x402 subpackage again until more capabilities exist. The
+capability naming boundary is easier to judge after the second endpoint lands.

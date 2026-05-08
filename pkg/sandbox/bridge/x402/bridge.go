@@ -23,7 +23,7 @@ const (
 	BridgeRoleHost  = "host"
 )
 
-// ForwardingBackend implements Backend inside the guest. The existing comms
+// ForwardingBackend implements Backend inside the guest. The bridge
 // endpoint still validates and stamps local runtime calls; this backend only
 // forwards already-validated x402 requests over the host-opened bridge socket.
 type ForwardingBackend struct {
@@ -35,7 +35,7 @@ func NewForwardingBackend() *ForwardingBackend {
 	return &ForwardingBackend{}
 }
 
-// HandlerWithHostBridge wraps the normal agent-facing comms handler with the
+// HandlerWithHostBridge wraps the normal agent-facing bridge handler with the
 // host-upstream attachment path. Normal runtime callers use the same endpoint
 // without bridge_role=host; the host daemon dials the same capability endpoint
 // with bridge_role=host and holds that socket as the forwarding upstream.

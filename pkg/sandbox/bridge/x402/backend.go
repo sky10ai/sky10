@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 )
 
-// Backend is the host-side surface the comms handlers delegate to.
+// Backend is the host-side surface the bridge handlers delegate to.
 // pkg/x402 (when it lands) implements this interface; tests substitute
 // a fake.
 //
-// All methods receive an agentID stamped by the comms plumbing; the
+// All methods receive an agentID stamped by the bridge plumbing; the
 // Backend uses it as the requester for scope filtering — agents only
 // see services they have approved, only spend within their own caps,
 // only see their own budget.

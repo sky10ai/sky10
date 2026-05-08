@@ -1,4 +1,4 @@
-package comms
+package bridge
 
 import (
 	"errors"
@@ -28,4 +28,4 @@ type IdentityResolver func(r *http.Request) (agentID, deviceID string, err error
 // ErrUnauthenticated is the canonical error to return from an
 // IdentityResolver when the request does not carry a valid identity.
 // The plumbing maps it to a 401 response.
-var ErrUnauthenticated = errors.New("comms: unauthenticated connection")
+var ErrUnauthenticated = errors.New("bridge: unauthenticated connection")

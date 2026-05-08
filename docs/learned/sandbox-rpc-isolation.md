@@ -48,7 +48,7 @@ discovers paths the original allowlist designer didn't consider.
 
 ## What we do instead
 
-Per-intent sandbox bridge endpoints backed by `pkg/sandbox/comms/`, one
+Per-intent sandbox bridge endpoints backed by `pkg/sandbox/bridge/`, one
 per capability, each with its own URL path, its own subpackage,
 and its own envelope handlers. The Go HTTP mux routes by path —
 the URL is the dispatch. There is no central bus, no shared

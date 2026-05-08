@@ -281,7 +281,7 @@ func (r *Registry) Pin(agentID, serviceID string) (Pin, error) {
 
 // ListApprovedListing is the per-call shape returned to the agent
 // (via the Backend) when it asks for its approved services. Mirrors
-// pkg/sandbox/comms/x402.ServiceListing without importing the comms
+// pkg/sandbox/bridge/x402.ServiceListing without importing the bridge
 // package, so the dependency direction stays one-way.
 type ListApprovedListing struct {
 	ID          string

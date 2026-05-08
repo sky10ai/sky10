@@ -75,7 +75,7 @@ should use this file directly.
   any missing tunnel or broker work in `docs/work/current/...` instead
   of weakening the sandbox boundary.
 - For x402 specifically, the wallet and payment adapter stay host-side.
-  Sandbox agents must reach them only through a host-mediated comms
+  Sandbox agents must reach them only through the host-mediated sandbox
   bridge, never by dialing the host x402 endpoint directly.
 
 ## Git And GitHub

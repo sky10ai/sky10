@@ -1,4 +1,4 @@
-package comms
+package bridge
 
 import (
 	"context"
@@ -43,7 +43,7 @@ func (e *Endpoint) runConnection(ctx context.Context, conn *websocket.Conn, agen
 		if err := wsjson.Read(ctx, conn, &wire); err != nil {
 			status := websocket.CloseStatus(err)
 			if status != websocket.StatusNormalClosure && status != websocket.StatusGoingAway {
-				e.logger.Debug("comms read failed",
+				e.logger.Debug("bridge read failed",
 					"endpoint", e.name,
 					"agent_id", agentID,
 					"error", err,
@@ -144,7 +144,7 @@ func (e *Endpoint) dispatchOne(ctx context.Context, writer *connWriter, wire wir
 		Payload:   respPayload,
 	}
 	if err := writer.write(ctx, resp); err != nil {
-		e.logger.Debug("comms response write failed",
+		e.logger.Debug("bridge response write failed",
 			"endpoint", e.name,
 			"agent_id", agentID,
 			"type", wire.Type,
@@ -161,7 +161,7 @@ func (e *Endpoint) respondError(ctx context.Context, writer *connWriter, wire wi
 		Error:     &envelopeError{Code: code, Message: message},
 	}
 	if err := writer.write(ctx, resp); err != nil {
-		e.logger.Debug("comms error write failed",
+		e.logger.Debug("bridge error write failed",
 			"endpoint", e.name,
 			"type", wire.Type,
 			"code", code,

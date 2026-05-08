@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/sky10/sky10/pkg/sandbox/comms"
+	"github.com/sky10/sky10/pkg/sandbox/bridge"
 )
 
 // EndpointPath is the canonical URL path the metered-services bridge endpoint registers at.
@@ -18,7 +18,7 @@ const LegacyEndpointPath = "/comms/metered-services/ws"
 
 // handlers groups the per-envelope handlers around their shared
 // Backend dependency. Methods on this type are the actual envelope
-// handlers; the constructor wires them into a comms.Endpoint.
+// handlers; the constructor wires them into a bridge.Endpoint.
 //
 // One handler per method, one method per file (see list_services.go,
 // service_call.go, budget_status.go), per the discipline rules in
@@ -27,7 +27,7 @@ type handlers struct {
 	backend Backend
 }
 
-// NewEndpoint builds a configured comms.Endpoint serving the metered-service
+// NewEndpoint builds a configured bridge.Endpoint serving the metered-service
 // envelope set against the supplied Backend. Caller mounts the
 // returned http.HandlerFunc on its mux at EndpointPath.
 //
@@ -35,49 +35,49 @@ type handlers struct {
 // this package does not assume any particular auth primitive. Tests
 // pass a static resolver; production wires whatever the daemon uses
 // for its other authenticated websocket endpoints.
-func NewEndpoint(backend Backend, resolver comms.IdentityResolver, opts ...comms.Option) *comms.Endpoint {
+func NewEndpoint(backend Backend, resolver bridge.IdentityResolver, opts ...bridge.EndpointOption) *bridge.Endpoint {
 	if backend == nil {
 		panic("x402: NewEndpoint requires a non-nil Backend")
 	}
 	h := &handlers{backend: backend}
-	e := comms.NewEndpoint("metered-services", resolver, opts...)
-	e.Register(comms.TypeSpec{
+	e := bridge.NewEndpoint("metered-services", resolver, opts...)
+	e.Register(bridge.TypeSpec{
 		Name:           TypeListServices,
-		Direction:      comms.DirectionRequestResponse,
+		Direction:      bridge.DirectionRequestResponse,
 		MaxPayloadSize: 4 * 1024,
-		RateLimit: comms.RateLimit{
+		RateLimit: bridge.RateLimit{
 			PerAgent: 60,
 			Burst:    10,
 			Window:   time.Minute,
 		},
 		NonceWindow: 5 * time.Minute,
-		AuditLevel:  comms.AuditHeaders,
+		AuditLevel:  bridge.AuditHeaders,
 		Handler:     h.handleListServices,
 	})
-	e.Register(comms.TypeSpec{
+	e.Register(bridge.TypeSpec{
 		Name:           TypeServiceCall,
-		Direction:      comms.DirectionRequestResponse,
+		Direction:      bridge.DirectionRequestResponse,
 		MaxPayloadSize: 256 * 1024,
-		RateLimit: comms.RateLimit{
+		RateLimit: bridge.RateLimit{
 			PerAgent: 30,
 			Burst:    5,
 			Window:   time.Minute,
 		},
 		NonceWindow: 10 * time.Minute,
-		AuditLevel:  comms.AuditFull,
+		AuditLevel:  bridge.AuditFull,
 		Handler:     h.handleServiceCall,
 	})
-	e.Register(comms.TypeSpec{
+	e.Register(bridge.TypeSpec{
 		Name:           TypeBudgetStatus,
-		Direction:      comms.DirectionRequestResponse,
+		Direction:      bridge.DirectionRequestResponse,
 		MaxPayloadSize: 1 * 1024,
-		RateLimit: comms.RateLimit{
+		RateLimit: bridge.RateLimit{
 			PerAgent: 60,
 			Burst:    10,
 			Window:   time.Minute,
 		},
 		NonceWindow: 5 * time.Minute,
-		AuditLevel:  comms.AuditHeaders,
+		AuditLevel:  bridge.AuditHeaders,
 		Handler:     h.handleBudgetStatus,
 	})
 	return e
@@ -86,7 +86,7 @@ func NewEndpoint(backend Backend, resolver comms.IdentityResolver, opts ...comms
 // RegisterOnMux is a small helper that builds the endpoint and mounts
 // it at EndpointPath on mux. Use this when you don't need the *Endpoint
 // for any other purpose.
-func RegisterOnMux(mux *http.ServeMux, backend Backend, resolver comms.IdentityResolver, opts ...comms.Option) {
+func RegisterOnMux(mux *http.ServeMux, backend Backend, resolver bridge.IdentityResolver, opts ...bridge.EndpointOption) {
 	e := NewEndpoint(backend, resolver, opts...)
 	handler := e.Handler()
 	mux.HandleFunc("GET "+EndpointPath, handler)

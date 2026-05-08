@@ -1,4 +1,4 @@
-package comms
+package bridge
 
 import (
 	"go/ast"
@@ -16,8 +16,8 @@ import (
 // direct json.Unmarshal call, or a return statement (for trivial
 // handlers with no payload to validate).
 //
-// The test scans every Go file in subpackages of pkg/sandbox/comms/
-// (the comms root itself is plumbing, not handlers) and inspects any
+// The test scans every Go file in subpackages of pkg/sandbox/bridge/
+// (the bridge root itself is plumbing, not handlers) and inspects any
 // function or method whose name starts with "handle". Failures point
 // at the file:line where the wrong shape was detected.
 //
@@ -42,7 +42,7 @@ func TestHandlersValidateBeforeUse(t *testing.T) {
 		if strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		// Only scan files in subpackages; skip the comms root.
+		// Only scan files in subpackages; skip the bridge root.
 		if filepath.Dir(path) == "." {
 			return nil
 		}

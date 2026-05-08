@@ -13,13 +13,13 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/sky10/sky10/pkg/sandbox/bridge"
-	commsx402 "github.com/sky10/sky10/pkg/sandbox/comms/x402"
+	bridgex402 "github.com/sky10/sky10/pkg/sandbox/bridge/x402"
 )
 
 const meteredServicesBridgeReconnectDelay = 2 * time.Second
 
 type MeteredServicesBridgeManager struct {
-	backend commsx402.Backend
+	backend bridgex402.Backend
 	logger  *slog.Logger
 
 	mu      sync.Mutex
@@ -31,7 +31,7 @@ type meteredServicesBridgeEntry struct {
 	conn   *bridge.Conn
 }
 
-func NewMeteredServicesBridgeManager(backend commsx402.Backend, logger *slog.Logger) *MeteredServicesBridgeManager {
+func NewMeteredServicesBridgeManager(backend bridgex402.Backend, logger *slog.Logger) *MeteredServicesBridgeManager {
 	return &MeteredServicesBridgeManager{
 		backend: backend,
 		logger:  componentLogger(logger),
@@ -92,12 +92,12 @@ func (m *MeteredServicesBridgeManager) Close(slug string) {
 }
 
 func (m *MeteredServicesBridgeManager) dial(runCtx, dialCtx context.Context, rec Record, wsURL string, entry *meteredServicesBridgeEntry) (<-chan error, error) {
-	conn, resp, err := bridge.Dial(dialCtx, wsURL, commsx402.NewBridgeHandler(m.backend, rec.Slug))
+	conn, resp, err := bridge.Dial(dialCtx, wsURL, bridgex402.NewBridgeHandler(m.backend, rec.Slug))
 	if resp != nil && resp.Body != nil {
 		_ = resp.Body.Close()
 	}
 	if err != nil {
-		return nil, fmt.Errorf("dial %s: %w", commsx402.EndpointPath, err)
+		return nil, fmt.Errorf("dial %s: %w", bridgex402.EndpointPath, err)
 	}
 
 	m.mu.Lock()
@@ -196,9 +196,9 @@ func meteredServicesBridgeURL(rec Record) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported guest sky10 endpoint scheme %q", u.Scheme)
 	}
-	u.Path = commsx402.EndpointPath
+	u.Path = bridgex402.EndpointPath
 	q := u.Query()
-	q.Set(commsx402.BridgeRoleQuery, commsx402.BridgeRoleHost)
+	q.Set(bridgex402.BridgeRoleQuery, bridgex402.BridgeRoleHost)
 	u.RawQuery = q.Encode()
 	return u.String(), nil
 }

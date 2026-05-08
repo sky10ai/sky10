@@ -81,7 +81,7 @@ lie in is not in the struct.
 Layout within a capability:
 
 ```
-pkg/sandbox/comms/x402/
+pkg/sandbox/bridge/x402/
 ├── endpoint.go            registers the metered-services bridge endpoint
 ├── list_services.go       envelope x402.list_services
 ├── service_call.go        envelope x402.service_call
@@ -104,13 +104,13 @@ Registering an envelope type is a deliberate code change that
 must declare:
 
 ```go
-endpoint.Register(comms.TypeSpec{
+endpoint.Register(bridge.TypeSpec{
     Name:           "x402.service_call",
-    Direction:      comms.RequestResponse,
+    Direction:      bridge.DirectionRequestResponse,
     MaxPayloadSize: 64 * 1024,
-    RateLimit:      comms.RateLimit{PerAgent: 10, Burst: 20, Window: time.Minute},
+    RateLimit:      bridge.RateLimit{PerAgent: 10, Burst: 20, Window: time.Minute},
     NonceWindow:    10 * time.Minute,
-    AuditLevel:     comms.AuditFull,
+    AuditLevel:     bridge.AuditFull,
     Handler:        handleServiceCall,
 })
 ```
@@ -130,7 +130,7 @@ logic is forbidden until validation has passed. Enforced by an
 arch-test:
 
 ```go
-// pkg/sandbox/comms/arch_test.go
+// pkg/sandbox/bridge/arch_test.go
 func TestHandlersValidateBeforeUse(t *testing.T) {
     for _, file := range envelopeHandlerFiles() {
         ast := parseGo(t, file)
@@ -146,7 +146,7 @@ completes fails the test. The check is conservative — it catches
 the obvious mistake, not every edge case — but it makes the wrong
 shape visibly fail in CI.
 
-The arch-test scans all subdirectories under `pkg/sandbox/comms/`,
+The arch-test scans all subdirectories under `pkg/sandbox/bridge/`,
 so adding a new capability subpackage automatically gets covered.
 
 ## Rule 6 — Mandatory header comment per handler file.
@@ -199,4 +199,4 @@ encourages the right code.
 If you find yourself wanting to share helpers across capabilities,
 that's the signal to move that logic into a non-bridge package
 (e.g. `pkg/x402`, `pkg/wallet`) and have both capabilities call
-into it. The bridge/comms package is glue, not business logic.
+into it. The bridge/bridge package is glue, not business logic.

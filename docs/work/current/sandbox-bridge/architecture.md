@@ -18,7 +18,7 @@ updated: 2026-05-07
 │     ▼                                                         │
 │  guest sky10                                                  │
 │     │                                                         │
-│     │ pkg/sandbox/comms/x402 validates envelope               │
+│     │ pkg/sandbox/bridge/x402 validates envelope               │
 │     │ guest bridge backend forwards over host-held socket     │
 │     ▼                                                         │
 │  accepted WebSocket connection opened by host sky10           │
@@ -67,7 +67,7 @@ Future routes, if needed:
 
 ## Existing Packages
 
-`pkg/sandbox/comms/` is the already-built envelope plumbing:
+`pkg/sandbox/bridge/` is the already-built envelope plumbing:
 
 - WebSocket endpoint lifecycle
 - envelope struct
@@ -78,7 +78,7 @@ Future routes, if needed:
 - per-agent/type quota
 - handler dispatch
 
-`pkg/sandbox/comms/x402/` is the already-built metered-services
+`pkg/sandbox/bridge/x402/` is the already-built metered-services
 capability layer:
 
 - `x402.list_services`
@@ -107,7 +107,8 @@ transport used by the metered-services bridge:
 - context-bound calls
 - close semantics that fail pending calls
 
-The bridge reuses the comms and x402 packages rather than replacing them.
+The bridge reuses the bridge/x402 and pkg/x402 packages rather than replacing
+them.
 
 ## Remaining Pieces
 
@@ -126,7 +127,7 @@ Identity must be host-stamped at the bridge boundary. Agents must not be
 able to supply `agent_id` or `device_id` in payloads and have those values
 trusted.
 
-Existing `pkg/sandbox/comms` already enforces the right handler shape:
+Existing `pkg/sandbox/bridge` already enforces the right handler shape:
 handlers see an `Envelope` with `AgentID` and `DeviceID` stamped by the
 transport layer. The bridge work must preserve that invariant when a
 guest-local request is forwarded to the host.
@@ -148,7 +149,7 @@ and cannot override that host-stamped value.
    bridge-only and returns `host_bridge_disconnected` until the host upstream
    is attached.
 5. Guest sky10 validates the local x402 envelope with existing
-   `pkg/sandbox/comms/x402` handlers or equivalent handler code.
+   `pkg/sandbox/bridge/x402` handlers or equivalent handler code.
 6. Guest bridge backend forwards the typed request over the host-owned
    socket.
 7. Host bridge handler stamps trusted identity and calls `pkg/x402`.

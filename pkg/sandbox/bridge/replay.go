@@ -1,4 +1,4 @@
-package comms
+package bridge
 
 import (
 	"errors"
@@ -8,11 +8,11 @@ import (
 
 // ErrReplay indicates an envelope was rejected because its (agent_id,
 // type, nonce) tuple was seen within the configured window.
-var ErrReplay = errors.New("comms: envelope replayed within window")
+var ErrReplay = errors.New("bridge: envelope replayed within window")
 
 // ErrTimestampOutOfRange indicates the envelope's caller-supplied ts
 // was outside the skew tolerance against the host clock.
-var ErrTimestampOutOfRange = errors.New("comms: envelope timestamp out of range")
+var ErrTimestampOutOfRange = errors.New("bridge: envelope timestamp out of range")
 
 // ReplayStore tracks recently-seen (agent_id, type, nonce) tuples and
 // rejects duplicates within each type's NonceWindow. It also enforces

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/sky10/sky10/pkg/sandbox/comms"
+	"github.com/sky10/sky10/pkg/sandbox/bridge"
 )
 
 func TestListServicesReturnsBackendResult(t *testing.T) {
@@ -26,7 +26,7 @@ func TestListServicesReturnsBackendResult(t *testing.T) {
 		},
 	}
 	h := &handlers{backend: backend}
-	resp, err := h.handleListServices(context.Background(), comms.Envelope{
+	resp, err := h.handleListServices(context.Background(), bridge.Envelope{
 		AgentID: "A-1",
 		Payload: nil,
 	})
@@ -58,7 +58,7 @@ func TestListServicesFiltersByCategory(t *testing.T) {
 	}
 	h := &handlers{backend: backend}
 	payload, _ := json.Marshal(listServicesParams{Category: "audio"})
-	resp, err := h.handleListServices(context.Background(), comms.Envelope{
+	resp, err := h.handleListServices(context.Background(), bridge.Envelope{
 		AgentID: "A-1",
 		Payload: payload,
 	})
@@ -75,7 +75,7 @@ func TestListServicesFiltersByCategory(t *testing.T) {
 func TestListServicesRejectsMalformedPayload(t *testing.T) {
 	t.Parallel()
 	h := &handlers{backend: &fakeBackend{}}
-	_, err := h.handleListServices(context.Background(), comms.Envelope{
+	_, err := h.handleListServices(context.Background(), bridge.Envelope{
 		AgentID: "A-1",
 		Payload: json.RawMessage("not json"),
 	})
@@ -87,7 +87,7 @@ func TestListServicesRejectsMalformedPayload(t *testing.T) {
 func TestListServicesPropagatesBackendError(t *testing.T) {
 	t.Parallel()
 	h := &handlers{backend: &fakeBackend{listErr: errFakeBoom}}
-	_, err := h.handleListServices(context.Background(), comms.Envelope{
+	_, err := h.handleListServices(context.Background(), bridge.Envelope{
 		AgentID: "A-1",
 	})
 	if err == nil {

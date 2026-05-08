@@ -1,4 +1,4 @@
-package comms
+package bridge
 
 import (
 	"context"
@@ -45,7 +45,7 @@ type Envelope struct {
 	Payload json.RawMessage
 }
 
-// Handler is the function signature every envelope handler must match.
+// EnvelopeHandler is the function signature every envelope handler must match.
 //
 // A handler returning a non-nil response payload triggers the plumbing
 // to send a response envelope keyed by the same RequestID. A handler
@@ -56,7 +56,7 @@ type Envelope struct {
 // error envelope keyed by the same RequestID. The error message is
 // sent to the caller as-is, so handlers should avoid leaking sensitive
 // detail in error text.
-type Handler func(ctx context.Context, env Envelope) (json.RawMessage, error)
+type EnvelopeHandler func(ctx context.Context, env Envelope) (json.RawMessage, error)
 
 // wireEnvelope is the structure read from the websocket. By design it
 // has no AgentID or DeviceID fields: any payload-supplied identity is

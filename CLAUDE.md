@@ -60,7 +60,7 @@ Claude skills.
   with Claude-specific shortcuts: Lima guests must not call
   host gateway aliases, host loopback, host Unix sockets, or host daemon
   RPC directly. x402 wallet/payment access must stay behind the
-  host-mediated comms bridge.
+  host-mediated sandbox bridge.
 - If a Claude-specific note here conflicts with `AGENTS.md`, follow
   `AGENTS.md` for repo policy and this file only for Claude-specific
   mechanics.

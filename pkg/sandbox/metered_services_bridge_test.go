@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	commsx402 "github.com/sky10/sky10/pkg/sandbox/comms/x402"
+	bridgex402 "github.com/sky10/sky10/pkg/sandbox/bridge/x402"
 )
 
 func TestMeteredServicesBridgeManagerConnectsToGuestEndpoint(t *testing.T) {
@@ -19,12 +19,12 @@ func TestMeteredServicesBridgeManagerConnectsToGuestEndpoint(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	forwarder := commsx402.NewForwardingBackend()
+	forwarder := bridgex402.NewForwardingBackend()
 	mux := http.NewServeMux()
-	localEndpoint := commsx402.NewEndpoint(forwarder, func(*http.Request) (string, string, error) {
+	localEndpoint := bridgex402.NewEndpoint(forwarder, func(*http.Request) (string, string, error) {
 		return "A-guest", "D-guest", nil
 	})
-	mux.HandleFunc("GET "+commsx402.EndpointPath, commsx402.HandlerWithHostBridge(localEndpoint.Handler(), forwarder))
+	mux.HandleFunc("GET "+bridgex402.EndpointPath, bridgex402.HandlerWithHostBridge(localEndpoint.Handler(), forwarder))
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -63,7 +63,7 @@ func bridgeTestRecord(t *testing.T, rawURL string) Record {
 	}
 }
 
-func waitForBridgeConnected(t *testing.T, ctx context.Context, forwarder *commsx402.ForwardingBackend, want bool) {
+func waitForBridgeConnected(t *testing.T, ctx context.Context, forwarder *bridgex402.ForwardingBackend, want bool) {
 	t.Helper()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
@@ -81,16 +81,16 @@ func waitForBridgeConnected(t *testing.T, ctx context.Context, forwarder *commsx
 
 type testMeteredBackend struct{}
 
-func (testMeteredBackend) ListServices(context.Context, string) ([]commsx402.ServiceListing, error) {
-	return []commsx402.ServiceListing{{ID: "travel.search", Tier: "primitive"}}, nil
+func (testMeteredBackend) ListServices(context.Context, string) ([]bridgex402.ServiceListing, error) {
+	return []bridgex402.ServiceListing{{ID: "travel.search", Tier: "primitive"}}, nil
 }
 
-func (testMeteredBackend) BudgetStatus(context.Context, string) (*commsx402.BudgetSnapshot, error) {
-	return &commsx402.BudgetSnapshot{PerCallMaxUSDC: "0.10"}, nil
+func (testMeteredBackend) BudgetStatus(context.Context, string) (*bridgex402.BudgetSnapshot, error) {
+	return &bridgex402.BudgetSnapshot{PerCallMaxUSDC: "0.10"}, nil
 }
 
-func (testMeteredBackend) Call(context.Context, commsx402.CallParams) (*commsx402.CallResult, error) {
-	return &commsx402.CallResult{Status: 200, Body: json.RawMessage(`{"ok":true}`)}, nil
+func (testMeteredBackend) Call(context.Context, bridgex402.CallParams) (*bridgex402.CallResult, error) {
+	return &bridgex402.CallResult{Status: 200, Body: json.RawMessage(`{"ok":true}`)}, nil
 }
 
 func TestMeteredServicesBridgeURLUsesCanonicalPath(t *testing.T) {
@@ -102,7 +102,7 @@ func TestMeteredServicesBridgeURLUsesCanonicalPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "ws://127.0.0.1:39101" + commsx402.EndpointPath + "?" + commsx402.BridgeRoleQuery + "=" + commsx402.BridgeRoleHost
+	want := "ws://127.0.0.1:39101" + bridgex402.EndpointPath + "?" + bridgex402.BridgeRoleQuery + "=" + bridgex402.BridgeRoleHost
 	if got != want {
 		t.Fatalf("meteredServicesBridgeURL() = %q, want %q", got, want)
 	}

@@ -19,8 +19,8 @@ import (
 	"github.com/sky10/sky10/pkg/payments/mpp"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
 	skysandbox "github.com/sky10/sky10/pkg/sandbox"
-	"github.com/sky10/sky10/pkg/sandbox/comms"
-	commsx402 "github.com/sky10/sky10/pkg/sandbox/comms/x402"
+	"github.com/sky10/sky10/pkg/sandbox/bridge"
+	bridgex402 "github.com/sky10/sky10/pkg/sandbox/bridge/x402"
 	skywallet "github.com/sky10/sky10/pkg/wallet"
 	"github.com/sky10/sky10/pkg/x402"
 	"github.com/sky10/sky10/pkg/x402/discovery"
@@ -90,12 +90,12 @@ func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegist
 	adapter := newX402Adapter(backend, budget, defaultX402BudgetConfig(), logger)
 	resolver := newAgentIdentityResolver(agentRegistry)
 
-	forwarder := commsx402.NewForwardingBackend()
+	forwarder := bridgex402.NewForwardingBackend()
 	endpointBackend := meteredServicesEndpointBackend(adapter, forwarder)
-	endpoint := commsx402.NewEndpoint(endpointBackend, resolver, comms.WithLogger(logger))
+	endpoint := bridgex402.NewEndpoint(endpointBackend, resolver, bridge.WithLogger(logger))
 	localHandler := endpoint.Handler()
-	server.HandleHTTP("GET "+commsx402.EndpointPath, commsx402.HandlerWithHostBridge(localHandler, forwarder))
-	server.HandleHTTP("GET "+commsx402.LegacyEndpointPath, localHandler)
+	server.HandleHTTP("GET "+bridgex402.EndpointPath, bridgex402.HandlerWithHostBridge(localHandler, forwarder))
+	server.HandleHTTP("GET "+bridgex402.LegacyEndpointPath, localHandler)
 
 	if sandboxManager != nil {
 		bridgeManager := skysandbox.NewMeteredServicesBridgeManager(adapter, logger)
@@ -108,11 +108,11 @@ func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegist
 
 const sandboxGuestEnv = "SKY10_SANDBOX_GUEST"
 
-func meteredServicesEndpointBackend(local commsx402.Backend, forwarder *commsx402.ForwardingBackend) commsx402.Backend {
+func meteredServicesEndpointBackend(local bridgex402.Backend, forwarder *bridgex402.ForwardingBackend) bridgex402.Backend {
 	if sandboxGuestMode() {
 		return forwarder
 	}
-	return commsx402.PreferForwardingBackend{
+	return bridgex402.PreferForwardingBackend{
 		Forwarder: forwarder,
 		Local:     local,
 	}
@@ -293,27 +293,27 @@ func buildMPPSigner(logger *slog.Logger) mpp.Signer {
 	return signer
 }
 
-// newAgentIdentityResolver returns a comms.IdentityResolver that
+// newAgentIdentityResolver returns a bridge.IdentityResolver that
 // reads the `agent` query parameter and resolves it against the
 // agent registry. Mirrors the chat websocket's path-based agent
-// resolution but uses a query parameter so we can mount the comms
+// resolution but uses a query parameter so we can mount the bridge
 // endpoint at the package's own canonical path.
-func newAgentIdentityResolver(reg *skyagent.Registry) comms.IdentityResolver {
+func newAgentIdentityResolver(reg *skyagent.Registry) bridge.IdentityResolver {
 	return func(r *http.Request) (string, string, error) {
 		name := strings.TrimSpace(r.URL.Query().Get("agent"))
 		if name == "" {
-			return "", "", fmt.Errorf("%w: missing agent query parameter", comms.ErrUnauthenticated)
+			return "", "", fmt.Errorf("%w: missing agent query parameter", bridge.ErrUnauthenticated)
 		}
 		info := reg.Resolve(name)
 		if info == nil {
-			return "", "", fmt.Errorf("%w: agent %q not registered", comms.ErrUnauthenticated, name)
+			return "", "", fmt.Errorf("%w: agent %q not registered", bridge.ErrUnauthenticated, name)
 		}
 		return info.ID, info.DeviceID, nil
 	}
 }
 
-// x402Adapter implements pkg/sandbox/comms/x402.Backend by translating
-// each method's payload between the comms-side wire shapes and the
+// x402Adapter implements pkg/sandbox/bridge/x402.Backend by translating
+// each method's payload between the bridge-side wire shapes and the
 // pkg/x402 native types. Lazy budget configuration: any agent that
 // hits the endpoint without an explicit budget gets the daemon
 // default applied on first call.
@@ -340,23 +340,23 @@ func newX402Adapter(backend *x402.Backend, budget *x402.Budget, defaults x402.Bu
 	}
 }
 
-// ListServices satisfies commsx402.Backend.
-func (a *x402Adapter) ListServices(ctx context.Context, agentID string) ([]commsx402.ServiceListing, error) {
+// ListServices satisfies bridgex402.Backend.
+func (a *x402Adapter) ListServices(ctx context.Context, agentID string) ([]bridgex402.ServiceListing, error) {
 	listings, err := a.backend.ListServices(ctx, agentID)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]commsx402.ServiceListing, 0, len(listings))
+	out := make([]bridgex402.ServiceListing, 0, len(listings))
 	for _, l := range listings {
-		out = append(out, commsx402.ServiceListing{
+		out = append(out, bridgex402.ServiceListing{
 			ID:          l.ID,
 			DisplayName: l.DisplayName,
 			Description: l.Description,
 			Category:    l.Category,
 			Endpoint:    l.Endpoint,
 			ServiceURL:  l.ServiceURL,
-			Endpoints:   commsServiceEndpoints(l.Endpoints),
-			Networks:    commsNetworks(l.Networks),
+			Endpoints:   bridgeServiceEndpoints(l.Endpoints),
+			Networks:    bridgeNetworks(l.Networks),
 			Tier:        string(l.Tier),
 			PriceUSDC:   l.PriceUSDC,
 			Hint:        l.Hint,
@@ -365,13 +365,13 @@ func (a *x402Adapter) ListServices(ctx context.Context, agentID string) ([]comms
 	return out, nil
 }
 
-func commsServiceEndpoints(in []x402.ServiceEndpoint) []commsx402.ServiceEndpoint {
+func bridgeServiceEndpoints(in []x402.ServiceEndpoint) []bridgex402.ServiceEndpoint {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make([]commsx402.ServiceEndpoint, 0, len(in))
+	out := make([]bridgex402.ServiceEndpoint, 0, len(in))
 	for _, ep := range in {
-		out = append(out, commsx402.ServiceEndpoint{
+		out = append(out, bridgex402.ServiceEndpoint{
 			URL:         ep.URL,
 			Method:      ep.Method,
 			Description: ep.Description,
@@ -382,7 +382,7 @@ func commsServiceEndpoints(in []x402.ServiceEndpoint) []commsx402.ServiceEndpoin
 	return out
 }
 
-func commsNetworks(in []x402.Network) []string {
+func bridgeNetworks(in []x402.Network) []string {
 	if len(in) == 0 {
 		return nil
 	}
@@ -393,8 +393,8 @@ func commsNetworks(in []x402.Network) []string {
 	return out
 }
 
-// Call satisfies commsx402.Backend.
-func (a *x402Adapter) Call(ctx context.Context, params commsx402.CallParams) (*commsx402.CallResult, error) {
+// Call satisfies bridgex402.Backend.
+func (a *x402Adapter) Call(ctx context.Context, params bridgex402.CallParams) (*bridgex402.CallResult, error) {
 	if err := a.ensureBudget(params.AgentID); err != nil {
 		return nil, err
 	}
@@ -411,13 +411,13 @@ func (a *x402Adapter) Call(ctx context.Context, params commsx402.CallParams) (*c
 	if err != nil {
 		return nil, err
 	}
-	out := &commsx402.CallResult{
+	out := &bridgex402.CallResult{
 		Status:  result.Status,
 		Headers: result.Headers,
 		Body:    result.Body,
 	}
 	if result.Receipt != nil {
-		out.Receipt = &commsx402.Receipt{
+		out.Receipt = &bridgex402.Receipt{
 			Tx:         result.Receipt.Tx,
 			Network:    string(result.Receipt.Network),
 			AmountUSDC: result.Receipt.AmountUSDC,
@@ -439,8 +439,8 @@ func (a *x402Adapter) Call(ctx context.Context, params commsx402.CallParams) (*c
 	return out, nil
 }
 
-// BudgetStatus satisfies commsx402.Backend.
-func (a *x402Adapter) BudgetStatus(ctx context.Context, agentID string) (*commsx402.BudgetSnapshot, error) {
+// BudgetStatus satisfies bridgex402.Backend.
+func (a *x402Adapter) BudgetStatus(ctx context.Context, agentID string) (*bridgex402.BudgetSnapshot, error) {
 	if err := a.ensureBudget(agentID); err != nil {
 		return nil, err
 	}
@@ -448,13 +448,13 @@ func (a *x402Adapter) BudgetStatus(ctx context.Context, agentID string) (*commsx
 	if err != nil {
 		return nil, err
 	}
-	out := &commsx402.BudgetSnapshot{
+	out := &bridgex402.BudgetSnapshot{
 		PerCallMaxUSDC: snap.PerCallMaxUSDC,
 		DailyCapUSDC:   snap.DailyCapUSDC,
 		SpentTodayUSDC: snap.SpentTodayUSDC,
 	}
 	for _, s := range snap.PerService {
-		out.PerService = append(out.PerService, commsx402.PerServiceCap{
+		out.PerService = append(out.PerService, bridgex402.PerServiceCap{
 			ServiceID:      s.ServiceID,
 			DailyCapUSDC:   s.DailyCapUSDC,
 			SpentTodayUSDC: s.SpentTodayUSDC,

@@ -12,7 +12,7 @@
   cross-trust-boundary operations from sandboxed agents):
   [`current/sandbox-bridge/`](current/sandbox-bridge/)
 - Active x402 service integration plan (agent surface lands as
-  `pkg/sandbox/comms/x402/`):
+  `pkg/sandbox/bridge/x402/`):
   [`current/x402/`](current/x402/)
 
 ## Todo

@@ -10,7 +10,7 @@ import (
 	skyagent "github.com/sky10/sky10/pkg/agent"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
 	skysandbox "github.com/sky10/sky10/pkg/sandbox"
-	"github.com/sky10/sky10/pkg/sandbox/comms/agentjobs"
+	"github.com/sky10/sky10/pkg/sandbox/bridge/agentjobs"
 )
 
 func installAgentJobBridgeEndpoint(server *skyrpc.Server, agentRPC *skyagent.RPCHandler, jobStore *skyagent.JobStore, sandboxManager *skysandbox.Manager, logger *slog.Logger) error {

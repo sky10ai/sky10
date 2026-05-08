@@ -11,12 +11,12 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/sky10/sky10/pkg/sandbox/comms"
+	"github.com/sky10/sky10/pkg/sandbox/bridge"
 )
 
 type budgetStatusParams struct{}
 
-func (h *handlers) handleBudgetStatus(ctx context.Context, env comms.Envelope) (json.RawMessage, error) {
+func (h *handlers) handleBudgetStatus(ctx context.Context, env bridge.Envelope) (json.RawMessage, error) {
 	if err := parseBudgetStatusParams(env.Payload); err != nil {
 		return nil, fmt.Errorf("invalid payload: %w", err)
 	}

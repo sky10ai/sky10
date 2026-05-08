@@ -1,4 +1,4 @@
-package comms
+package bridge
 
 import (
 	"context"
@@ -79,7 +79,7 @@ func TestRegisterAfterStartPanics(t *testing.T) {
 // integrationEndpoint stands up a minimal httptest server hosting one
 // Endpoint with the given specs and resolver, returns the websocket
 // URL and a cleanup func.
-func integrationEndpoint(t *testing.T, specs []TypeSpec, resolver IdentityResolver, opts ...Option) (string, func()) {
+func integrationEndpoint(t *testing.T, specs []TypeSpec, resolver IdentityResolver, opts ...EndpointOption) (string, func()) {
 	t.Helper()
 	if resolver == nil {
 		resolver = staticResolver("A-1", "D-1")
@@ -177,7 +177,7 @@ func TestEndpointRejectsHostCallbackOrigin(t *testing.T) {
 		_ = conn.Close(websocket.StatusNormalClosure, "")
 	}
 	if err == nil {
-		t.Fatal("expected host callback origin to be rejected; sandbox guests must not connect directly to host comms endpoints")
+		t.Fatal("expected host callback origin to be rejected; sandbox guests must not connect directly to host bridge endpoints")
 	}
 }
 

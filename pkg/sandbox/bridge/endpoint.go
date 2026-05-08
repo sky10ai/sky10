@@ -1,4 +1,4 @@
-package comms
+package bridge
 
 import (
 	"errors"
@@ -33,9 +33,9 @@ type Endpoint struct {
 	started          atomic.Bool
 }
 
-// Option configures an Endpoint at construction. See WithAuditWriter,
+// EndpointOption configures an Endpoint at construction. See WithAuditWriter,
 // WithLogger, WithReplayStore, WithQuotaStore, WithClock.
-type Option func(*Endpoint)
+type EndpointOption func(*Endpoint)
 
 // NewEndpoint constructs an Endpoint with a required name (used in
 // logs and audit lines) and a required IdentityResolver. The name and
@@ -45,13 +45,13 @@ type Option func(*Endpoint)
 // Sensible defaults are filled in for Audit (NoopAuditWriter), Logger
 // (a discard logger), ReplayStore (2-minute skew, 10-minute max nonce
 // window), QuotaStore (in-memory token buckets), and Clock (time.Now).
-// Tests typically override these via Options.
-func NewEndpoint(name string, resolver IdentityResolver, opts ...Option) *Endpoint {
+// Tests typically override these via EndpointOptions.
+func NewEndpoint(name string, resolver IdentityResolver, opts ...EndpointOption) *Endpoint {
 	if name == "" {
-		panic("comms: NewEndpoint requires a non-empty name")
+		panic("bridge: NewEndpoint requires a non-empty name")
 	}
 	if resolver == nil {
-		panic("comms: NewEndpoint requires a non-nil IdentityResolver")
+		panic("bridge: NewEndpoint requires a non-nil IdentityResolver")
 	}
 	e := &Endpoint{
 		name:             name,
@@ -78,31 +78,31 @@ func NewEndpoint(name string, resolver IdentityResolver, opts ...Option) *Endpoi
 }
 
 // WithAuditWriter sets the AuditWriter the endpoint emits to.
-func WithAuditWriter(w AuditWriter) Option {
+func WithAuditWriter(w AuditWriter) EndpointOption {
 	return func(e *Endpoint) { e.audit = w }
 }
 
 // WithLogger sets the slog logger used for diagnostic events.
-func WithLogger(l *slog.Logger) Option {
+func WithLogger(l *slog.Logger) EndpointOption {
 	return func(e *Endpoint) { e.logger = l }
 }
 
 // WithReplayStore overrides the default ReplayStore. Useful when
 // multiple endpoints want to share replay state, or in tests with a
 // fake clock.
-func WithReplayStore(s *ReplayStore) Option {
+func WithReplayStore(s *ReplayStore) EndpointOption {
 	return func(e *Endpoint) { e.replay = s }
 }
 
 // WithQuotaStore overrides the default QuotaStore. Useful when sharing
 // quota state across endpoints, or in tests.
-func WithQuotaStore(s *QuotaStore) Option {
+func WithQuotaStore(s *QuotaStore) EndpointOption {
 	return func(e *Endpoint) { e.quota = s }
 }
 
 // WithClock overrides the time source. Useful in tests; in production
 // time.Now is the right answer.
-func WithClock(now func() time.Time) Option {
+func WithClock(now func() time.Time) EndpointOption {
 	return func(e *Endpoint) {
 		if now != nil {
 			e.clock = now
@@ -117,11 +117,11 @@ func WithClock(now func() time.Time) Option {
 // registration is a misuse pattern that this package refuses.
 func (e *Endpoint) Register(spec TypeSpec) {
 	if e.started.Load() {
-		panic(fmt.Sprintf("comms: cannot Register %q after Endpoint %q has started serving", spec.Name, e.name))
+		panic(fmt.Sprintf("bridge: cannot Register %q after Endpoint %q has started serving", spec.Name, e.name))
 	}
 	spec.validate()
 	if _, exists := e.types[spec.Name]; exists {
-		panic(fmt.Sprintf("comms: duplicate TypeSpec %q on Endpoint %q", spec.Name, e.name))
+		panic(fmt.Sprintf("bridge: duplicate TypeSpec %q on Endpoint %q", spec.Name, e.name))
 	}
 	e.types[spec.Name] = spec
 }
@@ -150,7 +150,7 @@ func (e *Endpoint) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if agentID == "" {
-		http.Error(w, "comms: identity resolver returned empty agent_id", http.StatusUnauthorized)
+		http.Error(w, "bridge: identity resolver returned empty agent_id", http.StatusUnauthorized)
 		return
 	}
 

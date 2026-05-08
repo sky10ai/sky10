@@ -62,33 +62,32 @@ later).
   LLM and search primitives default OFF (most users have direct API
   keys).
 - 2026-04-26 — agent surface rebased onto per-intent sandbox bridge
-  endpoints under `pkg/sandbox/comms/`. x402 ships as a single
-  websocket endpoint `/comms/metered-services/ws` with its own narrow handler
-  package, not as envelopes on a unified bus. Runtime adapter work moved out
-  of the protocol-core milestones and is now tracked under M10 and
-  sandbox-bridge. See
+  endpoints under `pkg/sandbox/bridge/`. x402 ships as a single
+  websocket endpoint with its own narrow handler package, not as envelopes on
+  a unified bus. Runtime adapter work moved out of the protocol-core
+  milestones and is now tracked under M10 and sandbox-bridge. See
   [sandbox-bridge](../sandbox-bridge/) for the bridge architecture and
   [sandbox-bridge/implementation-plan.md](../sandbox-bridge/implementation-plan.md)
   for the M2 x402 capability milestone where the handlers land.
 - 2026-04-27 — narrowed branch scope: only x402 ships under
-  `pkg/sandbox/comms/` in this branch. Wallet and messengers comms
-  are future work; secrets stay out of comms entirely (VM env-var
+  `pkg/sandbox/bridge/` in this branch. Wallet and messenger bridge
+  endpoints are future work; secrets stay out of the bridge entirely (VM env-var
   mount via `pkg/sandbox/openclaw_env.go`).
 - 2026-04-27 — M1 (protocol core) landed in `pkg/x402/`. Wire
   types, registry + persisted store, manifest pinning, per-agent
   budget caps, http transport that performs the 402 round-trip
   with a Signer abstraction, and a Backend that ties the pieces
-  into one delegate the comms handlers call. End-to-end test
+  into one delegate the bridge handlers call. End-to-end test
   exercises the full path against a httptest x402 fake. Real
   OWS-backed signing follows; the M1 production wiring uses
   StubSigner so misconfiguration fails with a typed error rather
   than a panic.
 - 2026-04-27 — Daemon wiring landed in `commands/serve_x402.go`.
-  The x402 endpoint is mounted at `/comms/metered-services/ws` when the
+  The x402 endpoint is mounted at `/bridge/metered-services/ws` when the
   daemon starts; identity is resolved from the `agent` query
   parameter against the existing agent registry; budget defaults
   apply per-agent on first sight. Adapter translates between
-  pkg/x402 native types and the comms wire shape. With this,
+  pkg/x402 native types and the bridge wire shape. With this,
   sandbox bridge M2 and x402 plan M5 are both complete.
 - 2026-04-27 — M2 (discovery and refresh) landed in
   `pkg/x402/discovery/`. Source interface, StaticSource with the

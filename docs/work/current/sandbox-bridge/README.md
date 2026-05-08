@@ -12,17 +12,17 @@ host callback addresses.
 The first capability is metered services/x402. It should reuse the work
 already done in:
 
-- `pkg/sandbox/comms/` for envelope, identity stamping, replay, audit,
+- `pkg/sandbox/bridge/` for envelope, identity stamping, replay, audit,
   quota, and per-type handler plumbing
-- `pkg/sandbox/comms/x402/` for x402 envelope validation and handler
+- `pkg/sandbox/bridge/x402/` for x402 envelope validation and handler
   shape
 - `pkg/x402/` for the actual service catalog, approvals, budgets,
   wallet signing, receipts, and upstream x402/MPP calls
 
 This directory replaces the older `sandbox-comms` planning thread. The
-package name has not been renamed yet; the current plan is to build the
-missing bridge around the existing `pkg/sandbox/comms` internals first,
-then decide whether a package rename is worth the churn.
+capability plumbing has been moved into `pkg/sandbox/bridge`; the remaining
+package-name question is whether the x402-specific subpackage should stay as
+`bridge/x402` or move to a more capability-named path later.
 
 ## Boundary
 
@@ -51,7 +51,7 @@ supported bridge path.
 Runtime adapter inside guest
   (OpenClaw helper, Hermes bridge, etc.)
   -> guest-local sky10 /bridge/metered-services/ws
-  -> pkg/sandbox/comms/x402 validates x402 envelopes
+  -> pkg/sandbox/bridge/x402 validates x402 envelopes
   -> guest bridge forwards request over host-opened socket
 
 Host sky10
@@ -72,9 +72,8 @@ runtime calls and forces use of the host-opened bridge.
 
 | Area | Status | Notes |
 |---|---:|---|
-| `pkg/sandbox/bridge/` | done | Generic request/response framing over a host-owned WebSocket |
-| `pkg/sandbox/comms/` | done | WebSocket endpoint helper, envelope shape, identity stamping, replay checks, audit, quota, tests |
-| `pkg/sandbox/comms/x402/` | done | `x402.list_services`, `x402.budget_status`, `x402.service_call` handlers, validation, guest forwarding backend, and host bridge handler |
+| `pkg/sandbox/bridge/` | done | Generic request/response framing plus endpoint helper, envelope shape, identity stamping, replay checks, audit, quota, tests |
+| `pkg/sandbox/bridge/x402/` | done | `x402.list_services`, `x402.budget_status`, `x402.service_call` handlers, validation, guest forwarding backend, and host bridge handler |
 | `pkg/x402/` | done enough for bridge | Registry, discovery overlay, approvals/user-enabled services, budgets, transport, wallet signer, receipts |
 | OpenClaw helper | wired | Lists approved services and calls `list`, `budget`, and `call` through the guest-local bridge route |
 | Hermes bridge | wired | Installs a `sky10-x402` guest helper, injects approved service context into tool-call prompts, and uses the guest-local bridge route |
@@ -84,9 +83,9 @@ runtime calls and forces use of the host-opened bridge.
 ## Documents
 
 - [Architecture](architecture.md) - final host/guest bridge shape and how
-  the existing comms/x402 code fits
+  the existing bridge/x402 code fits
 - [Handler discipline](handler-discipline.md) - rules for capability
-  envelope handlers; still applies to `pkg/sandbox/comms/x402`
+  envelope handlers; still applies to `pkg/sandbox/bridge/x402`
 - [Milestones](milestones.md) - checklist for finishing the bridge
 - [Implementation plan](implementation-plan.md) - short index of done vs
   remaining implementation work
@@ -103,8 +102,8 @@ runtime calls and forces use of the host-opened bridge.
 
 ## Open Questions
 
-1. Should the final Go package be renamed from `pkg/sandbox/comms` to
-   `pkg/sandbox/bridge` after x402 works end to end?
+1. Should `pkg/sandbox/bridge/x402` move to
+   `pkg/sandbox/bridge/meteredservices` after more capabilities land?
 2. How should the host-opened connection be authenticated or attached:
    lifecycle-owned dial only, WebSocket subprotocol/header, or a
    daemon-issued ephemeral handshake?

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/sky10/sky10/pkg/sandbox/comms"
+	"github.com/sky10/sky10/pkg/sandbox/bridge"
 )
 
 func TestBudgetStatusReturnsBackendSnapshot(t *testing.T) {
@@ -18,7 +18,7 @@ func TestBudgetStatusReturnsBackendSnapshot(t *testing.T) {
 		},
 	}
 	h := &handlers{backend: backend}
-	resp, err := h.handleBudgetStatus(context.Background(), comms.Envelope{
+	resp, err := h.handleBudgetStatus(context.Background(), bridge.Envelope{
 		AgentID: "A-1",
 	})
 	if err != nil {
@@ -39,7 +39,7 @@ func TestBudgetStatusReturnsBackendSnapshot(t *testing.T) {
 func TestBudgetStatusRejectsMalformedPayload(t *testing.T) {
 	t.Parallel()
 	h := &handlers{backend: &fakeBackend{}}
-	_, err := h.handleBudgetStatus(context.Background(), comms.Envelope{
+	_, err := h.handleBudgetStatus(context.Background(), bridge.Envelope{
 		AgentID: "A-1",
 		Payload: json.RawMessage("not json"),
 	})
@@ -51,7 +51,7 @@ func TestBudgetStatusRejectsMalformedPayload(t *testing.T) {
 func TestBudgetStatusPropagatesBackendError(t *testing.T) {
 	t.Parallel()
 	h := &handlers{backend: &fakeBackend{budgetErr: errFakeBoom}}
-	_, err := h.handleBudgetStatus(context.Background(), comms.Envelope{
+	_, err := h.handleBudgetStatus(context.Background(), bridge.Envelope{
 		AgentID: "A-1",
 	})
 	if err == nil {

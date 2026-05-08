@@ -6,7 +6,7 @@
 // The methods here are *host* RPC: they live on the daemon's local
 // unix socket alongside wallet.*, secrets.*, etc. They are not part
 // of the sandbox bridge surface — agents do not call x402.* directly;
-// they go through pkg/sandbox/comms/x402's envelope handlers, which
+// they go through pkg/sandbox/bridge/x402's envelope handlers, which
 // in turn delegate to pkg/x402.Backend.
 package rpc
 
@@ -28,7 +28,7 @@ type Handler struct {
 }
 
 // NewHandler constructs a Handler. registry must be the same
-// pkg/x402.Registry instance the daemon's comms-side x402 endpoint
+// pkg/x402.Registry instance the daemon's bridge-side x402 endpoint
 // uses, so changes here affect agent-facing state immediately. The
 // budget pointer may be nil; budget-related methods return zero
 // values when it is.

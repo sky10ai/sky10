@@ -13,7 +13,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/sky10/sky10/pkg/sandbox/bridge"
-	commsx402 "github.com/sky10/sky10/pkg/sandbox/comms/x402"
+	bridgex402 "github.com/sky10/sky10/pkg/sandbox/bridge/x402"
 	"github.com/sky10/sky10/pkg/x402"
 )
 
@@ -130,7 +130,7 @@ func TestAdapterCallTranslatesRequestAndReceipt(t *testing.T) {
 	srv := fakeX402Server(t)
 	defer srv.Close()
 	a := newTestAdapter(t, srv)
-	resp, err := a.Call(context.Background(), commsx402.CallParams{
+	resp, err := a.Call(context.Background(), bridgex402.CallParams{
 		AgentID:      "A-1",
 		ServiceID:    "perplexity",
 		Path:         "/search",
@@ -172,7 +172,7 @@ func TestAdapterCommsWebSocketCallsThroughPaymentBackend(t *testing.T) {
 	a := newTestAdapter(t, srv)
 
 	mux := http.NewServeMux()
-	commsx402.RegisterOnMux(mux, a, func(*http.Request) (string, string, error) {
+	bridgex402.RegisterOnMux(mux, a, func(*http.Request) (string, string, error) {
 		return "A-1", "D-1", nil
 	})
 	wsServer := httptest.NewServer(mux)
@@ -180,7 +180,7 @@ func TestAdapterCommsWebSocketCallsThroughPaymentBackend(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	wsURL := "ws" + strings.TrimPrefix(wsServer.URL, "http") + commsx402.EndpointPath
+	wsURL := "ws" + strings.TrimPrefix(wsServer.URL, "http") + bridgex402.EndpointPath
 	conn, dialResp, err := websocket.Dial(ctx, wsURL, nil)
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
@@ -205,7 +205,7 @@ func TestAdapterCommsWebSocketCallsThroughPaymentBackend(t *testing.T) {
 			Message string `json:"message"`
 		} `json:"error,omitempty"`
 		Payload struct {
-			Services []commsx402.ServiceListing `json:"services"`
+			Services []bridgex402.ServiceListing `json:"services"`
 		} `json:"payload"`
 	}
 	if err := wsjson.Read(ctx, conn, &listResp); err != nil {
@@ -239,7 +239,7 @@ func TestAdapterCommsWebSocketCallsThroughPaymentBackend(t *testing.T) {
 			Code    string `json:"code"`
 			Message string `json:"message"`
 		} `json:"error,omitempty"`
-		Payload commsx402.CallResult `json:"payload"`
+		Payload bridgex402.CallResult `json:"payload"`
 	}
 	if err := wsjson.Read(ctx, conn, &callResp); err != nil {
 		t.Fatalf("read service_call: %v", err)
@@ -275,7 +275,7 @@ func TestAdapterBudgetStatusTranslatesPerService(t *testing.T) {
 	}
 	a.enrolled["A-1"] = true
 
-	if _, err := a.Call(context.Background(), commsx402.CallParams{
+	if _, err := a.Call(context.Background(), bridgex402.CallParams{
 		AgentID:      "A-1",
 		ServiceID:    "perplexity",
 		Path:         "/search",
@@ -307,7 +307,7 @@ func TestAdapterEnsureBudgetOnFirstSight(t *testing.T) {
 	a := newTestAdapter(t, srv)
 	// Agent has not been explicitly configured. The first Call
 	// should auto-apply the default config and proceed.
-	if _, err := a.Call(context.Background(), commsx402.CallParams{
+	if _, err := a.Call(context.Background(), bridgex402.CallParams{
 		AgentID:      "A-1",
 		ServiceID:    "perplexity",
 		Path:         "/search",
@@ -326,7 +326,7 @@ func TestMeteredServicesEndpointBackendGuestModeRequiresBridge(t *testing.T) {
 	srv := fakeX402Server(t)
 	defer srv.Close()
 	local := newTestAdapter(t, srv)
-	forwarder := commsx402.NewForwardingBackend()
+	forwarder := bridgex402.NewForwardingBackend()
 
 	backend := meteredServicesEndpointBackend(local, forwarder)
 	if backend != forwarder {
@@ -338,8 +338,8 @@ func TestMeteredServicesEndpointBackendGuestModeRequiresBridge(t *testing.T) {
 	if !errors.As(err, &bridgeErr) {
 		t.Fatalf("ListServices err = %T %v, want *bridge.Error", err, err)
 	}
-	if bridgeErr.Code != commsx402.ErrCodeHostBridgeDisconnected {
-		t.Fatalf("bridge error code = %q, want %q", bridgeErr.Code, commsx402.ErrCodeHostBridgeDisconnected)
+	if bridgeErr.Code != bridgex402.ErrCodeHostBridgeDisconnected {
+		t.Fatalf("bridge error code = %q, want %q", bridgeErr.Code, bridgex402.ErrCodeHostBridgeDisconnected)
 	}
 }
 
@@ -348,7 +348,7 @@ func TestMeteredServicesEndpointBackendHostModeUsesLocalFallback(t *testing.T) {
 	srv := fakeX402Server(t)
 	defer srv.Close()
 	local := newTestAdapter(t, srv)
-	forwarder := commsx402.NewForwardingBackend()
+	forwarder := bridgex402.NewForwardingBackend()
 
 	backend := meteredServicesEndpointBackend(local, forwarder)
 	services, err := backend.ListServices(context.Background(), "A-1")

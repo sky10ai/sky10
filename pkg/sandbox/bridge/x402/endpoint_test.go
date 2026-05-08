@@ -11,10 +11,10 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
-	"github.com/sky10/sky10/pkg/sandbox/comms"
+	"github.com/sky10/sky10/pkg/sandbox/bridge"
 )
 
-func staticResolver(agentID, deviceID string) comms.IdentityResolver {
+func staticResolver(agentID, deviceID string) bridge.IdentityResolver {
 	return func(*http.Request) (string, string, error) {
 		return agentID, deviceID, nil
 	}
@@ -220,7 +220,7 @@ func TestEndpointRejectsServiceCallValidationFailure(t *testing.T) {
 	if resp.Error == nil {
 		t.Fatal("expected error response")
 	}
-	if resp.Error.Code != comms.ErrCodeHandlerError {
+	if resp.Error.Code != bridge.ErrCodeHandlerError {
 		t.Fatalf("error code = %q, want handler_error", resp.Error.Code)
 	}
 	if len(backend.callCalls) != 0 {

@@ -1,4 +1,4 @@
-package comms
+package bridge
 
 import (
 	"testing"
