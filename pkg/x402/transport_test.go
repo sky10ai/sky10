@@ -31,6 +31,8 @@ type x402TestServer struct {
 	gotPayments []rawPayment
 	bodies      [][]byte
 	respondWith json.RawMessage
+	omitReceipt bool
+	paidStatus  int
 	// Version controls which x402 wire shape the fake emits. Zero
 	// means v1 (legacy body-based challenge).
 	Version int
@@ -66,25 +68,31 @@ func (s *x402TestServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	s.gotPayments = append(s.gotPayments, rp)
 
-	if s.Version == X402ProtocolV2 {
-		body, _ := json.Marshal(map[string]any{
-			"success":     true,
-			"transaction": "0xdeadbeef",
-			"network":     "eip155:8453",
-			"payer":       rp.Inner.Authorization.From,
-		})
-		w.Header().Set(HeaderPaymentResponseV2, base64.StdEncoding.EncodeToString(body))
-	} else {
-		receipt, _ := json.Marshal(PaymentReceipt{
-			Tx:         "0xdeadbeef",
-			Network:    NetworkBase,
-			AmountUSDC: "0.005",
-			SettledAt:  time.Now().UTC(),
-		})
-		w.Header().Set(HeaderPaymentResponse, string(receipt))
+	if !s.omitReceipt {
+		if s.Version == X402ProtocolV2 {
+			body, _ := json.Marshal(map[string]any{
+				"success":     true,
+				"transaction": "0xdeadbeef",
+				"network":     "eip155:8453",
+				"payer":       rp.Inner.Authorization.From,
+			})
+			w.Header().Set(HeaderPaymentResponseV2, base64.StdEncoding.EncodeToString(body))
+		} else {
+			receipt, _ := json.Marshal(PaymentReceipt{
+				Tx:         "0xdeadbeef",
+				Network:    NetworkBase,
+				AmountUSDC: "0.005",
+				SettledAt:  time.Now().UTC(),
+			})
+			w.Header().Set(HeaderPaymentResponse, string(receipt))
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	status := s.paidStatus
+	if status == 0 {
+		status = http.StatusOK
+	}
+	w.WriteHeader(status)
 	if s.respondWith != nil {
 		_, _ = w.Write(s.respondWith)
 	}
@@ -243,6 +251,9 @@ func TestTransportCallV2RoundtripAssertsWireShape(t *testing.T) {
 	if resp.Receipt == nil || resp.Receipt.Tx != "0xdeadbeef" {
 		t.Fatalf("receipt = %+v, want tx 0xdeadbeef from base64-encoded Payment-Response", resp.Receipt)
 	}
+	if resp.Receipt.AmountUSDC != "0.005" {
+		t.Fatalf("receipt amount = %q, want 0.005 from v2 challenge amount", resp.Receipt.AmountUSDC)
+	}
 	if len(fake.gotPayments) != 1 {
 		t.Fatalf("payments seen = %d, want 1", len(fake.gotPayments))
 	}
@@ -351,6 +362,9 @@ func TestTransportCallMPPRoundtripUsesAuthorizationHeader(t *testing.T) {
 	}
 	if resp.Receipt == nil || resp.Receipt.Tx != "mpp-solana-signature" || resp.Receipt.Network != NetworkSolana {
 		t.Fatalf("receipt = %+v, want MPP Solana receipt", resp.Receipt)
+	}
+	if resp.Receipt.AmountUSDC != "0.001" {
+		t.Fatalf("receipt amount = %q, want 0.001 from MPP challenge amount", resp.Receipt.AmountUSDC)
 	}
 }
 

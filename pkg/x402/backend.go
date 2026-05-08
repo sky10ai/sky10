@@ -198,29 +198,30 @@ func (b *Backend) Call(ctx context.Context, params CallParams) (*CallResult, err
 		return nil, err
 	}
 
+	out := &CallResult{
+		Status:  resp.Status,
+		Headers: resp.Headers,
+		Body:    resp.Body,
+	}
+	if resp.Receipt == nil {
+		return out, nil
+	}
+
 	receipt := Receipt{
 		Ts:           b.clock().UTC(),
 		AgentID:      params.AgentID,
 		ServiceID:    params.ServiceID,
 		Path:         params.Path,
-		AmountUSDC:   manifest.MaxPriceUSDC,
+		AmountUSDC:   resp.Receipt.AmountUSDC,
 		MaxPriceUSDC: params.MaxPriceUSDC,
+		Tx:           resp.Receipt.Tx,
+		Network:      resp.Receipt.Network,
 	}
-	if resp.Receipt != nil {
-		receipt.Tx = resp.Receipt.Tx
-		receipt.Network = resp.Receipt.Network
-		if resp.Receipt.AmountUSDC != "" {
-			receipt.AmountUSDC = resp.Receipt.AmountUSDC
-		}
+	if strings.TrimSpace(receipt.AmountUSDC) == "" {
+		receipt.AmountUSDC = manifest.MaxPriceUSDC
 	}
 	if err := b.budget.Charge(receipt); err != nil {
 		return nil, fmt.Errorf("recording receipt: %w", err)
-	}
-
-	out := &CallResult{
-		Status:  resp.Status,
-		Headers: resp.Headers,
-		Body:    resp.Body,
 	}
 	out.Receipt = &receipt
 	return out, nil

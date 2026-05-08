@@ -161,7 +161,12 @@ func (t *Transport) Call(ctx context.Context, req CallRequest) (*CallResponse, e
 		retry.Body.Close()
 		return nil, ErrPaymentNotAccepted
 	}
-	return readCallResponse(retry, version)
+	out, err := readCallResponse(retry, version)
+	if err != nil {
+		return nil, err
+	}
+	fillReceiptAmount(out.Receipt, requirement.AmountMicros)
+	return out, nil
 }
 
 func (t *Transport) do(ctx context.Context, req CallRequest, paymentHeader string) (*http.Response, error) {
@@ -205,6 +210,10 @@ func (t *Transport) callMPP(ctx context.Context, req CallRequest, initial *http.
 	if err != nil {
 		return nil, err
 	}
+	chargeAmount := ""
+	if charge, _, err := challenge.DecodeChargeRequest(); err == nil {
+		chargeAmount = charge.Amount
+	}
 	auth, err := t.MPPSigner.Sign(ctx, challenge)
 	if err != nil {
 		return nil, fmt.Errorf("sign MPP payment: %w", err)
@@ -227,6 +236,7 @@ func (t *Transport) callMPP(ctx context.Context, req CallRequest, initial *http.
 	}
 	if mppReceipt != nil {
 		out.Receipt = mppReceiptToPaymentReceipt(mppReceipt)
+		fillReceiptAmount(out.Receipt, chargeAmount)
 	}
 	return out, nil
 }
@@ -289,6 +299,17 @@ func mppReceiptToPaymentReceipt(receipt *mpp.Receipt) *PaymentReceipt {
 		out.SettledAt = ts
 	}
 	return out
+}
+
+func fillReceiptAmount(receipt *PaymentReceipt, amountMicros string) {
+	if receipt == nil || strings.TrimSpace(receipt.AmountUSDC) != "" {
+		return
+	}
+	micros, err := parseIntegerBaseUnits(amountMicros)
+	if err != nil {
+		return
+	}
+	receipt.AmountUSDC = formatUSDC(micros)
 }
 
 // readChallenge dispatches between v1 (body-encoded) and v2

@@ -131,6 +131,41 @@ func TestBackendListAndStatusReflectCalls(t *testing.T) {
 	}
 }
 
+func TestBackendDoesNotChargeWithoutSettlementReceipt(t *testing.T) {
+	t.Parallel()
+	backend, fake, cleanup := backendOnFake(t)
+	defer cleanup()
+	fake.omitReceipt = true
+	fake.paidStatus = 500
+
+	resp, err := backend.Call(context.Background(), CallParams{
+		AgentID:      "A-1",
+		ServiceID:    "perplexity",
+		Path:         "/search",
+		MaxPriceUSDC: "0.005",
+		PaymentNonce: "p1",
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if resp.Status != 500 {
+		t.Fatalf("status = %d, want 500", resp.Status)
+	}
+	if resp.Receipt != nil {
+		t.Fatalf("receipt = %+v, want nil without settlement receipt", resp.Receipt)
+	}
+	snap, err := backend.BudgetStatus(context.Background(), "A-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.SpentTodayUSDC != "0" {
+		t.Fatalf("spent today = %q, want 0", snap.SpentTodayUSDC)
+	}
+	if receipts := backend.budget.Receipts("A-1"); len(receipts) != 0 {
+		t.Fatalf("receipts = %d, want 0", len(receipts))
+	}
+}
+
 func TestBackendRejectsUnapprovedService(t *testing.T) {
 	t.Parallel()
 	backend, _, cleanup := backendOnFake(t)
