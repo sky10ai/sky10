@@ -22,10 +22,11 @@ const sandboxBridgeReconnectDelay = 2 * time.Second
 type sandboxBridgeDialer func(context.Context, Record, string) (*bridge.Conn, *http.Response, error)
 
 type sandboxBridgeManager struct {
-	name      string
-	bridgeURL func(Record) (string, error)
-	dialConn  sandboxBridgeDialer
-	logger    *slog.Logger
+	name           string
+	bridgeURL      func(Record) (string, error)
+	dialConn       sandboxBridgeDialer
+	logger         *slog.Logger
+	reconnectDelay time.Duration
 
 	mu      sync.Mutex
 	entries map[string]*sandboxBridgeEntry
@@ -148,7 +149,7 @@ func (m *sandboxBridgeManager) reconnectLoop(runCtx context.Context, rec Record,
 			}
 		}
 
-		timer := time.NewTimer(sandboxBridgeReconnectDelay)
+		timer := time.NewTimer(m.delay())
 		select {
 		case <-runCtx.Done():
 			timer.Stop()
@@ -156,14 +157,14 @@ func (m *sandboxBridgeManager) reconnectLoop(runCtx context.Context, rec Record,
 		case <-timer.C:
 		}
 
-		var err error
-		done, err = m.dial(runCtx, runCtx, rec, wsURL, entry)
+		nextDone, err := m.dial(runCtx, runCtx, rec, wsURL, entry)
 		if err != nil {
 			if m.logger != nil {
 				m.logger.Warn("sandbox bridge reconnect failed", "capability", m.label(), "sandbox", rec.Slug, "error", err)
 			}
 			continue
 		}
+		done = nextDone
 	}
 }
 
@@ -188,6 +189,13 @@ func (m *sandboxBridgeManager) label() string {
 		return "unknown"
 	}
 	return m.name
+}
+
+func (m *sandboxBridgeManager) delay() time.Duration {
+	if m != nil && m.reconnectDelay > 0 {
+		return m.reconnectDelay
+	}
+	return sandboxBridgeReconnectDelay
 }
 
 func sandboxCapabilityBridgeURL(rec Record, endpointPath, roleQuery, role string) (string, error) {

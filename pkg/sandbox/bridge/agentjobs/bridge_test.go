@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -92,6 +93,38 @@ func TestBridgeURLUsesForwardedSky10Endpoint(t *testing.T) {
 	want := "ws://127.0.0.1:39107" + EndpointPath + "?" + BridgeRoleQuery + "=" + BridgeRoleHost
 	if got != want {
 		t.Fatalf("BridgeURL = %q, want %q", got, want)
+	}
+}
+
+func TestBridgeManagerReconnectLoopRetriesAfterFailedRedial(t *testing.T) {
+	var attempts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		http.Error(w, "not ready", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	m := NewBridgeManager(&fakeHostBackend{}, nil)
+	m.reconnectDelay = time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	rec := skysandbox.Record{Slug: "custom-agent"}
+	entry := &bridgeEntry{cancel: cancel}
+	m.entries[rec.Slug] = entry
+
+	done := make(chan error)
+	close(done)
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + EndpointPath + "?" + BridgeRoleQuery + "=" + BridgeRoleHost
+	go m.reconnectLoop(ctx, rec, wsURL, entry, done)
+
+	deadline := time.After(time.Second)
+	for attempts.Load() < 2 {
+		select {
+		case <-deadline:
+			t.Fatalf("reconnect attempts = %d, want at least 2", attempts.Load())
+		case <-time.After(time.Millisecond):
+		}
 	}
 }
 

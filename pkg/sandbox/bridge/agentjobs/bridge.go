@@ -210,8 +210,9 @@ func marshalJobResult(result *skyagent.AgentJobResult, err error) (json.RawMessa
 }
 
 type BridgeManager struct {
-	backend HostBackend
-	logger  *slog.Logger
+	backend        HostBackend
+	logger         *slog.Logger
+	reconnectDelay time.Duration
 
 	mu      sync.Mutex
 	entries map[string]*bridgeEntry
@@ -331,7 +332,7 @@ func (m *BridgeManager) reconnectLoop(runCtx context.Context, rec skysandbox.Rec
 			}
 		}
 
-		timer := time.NewTimer(bridgeReconnectDelay)
+		timer := time.NewTimer(m.delay())
 		select {
 		case <-runCtx.Done():
 			timer.Stop()
@@ -339,14 +340,14 @@ func (m *BridgeManager) reconnectLoop(runCtx context.Context, rec skysandbox.Rec
 		case <-timer.C:
 		}
 
-		var err error
-		done, err = m.dial(runCtx, runCtx, rec, wsURL, entry)
+		nextDone, err := m.dial(runCtx, runCtx, rec, wsURL, entry)
 		if err != nil {
 			if m.logger != nil {
 				m.logger.Warn("sandbox agent-jobs bridge reconnect failed", "sandbox", rec.Slug, "error", err)
 			}
 			continue
 		}
+		done = nextDone
 	}
 }
 
@@ -364,6 +365,13 @@ func (m *BridgeManager) removeEntry(slug string, entry *bridgeEntry) {
 	if m.entries[slug] == entry {
 		delete(m.entries, slug)
 	}
+}
+
+func (m *BridgeManager) delay() time.Duration {
+	if m != nil && m.reconnectDelay > 0 {
+		return m.reconnectDelay
+	}
+	return bridgeReconnectDelay
 }
 
 func BridgeURL(rec skysandbox.Record) (string, error) {
