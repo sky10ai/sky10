@@ -16,26 +16,17 @@ import {
   type MessagingAction,
   type MessagingAdapterInfo,
   type MessagingConnection,
+  type MessagingPolicyRules,
   type MessagingRunAdapterActionResult,
   type MessagingSetting,
   type MessagingValidationIssue,
 } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
-type PolicyRules = {
-  read_inbound: boolean;
-  mark_read: boolean;
-  create_drafts: boolean;
-  send_messages: boolean;
-  require_approval: boolean;
-  reply_only: boolean;
-  allow_new_conversations: boolean;
-  allow_attachments: boolean;
-  manage_messages: boolean;
-  search_identities: boolean;
-  search_conversations: boolean;
-  search_messages: boolean;
-};
+type PolicyRules = Omit<
+  MessagingPolicyRules,
+  "allowed_container_ids" | "allowed_identity_ids"
+>;
 
 function defaultPolicyRules(): PolicyRules {
   return {
@@ -381,16 +372,71 @@ export default function SettingsMessaging() {
   const [policiesByConnection, setPoliciesByConnection] = useState<
     Record<string, PolicyRules>
   >({});
+  const [policyErrors, setPolicyErrors] = useState<Record<string, string>>({});
+  const [policySavingConnectionID, setPolicySavingConnectionID] = useState<
+    string | null
+  >(null);
   const [policiesModalConnectionID, setPoliciesModalConnectionID] = useState<
     string | null
   >(null);
 
+  function backendPolicyFor(connectionID: string): PolicyRules | null {
+    const connection = connections.find((item) => item.id === connectionID);
+    const policyID = connection?.default_policy_id;
+    if (!policyID) return null;
+    const policy = (connectionData?.policies ?? []).find(
+      (item) => item.id === policyID,
+    );
+    return policy?.rules ? { ...defaultPolicyRules(), ...policy.rules } : null;
+  }
+
   function policyFor(connectionID: string): PolicyRules {
-    return policiesByConnection[connectionID] ?? defaultPolicyRules();
+    return (
+      policiesByConnection[connectionID] ??
+      backendPolicyFor(connectionID) ??
+      defaultPolicyRules()
+    );
   }
 
   function setPolicyFor(connectionID: string, next: PolicyRules) {
     setPoliciesByConnection((current) => ({ ...current, [connectionID]: next }));
+  }
+
+  async function savePolicyFor(
+    connectionID: string,
+    rules: PolicyRules = policyFor(connectionID),
+  ): Promise<boolean> {
+    setPolicySavingConnectionID(connectionID);
+    setPolicyErrors((current) => {
+      if (!(connectionID in current)) return current;
+      const next = { ...current };
+      delete next[connectionID];
+      return next;
+    });
+    try {
+      const response = await messaging.updateConnectionPolicy({
+        connection_id: connectionID,
+        rules,
+      });
+      setPoliciesByConnection((current) => ({
+        ...current,
+        [connectionID]: {
+          ...defaultPolicyRules(),
+          ...response.policy.rules,
+        },
+      }));
+      refetchConnections({ background: true });
+      return true;
+    } catch (error) {
+      setPolicyErrors((current) => ({
+        ...current,
+        [connectionID]:
+          error instanceof Error ? error.message : "Policy save failed",
+      }));
+      return false;
+    } finally {
+      setPolicySavingConnectionID(null);
+    }
   }
 
   function openPicker(adapter?: MessagingAdapterInfo) {
@@ -699,6 +745,12 @@ export default function SettingsMessaging() {
     }
   }
 
+  const pickerForm =
+    picker?.adapterID && picker.formKey
+      ? (forms[picker.adapterID]?.find((f) => f.formKey === picker.formKey) ??
+          null)
+      : null;
+
   return (
     <SettingsPage
       actions={
@@ -888,11 +940,15 @@ export default function SettingsMessaging() {
             connections.find((c) => c.id === policiesModalConnectionID)
               ?.label || policiesModalConnectionID
           }
+          error={policyErrors[policiesModalConnectionID] ?? null}
           initialValue={policyFor(policiesModalConnectionID)}
+          saving={policySavingConnectionID === policiesModalConnectionID}
           onClose={() => setPoliciesModalConnectionID(null)}
           onSave={(next) => {
             setPolicyFor(policiesModalConnectionID, next);
-            setPoliciesModalConnectionID(null);
+            void savePolicyFor(policiesModalConnectionID, next).then((saved) => {
+              if (saved) setPoliciesModalConnectionID(null);
+            });
           }}
         />
       )}
@@ -904,13 +960,7 @@ export default function SettingsMessaging() {
           feedback={
             picker.formKey ? (feedback[picker.formKey] ?? null) : null
           }
-          form={
-            picker.adapterID && picker.formKey
-              ? (forms[picker.adapterID]?.find(
-                  (f) => f.formKey === picker.formKey,
-                ) ?? null)
-              : null
-          }
+          form={pickerForm}
           pickerAdapter={
             picker.adapterID
               ? (adapters.find(
@@ -952,6 +1002,7 @@ export default function SettingsMessaging() {
           onPolicyChange={(connectionID, next) => {
             setPolicyFor(connectionID, next);
           }}
+          onSavePolicies={(connectionID) => savePolicyFor(connectionID)}
           onRunAction={(adapter, form, action) =>
             void runAction(adapter, form, action)
           }
@@ -960,6 +1011,14 @@ export default function SettingsMessaging() {
           }
           onUpdateForm={(adapterID, formKey, patch) =>
             updateForm(adapterID, formKey, patch)
+          }
+          policyError={
+            pickerForm ? (policyErrors[pickerForm.connectionID] ?? null) : null
+          }
+          policySaving={
+            pickerForm
+              ? policySavingConnectionID === pickerForm.connectionID
+              : false
           }
           policyFor={policyFor}
         />
@@ -1529,13 +1588,16 @@ function AddConnectionWizard({
   feedback,
   form,
   pickerAdapter,
+  policyError,
   policyFor,
+  policySaving,
   step,
   onAdvance,
   onBack,
   onClose,
   onPickPlatform,
   onPolicyChange,
+  onSavePolicies,
   onRunAction,
   onUpdateField,
   onUpdateForm,
@@ -1545,13 +1607,16 @@ function AddConnectionWizard({
   feedback: AdapterActionFeedback | null;
   form: AdapterFormState | null;
   pickerAdapter: MessagingAdapterInfo | null;
+  policyError: string | null;
   policyFor: (connectionID: string) => PolicyRules;
+  policySaving: boolean;
   step: WizardStep;
   onAdvance: () => void;
   onBack: () => void;
   onClose: () => void;
   onPickPlatform: (adapter: MessagingAdapterInfo) => void;
   onPolicyChange: (connectionID: string, next: PolicyRules) => void;
+  onSavePolicies: (connectionID: string) => Promise<boolean>;
   onRunAction: (
     adapter: MessagingAdapterInfo,
     form: AdapterFormState,
@@ -1717,15 +1782,18 @@ function AddConnectionWizard({
         </div>
 
         <footer className="flex items-center justify-between gap-3 border-t border-outline-variant/10 bg-surface-container-low px-8 py-5">
-          <div className="text-sm text-secondary">
-            {step === "platform" &&
-              "You can add multiple connections of the same type."}
+          <div
+            className={`text-sm ${
+              policyError && step === "policies" ? "text-error" : "text-secondary"
+            }`}
+          >
+            {step === "platform" && "You can add multiple connections of the same type."}
             {step === "configure" &&
               (form?.isExisting
                 ? "Connected. Continue to set policies."
                 : "Fill the required fields, then sign in or save credentials.")}
             {step === "policies" &&
-              "Policies decide what agents can read, draft, or send."}
+              (policyError || "Policies decide what agents can read, draft, or send.")}
           </div>
           <div className="flex items-center gap-2">
             {step === "configure" && (
@@ -1749,11 +1817,20 @@ function AddConnectionWizard({
             )}
             {step === "policies" && (
               <button
-                className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-5 py-2.5 text-base font-semibold text-white shadow-sm transition hover:bg-emerald-700 hover:shadow-md"
-                onClick={onClose}
+                className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-5 py-2.5 text-base font-semibold text-white shadow-sm transition hover:bg-emerald-700 hover:shadow-md disabled:opacity-60"
+                disabled={policySaving}
+                onClick={() => {
+                  if (!form?.isExisting) {
+                    onClose();
+                    return;
+                  }
+                  void onSavePolicies(form.connectionID).then((saved) => {
+                    if (saved) onClose();
+                  });
+                }}
                 type="button"
               >
-                Done
+                {policySaving ? "Saving..." : "Done"}
               </button>
             )}
           </div>
@@ -2185,14 +2262,18 @@ function PoliciesModal({
   adapter,
   connectionID,
   connectionLabel,
+  error,
   initialValue,
+  saving,
   onClose,
   onSave,
 }: {
   adapter: MessagingAdapterInfo | null;
   connectionID: string;
   connectionLabel: string;
+  error: string | null;
   initialValue: PolicyRules;
+  saving: boolean;
   onClose: () => void;
   onSave: (next: PolicyRules) => void;
 }) {
@@ -2237,23 +2318,25 @@ function PoliciesModal({
           <PoliciesEditor onChange={setDraft} value={draft} />
         </div>
         <footer className="flex items-center justify-between gap-3 border-t border-outline-variant/10 bg-surface-container-low px-8 py-4">
-          <p className="text-xs text-secondary">
-            Stored locally for now — backend wiring is pending.
+          <p className={`text-xs ${error ? "text-error" : "text-secondary"}`}>
+            {error || "Saved to the daemon policy store."}
           </p>
           <div className="flex items-center gap-2">
             <button
               className="inline-flex items-center gap-1 rounded-full border border-outline-variant/20 px-4 py-2 text-sm font-semibold text-secondary hover:text-on-surface"
+              disabled={saving}
               onClick={onClose}
               type="button"
             >
               Cancel
             </button>
             <button
-              className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 hover:shadow-md"
+              className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 hover:shadow-md disabled:opacity-60"
+              disabled={saving}
               onClick={() => onSave(draft)}
               type="button"
             >
-              Save policies
+              {saving ? "Saving..." : "Save policies"}
             </button>
           </div>
         </footer>

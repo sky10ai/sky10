@@ -202,6 +202,58 @@ func TestEnsureDefaultMessagingRuntimeAccessRefreshesManagedPolicyDefaults(t *te
 	}
 }
 
+func TestEnsureDefaultMessagingRuntimeAccessPreservesUserConfiguredPolicy(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newServeMessagingMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	connection := messaging.Connection{
+		ID:              "telegram/default",
+		AdapterID:       "telegram",
+		Label:           "Telegram",
+		Status:          messaging.ConnectionStatusConnected,
+		DefaultPolicyID: defaultMessagingRuntimePolicyID("telegram/default"),
+	}
+	if err := store.PutConnection(ctx, connection); err != nil {
+		t.Fatalf("PutConnection() error = %v", err)
+	}
+	if err := store.PutPolicy(ctx, messaging.Policy{
+		ID:   connection.DefaultPolicyID,
+		Name: "Default runtime messaging access",
+		Rules: messaging.PolicyRules{
+			ReadInbound:           true,
+			CreateDrafts:          true,
+			SendMessages:          true,
+			RequireApproval:       false,
+			ReplyOnly:             true,
+			AllowNewConversations: false,
+			SearchIdentities:      true,
+			SearchConversations:   true,
+			SearchMessages:        true,
+		},
+		Metadata: map[string]string{
+			"source": "sky10-settings-ui",
+		},
+	}); err != nil {
+		t.Fatalf("PutPolicy() error = %v", err)
+	}
+
+	if err := ensureDefaultMessagingRuntimeAccess(ctx, store, nil); err != nil {
+		t.Fatalf("ensureDefaultMessagingRuntimeAccess() error = %v", err)
+	}
+
+	policy, ok := store.GetPolicy(connection.DefaultPolicyID)
+	if !ok {
+		t.Fatalf("GetPolicy(%s) = false", connection.DefaultPolicyID)
+	}
+	if policy.Rules.RequireApproval {
+		t.Fatalf("policy rules = %+v, want user require_approval=false preserved", policy.Rules)
+	}
+}
+
 func TestInstallMessagingEventFanoutEmitsDurableEvents(t *testing.T) {
 	t.Parallel()
 

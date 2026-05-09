@@ -83,6 +83,9 @@ func (h *Handler) Dispatch(ctx context.Context, method string, params json.RawMe
 		return result, err, true
 	case "messaging.connections":
 		return h.rpcConnections(), nil, true
+	case "messaging.updateConnectionPolicy":
+		result, err := h.rpcUpdateConnectionPolicy(ctx, params)
+		return result, err, true
 	case "messaging.createConnection":
 		result, err := h.rpcCreateConnection(ctx, params)
 		return result, err, true
@@ -324,9 +327,11 @@ func (h *Handler) rpcAdapter(params json.RawMessage) (interface{}, error) {
 
 func (h *Handler) rpcConnections() map[string]interface{} {
 	connections := h.store.ListConnections()
+	policies := h.store.ListPolicies()
 	return map[string]interface{}{
 		"connections": connections,
 		"count":       len(connections),
+		"policies":    policies,
 	}
 }
 

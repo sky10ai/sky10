@@ -362,6 +362,91 @@ func TestHandlerCreateConnectionAppliesConnectionConfiguredHook(t *testing.T) {
 	}
 }
 
+func TestHandlerUpdateConnectionPolicyPersistsUserRules(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	handler := newTestHandler(t, nil)
+	connection := messaging.Connection{
+		ID:              "telegram/default",
+		AdapterID:       "telegram",
+		Label:           "Telegram",
+		Status:          messaging.ConnectionStatusConnected,
+		DefaultPolicyID: "policy/messaging/default-runtime/telegram/default",
+	}
+	if err := handler.store.PutConnection(ctx, connection); err != nil {
+		t.Fatalf("PutConnection() error = %v", err)
+	}
+	if err := handler.store.PutPolicy(ctx, messaging.Policy{
+		ID:   connection.DefaultPolicyID,
+		Name: "Default runtime messaging access",
+		Rules: messaging.PolicyRules{
+			ReadInbound:           true,
+			CreateDrafts:          true,
+			SendMessages:          true,
+			RequireApproval:       true,
+			ReplyOnly:             true,
+			AllowNewConversations: false,
+			SearchIdentities:      true,
+			SearchConversations:   true,
+			SearchMessages:        true,
+		},
+		Metadata: map[string]string{
+			"source": "sky10-default-runtime-access",
+		},
+	}); err != nil {
+		t.Fatalf("PutPolicy() error = %v", err)
+	}
+
+	rules := messaging.PolicyRules{
+		ReadInbound:           true,
+		CreateDrafts:          true,
+		SendMessages:          true,
+		RequireApproval:       false,
+		ReplyOnly:             true,
+		AllowNewConversations: false,
+		SearchIdentities:      true,
+		SearchConversations:   true,
+		SearchMessages:        true,
+	}
+	result, err, handled := handler.Dispatch(ctx, "messaging.updateConnectionPolicy", mustJSON(t, updateConnectionPolicyParams{
+		ConnectionID: connection.ID,
+		Rules:        rules,
+	}))
+	if err != nil {
+		t.Fatalf("Dispatch(updateConnectionPolicy) error = %v", err)
+	}
+	if !handled {
+		t.Fatal("Dispatch(updateConnectionPolicy) handled = false, want true")
+	}
+	updated := result.(updateConnectionPolicyResult)
+	if updated.Policy.Rules.RequireApproval {
+		t.Fatalf("updated policy rules = %+v, want require_approval=false", updated.Policy.Rules)
+	}
+	if updated.Policy.Metadata["source"] != messagingPolicySourceSettingsUI {
+		t.Fatalf("updated policy source = %q, want %q", updated.Policy.Metadata["source"], messagingPolicySourceSettingsUI)
+	}
+	stored, ok := handler.store.GetPolicy(connection.DefaultPolicyID)
+	if !ok {
+		t.Fatalf("GetPolicy(%s) = false", connection.DefaultPolicyID)
+	}
+	if stored.Rules.RequireApproval {
+		t.Fatalf("stored policy rules = %+v, want require_approval=false", stored.Rules)
+	}
+
+	connections, err, handled := handler.Dispatch(ctx, "messaging.connections", nil)
+	if err != nil {
+		t.Fatalf("Dispatch(connections) error = %v", err)
+	}
+	if !handled {
+		t.Fatal("Dispatch(connections) handled = false, want true")
+	}
+	listedPolicies := connections.(map[string]interface{})["policies"].([]messaging.Policy)
+	if len(listedPolicies) != 1 || listedPolicies[0].ID != connection.DefaultPolicyID {
+		t.Fatalf("listed policies = %+v, want %s", listedPolicies, connection.DefaultPolicyID)
+	}
+}
+
 func TestHandlerConnectionLifecycleMethods(t *testing.T) {
 	t.Parallel()
 

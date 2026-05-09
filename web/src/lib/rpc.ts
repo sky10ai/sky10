@@ -366,6 +366,14 @@ export const codex = {
 export const messaging = {
   adapters: () => rpc<MessagingAdaptersResult>("messaging.adapters"),
   connections: () => rpc<MessagingConnectionsResult>("messaging.connections"),
+  updateConnectionPolicy: (p: {
+    connection_id: string;
+    rules: MessagingPolicyRules;
+  }) =>
+    rpc<MessagingUpdateConnectionPolicyResult>(
+      "messaging.updateConnectionPolicy",
+      p
+    ),
   runAdapterAction: (p: MessagingRunAdapterActionParams) =>
     rpc<MessagingRunAdapterActionResult>("messaging.runAdapterAction", p),
   deleteConnection: (p: { connection_id: string }) =>
@@ -914,9 +922,39 @@ export interface MessagingConnection {
   updated_at?: string;
 }
 
+export interface MessagingPolicyRules {
+  read_inbound: boolean;
+  create_drafts: boolean;
+  send_messages: boolean;
+  require_approval: boolean;
+  reply_only: boolean;
+  allow_new_conversations: boolean;
+  allow_attachments: boolean;
+  mark_read: boolean;
+  manage_messages: boolean;
+  allowed_container_ids?: string[];
+  search_identities: boolean;
+  search_conversations: boolean;
+  search_messages: boolean;
+  allowed_identity_ids?: string[];
+}
+
+export interface MessagingPolicy {
+  id: string;
+  name: string;
+  rules: MessagingPolicyRules;
+  metadata?: Record<string, string>;
+}
+
 export interface MessagingConnectionsResult {
   connections: MessagingConnection[];
   count: number;
+  policies?: MessagingPolicy[];
+}
+
+export interface MessagingUpdateConnectionPolicyResult {
+  connection: MessagingConnection;
+  policy: MessagingPolicy;
 }
 
 export interface MessagingValidationIssue {
