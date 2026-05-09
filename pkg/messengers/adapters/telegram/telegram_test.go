@@ -5,8 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,10 +48,63 @@ func TestParseConfigAppliesTelegramDefaults(t *testing.T) {
 	}
 }
 
+func TestTelegramAPIClientDeleteWebhookUsesJSONRequest(t *testing.T) {
+	t.Parallel()
+
+	var sawDropPending bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bot123:abc/deleteWebhook" {
+			t.Errorf("path = %q, want /bot123:abc/deleteWebhook", r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.Header.Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+			t.Errorf("Content-Type = %q, want application/json", got)
+			// The screenshot regression was an empty-body decode failure from
+			// the upstream multipart deleteWebhook path.
+			return
+		}
+		var body struct {
+			DropPendingUpdates bool `json:"drop_pending_updates"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request body: %v", err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		sawDropPending = body.DropPendingUpdates
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer server.Close()
+
+	client, err := newTelegramAPIClient(adapterConfig{
+		BotToken:           "123:abc",
+		APIBaseURL:         server.URL,
+		PollTimeoutSeconds: 1,
+	})
+	if err != nil {
+		t.Fatalf("newTelegramAPIClient() error = %v", err)
+	}
+	ok, err := client.DeleteWebhook(context.Background(), &tgbot.DeleteWebhookParams{
+		DropPendingUpdates: true,
+	})
+	if err != nil {
+		t.Fatalf("DeleteWebhook() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("DeleteWebhook() = false, want true")
+	}
+	if !sawDropPending {
+		t.Fatal("drop_pending_updates = false, want true")
+	}
+}
+
 func TestServerConnectDeletesWebhookAndListsIdentity(t *testing.T) {
 	t.Parallel()
 
 	fake := newFakeTelegramAPI()
+	fake.webhookInfo.URL = "https://telegram.example.test/hook"
 	server := newServer()
 	server.clientFactory = func(adapterConfig) (telegramAPI, error) { return fake, nil }
 
@@ -92,6 +148,26 @@ func TestServerConnectDeletesWebhookAndListsIdentity(t *testing.T) {
 	}
 	if len(listed.Identities) != 1 || listed.Identities[0].ID != connected.Identities[0].ID {
 		t.Fatalf("listed identities = %+v, want connected identity", listed.Identities)
+	}
+}
+
+func TestServerConnectSkipsWebhookDeleteWhenPollingAlreadyEnabled(t *testing.T) {
+	t.Parallel()
+
+	fake := newFakeTelegramAPI()
+	server := newServer()
+	server.clientFactory = func(adapterConfig) (telegramAPI, error) { return fake, nil }
+
+	resp := server.handle(context.Background(), rpcRequest(t, protocol.MethodConnect, protocol.ConnectParams{
+		Connection: telegramConnection(nil),
+		Paths:      protocol.RuntimePaths{BlobDir: t.TempDir()},
+		Credential: stagedCredential(t, `{"bot_token":"123:abc"}`),
+	}))
+	if resp.Error != nil {
+		t.Fatalf("connect error = %v", resp.Error)
+	}
+	if fake.deletedWebhook {
+		t.Fatal("DeleteWebhook called with no webhook and no drop-pending request")
 	}
 }
 
@@ -255,6 +331,7 @@ func TestServerSendTextMessage(t *testing.T) {
 
 type fakeTelegramAPI struct {
 	me             *models.User
+	webhookInfo    models.WebhookInfo
 	files          map[string]*models.File
 	updates        []models.Update
 	fileBytes      []byte
@@ -286,6 +363,11 @@ func newFakeTelegramAPI() *fakeTelegramAPI {
 
 func (f *fakeTelegramAPI) GetMe(context.Context) (*models.User, error) {
 	return f.me, nil
+}
+
+func (f *fakeTelegramAPI) GetWebhookInfo(context.Context) (*models.WebhookInfo, error) {
+	info := f.webhookInfo
+	return &info, nil
 }
 
 func (f *fakeTelegramAPI) DeleteWebhook(_ context.Context, params *tgbot.DeleteWebhookParams) (bool, error) {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -153,8 +154,14 @@ func (s *service) handleConnect(ctx context.Context, req messagingruntime.Reques
 	if err != nil {
 		return errorResponse(req.ID, -32001, fmt.Sprintf("validate telegram bot token: %v", err))
 	}
-	if _, err := client.DeleteWebhook(ctx, &tgbot.DeleteWebhookParams{DropPendingUpdates: cfg.DropPendingOnConnect}); err != nil {
-		return errorResponse(req.ID, -32001, fmt.Sprintf("delete telegram webhook: %v", err))
+	webhook, err := client.GetWebhookInfo(ctx)
+	if err != nil {
+		return errorResponse(req.ID, -32001, fmt.Sprintf("inspect telegram webhook: %v", err))
+	}
+	if shouldDeleteWebhook(webhook, cfg) {
+		if _, err := client.DeleteWebhook(ctx, &tgbot.DeleteWebhookParams{DropPendingUpdates: cfg.DropPendingOnConnect}); err != nil {
+			return errorResponse(req.ID, -32001, fmt.Sprintf("delete telegram webhook: %v", err))
+		}
 	}
 
 	identity := identityFromBot(cfg.ConnectionID, me)
@@ -174,6 +181,13 @@ func (s *service) handleConnect(ctx context.Context, req messagingruntime.Reques
 		Identities: []messaging.Identity{identity},
 		Metadata:   connectionMetadata(cfg, me),
 	})
+}
+
+func shouldDeleteWebhook(webhook *models.WebhookInfo, cfg adapterConfig) bool {
+	if cfg.DropPendingOnConnect {
+		return true
+	}
+	return webhook != nil && strings.TrimSpace(webhook.URL) != ""
 }
 
 func (s *service) handleRefresh(ctx context.Context, req messagingruntime.Request) messagingruntime.Response {

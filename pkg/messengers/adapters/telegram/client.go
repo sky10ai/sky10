@@ -20,6 +20,7 @@ import (
 
 type telegramAPI interface {
 	GetMe(context.Context) (*models.User, error)
+	GetWebhookInfo(context.Context) (*models.WebhookInfo, error)
 	DeleteWebhook(context.Context, *tgbot.DeleteWebhookParams) (bool, error)
 	GetUpdates(context.Context, getUpdatesRequest) ([]models.Update, error)
 	GetFile(context.Context, *tgbot.GetFileParams) (*models.File, error)
@@ -67,8 +68,16 @@ func (c *telegramAPIClient) GetMe(ctx context.Context) (*models.User, error) {
 	return c.bot.GetMe(ctx)
 }
 
+func (c *telegramAPIClient) GetWebhookInfo(ctx context.Context) (*models.WebhookInfo, error) {
+	return c.bot.GetWebhookInfo(ctx)
+}
+
 func (c *telegramAPIClient) DeleteWebhook(ctx context.Context, params *tgbot.DeleteWebhookParams) (bool, error) {
-	return c.bot.DeleteWebhook(ctx, params)
+	var result bool
+	if err := c.rawRequest(ctx, "deleteWebhook", params, &result); err != nil {
+		return false, err
+	}
+	return result, nil
 }
 
 func (c *telegramAPIClient) GetFile(ctx context.Context, params *tgbot.GetFileParams) (*models.File, error) {
