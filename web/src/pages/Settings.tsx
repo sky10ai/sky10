@@ -1,9 +1,6 @@
 import { Link } from "react-router";
 import { Icon } from "../components/Icon";
 import { SettingsPage } from "../components/SettingsPage";
-import { STORAGE_EVENT_TYPES } from "../lib/events";
-import { identity, skylink } from "../lib/rpc";
-import { useRPC, truncAddr } from "../lib/useRPC";
 
 const settingsTools = [
   {
@@ -39,6 +36,13 @@ const settingsTools = [
 ] as const;
 
 const settingsLinks = [
+  {
+    description: "Local identity and device peer",
+    icon: "fingerprint",
+    iconClassName: "bg-primary/10 text-primary",
+    label: "Identity",
+    to: "/settings/identity",
+  },
   {
     description: "Theme and display mode",
     icon: "palette",
@@ -98,21 +102,6 @@ const settingsLinks = [
 ] as const;
 
 export default function Settings() {
-  const { data: linkStatus } = useRPC(() => skylink.status(), [], {
-    refreshIntervalMs: 10_000,
-  });
-  const { data: idInfo } = useRPC(() => identity.show(), [], {
-    refreshIntervalMs: 10_000,
-  });
-  const { data: deviceData } = useRPC(() => identity.deviceList(), [], {
-    live: STORAGE_EVENT_TYPES,
-    refreshIntervalMs: 10_000,
-  });
-
-  const thisDevice = (deviceData?.devices ?? []).find(
-    (d) => d.id === deviceData?.this_device,
-  );
-
   return (
     <SettingsPage
       description="Manage node, integrations, and tools."
@@ -175,63 +164,6 @@ export default function Settings() {
           ))}
         </div>
       </section>
-
-      <div className="grid grid-cols-12 gap-6">
-        <section className="col-span-12 bg-surface-container-lowest rounded-xl p-8 flex flex-col justify-between group hover:shadow-xl transition-all duration-500 border border-transparent">
-          <div className="space-y-6">
-            <div className="flex justify-between items-start">
-              <div className="space-y-1">
-                <h3 className="text-xl font-semibold flex items-center gap-2">
-                  <Icon name="fingerprint" className="text-primary" />
-                  Identity
-                </h3>
-                <p className="text-sm text-secondary">
-                  Local identity.
-                </p>
-              </div>
-              <span className="bg-primary/10 text-primary px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest">
-                Active
-              </span>
-            </div>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
-                  Identity Address
-                </label>
-                <div className="flex items-center gap-3 bg-surface-container p-4 rounded-lg group/addr cursor-pointer">
-                  <code className="text-sm font-mono text-primary flex-1 break-all">
-                    {idInfo?.address ?? linkStatus?.address ?? "loading..."}
-                  </code>
-                  <Icon
-                    name="content_copy"
-                    className="text-secondary group-hover/addr:text-primary transition-colors"
-                  />
-                </div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
-                    Device Peer ID
-                  </label>
-                  <p className="font-mono text-xs text-on-surface bg-surface-container-low p-2 rounded truncate">
-                    {linkStatus?.peer_id
-                      ? truncAddr(linkStatus.peer_id)
-                      : "..."}
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
-                    Hostname
-                  </label>
-                  <p className="text-xs text-on-surface bg-surface-container-low p-2 rounded">
-                    {thisDevice?.name ?? "..."}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
     </SettingsPage>
   );
 }
