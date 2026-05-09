@@ -20,7 +20,26 @@ import (
 	"github.com/sky10/sky10/pkg/fs/opslog"
 )
 
-const maxDebugScreenshotBytes = 32 << 20
+const (
+	maxDebugScreenshotBytes     = 32 << 20
+	debugScreenshotRequestEvent = "debug.screenshot.request"
+)
+
+type debugScreenshotRequestParams struct {
+	Message string `json:"message,omitempty"`
+	Source  string `json:"source,omitempty"`
+}
+
+type debugScreenshotRequestResult struct {
+	Status         string `json:"status"`
+	RequestID      string `json:"request_id"`
+	RequestedAt    string `json:"requested_at"`
+	Event          string `json:"event"`
+	Message        string `json:"message,omitempty"`
+	Source         string `json:"source,omitempty"`
+	Subscribers    int    `json:"subscribers"`
+	WebSubscribers int    `json:"web_subscribers"`
+}
 
 type debugScreenshotParams struct {
 	CapturedAt  string                 `json:"captured_at"`
@@ -445,6 +464,44 @@ func (s *FSHandler) rpcDebugScreenshot(ctx context.Context, params json.RawMessa
 		Size:              int64(len(imageData)),
 		Width:             p.Width,
 	}, nil
+}
+
+func (s *FSHandler) rpcDebugRequestScreenshot(_ context.Context, params json.RawMessage) (interface{}, error) {
+	if s.server == nil {
+		return nil, fmt.Errorf("debug screenshot request requires RPC event server")
+	}
+
+	var p debugScreenshotRequestParams
+	if len(params) > 0 && string(params) != "null" {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("invalid params: %w", err)
+		}
+	}
+
+	requestedAt := time.Now().UTC()
+	requestID := fmt.Sprintf("debug-screenshot-%d", requestedAt.UnixNano())
+	message := strings.TrimSpace(p.Message)
+	source := strings.TrimSpace(p.Source)
+	if source == "" {
+		source = "rpc"
+	}
+
+	webSubscribers := s.server.HTTPSubscriberCount()
+	subscribers := s.server.SubscriberCount()
+	result := debugScreenshotRequestResult{
+		Status:         "requested",
+		RequestID:      requestID,
+		RequestedAt:    requestedAt.Format(time.RFC3339Nano),
+		Event:          debugScreenshotRequestEvent,
+		Message:        message,
+		Source:         source,
+		Subscribers:    subscribers,
+		WebSubscribers: webSubscribers,
+	}
+
+	s.server.Emit(debugScreenshotRequestEvent, result)
+	s.logger.Info("debug screenshot requested", "request_id", requestID, "web_subscribers", webSubscribers, "subscribers", subscribers)
+	return result, nil
 }
 
 func (s *FSHandler) rpcDebugList(ctx context.Context) (interface{}, error) {

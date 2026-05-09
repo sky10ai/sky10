@@ -215,6 +215,8 @@ func (s *FSHandler) Dispatch(ctx context.Context, method string, params json.Raw
 		result, err = s.rpcDriveState(ctx, params)
 	case "debug.dump", "skyfs.debugDump":
 		result, err = s.rpcDebugDump(ctx)
+	case "debug.requestScreenshot":
+		result, err = s.rpcDebugRequestScreenshot(ctx, params)
 	case "debug.screenshot", "skyfs.debugScreenshot":
 		result, err = s.rpcDebugScreenshot(ctx, params)
 	case "debug.list", "skyfs.debugList":

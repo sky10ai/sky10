@@ -1,6 +1,6 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { Link, useLocation } from "react-router";
-import { CODEX_EVENT_TYPES } from "../../lib/events";
+import { CODEX_EVENT_TYPES, subscribe } from "../../lib/events";
 import { executeRootAgentPrompt } from "../../lib/rootAgent";
 import {
   buildRootAgentTroubleshootingDoc,
@@ -35,6 +35,30 @@ function authLabelForStatus(authMode?: string, authLabel?: string) {
   return "AI";
 }
 
+type PendingScreenshotRequest = {
+  requestID: string;
+  requestedAt?: string;
+  message?: string;
+  source?: string;
+};
+
+function parseScreenshotRequest(data: unknown): PendingScreenshotRequest {
+  const payload =
+    data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+  const requestedAt =
+    typeof payload.requested_at === "string" ? payload.requested_at : undefined;
+  const requestID =
+    typeof payload.request_id === "string" && payload.request_id
+      ? payload.request_id
+      : `debug-screenshot-${Date.now()}`;
+  return {
+    message: typeof payload.message === "string" ? payload.message : undefined,
+    requestID,
+    requestedAt,
+    source: typeof payload.source === "string" ? payload.source : undefined,
+  };
+}
+
 export function RootAgentBubble() {
   const location = useLocation();
   const {
@@ -54,6 +78,8 @@ export function RootAgentBubble() {
   const [run, setRun] = useState<WorkspaceRun | null>(null);
   const [screenshot, setScreenshot] = useState<CapturedScreenshot | null>(null);
   const [captureBusy, setCaptureBusy] = useState(false);
+  const [pendingScreenshotRequest, setPendingScreenshotRequest] =
+    useState<PendingScreenshotRequest | null>(null);
 
   function refreshContext() {
     const next = collectRootAgentPageContext();
@@ -74,6 +100,19 @@ export function RootAgentBubble() {
       if (screenshot?.url) URL.revokeObjectURL(screenshot.url);
     };
   }, [screenshot]);
+
+  useEffect(() => {
+    return subscribe((event, data) => {
+      if (event !== "debug.screenshot.request") return;
+      const request = parseScreenshotRequest(data);
+      setPendingScreenshotRequest(request);
+      setOpen(true);
+      setStatus(request.message || "Debug screenshot requested.");
+      window.requestAnimationFrame(() => {
+        setPageContext(collectRootAgentPageContext());
+      });
+    });
+  }, []);
 
   const aiLinked = Boolean(codexStatus?.linked);
   const pendingCodexLogin = Boolean(codexStatus?.pending_login);
@@ -188,6 +227,7 @@ export function RootAgentBubble() {
       try {
         const upload = await buildDebugScreenshotUpload(next, context);
         const saved = await debug.screenshot(upload);
+        setPendingScreenshotRequest(null);
         if (saved.s3_error) {
           setStatus("Screenshot captured and saved locally. S3 sync failed.");
         } else if (saved.s3_synced) {
@@ -300,6 +340,44 @@ export function RootAgentBubble() {
               )}
               {status && <span className="truncate text-xs text-secondary">{status}</span>}
             </div>
+
+            {pendingScreenshotRequest && (
+              <div className="rounded-xl border border-primary/20 bg-primary-container/20 px-3 py-3">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary text-on-primary">
+                    <Icon name="photo_camera" className="text-base" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-on-surface">
+                      Debug screenshot requested
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-secondary">
+                      {pendingScreenshotRequest.message ||
+                        "Capture the current browser view for debugging."}
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-on-primary transition-colors hover:bg-primary/90 disabled:opacity-50"
+                        disabled={captureBusy}
+                        onClick={() => void captureScreenshot()}
+                        type="button"
+                      >
+                        <Icon name="photo_camera" className="text-sm" />
+                        Capture
+                      </button>
+                      <button
+                        className="inline-flex items-center gap-1 rounded-full px-2 py-1.5 text-xs font-semibold text-secondary transition-colors hover:bg-surface-container hover:text-on-surface"
+                        onClick={() => setPendingScreenshotRequest(null)}
+                        type="button"
+                      >
+                        <Icon name="close" className="text-sm" />
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {!codexStatusLoading && (!aiLinked || codexStatusError) && (
               <div className="rounded-xl border border-outline-variant/15 bg-surface px-3 py-3 text-sm leading-6 text-secondary">

@@ -96,6 +96,8 @@ export const debug = {
   dump: () => rpc<DebugDumpResult>("debug.dump"),
   list: () => rpc<DebugListResult>("debug.list"),
   get: (p: { key: string }) => rpc<DebugGetResult>("debug.get", p),
+  requestScreenshot: (p?: DebugScreenshotRequestParams) =>
+    rpc<DebugScreenshotRequestResult>("debug.requestScreenshot", p),
   screenshot: (p: DebugScreenshotParams) =>
     rpc<DebugScreenshotResult>("debug.screenshot", p),
 };
@@ -551,6 +553,22 @@ export interface DebugScreenshotParams {
   page_context?: unknown;
   size_bytes: number;
   width: number;
+}
+
+export interface DebugScreenshotRequestParams {
+  message?: string;
+  source?: string;
+}
+
+export interface DebugScreenshotRequestResult {
+  status: string;
+  request_id: string;
+  requested_at: string;
+  event: string;
+  message?: string;
+  source?: string;
+  subscribers: number;
+  web_subscribers: number;
 }
 
 export interface DebugDumpResult {

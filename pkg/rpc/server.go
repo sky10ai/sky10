@@ -175,6 +175,13 @@ func (s *Server) SubscriberCount() int {
 	return sockSubs + httpSubs
 }
 
+// HTTPSubscriberCount returns the number of web/SSE event subscribers.
+func (s *Server) HTTPSubscriberCount() int {
+	s.httpSubMu.RLock()
+	defer s.httpSubMu.RUnlock()
+	return len(s.httpSubs)
+}
+
 func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 	defer func() {
 		conn.Close()

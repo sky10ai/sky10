@@ -186,6 +186,46 @@ func TestRPCDebugScreenshotSavesLocallyWithoutStorage(t *testing.T) {
 	}
 }
 
+func TestRPCDebugRequestScreenshotEmitsWebRequest(t *testing.T) {
+	t.Setenv("SKY10_HOME", t.TempDir())
+	id, _ := GenerateDeviceKey()
+	store := New(nil, id)
+	server := skyrpc.NewServer(filepath.Join(t.TempDir(), "test.sock"), "test-version", nil)
+	handler := NewFSHandler(store, server, filepath.Join(t.TempDir(), "drives.json"), nil, nil)
+
+	params, err := json.Marshal(map[string]string{
+		"message": "capture the active sky10 screen",
+		"source":  "test",
+	})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+
+	raw, err, handled := handler.Dispatch(context.Background(), "debug.requestScreenshot", params)
+	if err != nil {
+		t.Fatalf("debug.requestScreenshot: %v", err)
+	}
+	if !handled {
+		t.Fatal("debug.requestScreenshot handled = false, want true")
+	}
+	result := raw.(debugScreenshotRequestResult)
+	if result.Status != "requested" {
+		t.Fatalf("status = %q, want requested", result.Status)
+	}
+	if result.Event != debugScreenshotRequestEvent {
+		t.Fatalf("event = %q, want %q", result.Event, debugScreenshotRequestEvent)
+	}
+	if result.RequestID == "" || result.RequestedAt == "" {
+		t.Fatalf("result missing request identity: %#v", result)
+	}
+	if result.Message != "capture the active sky10 screen" || result.Source != "test" {
+		t.Fatalf("result request context = %#v, want message/source preserved", result)
+	}
+	if result.WebSubscribers != 0 || result.Subscribers != 0 {
+		t.Fatalf("subscribers = %d/%d, want zero without connected UI", result.WebSubscribers, result.Subscribers)
+	}
+}
+
 func TestRPCDebugDumpSavesLocallyWithoutStorage(t *testing.T) {
 	t.Setenv("SKY10_HOME", t.TempDir())
 	id, _ := GenerateDeviceKey()
