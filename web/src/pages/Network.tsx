@@ -384,6 +384,43 @@ export default function Network() {
         )}
       </section>
 
+      {linkStatus && (
+        <section className="rounded-xl bg-primary p-6 text-on-primary shadow-sm">
+          <div className="grid gap-6 lg:grid-cols-[minmax(220px,0.8fr)_minmax(0,1fr)_minmax(220px,0.7fr)] lg:items-center">
+            <div className="space-y-2">
+              <h3 className="flex items-center gap-2 text-xl font-bold">
+                <Icon name="wifi_tethering" />
+                Skylink Mode
+              </h3>
+              <p className="text-xs text-primary-fixed-dim">
+                Cloud sync mode.
+              </p>
+            </div>
+            <div
+              className="flex rounded-full bg-on-primary-fixed-variant/40 p-1"
+              title="Mode is set at daemon startup via sky10 serve flags"
+            >
+              <div
+                className={`flex-1 rounded-full py-2 text-center text-xs font-bold ${linkStatus.mode === "private" ? "bg-on-primary text-primary" : "text-primary-fixed-dim"}`}
+              >
+                Private
+              </div>
+              <div
+                className={`flex-1 rounded-full py-2 text-center text-xs font-bold ${linkStatus.mode === "network" ? "bg-on-primary text-primary" : "text-primary-fixed-dim"}`}
+              >
+                Network
+              </div>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[10px] font-bold uppercase tracking-wider opacity-70">
+                Connected Peers
+              </p>
+              <p className="text-2xl font-bold">{linkStatus.peers}</p>
+            </div>
+          </div>
+        </section>
+      )}
+
       <div className="flex items-center gap-3">
         <input
           className="flex-1 rounded-lg border border-outline-variant/20 bg-surface-container px-4 py-2 font-mono text-sm text-on-surface outline-none focus:border-primary"

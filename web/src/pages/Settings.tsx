@@ -180,7 +180,7 @@ export default function Settings() {
       </section>
 
       <div className="grid grid-cols-12 gap-6">
-        <section className="col-span-12 lg:col-span-8 bg-surface-container-lowest rounded-xl p-8 flex flex-col justify-between group hover:shadow-xl transition-all duration-500 border border-transparent">
+        <section className="col-span-12 bg-surface-container-lowest rounded-xl p-8 flex flex-col justify-between group hover:shadow-xl transition-all duration-500 border border-transparent">
           <div className="space-y-6">
             <div className="flex justify-between items-start">
               <div className="space-y-1">
@@ -242,53 +242,6 @@ export default function Settings() {
             </div>
           </div>
         </section>
-
-        {linkStatus && (
-          <section className="col-span-12 lg:col-span-4 bg-primary text-on-primary rounded-xl p-8 flex flex-col gap-8 relative overflow-hidden">
-            <div className="relative z-10 space-y-2">
-              <h3 className="text-xl font-bold flex items-center gap-2">
-                <Icon name="wifi_tethering" />
-                Skylink Mode
-              </h3>
-              <p className="text-xs text-primary-fixed-dim">
-                Cloud sync mode.
-              </p>
-            </div>
-            <div
-              className="relative z-10 flex bg-on-primary-fixed-variant/40 p-1 rounded-full"
-              title="Mode is set at daemon startup via sky10 serve flags"
-            >
-              <div
-                className={`flex-1 py-2 text-xs font-bold rounded-full text-center ${linkStatus.mode === "private" ? "bg-on-primary text-primary" : "text-primary-fixed-dim"}`}
-              >
-                Private
-              </div>
-              <div
-                className={`flex-1 py-2 text-xs font-bold rounded-full text-center ${linkStatus.mode === "network" ? "bg-on-primary text-primary" : "text-primary-fixed-dim"}`}
-              >
-                Network
-              </div>
-            </div>
-            <div className="relative z-10 space-y-4">
-              <div className="space-y-1">
-                <p className="text-[10px] uppercase tracking-wider font-bold opacity-70">
-                  Connected Peers
-                </p>
-                <p className="text-2xl font-bold">{linkStatus.peers}</p>
-              </div>
-              <div className="space-y-2">
-                <p className="text-[10px] uppercase tracking-wider font-bold opacity-70">
-                  Listen Addresses
-                </p>
-                <div className="bg-on-primary/10 rounded p-2 font-mono text-[10px] space-y-1">
-                  {linkStatus.addrs.map((addr) => (
-                    <p key={addr}>{addr}</p>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
 
         <section className="col-span-12 bg-surface-container-lowest rounded-xl p-8 border border-transparent space-y-6">
           <div className="space-y-1">
