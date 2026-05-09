@@ -87,6 +87,8 @@ func (h *RPCHandler) Dispatch(ctx context.Context, method string, params json.Ra
 	var err error
 
 	switch method {
+	case "agent.create":
+		result, err = h.rpcCreate(ctx, params)
 	case "agent.register":
 		result, err = h.rpcRegister(ctx, params)
 	case "agent.deregister":

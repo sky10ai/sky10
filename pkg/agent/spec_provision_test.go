@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sky10/sky10/pkg/config"
 	skysandbox "github.com/sky10/sky10/pkg/sandbox"
 )
 
@@ -78,6 +79,49 @@ func TestAgentSpecProvisionCreatesSandboxWithFilesAndSecretBindings(t *testing.T
 		!sandboxFilesContain(provisioner.params.Files, "agent-manifest.json") ||
 		!sandboxFilesContain(provisioner.params.Files, "workspace/AGENTS.md") {
 		t.Fatalf("files = %#v, want compose.yaml, agent-manifest.json, and workspace/AGENTS.md", provisioner.params.Files)
+	}
+}
+
+func TestAgentCreateApprovesAndProvisionsFromPrompt(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	store := NewSpecStore(nil)
+	provisioner := &fakeSandboxProvisioner{}
+	h := newTestRPCHandler(t, newTestRegistry(), nil)
+	h.SetSpecStore(store)
+	h.SetSandboxProvisioner(provisioner)
+
+	params, err := json.Marshal(AgentCreateParams{Prompt: canonicalMediaAccentPrompt})
+	if err != nil {
+		t.Fatalf("Marshal create params: %v", err)
+	}
+	raw, err, handled := h.Dispatch(context.Background(), "agent.create", params)
+	if err != nil {
+		t.Fatalf("Dispatch(agent.create) error: %v", err)
+	}
+	if !handled {
+		t.Fatal("agent.create handled = false, want true")
+	}
+	result := raw.(*AgentCreateResult)
+	if result.Spec.Status != SpecStatusApproved || result.Spec.ApprovedAt == "" {
+		t.Fatalf("created spec = %#v, want approved spec", result.Spec)
+	}
+	if result.Sandbox == nil || result.Sandbox.Status != "creating" {
+		t.Fatalf("sandbox result = %#v, want creating sandbox", result.Sandbox)
+	}
+	if result.Compile == nil || result.Compile.Runtime.Template != "openclaw-docker" {
+		t.Fatalf("compile result = %#v, want openclaw-docker runtime", result.Compile)
+	}
+	if !provisioner.called {
+		t.Fatal("sandbox provisioner was not called")
+	}
+
+	list, err := store.List(context.Background(), AgentSpecListParams{Limit: 10})
+	if err != nil {
+		t.Fatalf("List() error: %v", err)
+	}
+	if len(list.Specs) != 1 || list.Specs[0].Status != SpecStatusApproved {
+		t.Fatalf("stored specs = %#v, want one approved spec", list.Specs)
 	}
 }
 

@@ -149,6 +149,8 @@ export const secrets = {
 
 // -- agent --
 export const agent = {
+  create: (p: AgentCreateParams) =>
+    rpc<AgentCreateResult>("agent.create", p),
   list: () => rpc<AgentListResult>("agent.list"),
   status: () => rpc<AgentStatus>("agent.status"),
   send: (p: AgentSendParams) => rpc<AgentSendResult>("agent.send", p),
@@ -1232,6 +1234,16 @@ export interface AgentSpecListResult {
 
 export interface AgentSpecCreateParams {
   prompt: string;
+}
+
+export interface AgentCreateParams {
+  prompt: string;
+}
+
+export interface AgentCreateResult {
+  spec: AgentSpec;
+  compile?: AgentSpecCompileResult;
+  sandbox?: SandboxRecord;
 }
 
 export interface AgentSpecGetParams {

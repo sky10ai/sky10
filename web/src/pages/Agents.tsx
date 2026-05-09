@@ -154,7 +154,7 @@ function SpecReview({
         <div className="min-w-0">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <h2 className="text-lg font-semibold text-on-surface">
-              Spec review
+              Agent contract
             </h2>
             <span className="rounded-full bg-surface-container-high px-3 py-1 text-xs font-semibold uppercase text-secondary">
               {spec.status}
@@ -330,7 +330,12 @@ function SpecReview({
 
 export default function Agents() {
   const navigate = useNavigate();
-  const { data, loading, error } = useRPC(() => agent.list(), [], {
+  const {
+    data,
+    loading,
+    error,
+    refetch: refetchAgents,
+  } = useRPC(() => agent.list(), [], {
     live: AGENT_EVENT_TYPES,
     refreshIntervalMs: 5_000,
   });
@@ -350,6 +355,7 @@ export default function Agents() {
   const [hiddenSpecIDs, setHiddenSpecIDs] = useState<Set<string>>(
     () => new Set(),
   );
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const agents = data?.agents ?? [];
   const specs = (specData?.specs ?? []).filter(
@@ -360,6 +366,7 @@ export default function Agents() {
 
   function viewSpec(spec: AgentSpec) {
     setSelectedSpec(spec);
+    setAdvancedOpen(true);
     window.setTimeout(() => {
       document
         .getElementById("agent-spec-review")
@@ -451,16 +458,23 @@ export default function Agents() {
     const trimmed = nextPrompt.trim();
     if (!trimmed) return;
 
-    setBuilderStatus("Creating spec...");
+    setBuilderStatus("Creating agent...");
     try {
-      const result = await agent.spec.create({ prompt: trimmed });
-      setSelectedSpec(result.spec);
+      const result = await agent.create({ prompt: trimmed });
+      setSelectedSpec(null);
       setPrompt("");
-      setBuilderStatus("Spec saved.");
+      setBuilderStatus(
+        result.sandbox
+          ? `${result.spec.name} is provisioning in ${result.sandbox.name}.`
+          : `${result.spec.name} created.`,
+      );
       refetchSpecs({ background: true });
+      refetchAgents({ background: true });
     } catch (submitError) {
       setBuilderStatus(
-        submitError instanceof Error ? submitError.message : "Spec failed",
+        submitError instanceof Error
+          ? submitError.message
+          : "Agent creation failed",
       );
     }
   }
@@ -471,7 +485,7 @@ export default function Agents() {
     try {
       const result = await agent.spec.update({ spec: selectedSpec });
       setSelectedSpec(result.spec);
-      setBuilderStatus("Spec updated.");
+      setBuilderStatus("Contract updated.");
       refetchSpecs({ background: true });
     } catch (saveError) {
       setBuilderStatus(
@@ -488,7 +502,7 @@ export default function Agents() {
     try {
       const result = await agent.spec.approve({ id: selectedSpec.id });
       setSelectedSpec(result.spec);
-      setBuilderStatus("Spec approved.");
+      setBuilderStatus("Contract approved.");
       refetchSpecs({ background: true });
     } catch (approveError) {
       setBuilderStatus(
@@ -505,7 +519,7 @@ export default function Agents() {
     try {
       const result = await agent.spec.discard({ id: selectedSpec.id });
       setSelectedSpec(result.spec);
-      setBuilderStatus("Spec discarded.");
+      setBuilderStatus("Contract discarded.");
       refetchSpecs({ background: true });
     } catch (discardError) {
       setBuilderStatus(
@@ -528,7 +542,7 @@ export default function Agents() {
     setReviewBusy("Deleting...");
     try {
       await agent.spec.delete({ id: spec.id });
-      setBuilderStatus("Spec deleted.");
+      setBuilderStatus("Contract deleted.");
       refetchSpecs({ background: true });
     } catch (deleteError) {
       setHiddenSpecIDs((current) => {
@@ -634,66 +648,79 @@ export default function Agents() {
 
         {run && <RunCard onPromptSelect={setPrompt} run={run} />}
 
-        {selectedSpec && (
-          <SpecReview
-            busy={reviewBusy}
-            onApprove={() => void approveSelectedSpec()}
-            onChange={setSelectedSpec}
-            onDiscard={() => void discardSelectedSpec()}
-            onSave={() => void saveSelectedSpec()}
-            spec={selectedSpec}
-          />
-        )}
+        {(selectedSpec || specs.length > 0) && (
+          <details
+            className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-5 shadow-sm"
+            onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+            open={advancedOpen}
+          >
+            <summary className="cursor-pointer text-sm font-semibold text-secondary">
+              Advanced agent contracts
+            </summary>
+            <div className="mt-5 space-y-5">
+              {selectedSpec && (
+                <SpecReview
+                  busy={reviewBusy}
+                  onApprove={() => void approveSelectedSpec()}
+                  onChange={setSelectedSpec}
+                  onDiscard={() => void discardSelectedSpec()}
+                  onSave={() => void saveSelectedSpec()}
+                  spec={selectedSpec}
+                />
+              )}
 
-        {specs.length > 0 && (
-          <div className="space-y-3">
-            <h2 className="text-lg font-semibold text-on-surface">
-              Recent specs
-            </h2>
-            <div className="grid gap-3 md:grid-cols-2">
-              {specs.map((specItem) => (
-                <div
-                  className={`min-w-0 rounded-xl bg-surface-container-lowest p-4 text-left shadow-sm ring-1 transition-colors ${
-                    selectedSpec?.id === specItem.id
-                      ? "ring-primary/35"
-                      : "ring-outline-variant/10 hover:ring-primary/20"
-                  }`}
-                  key={specItem.id}
-                >
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <p className="truncate text-sm font-semibold text-on-surface">
-                      {specItem.name}
-                    </p>
-                    <span className="rounded-full bg-surface-container px-2.5 py-1 text-[10px] font-bold uppercase text-secondary">
-                      {specItem.status}
-                    </span>
-                  </div>
-                  <p className="line-clamp-2 text-xs leading-5 text-secondary">
-                    {specItem.description}
-                  </p>
-                  <div className="mt-4 flex flex-wrap justify-end gap-2">
-                    <button
-                      className="inline-flex items-center gap-1.5 rounded-full border border-outline-variant/20 px-3 py-1.5 text-xs font-semibold text-on-surface transition-colors hover:bg-surface-container"
-                      onClick={() => viewSpec(specItem)}
-                      type="button"
-                    >
-                      <Icon name="visibility" className="text-sm" />
-                      View
-                    </button>
-                    <button
-                      className="inline-flex items-center gap-1.5 rounded-full border border-outline-variant/20 px-3 py-1.5 text-xs font-semibold text-error transition-colors hover:bg-error-container/20 disabled:opacity-50"
-                      disabled={reviewBusy === "Deleting..."}
-                      onClick={() => void deleteSpec(specItem)}
-                      type="button"
-                    >
-                      <Icon name="delete" className="text-sm" />
-                      Delete
-                    </button>
+              {specs.length > 0 && (
+                <div className="space-y-3">
+                  <h2 className="text-lg font-semibold text-on-surface">
+                    Saved contracts
+                  </h2>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {specs.map((specItem) => (
+                      <div
+                        className={`min-w-0 rounded-xl bg-surface p-4 text-left ring-1 transition-colors ${
+                          selectedSpec?.id === specItem.id
+                            ? "ring-primary/35"
+                            : "ring-outline-variant/10 hover:ring-primary/20"
+                        }`}
+                        key={specItem.id}
+                      >
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <p className="truncate text-sm font-semibold text-on-surface">
+                            {specItem.name}
+                          </p>
+                          <span className="rounded-full bg-surface-container px-2.5 py-1 text-[10px] font-bold uppercase text-secondary">
+                            {specItem.status}
+                          </span>
+                        </div>
+                        <p className="line-clamp-2 text-xs leading-5 text-secondary">
+                          {specItem.description}
+                        </p>
+                        <div className="mt-4 flex flex-wrap justify-end gap-2">
+                          <button
+                            className="inline-flex items-center gap-1.5 rounded-full border border-outline-variant/20 px-3 py-1.5 text-xs font-semibold text-on-surface transition-colors hover:bg-surface-container"
+                            onClick={() => viewSpec(specItem)}
+                            type="button"
+                          >
+                            <Icon name="visibility" className="text-sm" />
+                            View
+                          </button>
+                          <button
+                            className="inline-flex items-center gap-1.5 rounded-full border border-outline-variant/20 px-3 py-1.5 text-xs font-semibold text-error transition-colors hover:bg-error-container/20 disabled:opacity-50"
+                            disabled={reviewBusy === "Deleting..."}
+                            onClick={() => void deleteSpec(specItem)}
+                            type="button"
+                          >
+                            <Icon name="delete" className="text-sm" />
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ))}
+              )}
             </div>
-          </div>
+          </details>
         )}
       </section>
 

@@ -128,6 +128,10 @@ type AgentSpecCreateParams struct {
 	Prompt string `json:"prompt"`
 }
 
+type AgentCreateParams struct {
+	Prompt string `json:"prompt"`
+}
+
 type AgentSpecGetParams struct {
 	ID string `json:"id"`
 }

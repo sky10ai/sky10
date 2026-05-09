@@ -20,13 +20,55 @@ type AgentSpecProvisionResult struct {
 	Sandbox *skysandbox.Record      `json:"sandbox,omitempty"`
 }
 
-func (h *RPCHandler) rpcSpecProvision(ctx context.Context, params json.RawMessage) (interface{}, error) {
+type AgentCreateResult struct {
+	Spec    AgentSpec               `json:"spec"`
+	Compile *AgentSpecCompileResult `json:"compile,omitempty"`
+	Sandbox *skysandbox.Record      `json:"sandbox,omitempty"`
+}
+
+func (h *RPCHandler) rpcCreate(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	store, err := h.requireSpecStore()
+	if err != nil {
+		return nil, err
+	}
 	if h.sandbox == nil {
 		return nil, fmt.Errorf("sandbox provisioner is not configured")
 	}
+
+	var p AgentCreateParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	created, err := store.Create(ctx, AgentSpecCreateParams{Prompt: p.Prompt})
+	if err != nil {
+		return nil, err
+	}
+	approved, err := store.Approve(ctx, created.Spec.ID)
+	if err != nil {
+		return nil, err
+	}
+	provisioned, err := h.provisionApprovedSpec(ctx, approved.Spec)
+	if err != nil {
+		return nil, err
+	}
+	return &AgentCreateResult{
+		Spec:    provisioned.Spec,
+		Compile: provisioned.Compile,
+		Sandbox: provisioned.Sandbox,
+	}, nil
+}
+
+func (h *RPCHandler) rpcSpecProvision(ctx context.Context, params json.RawMessage) (interface{}, error) {
 	spec, err := h.resolveSpecForRuntimeAction(ctx, params)
 	if err != nil {
 		return nil, err
+	}
+	return h.provisionApprovedSpec(ctx, spec)
+}
+
+func (h *RPCHandler) provisionApprovedSpec(ctx context.Context, spec AgentSpec) (*AgentSpecProvisionResult, error) {
+	if h.sandbox == nil {
+		return nil, fmt.Errorf("sandbox provisioner is not configured")
 	}
 	if spec.Status != SpecStatusApproved {
 		return nil, fmt.Errorf("agent spec %q must be approved before provisioning", spec.ID)
