@@ -99,6 +99,10 @@ class ChatWebSocketUnavailableError extends Error {
   }
 }
 
+function chatWebSocketIsUsable(socket: WebSocket | null) {
+  return socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING;
+}
+
 // uuid() is only available in secure contexts (HTTPS or
 // localhost). Fall back to getRandomValues for plain HTTP hosts like
 // http://linuxvm:9101.
@@ -887,6 +891,7 @@ export default function AgentChat() {
     if (!agentInfoID || !agentReady) {
       if (
         activeChatWebSocketURL &&
+        !chatWebSocketIsUsable(websocketRef.current) &&
         !sending &&
         !waiting &&
         pendingWSRequestsRef.current.size === 0
@@ -901,6 +906,9 @@ export default function AgentChat() {
       return;
     }
     if (activeChatWebSocketURL === desiredChatWebSocketURL) return;
+    if (activeChatWebSocketURL && chatWebSocketIsUsable(websocketRef.current)) {
+      return;
+    }
     if (
       activeChatWebSocketURL &&
       (sending || waiting || pendingWSRequestsRef.current.size > 0)
@@ -911,7 +919,6 @@ export default function AgentChat() {
   }, [activeChatWebSocketURL, agentInfoID, agentReady, desiredChatWebSocketURL, sending, waiting]);
 
   useEffect(() => {
-    if (!agentInfoID || !agentReady) return;
     if (!activeChatWebSocketURL) {
       setTransport("connecting");
       return;
@@ -965,7 +972,7 @@ export default function AgentChat() {
       }
       socket.close(1000, "chat closed");
     };
-  }, [activeChatWebSocketURL, agentInfoID, agentReady, websocketRetryToken]);
+  }, [activeChatWebSocketURL, websocketRetryToken]);
 
   useEffect(() => {
     return subscribe((event, data) => {

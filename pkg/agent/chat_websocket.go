@@ -13,7 +13,10 @@ import (
 	"github.com/coder/websocket/wsjson"
 )
 
-const chatWebSocketReadLimit = 64 << 20
+const (
+	chatWebSocketReadLimit       = 64 << 20
+	chatWebSocketKeepalivePeriod = 25 * time.Second
+)
 
 type chatWSRequest struct {
 	Type   string          `json:"type"`
@@ -152,10 +155,23 @@ func (h *ChatWebSocketHandler) HandleChat(w http.ResponseWriter, r *http.Request
 		}
 	}()
 
+	keepalive := time.NewTicker(chatWebSocketKeepalivePeriod)
+	defer keepalive.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-keepalive.C:
+			if err := wsjson.Write(ctx, conn, chatWSEvent{
+				Type:  "event",
+				Event: "keepalive",
+				Payload: map[string]string{
+					"session_id": sessionID,
+				},
+			}); err != nil {
+				return
+			}
 		case err := <-readErrCh:
 			if err == nil {
 				return

@@ -60,21 +60,55 @@ let root: Root | null = null;
 let fetchCalls: FetchCall[] = [];
 
 type FetchSetupOptions = {
-  agentList?: "ready" | "pending" | "booting";
+  agentList?: "ready" | "pending" | "booting" | "manifest" | Array<"ready" | "pending" | "booting" | "manifest">;
   sandboxList?: "ready" | "pending";
   sendLiveTransport?: string;
 };
 
 class FakeEventSource {
+  static instances: FakeEventSource[] = [];
   onmessage: ((event: MessageEvent) => void) | null = null;
+  private listeners = new Map<string, Set<(event: MessageEvent) => void>>();
 
-  constructor(public url: string) {}
+  constructor(public url: string) {
+    FakeEventSource.instances.push(this);
+  }
 
-  addEventListener(_type: string, _listener: (event: MessageEvent) => void) {}
+  addEventListener(type: string, listener: (event: MessageEvent) => void) {
+    const listeners = this.listeners.get(type) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
 
-  removeEventListener(_type: string, _listener: (event: MessageEvent) => void) {}
+  removeEventListener(type: string, listener: (event: MessageEvent) => void) {
+    this.listeners.get(type)?.delete(listener);
+  }
 
   close() {}
+
+  emit(type: string, data: unknown = {}) {
+    const event = {
+      data: JSON.stringify({ event: type, data }),
+    } as MessageEvent;
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(event);
+    }
+    if (type === "message") {
+      this.onmessage?.(event);
+    }
+  }
+
+  static latest(): FakeEventSource {
+    const latest = FakeEventSource.instances[FakeEventSource.instances.length - 1];
+    if (!latest) {
+      throw new Error("expected a fake EventSource instance");
+    }
+    return latest;
+  }
+
+  static reset() {
+    FakeEventSource.instances = [];
+  }
 }
 
 class FakeWebSocket {
@@ -188,6 +222,7 @@ function rpcResult(id: number, result: unknown) {
 
 function setupFetch(options: FetchSetupOptions = {}) {
   fetchCalls = [];
+  let agentListCalls = 0;
   globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body ?? "{}")) as {
       id: number;
@@ -198,33 +233,54 @@ function setupFetch(options: FetchSetupOptions = {}) {
 
     switch (body.method) {
       case "agent.list":
-        if (options.agentList === "pending") {
+        const agentListMode = Array.isArray(options.agentList)
+          ? options.agentList[Math.min(agentListCalls, options.agentList.length - 1)]
+          : options.agentList;
+        agentListCalls += 1;
+        if (agentListMode === "pending") {
           return await new Promise<Response>(() => {});
         }
         return rpcResult(body.id, {
-          agents: [{
-            id: "A-agent",
-            name: "agent-1",
-            device_id: "D-guest",
-            device_name: "Guest VM",
-            skills: ["code"],
-            status: options.agentList === "booting" ? "creating" : "connected",
-            connected_at: "2026-04-18T12:00:00Z",
-            sandbox: options.agentList === "booting"
-              ? {
+          agents: agentListMode === "manifest"
+            ? [{
+                id: "aspec_agent",
+                name: "agent-1",
+                device_id: "D-guest",
+                device_name: "Guest VM manifest",
+                skills: ["code", "agent.run"],
+                status: "connected",
+                connected_at: "2026-04-18T12:00:00Z",
+                sandbox: {
                   name: "agent-1",
                   slug: "agent-1",
                   provider: "lima",
                   template: "openclaw-docker",
-                  status: "creating",
-                  progress: {
-                    step_id: "vm.start",
-                    summary: "Booting device...",
-                    percent: 35,
-                  },
-                }
-              : undefined,
-          }],
+                  status: "ready",
+                },
+              }]
+            : [{
+                id: "A-agent",
+                name: "agent-1",
+                device_id: "D-guest",
+                device_name: "Guest VM",
+                skills: ["code"],
+                status: agentListMode === "booting" ? "creating" : "connected",
+                connected_at: "2026-04-18T12:00:00Z",
+                sandbox: agentListMode === "booting"
+                  ? {
+                      name: "agent-1",
+                      slug: "agent-1",
+                      provider: "lima",
+                      template: "openclaw-docker",
+                      status: "creating",
+                      progress: {
+                        step_id: "vm.start",
+                        summary: "Booting device...",
+                        percent: 35,
+                      },
+                    }
+                  : undefined,
+              }],
           count: 1,
         });
       case "sandbox.list":
@@ -302,6 +358,7 @@ describe("AgentChat page", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
     localStorage.clear();
+    FakeEventSource.reset();
     FakeWebSocket.reset();
     setupFetch();
     globalThis.EventSource = FakeEventSource as unknown as typeof EventSource;
@@ -331,6 +388,7 @@ describe("AgentChat page", () => {
     HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
     (HTMLElement.prototype as { attachEvent?: ((...args: unknown[]) => void) | undefined }).attachEvent = originalAttachEvent;
     (HTMLElement.prototype as { detachEvent?: ((...args: unknown[]) => void) | undefined }).detachEvent = originalDetachEvent;
+    FakeEventSource.reset();
     FakeWebSocket.reset();
   });
 
@@ -467,6 +525,24 @@ describe("AgentChat page", () => {
     await waitFor(() => FakeWebSocket.instances.length > 0, "chat websocket from route state");
     expect(page.textContent).toContain("agent-1");
     expect(FakeWebSocket.latest().url).toContain("/rpc/agents/A-agent/chat");
+  });
+
+  test("keeps the active chat websocket while inventory flickers to manifest fallback", async () => {
+    setupFetch({ agentList: ["ready", "manifest"] });
+    localStorage.setItem("sky10:session:agent-1", "session-flicker");
+
+    const page = await renderAgentChatPage();
+    await waitFor(() => FakeWebSocket.instances.length === 1, "initial chat websocket");
+    expect(FakeWebSocket.latest().url).toContain("/rpc/agents/A-agent/chat");
+
+    await act(async () => {
+      FakeEventSource.latest().emit("sandbox:state", { slug: "agent-1" });
+    });
+    await waitFor(() => page.textContent?.includes("Guest VM manifest") === true, "manifest fallback header");
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(FakeWebSocket.latest().url).toContain("/rpc/agents/A-agent/chat");
+    expect(FakeWebSocket.latest().url).not.toContain("/rpc/agents/aspec_agent/chat");
   });
 
   test("tracks sandbox boot progress and blocks chat until the sandbox is ready", async () => {

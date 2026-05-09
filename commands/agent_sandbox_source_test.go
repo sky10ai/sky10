@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"testing"
+	"time"
 
 	skyagent "github.com/sky10/sky10/pkg/agent"
 	skysandbox "github.com/sky10/sky10/pkg/sandbox"
@@ -266,6 +267,88 @@ func TestSandboxAgentSourceListsManifestToolsBeforeGuestAgentIsReady(t *testing.
 	}
 	if _, ok := source.Resolve(context.Background(), "media-accent-agent"); ok {
 		t.Fatal("Resolve(media-accent-agent) = true before guest endpoint is reachable, want false")
+	}
+}
+
+func TestSandboxAgentSourceKeepsLiveRouteWhenListFallsBackToManifest(t *testing.T) {
+	failGuestList := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if failGuestList {
+			http.Error(w, "guest temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"result": map[string]interface{}{
+				"agents": []skyagent.AgentInfo{{
+					ID:       "A-live",
+					Name:     "media-accent-agent",
+					DeviceID: "D-guest",
+					Skills:   []string{"media.convert"},
+				}},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	host, port := hostPortFromTestURL(t, srv.URL)
+	source := newSandboxAgentSource(fakeSandboxAgentLister{
+		result: &skysandbox.ListResult{Sandboxes: []skysandbox.Record{{
+			Name:          "media-accent-agent",
+			Slug:          "media-accent-agent",
+			Status:        "ready",
+			VMStatus:      "Running",
+			GuestDeviceID: "D-guest",
+			ForwardedEndpoints: []skysandbox.ForwardedEndpoint{{
+				Name:     skysandbox.ForwardedEndpointSky10,
+				Host:     host,
+				HostPort: port,
+			}},
+			Files: []skysandbox.SharedFile{{
+				Path: "agent-manifest.json",
+				Content: `{
+  "id": "aspec_media",
+  "name": "media-accent-agent",
+  "tools": [{
+    "name": "media.convert",
+    "capability": "media.transcode"
+  }]
+}`,
+			}},
+		}}},
+	}, nil)
+
+	agents := source.ListAgents(context.Background())
+	if len(agents) != 1 {
+		t.Fatalf("agents length = %d, want 1", len(agents))
+	}
+	if agents[0].ID != "A-live" || len(agents[0].Skills) != 1 {
+		t.Fatalf("initial agent = %#v, want live identity with one skill", agents[0])
+	}
+
+	failGuestList = true
+	source.mu.Lock()
+	source.cachedAt = source.cachedAt.Add(-time.Hour)
+	source.mu.Unlock()
+
+	agents = source.ListAgents(context.Background())
+	if len(agents) != 1 {
+		t.Fatalf("agents length after fallback = %d, want 1", len(agents))
+	}
+	if agents[0].ID != "aspec_media" {
+		t.Fatalf("agent ID after fallback = %q, want manifest ID aspec_media", agents[0].ID)
+	}
+	if len(agents[0].Skills) != 2 {
+		t.Fatalf("skills after fallback = %#v, want manifest-derived two-skill diagnostic", agents[0].Skills)
+	}
+
+	target, ok := source.Resolve(context.Background(), "A-live")
+	if !ok {
+		t.Fatal("Resolve(A-live) = false after manifest fallback, want cached live route")
+	}
+	if target.Agent.ID != "A-live" || target.BaseURL != srv.URL {
+		t.Fatalf("target after fallback = %#v, want cached live route at %q", target, srv.URL)
 	}
 }
 

@@ -282,8 +282,9 @@ func (s *sandboxAgentSource) queryAgents(ctx context.Context) ([]skyagent.AgentI
 	}
 
 	type queryResult struct {
-		targets []sandboxAgentTarget
-		err     error
+		targets          []sandboxAgentTarget
+		routeOnlyTargets []sandboxAgentTarget
+		err              error
 	}
 
 	results := make(chan queryResult, len(listed.Sandboxes))
@@ -302,8 +303,9 @@ func (s *sandboxAgentSource) queryAgents(ctx context.Context) ([]skyagent.AgentI
 			continue
 		}
 		manifestTargets = sandboxManifestAgentTargets(rec, baseURL)
+		routeOnlyTargets := s.cachedRouteTargetsForSandbox(rec, baseURL)
 		launched++
-		go func(rec skysandbox.Record, baseURL string, manifestTargets []sandboxAgentTarget) {
+		go func(rec skysandbox.Record, baseURL string, manifestTargets, routeOnlyTargets []sandboxAgentTarget) {
 			targets, err := s.querySandboxAgents(ctx, rec, baseURL)
 			if err != nil && len(manifestTargets) > 0 {
 				targets = manifestTargets
@@ -315,8 +317,8 @@ func (s *sandboxAgentSource) queryAgents(ctx context.Context) ([]skyagent.AgentI
 					targets = enrichSandboxTargetsWithManifest(targets, manifestTargets[0].Agent)
 				}
 			}
-			results <- queryResult{targets: targets, err: err}
-		}(rec, baseURL, manifestTargets)
+			results <- queryResult{targets: targets, routeOnlyTargets: routeOnlyTargets, err: err}
+		}(rec, baseURL, manifestTargets, routeOnlyTargets)
 	}
 
 	var firstErr error
@@ -342,6 +344,16 @@ func (s *sandboxAgentSource) queryAgents(ctx context.Context) ([]skyagent.AgentI
 					targetsBy[key] = target
 				}
 			}
+			for _, target := range result.routeOnlyTargets {
+				if !sandboxAgentConnectable(target.Sandbox) {
+					continue
+				}
+				for _, key := range sandboxAgentTargetKeys(target.Agent) {
+					if _, exists := targetsBy[key]; !exists {
+						targetsBy[key] = target
+					}
+				}
+			}
 		}
 	}
 
@@ -349,6 +361,47 @@ func (s *sandboxAgentSource) queryAgents(ctx context.Context) ([]skyagent.AgentI
 		return nil, nil, firstErr
 	}
 	return agents, targetsBy, nil
+}
+
+func (s *sandboxAgentSource) cachedRouteTargetsForSandbox(rec skysandbox.Record, baseURL string) []sandboxAgentTarget {
+	if s == nil || !sandboxAgentConnectable(rec) {
+		return nil
+	}
+
+	s.mu.RLock()
+	candidates := make([]sandboxAgentTarget, 0, len(s.targetsBy))
+	seen := make(map[string]struct{}, len(s.targetsBy))
+	for _, target := range s.targetsBy {
+		if !sandboxTargetMatchesRecord(target, rec) {
+			continue
+		}
+		key := strings.TrimSpace(target.Agent.DeviceID) + "\x00" + strings.TrimSpace(target.Agent.ID) + "\x00" + strings.TrimSpace(target.Agent.Name)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		target.Sandbox = rec
+		if strings.TrimSpace(baseURL) != "" {
+			target.BaseURL = baseURL
+		}
+		candidates = append(candidates, target)
+	}
+	s.mu.RUnlock()
+
+	return candidates
+}
+
+func sandboxTargetMatchesRecord(target sandboxAgentTarget, rec skysandbox.Record) bool {
+	if target.Agent.Sandbox != nil {
+		if slug := strings.TrimSpace(rec.Slug); slug != "" && target.Agent.Sandbox.Slug == slug {
+			return true
+		}
+		if name := strings.TrimSpace(rec.Name); name != "" && target.Agent.Sandbox.Name == name {
+			return true
+		}
+	}
+	recordDeviceID := strings.TrimSpace(rec.GuestDeviceID)
+	return recordDeviceID != "" && strings.TrimSpace(target.Agent.DeviceID) == recordDeviceID
 }
 
 func appendSandboxAgentTargets(agents []skyagent.AgentInfo, targetsBy map[string]sandboxAgentTarget, targets []sandboxAgentTarget) ([]skyagent.AgentInfo, map[string]sandboxAgentTarget) {
