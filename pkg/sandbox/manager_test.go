@@ -2081,6 +2081,18 @@ func TestBundledHermesBridgeAssetRegistersWithSky10(t *testing.T) {
 	if !strings.Contains(script, "media_part_from_file") {
 		t.Fatalf("bundled Hermes bridge missing local artifact file encoding: %q", script)
 	}
+	if !strings.Contains(script, `DEFAULT_MESSAGING_ENDPOINT_PATH = "/bridge/messengers/ws"`) {
+		t.Fatalf("bundled Hermes bridge missing guest-local messaging bridge endpoint: %q", script)
+	}
+	if !strings.Contains(script, `"messengers.list_connections"`) {
+		t.Fatalf("bundled Hermes bridge missing messenger connection listing: %q", script)
+	}
+	if !strings.Contains(script, `"messengers.create_draft"`) || !strings.Contains(script, `"messengers.request_send"`) {
+		t.Fatalf("bundled Hermes bridge missing messenger reply path: %q", script)
+	}
+	if !strings.Contains(script, "hermes_content_from_messaging_message") {
+		t.Fatalf("bundled Hermes bridge missing messenger content normalization: %q", script)
+	}
 }
 
 func TestBundledOpenClawChannelAssetSupportsStructuredAttachments(t *testing.T) {

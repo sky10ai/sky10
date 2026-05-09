@@ -27,8 +27,24 @@ Existing Go HTTP/JSON-RPC methods remain the canonical backend contract:
 - `system.*`
 - `secrets.*`
 - `apps.*`
+- `messaging.*`
 
 These methods already represent most of the real work the system can perform.
+
+Messaging is a gateway capability, not a runtime capability. Platform adapters
+for Telegram, Slack, IMAP/SMTP, and future messaging apps live southbound of
+the Sky10 messaging broker. The broker owns credentials, policy, approvals,
+normalized storage, and audit. AI runtimes consume only narrowed bridge/shim
+surfaces:
+
+- OpenClaw can present a platform as a native channel app when the runtime has
+  a channel plugin, such as the Telegram channel.
+- Hermes consumes exposed platform events through its Sky10 bridge and sends
+  broker-owned drafts; it does not need direct Telegram, Slack, or email SDKs.
+
+This keeps the user-facing gateway architecture consistent: new messaging apps
+arrive as platform adapters behind `messaging.*`, not as one-off runtime
+plugins that own credentials.
 
 ### 2. Model/runtime layer
 
@@ -56,6 +72,8 @@ Examples:
 - `network.getStatus` -> `skylink.status`
 - `devices.list` -> `identity.deviceList`
 - `agents.list` -> `agent.list`
+- `messaging.listConnections` -> `messaging.connections`
+- `messaging.connectPlatform` -> `messaging.runAdapterAction`
 
 The point of this wrapper is not to duplicate backend logic. The point is to
 present tool names and schemas that are clear for both users and models.

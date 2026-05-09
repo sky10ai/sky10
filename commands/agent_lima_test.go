@@ -1095,6 +1095,18 @@ func TestHermesBridgeAssetSubscribesToSky10Events(t *testing.T) {
 	if !strings.Contains(script, "media_part_from_file") {
 		t.Fatalf("bridge asset missing local artifact file encoding: %q", script)
 	}
+	if !strings.Contains(script, `DEFAULT_MESSAGING_ENDPOINT_PATH = "/bridge/messengers/ws"`) {
+		t.Fatalf("bridge asset missing guest-local messaging bridge endpoint: %q", script)
+	}
+	if !strings.Contains(script, `"messengers.list_connections"`) {
+		t.Fatalf("bridge asset missing messenger connection listing: %q", script)
+	}
+	if !strings.Contains(script, `"messengers.create_draft"`) || !strings.Contains(script, `"messengers.request_send"`) {
+		t.Fatalf("bridge asset missing messenger reply path: %q", script)
+	}
+	if !strings.Contains(script, "hermes_content_from_messaging_message") {
+		t.Fatalf("bridge asset missing messenger content normalization: %q", script)
+	}
 	if !strings.Contains(script, "def warm_up(self) -> None:") {
 		t.Fatalf("bridge asset missing Hermes warm-up path: %q", script)
 	}

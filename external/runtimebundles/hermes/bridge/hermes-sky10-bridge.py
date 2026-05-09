@@ -35,6 +35,10 @@ MEDIA_ROOT = os.path.join(tempfile.gettempdir(), "sky10-hermes-media")
 DEFAULT_JOB_OUTPUT_ROOT = "/shared/jobs"
 DEFAULT_X402_ENDPOINT_PATH = "/bridge/metered-services/ws"
 DEFAULT_X402_HELPER_PATH = os.path.join(os.path.expanduser("~"), ".local", "bin", "sky10-x402")
+DEFAULT_MESSAGING_ENDPOINT_PATH = "/bridge/messengers/ws"
+DEFAULT_MESSAGING_POLL_INTERVAL_SECONDS = 5.0
+MESSAGING_EVENT_LIMIT = 100
+MESSAGING_SKIP_EVENT_LIMIT = 500
 X402_CONTEXT_SERVICE_LIMIT = 12
 
 
@@ -61,7 +65,8 @@ def env_flag(name: str, default: bool) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
-def derive_x402_ws_url(rpc_url: str, agent_name: str = "", ws_url: str = "") -> str:
+def derive_bridge_ws_url(rpc_url: str, agent_name: str = "", ws_url: str = "", endpoint_path: str = "") -> str:
+    endpoint = endpoint_path or "/bridge/ws"
     raw = str(ws_url or "").strip()
     base = raw or str(rpc_url or "http://127.0.0.1:9101").strip() or "http://127.0.0.1:9101"
     parsed = urllib.parse.urlparse(base)
@@ -76,11 +81,19 @@ def derive_x402_ws_url(rpc_url: str, agent_name: str = "", ws_url: str = "") -> 
     netloc = parsed.netloc
     path = parsed.path or ""
     if not raw or path in {"", "/", "/rpc"}:
-        path = DEFAULT_X402_ENDPOINT_PATH
+        path = endpoint
     query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
     if agent_name and not any(key == "agent" for key, _ in query):
         query.append(("agent", agent_name))
     return urllib.parse.urlunparse((scheme, netloc, path, "", urllib.parse.urlencode(query), ""))
+
+
+def derive_x402_ws_url(rpc_url: str, agent_name: str = "", ws_url: str = "") -> str:
+    return derive_bridge_ws_url(rpc_url, agent_name, ws_url, DEFAULT_X402_ENDPOINT_PATH)
+
+
+def derive_messaging_ws_url(rpc_url: str, agent_name: str = "", ws_url: str = "") -> str:
+    return derive_bridge_ws_url(rpc_url, agent_name, ws_url, DEFAULT_MESSAGING_ENDPOINT_PATH)
 
 
 def websocket_frame(payload: bytes) -> bytes:
@@ -96,48 +109,48 @@ def websocket_frame(payload: bytes) -> bytes:
     return header + mask + masked
 
 
-def read_exact(sock: socket.socket, size: int) -> bytes:
+def read_exact(sock: socket.socket, size: int, label: str = "websocket") -> bytes:
     chunks: list[bytes] = []
     remaining = size
     while remaining > 0:
         chunk = sock.recv(remaining)
         if not chunk:
-            raise BridgeError("x402 websocket closed unexpectedly")
+            raise BridgeError(f"{label} websocket closed unexpectedly")
         chunks.append(chunk)
         remaining -= len(chunk)
     return b"".join(chunks)
 
 
-def read_websocket_text(sock: socket.socket) -> str:
+def read_websocket_text(sock: socket.socket, label: str = "websocket") -> str:
     for _ in range(16):
-        first, second = read_exact(sock, 2)
+        first, second = read_exact(sock, 2, label)
         opcode = first & 0x0F
         masked = second & 0x80
         length = second & 0x7F
         if length == 126:
-            length = struct.unpack("!H", read_exact(sock, 2))[0]
+            length = struct.unpack("!H", read_exact(sock, 2, label))[0]
         elif length == 127:
-            length = struct.unpack("!Q", read_exact(sock, 8))[0]
-        mask = read_exact(sock, 4) if masked else b""
-        payload = read_exact(sock, length) if length else b""
+            length = struct.unpack("!Q", read_exact(sock, 8, label))[0]
+        mask = read_exact(sock, 4, label) if masked else b""
+        payload = read_exact(sock, length, label) if length else b""
         if masked:
             payload = bytes(byte ^ mask[i % 4] for i, byte in enumerate(payload))
         if opcode == 0x1:
             return payload.decode("utf-8")
         if opcode == 0x8:
-            raise BridgeError("x402 websocket closed before response")
+            raise BridgeError(f"{label} websocket closed before response")
         if opcode == 0x9:
             # Ping; this short-lived helper waits for the actual response.
             continue
-    raise BridgeError("x402 websocket did not return a text response")
+    raise BridgeError(f"{label} websocket did not return a text response")
 
 
-def x402_ws_request(ws_url: str, envelope: dict[str, Any], timeout: float = 30.0) -> dict[str, Any]:
+def bridge_ws_request(label: str, ws_url: str, envelope: dict[str, Any], timeout: float = 30.0) -> dict[str, Any]:
     parsed = urllib.parse.urlparse(ws_url)
     if parsed.scheme not in {"ws", "wss"}:
-        raise BridgeError(f"x402 websocket URL must use ws or wss, got {parsed.scheme!r}")
+        raise BridgeError(f"{label} websocket URL must use ws or wss, got {parsed.scheme!r}")
     if parsed.scheme == "wss":
-        raise BridgeError("x402 helper does not support wss from the sandbox; use guest-local ws")
+        raise BridgeError(f"{label} helper does not support wss from the sandbox; use guest-local ws")
     host = parsed.hostname or "127.0.0.1"
     port = parsed.port or 80
     path = parsed.path or DEFAULT_X402_ENDPOINT_PATH
@@ -166,13 +179,17 @@ def x402_ws_request(ws_url: str, envelope: dict[str, Any], timeout: float = 30.0
                 break
             response += chunk
             if len(response) > 65536:
-                raise BridgeError("x402 websocket handshake response too large")
+                raise BridgeError(f"{label} websocket handshake response too large")
         status = response.split(b"\r\n", 1)[0].decode("ascii", errors="replace")
         if " 101 " not in status:
-            raise BridgeError(f"x402 websocket upgrade failed: {status}")
+            raise BridgeError(f"{label} websocket upgrade failed: {status}")
         sock.sendall(websocket_frame(json.dumps(envelope, separators=(",", ":")).encode("utf-8")))
-        body = read_websocket_text(sock)
+        body = read_websocket_text(sock, label)
     return json.loads(body)
+
+
+def x402_ws_request(ws_url: str, envelope: dict[str, Any], timeout: float = 30.0) -> dict[str, Any]:
+    return bridge_ws_request("x402", ws_url, envelope, timeout)
 
 
 def x402_request(ws_url: str, typ: str, payload: dict[str, Any] | None = None) -> Any:
@@ -196,6 +213,75 @@ def x402_list_services(ws_url: str) -> list[dict[str, Any]]:
     payload = x402_request(ws_url, "x402.list_services", {})
     services = payload.get("services") if isinstance(payload, dict) else []
     return services if isinstance(services, list) else []
+
+
+def messaging_request(ws_url: str, typ: str, payload: dict[str, Any] | None = None) -> Any:
+    request_id = str(uuid.uuid4())
+    envelope = {
+        "type": typ,
+        "request_id": request_id,
+        "nonce": str(uuid.uuid4()),
+        "payload": payload or {},
+    }
+    response = bridge_ws_request("messaging", ws_url, envelope)
+    if response.get("request_id") != request_id:
+        raise BridgeError("messaging websocket returned a mismatched request_id")
+    if response.get("error"):
+        err = response["error"]
+        raise BridgeError(f"messaging {err.get('code', 'error')}: {err.get('message', '')}".strip())
+    return response.get("payload")
+
+
+def messaging_list_connections(ws_url: str, adapter_id: str = "") -> list[dict[str, Any]]:
+    params: dict[str, Any] = {}
+    if adapter_id:
+        params["adapter_id"] = adapter_id
+    payload = messaging_request(ws_url, "messengers.list_connections", params)
+    connections = payload.get("connections") if isinstance(payload, dict) else []
+    return connections if isinstance(connections, list) else []
+
+
+def messaging_list_events(ws_url: str, connection_id: str, after_event_id: str = "", limit: int = MESSAGING_EVENT_LIMIT) -> list[dict[str, Any]]:
+    payload = messaging_request(
+        ws_url,
+        "messengers.list_events",
+        {
+            "connection_id": connection_id,
+            "after_event_id": after_event_id,
+            "limit": limit,
+        },
+    )
+    events = payload.get("events") if isinstance(payload, dict) else []
+    return events if isinstance(events, list) else []
+
+
+def messaging_list_conversations(ws_url: str, connection_id: str) -> list[dict[str, Any]]:
+    payload = messaging_request(ws_url, "messengers.list_conversations", {"connection_id": connection_id})
+    conversations = payload.get("conversations") if isinstance(payload, dict) else []
+    return conversations if isinstance(conversations, list) else []
+
+
+def messaging_get_messages(ws_url: str, connection_id: str, conversation_id: str) -> list[dict[str, Any]]:
+    payload = messaging_request(
+        ws_url,
+        "messengers.get_messages",
+        {
+            "connection_id": connection_id,
+            "conversation_id": conversation_id,
+        },
+    )
+    messages = payload.get("messages") if isinstance(payload, dict) else []
+    return messages if isinstance(messages, list) else []
+
+
+def messaging_create_draft(ws_url: str, params: dict[str, Any]) -> dict[str, Any]:
+    payload = messaging_request(ws_url, "messengers.create_draft", params)
+    return payload if isinstance(payload, dict) else {}
+
+
+def messaging_request_send(ws_url: str, draft_id: str) -> dict[str, Any]:
+    payload = messaging_request(ws_url, "messengers.request_send", {"draft_id": draft_id, "new_conversation": False})
+    return payload if isinstance(payload, dict) else {}
 
 
 def install_x402_helper(helper_path: str, script_path: str, ws_url: str) -> str:
@@ -284,12 +370,19 @@ def guess_mime_type(value: Any) -> str:
     return guessed or ""
 
 
+def source_path(source: dict[str, Any]) -> str:
+    source_type = str(source.get("type") or "").strip()
+    if source_type in {"file", "path"}:
+        return str(source.get("path") or "").strip()
+    return ""
+
+
 def part_kind(part: dict[str, Any]) -> str:
     kind = str(part.get("type") or "").strip()
     if kind in {"image", "audio", "video"}:
         return kind
     source = part.get("source") if isinstance(part.get("source"), dict) else {}
-    media_type = str(part.get("media_type") or source.get("media_type") or guess_mime_type(part.get("filename") or source.get("filename") or source.get("url"))).strip()
+    media_type = str(part.get("media_type") or source.get("media_type") or guess_mime_type(part.get("filename") or source.get("filename") or source_path(source) or source.get("url"))).strip()
     if media_type.startswith("image/"):
         return "image"
     if media_type.startswith("audio/"):
@@ -324,6 +417,7 @@ def normalize_content_parts(content: Any) -> list[dict[str, Any]]:
                     "source": {
                         "type": source.get("type") if isinstance(source.get("type"), str) else "",
                         "data": source.get("data") if isinstance(source.get("data"), str) else "",
+                        "path": source.get("path") if isinstance(source.get("path"), str) else "",
                         "url": source.get("url") if isinstance(source.get("url"), str) else "",
                         "filename": source.get("filename") if isinstance(source.get("filename"), str) else "",
                         "media_type": source.get("media_type") if isinstance(source.get("media_type"), str) else "",
@@ -389,6 +483,9 @@ def build_inbound_body(content: Any, session_id: str) -> str:
         if source_type == "base64" and str(source.get("data") or "").strip():
             chunks.append(build_attachment_prompt(part, stage_base64_part(session_id, part)))
             continue
+        if source_path(source):
+            chunks.append(build_attachment_prompt(part, source_path(source)))
+            continue
         if source_type == "url" and str(source.get("url") or "").strip():
             chunks.append(build_attachment_prompt(part, str(source.get("url")).strip()))
             continue
@@ -406,6 +503,8 @@ def content_has_image_parts(content: Any) -> bool:
             return True
         if source_type == "url" and str(source.get("url") or "").strip():
             return True
+        if source_path(source):
+            return True
     return False
 
 
@@ -420,6 +519,12 @@ def image_url_for_part(part: dict[str, Any]) -> str:
         return f"data:{media_type};base64,{data}"
     if source_type == "url":
         return str(source.get("url") or "").strip()
+    path = source_path(source)
+    if path and os.path.isfile(path):
+        media_type = str(part.get("media_type") or source.get("media_type") or guess_mime_type(path)).strip() or "application/octet-stream"
+        with open(path, "rb") as handle:
+            data = base64.b64encode(handle.read()).decode("ascii")
+        return f"data:{media_type};base64,{data}"
     return ""
 
 
@@ -450,6 +555,8 @@ def build_chat_completions_user_content(content: Any, session_id: str) -> list[d
             fallback_location = ""
             if source_type == "base64" and str(source.get("data") or "").strip():
                 fallback_location = stage_base64_part(session_id, part)
+            elif source_path(source):
+                fallback_location = source_path(source)
             elif source_type == "url" and str(source.get("url") or "").strip():
                 fallback_location = str(source.get("url")).strip()
             if fallback_location:
@@ -467,6 +574,9 @@ def build_chat_completions_user_content(content: Any, session_id: str) -> list[d
 
         if source_type == "base64" and str(source.get("data") or "").strip():
             push_text(build_attachment_prompt(part, stage_base64_part(session_id, part)))
+            continue
+        if source_path(source):
+            push_text(build_attachment_prompt(part, source_path(source)))
             continue
         if source_type == "url" and str(source.get("url") or "").strip():
             push_text(build_attachment_prompt(part, str(source.get("url")).strip()))
@@ -561,6 +671,115 @@ def build_outbound_content(payload: Any) -> dict[str, Any] | None:
         "text": body_text or None,
         "parts": parts,
     }
+
+
+def string_value(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def message_part_text(part: dict[str, Any]) -> str:
+    kind = string_value(part.get("kind"))
+    if kind not in {"text", "markdown", "html"}:
+        return ""
+    return string_value(part.get("text"))
+
+
+def messaging_text_from_parts(parts: list[Any]) -> str:
+    texts = [message_part_text(part) for part in parts if isinstance(part, dict)]
+    return "\n\n".join(text for text in texts if text)
+
+
+def messaging_media_kind(part: dict[str, Any]) -> str:
+    metadata = part.get("metadata") if isinstance(part.get("metadata"), dict) else {}
+    content_type = string_value(part.get("content_type"))
+    telegram_media_type = string_value(metadata.get("telegram_media_type"))
+    filename = string_value(part.get("file_name")) or string_value(part.get("ref"))
+    guessed = guess_mime_type(filename)
+    if string_value(part.get("kind")) == "image" or content_type.startswith("image/") or telegram_media_type in {"photo", "image"}:
+        return "image"
+    if content_type.startswith("audio/") or telegram_media_type in {"audio", "voice"}:
+        return "audio"
+    if content_type.startswith("video/") or telegram_media_type in {"video", "video_note"}:
+        return "video"
+    if guessed.startswith("image/"):
+        return "image"
+    if guessed.startswith("audio/"):
+        return "audio"
+    if guessed.startswith("video/"):
+        return "video"
+    return "file"
+
+
+def messaging_media_label(part: dict[str, Any]) -> str:
+    filename = string_value(part.get("file_name")) or os.path.basename(string_value(part.get("ref"))) or "attachment"
+    return f"{messaging_media_kind(part)}: {filename}"
+
+
+def messaging_media_summary(parts: list[Any]) -> str:
+    media = [part for part in parts if isinstance(part, dict) and string_value(part.get("kind")) in {"file", "image"}]
+    if not media:
+        return ""
+    suffix = "" if len(media) == 1 else "s"
+    return f"Messaging attachment{suffix}: " + ", ".join(messaging_media_label(part) for part in media)
+
+
+def hermes_content_part_from_messaging(part: dict[str, Any]) -> dict[str, Any] | None:
+    ref = string_value(part.get("ref"))
+    if not ref:
+        return None
+    filename = sanitize_filename(string_value(part.get("file_name")) or os.path.basename(ref), "messaging-attachment")
+    media_type = string_value(part.get("content_type")) or guess_mime_type(filename)
+    return {
+        "type": messaging_media_kind(part),
+        "filename": filename,
+        "media_type": media_type,
+        "source": {
+            "type": "file",
+            "path": ref,
+            "filename": filename,
+            "media_type": media_type,
+        },
+    }
+
+
+def hermes_content_from_messaging_message(message: dict[str, Any]) -> dict[str, Any]:
+    parts = message.get("parts") if isinstance(message.get("parts"), list) else []
+    text = messaging_text_from_parts(parts)
+    media_parts = [part for raw in parts if isinstance(raw, dict) for part in [hermes_content_part_from_messaging(raw)] if part]
+    fallback = text or messaging_media_summary(parts)
+    content_parts: list[dict[str, Any]] = []
+    if fallback:
+        content_parts.append({"type": "text", "text": fallback})
+    content_parts.extend(media_parts)
+    return {
+        "text": fallback or None,
+        "parts": content_parts,
+    }
+
+
+def messaging_parts_from_reply_content(reply_content: dict[str, Any] | None, fallback_text: str = "") -> list[dict[str, Any]]:
+    parts: list[dict[str, Any]] = []
+    source = reply_content if isinstance(reply_content, dict) else {}
+    content_parts = source.get("parts") if isinstance(source.get("parts"), list) else []
+    for part in content_parts:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type") == "text" and string_value(part.get("text")):
+            parts.append({"kind": "text", "text": string_value(part.get("text"))})
+    if not parts and string_value(source.get("text")):
+        parts.append({"kind": "text", "text": string_value(source.get("text"))})
+    if not parts and string_value(fallback_text):
+        parts.append({"kind": "text", "text": string_value(fallback_text)})
+    return parts
+
+
+def messaging_sender_label(message: dict[str, Any]) -> str:
+    sender = message.get("sender") if isinstance(message.get("sender"), dict) else {}
+    return string_value(sender.get("display_name")) or string_value(sender.get("address")) or string_value(sender.get("remote_id")) or "Messaging"
+
+
+def messaging_conversation_label(conversation: dict[str, Any], message: dict[str, Any]) -> str:
+    return string_value(conversation.get("title")) or messaging_sender_label(message)
 
 
 def extract_client_request_id(content: Any) -> str:
@@ -754,6 +973,32 @@ def build_tool_call_prompt(content: dict[str, Any], output_dir: str, x402_contex
 def env_truthy(name: str) -> bool:
     value = os.environ.get(name, "")
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def normalize_string_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        normalized = str(item or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        out.append(normalized)
+    return out
+
+
+def parse_positive_float(value: Any, fallback: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    if parsed <= 0:
+        return fallback
+    return parsed
 
 
 def iter_sse(response: Any) -> Any:
@@ -1292,6 +1537,19 @@ class Bridge:
             self.agent_name,
             str(config.get("x402_ws_url") or "").strip(),
         )
+        self.messaging_ws_url = derive_messaging_ws_url(
+            self.sky10_rpc_url,
+            self.agent_name,
+            str(config.get("messaging_ws_url") or "").strip(),
+        )
+        self.messaging_enabled = config.get("messaging_enabled") is not False
+        self.messaging_adapters = normalize_string_list(config.get("messaging_adapters"))
+        self.messaging_connection_ids = set(normalize_string_list(config.get("messaging_connection_ids")))
+        self.messaging_poll_interval = parse_positive_float(
+            config.get("messaging_poll_interval_seconds"),
+            DEFAULT_MESSAGING_POLL_INTERVAL_SECONDS,
+        )
+        self.messaging_replay_on_start = config.get("messaging_replay_on_start") is True
         self.x402_helper_path = str(config.get("x402_helper_path") or DEFAULT_X402_HELPER_PATH).strip() or DEFAULT_X402_HELPER_PATH
         raw_skills = config.get("skills") or []
         self.tools = normalize_tools(config.get("tools") or manifest.get("tools"))
@@ -1307,6 +1565,8 @@ class Bridge:
         self.agent_id = ""
         self.seen_lock = threading.Lock()
         self.seen_messages: OrderedDict[str, float] = OrderedDict()
+        self.messaging_cursors: dict[str, str] = {}
+        self.messaging_conversation_cache: dict[str, dict[str, dict[str, Any]]] = {}
 
     def run(self) -> None:
         self.install_x402_helper()
@@ -1319,12 +1579,18 @@ class Bridge:
 
         heartbeat_thread = threading.Thread(target=self._heartbeat_loop, name="sky10-hermes-heartbeat", daemon=True)
         heartbeat_thread.start()
+        messaging_thread = None
+        if self.messaging_enabled:
+            messaging_thread = threading.Thread(target=self._messaging_poll_loop, name="sky10-hermes-messaging", daemon=True)
+            messaging_thread.start()
 
         try:
             self._event_loop()
         finally:
             self.stop_event.set()
             heartbeat_thread.join(timeout=2)
+            if messaging_thread is not None:
+                messaging_thread.join(timeout=2)
             if warmup_thread is not None:
                 warmup_thread.join(timeout=2)
 
@@ -1520,6 +1786,173 @@ class Bridge:
                 self.sky10.fail_job(job_id, "runtime_error", error_text)
             except Exception as fail_exc:
                 log(f"Failed to mark job {job_id} failed: {fail_exc}")
+
+    def _messaging_poll_loop(self) -> None:
+        log(f"Messaging bridge enabled at {self.messaging_ws_url}")
+        while not self.stop_event.is_set():
+            try:
+                self._poll_messaging_connections()
+            except Exception as exc:
+                if not self.stop_event.is_set():
+                    log(f"Messaging bridge poll failed: {exc}")
+            self.stop_event.wait(self.messaging_poll_interval)
+
+    def _poll_messaging_connections(self) -> None:
+        adapters = self.messaging_adapters or [""]
+        connections_by_id: dict[str, dict[str, Any]] = {}
+        for adapter_id in adapters:
+            for connection in messaging_list_connections(self.messaging_ws_url, adapter_id):
+                connection_id = string_value(connection.get("id")) if isinstance(connection, dict) else ""
+                if not connection_id or connection_id in connections_by_id:
+                    continue
+                if self.messaging_connection_ids and connection_id not in self.messaging_connection_ids:
+                    continue
+                status = string_value(connection.get("status"))
+                if status and status not in {"connected", "degraded"}:
+                    continue
+                connections_by_id[connection_id] = connection
+
+        for connection_id, connection in connections_by_id.items():
+            self._poll_messaging_connection(connection_id, connection)
+
+    def _poll_messaging_connection(self, connection_id: str, connection: dict[str, Any]) -> None:
+        if connection_id not in self.messaging_cursors and not self.messaging_replay_on_start:
+            latest = self._skip_messaging_backlog(connection_id)
+            self.messaging_cursors[connection_id] = latest
+            if latest:
+                log(f"Messaging bridge starting from latest event on {connection_id}")
+            return
+
+        after = self.messaging_cursors.get(connection_id, "")
+        for _page in range(5):
+            if self.stop_event.is_set():
+                return
+            events = messaging_list_events(self.messaging_ws_url, connection_id, after, MESSAGING_EVENT_LIMIT)
+            if not events:
+                return
+            for event in events:
+                if not isinstance(event, dict):
+                    continue
+                next_cursor = string_value(event.get("id"))
+                if next_cursor:
+                    after = next_cursor
+                    self.messaging_cursors[connection_id] = after
+                try:
+                    self._dispatch_messaging_event(connection, event)
+                except Exception as exc:
+                    log(f"Messaging bridge event dispatch failed: {exc}")
+            if len(events) < MESSAGING_EVENT_LIMIT:
+                return
+
+    def _skip_messaging_backlog(self, connection_id: str) -> str:
+        after = ""
+        for _page in range(50):
+            events = messaging_list_events(self.messaging_ws_url, connection_id, after, MESSAGING_SKIP_EVENT_LIMIT)
+            if not events:
+                return after
+            latest = events[-1]
+            if isinstance(latest, dict):
+                after = string_value(latest.get("id")) or after
+            if len(events) < MESSAGING_SKIP_EVENT_LIMIT:
+                return after
+        return after
+
+    def _dispatch_messaging_event(self, connection: dict[str, Any], event: dict[str, Any]) -> None:
+        event_type = string_value(event.get("type"))
+        if event_type not in {"message_received", "message_updated"}:
+            return
+        connection_id = string_value(connection.get("id"))
+        conversation_id = string_value(event.get("conversation_id"))
+        message_id = string_value(event.get("message_id"))
+        if not connection_id or not conversation_id or not message_id:
+            return
+
+        messages = messaging_get_messages(self.messaging_ws_url, connection_id, conversation_id)
+        message = next((item for item in messages if isinstance(item, dict) and string_value(item.get("id")) == message_id), None)
+        if not message or string_value(message.get("direction")) != "inbound":
+            return
+
+        claim_id = f"messaging:{connection_id}:{string_value(event.get('id')) or message_id}"
+        if not self._claim_message(claim_id):
+            return
+
+        thread = threading.Thread(
+            target=self._handle_messaging_message,
+            args=(connection, message),
+            name=f"sky10-hermes-messaging-{message_id}",
+            daemon=True,
+        )
+        thread.start()
+
+    def _handle_messaging_message(self, connection: dict[str, Any], message: dict[str, Any]) -> None:
+        connection_id = string_value(message.get("connection_id")) or string_value(connection.get("id"))
+        conversation_id = string_value(message.get("conversation_id"))
+        message_id = string_value(message.get("id"))
+        if not connection_id or not conversation_id or not message_id:
+            return
+
+        conversation = self._messaging_conversation(connection_id, conversation_id)
+        sender = messaging_sender_label(message)
+        conversation_label = messaging_conversation_label(conversation, message)
+        label = f"{conversation_label} - {sender}" if sender and sender != conversation_label else conversation_label
+        content = hermes_content_from_messaging_message(message)
+        if content.get("text"):
+            content["text"] = f"Incoming {string_value(connection.get('adapter_id')) or 'messaging'} message from {label}.\n\n{content['text']}"
+            for part in content.get("parts") if isinstance(content.get("parts"), list) else []:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    part["text"] = content["text"]
+                    break
+
+        try:
+            session_id = f"messaging:{connection_id}:{conversation_id}"
+            reply = self.hermes.stream(session_id, content, lambda _chunk: None)
+            reply_content = build_outbound_content(reply)
+            parts = messaging_parts_from_reply_content(reply_content, reply)
+            if not parts:
+                return
+            draft = messaging_create_draft(
+                self.messaging_ws_url,
+                {
+                    "connection_id": connection_id,
+                    "conversation_id": conversation_id,
+                    "reply_to_message_id": message_id,
+                    "parts": parts,
+                    "metadata": {
+                        "hermes_bridge": "true",
+                        "sky10_runtime": "hermes",
+                    },
+                },
+            )
+            draft_id = string_value((draft.get("draft") if isinstance(draft.get("draft"), dict) else {}).get("id"))
+            if not draft_id:
+                raise BridgeError("messaging draft creation did not return a draft id")
+            result = messaging_request_send(self.messaging_ws_url, draft_id)
+            if result.get("approval"):
+                log(f"Messaging reply queued for approval ({draft_id})")
+            else:
+                log(f"Messaging reply sent ({draft_id})")
+        except Exception as exc:
+            log(f"Messaging reply failed for {connection_id}/{conversation_id}/{message_id}: {exc}")
+
+    def _messaging_conversation(self, connection_id: str, conversation_id: str) -> dict[str, Any]:
+        cached = self.messaging_conversation_cache.get(connection_id)
+        if cached is None:
+            cached = self._refresh_messaging_conversations(connection_id)
+        conversation = cached.get(conversation_id)
+        if conversation is not None:
+            return conversation
+        cached = self._refresh_messaging_conversations(connection_id)
+        return cached.get(conversation_id, {"id": conversation_id, "connection_id": connection_id, "kind": "direct"})
+
+    def _refresh_messaging_conversations(self, connection_id: str) -> dict[str, dict[str, Any]]:
+        conversations = messaging_list_conversations(self.messaging_ws_url, connection_id)
+        by_id = {
+            string_value(conversation.get("id")): conversation
+            for conversation in conversations
+            if isinstance(conversation, dict) and string_value(conversation.get("id"))
+        }
+        self.messaging_conversation_cache[connection_id] = by_id
+        return by_id
 
     def _claim_message(self, message_id: str) -> bool:
         now = time.time()

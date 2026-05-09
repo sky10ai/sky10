@@ -18,6 +18,10 @@ This flow uses the repo's Lima template at
   and `OPENROUTER_API_KEY` when the sandbox is created through the
   running `sky10` daemon
 - a `hermes-shared` helper that starts Hermes from `/shared/workspace`
+- sky10 message routing through the guest-local Hermes bridge
+- access to host-configured messaging platforms, such as Telegram, Slack, and
+  IMAP/SMTP, when the host broker exposes those connections to the Hermes
+  sandbox
 
 ## Prerequisites
 
@@ -119,10 +123,49 @@ Inside Hermes, adjust the model/provider with:
 hermes model
 ```
 
+## Messaging Platforms
+
+Hermes can work with messaging platforms that are connected in host sky10 under
+`Settings -> Messaging`. Sky10 keeps platform credentials, broker policy,
+approval workflow, and adapter processes on the host. The Hermes VM sees only
+the normalized messenger bridge at:
+
+```text
+/bridge/messengers/ws
+```
+
+The flow is:
+
+1. Connect a platform in `Settings -> Messaging` on the host, such as
+   Telegram, Slack, or IMAP/SMTP.
+2. Expose the connection to the Hermes agent or to the `runtime:hermes`
+   runtime subject.
+3. The host daemon opens the sandbox bridge into the guest.
+4. `hermes-sky10-bridge.py` polls exposed conversations/events through the
+   guest-local bridge, runs inbound messages through Hermes, and sends replies
+   back as broker-owned drafts/send requests.
+
+Files and media stay file-backed. Inbound platform attachments are copied into
+the sandbox state mount and passed to Hermes as paths under:
+
+```text
+/sandbox-state/messengers/
+```
+
+That matters for voice notes and other large files: the bridge passes the file
+name/path to Hermes instead of embedding base64 in the prompt. Outbound replies
+still go through the messaging broker, so platform policy can require approval,
+block attachments, or refuse new conversations before an adapter sends
+anything.
+
+Hermes does not have a native "channel app" model like OpenClaw. Sky10 treats
+Hermes as a gateway-backed agent runtime: platform-specific adapters stay
+southbound in the host broker, and Hermes receives normalized user messages
+through the bridge.
+
 ## Notes
 
 - This template is currently macOS-only because it uses Lima `vz`.
-- This milestone does not yet connect Hermes to sky10 message routing.
-- The sandbox terminal gives you direct access to the guest, so you can
-  run Hermes in its native TUI immediately without waiting for frontend
-  integration.
+- The sandbox terminal gives you direct access to the guest, so you can run
+  Hermes in its native TUI while the background bridge handles sky10 and
+  messaging-platform traffic.

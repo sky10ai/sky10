@@ -11,6 +11,8 @@
 - Active x402 service integration plan (agent surface lands as
   `pkg/sandbox/bridge/x402/`):
   [`current/x402/`](current/x402/)
+- Active messaging gateway architecture:
+  [`current/messaging-gateway-architecture.md`](current/messaging-gateway-architecture.md)
 
 ## Todo
 
