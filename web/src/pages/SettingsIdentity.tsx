@@ -24,6 +24,7 @@ export default function SettingsIdentity() {
     <SettingsPage
       backHref="/settings"
       description="View the local identity, peer ID, and device hostname."
+      pinnablePageID="identity"
       title="Identity"
       width="narrow"
     >

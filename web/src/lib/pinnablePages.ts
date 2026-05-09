@@ -5,6 +5,13 @@ export const PINNED_SIDEBAR_PAGES_CHANGED_EVENT =
 
 export const PINNABLE_PAGES = [
   {
+    id: "identity",
+    icon: "fingerprint",
+    label: "Identity",
+    matchPrefixes: ["/settings/identity"],
+    to: "/settings/identity",
+  },
+  {
     id: "wallet",
     icon: "account_balance_wallet",
     label: "Wallet",
