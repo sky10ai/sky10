@@ -30,11 +30,17 @@ import (
 const (
 	defaultMessagingKVRoot       = "_sys/messaging"
 	defaultMessagingPollInterval = 30 * time.Second
+	defaultMessagingPolicySource = "sky10-default-runtime-access"
 )
 
 type messagingRuntime struct {
 	broker *messagingbroker.Broker
 	store  *messagingstore.Store
+}
+
+var defaultMessagingRuntimeSubjects = []string{
+	"runtime:" + sandboxTemplateOpenClaw,
+	"runtime:" + sandboxTemplateHermes,
 }
 
 func setupMessaging(
@@ -69,6 +75,9 @@ func setupMessaging(
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating messaging broker: %w", err)
+	}
+	if err := ensureDefaultMessagingRuntimeAccess(ctx, store, logger); err != nil {
+		return nil, err
 	}
 
 	externalRegistry, err := messagingexternal.NewMaterializedBundledRegistry(
@@ -107,12 +116,106 @@ func setupMessaging(
 		SecretWriter:     secretsStore,
 		BunPath:          messagingBunPath,
 		HelperRootDir:    filepath.Join(rootDir, "messaging", "helpers"),
+		ConnectionConfigured: func(ctx context.Context, connection messaging.Connection) (messaging.Connection, error) {
+			return ensureDefaultMessagingConnectionRuntimeAccess(ctx, store, connection, logger)
+		},
 	}))
 
 	secretsRPC.AddReferenceResolver(messagingrpc.SecretReferenceResolver{Connections: store})
 
 	go runMessagingPollLoop(ctx, b, store, logging.WithComponent(logger, "messaging.poll"))
 	return &messagingRuntime{broker: b, store: store}, nil
+}
+
+func ensureDefaultMessagingRuntimeAccess(ctx context.Context, store *messagingstore.Store, logger *slog.Logger) error {
+	if store == nil {
+		return fmt.Errorf("messaging runtime access requires store")
+	}
+	for _, connection := range store.ListConnections() {
+		if _, err := ensureDefaultMessagingConnectionRuntimeAccess(ctx, store, connection, logger); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureDefaultMessagingConnectionRuntimeAccess(ctx context.Context, store *messagingstore.Store, connection messaging.Connection, logger *slog.Logger) (messaging.Connection, error) {
+	if store == nil {
+		return messaging.Connection{}, fmt.Errorf("messaging runtime access requires store")
+	}
+	if connection.Status == messaging.ConnectionStatusDisabled {
+		return connection, nil
+	}
+	policyID := connection.DefaultPolicyID
+	if policyID == "" {
+		policyID = defaultMessagingRuntimePolicyID(connection.ID)
+		connection.DefaultPolicyID = policyID
+		if err := store.PutConnection(ctx, connection); err != nil {
+			return messaging.Connection{}, fmt.Errorf("configure default messaging policy for %s: %w", connection.ID, err)
+		}
+	}
+	policy, ok := store.GetPolicy(policyID)
+	if !ok || policy.Metadata["source"] == defaultMessagingPolicySource {
+		if err := store.PutPolicy(ctx, defaultMessagingRuntimePolicy(policyID)); err != nil {
+			return messaging.Connection{}, fmt.Errorf("store default messaging policy for %s: %w", connection.ID, err)
+		}
+	}
+	for _, subjectID := range defaultMessagingRuntimeSubjects {
+		exposureID := defaultMessagingRuntimeExposureID(connection.ID, subjectID)
+		if _, ok := store.GetExposure(exposureID); ok {
+			continue
+		}
+		if err := store.PutExposure(ctx, messaging.Exposure{
+			ID:           exposureID,
+			ConnectionID: connection.ID,
+			SubjectID:    subjectID,
+			SubjectKind:  messaging.ExposureSubjectKindRuntime,
+			PolicyID:     policyID,
+			Enabled:      true,
+		}); err != nil {
+			return messaging.Connection{}, fmt.Errorf("store default messaging exposure for %s to %s: %w", connection.ID, subjectID, err)
+		}
+		if logger != nil {
+			logger.Info("created default messaging runtime exposure", "connection_id", connection.ID, "subject", subjectID)
+		}
+	}
+	return connection, nil
+}
+
+func defaultMessagingRuntimePolicyID(connectionID messaging.ConnectionID) messaging.PolicyID {
+	return messaging.PolicyID("policy/messaging/default-runtime/" + string(connectionID))
+}
+
+func defaultMessagingRuntimeExposureID(connectionID messaging.ConnectionID, subjectID string) messaging.ExposureID {
+	subjectID = strings.TrimPrefix(strings.TrimSpace(subjectID), "runtime:")
+	if subjectID == "" {
+		subjectID = "runtime"
+	}
+	return messaging.ExposureID("exposure/messaging/default-runtime/" + string(connectionID) + "/" + subjectID)
+}
+
+func defaultMessagingRuntimePolicy(policyID messaging.PolicyID) messaging.Policy {
+	return messaging.Policy{
+		ID:   policyID,
+		Name: "Default runtime messaging access",
+		Rules: messaging.PolicyRules{
+			ReadInbound:           true,
+			CreateDrafts:          true,
+			SendMessages:          true,
+			RequireApproval:       true,
+			ReplyOnly:             true,
+			AllowNewConversations: false,
+			AllowAttachments:      false,
+			MarkRead:              false,
+			ManageMessages:        false,
+			SearchIdentities:      true,
+			SearchConversations:   true,
+			SearchMessages:        true,
+		},
+		Metadata: map[string]string{
+			"source": defaultMessagingPolicySource,
+		},
+	}
 }
 
 func messagingBunPath() string {

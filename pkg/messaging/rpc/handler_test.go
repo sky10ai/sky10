@@ -312,6 +312,56 @@ func TestHandlerConnectBuiltinAndPoll(t *testing.T) {
 	}
 }
 
+func TestHandlerCreateConnectionAppliesConnectionConfiguredHook(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	base := newTestHandler(t, func(adapterID string) (messagingruntime.ProcessSpec, error) {
+		if adapterID != "imap-smtp" {
+			t.Fatalf("resolver adapterID = %q, want imap-smtp", adapterID)
+		}
+		return messagingruntime.ProcessSpec{
+			Path: helperProcessExecutableForTests(),
+			Args: []string{"-test.run=TestMessagingRPCHandlerHelperProcess", "--"},
+			Env:  []string{"GO_WANT_HELPER_MESSAGING_RPC_ADAPTER=1"},
+		}, nil
+	})
+	handler := NewHandler(Config{
+		Broker:          base.broker,
+		Store:           base.store,
+		ProcessResolver: base.processResolver,
+		ConnectionConfigured: func(ctx context.Context, connection messaging.Connection) (messaging.Connection, error) {
+			connection.DefaultPolicyID = "policy/hook"
+			if err := base.store.PutConnection(ctx, connection); err != nil {
+				return messaging.Connection{}, err
+			}
+			return connection, nil
+		},
+	})
+
+	result, err, handled := handler.Dispatch(ctx, "messaging.createConnection", mustJSON(t, connectBuiltinParams{
+		Connection: messaging.Connection{
+			ID:        "imap/work",
+			AdapterID: "imap-smtp",
+			Label:     "Work Mail",
+			Status:    messaging.ConnectionStatusConnecting,
+		},
+	}))
+	if err != nil {
+		t.Fatalf("Dispatch(createConnection) error = %v", err)
+	}
+	if !handled {
+		t.Fatal("Dispatch(createConnection) handled = false, want true")
+	}
+	if result.(messaging.Connection).DefaultPolicyID != "policy/hook" {
+		t.Fatalf("DefaultPolicyID = %q, want policy/hook", result.(messaging.Connection).DefaultPolicyID)
+	}
+	stored, ok := handler.store.GetConnection("imap/work")
+	if !ok || stored.DefaultPolicyID != "policy/hook" {
+		t.Fatalf("stored connection = %+v, %v; want hook policy", stored, ok)
+	}
+}
+
 func TestHandlerConnectionLifecycleMethods(t *testing.T) {
 	t.Parallel()
 

@@ -65,6 +65,143 @@ func TestRestoreMessagingConnectionsSkipsDisabled(t *testing.T) {
 	}
 }
 
+func TestEnsureDefaultMessagingRuntimeAccessBackfillsPolicyAndRuntimeExposures(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newServeMessagingMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	connection := messaging.Connection{
+		ID:        "telegram/default",
+		AdapterID: "telegram",
+		Label:     "Telegram",
+		Status:    messaging.ConnectionStatusConnected,
+	}
+	if err := store.PutConnection(ctx, connection); err != nil {
+		t.Fatalf("PutConnection() error = %v", err)
+	}
+
+	if err := ensureDefaultMessagingRuntimeAccess(ctx, store, nil); err != nil {
+		t.Fatalf("ensureDefaultMessagingRuntimeAccess() error = %v", err)
+	}
+
+	stored, ok := store.GetConnection(connection.ID)
+	if !ok {
+		t.Fatalf("GetConnection(%s) = false", connection.ID)
+	}
+	wantPolicyID := defaultMessagingRuntimePolicyID(connection.ID)
+	if stored.DefaultPolicyID != wantPolicyID {
+		t.Fatalf("DefaultPolicyID = %q, want %q", stored.DefaultPolicyID, wantPolicyID)
+	}
+	policy, ok := store.GetPolicy(wantPolicyID)
+	if !ok {
+		t.Fatalf("GetPolicy(%s) = false", wantPolicyID)
+	}
+	if !policy.Rules.ReadInbound || !policy.Rules.CreateDrafts || !policy.Rules.SendMessages || !policy.Rules.RequireApproval {
+		t.Fatalf("policy rules = %+v, want read/draft/send-with-approval defaults", policy.Rules)
+	}
+	if !policy.Rules.ReplyOnly || policy.Rules.AllowNewConversations || policy.Rules.AllowAttachments {
+		t.Fatalf("policy rules = %+v, want reply-only sends with new conversations/attachments disabled", policy.Rules)
+	}
+	for _, subjectID := range defaultMessagingRuntimeSubjects {
+		exposureID := defaultMessagingRuntimeExposureID(connection.ID, subjectID)
+		exposure, ok := store.GetExposure(exposureID)
+		if !ok {
+			t.Fatalf("GetExposure(%s) = false", exposureID)
+		}
+		if exposure.ConnectionID != connection.ID || exposure.SubjectID != subjectID || exposure.SubjectKind != messaging.ExposureSubjectKindRuntime || exposure.PolicyID != wantPolicyID || !exposure.Enabled {
+			t.Fatalf("exposure %s = %+v, want enabled runtime exposure for %s", exposureID, exposure, subjectID)
+		}
+	}
+}
+
+func TestEnsureDefaultMessagingRuntimeAccessSkipsDisabledConnections(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newServeMessagingMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	connection := messaging.Connection{
+		ID:        "telegram/disabled",
+		AdapterID: "telegram",
+		Label:     "Disabled Telegram",
+		Status:    messaging.ConnectionStatusDisabled,
+	}
+	if err := store.PutConnection(ctx, connection); err != nil {
+		t.Fatalf("PutConnection() error = %v", err)
+	}
+
+	if err := ensureDefaultMessagingRuntimeAccess(ctx, store, nil); err != nil {
+		t.Fatalf("ensureDefaultMessagingRuntimeAccess() error = %v", err)
+	}
+
+	stored, ok := store.GetConnection(connection.ID)
+	if !ok {
+		t.Fatalf("GetConnection(%s) = false", connection.ID)
+	}
+	if stored.DefaultPolicyID != "" {
+		t.Fatalf("DefaultPolicyID = %q, want empty", stored.DefaultPolicyID)
+	}
+	for _, subjectID := range defaultMessagingRuntimeSubjects {
+		exposureID := defaultMessagingRuntimeExposureID(connection.ID, subjectID)
+		if exposure, ok := store.GetExposure(exposureID); ok {
+			t.Fatalf("GetExposure(%s) = %+v, want none", exposureID, exposure)
+		}
+	}
+}
+
+func TestEnsureDefaultMessagingRuntimeAccessRefreshesManagedPolicyDefaults(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newServeMessagingMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	connection := messaging.Connection{
+		ID:              "telegram/default",
+		AdapterID:       "telegram",
+		Label:           "Telegram",
+		Status:          messaging.ConnectionStatusConnected,
+		DefaultPolicyID: defaultMessagingRuntimePolicyID("telegram/default"),
+	}
+	if err := store.PutConnection(ctx, connection); err != nil {
+		t.Fatalf("PutConnection() error = %v", err)
+	}
+	if err := store.PutPolicy(ctx, messaging.Policy{
+		ID:   connection.DefaultPolicyID,
+		Name: "Default runtime messaging access",
+		Rules: messaging.PolicyRules{
+			ReadInbound:     true,
+			CreateDrafts:    true,
+			SendMessages:    false,
+			RequireApproval: true,
+			ReplyOnly:       true,
+		},
+		Metadata: map[string]string{
+			"source": defaultMessagingPolicySource,
+		},
+	}); err != nil {
+		t.Fatalf("PutPolicy() error = %v", err)
+	}
+
+	if err := ensureDefaultMessagingRuntimeAccess(ctx, store, nil); err != nil {
+		t.Fatalf("ensureDefaultMessagingRuntimeAccess() error = %v", err)
+	}
+
+	policy, ok := store.GetPolicy(connection.DefaultPolicyID)
+	if !ok {
+		t.Fatalf("GetPolicy(%s) = false", connection.DefaultPolicyID)
+	}
+	if !policy.Rules.SendMessages || !policy.Rules.RequireApproval || !policy.Rules.ReplyOnly {
+		t.Fatalf("policy rules = %+v, want refreshed approval-gated reply sends", policy.Rules)
+	}
+}
+
 func TestInstallMessagingEventFanoutEmitsDurableEvents(t *testing.T) {
 	t.Parallel()
 

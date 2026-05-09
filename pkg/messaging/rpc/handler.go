@@ -25,6 +25,10 @@ type Config struct {
 	ProcessResolver  ProcessResolver
 	ExternalAdapters *messagingexternal.Registry
 	SecretWriter     SecretWriter
+	// ConnectionConfigured runs after the handler persists or updates a
+	// connection, allowing the daemon to attach product-level defaults such as
+	// runtime exposures before the connection is used.
+	ConnectionConfigured func(context.Context, messaging.Connection) (messaging.Connection, error)
 	// BunPath returns the absolute path to the managed bun executable used
 	// to run vendored helper bundles such as agent-slack. Optional; when
 	// nil, action kinds that depend on bun (e.g. extract_credentials)
@@ -38,25 +42,27 @@ type Config struct {
 
 // Handler dispatches messaging.* RPC methods.
 type Handler struct {
-	broker           *messagingbroker.Broker
-	store            *messagingstore.Store
-	processResolver  ProcessResolver
-	externalAdapters *messagingexternal.Registry
-	secretWriter     SecretWriter
-	bunPath          func() string
-	helperRootDir    string
+	broker               *messagingbroker.Broker
+	store                *messagingstore.Store
+	processResolver      ProcessResolver
+	externalAdapters     *messagingexternal.Registry
+	secretWriter         SecretWriter
+	connectionConfigured func(context.Context, messaging.Connection) (messaging.Connection, error)
+	bunPath              func() string
+	helperRootDir        string
 }
 
 // NewHandler creates a messaging RPC handler.
 func NewHandler(cfg Config) *Handler {
 	return &Handler{
-		broker:           cfg.Broker,
-		store:            cfg.Store,
-		processResolver:  cfg.ProcessResolver,
-		externalAdapters: cfg.ExternalAdapters,
-		secretWriter:     cfg.SecretWriter,
-		bunPath:          cfg.BunPath,
-		helperRootDir:    cfg.HelperRootDir,
+		broker:               cfg.Broker,
+		store:                cfg.Store,
+		processResolver:      cfg.ProcessResolver,
+		externalAdapters:     cfg.ExternalAdapters,
+		secretWriter:         cfg.SecretWriter,
+		connectionConfigured: cfg.ConnectionConfigured,
+		bunPath:              cfg.BunPath,
+		helperRootDir:        cfg.HelperRootDir,
 	}
 }
 
@@ -341,10 +347,14 @@ func (h *Handler) rpcCreateConnection(ctx context.Context, params json.RawMessag
 	if err != nil {
 		return nil, err
 	}
-	return h.broker.CreateConnection(ctx, messagingbroker.RegisterConnectionParams{
+	connection, err := h.broker.CreateConnection(ctx, messagingbroker.RegisterConnectionParams{
 		Connection: p.Connection,
 		Process:    process,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return h.afterConnectionConfigured(ctx, connection)
 }
 
 func (h *Handler) rpcConnectAdapter(ctx context.Context, params json.RawMessage) (interface{}, error) {
@@ -370,7 +380,19 @@ func (h *Handler) rpcConnectAdapter(ctx context.Context, params json.RawMessage)
 	}); err != nil {
 		return nil, err
 	}
+	if connection, ok := h.store.GetConnection(p.Connection.ID); ok {
+		if _, err := h.afterConnectionConfigured(ctx, connection); err != nil {
+			return nil, err
+		}
+	}
 	return h.broker.ConnectConnection(ctx, p.Connection.ID)
+}
+
+func (h *Handler) afterConnectionConfigured(ctx context.Context, connection messaging.Connection) (messaging.Connection, error) {
+	if h.connectionConfigured == nil {
+		return connection, nil
+	}
+	return h.connectionConfigured(ctx, connection)
 }
 
 func (h *Handler) rpcConnectConnection(ctx context.Context, params json.RawMessage) (interface{}, error) {

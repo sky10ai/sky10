@@ -217,9 +217,9 @@ func (h *Handler) configureAdapterConnection(ctx context.Context, info messaging
 		return messaging.Connection{}, err
 	}
 	if stored, ok := h.store.GetConnection(connection.ID); ok {
-		return stored, nil
+		connection = stored
 	}
-	return connection, nil
+	return h.afterConnectionConfigured(ctx, connection)
 }
 
 func (h *Handler) applyAdapterSettings(_ context.Context, connection *messaging.Connection, settings []messagingexternal.Setting, p runAdapterActionParams) (map[string]string, error) {

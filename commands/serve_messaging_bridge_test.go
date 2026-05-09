@@ -9,35 +9,61 @@ import (
 	skysandbox "github.com/sky10/sky10/pkg/sandbox"
 )
 
-func TestMessagingBridgeAgentSubjectCandidatesIncludeSandboxTemplate(t *testing.T) {
+func TestMessagingBridgeAgentSubjectCandidatesIncludeSandboxRuntimeFamilies(t *testing.T) {
 	t.Parallel()
 
-	source := &sandboxAgentSource{
-		targetsBy: map[string]sandboxAgentTarget{
-			"name-lower:openclaw-agent": {
-				Agent: skyagent.AgentInfo{
-					ID:      "agent/openclaw-agent",
-					Name:    "OpenClaw Agent",
-					KeyName: "openclaw-agent",
-				},
-				Sandbox: skysandbox.Record{
-					Slug:     "openclaw-agent",
-					Name:     "OpenClaw Agent",
-					Template: "openclaw",
-				},
-			},
+	tests := []struct {
+		name        string
+		agentID     string
+		template    string
+		runtimeName string
+	}{
+		{
+			name:        "openclaw docker",
+			agentID:     "openclaw-agent",
+			template:    sandboxTemplateOpenClawDocker,
+			runtimeName: sandboxTemplateOpenClaw,
+		},
+		{
+			name:        "hermes docker",
+			agentID:     "hermes-agent",
+			template:    sandboxTemplateHermesDocker,
+			runtimeName: sandboxTemplateHermes,
 		},
 	}
-	backend := &messagingBridgeBackend{sandboxAgents: source}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			source := &sandboxAgentSource{
+				targetsBy: map[string]sandboxAgentTarget{
+					"name-lower:" + tc.agentID: {
+						Agent: skyagent.AgentInfo{
+							ID:      "agent/" + tc.agentID,
+							Name:    tc.agentID,
+							KeyName: tc.agentID,
+						},
+						Sandbox: skysandbox.Record{
+							Slug:     tc.agentID,
+							Name:     tc.agentID,
+							Template: tc.template,
+						},
+					},
+				},
+			}
+			backend := &messagingBridgeBackend{sandboxAgents: source}
 
-	candidates := backend.agentSubjectCandidates(context.Background(), "openclaw-agent")
-	if _, ok := candidates["openclaw"]; !ok {
-		t.Fatalf("agentSubjectCandidates() missing sandbox template: %+v", candidates)
-	}
-	if !exposureMatchesAgent(messaging.Exposure{
-		SubjectKind: messaging.ExposureSubjectKindRuntime,
-		SubjectID:   "runtime:openclaw",
-	}, candidates) {
-		t.Fatalf("runtime:openclaw exposure did not match candidates: %+v", candidates)
+			candidates := backend.agentSubjectCandidates(context.Background(), tc.agentID)
+			if _, ok := candidates[tc.template]; !ok {
+				t.Fatalf("agentSubjectCandidates() missing sandbox template: %+v", candidates)
+			}
+			if _, ok := candidates[tc.runtimeName]; !ok {
+				t.Fatalf("agentSubjectCandidates() missing runtime family %q: %+v", tc.runtimeName, candidates)
+			}
+			if !exposureMatchesAgent(messaging.Exposure{
+				SubjectKind: messaging.ExposureSubjectKindRuntime,
+				SubjectID:   "runtime:" + tc.runtimeName,
+			}, candidates) {
+				t.Fatalf("runtime:%s exposure did not match candidates: %+v", tc.runtimeName, candidates)
+			}
+		})
 	}
 }

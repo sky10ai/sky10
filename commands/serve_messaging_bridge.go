@@ -287,6 +287,7 @@ func (b *messagingBridgeBackend) agentSubjectCandidates(ctx context.Context, age
 			addAgentSubjectCandidate(candidates, target.Sandbox.Slug)
 			addAgentSubjectCandidate(candidates, target.Sandbox.Name)
 			addAgentSubjectCandidate(candidates, target.Sandbox.Template)
+			addSandboxRuntimeSubjectCandidates(candidates, target.Sandbox.Template)
 		}
 	}
 	return candidates
@@ -304,6 +305,15 @@ func addAgentSubjectCandidate(candidates map[string]struct{}, value string) {
 		return
 	}
 	candidates[value] = struct{}{}
+}
+
+func addSandboxRuntimeSubjectCandidates(candidates map[string]struct{}, template string) {
+	switch strings.TrimSpace(template) {
+	case sandboxTemplateOpenClaw, sandboxTemplateOpenClawDocker:
+		addAgentSubjectCandidate(candidates, sandboxTemplateOpenClaw)
+	case sandboxTemplateHermes, sandboxTemplateHermesDocker:
+		addAgentSubjectCandidate(candidates, sandboxTemplateHermes)
+	}
 }
 
 func exposureMatchesAgent(exposure messaging.Exposure, candidates map[string]struct{}) bool {
