@@ -167,11 +167,14 @@ keeping payment and wallet access in the host-owned x402 path.
 - [x] Keep buffered `Call` behavior working by reading from the stream path.
 - [x] Preserve non-streaming Venice requests as `stream: false` without
       `stream_options`.
+- [x] Show Venice-side balance on AI Connections Venice cards with the linked
+      wallet name and address.
 
 ### Validation Checklist
 
 - [x] Unit test bridge request, stream chunks, and terminal response behavior.
 - [x] Unit test Venice streaming through `StreamMeteredService`.
+- [x] Unit test Venice balance lookup uses the configured wallet/address.
 - [x] Integration test host/guest Venice streaming through the bridge.
 - [x] Live test Venice streaming through the host-owned x402 path.
 - [x] Run focused Go tests for bridge, x402, daemon x402 wiring, and LLM

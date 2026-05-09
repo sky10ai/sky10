@@ -196,6 +196,24 @@ function formatTimestamp(value: string | undefined) {
   return dt.toLocaleString();
 }
 
+function formatUSD(value: string | undefined) {
+  if (!value) return "-";
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return `$${value}`;
+  return parsed.toLocaleString(undefined, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: parsed >= 10 ? 2 : 4,
+    maximumFractionDigits: 6,
+  });
+}
+
+function truncateAddress(value: string | undefined) {
+  if (!value) return "-";
+  if (value.length <= 14) return value;
+  return `${value.slice(0, 8)}...${value.slice(-4)}`;
+}
+
 function authSummary(connection: AIConnection) {
   if (connection.auth.method === "x402") {
     return connection.auth.service_id || "x402";
@@ -244,6 +262,70 @@ function WalletBanner() {
     );
   }
   return null;
+}
+
+function VeniceBalanceStatus({ connection }: { connection: AIConnection }) {
+  const { data, error, loading, refetch, refreshing } = useRPC(
+    () => aiConnections.veniceBalance({ connection_id: connection.id }),
+    [connection.id, connection.auth.wallet, connection.auth.network],
+    { refreshIntervalMs: 30_000 },
+  );
+  const unavailable = Boolean(error) || (data && !data.can_consume);
+  const textClass = unavailable
+    ? "text-amber-800 dark:text-amber-200"
+    : "text-emerald-800 dark:text-emerald-200";
+
+  return (
+    <div className="border-t border-outline-variant/10 pt-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-1">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-outline">
+            Venice balance
+          </p>
+          {loading && !data ? (
+            <p className="text-sm text-secondary">Checking Venice balance...</p>
+          ) : error ? (
+            <p className="text-sm text-amber-800 dark:text-amber-200">
+              Balance unavailable: {error}
+            </p>
+          ) : data ? (
+            <>
+              <p className={`text-xl font-semibold ${textClass}`}>
+                {formatUSD(data.balance_usd)}
+              </p>
+              <p className="text-xs text-secondary">
+                Wallet {data.wallet || connection.auth.wallet || "default"} ·{" "}
+                {networkLabel(data.network || connection.auth.network)} ·{" "}
+                <span className="font-mono">
+                  {truncateAddress(data.wallet_address)}
+                </span>
+              </p>
+              <p className="text-xs text-secondary">
+                This is Venice's balance for this wallet address. Changing the
+                wallet changes this balance.
+              </p>
+              {!data.can_consume ? (
+                <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
+                  Top up suggested: {formatUSD(data.suggested_top_up_usd)}
+                </p>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+        <button
+          aria-label="Refresh Venice balance"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-outline-variant/20 text-secondary transition-colors hover:text-on-surface"
+          onClick={() => refetch({ background: true })}
+          type="button"
+        >
+          <Icon
+            className={`text-base ${refreshing ? "animate-spin" : ""}`}
+            name={refreshing ? "progress_activity" : "refresh"}
+          />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function FieldLabel({
@@ -342,6 +424,7 @@ function ConnectionCard({
               </dd>
             </div>
           </dl>
+          {isVenice ? <VeniceBalanceStatus connection={connection} /> : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <button

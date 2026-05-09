@@ -377,6 +377,8 @@ export const codex = {
 export const aiConnections = {
   providers: () => rpc<AIProvidersResult>("inference.providers"),
   connections: () => rpc<AIConnectionsResult>("inference.connections"),
+  veniceBalance: (p: { connection_id: string }) =>
+    rpc<AIVeniceBalanceResult>("inference.veniceBalance", p),
   save: (p: { connection: AIConnection }) =>
     rpc<AIConnectionSaveResult>("inference.connectionSave", p),
   delete: (p: { id: string }) =>
@@ -2001,6 +2003,18 @@ export interface AIProvidersResult {
 export interface AIConnectionsResult {
   connections: AIConnection[];
   count: number;
+}
+
+export interface AIVeniceBalanceResult {
+  connection_id: string;
+  wallet: string;
+  network: string;
+  wallet_address: string;
+  balance_usd: string;
+  can_consume: boolean;
+  minimum_top_up_usd?: string;
+  suggested_top_up_usd?: string;
+  checked_at: string;
 }
 
 export interface AIConnectionSaveResult {

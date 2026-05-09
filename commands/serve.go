@@ -202,7 +202,9 @@ func ServeCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("creating AI connection store: %w", err)
 			}
-			server.RegisterHandler(skyllm.NewRPCHandler(llmStore, server.Emit))
+			llmRPC := skyllm.NewRPCHandler(llmStore, server.Emit)
+			llmRPC.SetVeniceBalanceProvider(newVeniceBalanceProvider())
+			server.RegisterHandler(llmRPC)
 			llmBackend := skyllm.NewConnectionChatBackend(llmStore, skyllm.ConnectionChatBackendOptions{
 				SecretResolver: llmSecretResolver{store: secretsStore},
 			})
