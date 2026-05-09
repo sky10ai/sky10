@@ -12,6 +12,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	skyllm "github.com/sky10/sky10/pkg/ai/llm"
 	"github.com/sky10/sky10/pkg/sandbox/bridge"
 	bridgex402 "github.com/sky10/sky10/pkg/sandbox/bridge/x402"
 	"github.com/sky10/sky10/pkg/x402"
@@ -358,4 +359,53 @@ func TestMeteredServicesEndpointBackendHostModeUsesLocalFallback(t *testing.T) {
 	if len(services) != 1 || services[0].ID != "perplexity" {
 		t.Fatalf("services = %+v, want local fallback", services)
 	}
+}
+
+func TestLLMMeteredServiceBackendDelegatesToBridgeBackend(t *testing.T) {
+	t.Parallel()
+
+	bridgeBackend := &recordingBridgeX402Backend{}
+	backend := llmMeteredServiceBackend{backend: bridgeBackend}
+	result, err := backend.CallMeteredService(context.Background(), skyllm.MeteredServiceCallParams{
+		AgentID:      "guest-agent",
+		ServiceID:    "venice-ai",
+		Path:         "/api/v1/chat/completions",
+		Method:       http.MethodPost,
+		Headers:      map[string]string{"Content-Type": "application/json"},
+		Body:         []byte(`{"model":"venice-uncensored"}`),
+		MaxPriceUSDC: "0.020",
+		PaymentNonce: "p1",
+	})
+	if err != nil {
+		t.Fatalf("CallMeteredService: %v", err)
+	}
+	if result.Status != http.StatusOK || string(result.Body) != `{"ok":true}` {
+		t.Fatalf("result = %+v", result)
+	}
+	if bridgeBackend.call.AgentID != "guest-agent" {
+		t.Fatalf("AgentID = %q", bridgeBackend.call.AgentID)
+	}
+	if string(bridgeBackend.call.Body) != `{"model":"venice-uncensored"}` {
+		t.Fatalf("Body = %s", bridgeBackend.call.Body)
+	}
+}
+
+type recordingBridgeX402Backend struct {
+	call bridgex402.CallParams
+}
+
+func (b *recordingBridgeX402Backend) ListServices(context.Context, string) ([]bridgex402.ServiceListing, error) {
+	return nil, nil
+}
+
+func (b *recordingBridgeX402Backend) BudgetStatus(context.Context, string) (*bridgex402.BudgetSnapshot, error) {
+	return nil, nil
+}
+
+func (b *recordingBridgeX402Backend) Call(_ context.Context, params bridgex402.CallParams) (*bridgex402.CallResult, error) {
+	b.call = params
+	return &bridgex402.CallResult{
+		Status: http.StatusOK,
+		Body:   json.RawMessage(`{"ok":true}`),
+	}, nil
 }

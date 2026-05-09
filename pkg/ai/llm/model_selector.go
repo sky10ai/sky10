@@ -49,7 +49,7 @@ func parseModelSelector(raw string) (parsedModelSelector, error) {
 func resolveModelSelector(connections []Connection, raw string) (resolvedModelSelector, error) {
 	connections = modelRoutableConnections(connections)
 	if len(connections) == 0 {
-		return resolvedModelSelector{}, errors.New("no OpenAI or Anthropic connections are configured")
+		return resolvedModelSelector{}, errors.New("no OpenAI, Anthropic, or Venice connections are configured")
 	}
 	selector, err := parseModelSelector(raw)
 	if err != nil {
@@ -152,7 +152,8 @@ func selectorModelOrDefault(model string, connection Connection) (string, error)
 func modelRoutableConnections(connections []Connection) []Connection {
 	out := make([]Connection, 0, len(connections))
 	for _, connection := range connections {
-		if connection.Provider == ProviderOpenAI || connection.Provider == ProviderAnthropic {
+		switch connection.Provider {
+		case ProviderOpenAI, ProviderAnthropic, ProviderVenice:
 			out = append(out, connection)
 		}
 	}

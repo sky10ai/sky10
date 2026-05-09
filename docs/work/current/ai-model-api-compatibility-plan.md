@@ -138,7 +138,7 @@ provider layer without turning sky10 into a general-purpose AI gateway.
 - [x] Add shared SSE scanning helpers.
 - [x] Standardize provider timeouts and context cancellation.
 - [x] Keep provider-specific payload translation inside each adapter.
-- [ ] Keep Venice x402 payment handling inside the Venice adapter path.
+- [x] Keep Venice x402 payment handling inside the Venice adapter path.
 - [x] Remove duplicated request, error, and SSE code from provider adapters.
 
 ### Validation Checklist
@@ -148,7 +148,7 @@ provider layer without turning sky10 into a general-purpose AI gateway.
 - [x] Unit test malformed SSE handling.
 - [x] Confirm OpenAI adapter tests still cover OpenAI-specific payloads.
 - [x] Confirm Anthropic adapter tests still cover Anthropic-specific payloads.
-- [ ] Confirm Venice adapter tests cover x402-specific behavior.
+- [x] Confirm Venice adapter tests cover x402-specific behavior.
 - [x] Run `make check`.
 - [x] Run `go test ./... -count=1`.
 

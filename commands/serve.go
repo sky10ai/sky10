@@ -203,10 +203,11 @@ func ServeCmd() *cobra.Command {
 				return fmt.Errorf("creating AI connection store: %w", err)
 			}
 			server.RegisterHandler(skyllm.NewRPCHandler(llmStore, server.Emit))
+			llmBackend := skyllm.NewConnectionChatBackend(llmStore, skyllm.ConnectionChatBackendOptions{
+				SecretResolver: llmSecretResolver{store: secretsStore},
+			})
 			llmHost := skyllm.NewHostHTTPHandler(skyllm.HostHTTPOptions{
-				Backend: skyllm.NewConnectionChatBackend(llmStore, skyllm.ConnectionChatBackendOptions{
-					SecretResolver: llmSecretResolver{store: secretsStore},
-				}),
+				Backend:     llmBackend,
 				ModelLister: skyllm.StoreModelLister(llmStore),
 			})
 			server.HandleHTTP("/v1/health", llmHost.HandleHealth)
@@ -558,8 +559,10 @@ func ServeCmd() *cobra.Command {
 				agentChatWS.HandleChat(w, r)
 			})
 			skyagent.RegisterLinkHandlers(linkNode, agentRegistry, agentEventEmitter, agentRouter)
-			if err := installX402Endpoint(ctx, server, agentRegistry, sandboxManager, logRuntime.Logger); err != nil {
+			if meteredBackend, err := installX402Endpoint(ctx, server, agentRegistry, sandboxManager, logRuntime.Logger); err != nil {
 				logger.Warn("x402 endpoint not installed", "error", err)
+			} else {
+				llmBackend.SetMeteredServiceBackend(meteredBackend)
 			}
 			if err := installMessagingBridgeEndpoint(server, agentRegistry, messagingRuntime, sandboxAgentSource, sandboxManager, logRuntime.Logger); err != nil {
 				logger.Warn("messenger bridge endpoint not installed", "error", err)

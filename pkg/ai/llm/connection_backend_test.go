@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -177,5 +178,82 @@ func TestConnectionChatBackendRoutesStreamingOpenAI(t *testing.T) {
 	}
 	if len(chunks) != 1 || chunks[0].Choices[0].Delta.Content != "hello" {
 		t.Fatalf("chunks = %+v", chunks)
+	}
+}
+
+func TestConnectionChatBackendRoutesVeniceThroughMeteredService(t *testing.T) {
+	t.Parallel()
+
+	store := NewStore(filepath.Join(t.TempDir(), "connections.json"))
+	if _, err := store.Upsert(context.Background(), Connection{
+		ID:           "bovilus-venice",
+		Label:        "Bovilus Venice",
+		Provider:     ProviderVenice,
+		BaseURL:      DefaultVeniceBaseURL,
+		DefaultModel: DefaultVeniceModel,
+		Models:       []string{"anthropic/opus-4-7"},
+		Auth: AuthConfig{
+			Method:       AuthMethodX402,
+			ServiceID:    DefaultVeniceX402Service,
+			Network:      "base",
+			MaxPriceUSDC: "0.020",
+		},
+	}); err != nil {
+		t.Fatalf("save connection: %v", err)
+	}
+	fake := &fakeMeteredServiceBackend{result: veniceTestCompletion(t, "anthropic/opus-4-7", "hello from venice")}
+	backend := NewConnectionChatBackend(store, ConnectionChatBackendOptions{
+		MeteredService: fake,
+		MeteredAgentID: "guest-agent",
+	})
+
+	resp, err := backend.ChatCompletions(context.Background(), ChatCompletionRequest{
+		Model:    "bovilus-venice/anthropic/opus-4-7",
+		Messages: []ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("ChatCompletions() error = %v", err)
+	}
+	if resp.Choices[0].Message.Content != "hello from venice" {
+		t.Fatalf("response content = %q", resp.Choices[0].Message.Content)
+	}
+	if fake.params.AgentID != "guest-agent" {
+		t.Fatalf("AgentID = %q", fake.params.AgentID)
+	}
+	var upstream ChatCompletionRequest
+	if err := json.Unmarshal(fake.params.Body, &upstream); err != nil {
+		t.Fatalf("decode upstream body: %v", err)
+	}
+	if upstream.Model != "anthropic/opus-4-7" {
+		t.Fatalf("upstream model = %q", upstream.Model)
+	}
+}
+
+func TestConnectionChatBackendRejectsVeniceWithoutMeteredService(t *testing.T) {
+	t.Parallel()
+
+	store := NewStore(filepath.Join(t.TempDir(), "connections.json"))
+	if _, err := store.Upsert(context.Background(), Connection{
+		ID:       "venice-live",
+		Label:    "Venice Live",
+		Provider: ProviderVenice,
+		BaseURL:  DefaultVeniceBaseURL,
+		Auth: AuthConfig{
+			Method:       AuthMethodX402,
+			ServiceID:    DefaultVeniceX402Service,
+			Network:      "base",
+			MaxPriceUSDC: "0.020",
+		},
+	}); err != nil {
+		t.Fatalf("save connection: %v", err)
+	}
+	backend := NewConnectionChatBackend(store, ConnectionChatBackendOptions{})
+
+	_, err := backend.ChatCompletions(context.Background(), ChatCompletionRequest{
+		Model:    "venice-live/" + DefaultVeniceModel,
+		Messages: []ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "x402 backend is not configured") {
+		t.Fatalf("err = %v, want x402 backend error", err)
 	}
 }

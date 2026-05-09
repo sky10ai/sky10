@@ -66,6 +66,34 @@ func TestResolveModelSelectorConnectionQualifiedModel(t *testing.T) {
 	}
 }
 
+func TestResolveModelSelectorVeniceModelKeepsProviderSlash(t *testing.T) {
+	t.Parallel()
+
+	resolved, err := resolveModelSelector([]Connection{
+		testSelectorConnection("bovilus-venice", "Bovilus Venice", ProviderVenice, DefaultVeniceModel, "anthropic/opus-4-7"),
+	}, "venice/anthropic/opus-4-7")
+	if err != nil {
+		t.Fatalf("resolveModelSelector() error = %v", err)
+	}
+	if resolved.Connection.ID != "bovilus-venice" || resolved.Model != "anthropic/opus-4-7" {
+		t.Fatalf("resolved = %+v", resolved)
+	}
+}
+
+func TestResolveModelSelectorVeniceConnectionQualifiedModel(t *testing.T) {
+	t.Parallel()
+
+	resolved, err := resolveModelSelector([]Connection{
+		testSelectorConnection("bovilus-venice", "Bovilus Venice", ProviderVenice, DefaultVeniceModel),
+	}, "bovilus-venice/anthropic/opus-4-7")
+	if err != nil {
+		t.Fatalf("resolveModelSelector() error = %v", err)
+	}
+	if resolved.Connection.ID != "bovilus-venice" || resolved.Model != "anthropic/opus-4-7" {
+		t.Fatalf("resolved = %+v", resolved)
+	}
+}
+
 func TestResolveModelSelectorUnknownProviderOrConnection(t *testing.T) {
 	t.Parallel()
 
@@ -131,6 +159,7 @@ func TestHostModelsForConnectionsListsResolvableSelectors(t *testing.T) {
 		testSelectorConnection("openai-work", "OpenAI Work", ProviderOpenAI, "gpt-shared", "gpt-work"),
 		testSelectorConnection("openai-personal", "OpenAI Personal", ProviderOpenAI, "gpt-shared", "gpt-personal"),
 		testSelectorConnection("anthropic-work", "Anthropic Work", ProviderAnthropic, "claude-default"),
+		testSelectorConnection("bovilus-venice", "Bovilus Venice", ProviderVenice, DefaultVeniceModel, "anthropic/opus-4-7"),
 	})
 	ids := make(map[string]HostModel, len(models))
 	for _, model := range models {
@@ -143,6 +172,8 @@ func TestHostModelsForConnectionsListsResolvableSelectors(t *testing.T) {
 		"openai-personal/gpt-shared",
 		"anthropic/claude-default",
 		"anthropic-work/claude-default",
+		"venice/anthropic/opus-4-7",
+		"bovilus-venice/anthropic/opus-4-7",
 	} {
 		if _, ok := ids[want]; !ok {
 			t.Fatalf("models missing %q in %+v", want, models)

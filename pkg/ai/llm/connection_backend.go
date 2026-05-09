@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,17 +22,23 @@ func (fn SecretResolverFunc) ResolveSecret(ctx context.Context, ref string) (str
 }
 
 // ConnectionChatBackend routes host OpenAI-compatible chat requests through
-// saved OpenAI and Anthropic connections.
+// saved provider connections.
 type ConnectionChatBackend struct {
 	store          *Store
 	secretResolver SecretResolver
 	httpClient     *http.Client
 	now            func() time.Time
+
+	mu                    sync.RWMutex
+	meteredServiceBackend MeteredServiceBackend
+	meteredServiceAgentID string
 }
 
 type ConnectionChatBackendOptions struct {
 	SecretResolver SecretResolver
 	HTTPClient     *http.Client
+	MeteredService MeteredServiceBackend
+	MeteredAgentID string
 	Now            func() time.Time
 }
 
@@ -41,11 +48,22 @@ func NewConnectionChatBackend(store *Store, opts ConnectionChatBackendOptions) *
 		now = time.Now
 	}
 	return &ConnectionChatBackend{
-		store:          store,
-		secretResolver: opts.SecretResolver,
-		httpClient:     opts.HTTPClient,
-		now:            now,
+		store:                 store,
+		secretResolver:        opts.SecretResolver,
+		httpClient:            opts.HTTPClient,
+		meteredServiceBackend: opts.MeteredService,
+		meteredServiceAgentID: strings.TrimSpace(opts.MeteredAgentID),
+		now:                   now,
 	}
+}
+
+func (b *ConnectionChatBackend) SetMeteredServiceBackend(backend MeteredServiceBackend) {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.meteredServiceBackend = backend
 }
 
 func (b *ConnectionChatBackend) ChatCompletions(ctx context.Context, req ChatCompletionRequest) (*ChatCompletionResponse, error) {
@@ -80,7 +98,21 @@ func (b *ConnectionChatBackend) adapterForRequest(ctx context.Context, req ChatC
 	}
 	connection := resolved.Connection
 	if connection.Provider == ProviderVenice {
-		return nil, ChatCompletionRequest{}, fmt.Errorf("venice guest provider is not wired yet")
+		meteredBackend, agentID := b.meteredServiceRuntime()
+		if meteredBackend == nil {
+			return nil, ChatCompletionRequest{}, fmt.Errorf("venice x402 backend is not configured")
+		}
+		routedReq := req
+		routedReq.Model = resolved.Model
+		return NewVeniceAdapter(VeniceAdapterOptions{
+			Backend:      meteredBackend,
+			BaseURL:      connection.BaseURL,
+			Model:        resolved.Model,
+			ServiceID:    connection.Auth.ServiceID,
+			MaxPriceUSDC: connection.Auth.MaxPriceUSDC,
+			AgentID:      agentID,
+			Now:          b.now,
+		}), routedReq, nil
 	}
 	apiKey, err := b.resolveAPIKey(ctx, connection)
 	if err != nil {
@@ -99,6 +131,15 @@ func (b *ConnectionChatBackend) adapterForRequest(ctx context.Context, req ChatC
 	routedReq := req
 	routedReq.Model = resolved.Model
 	return adapter, routedReq, nil
+}
+
+func (b *ConnectionChatBackend) meteredServiceRuntime() (MeteredServiceBackend, string) {
+	if b == nil {
+		return nil, ""
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.meteredServiceBackend, b.meteredServiceAgentID
 }
 
 func (b *ConnectionChatBackend) resolveAPIKey(ctx context.Context, connection Connection) (string, error) {

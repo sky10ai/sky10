@@ -15,6 +15,7 @@ import (
 	"time"
 
 	skyagent "github.com/sky10/sky10/pkg/agent"
+	skyllm "github.com/sky10/sky10/pkg/ai/llm"
 	skyconfig "github.com/sky10/sky10/pkg/config"
 	"github.com/sky10/sky10/pkg/payments/mpp"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
@@ -37,32 +38,32 @@ import (
 // `ows sign message --typed-data` for each x402 challenge; otherwise
 // the daemon falls back to a stub signer that returns a typed error
 // on any call requiring payment.
-func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegistry *skyagent.Registry, sandboxManager *skysandbox.Manager, logger *slog.Logger) error {
+func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegistry *skyagent.Registry, sandboxManager *skysandbox.Manager, logger *slog.Logger) (skyllm.MeteredServiceBackend, error) {
 	if server == nil {
-		return errors.New("x402: nil rpc server")
+		return nil, errors.New("x402: nil rpc server")
 	}
 	if agentRegistry == nil {
-		return errors.New("x402: nil agent registry")
+		return nil, errors.New("x402: nil agent registry")
 	}
 
 	registryPath, err := x402RegistryPath()
 	if err != nil {
-		return fmt.Errorf("registry path: %w", err)
+		return nil, fmt.Errorf("registry path: %w", err)
 	}
 	registry, err := x402.NewRegistry(x402.NewFileRegistryStore(registryPath), nil)
 	if err != nil {
-		return fmt.Errorf("new registry: %w", err)
+		return nil, fmt.Errorf("new registry: %w", err)
 	}
 
 	receiptsPath, err := x402ReceiptsPath()
 	if err != nil {
-		return fmt.Errorf("receipts path: %w", err)
+		return nil, fmt.Errorf("receipts path: %w", err)
 	}
 	receiptStore := x402.NewFileReceiptStore(receiptsPath)
 
 	overlay, err := discovery.LoadOverlay()
 	if err != nil {
-		return fmt.Errorf("load overlay: %w", err)
+		return nil, fmt.Errorf("load overlay: %w", err)
 	}
 	sources := []discovery.Source{
 		discovery.NewAgenticMarketSource("", nil),
@@ -102,7 +103,35 @@ func installX402Endpoint(ctx context.Context, server *skyrpc.Server, agentRegist
 	}
 
 	server.RegisterHandler(x402rpc.NewHandler(registry, budget))
-	return nil
+	return llmMeteredServiceBackend{backend: endpointBackend}, nil
+}
+
+type llmMeteredServiceBackend struct {
+	backend bridgex402.Backend
+}
+
+func (b llmMeteredServiceBackend) CallMeteredService(ctx context.Context, params skyllm.MeteredServiceCallParams) (*skyllm.MeteredServiceCallResult, error) {
+	if b.backend == nil {
+		return nil, errors.New("metered-services backend is not configured")
+	}
+	result, err := b.backend.Call(ctx, bridgex402.CallParams{
+		AgentID:      params.AgentID,
+		ServiceID:    params.ServiceID,
+		Path:         params.Path,
+		Method:       params.Method,
+		Headers:      params.Headers,
+		Body:         params.Body,
+		MaxPriceUSDC: params.MaxPriceUSDC,
+		PaymentNonce: params.PaymentNonce,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &skyllm.MeteredServiceCallResult{
+		Status:  result.Status,
+		Headers: result.Headers,
+		Body:    []byte(result.Body),
+	}, nil
 }
 
 const sandboxGuestEnv = "SKY10_SANDBOX_GUEST"
