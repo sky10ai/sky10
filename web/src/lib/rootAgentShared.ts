@@ -33,8 +33,10 @@ export type AssistantIntent =
   | "devices"
   | "drives"
   | "fallback"
+  | "greeting"
   | "network"
   | "node_diagnosis"
+  | "page_context"
   | "sandboxes"
   | "sync_activity";
 
@@ -66,12 +68,32 @@ function asksForVersion(value: string) {
 export function detectIntent(prompt: string): AssistantIntent {
   const value = lower(prompt);
 
+  if (/^(hi|hello|hey|yo|sup|howdy)[.!?\s]*$/.test(value)) {
+    return "greeting";
+  }
+
   if (
     value.includes("create me an agent") ||
     value.startsWith("create an agent") ||
     value.includes("build me an agent")
   ) {
     return "agent_create";
+  }
+
+  if (
+    value.includes("this page") ||
+    value.includes("current page") ||
+    value.includes("this view") ||
+    value.includes("current view") ||
+    value.includes("what am i looking at") ||
+    value.includes("what's on screen") ||
+    value.includes("whats on screen") ||
+    value.includes("screenshot") ||
+    value.includes("troubleshooting note") ||
+    value.includes("troubleshooting doc") ||
+    value.includes("context doc")
+  ) {
+    return "page_context";
   }
 
   if (

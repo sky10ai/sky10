@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { CommandPalette } from "./CommandPalette";
+import { RootAgentBubble } from "./assistant/RootAgentBubble";
 
 export function Layout() {
   const location = useLocation();
@@ -26,6 +27,7 @@ export function Layout() {
           <Outlet />
         </main>
         <CommandPalette />
+        <RootAgentBubble />
       </>
     );
   }
@@ -46,6 +48,7 @@ export function Layout() {
         </div>
       </div>
       <CommandPalette />
+      <RootAgentBubble />
     </>
   );
 }

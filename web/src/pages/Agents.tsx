@@ -2,7 +2,10 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { AgentAvatar } from "../components/AgentAvatar";
 import { RunCard } from "../components/assistant/RunCard";
-import type { WorkspaceRun } from "../components/assistant/workspaceTypes";
+import {
+  createWorkspaceRun,
+  type WorkspaceRun,
+} from "../components/assistant/workspaceTypes";
 import { Icon } from "../components/Icon";
 import {
   PageDescription,
@@ -52,22 +55,6 @@ const AGENT_IDEAS = [
     prompt: "Transcribe podcast uploads and prepare show notes.",
   },
 ] as const;
-
-function createAgentRun(prompt: string): WorkspaceRun {
-  return {
-    audience: "for_me",
-    id:
-      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    prompt,
-    answer: "",
-    status: "running",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    toolTraces: [],
-  };
-}
 
 function uniq(values: string[]) {
   return [...new Set(values.filter(Boolean))];
@@ -402,7 +389,7 @@ export default function Agents() {
     const trimmed = nextPrompt.trim();
     if (!trimmed) return;
 
-    let currentRun = createAgentRun(trimmed);
+    let currentRun = createWorkspaceRun(trimmed);
     setPrompt("");
     setBuilderStatus("Reading...");
     setRun(currentRun);
