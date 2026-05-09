@@ -1,11 +1,16 @@
 package bridge
 
 import (
+	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -52,6 +57,67 @@ func TestConnCallRoundTrip(t *testing.T) {
 	if got["hello"] != "world" {
 		t.Fatalf("response = %#v, want hello=world", got)
 	}
+}
+
+func TestConnKeepaliveClosesUnresponsivePeer(t *testing.T) {
+	t.Parallel()
+
+	done := make(chan error, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := Accept(w, r, nil,
+			WithKeepaliveInterval(10*time.Millisecond),
+			WithKeepaliveTimeout(20*time.Millisecond),
+		)
+		if err != nil {
+			done <- err
+			return
+		}
+		defer conn.Close(websocket.StatusNormalClosure, "")
+		done <- conn.runKeepalive(r.Context())
+	}))
+	defer srv.Close()
+
+	rawConn := dialRawWebSocket(t, srv.URL)
+	defer rawConn.Close()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("runKeepalive returned nil, want keepalive failure")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runKeepalive did not return after keepalive timeout")
+	}
+}
+
+func dialRawWebSocket(t *testing.T, rawURL string) net.Conn {
+	t.Helper()
+
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	conn, err := net.DialTimeout("tcp", parsed.Host, time.Second)
+	if err != nil {
+		t.Fatalf("dial raw websocket: %v", err)
+	}
+
+	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
+	if _, err := fmt.Fprintf(conn, "GET / HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n\r\n", parsed.Host, key); err != nil {
+		conn.Close()
+		t.Fatalf("write websocket handshake: %v", err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		conn.Close()
+		t.Fatalf("read websocket handshake response: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		conn.Close()
+		t.Fatalf("handshake status = %d, want %d", resp.StatusCode, http.StatusSwitchingProtocols)
+	}
+	return conn
 }
 
 func TestConnReturnsHandlerError(t *testing.T) {

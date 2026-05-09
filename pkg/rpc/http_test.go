@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ type flushRecorder struct {
 
 	mu      sync.Mutex
 	onFlush func()
+	body    []byte
 }
 
 func (r *flushRecorder) Header() http.Header {
@@ -27,6 +29,9 @@ func (r *flushRecorder) Header() http.Header {
 }
 
 func (r *flushRecorder) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	r.body = append(r.body, p...)
+	r.mu.Unlock()
 	return len(p), nil
 }
 
@@ -39,6 +44,12 @@ func (r *flushRecorder) Flush() {
 	if onFlush != nil {
 		onFlush()
 	}
+}
+
+func (r *flushRecorder) Body() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return string(r.body)
 }
 
 func TestHandleHTTPEventsRegistersSubscriberBeforeFirstFlush(t *testing.T) {
@@ -84,6 +95,46 @@ func TestHandleHTTPEventsRegistersSubscriberBeforeFirstFlush(t *testing.T) {
 
 	if got := recorder.Header().Get("Content-Type"); got != "text/event-stream" {
 		t.Fatalf("Content-Type = %q, want text/event-stream", got)
+	}
+}
+
+func TestHandleHTTPEventsSendsKeepaliveComments(t *testing.T) {
+	srv := NewServer("/tmp/test-http-events-keepalive.sock", "test", nil)
+	srv.httpEventKeepaliveInterval = 10 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	keepalive := make(chan struct{}, 1)
+	recorder := &flushRecorder{}
+	recorder.onFlush = func() {
+		if strings.Contains(recorder.Body(), ": keepalive\n\n") {
+			select {
+			case keepalive <- struct{}{}:
+			default:
+			}
+			cancel()
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/rpc/events", nil).WithContext(ctx)
+
+	done := make(chan struct{})
+	go func() {
+		srv.handleHTTPEvents(recorder, req)
+		close(done)
+	}()
+
+	select {
+	case <-keepalive:
+	case <-time.After(time.Second):
+		t.Fatal("keepalive comment not observed")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("handleHTTPEvents did not return after context cancel")
 	}
 }
 

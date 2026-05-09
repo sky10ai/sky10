@@ -34,6 +34,8 @@ type Server struct {
 	httpSubs   []*httpSubscriber
 	httpRoutes []httpRoute
 
+	httpEventKeepaliveInterval time.Duration
+
 	// Callbacks
 	onServe func() // called after listener is bound, before accept loop
 }
@@ -58,11 +60,12 @@ func (s *Server) HandleHTTP(pattern string, handler http.HandlerFunc) {
 func NewServer(sockPath, version string, logger *slog.Logger) *Server {
 	logger = componentLogger(logger)
 	return &Server{
-		sockPath: sockPath,
-		version:  version,
-		logger:   logger,
-		clients:  make(map[net.Conn]bool),
-		events:   make(chan Event, 100),
+		sockPath:                   sockPath,
+		version:                    version,
+		logger:                     logger,
+		clients:                    make(map[net.Conn]bool),
+		events:                     make(chan Event, 100),
+		httpEventKeepaliveInterval: 25 * time.Second,
 	}
 }
 

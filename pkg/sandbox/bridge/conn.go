@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
@@ -127,9 +128,16 @@ func (c *Conn) Run(ctx context.Context) error {
 	if c == nil || c.ws == nil {
 		return ErrClosed
 	}
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		if err := c.runKeepalive(runCtx); err != nil {
+			_ = c.Close(websocket.StatusGoingAway, "keepalive failed")
+		}
+	}()
 	for {
 		var frame Frame
-		if err := wsjson.Read(ctx, c.ws, &frame); err != nil {
+		if err := wsjson.Read(runCtx, c.ws, &frame); err != nil {
 			c.failPending(err)
 			return err
 		}
@@ -144,6 +152,34 @@ func (c *Conn) Run(ctx context.Context) error {
 			c.deliver(frame, false)
 		case KindRequest:
 			go c.handle(ctx, frame)
+		}
+	}
+}
+
+func (c *Conn) runKeepalive(ctx context.Context) error {
+	interval := c.opts.keepaliveInterval
+	if interval <= 0 {
+		return nil
+	}
+	timeout := c.opts.keepaliveTimeout
+	if timeout <= 0 {
+		timeout = defaultKeepalivePingTimeout
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			pingCtx, cancel := context.WithTimeout(ctx, timeout)
+			err := c.ws.Ping(pingCtx)
+			cancel()
+			if err != nil {
+				return err
+			}
 		}
 	}
 }

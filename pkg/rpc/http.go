@@ -207,16 +207,31 @@ func (s *Server) handleHTTPEvents(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("SSE client connected", "remote", r.RemoteAddr)
 	flusher.Flush()
 
+	var keepalive <-chan time.Time
+	var keepaliveTicker *time.Ticker
+	if s.httpEventKeepaliveInterval > 0 {
+		keepaliveTicker = time.NewTicker(s.httpEventKeepaliveInterval)
+		defer keepaliveTicker.Stop()
+		keepalive = keepaliveTicker.C
+	}
+
 	for {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-keepalive:
+			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
 		case event := <-sub.ch:
 			data, _ := json.Marshal(map[string]interface{}{
 				"event": event.Name,
 				"data":  event.Data,
 			})
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Name, data)
+			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Name, data); err != nil {
+				return
+			}
 			flusher.Flush()
 		}
 	}
