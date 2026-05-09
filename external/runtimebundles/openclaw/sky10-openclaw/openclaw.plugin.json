@@ -2,7 +2,9 @@
   "id": "sky10",
   "channels": [
     "sky10",
-    "telegram"
+    "telegram",
+    "slack",
+    "imap-smtp"
   ],
   "name": "Sky10 Channels",
   "version": "0.1.0",
@@ -40,17 +42,17 @@
       },
       "connectionId": {
         "type": "string",
-        "description": "Optional Telegram connection ID to bind this account to"
+        "description": "Optional messaging connection ID to bind this account to"
       },
       "pollIntervalMs": {
         "type": "number",
         "default": 5000,
-        "description": "Telegram bridge polling interval in milliseconds"
+        "description": "Messaging bridge polling interval in milliseconds"
       },
       "replayOnStart": {
         "type": "boolean",
         "default": false,
-        "description": "Replay existing Telegram events when the gateway starts"
+        "description": "Replay existing messaging events when the gateway starts"
       }
     },
     "required": ["agentName"]

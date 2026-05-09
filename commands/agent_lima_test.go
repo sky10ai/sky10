@@ -850,7 +850,11 @@ func TestOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	if !strings.Contains(string(manifestBody), `["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("plugin manifest missing browser skill default: %q", string(manifestBody))
 	}
-	if !strings.Contains(string(manifestBody), `"channels"`) || !strings.Contains(string(manifestBody), `"sky10"`) || !strings.Contains(string(manifestBody), `"telegram"`) {
+	if !strings.Contains(string(manifestBody), `"channels"`) ||
+		!strings.Contains(string(manifestBody), `"sky10"`) ||
+		!strings.Contains(string(manifestBody), `"telegram"`) ||
+		!strings.Contains(string(manifestBody), `"slack"`) ||
+		!strings.Contains(string(manifestBody), `"imap-smtp"`) {
 		t.Fatalf("plugin manifest missing channel declarations: %q", string(manifestBody))
 	}
 
@@ -873,8 +877,22 @@ func TestOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	if !strings.Contains(string(indexBody), `api.registerChannel({ plugin: telegramChannelPlugin })`) {
 		t.Fatalf("plugin index missing telegram channel registration: %q", string(indexBody))
 	}
+	if !strings.Contains(string(indexBody), `api.registerChannel({ plugin: slackChannelPlugin })`) {
+		t.Fatalf("plugin index missing slack channel registration: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `api.registerChannel({ plugin: imapSmtpChannelPlugin })`) {
+		t.Fatalf("plugin index missing imap-smtp channel registration: %q", string(indexBody))
+	}
 	if !strings.Contains(string(indexBody), `createMessagingClient`) {
 		t.Fatalf("plugin index missing messenger bridge client: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `const slackChannelPlugin = createMessagingChannelPlugin`) ||
+		!strings.Contains(string(indexBody), `const imapSmtpChannelPlugin = createMessagingChannelPlugin`) {
+		t.Fatalf("plugin index missing native Slack and IMAP/SMTP channel plugins: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `adapterID: SLACK_CHANNEL_ID`) ||
+		!strings.Contains(string(indexBody), `adapterID: IMAP_SMTP_CHANNEL_ID`) {
+		t.Fatalf("plugin index missing Slack and IMAP/SMTP adapter-backed channel definitions: %q", string(indexBody))
 	}
 	if !strings.Contains(string(indexBody), `function messagingSessionID(connectionID, conversationID)`) {
 		t.Fatalf("plugin index missing connection-scoped messaging session helper: %q", string(indexBody))

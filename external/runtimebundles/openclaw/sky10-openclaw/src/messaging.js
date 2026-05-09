@@ -216,7 +216,7 @@ function mediaSummary(parts = []) {
   if (media.length === 0) {
     return "";
   }
-  return `Telegram attachment${media.length === 1 ? "" : "s"}: ${media.map(mediaLabel).join(", ")}`;
+  return `Messaging attachment${media.length === 1 ? "" : "s"}: ${media.map(mediaLabel).join(", ")}`;
 }
 
 function openClawMediaPart(part) {

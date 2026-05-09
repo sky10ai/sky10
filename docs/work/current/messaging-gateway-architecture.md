@@ -76,8 +76,8 @@ Runtimes that create outbound attachments must point refs back into
 
 Runtime presentation is intentionally runtime-specific:
 
-- OpenClaw can expose Telegram as a native channel app because OpenClaw has a
-  channel plugin API.
+- OpenClaw can expose Telegram, Slack, and IMAP/SMTP as native channel apps
+  because OpenClaw has a channel plugin API.
 - Hermes consumes the same bridge as a gateway runtime. Its bridge polls
   exposed platform events, prompts Hermes with normalized content and mounted
   file paths, then sends final replies through broker drafts.

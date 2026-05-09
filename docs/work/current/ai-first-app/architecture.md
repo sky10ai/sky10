@@ -37,8 +37,8 @@ the Sky10 messaging broker. The broker owns credentials, policy, approvals,
 normalized storage, and audit. AI runtimes consume only narrowed bridge/shim
 surfaces:
 
-- OpenClaw can present a platform as a native channel app when the runtime has
-  a channel plugin, such as the Telegram channel.
+- OpenClaw can present exposed platforms as native channel apps when the
+  runtime has channel plugins, such as Telegram, Slack, and IMAP/SMTP.
 - Hermes consumes exposed platform events through its Sky10 bridge and sends
   broker-owned drafts; it does not need direct Telegram, Slack, or email SDKs.
 

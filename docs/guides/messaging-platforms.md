@@ -28,9 +28,10 @@ platform adapter receives them.
 
 ## Runtime Behavior
 
-OpenClaw presents Telegram as a native channel when the `telegram` OpenClaw
-channel plugin is enabled. Telegram messages appear as Telegram conversations
-inside OpenClaw, and replies go back through the broker.
+OpenClaw presents bridge-backed messaging apps as native channels when their
+OpenClaw channel plugins are enabled. Telegram, Slack, and IMAP/SMTP messages
+appear as native channel conversations inside OpenClaw, and replies go back
+through broker drafts/send requests.
 
 Hermes has no native channel-app registry. Instead,
 `hermes-sky10-bridge.py` consumes the same Sky10 messenger bridge as a gateway
