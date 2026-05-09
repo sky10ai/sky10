@@ -83,6 +83,8 @@ export const skyfs = {
   mkdir: (p: { drive: string; path: string }) =>
     rpc<{ status: string }>("skyfs.mkdir", p),
   status: () => rpc<StatusResult>("skyfs.status"),
+  debugScreenshot: (p: DebugScreenshotParams) =>
+    rpc<DebugScreenshotResult>("skyfs.debugScreenshot", p),
   s3List: (p: { prefix: string }) => rpc<S3ListResult>("skyfs.s3List", p),
   s3Delete: (p: { key: string }) => rpc("skyfs.s3Delete", p),
   syncActivity: () => rpc<SyncActivityResult>("skyfs.syncActivity"),
@@ -521,6 +523,29 @@ export interface StatusResult {
 export interface S3ObjectEntry {
   key: string;
   size: number;
+}
+
+export interface DebugScreenshotParams {
+  captured_at: string;
+  content_type: string;
+  data_base64: string;
+  filename: string;
+  height: number;
+  page_context?: unknown;
+  size_bytes: number;
+  width: number;
+}
+
+export interface DebugScreenshotResult {
+  status: string;
+  key: string;
+  metadata_key: string;
+  image_key: string;
+  content_type: string;
+  height: number;
+  sha256: string;
+  size: number;
+  width: number;
 }
 
 export interface S3ListResult {

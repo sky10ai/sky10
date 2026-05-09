@@ -213,7 +213,7 @@ func (s *FSHandler) Dispatch(ctx context.Context, method string, params json.Raw
 		result, err = s.rpcSyncActivity(ctx)
 	case "skyfs.driveState":
 		result, err = s.rpcDriveState(ctx, params)
-	case "skyfs.debugDump", "skyfs.debugList", "skyfs.debugGet",
+	case "skyfs.debugDump", "skyfs.debugScreenshot", "skyfs.debugList", "skyfs.debugGet",
 		"skyfs.s3List", "skyfs.s3Delete":
 		if s.store.backend == nil {
 			return nil, fmt.Errorf("requires S3 storage"), true
@@ -221,6 +221,8 @@ func (s *FSHandler) Dispatch(ctx context.Context, method string, params json.Raw
 		switch method {
 		case "skyfs.debugDump":
 			result, err = s.rpcDebugDump(ctx)
+		case "skyfs.debugScreenshot":
+			result, err = s.rpcDebugScreenshot(ctx, params)
 		case "skyfs.debugList":
 			result, err = s.rpcDebugList(ctx)
 		case "skyfs.debugGet":

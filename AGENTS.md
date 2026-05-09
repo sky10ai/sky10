@@ -261,10 +261,12 @@ should use this file directly.
 - Use the daemon's Unix socket at `/tmp/sky10/sky10.sock` when
   diagnosing another machine from this repo's tooling.
 - Useful RPC methods: `skyfs.deviceList`, `skyfs.debugList`,
-  `skyfs.debugGet`, `skyfs.debugDump`, `skyfs.s3List`,
-  `skyfs.s3Delete`.
+  `skyfs.debugGet`, `skyfs.debugDump`, `skyfs.debugScreenshot`,
+  `skyfs.s3List`, `skyfs.s3Delete`.
 - `skyfs.debug*` and `skyfs.s3*` require S3-backed storage on the
   target daemon.
+- `skyfs.debugScreenshot` stores browser-captured PNGs plus page
+  context; `skyfs.debugGet` returns base64 for the PNG key.
 - Prefer a fresh debug dump over stale ones.
 - If your agent can use Claude skills, `/debug-remote` captures the
   preferred dump-based workflow.

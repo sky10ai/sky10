@@ -9,7 +9,15 @@ import {
   type RootAgentPageContext,
   type RootAgentScreenshotContext,
 } from "../../lib/rootAgentContext";
-import { codex, rootAgent } from "../../lib/rpc";
+import {
+  buildDebugScreenshotUpload,
+  captureBrowserScreenshot,
+  downloadBlob,
+  downloadText,
+  safeTimestamp,
+  type CapturedScreenshot,
+} from "../../lib/rootAgentScreenshot";
+import { codex, rootAgent, skyfs } from "../../lib/rpc";
 import { formatBytes, useRPC } from "../../lib/useRPC";
 import { Icon } from "../Icon";
 import { StatusBadge } from "../StatusBadge";
@@ -20,98 +28,11 @@ import {
   type WorkspaceRun,
 } from "./workspaceTypes";
 
-interface CapturedScreenshot extends RootAgentScreenshotContext {
-  blob: Blob;
-  url: string;
-}
-
-function safeTimestamp() {
-  return new Date().toISOString().replace(/[:.]/g, "-");
-}
-
 function authLabelForStatus(authMode?: string, authLabel?: string) {
   if (authLabel) return authLabel;
   if (authMode === "chatgpt") return "ChatGPT";
   if (authMode === "apikey") return "API key";
   return "AI";
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
-function downloadText(text: string, filename: string, contentType: string) {
-  downloadBlob(new Blob([text], { type: contentType }), filename);
-}
-
-function canvasToBlob(canvas: HTMLCanvasElement) {
-  return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (blob) {
-        resolve(blob);
-        return;
-      }
-      reject(new Error("Screenshot capture failed."));
-    }, "image/png");
-  });
-}
-
-async function captureBrowserScreenshot(): Promise<CapturedScreenshot> {
-  const getDisplayMedia = navigator.mediaDevices?.getDisplayMedia?.bind(
-    navigator.mediaDevices,
-  );
-  if (!getDisplayMedia) {
-    throw new Error("Screen capture is not available in this browser.");
-  }
-
-  const stream = await getDisplayMedia({ audio: false, video: true });
-  try {
-    const video = document.createElement("video");
-    const ready = new Promise<void>((resolve, reject) => {
-      video.onloadedmetadata = () => resolve();
-      video.onerror = () => reject(new Error("Could not read the captured screen."));
-    });
-    video.muted = true;
-    video.playsInline = true;
-    video.srcObject = stream;
-    await ready;
-    await video.play();
-    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-
-    if (video.videoWidth <= 0 || video.videoHeight <= 0) {
-      throw new Error("The selected screen did not produce an image.");
-    }
-
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Canvas is not available.");
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    const blob = await canvasToBlob(canvas);
-    const capturedAt = new Date().toISOString();
-    const filename = `sky10-context-${safeTimestamp()}.png`;
-
-    return {
-      blob,
-      capturedAt,
-      filename,
-      height: canvas.height,
-      sizeBytes: blob.size,
-      url: URL.createObjectURL(blob),
-      width: canvas.width,
-    };
-  } finally {
-    stream.getTracks().forEach((track) => track.stop());
-  }
 }
 
 export function RootAgentBubble() {
@@ -257,12 +178,25 @@ export function RootAgentBubble() {
     setCaptureBusy(true);
     setStatus("Opening screen capture...");
     try {
+      const context = refreshContext();
       const next = await captureBrowserScreenshot();
       setScreenshot((current) => {
         if (current?.url) URL.revokeObjectURL(current.url);
         return next;
       });
-      setStatus("Screenshot captured.");
+      setStatus("Saving debug screenshot...");
+      try {
+        const upload = await buildDebugScreenshotUpload(next, context);
+        await skyfs.debugScreenshot(upload);
+        setStatus("Screenshot captured and saved to debug.");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Debug upload failed.";
+        if (message.includes("requires S3 storage")) {
+          setStatus("Screenshot captured. Debug upload requires S3.");
+        } else {
+          setStatus(`Screenshot captured. ${message}`);
+        }
+      }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Screenshot failed.");
     } finally {
