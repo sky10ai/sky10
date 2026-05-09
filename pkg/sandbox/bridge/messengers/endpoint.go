@@ -11,12 +11,14 @@ const (
 	// EndpointPath is the canonical URL path the messenger bridge endpoint registers at.
 	EndpointPath = "/bridge/messengers/ws"
 
-	TypeListConnections   = "messengers.list_connections"
-	TypeListConversations = "messengers.list_conversations"
-	TypeListEvents        = "messengers.list_events"
-	TypeGetMessages       = "messengers.get_messages"
-	TypeCreateDraft       = "messengers.create_draft"
-	TypeRequestSend       = "messengers.request_send"
+	TypeListConnections     = "messengers.list_connections"
+	TypeListConversations   = "messengers.list_conversations"
+	TypeListEvents          = "messengers.list_events"
+	TypeGetMessages         = "messengers.get_messages"
+	TypeSearchConversations = "messengers.search_conversations"
+	TypeSearchMessages      = "messengers.search_messages"
+	TypeCreateDraft         = "messengers.create_draft"
+	TypeRequestSend         = "messengers.request_send"
 )
 
 // handlers groups the per-envelope handlers around their shared Backend.
@@ -83,6 +85,32 @@ func NewEndpoint(backend Backend, resolver bridge.IdentityResolver, opts ...brid
 		NonceWindow: 5 * time.Minute,
 		AuditLevel:  bridge.AuditHeaders,
 		Handler:     h.handleGetMessages,
+	})
+	e.Register(bridge.TypeSpec{
+		Name:           TypeSearchConversations,
+		Direction:      bridge.DirectionRequestResponse,
+		MaxPayloadSize: 16 * 1024,
+		RateLimit: bridge.RateLimit{
+			PerAgent: 120,
+			Burst:    20,
+			Window:   time.Minute,
+		},
+		NonceWindow: 5 * time.Minute,
+		AuditLevel:  bridge.AuditHeaders,
+		Handler:     h.handleSearchConversations,
+	})
+	e.Register(bridge.TypeSpec{
+		Name:           TypeSearchMessages,
+		Direction:      bridge.DirectionRequestResponse,
+		MaxPayloadSize: 16 * 1024,
+		RateLimit: bridge.RateLimit{
+			PerAgent: 120,
+			Burst:    20,
+			Window:   time.Minute,
+		},
+		NonceWindow: 5 * time.Minute,
+		AuditLevel:  bridge.AuditHeaders,
+		Handler:     h.handleSearchMessages,
 	})
 	e.Register(bridge.TypeSpec{
 		Name:           TypeCreateDraft,

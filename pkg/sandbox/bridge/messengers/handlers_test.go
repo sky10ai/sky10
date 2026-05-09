@@ -12,6 +12,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/sky10/sky10/pkg/messaging"
 	messagingbroker "github.com/sky10/sky10/pkg/messaging/broker"
+	"github.com/sky10/sky10/pkg/messaging/protocol"
 	"github.com/sky10/sky10/pkg/sandbox/bridge"
 )
 
@@ -88,6 +89,63 @@ func TestHandleGetMessagesReturnsBackendMessages(t *testing.T) {
 	}
 }
 
+func TestHandleSearchMessagesStampsAgentID(t *testing.T) {
+	t.Parallel()
+
+	backend := &fakeMessengerBackend{
+		searchMessagesResult: protocol.SearchMessagesResult{
+			Hits: []protocol.MessageSearchHit{{
+				Message: protocol.MessageRecord{
+					Message: messaging.Message{
+						ID:             "msg/1",
+						ConnectionID:   "imap/work",
+						ConversationID: "thread/1",
+						Parts:          []messaging.MessagePart{{Kind: messaging.MessagePartKindText, Text: "invoice attached"}},
+					},
+				},
+				MatchedFields: []string{"body"},
+			}},
+			Count:  1,
+			Source: protocol.SearchSourceIndexed,
+		},
+	}
+	h := &handlers{backend: backend}
+
+	resp, err := h.handleSearchMessages(context.Background(), bridge.Envelope{
+		AgentID: "agent/real",
+		Payload: json.RawMessage(`{"agent_id":"agent/fake","connection_id":"imap/work","query":"invoice","limit":10}`),
+	})
+	if err != nil {
+		t.Fatalf("handleSearchMessages() error = %v", err)
+	}
+	if backend.searchMessages.AgentID != "agent/real" {
+		t.Fatalf("AgentID = %q, want transport-stamped agent", backend.searchMessages.AgentID)
+	}
+	if backend.searchMessages.Query != "invoice" || backend.searchMessages.Limit != 10 {
+		t.Fatalf("searchMessages = %+v, want query/limit forwarded", backend.searchMessages)
+	}
+	var got protocol.SearchMessagesResult
+	if err := json.Unmarshal(resp, &got); err != nil {
+		t.Fatalf("response decode: %v", err)
+	}
+	if got.Count != 1 || got.Hits[0].Message.Message.ID != "msg/1" {
+		t.Fatalf("search result = %+v, want msg/1", got)
+	}
+}
+
+func TestHandleSearchConversationsValidatesQuery(t *testing.T) {
+	t.Parallel()
+
+	h := &handlers{backend: &fakeMessengerBackend{}}
+	_, err := h.handleSearchConversations(context.Background(), bridge.Envelope{
+		AgentID: "agent/real",
+		Payload: json.RawMessage(`{"connection_id":"slack/work","query":"  "}`),
+	})
+	if err == nil || !strings.Contains(err.Error(), "query is required") {
+		t.Fatalf("handleSearchConversations() error = %v, want query validation", err)
+	}
+}
+
 func TestHandleCreateDraftValidatesParts(t *testing.T) {
 	t.Parallel()
 
@@ -122,6 +180,12 @@ func TestForwardingBackendSendsRequestsOverHostBridge(t *testing.T) {
 			Label:     "Telegram",
 			Status:    messaging.ConnectionStatusConnected,
 		}},
+		searchMessagesResult: protocol.SearchMessagesResult{
+			Count: 1,
+			Hits: []protocol.MessageSearchHit{{
+				Message: protocol.MessageRecord{Message: messaging.Message{ID: "msg/forwarded"}},
+			}},
+		},
 	}
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + EndpointPath + "?" + BridgeRoleQuery + "=" + BridgeRoleHost
 	hostConn, resp, err := bridge.Dial(ctx, wsURL, NewBridgeHandler(hostBackend, "hermes-dev"))
@@ -144,6 +208,20 @@ func TestForwardingBackendSendsRequestsOverHostBridge(t *testing.T) {
 	}
 	if hostBackend.listConnections.AgentID != "hermes-dev" {
 		t.Fatalf("host AgentID = %q, want trusted sandbox slug", hostBackend.listConnections.AgentID)
+	}
+	searchResult, err := forwarder.SearchMessages(ctx, SearchMessagesParams{
+		ConnectionID: "telegram/main",
+		Query:        "invoice",
+		PageRequest:  protocol.PageRequest{Limit: 5},
+	})
+	if err != nil {
+		t.Fatalf("SearchMessages: %v", err)
+	}
+	if searchResult.Count != 1 || searchResult.Hits[0].Message.Message.ID != "msg/forwarded" {
+		t.Fatalf("search result = %+v, want forwarded msg", searchResult)
+	}
+	if hostBackend.searchMessages.AgentID != "hermes-dev" || hostBackend.searchMessages.Query != "invoice" {
+		t.Fatalf("host search params = %+v, want trusted sandbox slug and query", hostBackend.searchMessages)
 	}
 }
 
@@ -169,12 +247,15 @@ type fakeMessengerBackend struct {
 	connections []messaging.Connection
 	messages    []messaging.Message
 
-	listConnections   ListConnectionsParams
-	listConversations ListConversationsParams
-	listEvents        ListEventsParams
-	getMessages       GetMessagesParams
-	createDraft       CreateDraftParams
-	requestSend       RequestSendParams
+	listConnections      ListConnectionsParams
+	listConversations    ListConversationsParams
+	listEvents           ListEventsParams
+	getMessages          GetMessagesParams
+	searchConversations  SearchConversationsParams
+	searchMessages       SearchMessagesParams
+	createDraft          CreateDraftParams
+	requestSend          RequestSendParams
+	searchMessagesResult protocol.SearchMessagesResult
 }
 
 func (f *fakeMessengerBackend) ListConnections(_ context.Context, params ListConnectionsParams) ([]messaging.Connection, error) {
@@ -195,6 +276,16 @@ func (f *fakeMessengerBackend) ListEvents(_ context.Context, params ListEventsPa
 func (f *fakeMessengerBackend) GetMessages(_ context.Context, params GetMessagesParams) ([]messaging.Message, error) {
 	f.getMessages = params
 	return f.messages, nil
+}
+
+func (f *fakeMessengerBackend) SearchConversations(_ context.Context, params SearchConversationsParams) (protocol.SearchConversationsResult, error) {
+	f.searchConversations = params
+	return protocol.SearchConversationsResult{}, nil
+}
+
+func (f *fakeMessengerBackend) SearchMessages(_ context.Context, params SearchMessagesParams) (protocol.SearchMessagesResult, error) {
+	f.searchMessages = params
+	return f.searchMessagesResult, nil
 }
 
 func (f *fakeMessengerBackend) CreateDraft(_ context.Context, params CreateDraftParams) (messagingbroker.DraftMutationResult, error) {

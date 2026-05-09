@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import os from "node:os";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
@@ -6,6 +8,7 @@ import { guessMimeType, sanitizeFilename } from "./media.js";
 const MESSENGERS_ENDPOINT_PATH = "/bridge/messengers/ws";
 const DEFAULT_RPC_URL = "http://localhost:9101";
 const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_HELPER_PATH = path.join(os.homedir(), ".openclaw", "sky10-messaging.mjs");
 
 export class MessagingBridgeError extends Error {
   constructor(code, message) {
@@ -169,9 +172,104 @@ export function createMessagingClient({
     listConversations: (params = {}) => request("messengers.list_conversations", params),
     listEvents: (params = {}) => request("messengers.list_events", params),
     getMessages: (params = {}) => request("messengers.get_messages", params),
+    searchConversations: (params = {}) => request("messengers.search_conversations", params),
+    searchMessages: (params = {}) => request("messengers.search_messages", params),
     createDraft: (params = {}) => request("messengers.create_draft", params),
     requestSend: (params = {}) => request("messengers.request_send", params),
   };
+}
+
+export function formatMessagingPromptContext(context = {}) {
+  const helperPath = context.helperPath || DEFAULT_HELPER_PATH;
+  return [
+    "Settings-connected messaging accounts are available through sky10.messaging.",
+    "Use this helper to list exposed Telegram, Slack, and IMAP/SMTP connections, search conversations/messages, and read message contents.",
+    "Message results may include attachment refs mounted as guest-local files; use those paths directly instead of asking for base64.",
+    `List connections: node ${helperPath} connections`,
+    `Search messages: node ${helperPath} search-messages '{"connection_id":"CONNECTION_ID","query":"SEARCH TERMS","limit":10}'`,
+    `Read messages: node ${helperPath} messages '{"connection_id":"CONNECTION_ID","conversation_id":"CONVERSATION_ID","limit":20}'`,
+    "Only create drafts or request send when explicitly asked to reply or send a message.",
+  ].join("\n");
+}
+
+export function installMessagingHelper({
+  helperPath = DEFAULT_HELPER_PATH,
+  wsUrl = "",
+  rpcUrl = DEFAULT_RPC_URL,
+  agentName = "",
+  moduleUrl = import.meta.url,
+} = {}) {
+  const resolvedPath = String(helperPath || DEFAULT_HELPER_PATH).trim() || DEFAULT_HELPER_PATH;
+  const resolvedWsUrl = deriveMessagingWsUrl({ wsUrl, rpcUrl, agentName });
+  const content = `#!/usr/bin/env node
+process.env.SKY10_MESSAGING_WS_URL ||= ${JSON.stringify(resolvedWsUrl)};
+process.env.SKY10_RPC_URL ||= ${JSON.stringify(rpcUrl || DEFAULT_RPC_URL)};
+process.env.SKY10_AGENT_NAME ||= ${JSON.stringify(agentName || "")};
+const { runMessagingCLI } = await import(${JSON.stringify(moduleUrl)});
+await runMessagingCLI(process.argv.slice(2), process.env, (value) => console.log(value), (value) => console.error(value));
+`;
+  fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
+  fs.writeFileSync(resolvedPath, content, { mode: 0o755 });
+  fs.chmodSync(resolvedPath, 0o755);
+  return resolvedPath;
+}
+
+function parseJSONArg(raw, label) {
+  if (!raw) {
+    return {};
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`${label} must be JSON: ${err.message}`);
+  }
+}
+
+export async function runMessagingCLI(args = process.argv.slice(2), env = process.env, stdout = console.log, stderr = console.error) {
+  const [command, raw] = args;
+  const client = createMessagingClient({
+    wsUrl: env.SKY10_MESSAGING_WS_URL,
+    rpcUrl: env.SKY10_RPC_URL || DEFAULT_RPC_URL,
+    agentName: env.SKY10_AGENT_NAME || "",
+  });
+
+  try {
+    let result;
+    switch (command) {
+    case "connections":
+      result = await client.listConnections(parseJSONArg(raw, "connections params"));
+      break;
+    case "conversations":
+      result = await client.listConversations(parseJSONArg(raw, "conversations params"));
+      break;
+    case "events":
+      result = await client.listEvents(parseJSONArg(raw, "events params"));
+      break;
+    case "messages":
+      result = await client.getMessages(parseJSONArg(raw, "messages params"));
+      break;
+    case "search-conversations":
+      result = await client.searchConversations(parseJSONArg(raw, "search-conversations params"));
+      break;
+    case "search-messages":
+      result = await client.searchMessages(parseJSONArg(raw, "search-messages params"));
+      break;
+    case "draft":
+      result = await client.createDraft(parseJSONArg(raw, "draft params"));
+      break;
+    case "send":
+      result = await client.requestSend(parseJSONArg(raw, "send params"));
+      break;
+    default:
+      stderr("usage: sky10-messaging <connections [json] | conversations json | events json | messages json | search-conversations json | search-messages json | draft json | send json>");
+      process.exitCode = 2;
+      return;
+    }
+    stdout(JSON.stringify(result, null, 2));
+  } catch (err) {
+    stderr(err?.message ?? String(err));
+    process.exitCode = 1;
+  }
 }
 
 function stringValue(value) {

@@ -21,6 +21,9 @@ import {
   contentFromMessage as messagingContentFromMessage,
   conversationLabel as messagingConversationLabel,
   createMessagingClient,
+  deriveMessagingWsUrl,
+  formatMessagingPromptContext,
+  installMessagingHelper,
   messagingPartsFromReplyContent,
   senderLabel as messagingSenderLabel,
 } from "./messaging.js";
@@ -39,6 +42,7 @@ const DEFAULT_SKILLS = ["code", "shell", "browser", "web-search", "file-ops"];
 const DEFAULT_MANIFEST_PATH = "/shared/agent-manifest.json";
 const DEFAULT_RPC_URL = "http://localhost:9101";
 const DEFAULT_X402_HELPER_PATH = path.join(os.homedir(), ".openclaw", "sky10-x402.mjs");
+const DEFAULT_MESSAGING_HELPER_PATH = path.join(os.homedir(), ".openclaw", "sky10-messaging.mjs");
 const DEFAULT_MESSAGING_POLL_INTERVAL_MS = 5_000;
 const MIN_MESSAGING_POLL_INTERVAL_MS = 1_000;
 const MESSAGING_EVENT_LIMIT = 100;
@@ -65,6 +69,8 @@ const SKY10_ACCOUNT_PROPERTIES = {
   gatewayToken: { type: "string" },
   x402WsUrl: { type: "string" },
   x402HelperPath: { type: "string" },
+  messagingWsUrl: { type: "string" },
+  messagingHelperPath: { type: "string" },
 };
 const MESSAGING_ACCOUNT_PROPERTIES = {
   ...SKY10_ACCOUNT_PROPERTIES,
@@ -93,6 +99,8 @@ const SKY10_CHANNEL_CONFIG_SCHEMA = {
       gatewayToken: { type: "string" },
       x402WsUrl: { type: "string" },
       x402HelperPath: { type: "string" },
+      messagingWsUrl: { type: "string" },
+      messagingHelperPath: { type: "string" },
       defaultAccount: { type: "string" },
       healthMonitor: {
         type: "object",
@@ -132,6 +140,7 @@ const MESSAGING_CHANNEL_CONFIG_SCHEMA = {
       gatewayToken: { type: "string" },
       x402WsUrl: { type: "string" },
       x402HelperPath: { type: "string" },
+      messagingHelperPath: { type: "string" },
       connectionId: { type: "string" },
       messagingWsUrl: { type: "string" },
       pollIntervalMs: { type: "number" },
@@ -290,6 +299,43 @@ function normalizeTools(tools) {
     .filter((tool) => tool.name);
 }
 
+function ensureMessagingTool(tools, helperPath = DEFAULT_MESSAGING_HELPER_PATH) {
+  for (const tool of tools) {
+    if (tool.name === "sky10.messaging") {
+      return tools;
+    }
+  }
+  return [
+    ...tools,
+    {
+      name: "sky10.messaging",
+      capability: "messaging",
+      description: "List, search, and read Settings-connected Telegram, Slack, and IMAP/SMTP conversations through the guest-local sky10 messaging bridge.",
+      audience: "agent",
+      scope: "sandbox",
+      input_schema: {
+        type: "object",
+        properties: {
+          command: {
+            type: "string",
+            enum: ["connections", "conversations", "events", "messages", "search-conversations", "search-messages", "draft", "send"],
+          },
+          params: { type: "object" },
+        },
+      },
+      effects: ["read_messaging_connections", "read_messages", "create_message_drafts", "request_message_send"],
+      fulfillment: {
+        mode: "shell",
+        note: `Use node ${helperPath} connections, conversations, messages, search-conversations, search-messages, draft, or send with JSON params.`,
+      },
+      meta: {
+        bridge_endpoint: "/bridge/messengers/ws",
+        adapters: ["telegram", "slack", "imap-smtp"],
+      },
+    },
+  ];
+}
+
 function skillsFromTools(tools) {
   const skills = [];
   const seen = new Set();
@@ -396,7 +442,10 @@ function resolveSky10Account({ cfg, accountId }) {
     ? merged.manifestPath.trim()
     : DEFAULT_MANIFEST_PATH;
   const manifest = readAgentManifest(manifestPath);
-  const tools = normalizeTools(merged.tools ?? manifest.tools);
+  const messagingHelperPath = typeof merged.messagingHelperPath === "string" && merged.messagingHelperPath.trim()
+    ? merged.messagingHelperPath.trim()
+    : DEFAULT_MESSAGING_HELPER_PATH;
+  const tools = ensureMessagingTool(normalizeTools(merged.tools ?? manifest.tools), messagingHelperPath);
   const rpcUrl = typeof merged.rpcUrl === "string" && merged.rpcUrl.trim()
     ? merged.rpcUrl.trim()
     : DEFAULT_RPC_URL;
@@ -421,6 +470,8 @@ function resolveSky10Account({ cfg, accountId }) {
     x402HelperPath: typeof merged.x402HelperPath === "string" && merged.x402HelperPath.trim()
       ? merged.x402HelperPath.trim()
       : DEFAULT_X402_HELPER_PATH,
+    messagingWsUrl: typeof merged.messagingWsUrl === "string" ? merged.messagingWsUrl.trim() : "",
+    messagingHelperPath,
   };
 }
 
@@ -432,7 +483,10 @@ function resolveMessagingAccount({ cfg, accountId, channelID }) {
     ? merged.manifestPath.trim()
     : DEFAULT_MANIFEST_PATH;
   const manifest = readAgentManifest(manifestPath);
-  const tools = normalizeTools(merged.tools ?? manifest.tools);
+  const messagingHelperPath = typeof merged.messagingHelperPath === "string" && merged.messagingHelperPath.trim()
+    ? merged.messagingHelperPath.trim()
+    : DEFAULT_MESSAGING_HELPER_PATH;
+  const tools = ensureMessagingTool(normalizeTools(merged.tools ?? manifest.tools), messagingHelperPath);
   const rpcUrl = typeof merged.rpcUrl === "string" && merged.rpcUrl.trim()
     ? merged.rpcUrl.trim()
     : DEFAULT_RPC_URL;
@@ -459,6 +513,7 @@ function resolveMessagingAccount({ cfg, accountId, channelID }) {
       : DEFAULT_X402_HELPER_PATH,
     connectionId: typeof merged.connectionId === "string" ? merged.connectionId.trim() : "",
     messagingWsUrl: typeof merged.messagingWsUrl === "string" ? merged.messagingWsUrl.trim() : "",
+    messagingHelperPath,
     pollIntervalMs: resolvePollIntervalMs(merged.pollIntervalMs),
     replayOnStart: merged.replayOnStart === true,
   };
@@ -642,6 +697,9 @@ function buildToolCallPrompt(content, outputDir, account, x402Context) {
   if (x402Prompt) {
     lines.push("", x402Prompt);
   }
+  lines.push("", formatMessagingPromptContext({
+    helperPath: account?.messagingHelperPath || DEFAULT_MESSAGING_HELPER_PATH,
+  }));
   lines.push(
     "",
     "Tool call:",
@@ -676,6 +734,32 @@ async function ensureRegistered(log, account, setStatus) {
   });
   log.info(`sky10: registered as ${state.agentId} (${account.agentName})`);
   await refreshX402RuntimeContext(log, account, { force: true });
+  installMessagingRuntimeHelper(log, account);
+}
+
+function installMessagingRuntimeHelper(log, account) {
+  try {
+    const wsUrl = deriveMessagingWsUrl({
+      wsUrl: account.messagingWsUrl,
+      rpcUrl: account.rpcUrl,
+      agentName: account.agentName,
+    });
+    const path = installMessagingHelper({
+      helperPath: account.messagingHelperPath,
+      wsUrl,
+      rpcUrl: account.rpcUrl,
+      agentName: account.agentName,
+    });
+    log.info(`sky10: messaging helper installed at ${path}`);
+    return { wsUrl, helperPath: path };
+  } catch (err) {
+    log.warn(`sky10: failed to install messaging helper: ${err?.message ?? err}`);
+    return {
+      wsUrl: "",
+      helperPath: account.messagingHelperPath || DEFAULT_MESSAGING_HELPER_PATH,
+      error: err?.message ?? String(err),
+    };
+  }
 }
 
 async function refreshX402RuntimeContext(log, account, opts = {}) {

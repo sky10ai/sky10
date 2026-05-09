@@ -886,6 +886,11 @@ func TestOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	if !strings.Contains(string(indexBody), `createMessagingClient`) {
 		t.Fatalf("plugin index missing messenger bridge client: %q", string(indexBody))
 	}
+	if !strings.Contains(string(indexBody), `sky10.messaging`) ||
+		!strings.Contains(string(indexBody), `DEFAULT_MESSAGING_HELPER_PATH`) ||
+		!strings.Contains(string(indexBody), `search-messages`) {
+		t.Fatalf("plugin index missing model-addressable messaging helper/search support: %q", string(indexBody))
+	}
 	if !strings.Contains(string(indexBody), `const slackChannelPlugin = createMessagingChannelPlugin`) ||
 		!strings.Contains(string(indexBody), `const imapSmtpChannelPlugin = createMessagingChannelPlugin`) {
 		t.Fatalf("plugin index missing native Slack and IMAP/SMTP channel plugins: %q", string(indexBody))
@@ -1127,6 +1132,11 @@ func TestHermesBridgeAssetSubscribesToSky10Events(t *testing.T) {
 	}
 	if !strings.Contains(script, `"messengers.list_connections"`) {
 		t.Fatalf("bridge asset missing messenger connection listing: %q", script)
+	}
+	if !strings.Contains(script, `"messengers.search_messages"`) ||
+		!strings.Contains(script, "DEFAULT_MESSAGING_HELPER_PATH") ||
+		!strings.Contains(script, "ensure_messaging_tool") {
+		t.Fatalf("bridge asset missing model-addressable messenger search helper: %q", script)
 	}
 	if !strings.Contains(script, `"messengers.create_draft"`) || !strings.Contains(script, `"messengers.request_send"`) {
 		t.Fatalf("bridge asset missing messenger reply path: %q", script)

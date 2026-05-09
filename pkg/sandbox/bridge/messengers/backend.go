@@ -5,6 +5,7 @@ import (
 
 	"github.com/sky10/sky10/pkg/messaging"
 	messagingbroker "github.com/sky10/sky10/pkg/messaging/broker"
+	"github.com/sky10/sky10/pkg/messaging/protocol"
 )
 
 // Backend is the host-side surface the messenger bridge handlers delegate to.
@@ -15,6 +16,8 @@ type Backend interface {
 	ListConversations(ctx context.Context, params ListConversationsParams) ([]messaging.Conversation, error)
 	ListEvents(ctx context.Context, params ListEventsParams) ([]messaging.Event, error)
 	GetMessages(ctx context.Context, params GetMessagesParams) ([]messaging.Message, error)
+	SearchConversations(ctx context.Context, params SearchConversationsParams) (protocol.SearchConversationsResult, error)
+	SearchMessages(ctx context.Context, params SearchMessagesParams) (protocol.SearchMessagesResult, error)
 	CreateDraft(ctx context.Context, params CreateDraftParams) (messagingbroker.DraftMutationResult, error)
 	RequestSend(ctx context.Context, params RequestSendParams) (messagingbroker.RequestSendDraftResult, error)
 }
@@ -47,6 +50,28 @@ type GetMessagesParams struct {
 	AgentID        string                   `json:"-"`
 	ConnectionID   messaging.ConnectionID   `json:"connection_id"`
 	ConversationID messaging.ConversationID `json:"conversation_id"`
+}
+
+// SearchConversationsParams searches cached or remote conversations for one
+// exposed connection.
+type SearchConversationsParams struct {
+	AgentID      string                 `json:"-"`
+	ConnectionID messaging.ConnectionID `json:"connection_id"`
+	Query        string                 `json:"query"`
+	Source       protocol.SearchSource  `json:"source,omitempty"`
+	protocol.PageRequest
+}
+
+// SearchMessagesParams searches cached or remote message content for one
+// exposed connection.
+type SearchMessagesParams struct {
+	AgentID        string                   `json:"-"`
+	ConnectionID   messaging.ConnectionID   `json:"connection_id"`
+	ConversationID messaging.ConversationID `json:"conversation_id,omitempty"`
+	ContainerID    messaging.ContainerID    `json:"container_id,omitempty"`
+	Query          string                   `json:"query"`
+	Source         protocol.SearchSource    `json:"source,omitempty"`
+	protocol.PageRequest
 }
 
 // CreateDraftParams creates a pending outbound draft under one exposure.

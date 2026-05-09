@@ -1,6 +1,6 @@
 ---
 created: 2026-04-18
-updated: 2026-04-25
+updated: 2026-05-09
 model: gpt-5.4
 ---
 
@@ -41,6 +41,9 @@ surfaces:
   runtime has channel plugins, such as Telegram, Slack, and IMAP/SMTP.
 - Hermes consumes exposed platform events through its Sky10 bridge and sends
   broker-owned drafts; it does not need direct Telegram, Slack, or email SDKs.
+- OpenClaw and Hermes register `sky10.messaging` with helper commands for
+  list/search/read/draft/send, so model requests like "check my email" route
+  through the broker-exposed adapter surface instead of runtime credentials.
 
 This keeps the user-facing gateway architecture consistent: new messaging apps
 arrive as platform adapters behind `messaging.*`, not as one-off runtime

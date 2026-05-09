@@ -12,6 +12,7 @@ import (
 	"github.com/sky10/sky10/pkg/logging"
 	"github.com/sky10/sky10/pkg/messaging"
 	messagingbroker "github.com/sky10/sky10/pkg/messaging/broker"
+	"github.com/sky10/sky10/pkg/messaging/protocol"
 	messagingshim "github.com/sky10/sky10/pkg/messaging/shim"
 	messagingstore "github.com/sky10/sky10/pkg/messaging/store"
 	skyrpc "github.com/sky10/sky10/pkg/rpc"
@@ -153,6 +154,49 @@ func (b *messagingBridgeBackend) GetMessages(ctx context.Context, params bridgem
 		return messages, nil
 	}
 	return b.files.MaterializeMessages(ctx, params.AgentID, messages)
+}
+
+func (b *messagingBridgeBackend) SearchConversations(ctx context.Context, params bridgemessengers.SearchConversationsParams) (protocol.SearchConversationsResult, error) {
+	service, err := b.serviceForAgentConnection(ctx, params.AgentID, params.ConnectionID)
+	if err != nil {
+		return protocol.SearchConversationsResult{}, err
+	}
+	return service.SearchConversations(ctx, protocol.SearchConversationsParams{
+		ConnectionID: params.ConnectionID,
+		Query:        params.Query,
+		Source:       params.Source,
+		PageRequest:  params.PageRequest,
+	})
+}
+
+func (b *messagingBridgeBackend) SearchMessages(ctx context.Context, params bridgemessengers.SearchMessagesParams) (protocol.SearchMessagesResult, error) {
+	service, err := b.serviceForAgentConnection(ctx, params.AgentID, params.ConnectionID)
+	if err != nil {
+		return protocol.SearchMessagesResult{}, err
+	}
+	result, err := service.SearchMessages(ctx, protocol.SearchMessagesParams{
+		ConnectionID:   params.ConnectionID,
+		ConversationID: params.ConversationID,
+		ContainerID:    params.ContainerID,
+		Query:          params.Query,
+		Source:         params.Source,
+		PageRequest:    params.PageRequest,
+	})
+	if err != nil || b.files == nil || len(result.Hits) == 0 {
+		return result, err
+	}
+	messages := make([]messaging.Message, 0, len(result.Hits))
+	for _, hit := range result.Hits {
+		messages = append(messages, hit.Message.Message)
+	}
+	materialized, err := b.files.MaterializeMessages(ctx, params.AgentID, messages)
+	if err != nil {
+		return protocol.SearchMessagesResult{}, err
+	}
+	for idx := range result.Hits {
+		result.Hits[idx].Message.Message = materialized[idx]
+	}
+	return result, nil
 }
 
 func (b *messagingBridgeBackend) CreateDraft(ctx context.Context, params bridgemessengers.CreateDraftParams) (result messagingbroker.DraftMutationResult, err error) {

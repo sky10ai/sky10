@@ -11,6 +11,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/sky10/sky10/pkg/messaging"
 	messagingbroker "github.com/sky10/sky10/pkg/messaging/broker"
+	"github.com/sky10/sky10/pkg/messaging/protocol"
 	"github.com/sky10/sky10/pkg/sandbox/bridge"
 )
 
@@ -130,6 +131,30 @@ func (b *ForwardingBackend) GetMessages(ctx context.Context, params GetMessagesP
 	return result.Messages, nil
 }
 
+func (b *ForwardingBackend) SearchConversations(ctx context.Context, params SearchConversationsParams) (protocol.SearchConversationsResult, error) {
+	raw, err := b.call(ctx, TypeSearchConversations, params)
+	if err != nil {
+		return protocol.SearchConversationsResult{}, err
+	}
+	var result protocol.SearchConversationsResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return protocol.SearchConversationsResult{}, err
+	}
+	return result, nil
+}
+
+func (b *ForwardingBackend) SearchMessages(ctx context.Context, params SearchMessagesParams) (protocol.SearchMessagesResult, error) {
+	raw, err := b.call(ctx, TypeSearchMessages, params)
+	if err != nil {
+		return protocol.SearchMessagesResult{}, err
+	}
+	var result protocol.SearchMessagesResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return protocol.SearchMessagesResult{}, err
+	}
+	return result, nil
+}
+
 func (b *ForwardingBackend) CreateDraft(ctx context.Context, params CreateDraftParams) (messagingbroker.DraftMutationResult, error) {
 	raw, err := b.call(ctx, TypeCreateDraft, params)
 	if err != nil {
@@ -197,6 +222,14 @@ func (b PreferForwardingBackend) ListEvents(ctx context.Context, params ListEven
 
 func (b PreferForwardingBackend) GetMessages(ctx context.Context, params GetMessagesParams) ([]messaging.Message, error) {
 	return b.backend().GetMessages(ctx, params)
+}
+
+func (b PreferForwardingBackend) SearchConversations(ctx context.Context, params SearchConversationsParams) (protocol.SearchConversationsResult, error) {
+	return b.backend().SearchConversations(ctx, params)
+}
+
+func (b PreferForwardingBackend) SearchMessages(ctx context.Context, params SearchMessagesParams) (protocol.SearchMessagesResult, error) {
+	return b.backend().SearchMessages(ctx, params)
 }
 
 func (b PreferForwardingBackend) CreateDraft(ctx context.Context, params CreateDraftParams) (messagingbroker.DraftMutationResult, error) {
@@ -288,6 +321,34 @@ func dispatchBridgeRequest(ctx context.Context, backend Backend, trustedAgentID 
 			return nil, err
 		}
 		return json.Marshal(getMessagesResult{Messages: messages})
+	case TypeSearchConversations:
+		params, err := parseSearchConversationsParams(req.Payload)
+		if err != nil {
+			return nil, bridge.HandlerError("invalid_payload", err.Error())
+		}
+		if err := validateSearchConversationsParams(params); err != nil {
+			return nil, bridge.HandlerError("invalid_payload", err.Error())
+		}
+		params.AgentID = trustedAgentID
+		result, err := backend.SearchConversations(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(result)
+	case TypeSearchMessages:
+		params, err := parseSearchMessagesParams(req.Payload)
+		if err != nil {
+			return nil, bridge.HandlerError("invalid_payload", err.Error())
+		}
+		if err := validateSearchMessagesParams(params); err != nil {
+			return nil, bridge.HandlerError("invalid_payload", err.Error())
+		}
+		params.AgentID = trustedAgentID
+		result, err := backend.SearchMessages(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(result)
 	case TypeCreateDraft:
 		params, err := parseCreateDraftParams(req.Payload)
 		if err != nil {

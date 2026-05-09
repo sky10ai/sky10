@@ -6,6 +6,7 @@ import {
   contentFromMessage,
   createMessagingClient,
   deriveMessagingWsUrl,
+  formatMessagingPromptContext,
   messagingPartsFromReplyContent,
 } from "./messaging.js";
 
@@ -104,6 +105,42 @@ test("client rejects structured messenger bridge errors", async () => {
     () => client.listConnections({ adapter_id: "telegram" }),
     (err) => err instanceof MessagingBridgeError && err.code === "handler_error",
   );
+});
+
+test("client searches messages over the messenger bridge websocket", async () => {
+  resetFakeWebSocket();
+  FakeWebSocket.nextResponse = (envelope) => ({
+    type: envelope.type,
+    request_id: envelope.request_id,
+    payload: {
+      hits: [{ message: { message: { id: "msg/1" } } }],
+      count: 1,
+    },
+  });
+
+  const client = createMessagingClient({
+    rpcUrl: "http://localhost:9101",
+    agentName: "mail-agent",
+    WebSocketImpl: FakeWebSocket,
+  });
+  const result = await client.searchMessages({
+    connection_id: "imap/me",
+    query: "invoice",
+    limit: 5,
+  });
+
+  assert.equal(FakeWebSocket.instances[0].sent[0].type, "messengers.search_messages");
+  assert.equal(FakeWebSocket.instances[0].sent[0].payload.connection_id, "imap/me");
+  assert.equal(FakeWebSocket.instances[0].sent[0].payload.query, "invoice");
+  assert.equal(result.hits[0].message.message.id, "msg/1");
+});
+
+test("messaging prompt context advertises helper search/read commands", () => {
+  const text = formatMessagingPromptContext({ helperPath: "/tmp/sky10-messaging.mjs" });
+  assert.match(text, /sky10\.messaging/);
+  assert.match(text, /search-messages/);
+  assert.match(text, /messages/);
+  assert.match(text, /attachment refs mounted as guest-local files/);
 });
 
 test("contentFromMessage maps telegram file refs to OpenClaw file sources", () => {

@@ -38,6 +38,19 @@ Hermes has no native channel-app registry. Instead,
 runtime: it reads exposed platform events, prompts Hermes with normalized
 message content, and sends the final reply through broker drafts.
 
+Both OpenClaw and Hermes also register a `sky10.messaging` agent tool and
+install a guest-local helper. This is what lets a prompt like "check my email
+for invoices" become an on-demand bridge call:
+
+- `connections` lists exposed Telegram, Slack, and IMAP/SMTP connections.
+- `search-messages` searches messages through the adapter/broker surface.
+- `messages` reads a selected conversation.
+- `draft` and `send` are used only when the agent is asked to reply or send.
+
+The agent still sees only connections exposed to its identity or runtime
+subject. Search/read/write policy comes from the broker exposure, not from the
+runtime plugin.
+
 ## Files And Media
 
 Messaging files are mounted, not embedded. Inbound attachments are copied into:

@@ -59,6 +59,8 @@ The bridge exposes only normalized, policy-scoped methods:
 - `messengers.list_conversations`
 - `messengers.list_events`
 - `messengers.get_messages`
+- `messengers.search_conversations`
+- `messengers.search_messages`
 - `messengers.create_draft`
 - `messengers.request_send`
 
@@ -81,6 +83,9 @@ Runtime presentation is intentionally runtime-specific:
 - Hermes consumes the same bridge as a gateway runtime. Its bridge polls
   exposed platform events, prompts Hermes with normalized content and mounted
   file paths, then sends final replies through broker drafts.
+- Both runtimes register `sky10.messaging` and install a guest-local
+  `sky10-messaging` helper so ordinary agent requests can list/search/read
+  exposed connections on demand without raw provider SDKs.
 
 The platform adapter remains the reusable integration point. Runtime plugins
 should adapt the normalized Sky10 surface to the runtime UX; they should not

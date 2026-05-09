@@ -36,6 +36,7 @@ DEFAULT_JOB_OUTPUT_ROOT = "/shared/jobs"
 DEFAULT_X402_ENDPOINT_PATH = "/bridge/metered-services/ws"
 DEFAULT_X402_HELPER_PATH = os.path.join(os.path.expanduser("~"), ".local", "bin", "sky10-x402")
 DEFAULT_MESSAGING_ENDPOINT_PATH = "/bridge/messengers/ws"
+DEFAULT_MESSAGING_HELPER_PATH = os.path.join(os.path.expanduser("~"), ".local", "bin", "sky10-messaging")
 DEFAULT_MESSAGING_POLL_INTERVAL_SECONDS = 5.0
 MESSAGING_EVENT_LIMIT = 100
 MESSAGING_SKIP_EVENT_LIMIT = 500
@@ -274,6 +275,16 @@ def messaging_get_messages(ws_url: str, connection_id: str, conversation_id: str
     return messages if isinstance(messages, list) else []
 
 
+def messaging_search_conversations(ws_url: str, params: dict[str, Any]) -> dict[str, Any]:
+    payload = messaging_request(ws_url, "messengers.search_conversations", params)
+    return payload if isinstance(payload, dict) else {}
+
+
+def messaging_search_messages(ws_url: str, params: dict[str, Any]) -> dict[str, Any]:
+    payload = messaging_request(ws_url, "messengers.search_messages", params)
+    return payload if isinstance(payload, dict) else {}
+
+
 def messaging_create_draft(ws_url: str, params: dict[str, Any]) -> dict[str, Any]:
     payload = messaging_request(ws_url, "messengers.create_draft", params)
     return payload if isinstance(payload, dict) else {}
@@ -293,6 +304,24 @@ def install_x402_helper(helper_path: str, script_path: str, ws_url: str) -> str:
             "set -e",
             f"export SKY10_X402_WS_URL={shlex.quote(ws_url)}",
             f"exec /usr/bin/env python3 {shlex.quote(script_path)} --x402 \"$@\"",
+            "",
+        ]
+    )
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(body)
+    os.chmod(path, 0o755)
+    return path
+
+
+def install_messaging_helper(helper_path: str, script_path: str, ws_url: str) -> str:
+    path = str(helper_path or DEFAULT_MESSAGING_HELPER_PATH).strip() or DEFAULT_MESSAGING_HELPER_PATH
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    body = "\n".join(
+        [
+            "#!/bin/sh",
+            "set -e",
+            f"export SKY10_MESSAGING_WS_URL={shlex.quote(ws_url)}",
+            f"exec /usr/bin/env python3 {shlex.quote(script_path)} --messaging \"$@\"",
             "",
         ]
     )
@@ -872,6 +901,20 @@ def format_x402_prompt_context(services: list[dict[str, Any]], helper_path: str)
     return "\n".join(lines)
 
 
+def format_messaging_prompt_context(helper_path: str) -> str:
+    return "\n".join(
+        [
+            "Settings-connected messaging accounts are available through sky10.messaging.",
+            "Use this helper to list exposed Telegram, Slack, and IMAP/SMTP connections, search conversations/messages, and read message contents.",
+            "Message results may include attachment refs mounted as guest-local files; use those paths directly instead of asking for base64.",
+            f"List connections: {helper_path} connections",
+            f"Search messages: {helper_path} search-messages '{{\"connection_id\":\"CONNECTION_ID\",\"query\":\"SEARCH TERMS\",\"limit\":10}}'",
+            f"Read messages: {helper_path} messages '{{\"connection_id\":\"CONNECTION_ID\",\"conversation_id\":\"CONVERSATION_ID\",\"limit\":20}}'",
+            "Only create drafts or request send when explicitly asked to reply or send a message.",
+        ]
+    )
+
+
 def ensure_x402_tool(tools: list[dict[str, Any]], helper_path: str) -> list[dict[str, Any]]:
     for tool in tools:
         if str(tool.get("name") or "") == "sky10.x402":
@@ -897,6 +940,48 @@ def ensure_x402_tool(tools: list[dict[str, Any]], helper_path: str) -> list[dict
             },
             "pricing": {"model": "x402", "currency": "USDC"},
             "meta": {"bridge_endpoint": DEFAULT_X402_ENDPOINT_PATH},
+        }
+    )
+    return merged
+
+
+def ensure_messaging_tool(tools: list[dict[str, Any]], helper_path: str) -> list[dict[str, Any]]:
+    for tool in tools:
+        if str(tool.get("name") or "") == "sky10.messaging":
+            return tools
+    merged = list(tools)
+    merged.append(
+        {
+            "name": "sky10.messaging",
+            "capability": "messaging",
+            "description": "List, search, and read Settings-connected Telegram, Slack, and IMAP/SMTP conversations through the guest-local sky10 messaging bridge.",
+            "audience": "agent",
+            "scope": "sandbox",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "enum": [
+                            "connections",
+                            "conversations",
+                            "events",
+                            "messages",
+                            "search-conversations",
+                            "search-messages",
+                            "draft",
+                            "send",
+                        ],
+                    },
+                    "params": {"type": "object"},
+                },
+            },
+            "effects": ["read_messaging_connections", "read_messages", "create_message_drafts", "request_message_send"],
+            "fulfillment": {
+                "mode": "shell",
+                "note": f"Use {helper_path} connections, conversations, messages, search-conversations, search-messages, draft, or send with JSON params.",
+            },
+            "meta": {"bridge_endpoint": DEFAULT_MESSAGING_ENDPOINT_PATH, "adapters": ["telegram", "slack", "imap-smtp"]},
         }
     )
     return merged
@@ -935,7 +1020,7 @@ def collect_output_refs(output_dir: str) -> list[dict[str, Any]]:
     return refs
 
 
-def build_tool_call_prompt(content: dict[str, Any], output_dir: str, x402_context: str = "") -> str:
+def build_tool_call_prompt(content: dict[str, Any], output_dir: str, x402_context: str = "", messaging_context: str = "") -> str:
     tool = str(content.get("tool") or "").strip() or "tool"
     capability = str(content.get("capability") or "").strip()
     job_context = content.get("job_context") if isinstance(content.get("job_context"), dict) else {}
@@ -966,8 +1051,47 @@ def build_tool_call_prompt(content: dict[str, Any], output_dir: str, x402_contex
     ]
     if x402_context:
         lines.extend(["", x402_context])
+    if messaging_context:
+        lines.extend(["", messaging_context])
     lines.extend(["", "Tool call:", json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True)])
     return "\n".join(lines)
+
+
+def add_messaging_prompt_context(content: Any, messaging_context: str) -> Any:
+    context = str(messaging_context or "").strip()
+    if not context or not content_mentions_messaging(content):
+        return content
+    prefix = context + "\n\nUser message:\n"
+    if isinstance(content, dict):
+        enriched = dict(content)
+        existing_text = content.get("text") if isinstance(content.get("text"), str) else ""
+        enriched["text"] = prefix + (existing_text or extract_text(content))
+        parts = content.get("parts")
+        if isinstance(parts, list):
+            enriched["parts"] = [{"type": "text", "text": enriched["text"]}] + parts
+        return enriched
+    return {"text": prefix + extract_text(content)}
+
+
+def content_mentions_messaging(content: Any) -> bool:
+    text = extract_text(content).lower()
+    terms = [
+        "email",
+        "e-mail",
+        "inbox",
+        "mailbox",
+        "imap",
+        "smtp",
+        "slack",
+        "telegram",
+        "dm",
+        "direct message",
+        "chat",
+        "conversation",
+        "thread",
+        "voice note",
+    ]
+    return any(term in text for term in terms)
 
 
 def env_truthy(name: str) -> bool:
@@ -1551,9 +1675,11 @@ class Bridge:
         )
         self.messaging_replay_on_start = config.get("messaging_replay_on_start") is True
         self.x402_helper_path = str(config.get("x402_helper_path") or DEFAULT_X402_HELPER_PATH).strip() or DEFAULT_X402_HELPER_PATH
+        self.messaging_helper_path = str(config.get("messaging_helper_path") or DEFAULT_MESSAGING_HELPER_PATH).strip() or DEFAULT_MESSAGING_HELPER_PATH
         raw_skills = config.get("skills") or []
         self.tools = normalize_tools(config.get("tools") or manifest.get("tools"))
         self.tools = ensure_x402_tool(self.tools, self.x402_helper_path)
+        self.tools = ensure_messaging_tool(self.tools, self.messaging_helper_path)
         manifest_skills = skills_from_tools(self.tools)
         self.skills = [str(skill).strip() for skill in raw_skills if str(skill).strip()] or manifest_skills or list(DEFAULT_AGENT_SKILLS)
         self.sky10 = Sky10Client(self.sky10_rpc_url)
@@ -1570,6 +1696,7 @@ class Bridge:
 
     def run(self) -> None:
         self.install_x402_helper()
+        self.install_messaging_helper()
         self.hermes.wait_until_ready(self.stop_event)
         self.ensure_registered()
         warmup_thread = None
@@ -1615,6 +1742,13 @@ class Bridge:
         except Exception as exc:
             log(f"Failed to install sky10 x402 helper: {exc}")
 
+    def install_messaging_helper(self) -> None:
+        try:
+            path = install_messaging_helper(self.messaging_helper_path, os.path.abspath(sys.argv[0]), self.messaging_ws_url)
+            log(f"Installed sky10 messaging helper at {path}")
+        except Exception as exc:
+            log(f"Failed to install sky10 messaging helper: {exc}")
+
     def x402_prompt_context(self) -> str:
         try:
             services = x402_list_services(self.x402_ws_url)
@@ -1624,6 +1758,11 @@ class Bridge:
         if services:
             log(f"x402 approved services available: {len(services)}")
         return format_x402_prompt_context(services, self.x402_helper_path)
+
+    def messaging_prompt_context(self) -> str:
+        if not self.messaging_enabled:
+            return ""
+        return format_messaging_prompt_context(self.messaging_helper_path)
 
     def _warm_up_background(self) -> None:
         try:
@@ -1710,9 +1849,10 @@ class Bridge:
 
         stream_id = uuid.uuid4().hex
         try:
+            model_content = add_messaging_prompt_context(content, self.messaging_prompt_context())
             reply = self.hermes.stream(
                 session_id,
-                content,
+                model_content,
                 lambda chunk: self.sky10.send_delta(sender, session_id, chunk, sender, stream_id, client_request_id),
             )
             reply_content = build_outbound_content(reply)
@@ -1762,9 +1902,10 @@ class Bridge:
             os.makedirs(output_dir, exist_ok=True)
             self.sky10.update_job_status(job_id, "running", f"Running {tool}")
             x402_context = self.x402_prompt_context()
+            messaging_context = self.messaging_prompt_context()
             reply = self.hermes.stream(
                 job_id,
-                {"text": build_tool_call_prompt(content, output_dir, x402_context)},
+                {"text": build_tool_call_prompt(content, output_dir, x402_context, messaging_context)},
                 lambda _chunk: None,
             )
             output_refs = collect_output_refs(output_dir)
@@ -2004,9 +2145,64 @@ def run_x402_cli(args: list[str]) -> int:
     return 0
 
 
+def run_messaging_cli(args: list[str]) -> int:
+    command = args[0] if args else ""
+    raw = args[1] if len(args) > 1 else ""
+    ws_url = os.environ.get("SKY10_MESSAGING_WS_URL", "").strip()
+    if not ws_url:
+        config_path = os.environ.get("SKY10_BRIDGE_CONFIG_PATH", "/sandbox-state/bridge.json").strip()
+        if config_path and os.path.exists(config_path):
+            with open(config_path, "r", encoding="utf-8") as fh:
+                config = json.load(fh)
+            agent_name = str(config.get("agent_name") or "").strip()
+            ws_url = derive_messaging_ws_url(
+                str(config.get("sky10_rpc_url") or "http://127.0.0.1:9101"),
+                agent_name,
+                str(config.get("messaging_ws_url") or ""),
+            )
+        else:
+            ws_url = derive_messaging_ws_url("http://127.0.0.1:9101")
+
+    def parse_arg(label: str) -> dict[str, Any]:
+        if not raw:
+            return {}
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise BridgeError(f"{label} must be JSON: {exc}") from exc
+        return value if isinstance(value, dict) else {}
+
+    if command == "connections":
+        result = messaging_request(ws_url, "messengers.list_connections", parse_arg("connections params"))
+    elif command == "conversations":
+        result = messaging_request(ws_url, "messengers.list_conversations", parse_arg("conversations params"))
+    elif command == "events":
+        result = messaging_request(ws_url, "messengers.list_events", parse_arg("events params"))
+    elif command == "messages":
+        result = messaging_request(ws_url, "messengers.get_messages", parse_arg("messages params"))
+    elif command == "search-conversations":
+        result = messaging_search_conversations(ws_url, parse_arg("search-conversations params"))
+    elif command == "search-messages":
+        result = messaging_search_messages(ws_url, parse_arg("search-messages params"))
+    elif command == "draft":
+        result = messaging_create_draft(ws_url, parse_arg("draft params"))
+    elif command == "send":
+        result = messaging_request(ws_url, "messengers.request_send", parse_arg("send params"))
+    else:
+        print(
+            "usage: sky10-messaging <connections [json] | conversations json | events json | messages json | search-conversations json | search-messages json | draft json | send json>",
+            file=sys.stderr,
+        )
+        return 2
+    print(json.dumps(result, ensure_ascii=True, indent=2, sort_keys=True))
+    return 0
+
+
 def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] == "--x402":
         return run_x402_cli(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "--messaging":
+        return run_messaging_cli(sys.argv[2:])
 
     config_path = os.environ.get("SKY10_BRIDGE_CONFIG_PATH", "/sandbox-state/bridge.json").strip()
     if not config_path:
