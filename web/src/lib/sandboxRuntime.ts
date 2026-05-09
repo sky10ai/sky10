@@ -5,7 +5,8 @@ export type RuntimeTone =
   | "live"
   | "neutral"
   | "processing"
-  | "success";
+  | "success"
+  | "warning";
 
 export interface RuntimeStatusView {
   currentVersion?: string;
@@ -74,7 +75,7 @@ export function sandboxRuntimeView(
         icon: "system_update_alt",
         label: "Guest stale",
         latestVersion,
-        tone: "danger",
+        tone: "warning",
         updateReady,
       };
     }

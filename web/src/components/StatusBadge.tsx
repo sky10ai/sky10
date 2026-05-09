@@ -1,7 +1,13 @@
 import type { ReactNode } from "react";
 import { Icon } from "./Icon";
 
-type StatusTone = "danger" | "live" | "neutral" | "processing" | "success";
+type StatusTone =
+  | "danger"
+  | "live"
+  | "neutral"
+  | "processing"
+  | "success"
+  | "warning";
 
 const toneClasses: Record<StatusTone, string> = {
   danger: "bg-error-container/40 text-on-error-container",
@@ -9,6 +15,7 @@ const toneClasses: Record<StatusTone, string> = {
   neutral: "bg-surface-container-high text-secondary",
   processing: "bg-primary/10 text-primary",
   success: "bg-primary-fixed/40 text-on-primary-fixed-variant dark:bg-primary/20 dark:text-primary-fixed",
+  warning: "bg-amber-500/15 text-amber-900 ring-1 ring-amber-500/25 dark:text-amber-100",
 };
 
 interface StatusBadgeProps {
