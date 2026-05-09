@@ -83,7 +83,7 @@ clients and agent runtimes.
 - [x] Emit `response.completed` exactly once.
 - [x] Emit terminal `data: [DONE]` exactly once.
 - [x] Flush every SSE frame when the writer supports flushing.
-- [ ] Stop upstream work when the HTTP client disconnects.
+- [x] Stop upstream work when the HTTP client disconnects.
 - [x] Convert upstream provider errors into a stable error envelope.
 
 ### Validation Checklist
@@ -91,7 +91,7 @@ clients and agent runtimes.
 - [x] Unit test streamed delta conversion.
 - [x] Unit test completion and `[DONE]` emission.
 - [x] Unit test upstream error propagation.
-- [ ] Unit test client-cancellation behavior where practical.
+- [x] Unit test client-cancellation behavior where practical.
 - [x] Live streaming test with a prompt that produces multiple chunks.
 - [x] Verify Anthropic streaming through the Responses endpoint.
 - [x] Verify OpenAI streaming through the Responses endpoint when a key is

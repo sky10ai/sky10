@@ -217,6 +217,37 @@ func TestHostResponsesStreamsBackendErrorsAndDone(t *testing.T) {
 	}
 }
 
+func TestHostResponsesStopsOnClientCancellation(t *testing.T) {
+	t.Parallel()
+
+	backend := &cancelAwareStreamingBackend{}
+	handler := NewHostHTTPHandler(HostHTTPOptions{
+		Backend: backend,
+		Now:     func() time.Time { return time.Unix(123, 0) },
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{
+		"model":"sky10-stream",
+		"stream":true,
+		"input":"hello"
+	}`)).WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	handler.HandleResponses(rec, req)
+
+	if backend.err != context.Canceled {
+		t.Fatalf("backend err = %v, want context.Canceled", backend.err)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "event: response.completed") {
+		t.Fatalf("stream completed after cancellation: %s", body)
+	}
+	if strings.Contains(body, "data: [DONE]") {
+		t.Fatalf("stream wrote DONE after cancellation: %s", body)
+	}
+}
+
 func TestHostResponsesReturnsOpenAIErrorForInvalidInput(t *testing.T) {
 	t.Parallel()
 
@@ -278,4 +309,18 @@ func responseDeltaText(t *testing.T, events []serverSentEvent) string {
 		out.WriteString(payload.Delta)
 	}
 	return out.String()
+}
+
+type cancelAwareStreamingBackend struct {
+	err error
+}
+
+func (b *cancelAwareStreamingBackend) ChatCompletions(context.Context, ChatCompletionRequest) (*ChatCompletionResponse, error) {
+	return nil, errors.New("non-streaming path should not be called")
+}
+
+func (b *cancelAwareStreamingBackend) StreamChatCompletions(ctx context.Context, _ ChatCompletionRequest, _ func(ChatCompletionStreamChunk) error) error {
+	<-ctx.Done()
+	b.err = ctx.Err()
+	return b.err
 }

@@ -479,13 +479,19 @@ func (h *HostHTTPHandler) handleResponsesStream(w http.ResponseWriter, r *http.R
 			}
 			return nil
 		})
-		if err != nil && !errors.Is(err, context.Canceled) {
+		if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+			return
+		}
+		if err != nil {
 			writeError("response_failed", err.Error())
 			writeDone()
 			return
 		}
 	} else {
 		resp, err := backend.ChatCompletions(r.Context(), chatReq)
+		if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+			return
+		}
 		if err != nil {
 			writeError("response_failed", err.Error())
 			writeDone()
