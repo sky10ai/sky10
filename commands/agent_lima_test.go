@@ -876,6 +876,15 @@ func TestOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	if !strings.Contains(string(indexBody), `createMessagingClient`) {
 		t.Fatalf("plugin index missing messenger bridge client: %q", string(indexBody))
 	}
+	if !strings.Contains(string(indexBody), `function messagingSessionID(connectionID, conversationID)`) {
+		t.Fatalf("plugin index missing connection-scoped messaging session helper: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `session_id: sessionID`) || !strings.Contains(string(indexBody), `extractInboundMediaContext(content, sessionID)`) {
+		t.Fatalf("plugin index missing connection-scoped Telegram session routing: %q", string(indexBody))
+	}
+	if strings.Contains(string(indexBody), `session_id: conversationID`) {
+		t.Fatalf("plugin index should not route Telegram by bare conversation id: %q", string(indexBody))
+	}
 	if !strings.Contains(string(indexBody), `fs.openSync(claimPathFor(msgId), "wx")`) {
 		t.Fatalf("plugin index missing cross-process claim guard: %q", string(indexBody))
 	}

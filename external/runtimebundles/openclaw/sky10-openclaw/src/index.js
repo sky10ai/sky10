@@ -1134,6 +1134,18 @@ function telegramEventIsDispatchable(event) {
     && stringValue(event?.conversation_id);
 }
 
+function messagingSessionID(connectionID, conversationID) {
+  const connection = stringValue(connectionID);
+  const conversation = stringValue(conversationID);
+  if (!connection) {
+    return conversation || "messaging";
+  }
+  if (!conversation) {
+    return `messaging:${connection}`;
+  }
+  return `messaging:${connection}:${conversation}`;
+}
+
 function chatTypeForConversation(conversation) {
   const kind = stringValue(conversation?.kind);
   if (kind === "group" || kind === "channel") {
@@ -1220,7 +1232,8 @@ async function dispatchTelegramEvent(log, ctx, account, client, connection, even
 
   const conversation = await resolveTelegramConversation(client, connectionID, conversationID, conversationCache);
   const content = messagingContentFromMessage(message);
-  const inbound = extractInboundMediaContext(content, conversationID);
+  const sessionID = messagingSessionID(connectionID, conversationID);
+  const inbound = extractInboundMediaContext(content, sessionID);
   const sender = messagingSenderLabel(message);
   const conversationTitle = messagingConversationLabel(conversation, message);
   const label = sender && sender !== conversationTitle
@@ -1229,7 +1242,7 @@ async function dispatchTelegramEvent(log, ctx, account, client, connection, even
   const msg = {
     id: messageID,
     from: `${connectionID}:${conversationID}`,
-    session_id: conversationID,
+    session_id: sessionID,
     timestamp: message.created_at || event.timestamp,
     content,
     conversation_label: label,
