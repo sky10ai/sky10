@@ -76,3 +76,28 @@ test("buildOutboundChatContent extracts MEDIA refs into chat parts", () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("extractInboundMediaContext preserves mounted file paths", () => {
+  const content = {
+    parts: [
+      { type: "text", text: "voice note" },
+      {
+        type: "audio",
+        filename: "voice.ogg",
+        media_type: "audio/ogg",
+        source: {
+          type: "file",
+          path: "/sandbox-state/messengers/inbox/telegram/default/voice.ogg",
+          filename: "voice.ogg",
+          media_type: "audio/ogg",
+        },
+      },
+    ],
+  };
+
+  const inbound = extractInboundMediaContext(content, "telegram-chat");
+  assert.equal(inbound.bodyText, "voice note");
+  assert.equal(inbound.mediaPath, "/sandbox-state/messengers/inbox/telegram/default/voice.ogg");
+  assert.deepEqual(inbound.mediaPaths, ["/sandbox-state/messengers/inbox/telegram/default/voice.ogg"]);
+  assert.deepEqual(inbound.mediaTypes, ["audio"]);
+});

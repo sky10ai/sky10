@@ -242,6 +242,7 @@ func (b *messagingBridgeBackend) agentSubjectCandidates(ctx context.Context, age
 			addAgentInfoSubjectCandidates(candidates, target.Agent)
 			addAgentSubjectCandidate(candidates, target.Sandbox.Slug)
 			addAgentSubjectCandidate(candidates, target.Sandbox.Name)
+			addAgentSubjectCandidate(candidates, target.Sandbox.Template)
 		}
 	}
 	return candidates

@@ -335,8 +335,9 @@ func TestPrepareLimaSharedDir(t *testing.T) {
 	sharedDir := t.TempDir()
 	stateDir := filepath.Join(t.TempDir(), "state")
 	pluginAssets := map[string][]byte{
-		agentLimaPluginManifestAsset: []byte(`{"id":"sky10"}` + "\n"),
-		agentLimaPluginIndexAsset:    []byte("export default function register() {}\n"),
+		agentLimaPluginManifestAsset:  []byte(`{"id":"sky10"}` + "\n"),
+		agentLimaPluginIndexAsset:     []byte("export default function register() {}\n"),
+		agentLimaPluginMessagingAsset: []byte("export function messaging() {}\n"),
 	}
 	if err := prepareLimaSharedDir(sandboxTemplateOpenClaw, sharedDir, stateDir, []byte("#!/bin/sh\n"), pluginAssets, map[string]string{
 		"OPENAI_API_KEY": "openai-key",
@@ -366,6 +367,9 @@ func TestPrepareLimaSharedDir(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(stateDir, "plugins", agentLimaPluginManifest)); err != nil {
 		t.Fatalf("Stat(plugin manifest) error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "plugins", agentLimaPluginMessaging)); err != nil {
+		t.Fatalf("Stat(plugin messaging helper) error: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(sharedDir, "sky10.md")); err != nil {
 		t.Fatalf("Stat(sky10.md) error: %v", err)
@@ -846,8 +850,8 @@ func TestOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	if !strings.Contains(string(manifestBody), `["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("plugin manifest missing browser skill default: %q", string(manifestBody))
 	}
-	if !strings.Contains(string(manifestBody), `"channels"`) || !strings.Contains(string(manifestBody), `"sky10"`) {
-		t.Fatalf("plugin manifest missing sky10 channel declaration: %q", string(manifestBody))
+	if !strings.Contains(string(manifestBody), `"channels"`) || !strings.Contains(string(manifestBody), `"sky10"`) || !strings.Contains(string(manifestBody), `"telegram"`) {
+		t.Fatalf("plugin manifest missing channel declarations: %q", string(manifestBody))
 	}
 
 	indexBody, err := runtimebundles.ReadAsset(agentLimaPluginIndexAsset)
@@ -865,6 +869,12 @@ func TestOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(indexBody), `api.registerChannel({ plugin: sky10ChannelPlugin })`) {
 		t.Fatalf("plugin index missing channel registration: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `api.registerChannel({ plugin: telegramChannelPlugin })`) {
+		t.Fatalf("plugin index missing telegram channel registration: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `createMessagingClient`) {
+		t.Fatalf("plugin index missing messenger bridge client: %q", string(indexBody))
 	}
 	if !strings.Contains(string(indexBody), `fs.openSync(claimPathFor(msgId), "wx")`) {
 		t.Fatalf("plugin index missing cross-process claim guard: %q", string(indexBody))

@@ -43,7 +43,7 @@ export function guessMimeType(value) {
 
 function mediaTypeFromPart(part) {
   const source = part.source && typeof part.source === "object" ? part.source : {};
-  const mediaType = String(part.media_type || source.media_type || guessMimeType(part.filename || source.filename || source.url || "")).trim();
+  const mediaType = String(part.media_type || source.media_type || guessMimeType(part.filename || source.filename || source.path || source.url || "")).trim();
   if (part.type === "image" || mediaType.startsWith("image/")) return "image";
   if (part.type === "audio" || mediaType.startsWith("audio/")) return "audio";
   if (part.type === "video" || mediaType.startsWith("video/")) return "video";
@@ -79,6 +79,7 @@ function normalizeContentParts(content) {
             ? {
                 type: typeof source.type === "string" ? source.type : "",
                 data: typeof source.data === "string" ? source.data : "",
+                path: typeof source.path === "string" ? source.path : "",
                 url: typeof source.url === "string" ? source.url : "",
                 filename: typeof source.filename === "string" ? source.filename : "",
                 media_type: typeof source.media_type === "string" ? source.media_type : "",
@@ -143,6 +144,11 @@ export function extractInboundMediaContext(content, sessionId) {
         mediaPaths.push(mediaPath);
         mediaTypes.push(mediaType);
       }
+      continue;
+    }
+    if ((sourceType === "file" || sourceType === "path") && String(source.path || "").trim()) {
+      mediaPaths.push(String(source.path).trim());
+      mediaTypes.push(mediaType);
       continue;
     }
     if (sourceType === "url" && String(source.url || "").trim()) {

@@ -51,6 +51,8 @@ const (
 	templateOpenClawPluginIndex      = templateOpenClawPluginDir + "/src/index.js"
 	templateOpenClawPluginMedia      = templateOpenClawPluginDir + "/src/media.js"
 	templateOpenClawPluginClient     = templateOpenClawPluginDir + "/src/sky10.js"
+	templateOpenClawPluginX402       = templateOpenClawPluginDir + "/src/x402.js"
+	templateOpenClawPluginMessaging  = templateOpenClawPluginDir + "/src/messaging.js"
 	templateOpenClawDockerRuntimeDir = "openclaw-docker-runtime"
 	templateOpenClawDockerfile       = templateOpenClawDockerRuntimeDir + "/Dockerfile"
 	templateOpenClawDockerEntrypoint = templateOpenClawDockerRuntimeDir + "/entrypoint.sh"

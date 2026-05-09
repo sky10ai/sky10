@@ -56,11 +56,15 @@ const (
 	agentLimaPluginIndex                   = agentLimaPluginDir + "/src/index.js"
 	agentLimaPluginMedia                   = agentLimaPluginDir + "/src/media.js"
 	agentLimaPluginClient                  = agentLimaPluginDir + "/src/sky10.js"
+	agentLimaPluginX402                    = agentLimaPluginDir + "/src/x402.js"
+	agentLimaPluginMessaging               = agentLimaPluginDir + "/src/messaging.js"
 	agentLimaPluginPackageAsset            = runtimebundles.OpenClawSky10PluginDir + "/package.json"
 	agentLimaPluginManifestAsset           = runtimebundles.OpenClawSky10PluginDir + "/openclaw.plugin.json"
 	agentLimaPluginIndexAsset              = runtimebundles.OpenClawSky10PluginDir + "/src/index.js"
 	agentLimaPluginMediaAsset              = runtimebundles.OpenClawSky10PluginDir + "/src/media.js"
 	agentLimaPluginClientAsset             = runtimebundles.OpenClawSky10PluginDir + "/src/sky10.js"
+	agentLimaPluginX402Asset               = runtimebundles.OpenClawSky10PluginDir + "/src/x402.js"
+	agentLimaPluginMessagingAsset          = runtimebundles.OpenClawSky10PluginDir + "/src/messaging.js"
 	agentLimaOpenClawDockerRuntimeDir      = "openclaw-docker-runtime"
 	agentLimaOpenClawDockerfile            = agentLimaOpenClawDockerRuntimeDir + "/Dockerfile"
 	agentLimaOpenClawDockerEntrypoint      = agentLimaOpenClawDockerRuntimeDir + "/entrypoint.sh"
@@ -106,6 +110,8 @@ var agentLimaSharedPluginFiles = []string{
 	agentLimaPluginIndexAsset,
 	agentLimaPluginMediaAsset,
 	agentLimaPluginClientAsset,
+	agentLimaPluginX402Asset,
+	agentLimaPluginMessagingAsset,
 }
 
 var agentLimaOpenClawDockerRuntimeFiles = []string{

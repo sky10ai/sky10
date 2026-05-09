@@ -877,8 +877,8 @@ func TestBundledOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	if !strings.Contains(string(manifestBody), `["code", "shell", "browser", "web-search", "file-ops"]`) {
 		t.Fatalf("bundled plugin manifest missing browser skill default: %q", string(manifestBody))
 	}
-	if !strings.Contains(string(manifestBody), `"channels"`) || !strings.Contains(string(manifestBody), `"sky10"`) {
-		t.Fatalf("bundled plugin manifest missing sky10 channel declaration: %q", string(manifestBody))
+	if !strings.Contains(string(manifestBody), `"channels"`) || !strings.Contains(string(manifestBody), `"sky10"`) || !strings.Contains(string(manifestBody), `"telegram"`) {
+		t.Fatalf("bundled plugin manifest missing channel declarations: %q", string(manifestBody))
 	}
 
 	indexBody, err := readBundledRuntimeBundleAsset(runtimeBundleOpenClawPluginIndex)
@@ -896,6 +896,12 @@ func TestBundledOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(indexBody), `api.registerChannel({ plugin: sky10ChannelPlugin })`) {
 		t.Fatalf("bundled plugin index missing channel registration: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `api.registerChannel({ plugin: telegramChannelPlugin })`) {
+		t.Fatalf("bundled plugin index missing telegram channel registration: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `createMessagingClient`) {
+		t.Fatalf("bundled plugin index missing messenger bridge client: %q", string(indexBody))
 	}
 	if !strings.Contains(string(indexBody), `fs.openSync(claimPathFor(msgId), "wx")`) {
 		t.Fatalf("bundled plugin index missing cross-process claim guard: %q", string(indexBody))
@@ -1586,9 +1592,11 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	helper := []byte("#!/bin/sh\n")
 	pluginAssets := map[string][]byte{
-		runtimeBundleOpenClawPluginManifest: []byte(`{"id":"sky10"}` + "\n"),
-		runtimeBundleOpenClawPluginIndex:    []byte("export default function register() {}\n"),
-		runtimeBundleOpenClawPluginMedia:    []byte("export function helper() {}\n"),
+		runtimeBundleOpenClawPluginManifest:  []byte(`{"id":"sky10"}` + "\n"),
+		runtimeBundleOpenClawPluginIndex:     []byte("export default function register() {}\n"),
+		runtimeBundleOpenClawPluginMedia:     []byte("export function helper() {}\n"),
+		runtimeBundleOpenClawPluginX402:      []byte("export function x402() {}\n"),
+		runtimeBundleOpenClawPluginMessaging: []byte("export function messaging() {}\n"),
 	}
 	if err := prepareOpenClawSharedDir(sharedDir, stateDir, helper, pluginAssets, map[string]string{
 		"OPENAI_API_KEY": "openai-key",
@@ -1645,6 +1653,15 @@ func TestPrepareOpenClawSharedDir(t *testing.T) {
 	}
 	if string(pluginMediaData) != string(pluginAssets[runtimeBundleOpenClawPluginMedia]) {
 		t.Fatalf("plugin media helper = %q, want %q", string(pluginMediaData), string(pluginAssets[runtimeBundleOpenClawPluginMedia]))
+	}
+
+	pluginMessagingPath := filepath.Join(stateDir, "plugins", templateOpenClawPluginMessaging)
+	pluginMessagingData, err := os.ReadFile(pluginMessagingPath)
+	if err != nil {
+		t.Fatalf("ReadFile(plugin messaging helper) error: %v", err)
+	}
+	if string(pluginMessagingData) != string(pluginAssets[runtimeBundleOpenClawPluginMessaging]) {
+		t.Fatalf("plugin messaging helper = %q, want %q", string(pluginMessagingData), string(pluginAssets[runtimeBundleOpenClawPluginMessaging]))
 	}
 
 	invitePath := filepath.Join(stateDir, templateOpenClawInviteFile)

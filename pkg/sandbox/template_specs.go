@@ -18,6 +18,8 @@ var openClawSharedAssetFiles = []string{
 	runtimeBundleOpenClawPluginIndex,
 	runtimeBundleOpenClawPluginMedia,
 	runtimeBundleOpenClawPluginClient,
+	runtimeBundleOpenClawPluginX402,
+	runtimeBundleOpenClawPluginMessaging,
 }
 
 var openClawDockerSharedAssetFiles = append(

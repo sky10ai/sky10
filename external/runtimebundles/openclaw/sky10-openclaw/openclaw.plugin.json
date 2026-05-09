@@ -1,11 +1,12 @@
 {
   "id": "sky10",
   "channels": [
-    "sky10"
+    "sky10",
+    "telegram"
   ],
-  "name": "Sky10 Channel",
+  "name": "Sky10 Channels",
   "version": "0.1.0",
-  "description": "Connect OpenClaw agents to the sky10 P2P network",
+  "description": "Connect OpenClaw agents to sky10 and sky10-backed messaging channels",
   "configSchema": {
     "type": "object",
     "properties": {
@@ -32,6 +33,24 @@
       "gatewayToken": {
         "type": "string",
         "description": "Gateway API bearer token (if auth is enabled)"
+      },
+      "messagingWsUrl": {
+        "type": "string",
+        "description": "Optional sky10 messenger bridge websocket URL"
+      },
+      "connectionId": {
+        "type": "string",
+        "description": "Optional Telegram connection ID to bind this account to"
+      },
+      "pollIntervalMs": {
+        "type": "number",
+        "default": 5000,
+        "description": "Telegram bridge polling interval in milliseconds"
+      },
+      "replayOnStart": {
+        "type": "boolean",
+        "default": false,
+        "description": "Replay existing Telegram events when the gateway starts"
       }
     },
     "required": ["agentName"]

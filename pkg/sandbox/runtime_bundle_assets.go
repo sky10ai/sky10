@@ -9,6 +9,8 @@ const (
 	runtimeBundleOpenClawPluginIndex      = runtimeBundleOpenClawPluginDir + "/src/index.js"
 	runtimeBundleOpenClawPluginMedia      = runtimeBundleOpenClawPluginDir + "/src/media.js"
 	runtimeBundleOpenClawPluginClient     = runtimeBundleOpenClawPluginDir + "/src/sky10.js"
+	runtimeBundleOpenClawPluginX402       = runtimeBundleOpenClawPluginDir + "/src/x402.js"
+	runtimeBundleOpenClawPluginMessaging  = runtimeBundleOpenClawPluginDir + "/src/messaging.js"
 	runtimeBundleOpenClawDockerRuntimeDir = runtimebundles.OpenClawDockerDir
 	runtimeBundleOpenClawDockerfile       = runtimeBundleOpenClawDockerRuntimeDir + "/Dockerfile"
 	runtimeBundleOpenClawDockerEntrypoint = runtimeBundleOpenClawDockerRuntimeDir + "/entrypoint.sh"

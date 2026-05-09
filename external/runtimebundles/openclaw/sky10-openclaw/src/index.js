@@ -17,14 +17,28 @@ import { createChannelReplyPipeline } from "/usr/lib/node_modules/openclaw/dist/
 
 import { Sky10Client } from "./sky10.js";
 import { buildOutboundChatContent, extractInboundMediaContext } from "./media.js";
+import {
+  contentFromMessage as messagingContentFromMessage,
+  conversationLabel as messagingConversationLabel,
+  createMessagingClient,
+  messagingPartsFromReplyContent,
+  senderLabel as messagingSenderLabel,
+} from "./messaging.js";
 import { createX402Client, deriveX402WsUrl, formatX402PromptContext, installX402Helper } from "./x402.js";
 
 const CHANNEL_ID = "sky10";
 const CHANNEL_LABEL = "Sky10";
+const TELEGRAM_CHANNEL_ID = "telegram";
+const TELEGRAM_CHANNEL_LABEL = "Telegram";
 const DEFAULT_ACCOUNT_ID = "default";
 const DEFAULT_SKILLS = ["code", "shell", "browser", "web-search", "file-ops"];
 const DEFAULT_MANIFEST_PATH = "/shared/agent-manifest.json";
+const DEFAULT_RPC_URL = "http://localhost:9101";
 const DEFAULT_X402_HELPER_PATH = path.join(os.homedir(), ".openclaw", "sky10-x402.mjs");
+const DEFAULT_MESSAGING_POLL_INTERVAL_MS = 5_000;
+const MIN_MESSAGING_POLL_INTERVAL_MS = 1_000;
+const TELEGRAM_EVENT_LIMIT = 100;
+const TELEGRAM_SKIP_EVENT_LIMIT = 500;
 const X402_CONTEXT_TTL_MS = 30_000;
 const GLOBAL_STATE_KEY = Symbol.for("sky10.openclaw.bridge");
 const DEDUP_TTL_MS = 30_000;
@@ -47,6 +61,13 @@ const SKY10_ACCOUNT_PROPERTIES = {
   gatewayToken: { type: "string" },
   x402WsUrl: { type: "string" },
   x402HelperPath: { type: "string" },
+};
+const TELEGRAM_ACCOUNT_PROPERTIES = {
+  ...SKY10_ACCOUNT_PROPERTIES,
+  connectionId: { type: "string" },
+  messagingWsUrl: { type: "string" },
+  pollIntervalMs: { type: "number" },
+  replayOnStart: { type: "boolean" },
 };
 const SKY10_CHANNEL_CONFIG_SCHEMA = {
   schema: {
@@ -82,6 +103,49 @@ const SKY10_CHANNEL_CONFIG_SCHEMA = {
           type: "object",
           additionalProperties: false,
           properties: SKY10_ACCOUNT_PROPERTIES,
+        },
+      },
+    },
+  },
+};
+const TELEGRAM_CHANNEL_CONFIG_SCHEMA = {
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      enabled: { type: "boolean" },
+      rpcUrl: { type: "string" },
+      agentName: { type: "string" },
+      skills: {
+        type: "array",
+        items: { type: "string" },
+      },
+      tools: {
+        type: "array",
+        items: { type: "object" },
+      },
+      manifestPath: { type: "string" },
+      gatewayToken: { type: "string" },
+      x402WsUrl: { type: "string" },
+      x402HelperPath: { type: "string" },
+      connectionId: { type: "string" },
+      messagingWsUrl: { type: "string" },
+      pollIntervalMs: { type: "number" },
+      replayOnStart: { type: "boolean" },
+      defaultAccount: { type: "string" },
+      healthMonitor: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          enabled: { type: "boolean" },
+        },
+      },
+      accounts: {
+        type: "object",
+        additionalProperties: {
+          type: "object",
+          additionalProperties: false,
+          properties: TELEGRAM_ACCOUNT_PROPERTIES,
         },
       },
     },
@@ -171,6 +235,10 @@ function normalizeAccountId(accountId) {
   return typeof accountId === "string" && accountId.trim() ? accountId.trim() : DEFAULT_ACCOUNT_ID;
 }
 
+function stringValue(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 function normalizeTools(tools) {
   if (!Array.isArray(tools)) {
     return [];
@@ -224,17 +292,29 @@ function readAgentManifest(manifestPath) {
   }
 }
 
-function resolveSky10ChannelSection(cfg) {
-  const section = cfg?.channels?.[CHANNEL_ID];
+function resolveChannelSection(cfg, channelID) {
+  const section = cfg?.channels?.[channelID];
   return section && typeof section === "object" ? section : {};
 }
 
-function resolveMergedAccountConfig(cfg, accountId) {
-  const section = resolveSky10ChannelSection(cfg);
+function resolveSky10ChannelSection(cfg) {
+  return resolveChannelSection(cfg, CHANNEL_ID);
+}
+
+function resolveTelegramChannelSection(cfg) {
+  return resolveChannelSection(cfg, TELEGRAM_CHANNEL_ID);
+}
+
+function resolveMergedAccountConfigForChannel(cfg, channelID, accountId) {
+  const section = resolveChannelSection(cfg, channelID);
   const resolvedAccountId = normalizeAccountId(accountId);
   const { accounts, defaultAccount, healthMonitor, ...base } = section;
   const accountOverrides = accounts && typeof accounts === "object" ? accounts[resolvedAccountId] ?? {} : {};
   return { ...base, ...accountOverrides };
+}
+
+function resolveMergedAccountConfig(cfg, accountId) {
+  return resolveMergedAccountConfigForChannel(cfg, CHANNEL_ID, accountId);
 }
 
 function listSky10AccountIds(cfg) {
@@ -250,6 +330,27 @@ function resolveDefaultSky10AccountId(cfg) {
   return normalizeAccountId(section.defaultAccount);
 }
 
+function listTelegramAccountIds(cfg) {
+  const section = resolveTelegramChannelSection(cfg);
+  const configured = section.accounts && typeof section.accounts === "object"
+    ? Object.keys(section.accounts).filter(Boolean)
+    : [];
+  return [...new Set([resolveDefaultTelegramAccountId(cfg), ...configured])];
+}
+
+function resolveDefaultTelegramAccountId(cfg) {
+  const section = resolveTelegramChannelSection(cfg);
+  return normalizeAccountId(section.defaultAccount);
+}
+
+function resolvePollIntervalMs(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_MESSAGING_POLL_INTERVAL_MS;
+  }
+  return Math.max(MIN_MESSAGING_POLL_INTERVAL_MS, Math.floor(parsed));
+}
+
 function resolveSky10Account({ cfg, accountId }) {
   const section = resolveSky10ChannelSection(cfg);
   const resolvedAccountId = normalizeAccountId(accountId);
@@ -261,7 +362,7 @@ function resolveSky10Account({ cfg, accountId }) {
   const tools = normalizeTools(merged.tools ?? manifest.tools);
   const rpcUrl = typeof merged.rpcUrl === "string" && merged.rpcUrl.trim()
     ? merged.rpcUrl.trim()
-    : "http://localhost:9101";
+    : DEFAULT_RPC_URL;
   const agentName = typeof merged.agentName === "string" && merged.agentName.trim()
     ? merged.agentName.trim()
     : typeof manifest.name === "string" && manifest.name.trim()
@@ -283,6 +384,46 @@ function resolveSky10Account({ cfg, accountId }) {
     x402HelperPath: typeof merged.x402HelperPath === "string" && merged.x402HelperPath.trim()
       ? merged.x402HelperPath.trim()
       : DEFAULT_X402_HELPER_PATH,
+  };
+}
+
+function resolveTelegramAccount({ cfg, accountId }) {
+  const section = resolveTelegramChannelSection(cfg);
+  const resolvedAccountId = normalizeAccountId(accountId);
+  const merged = resolveMergedAccountConfigForChannel(cfg, TELEGRAM_CHANNEL_ID, resolvedAccountId);
+  const manifestPath = typeof merged.manifestPath === "string" && merged.manifestPath.trim()
+    ? merged.manifestPath.trim()
+    : DEFAULT_MANIFEST_PATH;
+  const manifest = readAgentManifest(manifestPath);
+  const tools = normalizeTools(merged.tools ?? manifest.tools);
+  const rpcUrl = typeof merged.rpcUrl === "string" && merged.rpcUrl.trim()
+    ? merged.rpcUrl.trim()
+    : DEFAULT_RPC_URL;
+  const agentName = typeof merged.agentName === "string" && merged.agentName.trim()
+    ? merged.agentName.trim()
+    : typeof manifest.name === "string" && manifest.name.trim()
+      ? manifest.name.trim()
+      : "openclaw";
+  return {
+    accountId: resolvedAccountId,
+    name: agentName,
+    enabled: section.enabled !== false && merged.enabled !== false,
+    configured: Boolean(rpcUrl),
+    rpcUrl,
+    agentName,
+    skills: resolveSkills(merged.skills, tools),
+    tools,
+    prompt: typeof manifest.prompt === "string" ? manifest.prompt.trim() : "",
+    description: typeof manifest.description === "string" ? manifest.description.trim() : "",
+    gatewayToken: typeof merged.gatewayToken === "string" ? merged.gatewayToken.trim() : "",
+    x402WsUrl: typeof merged.x402WsUrl === "string" ? merged.x402WsUrl.trim() : "",
+    x402HelperPath: typeof merged.x402HelperPath === "string" && merged.x402HelperPath.trim()
+      ? merged.x402HelperPath.trim()
+      : DEFAULT_X402_HELPER_PATH,
+    connectionId: typeof merged.connectionId === "string" ? merged.connectionId.trim() : "",
+    messagingWsUrl: typeof merged.messagingWsUrl === "string" ? merged.messagingWsUrl.trim() : "",
+    pollIntervalMs: resolvePollIntervalMs(merged.pollIntervalMs),
+    replayOnStart: merged.replayOnStart === true,
   };
 }
 
@@ -540,10 +681,12 @@ async function refreshX402RuntimeContext(log, account, opts = {}) {
   return next;
 }
 
-function resolveInboundRouteEnvelope(runtime, cfg, accountId, peer, conversationLabel, rawBody, timestamp) {
+function resolveInboundRouteEnvelope(runtime, cfg, accountId, peer, conversationLabel, rawBody, timestamp, channel = {}) {
+  const channelID = channel.id || CHANNEL_ID;
+  const channelLabel = channel.label || CHANNEL_LABEL;
   const route = runtime.channel.routing.resolveAgentRoute({
     cfg,
-    channel: CHANNEL_ID,
+    channel: channelID,
     accountId,
     peer,
   });
@@ -554,7 +697,7 @@ function resolveInboundRouteEnvelope(runtime, cfg, accountId, peer, conversation
   });
   const envelope = runtime.channel.reply.resolveEnvelopeFormatOptions(cfg);
   const body = runtime.channel.reply.formatAgentEnvelope({
-    channel: CHANNEL_LABEL,
+    channel: channelLabel,
     from: conversationLabel,
     timestamp,
     previousTimestamp,
@@ -590,19 +733,21 @@ function startHeartbeat(log, account, setStatus, abortSignal) {
   return () => clearInterval(timer);
 }
 
-async function dispatchInbound(log, ctx, account, msg, inbound, handlers = {}) {
+async function dispatchInbound(log, ctx, account, msg, inbound, handlers = {}, channel = {}) {
+  const channelID = channel.id || CHANNEL_ID;
+  const channelLabel = channel.label || CHANNEL_LABEL;
   const state = getBridgeState();
   const runtime = state.pluginRuntime;
   if (!runtime?.channel) {
-    throw new Error("sky10 runtime not initialized");
+    throw new Error(`${channelID} runtime not initialized`);
   }
 
   const peer = {
-    kind: "direct",
+    kind: msg.chat_type || "direct",
     id: resolveSessionPeerId(msg),
   };
   const sessionId = msg.session_id || "main";
-  const conversationLabel = `${msg.from} (${sessionId})`;
+  const conversationLabel = msg.conversation_label || `${msg.from} (${sessionId})`;
   const messageId = resolveMessageId(msg);
   const timestamp = resolveMessageTimestamp(msg);
   const rawBody = inbound.bodyText || "";
@@ -614,29 +759,31 @@ async function dispatchInbound(log, ctx, account, msg, inbound, handlers = {}) {
     conversationLabel,
     rawBody,
     timestamp,
+    { id: channelID, label: channelLabel },
   );
   const ctxPayload = runtime.channel.reply.finalizeInboundContext({
     Body: body,
     BodyForAgent: rawBody,
     RawBody: rawBody,
     CommandBody: rawBody,
-    From: `sky10:${msg.from}`,
-    To: `sky10:${state.agentId ?? account.agentName}`,
+    From: `${channelID}:${msg.from}`,
+    To: `${channelID}:${state.agentId ?? account.agentName}`,
     SessionKey: route.sessionKey,
     AccountId: route.accountId ?? account.accountId,
-    ChatType: "direct",
+    ChatType: msg.chat_type || "direct",
     ConversationLabel: conversationLabel,
     SenderId: msg.from,
-    Provider: CHANNEL_ID,
-    Surface: CHANNEL_ID,
+    Provider: channelID,
+    Surface: channelID,
     MessageSid: messageId,
     MessageSidFull: messageId,
     Timestamp: timestamp,
     CommandAuthorized: true,
-    OriginatingChannel: CHANNEL_ID,
-    OriginatingTo: `sky10:${state.agentId ?? account.agentName}`,
+    OriginatingChannel: channelID,
+    OriginatingTo: `${channelID}:${state.agentId ?? account.agentName}`,
     Sky10SessionId: sessionId,
     Sky10SenderId: msg.from,
+    ...(msg.telegram ? { Telegram: msg.telegram } : {}),
     ...(inbound.mediaPath ? { MediaPath: inbound.mediaPath } : {}),
     ...(inbound.mediaUrl ? { MediaUrl: inbound.mediaUrl } : {}),
     ...(inbound.mediaType ? { MediaType: inbound.mediaType } : {}),
@@ -663,7 +810,7 @@ async function dispatchInbound(log, ctx, account, msg, inbound, handlers = {}) {
   const { onModelSelected, ...replyPipeline } = createChannelReplyPipeline({
     cfg: ctx.cfg,
     agentId: route.agentId,
-    channel: CHANNEL_ID,
+    channel: channelID,
     accountId: route.accountId ?? account.accountId,
   });
   await runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
@@ -724,10 +871,10 @@ async function dispatchInbound(log, ctx, account, msg, inbound, handlers = {}) {
           hasMedia ? "chat" : "text",
         );
         finalDelivered = true;
-        log.info("sky10: reply sent");
+        log.info(`${channelID}: reply sent`);
       },
       onError: (err, info) => {
-        log.error(`sky10: ${info.kind} reply failed: ${err?.message ?? err}`);
+        log.error(`${channelID}: ${info.kind} reply failed: ${err?.message ?? err}`);
         replyError ??= err ?? new Error(`${info.kind} reply failed`);
       },
     },
@@ -965,6 +1112,282 @@ async function startSky10GatewayAccount(ctx) {
   }
 }
 
+function isActiveMessagingConnection(connection) {
+  const status = stringValue(connection?.status);
+  return !status || status === "connected" || status === "degraded";
+}
+
+function telegramConnectionAllowed(account, connection) {
+  if (!connection || stringValue(connection.adapter_id) !== TELEGRAM_CHANNEL_ID) {
+    return false;
+  }
+  if (account.connectionId && stringValue(connection.id) !== account.connectionId) {
+    return false;
+  }
+  return isActiveMessagingConnection(connection);
+}
+
+function telegramEventIsDispatchable(event) {
+  const typ = stringValue(event?.type);
+  return (typ === "message_received" || typ === "message_updated")
+    && stringValue(event?.message_id)
+    && stringValue(event?.conversation_id);
+}
+
+function chatTypeForConversation(conversation) {
+  const kind = stringValue(conversation?.kind);
+  if (kind === "group" || kind === "channel") {
+    return kind;
+  }
+  return "direct";
+}
+
+function findByID(items, id) {
+  const wanted = stringValue(id);
+  return (Array.isArray(items) ? items : []).find((item) => stringValue(item?.id) === wanted);
+}
+
+async function refreshConversationCache(client, connectionID, cache) {
+  const result = await client.listConversations({ connection_id: connectionID });
+  const conversations = Array.isArray(result?.conversations) ? result.conversations : [];
+  const byID = new Map();
+  for (const conversation of conversations) {
+    byID.set(stringValue(conversation?.id), conversation);
+  }
+  cache.set(connectionID, byID);
+  return byID;
+}
+
+async function resolveTelegramConversation(client, connectionID, conversationID, cache) {
+  let byID = cache.get(connectionID);
+  if (!byID) {
+    byID = await refreshConversationCache(client, connectionID, cache);
+  }
+  let conversation = byID.get(conversationID);
+  if (conversation) {
+    return conversation;
+  }
+  byID = await refreshConversationCache(client, connectionID, cache);
+  return byID.get(conversationID) ?? {
+    id: conversationID,
+    connection_id: connectionID,
+    kind: "direct",
+    title: "",
+  };
+}
+
+async function skipTelegramBacklog(client, connectionID) {
+  let after = "";
+  for (let page = 0; page < 50; page += 1) {
+    const result = await client.listEvents({
+      connection_id: connectionID,
+      after_event_id: after || undefined,
+      limit: TELEGRAM_SKIP_EVENT_LIMIT,
+    });
+    const events = Array.isArray(result?.events) ? result.events : [];
+    if (events.length === 0) {
+      return after;
+    }
+    after = stringValue(events[events.length - 1]?.id) || after;
+    if (events.length < TELEGRAM_SKIP_EVENT_LIMIT) {
+      return after;
+    }
+  }
+  return after;
+}
+
+async function dispatchTelegramEvent(log, ctx, account, client, connection, event, conversationCache) {
+  if (!telegramEventIsDispatchable(event)) {
+    return;
+  }
+
+  const connectionID = stringValue(connection.id);
+  const conversationID = stringValue(event.conversation_id);
+  const messageID = stringValue(event.message_id);
+  const messagesResult = await client.getMessages({
+    connection_id: connectionID,
+    conversation_id: conversationID,
+  });
+  const message = findByID(messagesResult?.messages, messageID);
+  if (!message || stringValue(message.direction) !== "inbound") {
+    return;
+  }
+
+  const claimID = `${TELEGRAM_CHANNEL_ID}:${connectionID}:${stringValue(event.id) || messageID}`;
+  if (!claimMessage(claimID)) {
+    return;
+  }
+
+  const conversation = await resolveTelegramConversation(client, connectionID, conversationID, conversationCache);
+  const content = messagingContentFromMessage(message);
+  const inbound = extractInboundMediaContext(content, conversationID);
+  const sender = messagingSenderLabel(message);
+  const conversationTitle = messagingConversationLabel(conversation, message);
+  const label = sender && sender !== conversationTitle
+    ? `${conversationTitle} - ${sender}`
+    : conversationTitle;
+  const msg = {
+    id: messageID,
+    from: `${connectionID}:${conversationID}`,
+    session_id: conversationID,
+    timestamp: message.created_at || event.timestamp,
+    content,
+    conversation_label: label,
+    chat_type: chatTypeForConversation(conversation),
+    telegram: {
+      connection_id: connectionID,
+      conversation_id: conversationID,
+      message_id: messageID,
+      sender,
+      conversation: conversationTitle,
+    },
+  };
+
+  await dispatchInbound(log, ctx, account, msg, inbound, {
+    failOnError: false,
+    onPartialReply: async () => {},
+    onBlockReply: async () => {},
+    onFinalReply: async ({ replyText, replyContent }) => {
+      const parts = messagingPartsFromReplyContent(replyContent, replyText);
+      if (parts.length === 0) {
+        return;
+      }
+      const draftResult = await client.createDraft({
+        connection_id: connectionID,
+        conversation_id: conversationID,
+        reply_to_message_id: messageID,
+        parts,
+        metadata: {
+          openclaw_channel: TELEGRAM_CHANNEL_ID,
+          openclaw_account_id: account.accountId,
+        },
+      });
+      const draftID = stringValue(draftResult?.draft?.id);
+      if (!draftID) {
+        throw new Error("telegram draft creation did not return a draft id");
+      }
+      const sendResult = await client.requestSend({
+        draft_id: draftID,
+        new_conversation: false,
+      });
+      if (sendResult?.approval) {
+        log.info(`telegram: reply queued for approval (${draftID})`);
+        return;
+      }
+      log.info(`telegram: reply sent (${draftID})`);
+    },
+  }, { id: TELEGRAM_CHANNEL_ID, label: TELEGRAM_CHANNEL_LABEL });
+}
+
+async function pollTelegramConnection(log, ctx, account, client, connection, cursors, conversationCache) {
+  const connectionID = stringValue(connection.id);
+  if (!connectionID) {
+    return;
+  }
+
+  if (!cursors.has(connectionID) && !account.replayOnStart) {
+    const latest = await skipTelegramBacklog(client, connectionID);
+    cursors.set(connectionID, latest);
+    if (latest) {
+      log.info(`telegram: starting from latest event on ${connectionID}`);
+    }
+    return;
+  }
+
+  let after = cursors.get(connectionID) || "";
+  for (let page = 0; page < 5 && !ctx.abortSignal.aborted; page += 1) {
+    const result = await client.listEvents({
+      connection_id: connectionID,
+      after_event_id: after || undefined,
+      limit: TELEGRAM_EVENT_LIMIT,
+    });
+    const events = Array.isArray(result?.events) ? result.events : [];
+    if (events.length === 0) {
+      return;
+    }
+    for (const event of events) {
+      const nextCursor = stringValue(event?.id);
+      if (nextCursor) {
+        after = nextCursor;
+        cursors.set(connectionID, after);
+      }
+      try {
+        await dispatchTelegramEvent(log, ctx, account, client, connection, event, conversationCache);
+      } catch (err) {
+        log.error(`telegram: event dispatch failed: ${err?.message ?? err}`);
+      }
+    }
+    if (events.length < TELEGRAM_EVENT_LIMIT) {
+      return;
+    }
+  }
+}
+
+async function startTelegramGatewayAccount(ctx) {
+  const log = ctx.log ?? console;
+  const account = ctx.account;
+  const state = getBridgeState();
+
+  if (!account.configured) {
+    throw new Error(`telegram channel is not configured for account "${account.accountId}"`);
+  }
+  if (!state.pluginRuntime?.channel) {
+    throw new Error("telegram channel runtime is not initialized");
+  }
+
+  state.client = new Sky10Client(account.rpcUrl);
+  await ensureRegistered(log, account, ctx.setStatus);
+
+  const messagingClient = createMessagingClient({
+    rpcUrl: account.rpcUrl,
+    wsUrl: account.messagingWsUrl,
+    agentName: account.agentName,
+  });
+  const cursors = new Map();
+  const conversationCache = new Map();
+  const stopHeartbeat = startHeartbeat(log, account, ctx.setStatus, ctx.abortSignal);
+
+  ctx.setStatus({
+    accountId: account.accountId,
+    agentId: state.agentId,
+    enabled: account.enabled,
+    configured: account.configured,
+    running: true,
+    rpcUrl: account.rpcUrl,
+    messagingWsUrl: messagingClient.url,
+  });
+  log.info(`telegram: bridge connected through ${messagingClient.url}`);
+
+  try {
+    while (!ctx.abortSignal.aborted) {
+      try {
+        const result = await messagingClient.listConnections({ adapter_id: TELEGRAM_CHANNEL_ID });
+        const connections = (Array.isArray(result?.connections) ? result.connections : [])
+          .filter((connection) => telegramConnectionAllowed(account, connection));
+        if (account.connectionId && connections.length === 0) {
+          log.warn(`telegram: configured connection ${account.connectionId} is not available to this agent`);
+        }
+        for (const connection of connections) {
+          await pollTelegramConnection(log, ctx, account, messagingClient, connection, cursors, conversationCache);
+        }
+      } catch (err) {
+        if (!ctx.abortSignal.aborted) {
+          log.warn(`telegram: bridge poll failed: ${err?.message ?? err}`);
+        }
+      }
+      if (!ctx.abortSignal.aborted) {
+        await sleep(account.pollIntervalMs);
+      }
+    }
+  } finally {
+    stopHeartbeat();
+    ctx.setStatus({
+      accountId: account.accountId,
+      running: false,
+    });
+  }
+}
+
 const sky10ChannelPlugin = createChatChannelPlugin({
   base: {
     id: CHANNEL_ID,
@@ -1001,6 +1424,42 @@ const sky10ChannelPlugin = createChatChannelPlugin({
   },
 });
 
+const telegramChannelPlugin = createChatChannelPlugin({
+  base: {
+    id: TELEGRAM_CHANNEL_ID,
+    meta: {
+      id: TELEGRAM_CHANNEL_ID,
+      label: TELEGRAM_CHANNEL_LABEL,
+      selectionLabel: TELEGRAM_CHANNEL_LABEL,
+      docsPath: "/channels/telegram",
+      docsLabel: "Telegram",
+      blurb: "Native Telegram chats through sky10 messaging connections.",
+      order: 998,
+    },
+    capabilities: {
+      chatTypes: ["direct", "group", "channel"],
+    },
+    reload: {
+      configPrefixes: ["channels.telegram", "plugins.entries.telegram"],
+    },
+    configSchema: TELEGRAM_CHANNEL_CONFIG_SCHEMA,
+    setup: {
+      applyAccountConfig: ({ cfg }) => cfg,
+    },
+    config: {
+      listAccountIds: (cfg) => listTelegramAccountIds(cfg),
+      resolveAccount: (cfg, accountId) => resolveTelegramAccount({ cfg, accountId }),
+      defaultAccountId: (cfg) => resolveDefaultTelegramAccountId(cfg),
+      isConfigured: (account) => account.configured,
+    },
+    gateway: {
+      startAccount: async (ctx) => {
+        await startTelegramGatewayAccount(ctx);
+      },
+    },
+  },
+});
+
 export default function register(api) {
   if (api.registrationMode === "cli-metadata") {
     return;
@@ -1008,4 +1467,5 @@ export default function register(api) {
 
   getBridgeState().pluginRuntime = api.runtime ?? getBridgeState().pluginRuntime;
   api.registerChannel({ plugin: sky10ChannelPlugin });
+  api.registerChannel({ plugin: telegramChannelPlugin });
 }
