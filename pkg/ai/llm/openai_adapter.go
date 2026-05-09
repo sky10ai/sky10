@@ -25,6 +25,17 @@ type OpenAIAdapter struct {
 	client  *http.Client
 }
 
+type openAIChatCompletionRequest struct {
+	Model               string             `json:"model,omitempty"`
+	Messages            []ChatMessage      `json:"messages"`
+	Stream              bool               `json:"stream,omitempty"`
+	StreamOptions       *ChatStreamOptions `json:"stream_options,omitempty"`
+	MaxCompletionTokens int                `json:"max_completion_tokens,omitempty"`
+	Temperature         *float64           `json:"temperature,omitempty"`
+	TopP                *float64           `json:"top_p,omitempty"`
+	Stop                []string           `json:"stop,omitempty"`
+}
+
 func NewOpenAIAdapter(opts OpenAIAdapterOptions) *OpenAIAdapter {
 	client := opts.HTTPClient
 	if client == nil {
@@ -62,7 +73,7 @@ func (a *OpenAIAdapter) ChatCompletions(ctx context.Context, req ChatCompletionR
 	if req.Model == "" {
 		req.Model = a.model
 	}
-	buf, err := json.Marshal(req)
+	buf, err := json.Marshal(openAIRequestFromChat(req))
 	if err != nil {
 		return nil, fmt.Errorf("encode openai request: %w", err)
 	}
@@ -103,7 +114,7 @@ func (a *OpenAIAdapter) StreamChatCompletions(ctx context.Context, req ChatCompl
 		req.Model = a.model
 	}
 	req.Stream = true
-	buf, err := json.Marshal(req)
+	buf, err := json.Marshal(openAIRequestFromChat(req))
 	if err != nil {
 		return fmt.Errorf("encode openai stream request: %w", err)
 	}
@@ -134,6 +145,19 @@ func (a *OpenAIAdapter) StreamChatCompletions(ctx context.Context, req ChatCompl
 		}
 		return send(chunk)
 	})
+}
+
+func openAIRequestFromChat(req ChatCompletionRequest) openAIChatCompletionRequest {
+	return openAIChatCompletionRequest{
+		Model:               req.Model,
+		Messages:            req.Messages,
+		Stream:              req.Stream,
+		StreamOptions:       req.StreamOptions,
+		MaxCompletionTokens: req.MaxTokens,
+		Temperature:         req.Temperature,
+		TopP:                req.TopP,
+		Stop:                req.Stop,
+	}
 }
 
 func providerHTTPError(provider string, resp *http.Response) error {

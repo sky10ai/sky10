@@ -13,7 +13,12 @@ import (
 
 func TestOpenAIAdapterChatCompletions(t *testing.T) {
 	var gotPath, gotAuth string
-	var gotReq ChatCompletionRequest
+	var gotReq struct {
+		Model               string        `json:"model"`
+		Messages            []ChatMessage `json:"messages"`
+		MaxTokens           int           `json:"max_tokens"`
+		MaxCompletionTokens int           `json:"max_completion_tokens"`
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotAuth = r.Header.Get("Authorization")
@@ -38,7 +43,8 @@ func TestOpenAIAdapterChatCompletions(t *testing.T) {
 		Model:   "gpt-test",
 	})
 	resp, err := adapter.ChatCompletions(context.Background(), ChatCompletionRequest{
-		Messages: []ChatMessage{{Role: "user", Content: "hi"}},
+		Messages:  []ChatMessage{{Role: "user", Content: "hi"}},
+		MaxTokens: 11,
 	})
 	if err != nil {
 		t.Fatalf("ChatCompletions() error = %v", err)
@@ -52,6 +58,9 @@ func TestOpenAIAdapterChatCompletions(t *testing.T) {
 	if gotReq.Model != "gpt-test" {
 		t.Fatalf("request model = %q", gotReq.Model)
 	}
+	if gotReq.MaxTokens != 0 || gotReq.MaxCompletionTokens != 11 {
+		t.Fatalf("request token fields max_tokens=%d max_completion_tokens=%d", gotReq.MaxTokens, gotReq.MaxCompletionTokens)
+	}
 	if resp.Choices[0].Message.Content != "hello" {
 		t.Fatalf("response content = %q", resp.Choices[0].Message.Content)
 	}
@@ -59,7 +68,13 @@ func TestOpenAIAdapterChatCompletions(t *testing.T) {
 
 func TestOpenAIAdapterStreamChatCompletions(t *testing.T) {
 	var gotPath, gotAuth, gotAccept string
-	var gotReq ChatCompletionRequest
+	var gotReq struct {
+		Model               string        `json:"model"`
+		Messages            []ChatMessage `json:"messages"`
+		Stream              bool          `json:"stream"`
+		MaxTokens           int           `json:"max_tokens"`
+		MaxCompletionTokens int           `json:"max_completion_tokens"`
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotAuth = r.Header.Get("Authorization")
@@ -101,7 +116,8 @@ func TestOpenAIAdapterStreamChatCompletions(t *testing.T) {
 	})
 	var chunks []ChatCompletionStreamChunk
 	err := adapter.StreamChatCompletions(context.Background(), ChatCompletionRequest{
-		Messages: []ChatMessage{{Role: "user", Content: "hi"}},
+		Messages:  []ChatMessage{{Role: "user", Content: "hi"}},
+		MaxTokens: 12,
 	}, func(chunk ChatCompletionStreamChunk) error {
 		chunks = append(chunks, chunk)
 		return nil
@@ -123,6 +139,9 @@ func TestOpenAIAdapterStreamChatCompletions(t *testing.T) {
 	}
 	if gotReq.Model != "gpt-test" {
 		t.Fatalf("request model = %q", gotReq.Model)
+	}
+	if gotReq.MaxTokens != 0 || gotReq.MaxCompletionTokens != 12 {
+		t.Fatalf("request token fields max_tokens=%d max_completion_tokens=%d", gotReq.MaxTokens, gotReq.MaxCompletionTokens)
 	}
 	if len(chunks) != 2 || chunks[0].Choices[0].Delta.Role != "assistant" || chunks[1].Choices[0].Delta.Content != "hello" {
 		t.Fatalf("chunks = %+v", chunks)

@@ -68,7 +68,7 @@ Build `POST /v1/responses` as a thin adapter over the existing chat backend.
 - [x] Unit test unsupported input errors.
 - [x] Unit test non-streaming response shape.
 - [x] Live test Anthropic through `/v1/responses`.
-- [ ] Live test OpenAI through `/v1/responses` when an OpenAI key is present.
+- [x] Live test OpenAI through `/v1/responses` when an OpenAI key is present.
 
 ## Milestone 2: Responses Streaming
 
@@ -94,7 +94,7 @@ clients and agent runtimes.
 - [ ] Unit test client-cancellation behavior where practical.
 - [x] Live streaming test with a prompt that produces multiple chunks.
 - [x] Verify Anthropic streaming through the Responses endpoint.
-- [ ] Verify OpenAI streaming through the Responses endpoint when a key is
+- [x] Verify OpenAI streaming through the Responses endpoint when a key is
       present.
 
 ## Milestone 3: Model And Connection Resolution
