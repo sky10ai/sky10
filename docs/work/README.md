@@ -11,8 +11,6 @@
 - Active x402 service integration plan (agent surface lands as
   `pkg/sandbox/bridge/x402/`):
   [`current/x402/`](current/x402/)
-- Active messaging gateway architecture:
-  [`current/messaging-gateway-architecture.md`](current/messaging-gateway-architecture.md)
 
 ## Todo
 
@@ -27,4 +25,4 @@
 
 | Year | Summary |
 |------|---------|
-| [2026](past/2026/) | SkyKey, SkyFS V1-V3, schema versioning, mailbox, private-network robustness, ChatGPT Codex integration |
+| [2026](past/2026/) | SkyKey, SkyFS V1-V3, schema versioning, mailbox, private-network robustness, ChatGPT Codex integration, x402 services, sandbox bridge, messaging gateway |
