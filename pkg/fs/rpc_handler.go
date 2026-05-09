@@ -213,13 +213,13 @@ func (s *FSHandler) Dispatch(ctx context.Context, method string, params json.Raw
 		result, err = s.rpcSyncActivity(ctx)
 	case "skyfs.driveState":
 		result, err = s.rpcDriveState(ctx, params)
-	case "skyfs.debugDump":
+	case "debug.dump", "skyfs.debugDump":
 		result, err = s.rpcDebugDump(ctx)
-	case "skyfs.debugScreenshot":
+	case "debug.screenshot", "skyfs.debugScreenshot":
 		result, err = s.rpcDebugScreenshot(ctx, params)
-	case "skyfs.debugList":
+	case "debug.list", "skyfs.debugList":
 		result, err = s.rpcDebugList(ctx)
-	case "skyfs.debugGet":
+	case "debug.get", "skyfs.debugGet":
 		result, err = s.rpcDebugGet(ctx, params)
 	case "skyfs.s3List", "skyfs.s3Delete":
 		if s.store.backend == nil {

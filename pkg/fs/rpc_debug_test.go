@@ -41,7 +41,7 @@ func TestRPCDebugScreenshotUploadsImageAndContext(t *testing.T) {
 		t.Fatalf("marshal params: %v", err)
 	}
 
-	raw, err, handled := handler.Dispatch(context.Background(), "skyfs.debugScreenshot", params)
+	raw, err, handled := handler.Dispatch(context.Background(), "debug.screenshot", params)
 	if err != nil {
 		t.Fatalf("debugScreenshot: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestRPCDebugScreenshotSavesLocallyWithoutStorage(t *testing.T) {
 		t.Fatalf("marshal params: %v", err)
 	}
 
-	raw, err, handled := handler.Dispatch(context.Background(), "skyfs.debugScreenshot", params)
+	raw, err, handled := handler.Dispatch(context.Background(), "debug.screenshot", params)
 	if err != nil {
 		t.Fatalf("debugScreenshot without storage: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestRPCDebugScreenshotSavesLocallyWithoutStorage(t *testing.T) {
 		t.Fatalf("missing local image path: %#v", result)
 	}
 
-	listRaw, err, handled := handler.Dispatch(context.Background(), "skyfs.debugList", nil)
+	listRaw, err, handled := handler.Dispatch(context.Background(), "debug.list", nil)
 	if err != nil {
 		t.Fatalf("debugList without storage: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestRPCDebugScreenshotSavesLocallyWithoutStorage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal get params: %v", err)
 	}
-	getRaw, err, handled := handler.Dispatch(context.Background(), "skyfs.debugGet", getParams)
+	getRaw, err, handled := handler.Dispatch(context.Background(), "debug.get", getParams)
 	if err != nil {
 		t.Fatalf("debugGet local screenshot: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestRPCDebugDumpSavesLocallyWithoutStorage(t *testing.T) {
 	server := skyrpc.NewServer(filepath.Join(t.TempDir(), "test.sock"), "test-version", nil)
 	handler := NewFSHandler(store, server, filepath.Join(t.TempDir(), "drives.json"), nil, nil)
 
-	raw, err, handled := handler.Dispatch(context.Background(), "skyfs.debugDump", nil)
+	raw, err, handled := handler.Dispatch(context.Background(), "debug.dump", nil)
 	if err != nil {
 		t.Fatalf("debugDump without storage: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestRPCDebugGetReturnsBase64ForBinaryObjects(t *testing.T) {
 		t.Fatalf("marshal params: %v", err)
 	}
 
-	raw, err, handled := handler.Dispatch(context.Background(), "skyfs.debugGet", params)
+	raw, err, handled := handler.Dispatch(context.Background(), "debug.get", params)
 	if err != nil {
 		t.Fatalf("debugGet: %v", err)
 	}
@@ -258,6 +258,56 @@ func TestRPCDebugGetReturnsBase64ForBinaryObjects(t *testing.T) {
 	}
 	if result["source"] != "s3" {
 		t.Fatalf("source = %v, want s3", result["source"])
+	}
+}
+
+func TestRPCDebugLegacySkyFSAliasesRemainSupported(t *testing.T) {
+	t.Setenv("SKY10_HOME", t.TempDir())
+	id, _ := GenerateDeviceKey()
+	store := New(nil, id)
+	server := skyrpc.NewServer(filepath.Join(t.TempDir(), "test.sock"), "test-version", nil)
+	handler := NewFSHandler(store, server, filepath.Join(t.TempDir(), "drives.json"), nil, nil)
+
+	for _, method := range []string{
+		"skyfs.debugDump",
+		"skyfs.debugList",
+	} {
+		if _, err, handled := handler.Dispatch(context.Background(), method, nil); err != nil {
+			t.Fatalf("%s returned error: %v", method, err)
+		} else if !handled {
+			t.Fatalf("%s handled = false, want true", method)
+		}
+	}
+
+	image := []byte{0x89, 'P', 'N', 'G'}
+	params, err := json.Marshal(map[string]interface{}{
+		"content_type": "image/png",
+		"data_base64":  base64.StdEncoding.EncodeToString(image),
+		"filename":     "legacy.png",
+		"height":       1,
+		"size_bytes":   len(image),
+		"width":        1,
+	})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	raw, err, handled := handler.Dispatch(context.Background(), "skyfs.debugScreenshot", params)
+	if err != nil {
+		t.Fatalf("legacy debugScreenshot returned error: %v", err)
+	}
+	if !handled {
+		t.Fatal("legacy debugScreenshot handled = false, want true")
+	}
+	result := raw.(debugScreenshotResult)
+
+	getParams, err := json.Marshal(map[string]string{"key": result.ImageKey})
+	if err != nil {
+		t.Fatalf("marshal get params: %v", err)
+	}
+	if _, err, handled := handler.Dispatch(context.Background(), "skyfs.debugGet", getParams); err != nil {
+		t.Fatalf("legacy debugGet returned error: %v", err)
+	} else if !handled {
+		t.Fatal("legacy debugGet handled = false, want true")
 	}
 }
 

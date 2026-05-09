@@ -84,11 +84,20 @@ export const skyfs = {
     rpc<{ status: string }>("skyfs.mkdir", p),
   status: () => rpc<StatusResult>("skyfs.status"),
   debugScreenshot: (p: DebugScreenshotParams) =>
-    rpc<DebugScreenshotResult>("skyfs.debugScreenshot", p),
+    debug.screenshot(p),
   s3List: (p: { prefix: string }) => rpc<S3ListResult>("skyfs.s3List", p),
   s3Delete: (p: { key: string }) => rpc("skyfs.s3Delete", p),
   syncActivity: () => rpc<SyncActivityResult>("skyfs.syncActivity"),
   driveRemove: (p: { name: string }) => rpc("skyfs.driveRemove", p),
+};
+
+// -- debug --
+export const debug = {
+  dump: () => rpc<DebugDumpResult>("debug.dump"),
+  list: () => rpc<DebugListResult>("debug.list"),
+  get: (p: { key: string }) => rpc<DebugGetResult>("debug.get", p),
+  screenshot: (p: DebugScreenshotParams) =>
+    rpc<DebugScreenshotResult>("debug.screenshot", p),
 };
 
 // -- skykv --
@@ -543,6 +552,25 @@ export interface DebugScreenshotParams {
   size_bytes: number;
   width: number;
 }
+
+export interface DebugDumpResult {
+  status: string;
+  key: string;
+  local_path: string;
+  size: number;
+  s3_error?: string;
+  s3_synced: boolean;
+}
+
+export interface DebugListResult {
+  keys: string[];
+  local_keys: string[];
+  local_root: string;
+  remote_keys?: string[];
+  s3_error?: string;
+}
+
+export type DebugGetResult = unknown;
 
 export interface DebugScreenshotResult {
   status: string;

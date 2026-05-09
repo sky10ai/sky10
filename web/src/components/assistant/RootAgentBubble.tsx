@@ -17,7 +17,7 @@ import {
   safeTimestamp,
   type CapturedScreenshot,
 } from "../../lib/rootAgentScreenshot";
-import { codex, rootAgent, skyfs } from "../../lib/rpc";
+import { codex, debug, rootAgent } from "../../lib/rpc";
 import { formatBytes, useRPC } from "../../lib/useRPC";
 import { Icon } from "../Icon";
 import { StatusBadge } from "../StatusBadge";
@@ -187,7 +187,7 @@ export function RootAgentBubble() {
       setStatus("Saving debug screenshot...");
       try {
         const upload = await buildDebugScreenshotUpload(next, context);
-        const saved = await skyfs.debugScreenshot(upload);
+        const saved = await debug.screenshot(upload);
         if (saved.s3_error) {
           setStatus("Screenshot captured and saved locally. S3 sync failed.");
         } else if (saved.s3_synced) {

@@ -260,14 +260,16 @@ should use this file directly.
 
 - Use the daemon's Unix socket at `/tmp/sky10/sky10.sock` when
   diagnosing another machine from this repo's tooling.
-- Useful RPC methods: `skyfs.deviceList`, `skyfs.debugList`,
-  `skyfs.debugGet`, `skyfs.debugDump`, `skyfs.debugScreenshot`,
-  `skyfs.s3List`, `skyfs.s3Delete`.
-- `skyfs.debug*` stores and reads local artifacts under the target
+- Useful RPC methods: `skyfs.deviceList`, `debug.list`,
+  `debug.get`, `debug.dump`, `debug.screenshot`, `skyfs.s3List`,
+  `skyfs.s3Delete`.
+- `debug.*` stores and reads local artifacts under the target
   daemon's `~/.sky10/debug/` directory, and mirrors to S3 when storage
   is configured.
-- `skyfs.debugScreenshot` stores browser-captured PNGs plus page
-  context; `skyfs.debugGet` returns base64 for PNG keys.
+- `debug.screenshot` stores browser-captured PNGs plus page context;
+  `debug.get` returns base64 for PNG keys.
+- Legacy `skyfs.debugDump`, `skyfs.debugList`, `skyfs.debugGet`, and
+  `skyfs.debugScreenshot` aliases are still supported.
 - `skyfs.s3*` requires S3-backed storage on the target daemon.
 - Prefer a fresh debug dump over stale ones.
 - If your agent can use Claude skills, `/debug-remote` captures the
