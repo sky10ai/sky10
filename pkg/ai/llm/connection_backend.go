@@ -74,10 +74,11 @@ func (b *ConnectionChatBackend) adapterForRequest(ctx context.Context, req ChatC
 	if b == nil {
 		return nil, ChatCompletionRequest{}, ErrHostBackendNotConfigured
 	}
-	connection, model, err := b.resolveConnection(req.Model)
+	resolved, err := b.resolveModel(req.Model)
 	if err != nil {
 		return nil, ChatCompletionRequest{}, err
 	}
+	connection := resolved.Connection
 	if connection.Provider == ProviderVenice {
 		return nil, ChatCompletionRequest{}, fmt.Errorf("venice guest provider is not wired yet")
 	}
@@ -88,7 +89,7 @@ func (b *ConnectionChatBackend) adapterForRequest(ctx context.Context, req ChatC
 	adapter, err := NewNativeAdapter(connection, AdapterOptions{
 		APIKey:           apiKey,
 		HTTPClient:       b.httpClient,
-		Model:            model,
+		Model:            resolved.Model,
 		AnthropicVersion: connection.Auth.APIVersion,
 		Now:              b.now,
 	})
@@ -96,7 +97,7 @@ func (b *ConnectionChatBackend) adapterForRequest(ctx context.Context, req ChatC
 		return nil, ChatCompletionRequest{}, err
 	}
 	routedReq := req
-	routedReq.Model = model
+	routedReq.Model = resolved.Model
 	return adapter, routedReq, nil
 }
 
@@ -118,57 +119,12 @@ func (b *ConnectionChatBackend) resolveAPIKey(ctx context.Context, connection Co
 	return apiKey, nil
 }
 
-func (b *ConnectionChatBackend) resolveConnection(model string) (Connection, string, error) {
+func (b *ConnectionChatBackend) resolveModel(model string) (resolvedModelSelector, error) {
 	connections, err := b.availableConnections()
 	if err != nil {
-		return Connection{}, "", err
+		return resolvedModelSelector{}, err
 	}
-	if len(connections) == 0 {
-		return Connection{}, "", fmt.Errorf("no AI connections are configured")
-	}
-	model = strings.TrimSpace(model)
-	if model == "" {
-		connection, ok := firstConnectionForProvider(connections, ProviderOpenAI)
-		if !ok {
-			connection = firstNonVeniceConnection(connections)
-		}
-		return connection, defaultModelForConnection(connection), nil
-	}
-
-	if prefix, rest, ok := strings.Cut(model, "/"); ok {
-		prefix = strings.TrimSpace(prefix)
-		rest = strings.TrimSpace(rest)
-		if connection, ok := connectionByID(connections, prefix); ok {
-			return connection, firstNonEmpty(rest, defaultModelForConnection(connection)), nil
-		}
-		if supportedProvider(prefix) {
-			connection, ok := firstConnectionForProvider(connections, prefix)
-			if !ok {
-				return Connection{}, "", fmt.Errorf("no %s connection is configured", prefix)
-			}
-			return connection, firstNonEmpty(rest, defaultModelForConnection(connection)), nil
-		}
-	}
-
-	if connection, ok := connectionByID(connections, model); ok {
-		return connection, defaultModelForConnection(connection), nil
-	}
-	if connection, ok := connectionByModel(connections, model); ok {
-		return connection, model, nil
-	}
-	if looksAnthropicModel(model) {
-		if connection, ok := firstConnectionForProvider(connections, ProviderAnthropic); ok {
-			return connection, model, nil
-		}
-	}
-	if connection, ok := firstConnectionForProvider(connections, ProviderOpenAI); ok {
-		return connection, model, nil
-	}
-	connection := firstNonVeniceConnection(connections)
-	if connection.ID == "" {
-		return Connection{}, "", fmt.Errorf("no OpenAI or Anthropic connection is configured")
-	}
-	return connection, model, nil
+	return resolveModelSelector(connections, model)
 }
 
 func (b *ConnectionChatBackend) availableConnections() ([]Connection, error) {
@@ -221,63 +177,4 @@ func defaultAnthropicConnection() Connection {
 			APIVersion: DefaultAnthropicAPIVersion,
 		},
 	}
-}
-
-func connectionByID(connections []Connection, id string) (Connection, bool) {
-	for _, connection := range connections {
-		if connection.ID == id {
-			return connection, true
-		}
-	}
-	return Connection{}, false
-}
-
-func connectionByModel(connections []Connection, model string) (Connection, bool) {
-	for _, connection := range connections {
-		if connection.DefaultModel == model {
-			return connection, true
-		}
-		for _, candidate := range connection.Models {
-			if candidate == model {
-				return connection, true
-			}
-		}
-	}
-	return Connection{}, false
-}
-
-func firstConnectionForProvider(connections []Connection, provider string) (Connection, bool) {
-	for _, connection := range connections {
-		if connection.Provider == provider {
-			return connection, true
-		}
-	}
-	return Connection{}, false
-}
-
-func firstNonVeniceConnection(connections []Connection) Connection {
-	for _, connection := range connections {
-		if connection.Provider == ProviderOpenAI || connection.Provider == ProviderAnthropic {
-			return connection
-		}
-	}
-	return Connection{}
-}
-
-func defaultModelForConnection(connection Connection) string {
-	switch connection.Provider {
-	case ProviderOpenAI:
-		return firstNonEmpty(connection.DefaultModel, DefaultOpenAIModel)
-	case ProviderAnthropic:
-		return firstNonEmpty(connection.DefaultModel, DefaultAnthropicModel)
-	case ProviderVenice:
-		return firstNonEmpty(connection.DefaultModel, DefaultVeniceModel)
-	default:
-		return connection.DefaultModel
-	}
-}
-
-func looksAnthropicModel(model string) bool {
-	model = strings.ToLower(strings.TrimSpace(model))
-	return strings.HasPrefix(model, "claude-") || strings.HasPrefix(model, "anthropic.")
 }

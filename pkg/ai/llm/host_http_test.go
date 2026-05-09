@@ -295,7 +295,10 @@ func TestHostModelsListStoreConnections(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, `"id":"openai-work"`) || !strings.Contains(body, `"id":"gpt-5.5"`) {
+	if strings.Contains(body, `"id":"openai-work"`) {
+		t.Fatalf("models body should not list standalone connection id: %s", body)
+	}
+	if !strings.Contains(body, `"id":"gpt-5.5"`) || !strings.Contains(body, `"id":"openai-work/gpt-5.5"`) {
 		t.Fatalf("models body = %s", body)
 	}
 }

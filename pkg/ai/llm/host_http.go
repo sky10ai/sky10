@@ -372,27 +372,6 @@ func StoreModelLister(store *Store) ModelLister {
 		}
 		connections = appendMissingDefaultConnection(connections, defaultOpenAIConnection())
 		connections = appendMissingDefaultConnection(connections, defaultAnthropicConnection())
-		seen := make(map[string]struct{})
-		models := make([]HostModel, 0, len(connections))
-		add := func(id, owner string) {
-			id = strings.TrimSpace(id)
-			if id == "" {
-				return
-			}
-			if _, ok := seen[id]; ok {
-				return
-			}
-			seen[id] = struct{}{}
-			models = append(models, HostModel{
-				ID:      id,
-				Object:  "model",
-				OwnedBy: firstNonEmpty(strings.TrimSpace(owner), "sky10"),
-			})
-		}
-		for _, connection := range connections {
-			add(connection.ID, connection.Provider)
-			add(connection.DefaultModel, connection.Provider)
-		}
-		return models, nil
+		return hostModelsForConnections(connections), nil
 	}
 }

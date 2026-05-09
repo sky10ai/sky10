@@ -103,27 +103,27 @@ Replace ad hoc model routing with one resolver used by every model endpoint.
 
 ### Implementation Checklist
 
-- [ ] Define one model selector parser in `pkg/ai/llm`.
-- [ ] Support raw model names such as `claude-opus-4.7`.
-- [ ] Support provider-qualified names such as
+- [x] Define one model selector parser in `pkg/ai/llm`.
+- [x] Support raw model names such as `claude-opus-4.7`.
+- [x] Support provider-qualified names such as
       `anthropic/claude-opus-4.7`.
-- [ ] Support connection-qualified names such as
+- [x] Support connection-qualified names such as
       `work-anthropic/claude-opus-4.7`.
-- [ ] Keep connection id internal and label user-facing.
-- [ ] Avoid implicit default-model behavior unless explicitly configured.
-- [ ] Use the same resolver for chat completions, responses, and model lists.
-- [ ] Make ambiguous model errors explain which selector forms are accepted.
+- [x] Keep connection id internal and label user-facing.
+- [x] Avoid implicit default-model behavior unless explicitly configured.
+- [x] Use the same resolver for chat completions, responses, and model lists.
+- [x] Make ambiguous model errors explain which selector forms are accepted.
 
 ### Validation Checklist
 
-- [ ] Unit test raw model resolution.
-- [ ] Unit test provider-qualified resolution.
-- [ ] Unit test connection-qualified resolution.
-- [ ] Unit test unknown provider errors.
-- [ ] Unit test unknown connection errors.
-- [ ] Unit test ambiguous model errors.
-- [ ] Unit test `/v1/models` output for multiple configured connections.
-- [ ] Confirm chat completions and responses resolve the same model selector
+- [x] Unit test raw model resolution.
+- [x] Unit test provider-qualified resolution.
+- [x] Unit test connection-qualified resolution.
+- [x] Unit test unknown provider errors.
+- [x] Unit test unknown connection errors.
+- [x] Unit test ambiguous model errors.
+- [x] Unit test `/v1/models` output for multiple configured connections.
+- [x] Confirm chat completions and responses resolve the same model selector
       identically.
 
 ## Milestone 4: Provider HTTP Layer
