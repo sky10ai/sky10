@@ -27,12 +27,12 @@ prefer_eth0_default_route() {
     sleep 2
   fi
 
-  lima0_gateway="$(ip route show default dev lima0 | awk '/^default/ {print $3; exit}')"
+  lima0_gateway="$(ip route show default dev lima0 2>/dev/null | awk '/^default/ {print $3; exit}' || true)"
   if [ -n "${lima0_gateway}" ]; then
     ip route replace default via "${lima0_gateway}" dev lima0 metric 200 || true
   fi
 
-  eth0_gateway="$(ip route show default dev eth0 | awk '/^default/ {print $3; exit}')"
+  eth0_gateway="$(ip route show default dev eth0 2>/dev/null | awk '/^default/ {print $3; exit}' || true)"
   if [ -n "${eth0_gateway}" ]; then
     ip route replace default via "${eth0_gateway}" dev eth0 metric 100
   fi

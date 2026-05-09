@@ -496,8 +496,11 @@ func (h *RPCHandler) rpcDiscover(ctx context.Context, params json.RawMessage) (i
 	}, nil
 }
 
-func (h *RPCHandler) rpcStatus(_ context.Context) (interface{}, error) {
+func (h *RPCHandler) rpcStatus(ctx context.Context) (interface{}, error) {
 	agents := h.registry.List()
+	if h.router != nil {
+		agents = h.router.List(ctx)
+	}
 	skills := make(map[string]bool)
 	tools := make(map[string]bool)
 	for _, a := range agents {

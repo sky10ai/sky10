@@ -1571,6 +1571,64 @@ func TestBundledAgentTemplatesDefaultToOpus(t *testing.T) {
 	}
 }
 
+func TestBundledDockerTemplatesDisableLimaContainerd(t *testing.T) {
+	t.Parallel()
+
+	for _, asset := range []string{
+		templateOpenClawDockerYAML,
+		templateHermesDockerYAML,
+	} {
+		asset := asset
+		t.Run(asset, func(t *testing.T) {
+			t.Parallel()
+
+			body, err := readBundledTemplateAsset(asset)
+			if err != nil {
+				t.Fatalf("readBundledTemplateAsset(%q) error: %v", asset, err)
+			}
+			text := string(body)
+			for _, want := range []string{
+				"containerd:",
+				"system: false",
+				"user: false",
+			} {
+				if !strings.Contains(text, want) {
+					t.Fatalf("%s missing %q", asset, want)
+				}
+			}
+		})
+	}
+}
+
+func TestBundledRouteScriptsTolerateMissingLimaInterface(t *testing.T) {
+	t.Parallel()
+
+	for _, asset := range []string{
+		templateOpenClawDep,
+		templateOpenClawSys,
+		templateOpenClawDockerDep,
+		templateHermesDep,
+		templateHermesDockerDep,
+	} {
+		asset := asset
+		t.Run(asset, func(t *testing.T) {
+			t.Parallel()
+
+			body, err := readBundledTemplateAsset(asset)
+			if err != nil {
+				t.Fatalf("readBundledTemplateAsset(%q) error: %v", asset, err)
+			}
+			text := string(body)
+			if !strings.Contains(text, "ip route show default dev lima0 2>/dev/null") {
+				t.Fatalf("%s still assumes lima0 exists", asset)
+			}
+			if !strings.Contains(text, "| awk '/^default/ {print $3; exit}' || true)") {
+				t.Fatalf("%s missing route lookup fallback", asset)
+			}
+		})
+	}
+}
+
 func assertManagedLimaTemplateForwardsGuestSky10(t *testing.T, text string) {
 	t.Helper()
 

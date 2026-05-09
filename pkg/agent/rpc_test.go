@@ -1431,6 +1431,45 @@ func TestRPCStatus(t *testing.T) {
 	}
 }
 
+func TestRPCStatusIncludesDirectAgentSources(t *testing.T) {
+	t.Parallel()
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	ctx := context.Background()
+
+	router := NewRouter(r, makeTestNode(t), nil, r.DeviceID(), nil)
+	router.AddDirectAgentSource(&fakeDirectAgentSource{
+		agents: []AgentInfo{{
+			ID:     "A-sandbox00000000",
+			Name:   "custom-agent",
+			Status: "connected",
+			Skills: []string{"automation.run"},
+			Tools: []AgentToolSpec{{
+				Name:       "agent.run",
+				Capability: "automation.run",
+			}},
+		}},
+	})
+	h.SetRouter(router)
+
+	result, err, _ := h.Dispatch(ctx, "agent.status", nil)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	status := result.(map[string]interface{})
+	if status["agents"].(int) != 1 {
+		t.Errorf("agents = %v, want 1", status["agents"])
+	}
+	skills := status["skills"].([]string)
+	if !slices.Contains(skills, "automation.run") {
+		t.Fatalf("skills = %v, want automation.run", skills)
+	}
+	tools := status["tools"].([]string)
+	if !slices.Contains(tools, "agent.run") {
+		t.Fatalf("tools = %v, want agent.run", tools)
+	}
+}
+
 func TestRPCRegisterDeterministicAfterDeregister(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistry()
