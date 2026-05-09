@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent, useRef, useState, type ChangeEvent, type Cli
 import { useLocation, useNavigate, useParams } from "react-router";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { AgentAvatar } from "../components/AgentAvatar";
 import { Icon } from "../components/Icon";
 import { StatusBadge } from "../components/StatusBadge";
 import {
@@ -566,9 +567,11 @@ function AgentBootProgressView({
         >
           <Icon name="arrow_back" />
         </button>
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-tertiary-fixed/30 text-tertiary">
-          <Icon name="hourglass_empty" className="text-xl" />
-        </div>
+        <AgentAvatar
+          className="h-10 w-10 opacity-80"
+          label={agentInfo.name}
+          seed={agentInfo.id || agentInfo.name}
+        />
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-lg font-bold text-on-surface">
             {agentInfo.name}
@@ -1309,9 +1312,11 @@ export default function AgentChat() {
         >
           <Icon name="arrow_back" />
         </button>
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-tertiary-fixed/30 text-tertiary">
-          <Icon name="smart_toy" className="text-xl" />
-        </div>
+        <AgentAvatar
+          className="h-10 w-10"
+          label={agentInfo.name}
+          seed={agentInfo.id || agentInfo.name}
+        />
         <div className="flex-1 min-w-0">
           <h2 className="text-lg font-bold text-on-surface truncate">
             {agentInfo.name}

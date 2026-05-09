@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
+import { AgentAvatar } from "../components/AgentAvatar";
 import { RunCard } from "../components/assistant/RunCard";
 import type { WorkspaceRun } from "../components/assistant/workspaceTypes";
 import { Icon } from "../components/Icon";
@@ -811,12 +812,13 @@ export default function Agents() {
                 </div>
 
                 <div className="mb-6 flex items-start gap-4">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-tertiary-fixed/30 text-tertiary">
-                    <Icon
-                      name={connectable ? "smart_toy" : "hourglass_empty"}
-                      className="text-3xl"
-                    />
-                  </div>
+                  <AgentAvatar
+                    className={
+                      connectable ? "h-14 w-14" : "h-14 w-14 opacity-80"
+                    }
+                    label={a.name}
+                    seed={a.id || a.name}
+                  />
                   <div className="min-w-0 flex-1">
                     <h3 className="truncate text-xl font-bold text-on-surface">
                       {a.name}
