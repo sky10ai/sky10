@@ -50,24 +50,24 @@ Build `POST /v1/responses` as a thin adapter over the existing chat backend.
 
 ### Implementation Checklist
 
-- [ ] Add Responses request and response types under `pkg/ai/llm`.
-- [ ] Convert string `input` into a user chat message.
-- [ ] Convert message-style `input` into chat messages.
-- [ ] Convert `instructions` into a system message.
-- [ ] Map `max_output_tokens` to the chat max-token field.
-- [ ] Pass through `model`, `temperature`, `top_p`, and `stream`.
-- [ ] Reject unsupported input shapes with clear OpenAI-compatible errors.
-- [ ] Return a Responses-style object for non-streaming requests.
-- [ ] Mount `POST /v1/responses` beside the existing chat-completions route.
+- [x] Add Responses request and response types under `pkg/ai/llm`.
+- [x] Convert string `input` into a user chat message.
+- [x] Convert message-style `input` into chat messages.
+- [x] Convert `instructions` into a system message.
+- [x] Map `max_output_tokens` to the chat max-token field.
+- [x] Pass through `model`, `temperature`, `top_p`, and `stream`.
+- [x] Reject unsupported input shapes with clear OpenAI-compatible errors.
+- [x] Return a Responses-style object for non-streaming requests.
+- [x] Mount `POST /v1/responses` beside the existing chat-completions route.
 
 ### Validation Checklist
 
-- [ ] Unit test string input conversion.
-- [ ] Unit test message-style input conversion.
-- [ ] Unit test `instructions` ordering before user messages.
-- [ ] Unit test unsupported input errors.
-- [ ] Unit test non-streaming response shape.
-- [ ] Live test Anthropic through `/v1/responses`.
+- [x] Unit test string input conversion.
+- [x] Unit test message-style input conversion.
+- [x] Unit test `instructions` ordering before user messages.
+- [x] Unit test unsupported input errors.
+- [x] Unit test non-streaming response shape.
+- [x] Live test Anthropic through `/v1/responses`.
 - [ ] Live test OpenAI through `/v1/responses` when an OpenAI key is present.
 
 ## Milestone 2: Responses Streaming
@@ -77,23 +77,23 @@ clients and agent runtimes.
 
 ### Implementation Checklist
 
-- [ ] Add a Responses SSE writer that wraps the existing chat streaming path.
-- [ ] Emit `response.created` before text deltas.
-- [ ] Convert streamed chat text deltas into `response.output_text.delta`.
-- [ ] Emit `response.completed` exactly once.
-- [ ] Emit terminal `data: [DONE]` exactly once.
-- [ ] Flush every SSE frame when the writer supports flushing.
+- [x] Add a Responses SSE writer that wraps the existing chat streaming path.
+- [x] Emit `response.created` before text deltas.
+- [x] Convert streamed chat text deltas into `response.output_text.delta`.
+- [x] Emit `response.completed` exactly once.
+- [x] Emit terminal `data: [DONE]` exactly once.
+- [x] Flush every SSE frame when the writer supports flushing.
 - [ ] Stop upstream work when the HTTP client disconnects.
-- [ ] Convert upstream provider errors into a stable error envelope.
+- [x] Convert upstream provider errors into a stable error envelope.
 
 ### Validation Checklist
 
-- [ ] Unit test streamed delta conversion.
-- [ ] Unit test completion and `[DONE]` emission.
-- [ ] Unit test upstream error propagation.
+- [x] Unit test streamed delta conversion.
+- [x] Unit test completion and `[DONE]` emission.
+- [x] Unit test upstream error propagation.
 - [ ] Unit test client-cancellation behavior where practical.
-- [ ] Live streaming test with a prompt that produces multiple chunks.
-- [ ] Verify Anthropic streaming through the Responses endpoint.
+- [x] Live streaming test with a prompt that produces multiple chunks.
+- [x] Verify Anthropic streaming through the Responses endpoint.
 - [ ] Verify OpenAI streaming through the Responses endpoint when a key is
       present.
 

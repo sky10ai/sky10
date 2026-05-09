@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -128,6 +129,77 @@ func TestHostDaemonLiveOpenAICompatibleEndpointStreamsAnthropic(t *testing.T) {
 	assertSuccessfulDaemonStream(t, result, model, liveRequiredMarkers)
 	if !result.hasUsage() {
 		t.Fatalf("daemon stream missing usage chunk:\n%s", result.raw)
+	}
+}
+
+func TestHostDaemonLiveResponsesEndpointStreamsOpenAI(t *testing.T) {
+	requireLiveLLM(t)
+	requireLiveAPIKey(t, DefaultOpenAIAPIKeyEnv)
+
+	model := liveModel(liveOpenAIModelEnv, liveOpenAIModelDefault)
+	store := NewStore(filepath.Join(t.TempDir(), "connections.json"))
+	if _, err := store.Upsert(context.Background(), Connection{
+		ID:           "openai-live",
+		Label:        "OpenAI Live",
+		Provider:     ProviderOpenAI,
+		BaseURL:      DefaultOpenAIBaseURL,
+		DefaultModel: model,
+		Auth: AuthConfig{
+			Method:    AuthMethodAPIKey,
+			APIKeyEnv: DefaultOpenAIAPIKeyEnv,
+		},
+	}); err != nil {
+		t.Fatalf("save connection: %v", err)
+	}
+
+	daemon := startLLMHostHTTPDaemon(t, store)
+	temperature := 0.0
+	result := postStreamingResponses(t, daemon, ResponsesRequest{
+		Model:           "openai-live/" + model,
+		Stream:          true,
+		MaxOutputTokens: liveChatCompletionMaxToken,
+		Temperature:     &temperature,
+		Input:           json.RawMessage(strconv.Quote(liveStreamingPrompt)),
+	})
+
+	assertSuccessfulDaemonResponsesStream(t, result, model, liveRequiredMarkers)
+}
+
+func TestHostDaemonLiveResponsesEndpointStreamsAnthropic(t *testing.T) {
+	requireLiveLLM(t)
+	requireLiveAPIKey(t, DefaultAnthropicAPIKeyEnv)
+
+	model := liveModel(liveAnthropicModelEnv, liveAnthropicModelDefault)
+	store := NewStore(filepath.Join(t.TempDir(), "connections.json"))
+	if _, err := store.Upsert(context.Background(), Connection{
+		ID:           "anthropic-live",
+		Label:        "Anthropic Live",
+		Provider:     ProviderAnthropic,
+		BaseURL:      DefaultAnthropicBaseURL,
+		DefaultModel: model,
+		Auth: AuthConfig{
+			Method:     AuthMethodAPIKey,
+			APIKeyEnv:  DefaultAnthropicAPIKeyEnv,
+			APIVersion: DefaultAnthropicAPIVersion,
+		},
+	}); err != nil {
+		t.Fatalf("save connection: %v", err)
+	}
+
+	daemon := startLLMHostHTTPDaemon(t, store)
+	temperature := 0.0
+	result := postStreamingResponses(t, daemon, ResponsesRequest{
+		Model:           "anthropic-live/" + model,
+		Stream:          true,
+		StreamOptions:   &ChatStreamOptions{IncludeUsage: true},
+		MaxOutputTokens: liveChatCompletionMaxToken,
+		Temperature:     &temperature,
+		Input:           json.RawMessage(strconv.Quote(liveStreamingPrompt)),
+	})
+
+	assertSuccessfulDaemonResponsesStream(t, result, model, liveRequiredMarkers)
+	if !result.hasUsage() {
+		t.Fatalf("responses stream missing usage:\n%s", result.raw)
 	}
 }
 
@@ -254,6 +326,7 @@ func startLLMHostHTTPDaemon(t *testing.T, store *Store) string {
 	server.HandleHTTP("/v1/health", handler.HandleHealth)
 	server.HandleHTTP("/v1/models", handler.HandleModels)
 	server.HandleHTTP("/v1/chat/completions", handler.HandleChatCompletions)
+	server.HandleHTTP("/v1/responses", handler.HandleResponses)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -289,6 +362,32 @@ type daemonStreamResult struct {
 	chunks []ChatCompletionStreamChunk
 	done   bool
 	raw    string
+}
+
+type daemonResponsesStreamResult struct {
+	deltas    []string
+	completed *ResponsesResponse
+	done      bool
+	errors    []openAIErrorResponse
+	raw       string
+}
+
+func (r daemonResponsesStreamResult) text() string {
+	return strings.Join(r.deltas, "")
+}
+
+func (r daemonResponsesStreamResult) hasUsage() bool {
+	return r.completed != nil && r.completed.Usage != nil
+}
+
+func (r daemonResponsesStreamResult) contentChunkCount() int {
+	count := 0
+	for _, delta := range r.deltas {
+		if delta != "" {
+			count++
+		}
+	}
+	return count
 }
 
 func (r daemonStreamResult) text() string {
@@ -389,6 +488,38 @@ func postStreamingChatCompletion(t *testing.T, daemonURL string, req ChatComplet
 	return collectDaemonStream(t, resp.Body)
 }
 
+func postStreamingResponses(t *testing.T, daemonURL string, req ResponsesRequest) daemonResponsesStreamResult {
+	t.Helper()
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("encode responses request: %v", err)
+	}
+
+	client := http.Client{Timeout: 45 * time.Second}
+	resp, err := client.Post(daemonURL+"/v1/responses", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /v1/responses: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		raw, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			t.Fatalf("read daemon responses error response: %v", readErr)
+		}
+		t.Fatalf("POST /v1/responses status = %d, body = %s", resp.StatusCode, raw)
+	}
+	if got := resp.Header.Get("Content-Type"); got != "text/event-stream" {
+		t.Fatalf("Content-Type = %q, want text/event-stream", got)
+	}
+	if _, _, err := net.SplitHostPort(strings.TrimPrefix(daemonURL, "http://")); err != nil {
+		t.Fatalf("daemon URL %q did not include host:port: %v", daemonURL, err)
+	}
+
+	return collectDaemonResponsesStream(t, resp.Body)
+}
+
 func collectDaemonStream(t *testing.T, r io.Reader) daemonStreamResult {
 	t.Helper()
 
@@ -414,6 +545,60 @@ func collectDaemonStream(t *testing.T, r io.Reader) daemonStreamResult {
 		return nil
 	}); err != nil {
 		t.Fatalf("read daemon stream: %v", err)
+	}
+	result.raw = raw.String()
+	return result
+}
+
+func collectDaemonResponsesStream(t *testing.T, r io.Reader) daemonResponsesStreamResult {
+	t.Helper()
+
+	result := daemonResponsesStreamResult{}
+	var raw strings.Builder
+	if err := scanServerSentEvents(context.Background(), r, func(event serverSentEvent) error {
+		data := strings.TrimSpace(event.Data)
+		if data == "" {
+			return nil
+		}
+		if event.Event != "" {
+			raw.WriteString("event: ")
+			raw.WriteString(event.Event)
+			raw.WriteString("\n")
+		}
+		raw.WriteString("data: ")
+		raw.WriteString(data)
+		raw.WriteString("\n\n")
+		if data == "[DONE]" {
+			result.done = true
+			return nil
+		}
+		switch event.Event {
+		case "response.output_text.delta":
+			var payload struct {
+				Delta string `json:"delta"`
+			}
+			if err := json.Unmarshal([]byte(data), &payload); err != nil {
+				return fmt.Errorf("decode responses delta: %w", err)
+			}
+			result.deltas = append(result.deltas, payload.Delta)
+		case "response.completed":
+			var payload struct {
+				Response ResponsesResponse `json:"response"`
+			}
+			if err := json.Unmarshal([]byte(data), &payload); err != nil {
+				return fmt.Errorf("decode responses completed: %w", err)
+			}
+			result.completed = &payload.Response
+		case "error":
+			var payload openAIErrorResponse
+			if err := json.Unmarshal([]byte(data), &payload); err != nil {
+				return fmt.Errorf("decode responses error: %w", err)
+			}
+			result.errors = append(result.errors, payload)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("read daemon responses stream: %v", err)
 	}
 	result.raw = raw.String()
 	return result
@@ -449,6 +634,39 @@ func assertSuccessfulDaemonStream(t *testing.T, result daemonStreamResult, model
 	for _, marker := range requiredMarkers {
 		if !strings.Contains(lowerText, marker) {
 			t.Fatalf("daemon stream text missing marker %q:\n%s", marker, text)
+		}
+	}
+}
+
+func assertSuccessfulDaemonResponsesStream(t *testing.T, result daemonResponsesStreamResult, model string, requiredMarkers []string) {
+	t.Helper()
+
+	if !result.done {
+		t.Fatalf("responses stream missing DONE:\n%s", result.raw)
+	}
+	if len(result.errors) > 0 {
+		t.Fatalf("responses stream returned error: %+v\n%s", result.errors, result.raw)
+	}
+	if result.completed == nil {
+		t.Fatalf("responses stream missing response.completed:\n%s", result.raw)
+	}
+	if result.completed.Status != "completed" {
+		t.Fatalf("responses completed status = %q", result.completed.Status)
+	}
+	if result.completed.Model != "" && !strings.Contains(result.completed.Model, model) {
+		t.Fatalf("responses completed model = %q, want it to include %q", result.completed.Model, model)
+	}
+	text := strings.TrimSpace(result.text())
+	if text == "" {
+		t.Fatalf("responses stream returned no assistant text:\n%s", result.raw)
+	}
+	if count := result.contentChunkCount(); count < 2 {
+		t.Fatalf("responses stream returned %d content chunks, want at least 2:\n%s", count, result.raw)
+	}
+	lowerText := strings.ToLower(text)
+	for _, marker := range requiredMarkers {
+		if !strings.Contains(lowerText, marker) {
+			t.Fatalf("responses stream text missing marker %q:\n%s", marker, text)
 		}
 	}
 }

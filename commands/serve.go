@@ -214,6 +214,7 @@ func ServeCmd() *cobra.Command {
 			server.HandleHTTP("/models", llmHost.HandleModels)
 			server.HandleHTTP("/v1/chat/completions", llmHost.HandleChatCompletions)
 			server.HandleHTTP("/chat/completions", llmHost.HandleChatCompletions)
+			server.HandleHTTP("/v1/responses", llmHost.HandleResponses)
 			server.RegisterHandler(skycodex.NewRPCHandler(skycodex.NewService(server.Emit)))
 			server.RegisterHandler(skyrootagent.NewRPCHandler(skyrootagent.NewStore(server.Emit)))
 			secretsRunErr := make(chan error, 1)
