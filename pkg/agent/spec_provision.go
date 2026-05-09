@@ -39,7 +39,7 @@ func (h *RPCHandler) rpcCreate(ctx context.Context, params json.RawMessage) (int
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
-	created, err := store.Create(ctx, AgentSpecCreateParams{Prompt: p.Prompt})
+	created, err := store.Create(ctx, AgentSpecCreateParams{Prompt: p.Prompt, Name: p.Name})
 	if err != nil {
 		return nil, err
 	}

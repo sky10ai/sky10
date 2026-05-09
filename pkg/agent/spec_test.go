@@ -92,6 +92,25 @@ func TestBuildAgentSpecDefaultsToOpenClawHarness(t *testing.T) {
 	}
 }
 
+func TestSpecStoreCreateAppliesProvidedName(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	store := NewSpecStore(nil)
+	created, err := store.Create(context.Background(), AgentSpecCreateParams{
+		Prompt: canonicalMediaAccentPrompt,
+		Name:   " British Accent Pro! ",
+	})
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	if created.Spec.Name != "british-accent-pro" {
+		t.Fatalf("spec name = %q, want british-accent-pro", created.Spec.Name)
+	}
+	if created.Spec.Meta["name_source"] != "create_params" {
+		t.Fatalf("meta = %#v, want name_source create_params", created.Spec.Meta)
+	}
+}
+
 func TestBuildAgentSpecCanRepresentOptionalCommerce(t *testing.T) {
 	spec := BuildAgentSpec(canonicalMediaAccentPrompt+" and charge $2 per minute", time.Now())
 

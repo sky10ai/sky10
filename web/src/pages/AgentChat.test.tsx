@@ -60,7 +60,7 @@ let root: Root | null = null;
 let fetchCalls: FetchCall[] = [];
 
 type FetchSetupOptions = {
-  agentList?: "ready" | "pending";
+  agentList?: "ready" | "pending" | "booting";
   sandboxList?: "ready" | "pending";
   sendLiveTransport?: string;
 };
@@ -208,8 +208,22 @@ function setupFetch(options: FetchSetupOptions = {}) {
             device_id: "D-guest",
             device_name: "Guest VM",
             skills: ["code"],
-            status: "connected",
+            status: options.agentList === "booting" ? "creating" : "connected",
             connected_at: "2026-04-18T12:00:00Z",
+            sandbox: options.agentList === "booting"
+              ? {
+                  name: "agent-1",
+                  slug: "agent-1",
+                  provider: "lima",
+                  template: "openclaw-docker",
+                  status: "creating",
+                  progress: {
+                    step_id: "vm.start",
+                    summary: "Booting device...",
+                    percent: 35,
+                  },
+                }
+              : undefined,
           }],
           count: 1,
         });
@@ -242,6 +256,8 @@ function setupFetch(options: FetchSetupOptions = {}) {
             durable_used: false,
           },
         });
+      case "agent.job.list":
+        return rpcResult(body.id, { jobs: [], count: 0 });
       default:
         throw new Error(`unexpected RPC method ${body.method}`);
     }
@@ -451,6 +467,17 @@ describe("AgentChat page", () => {
     await waitFor(() => FakeWebSocket.instances.length > 0, "chat websocket from route state");
     expect(page.textContent).toContain("agent-1");
     expect(FakeWebSocket.latest().url).toContain("/rpc/agents/A-agent/chat");
+  });
+
+  test("tracks sandbox boot progress and blocks chat until the sandbox is ready", async () => {
+    setupFetch({ agentList: "booting" });
+    const page = await renderAgentChatPage();
+
+    expect(page.textContent).toContain("Sandbox is booting");
+    expect(page.textContent).toContain("Booting device...");
+    expect(page.textContent).toContain("35%");
+    expect(FakeWebSocket.instances).toHaveLength(0);
+    expect(fetchCalls.some((call) => call.method === "agent.job.list")).toBe(false);
   });
 
   test("allows sending without waiting for sandbox lookup", async () => {

@@ -335,6 +335,9 @@ func (s *sandboxAgentSource) queryAgents(ctx context.Context) ([]skyagent.AgentI
 			}
 			for _, target := range result.targets {
 				agents = append(agents, target.Agent)
+				if !sandboxAgentConnectable(target.Sandbox) {
+					continue
+				}
 				for _, key := range sandboxAgentTargetKeys(target.Agent) {
 					targetsBy[key] = target
 				}
@@ -351,7 +354,7 @@ func (s *sandboxAgentSource) queryAgents(ctx context.Context) ([]skyagent.AgentI
 func appendSandboxAgentTargets(agents []skyagent.AgentInfo, targetsBy map[string]sandboxAgentTarget, targets []sandboxAgentTarget) ([]skyagent.AgentInfo, map[string]sandboxAgentTarget) {
 	for _, target := range targets {
 		agents = append(agents, target.Agent)
-		if strings.TrimSpace(target.BaseURL) == "" {
+		if strings.TrimSpace(target.BaseURL) == "" || !sandboxAgentConnectable(target.Sandbox) {
 			continue
 		}
 		for _, key := range sandboxAgentTargetKeys(target.Agent) {
@@ -648,7 +651,36 @@ func normalizeSandboxAgentInfo(info skyagent.AgentInfo, rec skysandbox.Record, n
 	if info.ConnectedAt.IsZero() {
 		info.ConnectedAt = now
 	}
+	info.Sandbox = sandboxAgentRuntime(rec)
 	return info
+}
+
+func sandboxAgentRuntime(rec skysandbox.Record) *skyagent.AgentSandbox {
+	runtime := &skyagent.AgentSandbox{
+		Name:      strings.TrimSpace(rec.Name),
+		Slug:      strings.TrimSpace(rec.Slug),
+		Provider:  strings.TrimSpace(rec.Provider),
+		Template:  strings.TrimSpace(rec.Template),
+		Status:    strings.TrimSpace(rec.Status),
+		VMStatus:  strings.TrimSpace(rec.VMStatus),
+		LastError: strings.TrimSpace(rec.LastError),
+	}
+	if rec.Progress != nil {
+		runtime.Progress = &skyagent.AgentProgress{
+			StepID:  strings.TrimSpace(rec.Progress.StepID),
+			Summary: strings.TrimSpace(rec.Progress.Summary),
+			Percent: rec.Progress.Percent,
+		}
+	}
+	return runtime
+}
+
+func sandboxAgentConnectable(rec skysandbox.Record) bool {
+	status := strings.TrimSpace(rec.Status)
+	if status == "ready" {
+		return true
+	}
+	return status == "" && strings.EqualFold(strings.TrimSpace(rec.VMStatus), "Running")
 }
 
 func sandboxAgentLookupKeys(nameOrID string) []string {

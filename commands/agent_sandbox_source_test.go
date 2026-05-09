@@ -219,6 +219,11 @@ func TestSandboxAgentSourceListsManifestToolsBeforeGuestAgentIsReady(t *testing.
 			Slug:     "media-accent-agent",
 			Status:   "creating",
 			VMStatus: "",
+			Progress: &skysandbox.Progress{
+				StepID:  "vm.start",
+				Summary: "Booting device...",
+				Percent: 42,
+			},
 			Files: []skysandbox.SharedFile{{
 				Path: "agent-manifest.json",
 				Content: `{
@@ -256,8 +261,55 @@ func TestSandboxAgentSourceListsManifestToolsBeforeGuestAgentIsReady(t *testing.
 	if len(agents[0].Skills) != 1 || agents[0].Skills[0] != "media.convert" {
 		t.Fatalf("skills = %#v, want capability compatibility from manifest tool", agents[0].Skills)
 	}
+	if agents[0].Sandbox == nil || agents[0].Sandbox.Progress == nil || agents[0].Sandbox.Progress.Percent != 42 {
+		t.Fatalf("sandbox progress = %#v, want boot progress", agents[0].Sandbox)
+	}
 	if _, ok := source.Resolve(context.Background(), "media-accent-agent"); ok {
 		t.Fatal("Resolve(media-accent-agent) = true before guest endpoint is reachable, want false")
+	}
+}
+
+func TestSandboxAgentSourceDoesNotResolveBootingSandboxAgents(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"result": map[string]interface{}{
+				"agents": []skyagent.AgentInfo{{
+					ID:       "A-booting",
+					Name:     "booting-agent",
+					DeviceID: "D-guest",
+					Status:   "connected",
+				}},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	host, port := hostPortFromTestURL(t, srv.URL)
+	source := newSandboxAgentSource(fakeSandboxAgentLister{
+		result: &skysandbox.ListResult{Sandboxes: []skysandbox.Record{{
+			Name:          "booting-agent",
+			Slug:          "booting-agent",
+			Status:        "starting",
+			GuestDeviceID: "D-guest",
+			ForwardedEndpoints: []skysandbox.ForwardedEndpoint{{
+				Name:     skysandbox.ForwardedEndpointSky10,
+				Host:     host,
+				HostPort: port,
+			}},
+		}}},
+	}, nil)
+
+	agents := source.ListAgents(context.Background())
+	if len(agents) != 1 {
+		t.Fatalf("agents length = %d, want 1", len(agents))
+	}
+	if agents[0].Sandbox == nil || agents[0].Sandbox.Status != "starting" {
+		t.Fatalf("sandbox = %#v, want starting summary", agents[0].Sandbox)
+	}
+	if _, ok := source.Resolve(context.Background(), "A-booting"); ok {
+		t.Fatal("Resolve(A-booting) = true while sandbox is starting, want false")
 	}
 }
 

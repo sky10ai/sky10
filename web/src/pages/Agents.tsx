@@ -10,13 +10,28 @@ import {
 } from "../components/PageHeader";
 import { RelativeTime } from "../components/RelativeTime";
 import { StatusBadge } from "../components/StatusBadge";
-import { AGENT_EVENT_TYPES } from "../lib/events";
-import { executeRootAgentPrompt } from "../lib/rootAgent";
+import {
+  agentBootProgress,
+  agentCanConnect,
+  agentStatusLabel,
+  agentStatusPulses,
+  agentStatusTone,
+} from "../lib/agents";
+import { AGENT_EVENT_TYPES, SANDBOX_STATE_EVENT_TYPES } from "../lib/events";
+import {
+  executeRootAgentPrompt,
+  generateAgentNameFromPrompt,
+} from "../lib/rootAgent";
 import { agent, rootAgent, type AgentSpec } from "../lib/rpc";
 import { useRPC } from "../lib/useRPC";
 
 const MEDIA_ACCENT_PROMPT =
   "make me an ai agent that can process media files to change the accent to british";
+
+const AGENT_RUNTIME_EVENT_TYPES = [
+  ...AGENT_EVENT_TYPES,
+  ...SANDBOX_STATE_EVENT_TYPES,
+] as const;
 
 const AGENT_IDEAS = [
   {
@@ -336,7 +351,7 @@ export default function Agents() {
     error,
     refetch: refetchAgents,
   } = useRPC(() => agent.list(), [], {
-    live: AGENT_EVENT_TYPES,
+    live: AGENT_RUNTIME_EVENT_TYPES,
     refreshIntervalMs: 5_000,
   });
   const {
@@ -458,9 +473,21 @@ export default function Agents() {
     const trimmed = nextPrompt.trim();
     if (!trimmed) return;
 
-    setBuilderStatus("Creating agent...");
+    setBuilderStatus("Naming agent...");
     try {
-      const result = await agent.create({ prompt: trimmed });
+      const generatedName = await generateAgentNameFromPrompt(
+        trimmed,
+        [
+          ...agents.map((item) => item.name),
+          ...(specData?.specs ?? []).map((item) => item.name),
+        ],
+        { onStatus: setBuilderStatus },
+      );
+      setBuilderStatus("Creating agent...");
+      const result = await agent.create({
+        prompt: trimmed,
+        name: generatedName ?? undefined,
+      });
       setSelectedSpec(null);
       setPrompt("");
       setBuilderStatus(
@@ -754,63 +781,115 @@ export default function Agents() {
               No agents yet.
             </div>
           )}
-          {agents.map((a) => (
-            <div
-              key={`${a.device_id}-${a.id}`}
-              onClick={() => navigate(`/agents/${a.id}`, { state: { agent: a } })}
-              className="cursor-pointer rounded-xl bg-surface-container-lowest p-6 shadow-sm ring-1 ring-outline-variant/10 transition-all duration-500 hover:shadow-xl active:scale-[0.98]"
-            >
-              <div className="mb-3 flex h-5 items-center justify-between">
-                <StatusBadge pulse tone="live">
-                  Connected
-                </StatusBadge>
-              </div>
-
-              <div className="mb-6 flex items-start gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-tertiary-fixed/30 text-tertiary">
-                  <Icon name="smart_toy" className="text-3xl" />
+          {agents.map((a) => {
+            const progress = agentBootProgress(a);
+            const progressWidth = Math.max(
+              0,
+              Math.min(progress?.percent ?? 0, 100),
+            );
+            const connectable = agentCanConnect(a);
+            return (
+              <div
+                key={`${a.device_id}-${a.id}`}
+                onClick={() =>
+                  navigate(`/agents/${a.id}`, { state: { agent: a } })
+                }
+                className="cursor-pointer rounded-xl bg-surface-container-lowest p-6 shadow-sm ring-1 ring-outline-variant/10 transition-all duration-500 hover:shadow-xl active:scale-[0.98]"
+              >
+                <div className="mb-3 flex min-h-5 items-center justify-between gap-3">
+                  <StatusBadge
+                    pulse={agentStatusPulses(a)}
+                    tone={agentStatusTone(a)}
+                  >
+                    {agentStatusLabel(a)}
+                  </StatusBadge>
+                  {a.sandbox && (
+                    <span className="truncate text-[10px] font-semibold uppercase tracking-[0.16em] text-outline">
+                      {a.sandbox.template}
+                    </span>
+                  )}
                 </div>
-                <div className="min-w-0 flex-1">
-                  <h3 className="truncate text-xl font-bold text-on-surface">
-                    {a.name}
-                  </h3>
-                  <p className="flex items-center gap-1 text-xs text-secondary">
-                    <Icon name="dns" className="text-xs" />
-                    {a.device_name}
-                    <span className="text-outline">({a.device_id})</span>
-                  </p>
-                </div>
-              </div>
 
-              <div className="space-y-4">
-                {a.skills && a.skills.length > 0 && (
-                  <div>
-                    <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-widest text-secondary">
-                      Skills
-                    </label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {a.skills.map((skill) => (
-                        <span
-                          key={skill}
-                          className="rounded-full bg-primary-fixed/20 px-2 py-0.5 text-[10px] font-semibold text-primary"
-                        >
-                          {skill}
-                        </span>
-                      ))}
-                    </div>
+                <div className="mb-6 flex items-start gap-4">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-tertiary-fixed/30 text-tertiary">
+                    <Icon
+                      name={connectable ? "smart_toy" : "hourglass_empty"}
+                      className="text-3xl"
+                    />
                   </div>
-                )}
+                  <div className="min-w-0 flex-1">
+                    <h3 className="truncate text-xl font-bold text-on-surface">
+                      {a.name}
+                    </h3>
+                    <p className="flex items-center gap-1 text-xs text-secondary">
+                      <Icon name="dns" className="text-xs" />
+                      {a.device_name}
+                      <span className="text-outline">({a.device_id})</span>
+                    </p>
+                  </div>
+                </div>
 
-                <div className="flex items-center justify-between py-2 text-xs">
-                  <span className="font-medium text-secondary">Connected</span>
-                  <RelativeTime
-                    className="font-semibold text-on-surface"
-                    value={a.connected_at}
-                  />
+                <div className="space-y-4">
+                  {a.skills && a.skills.length > 0 && (
+                    <div>
+                      <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-widest text-secondary">
+                        Skills
+                      </label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {a.skills.map((skill) => (
+                          <span
+                            key={skill}
+                            className="rounded-full bg-primary-fixed/20 px-2 py-0.5 text-[10px] font-semibold text-primary"
+                          >
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {progress && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-3 text-xs">
+                        <span className="truncate font-medium text-on-surface">
+                          {progress.summary}
+                        </span>
+                        <span className="font-semibold text-secondary">
+                          {progress.percent}%
+                        </span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-surface-container">
+                        <div
+                          className={`h-full rounded-full transition-[width] duration-300 ${
+                            a.sandbox?.status === "error"
+                              ? "bg-error"
+                              : "bg-primary"
+                          }`}
+                          style={{ width: `${progressWidth}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {a.sandbox?.last_error && (
+                    <p className="line-clamp-2 text-xs text-error">
+                      {a.sandbox.last_error}
+                    </p>
+                  )}
+
+                  <div className="flex items-center justify-between py-2 text-xs">
+                    <span className="font-medium text-secondary">
+                      {connectable ? "Connected" : agentStatusLabel(a)}
+                    </span>
+                    <RelativeTime
+                      className="font-semibold text-on-surface"
+                      value={a.connected_at}
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 

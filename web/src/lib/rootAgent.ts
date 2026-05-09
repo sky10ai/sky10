@@ -44,6 +44,8 @@ interface ExecuteOptions {
   intent?: AssistantIntent;
 }
 
+const ROOT_AGENT_LIGHT_MODEL = "gpt-5.4-mini";
+
 const PLANNABLE_INTENTS: AssistantIntent[] = [
   "agent_create",
   "agents",
@@ -81,6 +83,115 @@ function parsePlannerIntent(text: string): AssistantIntent | null {
   } catch {
     return null;
   }
+}
+
+function parseAgentNameResponse(text: string) {
+  const trimmed = text.trim();
+  const match = trimmed.match(/\{[\s\S]*\}/);
+  if (match) {
+    try {
+      const parsed = JSON.parse(match[0]) as { name?: unknown };
+      if (typeof parsed.name === "string") {
+        return normalizeGeneratedAgentName(parsed.name);
+      }
+    } catch {
+      // Fall through to plain-text parsing.
+    }
+  }
+  return normalizeGeneratedAgentName(trimmed.split(/\r?\n/)[0] ?? "");
+}
+
+function normalizeGeneratedAgentName(value: string) {
+  const parts = value
+    .trim()
+    .toLowerCase()
+    .match(/[a-z0-9]+/g)
+    ?.slice(0, 5);
+  if (!parts || parts.length === 0) return null;
+  const slug = parts.join("-").slice(0, 64).replace(/-+$/g, "");
+  return slug || null;
+}
+
+export async function generateAgentNameFromPrompt(
+  prompt: string,
+  existingNames: readonly string[] = [],
+  hooks: Pick<RootAgentHooks, "onStatus"> = {},
+): Promise<string | null> {
+  const trimmed = prompt.trim();
+  if (!trimmed) return null;
+
+  hooks.onStatus?.("Naming agent...");
+
+  let generated: string | null = null;
+  try {
+    const result = await codex.chat({
+      model: ROOT_AGENT_LIGHT_MODEL,
+      reasoning_effort: "minimal",
+      system_prompt: [
+        "You name sky10 agents.",
+        "Return only compact JSON in this shape: {\"name\":\"short-kebab-case-name\"}.",
+        "The name must be lowercase kebab-case, 2 to 5 words, memorable, and specific to the requested work.",
+        "Do not include punctuation outside the JSON object.",
+      ].join("\n"),
+      messages: [
+        {
+          role: "user",
+          content: [
+            `Agent prompt: ${trimmed}`,
+            "",
+            existingNames.length > 0
+              ? `Avoid existing names: ${existingNames.join(", ")}`
+              : "No existing names.",
+          ].join("\n"),
+        },
+      ],
+    });
+    generated = parseAgentNameResponse(result.text);
+  } catch {
+    generated = fallbackAgentName(trimmed);
+  }
+
+  return uniqueAgentName(generated ?? fallbackAgentName(trimmed), existingNames);
+}
+
+function fallbackAgentName(prompt: string) {
+  const ignored = new Set([
+    "a",
+    "ai",
+    "an",
+    "and",
+    "agent",
+    "for",
+    "make",
+    "me",
+    "my",
+    "that",
+    "the",
+    "to",
+    "with",
+  ]);
+  const parts = prompt
+    .toLowerCase()
+    .match(/[a-z0-9]+/g)
+    ?.filter((part) => !ignored.has(part))
+    .slice(0, 4);
+  if (!parts || parts.length === 0) return "custom-agent";
+  return `${parts.join("-")}-agent`.slice(0, 64).replace(/-+$/g, "");
+}
+
+function uniqueAgentName(name: string, existingNames: readonly string[]) {
+  const base = normalizeGeneratedAgentName(name) ?? "custom-agent";
+  const existing = new Set(
+    existingNames
+      .map((item) => normalizeGeneratedAgentName(item))
+      .filter((item): item is string => Boolean(item)),
+  );
+  if (!existing.has(base)) return base;
+  for (let i = 2; i < 100; i += 1) {
+    const candidate = `${base}-${i}`;
+    if (!existing.has(candidate)) return candidate;
+  }
+  return `${base}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
 async function planIntentWithModel(

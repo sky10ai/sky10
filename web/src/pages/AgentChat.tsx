@@ -4,7 +4,14 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Icon } from "../components/Icon";
 import { StatusBadge } from "../components/StatusBadge";
-import { AGENT_EVENT_TYPES, subscribe } from "../lib/events";
+import {
+  agentBootProgress,
+  agentCanConnect,
+  agentStatusLabel,
+  agentStatusPulses,
+  agentStatusTone,
+} from "../lib/agents";
+import { AGENT_EVENT_TYPES, SANDBOX_STATE_EVENT_TYPES, subscribe } from "../lib/events";
 import {
   appendChatMessage,
   applyStreamingDelta,
@@ -78,6 +85,11 @@ interface PendingTurnTiming {
 }
 
 type ChatTransport = "connecting" | "websocket" | "fallback" | "failed";
+
+const AGENT_RUNTIME_EVENT_TYPES = [
+  ...AGENT_EVENT_TYPES,
+  ...SANDBOX_STATE_EVENT_TYPES,
+] as const;
 
 class ChatWebSocketUnavailableError extends Error {
   constructor(message = "Chat websocket is not connected") {
@@ -533,6 +545,103 @@ function clearStreamingMessages(messages: readonly ChatMessage[], streamID?: str
   });
 }
 
+function AgentBootProgressView({
+  agentInfo,
+  onBack,
+}: {
+  agentInfo: AgentInfo;
+  onBack: () => void;
+}) {
+  const progress = agentBootProgress(agentInfo);
+  const progressWidth = Math.max(0, Math.min(progress?.percent ?? 0, 100));
+  const sandboxErrored = agentInfo.sandbox?.status === "error";
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col bg-surface">
+      <div className="flex items-center gap-4 border-b border-outline-variant/10 px-8 py-4">
+        <button
+          onClick={onBack}
+          className="text-secondary transition-colors hover:text-on-surface"
+          type="button"
+        >
+          <Icon name="arrow_back" />
+        </button>
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-tertiary-fixed/30 text-tertiary">
+          <Icon name="hourglass_empty" className="text-xl" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-lg font-bold text-on-surface">
+            {agentInfo.name}
+          </h2>
+          <p className="text-xs text-secondary">
+            {agentInfo.device_name}{" "}
+            <span className="text-outline">({agentInfo.device_id})</span>
+          </p>
+        </div>
+        <StatusBadge
+          pulse={agentStatusPulses(agentInfo)}
+          tone={agentStatusTone(agentInfo)}
+        >
+          {agentStatusLabel(agentInfo)}
+        </StatusBadge>
+      </div>
+
+      <div className="flex flex-1 items-center justify-center bg-surface-container-low/35 px-8 py-10">
+        <section className="w-full max-w-2xl rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm">
+          <div className="mb-5 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Icon name="sync" className="text-2xl" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-xl font-semibold text-on-surface">
+                {sandboxErrored ? "Sandbox needs attention" : "Sandbox is booting"}
+              </h1>
+              <p className="mt-1 text-sm text-secondary">
+                {sandboxErrored
+                  ? "Chat is unavailable until the runtime recovers."
+                  : "Chat will be available when the runtime finishes provisioning."}
+              </p>
+            </div>
+          </div>
+
+          {progress ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="font-medium text-on-surface">
+                  {progress.summary}
+                </span>
+                <span className="font-semibold text-secondary">
+                  {progress.percent}%
+                </span>
+              </div>
+              <div className="h-2.5 overflow-hidden rounded-full bg-surface-container">
+                <div
+                  className={`h-full rounded-full transition-[width] duration-300 ${
+                    agentInfo.sandbox?.status === "error"
+                      ? "bg-error"
+                      : "bg-primary"
+                  }`}
+                  style={{ width: `${progressWidth}%` }}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl bg-surface-container px-4 py-3 text-sm text-secondary">
+              Waiting for the next sandbox status update.
+            </div>
+          )}
+
+          {agentInfo.sandbox?.last_error && (
+            <div className="mt-4 rounded-xl bg-error-container/20 px-4 py-3 text-sm text-error">
+              {agentInfo.sandbox.last_error}
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
 export default function AgentChat() {
   const { agentId } = useParams<{ agentId: string }>();
   const navigate = useNavigate();
@@ -573,7 +682,7 @@ export default function AgentChat() {
   const [websocketRetryToken, setWebsocketRetryToken] = useState(0);
 
   const { data, loading } = useRPC(() => agent.list(), [], {
-    live: AGENT_EVENT_TYPES,
+    live: AGENT_RUNTIME_EVENT_TYPES,
     refreshIntervalMs: 5_000,
   });
 
@@ -583,15 +692,16 @@ export default function AgentChat() {
   ) ?? routeAgentInfo;
   const agentName = agentInfo?.name;
   const agentInfoID = agentInfo?.id;
+  const agentReady = agentCanConnect(agentInfo);
   const jobAgentRef = agentInfoID ?? agentName ?? agentId ?? "";
-  const hostChatWebSocketURL = agentInfoID ? agentChatWebSocketURL(agentInfoID, sessionId) : undefined;
+  const hostChatWebSocketURL = agentInfoID && agentReady ? agentChatWebSocketURL(agentInfoID, sessionId) : undefined;
   const desiredChatWebSocketURL = hostChatWebSocketURL;
   const { data: jobsData } = useRPC(
     () =>
-      jobAgentRef
+      agentReady && jobAgentRef
         ? agent.job.list({ agent: jobAgentRef, limit: 5 })
         : Promise.resolve({ jobs: [], count: 0 }),
-    [jobAgentRef],
+    [agentReady, jobAgentRef],
     {
       live: AGENT_EVENT_TYPES,
       refreshIntervalMs: 5_000,
@@ -771,7 +881,18 @@ export default function AgentChat() {
   });
 
   useEffect(() => {
-    if (!agentInfoID) return;
+    if (!agentInfoID || !agentReady) {
+      if (
+        activeChatWebSocketURL &&
+        !sending &&
+        !waiting &&
+        pendingWSRequestsRef.current.size === 0
+      ) {
+        setActiveChatWebSocketURL(undefined);
+      }
+      setTransport(agentInfoID && !agentReady ? "connecting" : "failed");
+      return;
+    }
     if (!desiredChatWebSocketURL) {
       setTransport(agentInfoID ? "failed" : "connecting");
       return;
@@ -784,10 +905,10 @@ export default function AgentChat() {
       return;
     }
     setActiveChatWebSocketURL(desiredChatWebSocketURL);
-  }, [activeChatWebSocketURL, agentInfoID, desiredChatWebSocketURL, sending, waiting]);
+  }, [activeChatWebSocketURL, agentInfoID, agentReady, desiredChatWebSocketURL, sending, waiting]);
 
   useEffect(() => {
-    if (!agentInfoID) return;
+    if (!agentInfoID || !agentReady) return;
     if (!activeChatWebSocketURL) {
       setTransport("connecting");
       return;
@@ -841,7 +962,7 @@ export default function AgentChat() {
       }
       socket.close(1000, "chat closed");
     };
-  }, [activeChatWebSocketURL, agentInfoID, websocketRetryToken]);
+  }, [activeChatWebSocketURL, agentInfoID, agentReady, websocketRetryToken]);
 
   useEffect(() => {
     return subscribe((event, data) => {
@@ -1033,7 +1154,7 @@ export default function AgentChat() {
 
   async function sendMessage() {
     const text = input.trim();
-    if ((!text && attachments.length === 0) || !agentInfo) return;
+    if ((!text && attachments.length === 0) || !agentInfo || !agentReady) return;
 
     const parts: ChatContentPart[] = [];
     if (text) {
@@ -1116,7 +1237,7 @@ export default function AgentChat() {
     }
   }
 
-  const canSend = (!!input.trim() || attachments.length > 0) && !sending;
+  const canSend = agentReady && (!!input.trim() || attachments.length > 0) && !sending;
   const chatStatusDetail = isStreaming ? timingLabel(streamingMessage?.timing) : null;
   const chatStatusLabel = sending
     ? "Sending"
@@ -1170,6 +1291,15 @@ export default function AgentChat() {
     );
   }
 
+  if (!agentReady) {
+    return (
+      <AgentBootProgressView
+        agentInfo={agentInfo}
+        onBack={() => navigate("/agents")}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-1 min-h-0 flex-col bg-surface">
       <div className="flex items-center gap-4 px-8 py-4 border-b border-outline-variant/10">
@@ -1191,8 +1321,11 @@ export default function AgentChat() {
             <span className="text-outline">({agentInfo.device_id})</span>
           </p>
         </div>
-        <StatusBadge pulse tone="live">
-          Connected
+        <StatusBadge
+          pulse={agentStatusPulses(agentInfo)}
+          tone={agentStatusTone(agentInfo)}
+        >
+          {agentStatusLabel(agentInfo)}
         </StatusBadge>
       </div>
       <JobStrip jobs={recentJobs} />

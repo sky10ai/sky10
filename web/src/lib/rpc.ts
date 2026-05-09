@@ -978,6 +978,18 @@ export interface AgentInfo {
   skills?: string[];
   status: string;
   connected_at: string;
+  sandbox?: AgentSandboxInfo;
+}
+
+export interface AgentSandboxInfo {
+  name: string;
+  slug: string;
+  provider: string;
+  template: string;
+  status: string;
+  vm_status?: string;
+  last_error?: string;
+  progress?: SandboxProgress;
 }
 
 export interface AgentListResult {
@@ -1234,10 +1246,12 @@ export interface AgentSpecListResult {
 
 export interface AgentSpecCreateParams {
   prompt: string;
+  name?: string;
 }
 
 export interface AgentCreateParams {
   prompt: string;
+  name?: string;
 }
 
 export interface AgentCreateResult {

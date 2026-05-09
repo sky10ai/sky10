@@ -125,6 +125,38 @@ func TestAgentCreateApprovesAndProvisionsFromPrompt(t *testing.T) {
 	}
 }
 
+func TestAgentCreateUsesProvidedNameForProvisionedSandbox(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	store := NewSpecStore(nil)
+	provisioner := &fakeSandboxProvisioner{}
+	h := newTestRPCHandler(t, newTestRegistry(), nil)
+	h.SetSpecStore(store)
+	h.SetSandboxProvisioner(provisioner)
+
+	params, err := json.Marshal(AgentCreateParams{
+		Prompt: canonicalMediaAccentPrompt,
+		Name:   "British Accent Pro",
+	})
+	if err != nil {
+		t.Fatalf("Marshal create params: %v", err)
+	}
+	raw, err, handled := h.Dispatch(context.Background(), "agent.create", params)
+	if err != nil {
+		t.Fatalf("Dispatch(agent.create) error: %v", err)
+	}
+	if !handled {
+		t.Fatal("agent.create handled = false, want true")
+	}
+	result := raw.(*AgentCreateResult)
+	if result.Spec.Name != "british-accent-pro" {
+		t.Fatalf("created name = %q, want british-accent-pro", result.Spec.Name)
+	}
+	if provisioner.params.Name != "british-accent-pro" {
+		t.Fatalf("sandbox name = %q, want british-accent-pro", provisioner.params.Name)
+	}
+}
+
 func TestAgentSpecProvisionRejectsUnapprovedSpecs(t *testing.T) {
 	spec := BuildAgentSpec(canonicalMediaAccentPrompt, time.Date(2026, 4, 26, 12, 0, 0, 0, time.UTC))
 	provisioner := &fakeSandboxProvisioner{}

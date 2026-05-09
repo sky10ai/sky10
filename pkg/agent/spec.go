@@ -126,10 +126,12 @@ type AgentPublishPolicy struct {
 
 type AgentSpecCreateParams struct {
 	Prompt string `json:"prompt"`
+	Name   string `json:"name,omitempty"`
 }
 
 type AgentCreateParams struct {
 	Prompt string `json:"prompt"`
+	Name   string `json:"name,omitempty"`
 }
 
 type AgentSpecGetParams struct {

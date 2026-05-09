@@ -33,6 +33,28 @@ type AgentInfo struct {
 	Skills      []string        `json:"skills,omitempty"`
 	Status      string          `json:"status"` // "connected" or "disconnected"
 	ConnectedAt time.Time       `json:"connected_at"`
+	Sandbox     *AgentSandbox   `json:"sandbox,omitempty"`
+}
+
+// AgentSandbox is the public sandbox runtime summary attached to agents
+// provisioned through managed sandbox templates.
+type AgentSandbox struct {
+	Name      string         `json:"name"`
+	Slug      string         `json:"slug"`
+	Provider  string         `json:"provider"`
+	Template  string         `json:"template"`
+	Status    string         `json:"status"`
+	VMStatus  string         `json:"vm_status,omitempty"`
+	LastError string         `json:"last_error,omitempty"`
+	Progress  *AgentProgress `json:"progress,omitempty"`
+}
+
+// AgentProgress is a small, transport-safe projection of sandbox boot
+// progress for agent list and chat screens.
+type AgentProgress struct {
+	StepID  string `json:"step_id,omitempty"`
+	Summary string `json:"summary,omitempty"`
+	Percent int    `json:"percent"`
 }
 
 // HasSkill reports whether the agent declares the given skill.

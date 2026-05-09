@@ -61,10 +61,26 @@ func (s *SpecStore) Create(ctx context.Context, params AgentSpecCreateParams) (*
 	}
 	now := s.now().UTC()
 	spec := BuildAgentSpec(prompt, now)
+	if name := normalizeCreatedAgentName(params.Name); name != "" {
+		spec.Name = name
+		if spec.Meta == nil {
+			spec.Meta = make(map[string]string)
+		}
+		spec.Meta["name_source"] = "create_params"
+	}
 	if err := s.save(ctx, spec); err != nil {
 		return nil, err
 	}
 	return &AgentSpecResult{Spec: spec}, nil
+}
+
+func normalizeCreatedAgentName(name string) string {
+	slug := compileSlug(name)
+	if len(slug) <= 64 {
+		return slug
+	}
+	slug = slug[:64]
+	return strings.Trim(slug, "-")
 }
 
 func (s *SpecStore) Get(_ context.Context, id string) (*AgentSpecResult, error) {
