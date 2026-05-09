@@ -502,8 +502,8 @@ func TestAppendLogProgressMarkerWrappedByCloudInitUpdatesRecord(t *testing.T) {
 	if got.Progress.Summary != "Node.js installed." {
 		t.Fatalf("progress summary = %q, want %q", got.Progress.Summary, "Node.js installed.")
 	}
-	if got.Progress.Percent != 25 {
-		t.Fatalf("progress percent = %d, want 25", got.Progress.Percent)
+	if got.Progress.Percent != 38 {
+		t.Fatalf("progress percent = %d, want 38", got.Progress.Percent)
 	}
 
 	logs, err := m.Logs("devbox", 10)
@@ -515,6 +515,174 @@ func TestAppendLogProgressMarkerWrappedByCloudInitUpdatesRecord(t *testing.T) {
 	}
 	if !strings.Contains(logs.Entries[0].Line, `+ printf 'SKY10_PROGRESS`) {
 		t.Fatalf("log line = %q, want xtrace printf marker line", logs.Entries[0].Line)
+	}
+}
+
+func TestSandboxProgressPlansUseCurrentBootMilestones(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		template string
+		wantIDs  []string
+		absent   []string
+	}{
+		{
+			template: templateOpenClaw,
+			wantIDs: []string{
+				"guest.system.packages",
+				"guest.openclaw.install",
+				"guest.openclaw.start",
+				"ready.openclaw.gateway",
+				"ready.guest.identity",
+				"ready.host.connect",
+			},
+			absent: []string{"guest.sky10.join", "guest.docker.pull"},
+		},
+		{
+			template: templateHermes,
+			wantIDs: []string{
+				"guest.system.packages",
+				"guest.hermes.install",
+				"guest.hermes.bridge.start",
+				"ready.guest.hermes",
+				"ready.guest.identity",
+				"ready.host.connect",
+			},
+			absent: []string{"guest.sky10.join", "guest.docker.pull"},
+		},
+		{
+			template: templateOpenClawDocker,
+			wantIDs: []string{
+				"guest.system.packages",
+				"guest.docker.configure",
+				"guest.docker.pull",
+				"guest.docker.build",
+				"guest.docker.start",
+				"ready.openclaw.gateway",
+				"ready.host.connect",
+			},
+			absent: []string{"guest.sky10.join"},
+		},
+		{
+			template: templateHermesDocker,
+			wantIDs: []string{
+				"guest.system.packages",
+				"guest.docker.configure",
+				"guest.docker.pull",
+				"guest.docker.build",
+				"guest.docker.start",
+				"ready.guest.hermes",
+				"ready.host.connect",
+			},
+			absent: []string{"guest.sky10.join"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.template, func(t *testing.T) {
+			plan := sandboxProgressPlan(providerLima, tc.template)
+			if len(plan) == 0 {
+				t.Fatal("progress plan is empty")
+			}
+			ids := make(map[string]bool, len(plan))
+			totalWeight := 0
+			for _, step := range plan {
+				if ids[step.ID] {
+					t.Fatalf("duplicate progress step %q", step.ID)
+				}
+				ids[step.ID] = true
+				weight := step.Weight
+				if weight <= 0 {
+					weight = 1
+				}
+				totalWeight += weight
+			}
+			if totalWeight != 100 {
+				t.Fatalf("progress plan weight = %d, want 100", totalWeight)
+			}
+			for _, id := range tc.wantIDs {
+				if !ids[id] {
+					t.Fatalf("progress plan missing %q", id)
+				}
+			}
+			for _, id := range tc.absent {
+				if ids[id] {
+					t.Fatalf("progress plan still includes obsolete step %q", id)
+				}
+			}
+		})
+	}
+}
+
+func TestProgressTrackerCompletesVMStartOnGuestProvisioning(t *testing.T) {
+	t.Parallel()
+
+	tracker := newProgressTracker(providerLima, templateOpenClaw)
+	if tracker == nil {
+		t.Fatal("newProgressTracker() = nil")
+	}
+
+	progress := tracker.apply(progressEvent{
+		Event:   "end",
+		ID:      "sandbox.prepare",
+		Summary: "Sandbox prepared.",
+	})
+	if progress.Percent != 5 {
+		t.Fatalf("prepare progress percent = %d, want 5", progress.Percent)
+	}
+
+	progress = tracker.apply(progressEvent{
+		Event:   "begin",
+		ID:      "vm.start",
+		Summary: "Booting device...",
+	})
+	if progress.Percent != 5 {
+		t.Fatalf("vm.start begin progress percent = %d, want 5", progress.Percent)
+	}
+
+	progress = tracker.apply(progressEvent{
+		Event:   "begin",
+		ID:      "guest.system.packages",
+		Summary: "Installing system packages...",
+	})
+	if !tracker.completed["vm.start"] {
+		t.Fatal("vm.start was not completed when guest provisioning began")
+	}
+	if progress.StepID != "guest.system.packages" || progress.Summary != "Installing system packages..." {
+		t.Fatalf("guest begin progress = %#v, want guest.system.packages summary", progress)
+	}
+	if progress.Percent != 15 {
+		t.Fatalf("guest begin progress percent = %d, want 15", progress.Percent)
+	}
+
+	progress = tracker.apply(progressEvent{
+		Event:   "end",
+		ID:      "guest.system.packages",
+		Summary: "System packages installed.",
+	})
+	if progress.StepID != "guest.system.packages" || progress.Summary != "System packages installed." {
+		t.Fatalf("guest end progress = %#v, want completed guest summary", progress)
+	}
+	if progress.Percent != 30 {
+		t.Fatalf("guest end progress percent = %d, want 30", progress.Percent)
+	}
+
+	cachedTracker := newProgressTracker(providerLima, templateOpenClaw)
+	cachedTracker.apply(progressEvent{Event: "end", ID: "sandbox.prepare", Summary: "Sandbox prepared."})
+	cachedTracker.apply(progressEvent{Event: "begin", ID: "vm.start", Summary: "Booting device..."})
+	progress = cachedTracker.apply(progressEvent{
+		Event:   "skip",
+		ID:      "guest.system.packages",
+		Summary: "System packages already installed.",
+	})
+	if !cachedTracker.completed["vm.start"] {
+		t.Fatal("vm.start was not completed when cached guest provisioning was skipped")
+	}
+	if progress.StepID != "guest.system.packages" || progress.Summary != "System packages already installed." {
+		t.Fatalf("guest skip progress = %#v, want skipped guest summary", progress)
+	}
+	if progress.Percent != 30 {
+		t.Fatalf("guest skip progress percent = %d, want 30", progress.Percent)
 	}
 }
 

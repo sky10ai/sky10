@@ -34,8 +34,43 @@ docker_compose() {
   sudo -n docker compose "$@"
 }
 
+docker_pull() {
+  if docker info >/dev/null 2>&1; then
+    docker pull "$@"
+    return
+  fi
+  sudo -n docker pull "$@"
+}
+
 wait_for_docker() {
   timeout 120s bash -lc 'until docker info >/dev/null 2>&1 || sudo -n docker info >/dev/null 2>&1; do sleep 2; done'
+}
+
+retry_command() {
+  local label="$1"
+  shift
+  local attempt
+  local status
+  for attempt in 1 2 3 4 5; do
+    if "$@"; then
+      return 0
+    else
+      status=$?
+    fi
+    if [ "${attempt}" -eq 5 ]; then
+      return "${status}"
+    fi
+    echo >&2 "${label} failed on attempt ${attempt}; retrying..."
+    sleep $((attempt * 15))
+  done
+}
+
+pull_runtime_images() {
+  local image
+  image="$(awk -F= '/^ARG SKY10_HERMES_RUNTIME_IMAGE=/{print $2; exit}' "${RUNTIME_DIR}/Dockerfile")"
+  if [ -n "${image}" ]; then
+    retry_command "Hermes runtime image pull" docker_pull "${image}"
+  fi
 }
 
 write_compose_file() {
@@ -88,10 +123,14 @@ write_compose_file
 write_helper
 emit_progress end guest.docker.configure "Docker runtime configured."
 
+emit_progress begin guest.docker.pull "Pulling Docker runtime images..."
+pull_runtime_images
+emit_progress end guest.docker.pull "Docker runtime images pulled."
+
 emit_progress begin guest.docker.build "Building Hermes container..."
-docker_compose -f "${COMPOSE_FILE}" build hermes
+retry_command "Docker Compose build" docker_compose -f "${COMPOSE_FILE}" build hermes
 emit_progress end guest.docker.build "Hermes container built."
 
 emit_progress begin guest.docker.start "Starting Hermes containers..."
-docker_compose -f "${COMPOSE_FILE}" up -d --remove-orphans
+retry_command "Docker Compose up" docker_compose -f "${COMPOSE_FILE}" up -d --remove-orphans
 emit_progress end guest.docker.start "Hermes containers running."

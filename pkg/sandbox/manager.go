@@ -189,6 +189,7 @@ type progressEvent struct {
 type progressStep struct {
 	ID      string
 	Summary string
+	Weight  int
 }
 
 type progressTracker struct {
@@ -264,23 +265,38 @@ func (t *progressTracker) removeOpen(id string) {
 	delete(t.openSummary, id)
 }
 
-func (t *progressTracker) percent() int {
-	total := len(t.plan)
-	if total == 0 {
-		return 0
+func (t *progressTracker) complete(id string) {
+	if _, ok := t.index[id]; ok {
+		t.completed[id] = true
 	}
-	completed := 0
+	t.removeOpen(id)
+}
+
+func (t *progressTracker) percent() int {
+	totalWeight := 0
+	completedWeight := 0
 	for _, step := range t.plan {
+		weight := step.Weight
+		if weight <= 0 {
+			weight = 1
+		}
+		totalWeight += weight
 		if t.completed[step.ID] {
-			completed++
+			completedWeight += weight
 		}
 	}
-	return (completed * 100) / total
+	if totalWeight == 0 {
+		return 0
+	}
+	return (completedWeight * 100) / totalWeight
 }
 
 func (t *progressTracker) apply(event progressEvent) *Progress {
 	id := strings.TrimSpace(event.ID)
 	summary := strings.TrimSpace(event.Summary)
+	if strings.HasPrefix(id, "guest.") && !t.completed["vm.start"] {
+		t.complete("vm.start")
+	}
 	switch event.Event {
 	case "begin":
 		t.removeOpen(id)
@@ -289,10 +305,7 @@ func (t *progressTracker) apply(event progressEvent) *Progress {
 			t.openSummary[id] = summary
 		}
 	case "end", "skip":
-		if _, ok := t.index[id]; ok {
-			t.completed[id] = true
-		}
-		t.removeOpen(id)
+		t.complete(id)
 	case "fail":
 		t.removeOpen(id)
 	}
