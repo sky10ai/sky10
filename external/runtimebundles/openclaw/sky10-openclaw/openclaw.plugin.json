@@ -56,5 +56,186 @@
       }
     },
     "required": ["agentName"]
+  },
+  "channelConfigs": {
+    "sky10": {
+      "label": "Sky10",
+      "description": "Direct sandbox bridge to the local sky10 daemon.",
+      "schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "rpcUrl": { "type": "string" },
+          "agentName": { "type": "string" },
+          "skills": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "tools": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "manifestPath": { "type": "string" },
+          "gatewayToken": { "type": "string" },
+          "x402WsUrl": { "type": "string" },
+          "x402HelperPath": { "type": "string" },
+          "messagingWsUrl": { "type": "string" },
+          "messagingHelperPath": { "type": "string" },
+          "defaultAccount": { "type": "string" },
+          "healthMonitor": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean" }
+            }
+          },
+          "accounts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "telegram": {
+      "label": "Telegram",
+      "description": "Native Telegram chats through sky10 messaging connections.",
+      "preferOver": ["telegram"],
+      "schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "rpcUrl": { "type": "string" },
+          "agentName": { "type": "string" },
+          "skills": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "tools": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "manifestPath": { "type": "string" },
+          "gatewayToken": { "type": "string" },
+          "x402WsUrl": { "type": "string" },
+          "x402HelperPath": { "type": "string" },
+          "messagingWsUrl": { "type": "string" },
+          "messagingHelperPath": { "type": "string" },
+          "connectionId": { "type": "string" },
+          "pollIntervalMs": { "type": "number" },
+          "replayOnStart": { "type": "boolean" },
+          "defaultAccount": { "type": "string" },
+          "healthMonitor": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean" }
+            }
+          },
+          "accounts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "slack": {
+      "label": "Slack",
+      "description": "Native Slack conversations through sky10 messaging connections.",
+      "preferOver": ["slack"],
+      "schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "rpcUrl": { "type": "string" },
+          "agentName": { "type": "string" },
+          "skills": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "tools": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "manifestPath": { "type": "string" },
+          "gatewayToken": { "type": "string" },
+          "x402WsUrl": { "type": "string" },
+          "x402HelperPath": { "type": "string" },
+          "messagingWsUrl": { "type": "string" },
+          "messagingHelperPath": { "type": "string" },
+          "connectionId": { "type": "string" },
+          "pollIntervalMs": { "type": "number" },
+          "replayOnStart": { "type": "boolean" },
+          "defaultAccount": { "type": "string" },
+          "healthMonitor": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean" }
+            }
+          },
+          "accounts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "imap-smtp": {
+      "label": "IMAP/SMTP",
+      "description": "Native email threads through sky10 IMAP/SMTP messaging connections.",
+      "schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "rpcUrl": { "type": "string" },
+          "agentName": { "type": "string" },
+          "skills": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "tools": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "manifestPath": { "type": "string" },
+          "gatewayToken": { "type": "string" },
+          "x402WsUrl": { "type": "string" },
+          "x402HelperPath": { "type": "string" },
+          "messagingWsUrl": { "type": "string" },
+          "messagingHelperPath": { "type": "string" },
+          "connectionId": { "type": "string" },
+          "pollIntervalMs": { "type": "number" },
+          "replayOnStart": { "type": "boolean" },
+          "defaultAccount": { "type": "string" },
+          "healthMonitor": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean" }
+            }
+          },
+          "accounts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    }
   }
 }

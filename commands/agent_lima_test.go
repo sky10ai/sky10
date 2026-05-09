@@ -749,6 +749,10 @@ func TestOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), `sky10_channel["healthMonitor"] = {"enabled": False}`) {
 		t.Fatalf("user script missing sky10 health monitor config: %q", string(body))
 	}
+	if !strings.Contains(string(body), `for channel_id in ("telegram", "slack", "imap-smtp")`) ||
+		!strings.Contains(string(body), `configure_sky10_messaging_channel(channel_id)`) {
+		t.Fatalf("user script missing explicit sky10 messaging channel config: %q", string(body))
+	}
 	if !strings.Contains(string(body), `entries.pop("acpx", None)`) {
 		t.Fatalf("user script should remove stale acpx config in managed runtime: %q", string(body))
 	}
@@ -856,6 +860,11 @@ func TestOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 		!strings.Contains(string(manifestBody), `"slack"`) ||
 		!strings.Contains(string(manifestBody), `"imap-smtp"`) {
 		t.Fatalf("plugin manifest missing channel declarations: %q", string(manifestBody))
+	}
+	if !strings.Contains(string(manifestBody), `"channelConfigs"`) ||
+		!strings.Contains(string(manifestBody), `"preferOver": ["telegram"]`) ||
+		!strings.Contains(string(manifestBody), `"preferOver": ["slack"]`) {
+		t.Fatalf("plugin manifest missing channelConfigs metadata for native messaging channels: %q", string(manifestBody))
 	}
 
 	indexBody, err := runtimebundles.ReadAsset(agentLimaPluginIndexAsset)

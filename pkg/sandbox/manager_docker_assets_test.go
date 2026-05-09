@@ -279,6 +279,9 @@ func TestLoadSandboxAssetsLoadsOpenClawRuntimeBundle(t *testing.T) {
 	if !strings.Contains(string(manifestBody), `"channels"`) {
 		t.Fatalf("runtime bundle plugin manifest missing channels: %q", string(manifestBody))
 	}
+	if !strings.Contains(string(manifestBody), `"channelConfigs"`) {
+		t.Fatalf("runtime bundle plugin manifest missing channelConfigs metadata: %q", string(manifestBody))
+	}
 	entrypointBody, ok := assets[runtimeBundleOpenClawDockerEntrypoint]
 	if !ok {
 		t.Fatalf("loadSandboxAssets() missing %q", runtimeBundleOpenClawDockerEntrypoint)

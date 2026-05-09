@@ -224,6 +224,21 @@ sky10_accounts["default"] = {
     "skills": ["code", "shell", "browser", "web-search", "file-ops"],
 }
 
+def configure_sky10_messaging_channel(channel_id):
+    channel = channels.setdefault(channel_id, {})
+    channel["enabled"] = True
+    channel["defaultAccount"] = "default"
+    channel["healthMonitor"] = {"enabled": False}
+    accounts = channel.setdefault("accounts", {})
+    accounts["default"] = {
+        "enabled": True,
+        "rpcUrl": "http://localhost:9101",
+        "agentName": os.environ["OPENCLAW_AGENT_NAME"],
+    }
+
+for channel_id in ("telegram", "slack", "imap-smtp"):
+    configure_sky10_messaging_channel(channel_id)
+
 config_path.write_text(json.dumps(config, indent=2) + "\n")
 PY
 

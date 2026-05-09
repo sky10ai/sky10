@@ -45,11 +45,17 @@ func TestOpenClawManifestDeclaresRuntimeTuple(t *testing.T) {
 	}
 
 	var pluginManifest struct {
-		Version string `json:"version"`
+		Version        string                            `json:"version"`
+		ChannelConfigs map[string]map[string]interface{} `json:"channelConfigs"`
 	}
 	unmarshalAsset(t, OpenClawSky10PluginDir+"/openclaw.plugin.json", &pluginManifest)
 	if pluginManifest.Version != pluginPackage.Version {
 		t.Fatalf("plugin manifest version = %q, package version = %q", pluginManifest.Version, pluginPackage.Version)
+	}
+	for _, channelID := range []string{"sky10", "telegram", "slack", "imap-smtp"} {
+		if _, ok := pluginManifest.ChannelConfigs[channelID]; !ok {
+			t.Fatalf("plugin manifest channelConfigs missing %q: %#v", channelID, pluginManifest.ChannelConfigs)
+		}
 	}
 }
 
