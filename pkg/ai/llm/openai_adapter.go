@@ -1,11 +1,9 @@
 package llm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 )
@@ -37,10 +35,7 @@ type openAIChatCompletionRequest struct {
 }
 
 func NewOpenAIAdapter(opts OpenAIAdapterOptions) *OpenAIAdapter {
-	client := opts.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
+	client := providerHTTPClient(opts.HTTPClient)
 	baseURL := strings.TrimRight(opts.BaseURL, "/")
 	if baseURL == "" {
 		baseURL = DefaultOpenAIBaseURL
@@ -73,29 +68,18 @@ func (a *OpenAIAdapter) ChatCompletions(ctx context.Context, req ChatCompletionR
 	if req.Model == "" {
 		req.Model = a.model
 	}
-	buf, err := json.Marshal(openAIRequestFromChat(req))
-	if err != nil {
-		return nil, fmt.Errorf("encode openai request: %w", err)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL+"/chat/completions", bytes.NewReader(buf))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Authorization", "Bearer "+a.apiKey)
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := a.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("openai chat completions: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, providerHTTPError("openai", resp)
-	}
 	var out ChatCompletionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("decode openai response: %w", err)
+	if err := providerDoJSON(ctx, a.client, providerRequestOptions{
+		Provider:  "openai",
+		Operation: "openai chat completions",
+		URL:       a.baseURL + "/chat/completions",
+		Accept:    "application/json",
+		Headers: map[string]string{
+			"Authorization": "Bearer " + a.apiKey,
+		},
+		Body: openAIRequestFromChat(req),
+	}, &out); err != nil {
+		return nil, err
 	}
 	return &out, nil
 }
@@ -114,27 +98,21 @@ func (a *OpenAIAdapter) StreamChatCompletions(ctx context.Context, req ChatCompl
 		req.Model = a.model
 	}
 	req.Stream = true
-	buf, err := json.Marshal(openAIRequestFromChat(req))
-	if err != nil {
-		return fmt.Errorf("encode openai stream request: %w", err)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL+"/chat/completions", bytes.NewReader(buf))
+	body, err := providerDoStream(ctx, a.client, providerRequestOptions{
+		Provider:  "openai",
+		Operation: "openai chat completions stream",
+		URL:       a.baseURL + "/chat/completions",
+		Accept:    "text/event-stream",
+		Headers: map[string]string{
+			"Authorization": "Bearer " + a.apiKey,
+		},
+		Body: openAIRequestFromChat(req),
+	})
 	if err != nil {
 		return err
 	}
-	httpReq.Header.Set("Authorization", "Bearer "+a.apiKey)
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "text/event-stream")
-
-	resp, err := a.client.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("openai chat completions stream: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return providerHTTPError("openai", resp)
-	}
-	return scanServerSentEvents(ctx, resp.Body, func(event serverSentEvent) error {
+	defer body.Close()
+	return scanServerSentEvents(ctx, body, func(event serverSentEvent) error {
 		data := strings.TrimSpace(event.Data)
 		if data == "" || data == "[DONE]" {
 			return nil
@@ -158,13 +136,4 @@ func openAIRequestFromChat(req ChatCompletionRequest) openAIChatCompletionReques
 		TopP:                req.TopP,
 		Stop:                req.Stop,
 	}
-}
-
-func providerHTTPError(provider string, resp *http.Response) error {
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-	msg := strings.TrimSpace(string(body))
-	if msg == "" {
-		msg = resp.Status
-	}
-	return fmt.Errorf("%s upstream returned HTTP %d: %s", provider, resp.StatusCode, msg)
 }

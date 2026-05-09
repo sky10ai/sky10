@@ -133,24 +133,24 @@ provider layer without turning sky10 into a general-purpose AI gateway.
 
 ### Implementation Checklist
 
-- [ ] Add a shared JSON request helper for provider adapters.
-- [ ] Add shared response/error body parsing.
-- [ ] Add shared SSE scanning helpers.
-- [ ] Standardize provider timeouts and context cancellation.
-- [ ] Keep provider-specific payload translation inside each adapter.
+- [x] Add a shared JSON request helper for provider adapters.
+- [x] Add shared response/error body parsing.
+- [x] Add shared SSE scanning helpers.
+- [x] Standardize provider timeouts and context cancellation.
+- [x] Keep provider-specific payload translation inside each adapter.
 - [ ] Keep Venice x402 payment handling inside the Venice adapter path.
-- [ ] Remove duplicated request, error, and SSE code from provider adapters.
+- [x] Remove duplicated request, error, and SSE code from provider adapters.
 
 ### Validation Checklist
 
-- [ ] Unit test provider request headers and JSON bodies.
-- [ ] Unit test upstream `400`, `401`, `429`, and `500` error handling.
-- [ ] Unit test malformed SSE handling.
-- [ ] Confirm OpenAI adapter tests still cover OpenAI-specific payloads.
-- [ ] Confirm Anthropic adapter tests still cover Anthropic-specific payloads.
+- [x] Unit test provider request headers and JSON bodies.
+- [x] Unit test upstream `400`, `401`, `429`, and `500` error handling.
+- [x] Unit test malformed SSE handling.
+- [x] Confirm OpenAI adapter tests still cover OpenAI-specific payloads.
+- [x] Confirm Anthropic adapter tests still cover Anthropic-specific payloads.
 - [ ] Confirm Venice adapter tests cover x402-specific behavior.
-- [ ] Run `make check`.
-- [ ] Run `go test ./... -count=1`.
+- [x] Run `make check`.
+- [x] Run `go test ./... -count=1`.
 
 ## Sequencing
 

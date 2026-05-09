@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -32,10 +31,7 @@ type AnthropicAdapter struct {
 }
 
 func NewAnthropicAdapter(opts AnthropicAdapterOptions) *AnthropicAdapter {
-	client := opts.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
+	client := providerHTTPClient(opts.HTTPClient)
 	baseURL := strings.TrimRight(opts.BaseURL, "/")
 	if baseURL == "" {
 		baseURL = DefaultAnthropicBaseURL
@@ -76,30 +72,19 @@ func (a *AnthropicAdapter) ChatCompletions(ctx context.Context, req ChatCompleti
 	if err != nil {
 		return nil, err
 	}
-	buf, err := json.Marshal(anthropicReq)
-	if err != nil {
-		return nil, fmt.Errorf("encode anthropic request: %w", err)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL+"/messages", bytes.NewReader(buf))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("x-api-key", a.apiKey)
-	httpReq.Header.Set("anthropic-version", a.version)
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := a.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("anthropic messages: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, providerHTTPError("anthropic", resp)
-	}
 	var decoded anthropicMessageResponse
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
-		return nil, fmt.Errorf("decode anthropic response: %w", err)
+	if err := providerDoJSON(ctx, a.client, providerRequestOptions{
+		Provider:  "anthropic",
+		Operation: "anthropic messages",
+		URL:       a.baseURL + "/messages",
+		Accept:    "application/json",
+		Headers: map[string]string{
+			"x-api-key":         a.apiKey,
+			"anthropic-version": a.version,
+		},
+		Body: anthropicReq,
+	}, &decoded); err != nil {
+		return nil, err
 	}
 	return a.fromAnthropicResponse(decoded), nil
 }
@@ -116,28 +101,22 @@ func (a *AnthropicAdapter) StreamChatCompletions(ctx context.Context, req ChatCo
 		return err
 	}
 	anthropicReq.Stream = true
-	buf, err := json.Marshal(anthropicReq)
-	if err != nil {
-		return fmt.Errorf("encode anthropic stream request: %w", err)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL+"/messages", bytes.NewReader(buf))
+	body, err := providerDoStream(ctx, a.client, providerRequestOptions{
+		Provider:  "anthropic",
+		Operation: "anthropic messages stream",
+		URL:       a.baseURL + "/messages",
+		Accept:    "text/event-stream",
+		Headers: map[string]string{
+			"x-api-key":         a.apiKey,
+			"anthropic-version": a.version,
+		},
+		Body: anthropicReq,
+	})
 	if err != nil {
 		return err
 	}
-	httpReq.Header.Set("x-api-key", a.apiKey)
-	httpReq.Header.Set("anthropic-version", a.version)
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "text/event-stream")
-
-	resp, err := a.client.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("anthropic messages stream: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return providerHTTPError("anthropic", resp)
-	}
-	return a.consumeAnthropicStream(ctx, resp.Body, req, send)
+	defer body.Close()
+	return a.consumeAnthropicStream(ctx, body, req, send)
 }
 
 type anthropicMessageRequest struct {
