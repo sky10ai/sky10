@@ -1,4 +1,4 @@
-const GRID_SIZE = 7;
+const GRID_SIZE = 9;
 
 const PALETTES = [
   {
@@ -70,7 +70,7 @@ function hashString(value: string) {
 
 function pixelActive(seed: number, x: number, y: number) {
   const mixed = hashString(`${seed}:${Math.min(x, GRID_SIZE - 1 - x)}:${y}`);
-  return mixed % 5 !== 0;
+  return mixed % 6 !== 0;
 }
 
 function avatarPalette(seed: number) {
@@ -79,17 +79,28 @@ function avatarPalette(seed: number) {
 
 function pixelColor(seed: number, x: number, y: number) {
   const palette = avatarPalette(seed);
-  const inHead = y >= 1 && y <= 5 && x >= 1 && x <= 5;
-  const antenna = y === 0 && x === 3;
-  const ears = y === 3 && (x === 0 || x === 6);
+  const mood = seed % 3;
+  const inHead = y >= 1 && y <= 7 && x >= 1 && x <= 7;
+  const antenna = (y === 0 && x === 4) || (y === 1 && x === 4);
+  const ears = y === 4 && (x === 0 || x === 8);
+  const shoulders = y === 8 && x >= 2 && x <= 6;
 
-  if (!inHead && !antenna && !ears) return "transparent";
-  if ((y === 2 && (x === 2 || x === 4)) || (y === 4 && x >= 2 && x <= 4)) {
+  if (!inHead && !antenna && !ears && !shoulders) return "transparent";
+  if (y === 1 && (x === 1 || x === 7)) return "transparent";
+  if (y === 3 && (x === 3 || x === 5)) {
     return palette.eye;
   }
-  if (y === 1 && (x === 1 || x === 5)) return "transparent";
-  if (antenna || ears || (x === 3 && y === 1)) return palette.accent;
-  if (x === 1 || x === 5 || y === 5) return palette.shade;
+  if (
+    (mood === 0 && y === 5 && x >= 3 && x <= 5) ||
+    (mood === 1 && y === 5 && (x === 3 || x === 5)) ||
+    (mood === 2 && y === 6 && x >= 3 && x <= 5)
+  ) {
+    return palette.eye;
+  }
+  if (antenna || ears || (y === 5 && (x === 2 || x === 6))) {
+    return palette.accent;
+  }
+  if (shoulders || x === 1 || x === 7 || y === 7) return palette.shade;
   if (!pixelActive(seed, x, y)) return palette.accent;
   return palette.base;
 }
