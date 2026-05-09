@@ -104,9 +104,6 @@ export default function Settings() {
   const { data: idInfo } = useRPC(() => identity.show(), [], {
     refreshIntervalMs: 10_000,
   });
-  const { data: idDevices } = useRPC(() => identity.devices(), [], {
-    refreshIntervalMs: 10_000,
-  });
   const { data: deviceData } = useRPC(() => identity.deviceList(), [], {
     live: STORAGE_EVENT_TYPES,
     refreshIntervalMs: 10_000,
@@ -211,7 +208,7 @@ export default function Settings() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
                     Device Peer ID
@@ -230,68 +227,8 @@ export default function Settings() {
                     {thisDevice?.name ?? "..."}
                   </p>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-wider font-bold text-secondary-fixed-dim">
-                    Authorized Devices
-                  </label>
-                  <p className="text-xs text-on-surface bg-surface-container-low p-2 rounded">
-                    {idInfo?.device_count ?? "..."}
-                  </p>
-                </div>
               </div>
             </div>
-          </div>
-        </section>
-
-        <section className="col-span-12 bg-surface-container-lowest rounded-xl p-8 border border-transparent space-y-6">
-          <div className="space-y-1">
-            <h3 className="text-xl font-semibold flex items-center gap-2">
-              <Icon name="devices" className="text-tertiary" />
-              Authorized Devices
-            </h3>
-            <p className="text-sm text-secondary">
-              Signed-in devices.
-            </p>
-          </div>
-          <div className="space-y-3">
-            {(idDevices?.devices ?? []).map((dev) => (
-              <div
-                key={dev.public_key}
-                className={`flex items-center justify-between p-4 rounded-lg ${
-                  dev.current
-                    ? "bg-primary/5 border border-primary/20"
-                    : "bg-surface-container"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Icon
-                    name={dev.current ? "laptop_mac" : "devices_other"}
-                    className={dev.current ? "text-primary" : "text-secondary"}
-                  />
-                  <div>
-                    <p className="text-sm font-medium">
-                      {dev.name}
-                      {dev.current && (
-                        <span className="ml-2 text-[10px] font-bold uppercase tracking-widest text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                          This Device
-                        </span>
-                      )}
-                    </p>
-                    <p className="text-xs text-secondary font-mono">
-                      {dev.public_key.slice(0, 16)}...
-                    </p>
-                  </div>
-                </div>
-                <p className="text-xs text-secondary">
-                  Added {dev.added_at.split("T")[0]}
-                </p>
-              </div>
-            ))}
-            {(idDevices?.devices ?? []).length === 0 && (
-              <p className="text-sm text-secondary py-4 text-center">
-                Loading device manifest...
-              </p>
-            )}
           </div>
         </section>
       </div>
