@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net"
@@ -18,6 +19,8 @@ const (
 	// DefaultHTTPBindAddress keeps the daemon-local HTTP RPC listener private
 	// unless a caller explicitly opts into a wider bind address.
 	DefaultHTTPBindAddress = "127.0.0.1"
+
+	httpListenRetryInterval = 200 * time.Millisecond
 )
 
 type httpSubscriber struct {
@@ -54,13 +57,12 @@ func (s *Server) ServeHTTPOn(ctx context.Context, bindAddress string, port int) 
 		mux.HandleFunc("GET /{$}", s.handleHTTPRoot)
 	}
 
-	addr := httpListenAddress(bindAddress, port)
-	ln, err := net.Listen("tcp", addr)
+	ln, err := s.listenHTTP(ctx, bindAddress, port)
 	if err != nil {
-		ln, err = net.Listen("tcp", httpListenAddress(bindAddress, 0))
-		if err != nil {
-			return fmt.Errorf("http listen: %w", err)
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil
 		}
+		return err
 	}
 
 	actualAddr := ln.Addr().String()
@@ -79,6 +81,33 @@ func (s *Server) ServeHTTPOn(ctx context.Context, bindAddress string, port int) 
 		return err
 	}
 	return nil
+}
+
+func (s *Server) listenHTTP(ctx context.Context, bindAddress string, port int) (net.Listener, error) {
+	addr := httpListenAddress(bindAddress, port)
+	ln, err := net.Listen("tcp", addr)
+	if err == nil {
+		return ln, nil
+	}
+	if port == 0 {
+		return nil, fmt.Errorf("http listen %s: %w", addr, err)
+	}
+
+	s.logger.Warn("HTTP RPC port unavailable; retrying configured address", "addr", addr, "error", err)
+	ticker := time.NewTicker(httpListenRetryInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+			ln, err := net.Listen("tcp", addr)
+			if err == nil {
+				return ln, nil
+			}
+		}
+	}
 }
 
 func httpListenAddress(bindAddress string, port int) string {

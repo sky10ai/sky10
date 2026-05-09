@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -112,6 +113,63 @@ func TestServeHTTPDefaultsToLoopback(t *testing.T) {
 	}
 }
 
+func TestServeHTTPRetriesConfiguredPort(t *testing.T) {
+	t.Parallel()
+
+	held, err := net.Listen("tcp", net.JoinHostPort(DefaultHTTPBindAddress, "0"))
+	if err != nil {
+		t.Fatalf("reserve configured port: %v", err)
+	}
+	_, port, err := net.SplitHostPort(held.Addr().String())
+	if err != nil {
+		held.Close()
+		t.Fatalf("parse reserved address %q: %v", held.Addr().String(), err)
+	}
+	portNumber := mustAtoi(t, port)
+
+	srv := NewServer(filepath.Join(t.TempDir(), "test.sock"), "test", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.ServeHTTPOn(ctx, DefaultHTTPBindAddress, portNumber)
+	}()
+
+	time.Sleep(httpListenRetryInterval + 50*time.Millisecond)
+	if addr := srv.HTTPAddr(); addr != "" {
+		cancel()
+		held.Close()
+		t.Fatalf("HTTP server bound %s while configured port was unavailable", addr)
+	}
+
+	if err := held.Close(); err != nil {
+		cancel()
+		t.Fatalf("release configured port: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for srv.HTTPAddr() == "" {
+		if time.Now().After(deadline) {
+			cancel()
+			t.Fatal("timed out waiting for HTTP server bind")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got, want := srv.HTTPAddr(), net.JoinHostPort(DefaultHTTPBindAddress, port); got != want {
+		cancel()
+		t.Fatalf("HTTP bind address = %q, want configured address %q", got, want)
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("ServeHTTPOn returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ServeHTTPOn did not stop after context cancel")
+	}
+}
+
 func TestHTTPListenAddressUsesExplicitBindAddress(t *testing.T) {
 	t.Parallel()
 
@@ -156,6 +214,16 @@ func TestHTTPListenAddressUsesExplicitBindAddress(t *testing.T) {
 			}
 		})
 	}
+}
+
+func mustAtoi(t *testing.T, value string) int {
+	t.Helper()
+
+	port, err := strconv.Atoi(value)
+	if err != nil {
+		t.Fatalf("parse port %q: %v", value, err)
+	}
+	return port
 }
 
 func startHTTPTestServer(t *testing.T, serve func(context.Context, *Server) error) *Server {
