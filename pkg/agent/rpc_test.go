@@ -1169,6 +1169,56 @@ func TestRPCMailboxApproveRejectsWrongRecipient(t *testing.T) {
 	}
 }
 
+func TestRPCMailboxApproveNotifiesDecisionObserver(t *testing.T) {
+	t.Parallel()
+
+	r := newTestRegistry()
+	h := newTestRPCHandler(t, r, nil)
+	h.SetMailbox(newTestMailboxStore(t))
+
+	var observedRecord agentmailbox.Record
+	var observedActor agentmailbox.Principal
+	var observedApproved bool
+	h.SetMailboxDecisionObserver(func(_ context.Context, record agentmailbox.Record, actor agentmailbox.Principal, approved bool) error {
+		observedRecord = record
+		observedActor = actor
+		observedApproved = approved
+		return nil
+	})
+
+	approvalSend, _ := json.Marshal(map[string]any{
+		"kind":            agentmailbox.ItemKindApprovalRequest,
+		"request_id":      "approval/messaging/test",
+		"idempotency_key": "approval-messaging-test",
+		"to": map[string]any{
+			"id":    "human:alice",
+			"kind":  agentmailbox.PrincipalKindHuman,
+			"scope": agentmailbox.ScopePrivateNetwork,
+		},
+		"payload": map[string]any{
+			"action":  "send_draft",
+			"summary": "Approve sending draft",
+		},
+	})
+	raw, err, _ := h.Dispatch(context.Background(), "agent.mailbox.send", approvalSend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval := raw.(map[string]interface{})["item"].(agentmailbox.Record)
+
+	if _, err, _ := h.Dispatch(context.Background(), "agent.mailbox.approve", mustJSON(t, map[string]string{
+		"item_id":     approval.Item.ID,
+		"actor_id":    "human:alice",
+		"actor_kind":  agentmailbox.PrincipalKindHuman,
+		"decision_id": "approve-me",
+	})); err != nil {
+		t.Fatalf("mailbox.approve: %v", err)
+	}
+	if observedRecord.Item.ID != approval.Item.ID || observedActor.ID != "human:alice" || !observedApproved {
+		t.Fatalf("observer = (%s, %s, %v), want (%s, human:alice, true)", observedRecord.Item.ID, observedActor.ID, observedApproved, approval.Item.ID)
+	}
+}
+
 func TestRPCMailboxClaimRejectsHumanActor(t *testing.T) {
 	t.Parallel()
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
 	"github.com/sky10/sky10/pkg/logging"
 	"github.com/sky10/sky10/pkg/messaging"
 	messagingbroker "github.com/sky10/sky10/pkg/messaging/broker"
@@ -286,6 +287,118 @@ func TestInstallMessagingEventFanoutEmitsDurableEvents(t *testing.T) {
 	gotEvent, ok := gotData.(messaging.Event)
 	if !ok || gotEvent.ID != event.ID {
 		t.Fatalf("event data = %+v (%T), want messaging event %s", gotData, gotData, event.ID)
+	}
+}
+
+func TestResolveMessagingMailboxDecisionRejectsBrokerApproval(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := messagingstore.NewStore(ctx, messagingstore.NewKVBackend(newServeMessagingMemoryKVStore(), ""))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	now := testingNow()
+	connection := messaging.Connection{
+		ID:              "telegram/default",
+		AdapterID:       "telegram",
+		Label:           "Telegram",
+		Status:          messaging.ConnectionStatusConnected,
+		DefaultPolicyID: "policy/telegram",
+	}
+	if err := store.PutConnection(ctx, connection); err != nil {
+		t.Fatalf("PutConnection() error = %v", err)
+	}
+	if err := store.PutPolicy(ctx, messaging.Policy{
+		ID:   connection.DefaultPolicyID,
+		Name: "Telegram",
+		Rules: messaging.PolicyRules{
+			CreateDrafts:    true,
+			SendMessages:    true,
+			RequireApproval: true,
+		},
+	}); err != nil {
+		t.Fatalf("PutPolicy() error = %v", err)
+	}
+	exposure := messaging.Exposure{
+		ID:           "exposure/openclaw",
+		ConnectionID: connection.ID,
+		SubjectID:    "runtime:openclaw",
+		SubjectKind:  messaging.ExposureSubjectKindRuntime,
+		PolicyID:     connection.DefaultPolicyID,
+		Enabled:      true,
+	}
+	if err := store.PutExposure(ctx, exposure); err != nil {
+		t.Fatalf("PutExposure() error = %v", err)
+	}
+	draft := messaging.Draft{
+		ID:              "draft/telegram/1",
+		ConnectionID:    connection.ID,
+		ConversationID:  "conversation/telegram/1",
+		LocalIdentityID: "identity/telegram/bot",
+		Parts:           []messaging.MessagePart{{Kind: messaging.MessagePartKindText, Text: "No."}},
+		Status:          messaging.DraftStatusApprovalRequired,
+		ApprovalID:      "approval/telegram/1",
+	}
+	if err := store.PutDraft(ctx, draft); err != nil {
+		t.Fatalf("PutDraft() error = %v", err)
+	}
+	workflow := messaging.Workflow{
+		ID:                 "workflow/telegram/1",
+		Kind:               "draft_send",
+		Status:             messaging.WorkflowStatusAwaitingApproval,
+		SourceConnectionID: connection.ID,
+		PolicyID:           connection.DefaultPolicyID,
+		ExposureID:         exposure.ID,
+		Sender:             messaging.Participant{Kind: messaging.ParticipantKindSystem, ID: "telegram"},
+		DraftID:            draft.ID,
+		ApprovalID:         draft.ApprovalID,
+		BrokerReceivedAt:   now,
+		LastActivityAt:     now,
+	}
+	if err := store.PutWorkflow(ctx, workflow); err != nil {
+		t.Fatalf("PutWorkflow() error = %v", err)
+	}
+	approval := messaging.Approval{
+		ID:           draft.ApprovalID,
+		ConnectionID: connection.ID,
+		DraftID:      draft.ID,
+		WorkflowID:   workflow.ID,
+		PolicyID:     connection.DefaultPolicyID,
+		ExposureID:   exposure.ID,
+		Action:       "send_draft",
+		Summary:      "Approve Telegram reply",
+		Status:       messaging.ApprovalStatusPending,
+		RequestedAt:  now,
+	}
+	if err := store.PutApproval(ctx, approval); err != nil {
+		t.Fatalf("PutApproval() error = %v", err)
+	}
+	b, err := messagingbroker.New(ctx, messagingbroker.Config{
+		Store:   store,
+		RootDir: filepath.Join(t.TempDir(), "messaging"),
+	})
+	if err != nil {
+		t.Fatalf("broker.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = b.Close() })
+
+	err = resolveMessagingMailboxDecision(ctx, &messagingRuntime{broker: b, store: store}, agentmailbox.Record{
+		Item: agentmailbox.Item{
+			Kind:      agentmailbox.ItemKindApprovalRequest,
+			RequestID: string(approval.ID),
+		},
+	}, agentmailbox.Principal{ID: "human:alice", Kind: agentmailbox.PrincipalKindHuman}, false)
+	if err != nil {
+		t.Fatalf("resolveMessagingMailboxDecision() error = %v", err)
+	}
+	rejected, ok := store.GetApproval(approval.ID)
+	if !ok || rejected.Status != messaging.ApprovalStatusRejected {
+		t.Fatalf("approval = %+v, %v; want rejected", rejected, ok)
+	}
+	rejectedDraft, _ := store.GetDraft(draft.ID)
+	if rejectedDraft.Status != messaging.DraftStatusRejected {
+		t.Fatalf("draft status = %q, want rejected", rejectedDraft.Status)
 	}
 }
 

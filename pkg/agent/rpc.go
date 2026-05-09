@@ -19,18 +19,23 @@ type Emitter func(event string, data interface{})
 // PeerNotifier broadcasts agent events to connected devices.
 type PeerNotifier func(ctx context.Context, topic string)
 
+// MailboxDecisionObserver is notified after a mailbox approval request is
+// approved or rejected through the agent RPC surface.
+type MailboxDecisionObserver func(ctx context.Context, record agentmailbox.Record, actor agentmailbox.Principal, approved bool) error
+
 // RPCHandler dispatches agent.* RPC methods.
 type RPCHandler struct {
-	registry *Registry
-	owner    *skykey.Key
-	router   *Router // nil until cross-device wiring
-	mailbox  *agentmailbox.Store
-	specs    *SpecStore
-	jobs     *JobStore
-	sandbox  SandboxProvisioner
-	jobFwd   JobForwarder
-	emit     Emitter
-	notify   PeerNotifier
+	registry  *Registry
+	owner     *skykey.Key
+	router    *Router // nil until cross-device wiring
+	mailbox   *agentmailbox.Store
+	specs     *SpecStore
+	jobs      *JobStore
+	sandbox   SandboxProvisioner
+	jobFwd    JobForwarder
+	emit      Emitter
+	notify    PeerNotifier
+	decisions MailboxDecisionObserver
 }
 
 // NewRPCHandler creates an agent RPC handler.
@@ -46,6 +51,12 @@ func (h *RPCHandler) SetRouter(r *Router) {
 // SetMailbox attaches durable mailbox storage.
 func (h *RPCHandler) SetMailbox(store *agentmailbox.Store) {
 	h.mailbox = store
+}
+
+// SetMailboxDecisionObserver attaches an observer for approval/rejection
+// decisions made through agent.mailbox.* RPC methods.
+func (h *RPCHandler) SetMailboxDecisionObserver(observer MailboxDecisionObserver) {
+	h.decisions = observer
 }
 
 // SetSpecStore attaches durable agent spec storage.

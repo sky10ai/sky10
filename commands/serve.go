@@ -224,7 +224,14 @@ func ServeCmd() *cobra.Command {
 			go func() {
 				secretsRunErr <- secretsStore.Run(ctx)
 			}()
-			messagingRuntime, err := setupMessaging(ctx, server, kvStore, mailboxStore, secretsStore, secretsRPC, logger)
+			messagingApprovalTo := agentmailbox.Principal{
+				ID:         bundle.Address(),
+				Kind:       agentmailbox.PrincipalKindHuman,
+				Scope:      agentmailbox.ScopePrivateNetwork,
+				DeviceHint: bundle.DeviceID(),
+				RouteHint:  bundle.Address(),
+			}
+			messagingRuntime, err := setupMessaging(ctx, server, kvStore, mailboxStore, secretsStore, secretsRPC, &messagingApprovalTo, logger)
 			if err != nil {
 				return err
 			}
@@ -545,6 +552,9 @@ func ServeCmd() *cobra.Command {
 			agentRPC := skyagent.NewRPCHandler(agentRegistry, bundle.Identity, agentEventEmitter)
 			agentRPC.SetRouter(agentRouter)
 			agentRPC.SetMailbox(mailboxStore)
+			agentRPC.SetMailboxDecisionObserver(func(decisionCtx context.Context, record agentmailbox.Record, actor agentmailbox.Principal, approved bool) error {
+				return resolveMessagingMailboxDecision(decisionCtx, messagingRuntime, record, actor, approved)
+			})
 			agentRPC.SetSpecStore(agentSpecStore)
 			agentRPC.SetJobStore(agentJobStore)
 			agentRPC.SetSandboxProvisioner(sandboxManager)

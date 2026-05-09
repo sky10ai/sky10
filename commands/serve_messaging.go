@@ -50,6 +50,7 @@ func setupMessaging(
 	mailboxStore *agentmailbox.Store,
 	secretsStore *skysecrets.Store,
 	secretsRPC *skysecrets.RPCHandler,
+	approvalTo *agentmailbox.Principal,
 	logger *slog.Logger,
 ) (*messagingRuntime, error) {
 	rootDir, err := skyconfig.RootDir()
@@ -72,6 +73,7 @@ func setupMessaging(
 		RootDir:            filepath.Join(rootDir, "messaging"),
 		CredentialResolver: messagingbroker.SecretsResolver{Store: secretsStore},
 		ApprovalMailbox:    mailboxStore,
+		ApprovalTo:         approvalTo,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating messaging broker: %w", err)
@@ -125,6 +127,43 @@ func setupMessaging(
 
 	go runMessagingPollLoop(ctx, b, store, logging.WithComponent(logger, "messaging.poll"))
 	return &messagingRuntime{broker: b, store: store}, nil
+}
+
+func resolveMessagingMailboxDecision(ctx context.Context, runtime *messagingRuntime, record agentmailbox.Record, actor agentmailbox.Principal, approved bool) error {
+	if runtime == nil || runtime.broker == nil || runtime.store == nil {
+		return nil
+	}
+	if record.Item.Kind != agentmailbox.ItemKindApprovalRequest {
+		return nil
+	}
+	approvalID := messaging.ApprovalID(strings.TrimSpace(record.Item.RequestID))
+	if approvalID == "" {
+		return nil
+	}
+	if _, ok := runtime.store.GetApproval(approvalID); !ok {
+		return nil
+	}
+	actorID := strings.TrimSpace(actor.ID)
+	if actorID == "" {
+		actorID = "human"
+	}
+	if !approved {
+		if _, err := runtime.broker.RejectDraftSend(ctx, approvalID, actorID, "rejected from mailbox"); err != nil {
+			return fmt.Errorf("reject messaging approval %s: %w", approvalID, err)
+		}
+		return nil
+	}
+	result, err := runtime.broker.ApproveDraftSend(ctx, approvalID, actorID)
+	if err != nil {
+		return fmt.Errorf("approve messaging approval %s: %w", approvalID, err)
+	}
+	if result.Draft.ID == "" {
+		return nil
+	}
+	if _, err := runtime.broker.RequestSendDraft(ctx, result.Approval.ExposureID, result.Draft.ID, false); err != nil {
+		return fmt.Errorf("send approved messaging draft %s: %w", result.Draft.ID, err)
+	}
+	return nil
 }
 
 func ensureDefaultMessagingRuntimeAccess(ctx context.Context, store *messagingstore.Store, logger *slog.Logger) error {

@@ -379,6 +379,9 @@ func (h *RPCHandler) rpcMailboxApprove(ctx context.Context, params json.RawMessa
 	if err != nil {
 		return nil, err
 	}
+	if err := h.observeMailboxDecision(ctx, record, actor, true); err != nil {
+		return nil, err
+	}
 	h.emitMailboxEvent("agent.mailbox.updated", "approve", record)
 	return mailboxRecordResult(record), nil
 }
@@ -406,6 +409,9 @@ func (h *RPCHandler) rpcMailboxReject(ctx context.Context, params json.RawMessag
 	}
 	record, err = store.Reject(ctx, strings.TrimSpace(p.ItemID), actor, decisionID)
 	if err != nil {
+		return nil, err
+	}
+	if err := h.observeMailboxDecision(ctx, record, actor, false); err != nil {
 		return nil, err
 	}
 	h.emitMailboxEvent("agent.mailbox.updated", "reject", record)
@@ -560,6 +566,16 @@ func (h *RPCHandler) actionActor(id, kind string) agentmailbox.Principal {
 		DeviceHint: h.registry.DeviceID(),
 		RouteHint:  h.defaultRouteHint(),
 	}
+}
+
+func (h *RPCHandler) observeMailboxDecision(ctx context.Context, record agentmailbox.Record, actor agentmailbox.Principal, approved bool) error {
+	if h.decisions == nil || record.Item.Kind != agentmailbox.ItemKindApprovalRequest {
+		return nil
+	}
+	if err := h.decisions(ctx, record, actor, approved); err != nil {
+		return fmt.Errorf("mailbox decision observer: %w", err)
+	}
+	return nil
 }
 
 func (h *RPCHandler) defaultActorID() string {
