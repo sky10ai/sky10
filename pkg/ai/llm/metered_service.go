@@ -10,6 +10,7 @@ const DefaultMeteredServiceAgentID = "sky10-model-api"
 // the x402 layer.
 type MeteredServiceBackend interface {
 	CallMeteredService(context.Context, MeteredServiceCallParams) (*MeteredServiceCallResult, error)
+	StreamMeteredService(context.Context, MeteredServiceCallParams, func([]byte) error) (*MeteredServiceCallResult, error)
 }
 
 type MeteredServiceCallParams struct {

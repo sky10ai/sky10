@@ -9,11 +9,13 @@ import (
 const (
 	KindRequest  = "request"
 	KindResponse = "response"
+	KindStream   = "stream"
 )
 
 // Frame is the JSON wire unit sent over a sandbox bridge WebSocket.
 // Type is capability-local: the endpoint that owns the socket decides
-// what values are valid.
+// what values are valid. Stream frames carry response chunks for a
+// prior request ID; a terminal response frame still completes the call.
 type Frame struct {
 	Kind    string          `json:"kind"`
 	ID      string          `json:"id"`
@@ -86,7 +88,7 @@ func validateInboundFrame(frame Frame) error {
 		if strings.TrimSpace(frame.Type) == "" {
 			return fmt.Errorf("bridge: request type is required")
 		}
-	case KindResponse:
+	case KindResponse, KindStream:
 		if strings.TrimSpace(frame.ID) == "" {
 			return fmt.Errorf("bridge: response id is required")
 		}

@@ -3,6 +3,8 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -115,8 +117,8 @@ func TestHostGuestVeniceBridgeStreamsChatAndResponses(t *testing.T) {
 		if upstream.Model != "anthropic/opus-4-7" {
 			t.Fatalf("upstream.Model = %q", upstream.Model)
 		}
-		if upstream.Stream {
-			t.Fatal("upstream.Stream = true, want buffered x402 call")
+		if !upstream.Stream {
+			t.Fatal("upstream.Stream = false, want true upstream stream through x402")
 		}
 	}
 }
@@ -205,6 +207,40 @@ func (b forwardingMeteredServiceBackend) CallMeteredService(ctx context.Context,
 		MaxPriceUSDC: params.MaxPriceUSDC,
 		PaymentNonce: params.PaymentNonce,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return &MeteredServiceCallResult{
+		Status:  result.Status,
+		Headers: result.Headers,
+		Body:    []byte(result.Body),
+	}, nil
+}
+
+func (b forwardingMeteredServiceBackend) StreamMeteredService(ctx context.Context, params MeteredServiceCallParams, send func([]byte) error) (*MeteredServiceCallResult, error) {
+	streaming, ok := b.backend.(bridgex402.StreamingBackend)
+	if !ok {
+		result, err := b.CallMeteredService(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		if len(result.Body) > 0 && send != nil {
+			if err := send(result.Body); err != nil {
+				return nil, err
+			}
+		}
+		return result, nil
+	}
+	result, err := streaming.StreamCall(ctx, bridgex402.CallParams{
+		AgentID:      params.AgentID,
+		ServiceID:    params.ServiceID,
+		Path:         params.Path,
+		Method:       params.Method,
+		Headers:      params.Headers,
+		Body:         params.Body,
+		MaxPriceUSDC: params.MaxPriceUSDC,
+		PaymentNonce: params.PaymentNonce,
+	}, send)
 	if err != nil {
 		return nil, err
 	}
@@ -355,6 +391,91 @@ func (b *fakeHostMeteredBackend) Call(_ context.Context, params bridgex402.CallP
 		Status:  http.StatusOK,
 		Headers: map[string]string{"Content-Type": "application/json"},
 		Body:    body,
+	}, nil
+}
+
+func (b *fakeHostMeteredBackend) StreamCall(_ context.Context, params bridgex402.CallParams, send func([]byte) error) (*bridgex402.CallResult, error) {
+	b.mu.Lock()
+	copied := params
+	copied.Body = append([]byte(nil), params.Body...)
+	b.records = append(b.records, copied)
+	b.mu.Unlock()
+
+	var req ChatCompletionRequest
+	_ = json.Unmarshal(params.Body, &req)
+	if !req.Stream {
+		return nil, fmt.Errorf("upstream stream = false, want true")
+	}
+	chunks := []ChatCompletionStreamChunk{
+		{
+			ID:      "chatcmpl-venice-bridge",
+			Object:  "chat.completion.chunk",
+			Created: time.Now().Unix(),
+			Model:   req.Model,
+			Choices: []ChatStreamChoice{{
+				Index: 0,
+				Delta: ChatDelta{Role: "assistant"},
+			}},
+		},
+		{
+			ID:      "chatcmpl-venice-bridge",
+			Object:  "chat.completion.chunk",
+			Created: time.Now().Unix(),
+			Model:   req.Model,
+			Choices: []ChatStreamChoice{{
+				Index: 0,
+				Delta: ChatDelta{Content: veniceBridgeSmokeResponse()[:220]},
+			}},
+		},
+		{
+			ID:      "chatcmpl-venice-bridge",
+			Object:  "chat.completion.chunk",
+			Created: time.Now().Unix(),
+			Model:   req.Model,
+			Choices: []ChatStreamChoice{{
+				Index: 0,
+				Delta: ChatDelta{Content: veniceBridgeSmokeResponse()[220:]},
+			}},
+		},
+		{
+			ID:      "chatcmpl-venice-bridge",
+			Object:  "chat.completion.chunk",
+			Created: time.Now().Unix(),
+			Model:   req.Model,
+			Choices: []ChatStreamChoice{{
+				Index:        0,
+				Delta:        ChatDelta{},
+				FinishReason: stringPtr("stop"),
+			}},
+		},
+		{
+			ID:      "chatcmpl-venice-bridge",
+			Object:  "chat.completion.chunk",
+			Created: time.Now().Unix(),
+			Model:   req.Model,
+			Choices: []ChatStreamChoice{},
+			Usage:   &ChatUsage{PromptTokens: 16, CompletionTokens: 128, TotalTokens: 144},
+		},
+	}
+	for _, chunk := range chunks {
+		raw, err := json.Marshal(chunk)
+		if err != nil {
+			return nil, err
+		}
+		if send != nil {
+			if err := send([]byte("data: " + string(raw) + "\n\n")); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if send != nil {
+		if err := send([]byte("data: [DONE]\n\n")); err != nil {
+			return nil, err
+		}
+	}
+	return &bridgex402.CallResult{
+		Status:  http.StatusOK,
+		Headers: map[string]string{"Content-Type": "text/event-stream"},
 	}, nil
 }
 
@@ -523,5 +644,42 @@ func (b *liveVeniceBridgeBackend) Call(ctx context.Context, params bridgex402.Ca
 		Status:  result.Status,
 		Headers: result.Headers,
 		Body:    result.Body,
+	}, nil
+}
+
+func (b *liveVeniceBridgeBackend) StreamCall(ctx context.Context, params bridgex402.CallParams, send func([]byte) error) (*bridgex402.CallResult, error) {
+	result, err := b.backend.StreamCall(ctx, skyx402.CallParams{
+		AgentID:      params.AgentID,
+		ServiceID:    params.ServiceID,
+		Path:         params.Path,
+		Method:       params.Method,
+		Headers:      params.Headers,
+		Body:         []byte(params.Body),
+		MaxPriceUSDC: params.MaxPriceUSDC,
+		PaymentNonce: params.PaymentNonce,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer result.Body.Close()
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := result.Body.Read(buf)
+		if n > 0 && send != nil {
+			chunk := append([]byte(nil), buf[:n]...)
+			if err := send(chunk); err != nil {
+				return nil, err
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+	}
+	return &bridgex402.CallResult{
+		Status:  result.Status,
+		Headers: result.Headers,
 	}, nil
 }

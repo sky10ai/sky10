@@ -94,6 +94,15 @@ type CallResponse struct {
 	Receipt *PaymentReceipt
 }
 
+// StreamResponse is the streaming output of Transport.Stream. Caller owns Body
+// and must close it.
+type StreamResponse struct {
+	Status  int
+	Headers map[string]string
+	Body    io.ReadCloser
+	Receipt *PaymentReceipt
+}
+
 // Call performs the full x402 round-trip, dispatching on the
 // detected protocol version:
 //
@@ -107,6 +116,26 @@ type CallResponse struct {
 // The version is fixed once detected; we never mix v1 and v2 wire
 // shapes on the same request.
 func (t *Transport) Call(ctx context.Context, req CallRequest) (*CallResponse, error) {
+	stream, err := t.Stream(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	defer stream.Body.Close()
+	body, err := io.ReadAll(stream.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	return &CallResponse{
+		Status:  stream.Status,
+		Headers: stream.Headers,
+		Body:    body,
+		Receipt: stream.Receipt,
+	}, nil
+}
+
+// Stream performs the full x402 round-trip and returns the paid retry response
+// body as an open stream. The caller must close the returned body.
+func (t *Transport) Stream(ctx context.Context, req CallRequest) (*StreamResponse, error) {
 	if t == nil || t.HTTP == nil {
 		return nil, errors.New("x402: transport not configured")
 	}
@@ -119,7 +148,7 @@ func (t *Transport) Call(ctx context.Context, req CallRequest) (*CallResponse, e
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusPaymentRequired {
-		return readCallResponse(resp, X402ProtocolV1)
+		return streamCallResponse(resp, X402ProtocolV1)
 	}
 
 	if strings.TrimSpace(resp.Header.Get(HeaderPaymentRequiredV2)) == "" {
@@ -129,7 +158,7 @@ func (t *Transport) Call(ctx context.Context, req CallRequest) (*CallResponse, e
 			return nil, fmt.Errorf("parse MPP challenge: %w", err)
 		}
 		if len(challenges) > 0 {
-			return t.callMPP(ctx, req, resp, challenges)
+			return t.streamMPP(ctx, req, resp, challenges)
 		}
 	}
 
@@ -161,7 +190,7 @@ func (t *Transport) Call(ctx context.Context, req CallRequest) (*CallResponse, e
 		retry.Body.Close()
 		return nil, ErrPaymentNotAccepted
 	}
-	out, err := readCallResponse(retry, version)
+	out, err := streamCallResponse(retry, version)
 	if err != nil {
 		return nil, err
 	}
@@ -202,6 +231,24 @@ func (t *Transport) doWithHeaders(ctx context.Context, req CallRequest, extraHea
 }
 
 func (t *Transport) callMPP(ctx context.Context, req CallRequest, initial *http.Response, challenges []mpp.Challenge) (*CallResponse, error) {
+	stream, err := t.streamMPP(ctx, req, initial, challenges)
+	if err != nil {
+		return nil, err
+	}
+	defer stream.Body.Close()
+	body, err := io.ReadAll(stream.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	return &CallResponse{
+		Status:  stream.Status,
+		Headers: stream.Headers,
+		Body:    body,
+		Receipt: stream.Receipt,
+	}, nil
+}
+
+func (t *Transport) streamMPP(ctx context.Context, req CallRequest, initial *http.Response, challenges []mpp.Challenge) (*StreamResponse, error) {
 	initial.Body.Close()
 	if t.MPPSigner == nil {
 		return nil, ErrSignerNotConfigured
@@ -230,7 +277,7 @@ func (t *Transport) callMPP(ctx context.Context, req CallRequest, initial *http.
 	}
 
 	mppReceipt, _ := mpp.ParseReceipt(retry.Header.Get(mpp.HeaderPaymentReceipt))
-	out, err := readCallResponse(retry, X402ProtocolV2)
+	out, err := streamCallResponse(retry, X402ProtocolV2)
 	if err != nil {
 		return nil, err
 	}
@@ -348,14 +395,29 @@ func encodePayment(version int, req PaymentRequirements, inner json.RawMessage, 
 // kept on the signature so callers preserve the wire-version
 // awareness for future use.
 func readCallResponse(resp *http.Response, _ int) (*CallResponse, error) {
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	stream, err := streamCallResponse(resp, X402ProtocolV1)
+	if err != nil {
+		return nil, err
+	}
+	defer stream.Body.Close()
+	body, err := io.ReadAll(stream.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	out := &CallResponse{
-		Status:  resp.StatusCode,
+		Status:  stream.Status,
 		Body:    body,
+		Headers: stream.Headers,
+		Receipt: stream.Receipt,
+	}
+	return out, nil
+}
+
+// streamCallResponse builds a StreamResponse without consuming resp.Body.
+func streamCallResponse(resp *http.Response, _ int) (*StreamResponse, error) {
+	out := &StreamResponse{
+		Status:  resp.StatusCode,
+		Body:    resp.Body,
 		Headers: extractStringHeaders(resp.Header),
 	}
 	if rec := readReceiptHeader(resp.Header); rec != "" {

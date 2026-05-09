@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -126,67 +127,70 @@ func (a *VeniceAdapter) StreamChatCompletions(ctx context.Context, req ChatCompl
 	if a == nil {
 		return fmt.Errorf("venice adapter is nil")
 	}
-	req.Stream = false
-	resp, err := a.ChatCompletions(ctx, req)
+	if a.backend == nil {
+		return fmt.Errorf("venice x402 backend is not configured")
+	}
+	if len(req.Messages) == 0 {
+		return fmt.Errorf("messages are required")
+	}
+	req.Stream = true
+	if strings.TrimSpace(req.Model) == "" {
+		req.Model = a.model
+	}
+	body, err := json.Marshal(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("encode venice chat completions stream request: %w", err)
 	}
-	resp = normalizeCompletionResponse(resp, req.Model, a.now().Unix())
-	for _, choice := range resp.Choices {
-		if err := send(ChatCompletionStreamChunk{
-			ID:      resp.ID,
-			Object:  "chat.completion.chunk",
-			Created: resp.Created,
-			Model:   resp.Model,
-			Choices: []ChatStreamChoice{{
-				Index: choice.Index,
-				Delta: ChatDelta{
-					Role: firstNonEmpty(choice.Message.Role, "assistant"),
-				},
-			}},
-		}); err != nil {
-			return err
-		}
-		for _, part := range splitStreamContent(choice.Message.Content) {
-			if err := send(ChatCompletionStreamChunk{
-				ID:      resp.ID,
-				Object:  "chat.completion.chunk",
-				Created: resp.Created,
-				Model:   resp.Model,
-				Choices: []ChatStreamChoice{{
-					Index: choice.Index,
-					Delta: ChatDelta{Content: part},
-				}},
-			}); err != nil {
-				return err
+
+	pr, pw := io.Pipe()
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := a.backend.StreamMeteredService(ctx, MeteredServiceCallParams{
+			AgentID:   a.agentID,
+			ServiceID: a.serviceID,
+			Path:      veniceChatCompletionsPath(a.baseURL),
+			Method:    http.MethodPost,
+			Headers: map[string]string{
+				"Accept":       "text/event-stream",
+				"Content-Type": "application/json",
+			},
+			Body:         body,
+			MaxPriceUSDC: a.maxPriceUSDC,
+			PaymentNonce: "llm-" + uuid.NewString(),
+		}, func(chunk []byte) error {
+			if len(chunk) == 0 {
+				return nil
 			}
-		}
-		finishReason := firstNonEmpty(choice.FinishReason, "stop")
-		if err := send(ChatCompletionStreamChunk{
-			ID:      resp.ID,
-			Object:  "chat.completion.chunk",
-			Created: resp.Created,
-			Model:   resp.Model,
-			Choices: []ChatStreamChoice{{
-				Index:        choice.Index,
-				Delta:        ChatDelta{},
-				FinishReason: &finishReason,
-			}},
-		}); err != nil {
-			return err
-		}
-	}
-	if req.StreamOptions != nil && req.StreamOptions.IncludeUsage && resp.Usage != nil {
-		return send(ChatCompletionStreamChunk{
-			ID:      resp.ID,
-			Object:  "chat.completion.chunk",
-			Created: resp.Created,
-			Model:   resp.Model,
-			Choices: []ChatStreamChoice{},
-			Usage:   resp.Usage,
+			_, writeErr := pw.Write(chunk)
+			return writeErr
 		})
+		if err != nil {
+			_ = pw.CloseWithError(err)
+		} else {
+			_ = pw.Close()
+		}
+		errCh <- err
+	}()
+
+	scanErr := scanServerSentEvents(ctx, pr, func(event serverSentEvent) error {
+		data := strings.TrimSpace(event.Data)
+		if data == "" || data == "[DONE]" {
+			return nil
+		}
+		var chunk ChatCompletionStreamChunk
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			return fmt.Errorf("decode venice stream chunk: %w", err)
+		}
+		return send(chunk)
+	})
+	if scanErr != nil {
+		_ = pr.CloseWithError(scanErr)
 	}
-	return nil
+	streamErr := <-errCh
+	if scanErr != nil {
+		return scanErr
+	}
+	return streamErr
 }
 
 func veniceChatCompletionsPath(baseURL string) string {
@@ -205,24 +209,4 @@ func veniceChatCompletionsPath(baseURL string) string {
 		return path
 	}
 	return path + "/chat/completions"
-}
-
-func splitStreamContent(text string) []string {
-	if text == "" {
-		return nil
-	}
-	const target = 96
-	var parts []string
-	for len(text) > target {
-		cut := target
-		if idx := strings.LastIndexAny(text[:target], " \n\t"); idx > 0 {
-			cut = idx + 1
-		}
-		parts = append(parts, text[:cut])
-		text = text[cut:]
-	}
-	if text != "" {
-		parts = append(parts, text)
-	}
-	return parts
 }

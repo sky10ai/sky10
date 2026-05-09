@@ -25,6 +25,13 @@ type Request struct {
 // Handler handles one inbound bridge request.
 type Handler func(context.Context, Request) (json.RawMessage, error)
 
+// StreamSender emits one response chunk for the currently handled request.
+type StreamSender func(json.RawMessage) error
+
+// StreamHandler handles one inbound bridge request and may emit response chunks
+// before returning the terminal response payload.
+type StreamHandler func(context.Context, Request, StreamSender) (json.RawMessage, error)
+
 type responseResult struct {
 	frame Frame
 	err   error
@@ -33,7 +40,7 @@ type responseResult struct {
 // Conn wraps a WebSocket with request/response bridge semantics.
 type Conn struct {
 	ws      *websocket.Conn
-	handler Handler
+	handler StreamHandler
 	opts    options
 
 	writeMu sync.Mutex
@@ -45,6 +52,18 @@ type Conn struct {
 
 // NewConn wraps an already-upgraded WebSocket.
 func NewConn(ws *websocket.Conn, handler Handler, opts ...Option) *Conn {
+	var streamHandler StreamHandler
+	if handler != nil {
+		streamHandler = func(ctx context.Context, req Request, _ StreamSender) (json.RawMessage, error) {
+			return handler(ctx, req)
+		}
+	}
+	return NewStreamConn(ws, streamHandler, opts...)
+}
+
+// NewStreamConn wraps an already-upgraded WebSocket with a handler that can
+// emit stream frames while processing a request.
+func NewStreamConn(ws *websocket.Conn, handler StreamHandler, opts ...Option) *Conn {
 	cfg := newOptions(opts...)
 	if cfg.maxFrameSize > 0 {
 		ws.SetReadLimit(cfg.maxFrameSize)
@@ -60,22 +79,46 @@ func NewConn(ws *websocket.Conn, handler Handler, opts ...Option) *Conn {
 // Accept upgrades an HTTP request and returns a bridge connection. The caller
 // owns Run and Close.
 func Accept(w http.ResponseWriter, r *http.Request, handler Handler, opts ...Option) (*Conn, error) {
+	var streamHandler StreamHandler
+	if handler != nil {
+		streamHandler = func(ctx context.Context, req Request, _ StreamSender) (json.RawMessage, error) {
+			return handler(ctx, req)
+		}
+	}
+	return AcceptStream(w, r, streamHandler, opts...)
+}
+
+// AcceptStream upgrades an HTTP request and returns a bridge connection with a
+// stream-capable request handler. The caller owns Run and Close.
+func AcceptStream(w http.ResponseWriter, r *http.Request, handler StreamHandler, opts ...Option) (*Conn, error) {
 	cfg := newOptions(opts...)
 	ws, err := websocket.Accept(w, r, cfg.acceptOptions)
 	if err != nil {
 		return nil, err
 	}
-	return NewConn(ws, handler, opts...), nil
+	return NewStreamConn(ws, handler, opts...), nil
 }
 
 // Dial opens a bridge WebSocket. The caller owns Run and Close.
 func Dial(ctx context.Context, url string, handler Handler, opts ...Option) (*Conn, *http.Response, error) {
+	var streamHandler StreamHandler
+	if handler != nil {
+		streamHandler = func(ctx context.Context, req Request, _ StreamSender) (json.RawMessage, error) {
+			return handler(ctx, req)
+		}
+	}
+	return DialStream(ctx, url, streamHandler, opts...)
+}
+
+// DialStream opens a bridge WebSocket with a stream-capable request handler.
+// The caller owns Run and Close.
+func DialStream(ctx context.Context, url string, handler StreamHandler, opts ...Option) (*Conn, *http.Response, error) {
 	cfg := newOptions(opts...)
 	ws, resp, err := websocket.Dial(ctx, url, cfg.dialOptions)
 	if err != nil {
 		return nil, resp, err
 	}
-	return NewConn(ws, handler, opts...), resp, nil
+	return NewStreamConn(ws, handler, opts...), resp, nil
 }
 
 // Run reads frames until the context is cancelled or the WebSocket closes.
@@ -96,7 +139,9 @@ func (c *Conn) Run(ctx context.Context) error {
 		}
 		switch frame.Kind {
 		case KindResponse:
-			c.deliver(frame)
+			c.deliver(frame, true)
+		case KindStream:
+			c.deliver(frame, false)
 		case KindRequest:
 			go c.handle(ctx, frame)
 		}
@@ -135,6 +180,10 @@ func (c *Conn) Call(ctx context.Context, typ string, payload any) (json.RawMessa
 		if result.err != nil {
 			return nil, result.err
 		}
+		if result.frame.Kind == KindStream {
+			c.removePending(id)
+			return nil, fmt.Errorf("bridge: unexpected stream frame for request %s", id)
+		}
 		if result.frame.Error != nil {
 			return nil, result.frame.Error
 		}
@@ -142,6 +191,65 @@ func (c *Conn) Call(ctx context.Context, typ string, payload any) (json.RawMessa
 	case <-ctx.Done():
 		c.removePending(id)
 		return nil, ctx.Err()
+	}
+}
+
+// Stream sends one request, passes each stream frame to onChunk, and returns
+// the terminal response payload.
+func (c *Conn) Stream(ctx context.Context, typ string, payload any, onChunk func(json.RawMessage) error) (json.RawMessage, error) {
+	if c == nil || c.ws == nil {
+		return nil, ErrClosed
+	}
+	if err := validateOutboundRequest(typ); err != nil {
+		return nil, err
+	}
+	raw, err := marshalPayload(payload)
+	if err != nil {
+		return nil, fmt.Errorf("bridge: marshal payload: %w", err)
+	}
+	id := uuid.NewString()
+	ch := make(chan responseResult, 8)
+	if err := c.addPending(id, ch); err != nil {
+		return nil, err
+	}
+	frame := Frame{
+		Kind:    KindRequest,
+		ID:      id,
+		Type:    typ,
+		Payload: raw,
+	}
+	if err := c.write(ctx, frame); err != nil {
+		c.removePending(id)
+		return nil, err
+	}
+	for {
+		select {
+		case result := <-ch:
+			if result.err != nil {
+				return nil, result.err
+			}
+			if result.frame.Error != nil {
+				c.removePending(id)
+				return nil, result.frame.Error
+			}
+			switch result.frame.Kind {
+			case KindStream:
+				if onChunk != nil {
+					if err := onChunk(result.frame.Payload); err != nil {
+						c.removePending(id)
+						return nil, err
+					}
+				}
+			case KindResponse:
+				return result.frame.Payload, nil
+			default:
+				c.removePending(id)
+				return nil, fmt.Errorf("bridge: unexpected frame kind %q", result.frame.Kind)
+			}
+		case <-ctx.Done():
+			c.removePending(id)
+			return nil, ctx.Err()
+		}
 	}
 }
 
@@ -159,11 +267,19 @@ func (c *Conn) handle(ctx context.Context, frame Frame) {
 		_ = c.write(ctx, errorFrame(frame.ID, frame.Type, bridgeError("not_handled", "bridge request handler is not configured")))
 		return
 	}
+	send := func(payload json.RawMessage) error {
+		return c.write(ctx, Frame{
+			Kind:    KindStream,
+			ID:      frame.ID,
+			Type:    frame.Type,
+			Payload: payload,
+		})
+	}
 	payload, err := c.handler(ctx, Request{
 		ID:      frame.ID,
 		Type:    frame.Type,
 		Payload: frame.Payload,
-	})
+	}, send)
 	if err != nil {
 		_ = c.write(ctx, errorFrame(frame.ID, frame.Type, err))
 		return
@@ -198,10 +314,10 @@ func (c *Conn) removePending(id string) {
 	c.mu.Unlock()
 }
 
-func (c *Conn) deliver(frame Frame) {
+func (c *Conn) deliver(frame Frame, terminal bool) {
 	c.mu.Lock()
 	ch, ok := c.pending[frame.ID]
-	if ok {
+	if ok && terminal {
 		delete(c.pending, frame.ID)
 	}
 	c.mu.Unlock()

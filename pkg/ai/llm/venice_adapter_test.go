@@ -9,15 +9,33 @@ import (
 )
 
 type fakeMeteredServiceBackend struct {
-	params MeteredServiceCallParams
-	result *MeteredServiceCallResult
-	err    error
+	params       MeteredServiceCallParams
+	streamParams MeteredServiceCallParams
+	streamChunks [][]byte
+	result       *MeteredServiceCallResult
+	err          error
 }
 
 func (b *fakeMeteredServiceBackend) CallMeteredService(_ context.Context, params MeteredServiceCallParams) (*MeteredServiceCallResult, error) {
 	b.params = params
 	if b.err != nil {
 		return nil, b.err
+	}
+	return b.result, nil
+}
+
+func (b *fakeMeteredServiceBackend) StreamMeteredService(_ context.Context, params MeteredServiceCallParams, send func([]byte) error) (*MeteredServiceCallResult, error) {
+	b.streamParams = params
+	if b.err != nil {
+		return nil, b.err
+	}
+	for _, chunk := range b.streamChunks {
+		if len(chunk) == 0 || send == nil {
+			continue
+		}
+		if err := send(chunk); err != nil {
+			return nil, err
+		}
 	}
 	return b.result, nil
 }
@@ -78,11 +96,65 @@ func TestVeniceAdapterChatCompletionsCallsMeteredService(t *testing.T) {
 	}
 }
 
-func TestVeniceAdapterStreamChatCompletionsUsesBufferedResponse(t *testing.T) {
+func TestVeniceAdapterStreamChatCompletionsUsesMeteredStream(t *testing.T) {
 	t.Parallel()
 
 	content := strings.Repeat("alpha-stream beta-stream gamma-stream delta-stream ", 8)
-	fake := &fakeMeteredServiceBackend{result: veniceTestCompletion(t, DefaultVeniceModel, content)}
+	fake := &fakeMeteredServiceBackend{
+		result: veniceTestCompletion(t, DefaultVeniceModel, content),
+		streamChunks: [][]byte{
+			veniceTestStreamData(t, ChatCompletionStreamChunk{
+				ID:      "chatcmpl-stream",
+				Object:  "chat.completion.chunk",
+				Created: 123,
+				Model:   DefaultVeniceModel,
+				Choices: []ChatStreamChoice{{
+					Index: 0,
+					Delta: ChatDelta{Role: "assistant"},
+				}},
+			}),
+			veniceTestStreamData(t, ChatCompletionStreamChunk{
+				ID:      "chatcmpl-stream",
+				Object:  "chat.completion.chunk",
+				Created: 123,
+				Model:   DefaultVeniceModel,
+				Choices: []ChatStreamChoice{{
+					Index: 0,
+					Delta: ChatDelta{Content: content[:120]},
+				}},
+			}),
+			veniceTestStreamData(t, ChatCompletionStreamChunk{
+				ID:      "chatcmpl-stream",
+				Object:  "chat.completion.chunk",
+				Created: 123,
+				Model:   DefaultVeniceModel,
+				Choices: []ChatStreamChoice{{
+					Index: 0,
+					Delta: ChatDelta{Content: content[120:]},
+				}},
+			}),
+			veniceTestStreamData(t, ChatCompletionStreamChunk{
+				ID:      "chatcmpl-stream",
+				Object:  "chat.completion.chunk",
+				Created: 123,
+				Model:   DefaultVeniceModel,
+				Choices: []ChatStreamChoice{{
+					Index:        0,
+					Delta:        ChatDelta{},
+					FinishReason: stringPtr("stop"),
+				}},
+			}),
+			veniceTestStreamData(t, ChatCompletionStreamChunk{
+				ID:      "chatcmpl-stream",
+				Object:  "chat.completion.chunk",
+				Created: 123,
+				Model:   DefaultVeniceModel,
+				Choices: []ChatStreamChoice{},
+				Usage:   &ChatUsage{PromptTokens: 1, CompletionTokens: 2, TotalTokens: 3},
+			}),
+			[]byte("data: [DONE]\n\n"),
+		},
+	}
 	adapter := NewVeniceAdapter(VeniceAdapterOptions{
 		Backend: fake,
 		Now:     func() time.Time { return time.Unix(123, 0).UTC() },
@@ -129,11 +201,11 @@ func TestVeniceAdapterStreamChatCompletionsUsesBufferedResponse(t *testing.T) {
 		t.Fatalf("streamed content mismatch")
 	}
 	var upstream ChatCompletionRequest
-	if err := json.Unmarshal(fake.params.Body, &upstream); err != nil {
+	if err := json.Unmarshal(fake.streamParams.Body, &upstream); err != nil {
 		t.Fatalf("decode upstream body: %v", err)
 	}
-	if upstream.Stream || upstream.StreamOptions != nil {
-		t.Fatalf("upstream stream fields = stream:%v stream_options:%+v, want buffered request without stream options", upstream.Stream, upstream.StreamOptions)
+	if !upstream.Stream || upstream.StreamOptions == nil || !upstream.StreamOptions.IncludeUsage {
+		t.Fatalf("upstream stream fields = stream:%v stream_options:%+v, want true stream request with usage", upstream.Stream, upstream.StreamOptions)
 	}
 	if !finished {
 		t.Fatal("missing finish chunk")
@@ -199,4 +271,17 @@ func veniceTestCompletion(t *testing.T, model, content string) *MeteredServiceCa
 		t.Fatal(err)
 	}
 	return &MeteredServiceCallResult{Status: 200, Body: body}
+}
+
+func veniceTestStreamData(t *testing.T, chunk ChatCompletionStreamChunk) []byte {
+	t.Helper()
+	raw, err := json.Marshal(chunk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return []byte("data: " + string(raw) + "\n\n")
+}
+
+func stringPtr(value string) *string {
+	return &value
 }

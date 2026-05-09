@@ -32,6 +32,12 @@ type Backend interface {
 	BudgetStatus(ctx context.Context, agentID string) (*BudgetSnapshot, error)
 }
 
+// StreamingBackend is implemented by backends that can forward upstream body
+// bytes before the terminal CallResult is available.
+type StreamingBackend interface {
+	StreamCall(ctx context.Context, params CallParams, send func([]byte) error) (*CallResult, error)
+}
+
 // ServiceListing is one entry in the ListServices response. The
 // description, tier, and hint fields are passed through to the LLM's
 // tool list; the price field lets the agent reason about cost vs

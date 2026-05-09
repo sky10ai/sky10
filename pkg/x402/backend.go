@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -118,6 +119,15 @@ type CallResult struct {
 	Receipt *Receipt
 }
 
+// StreamCallResult is the output of Backend.StreamCall. Caller owns Body and
+// must close it.
+type StreamCallResult struct {
+	Status  int
+	Headers map[string]string
+	Body    io.ReadCloser
+	Receipt *Receipt
+}
+
 // Call performs one approved x402 service invocation. The flow:
 //
 //  1. Verify the agent has approved this service.
@@ -132,6 +142,26 @@ type CallResult struct {
 // ErrPriceQuoteTooHigh, ErrPaymentNotAccepted, or
 // ErrSignerNotConfigured for the corresponding failure modes.
 func (b *Backend) Call(ctx context.Context, params CallParams) (*CallResult, error) {
+	stream, err := b.StreamCall(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	defer stream.Body.Close()
+	body, err := io.ReadAll(stream.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	return &CallResult{
+		Status:  stream.Status,
+		Headers: stream.Headers,
+		Body:    body,
+		Receipt: stream.Receipt,
+	}, nil
+}
+
+// StreamCall performs one approved x402 service invocation and returns the
+// upstream response body as an open stream. The caller must close the body.
+func (b *Backend) StreamCall(ctx context.Context, params CallParams) (*StreamCallResult, error) {
 	if strings.TrimSpace(params.AgentID) == "" {
 		return nil, errors.New("agentID required")
 	}
@@ -187,7 +217,7 @@ func (b *Backend) Call(ctx context.Context, params CallParams) (*CallResult, err
 		})
 	}
 
-	resp, err := b.transport.Call(ctx, CallRequest{
+	resp, err := b.transport.Stream(ctx, CallRequest{
 		Method:         params.Method,
 		URL:            target,
 		Headers:        headers,
@@ -198,7 +228,7 @@ func (b *Backend) Call(ctx context.Context, params CallParams) (*CallResult, err
 		return nil, err
 	}
 
-	out := &CallResult{
+	out := &StreamCallResult{
 		Status:  resp.Status,
 		Headers: resp.Headers,
 		Body:    resp.Body,
@@ -221,6 +251,7 @@ func (b *Backend) Call(ctx context.Context, params CallParams) (*CallResult, err
 		receipt.AmountUSDC = manifest.MaxPriceUSDC
 	}
 	if err := b.budget.Charge(receipt); err != nil {
+		_ = resp.Body.Close()
 		return nil, fmt.Errorf("recording receipt: %w", err)
 	}
 	out.Receipt = &receipt

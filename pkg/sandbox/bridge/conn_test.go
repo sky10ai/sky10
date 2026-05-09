@@ -90,6 +90,69 @@ func TestConnReturnsHandlerError(t *testing.T) {
 	}
 }
 
+func TestConnStreamRoundTrip(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := AcceptStream(w, r, func(_ context.Context, req Request, send StreamSender) (json.RawMessage, error) {
+			if req.Type != "stream.echo" {
+				t.Errorf("request type = %q, want stream.echo", req.Type)
+			}
+			if err := send(json.RawMessage(`{"delta":"hel"}`)); err != nil {
+				return nil, err
+			}
+			if err := send(json.RawMessage(`{"delta":"lo"}`)); err != nil {
+				return nil, err
+			}
+			return json.RawMessage(`{"done":true}`), nil
+		})
+		if err != nil {
+			return
+		}
+		defer conn.Close(websocket.StatusNormalClosure, "")
+		_ = conn.Run(r.Context())
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, resp, err := Dial(ctx, "ws"+srv.URL[len("http"):], nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+	go func() { _ = conn.Run(ctx) }()
+
+	var got string
+	raw, err := conn.Stream(ctx, "stream.echo", nil, func(payload json.RawMessage) error {
+		var chunk struct {
+			Delta string `json:"delta"`
+		}
+		if err := json.Unmarshal(payload, &chunk); err != nil {
+			return err
+		}
+		got += chunk.Delta
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if got != "hello" {
+		t.Fatalf("streamed = %q, want hello", got)
+	}
+	var done struct {
+		Done bool `json:"done"`
+	}
+	if err := json.Unmarshal(raw, &done); err != nil {
+		t.Fatalf("decode terminal payload: %v", err)
+	}
+	if !done.Done {
+		t.Fatalf("terminal payload = %s", raw)
+	}
+}
+
 func TestConnCallContextCancelRemovesPending(t *testing.T) {
 	t.Parallel()
 	block := make(chan struct{})

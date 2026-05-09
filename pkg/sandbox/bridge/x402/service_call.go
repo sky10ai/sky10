@@ -31,6 +31,10 @@ type serviceCallParams struct {
 	PaymentNonce string            `json:"payment_nonce"`
 }
 
+type serviceCallStreamChunk struct {
+	Data []byte `json:"data,omitempty"`
+}
+
 func (h *handlers) handleServiceCall(ctx context.Context, env bridge.Envelope) (json.RawMessage, error) {
 	params, err := parseServiceCallParams(env.Payload)
 	if err != nil {

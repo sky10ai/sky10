@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -124,6 +125,43 @@ func (b llmMeteredServiceBackend) CallMeteredService(ctx context.Context, params
 		MaxPriceUSDC: params.MaxPriceUSDC,
 		PaymentNonce: params.PaymentNonce,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return &skyllm.MeteredServiceCallResult{
+		Status:  result.Status,
+		Headers: result.Headers,
+		Body:    []byte(result.Body),
+	}, nil
+}
+
+func (b llmMeteredServiceBackend) StreamMeteredService(ctx context.Context, params skyllm.MeteredServiceCallParams, send func([]byte) error) (*skyllm.MeteredServiceCallResult, error) {
+	if b.backend == nil {
+		return nil, errors.New("metered-services backend is not configured")
+	}
+	streaming, ok := b.backend.(bridgex402.StreamingBackend)
+	if !ok {
+		result, err := b.CallMeteredService(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		if len(result.Body) > 0 && send != nil {
+			if err := send(result.Body); err != nil {
+				return nil, err
+			}
+		}
+		return result, nil
+	}
+	result, err := streaming.StreamCall(ctx, bridgex402.CallParams{
+		AgentID:      params.AgentID,
+		ServiceID:    params.ServiceID,
+		Path:         params.Path,
+		Method:       params.Method,
+		Headers:      params.Headers,
+		Body:         params.Body,
+		MaxPriceUSDC: params.MaxPriceUSDC,
+		PaymentNonce: params.PaymentNonce,
+	}, send)
 	if err != nil {
 		return nil, err
 	}
@@ -455,6 +493,64 @@ func (a *x402Adapter) Call(ctx context.Context, params bridgex402.CallParams) (*
 		// clear which service the user paid for and which agent
 		// initiated the call. Goes to the daemon's structured log
 		// alongside other access events.
+		a.logger.Info("x402 charge",
+			"agent_id", params.AgentID,
+			"service_id", params.ServiceID,
+			"path", params.Path,
+			"amount_usdc", result.Receipt.AmountUSDC,
+			"network", string(result.Receipt.Network),
+			"tx", result.Receipt.Tx,
+		)
+	}
+	return out, nil
+}
+
+// StreamCall satisfies bridgex402.StreamingBackend.
+func (a *x402Adapter) StreamCall(ctx context.Context, params bridgex402.CallParams, send func([]byte) error) (*bridgex402.CallResult, error) {
+	if err := a.ensureBudget(params.AgentID); err != nil {
+		return nil, err
+	}
+	result, err := a.backend.StreamCall(ctx, x402.CallParams{
+		AgentID:      params.AgentID,
+		ServiceID:    params.ServiceID,
+		Path:         params.Path,
+		Method:       params.Method,
+		Headers:      params.Headers,
+		Body:         []byte(params.Body),
+		MaxPriceUSDC: params.MaxPriceUSDC,
+		PaymentNonce: params.PaymentNonce,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer result.Body.Close()
+	out := &bridgex402.CallResult{
+		Status:  result.Status,
+		Headers: result.Headers,
+	}
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := result.Body.Read(buf)
+		if n > 0 && send != nil {
+			chunk := append([]byte(nil), buf[:n]...)
+			if err := send(chunk); err != nil {
+				return nil, err
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return nil, fmt.Errorf("read x402 stream: %w", readErr)
+		}
+	}
+	if result.Receipt != nil {
+		out.Receipt = &bridgex402.Receipt{
+			Tx:         result.Receipt.Tx,
+			Network:    string(result.Receipt.Network),
+			AmountUSDC: result.Receipt.AmountUSDC,
+			SettledAt:  result.Receipt.Ts.UTC().Format(time.RFC3339Nano),
+		}
 		a.logger.Info("x402 charge",
 			"agent_id", params.AgentID,
 			"service_id", params.ServiceID,

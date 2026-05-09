@@ -23,7 +23,7 @@ func NewMeteredServicesBridgeManager(backend bridgex402.Backend, logger *slog.Lo
 			logger,
 			meteredServicesBridgeURL,
 			func(ctx context.Context, rec Record, wsURL string) (*bridge.Conn, *http.Response, error) {
-				return bridge.Dial(ctx, wsURL, bridgex402.NewBridgeHandler(backend, rec.Slug))
+				return bridge.DialStream(ctx, wsURL, bridgex402.NewBridgeStreamHandler(backend, rec.Slug))
 			},
 		),
 	}

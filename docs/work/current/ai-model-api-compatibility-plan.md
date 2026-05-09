@@ -152,8 +152,37 @@ provider layer without turning sky10 into a general-purpose AI gateway.
 - [x] Run `make check`.
 - [x] Run `go test ./... -count=1`.
 
+## Milestone 5: Venice X402 Streaming
+
+Make Venice stream through the same guest-local OpenAI-compatible API while
+keeping payment and wallet access in the host-owned x402 path.
+
+### Implementation Checklist
+
+- [x] Add streaming responses to `pkg/x402.Transport`.
+- [x] Add `StreamCall` beside `Call` in the x402 backend.
+- [x] Forward stream frames over the host/guest sandbox WebSocket bridge.
+- [x] Teach `VeniceAdapter.StreamChatCompletions` to use the x402 streaming
+      path.
+- [x] Keep buffered `Call` behavior working by reading from the stream path.
+- [x] Preserve non-streaming Venice requests as `stream: false` without
+      `stream_options`.
+
+### Validation Checklist
+
+- [x] Unit test bridge request, stream chunks, and terminal response behavior.
+- [x] Unit test Venice streaming through `StreamMeteredService`.
+- [x] Integration test host/guest Venice streaming through the bridge.
+- [x] Live test Venice streaming through the host-owned x402 path.
+- [x] Run focused Go tests for bridge, x402, daemon x402 wiring, and LLM
+      packages.
+- [x] Run `go test ./... -count=1`.
+- [x] Run `make check`.
+
 ## Sequencing
 
 Milestones 1 and 2 make the guest-local endpoint useful. Milestone 3 removes
 routing ambiguity before more providers are added. Milestone 4 keeps provider
-growth manageable without changing the public agent-facing API.
+growth manageable without changing the public agent-facing API. Milestone 5
+turns Venice from a buffered compatibility shim into a real streaming x402
+provider behind the same API surface.

@@ -15,6 +15,7 @@ import (
 const (
 	TypeListServices = "x402.list_services"
 	TypeServiceCall  = "x402.service_call"
+	TypeStreamCall   = "x402.service_call_stream"
 	TypeBudgetStatus = "x402.budget_status"
 
 	ErrCodeHostBridgeDisconnected = "host_bridge_disconnected"
@@ -129,12 +130,56 @@ func (b *ForwardingBackend) Call(ctx context.Context, params CallParams) (*CallR
 	return &result, nil
 }
 
+func (b *ForwardingBackend) StreamCall(ctx context.Context, params CallParams, send func([]byte) error) (*CallResult, error) {
+	raw, err := b.stream(ctx, TypeStreamCall, serviceCallParams{
+		ServiceID:    params.ServiceID,
+		Path:         params.Path,
+		Method:       params.Method,
+		Body:         params.Body,
+		Headers:      params.Headers,
+		MaxPriceUSDC: params.MaxPriceUSDC,
+		PaymentNonce: params.PaymentNonce,
+	}, func(payload json.RawMessage) error {
+		var chunk serviceCallStreamChunk
+		if err := json.Unmarshal(payload, &chunk); err != nil {
+			return err
+		}
+		if len(chunk.Data) == 0 || send == nil {
+			return nil
+		}
+		return send(chunk.Data)
+	})
+	if err != nil {
+		return nil, err
+	}
+	var result CallResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (b *ForwardingBackend) call(ctx context.Context, typ string, payload any) (json.RawMessage, error) {
 	conn := b.activeConn()
 	if conn == nil {
 		return nil, bridge.HandlerError(ErrCodeHostBridgeDisconnected, "metered-services host bridge is not connected")
 	}
 	raw, err := conn.Call(ctx, typ, payload)
+	if err != nil {
+		if errors.Is(err, bridge.ErrClosed) {
+			b.Detach(conn)
+		}
+		return nil, err
+	}
+	return raw, nil
+}
+
+func (b *ForwardingBackend) stream(ctx context.Context, typ string, payload any, onChunk func(json.RawMessage) error) (json.RawMessage, error) {
+	conn := b.activeConn()
+	if conn == nil {
+		return nil, bridge.HandlerError(ErrCodeHostBridgeDisconnected, "metered-services host bridge is not connected")
+	}
+	raw, err := conn.Stream(ctx, typ, payload, onChunk)
 	if err != nil {
 		if errors.Is(err, bridge.ErrClosed) {
 			b.Detach(conn)
@@ -171,6 +216,10 @@ func (b PreferForwardingBackend) Call(ctx context.Context, params CallParams) (*
 	return b.backend().Call(ctx, params)
 }
 
+func (b PreferForwardingBackend) StreamCall(ctx context.Context, params CallParams, send func([]byte) error) (*CallResult, error) {
+	return streamCallViaBackend(ctx, b.backend(), params, send)
+}
+
 func (b PreferForwardingBackend) backend() Backend {
 	if b.Forwarder != nil && b.Forwarder.Connected() {
 		return b.Forwarder
@@ -183,8 +232,18 @@ func (b PreferForwardingBackend) backend() Backend {
 // from the sandbox record or host agent registry; request payload identity is
 // ignored.
 func NewBridgeHandler(backend Backend, agentID string) bridge.Handler {
-	trustedAgentID := strings.TrimSpace(agentID)
+	streamHandler := NewBridgeStreamHandler(backend, agentID)
 	return func(ctx context.Context, req bridge.Request) (json.RawMessage, error) {
+		return streamHandler(ctx, req, nil)
+	}
+}
+
+// NewBridgeStreamHandler returns the host-side handler for requests forwarded
+// over a host-owned sandbox bridge connection, including streaming service
+// calls.
+func NewBridgeStreamHandler(backend Backend, agentID string) bridge.StreamHandler {
+	trustedAgentID := strings.TrimSpace(agentID)
+	return func(ctx context.Context, req bridge.Request, send bridge.StreamSender) (json.RawMessage, error) {
 		if backend == nil {
 			return nil, bridge.HandlerError("backend_unavailable", "metered-services backend is not configured")
 		}
@@ -226,8 +285,55 @@ func NewBridgeHandler(backend Backend, agentID string) bridge.Handler {
 				return nil, err
 			}
 			return json.Marshal(result)
+		case TypeStreamCall:
+			params, err := parseServiceCallParams(req.Payload)
+			if err != nil {
+				return nil, bridge.HandlerError("invalid_payload", err.Error())
+			}
+			if err := validateServiceCallParams(params); err != nil {
+				return nil, bridge.HandlerError("invalid_payload", err.Error())
+			}
+			result, err := streamCallViaBackend(ctx, backend, CallParams{
+				AgentID:      trustedAgentID,
+				ServiceID:    params.ServiceID,
+				Path:         params.Path,
+				Method:       params.Method,
+				Body:         params.Body,
+				Headers:      params.Headers,
+				MaxPriceUSDC: params.MaxPriceUSDC,
+				PaymentNonce: params.PaymentNonce,
+			}, func(data []byte) error {
+				if send == nil {
+					return nil
+				}
+				raw, err := json.Marshal(serviceCallStreamChunk{Data: data})
+				if err != nil {
+					return err
+				}
+				return send(raw)
+			})
+			if err != nil {
+				return nil, err
+			}
+			return json.Marshal(result)
 		default:
 			return nil, bridge.HandlerError("type_unregistered", "unregistered metered-services bridge type")
 		}
 	}
+}
+
+func streamCallViaBackend(ctx context.Context, backend Backend, params CallParams, send func([]byte) error) (*CallResult, error) {
+	if streaming, ok := backend.(StreamingBackend); ok {
+		return streaming.StreamCall(ctx, params, send)
+	}
+	result, err := backend.Call(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	if len(result.Body) > 0 && send != nil {
+		if err := send(result.Body); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
 }
