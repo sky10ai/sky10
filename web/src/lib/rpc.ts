@@ -541,8 +541,13 @@ export interface DebugScreenshotResult {
   key: string;
   metadata_key: string;
   image_key: string;
+  local_path: string;
+  local_metadata_path: string;
+  local_image_path: string;
   content_type: string;
   height: number;
+  s3_error?: string;
+  s3_synced: boolean;
   sha256: string;
   size: number;
   width: number;

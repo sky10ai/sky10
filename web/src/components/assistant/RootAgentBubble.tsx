@@ -187,15 +187,17 @@ export function RootAgentBubble() {
       setStatus("Saving debug screenshot...");
       try {
         const upload = await buildDebugScreenshotUpload(next, context);
-        await skyfs.debugScreenshot(upload);
-        setStatus("Screenshot captured and saved to debug.");
+        const saved = await skyfs.debugScreenshot(upload);
+        if (saved.s3_error) {
+          setStatus("Screenshot captured and saved locally. S3 sync failed.");
+        } else if (saved.s3_synced) {
+          setStatus("Screenshot captured, saved locally, and synced to S3.");
+        } else {
+          setStatus("Screenshot captured and saved locally.");
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Debug upload failed.";
-        if (message.includes("requires S3 storage")) {
-          setStatus("Screenshot captured. Debug upload requires S3.");
-        } else {
-          setStatus(`Screenshot captured. ${message}`);
-        }
+        setStatus(`Screenshot captured. ${message}`);
       }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Screenshot failed.");

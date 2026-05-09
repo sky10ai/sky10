@@ -263,10 +263,12 @@ should use this file directly.
 - Useful RPC methods: `skyfs.deviceList`, `skyfs.debugList`,
   `skyfs.debugGet`, `skyfs.debugDump`, `skyfs.debugScreenshot`,
   `skyfs.s3List`, `skyfs.s3Delete`.
-- `skyfs.debug*` and `skyfs.s3*` require S3-backed storage on the
-  target daemon.
+- `skyfs.debug*` stores and reads local artifacts under the target
+  daemon's `~/.sky10/debug/` directory, and mirrors to S3 when storage
+  is configured.
 - `skyfs.debugScreenshot` stores browser-captured PNGs plus page
-  context; `skyfs.debugGet` returns base64 for the PNG key.
+  context; `skyfs.debugGet` returns base64 for PNG keys.
+- `skyfs.s3*` requires S3-backed storage on the target daemon.
 - Prefer a fresh debug dump over stale ones.
 - If your agent can use Claude skills, `/debug-remote` captures the
   preferred dump-based workflow.

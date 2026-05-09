@@ -10,11 +10,13 @@ import (
 	"io"
 	"mime"
 	"os"
+	slashpath "path"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/sky10/sky10/pkg/config"
 	"github.com/sky10/sky10/pkg/fs/opslog"
 )
 
@@ -32,15 +34,139 @@ type debugScreenshotParams struct {
 }
 
 type debugScreenshotResult struct {
-	Status      string `json:"status"`
-	Key         string `json:"key"`
-	MetadataKey string `json:"metadata_key"`
-	ImageKey    string `json:"image_key"`
-	ContentType string `json:"content_type"`
-	Height      int    `json:"height"`
-	SHA256      string `json:"sha256"`
-	Size        int64  `json:"size"`
-	Width       int    `json:"width"`
+	Status            string `json:"status"`
+	Key               string `json:"key"`
+	MetadataKey       string `json:"metadata_key"`
+	ImageKey          string `json:"image_key"`
+	LocalPath         string `json:"local_path"`
+	LocalMetadataPath string `json:"local_metadata_path"`
+	LocalImagePath    string `json:"local_image_path"`
+	ContentType       string `json:"content_type"`
+	Height            int    `json:"height"`
+	S3Error           string `json:"s3_error,omitempty"`
+	S3Synced          bool   `json:"s3_synced"`
+	SHA256            string `json:"sha256"`
+	Size              int64  `json:"size"`
+	Width             int    `json:"width"`
+}
+
+func debugRootDir() (string, error) {
+	root, err := config.RootDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "debug"), nil
+}
+
+func debugRemoteKey(rel string) string {
+	return "debug/" + strings.TrimPrefix(slashpath.Clean(rel), "/")
+}
+
+func debugRelativePath(key string) (string, error) {
+	key = strings.TrimSpace(strings.TrimPrefix(key, "/"))
+	key = strings.TrimPrefix(key, "debug/")
+	if key == "" {
+		return "", fmt.Errorf("key is required")
+	}
+	rel := slashpath.Clean(key)
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, "../") || slashpath.IsAbs(rel) {
+		return "", fmt.Errorf("invalid debug key %q", key)
+	}
+	return rel, nil
+}
+
+func debugLocalPath(key string) (string, error) {
+	rel, err := debugRelativePath(key)
+	if err != nil {
+		return "", err
+	}
+	root, err := debugRootDir()
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(root, filepath.FromSlash(rel))
+	cleanRoot := filepath.Clean(root)
+	cleanPath := filepath.Clean(path)
+	if cleanPath != cleanRoot && !strings.HasPrefix(cleanPath, cleanRoot+string(os.PathSeparator)) {
+		return "", fmt.Errorf("invalid debug key %q", key)
+	}
+	return cleanPath, nil
+}
+
+func writeLocalDebugFile(key string, data []byte) (string, error) {
+	path, err := debugLocalPath(key)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return "", fmt.Errorf("creating debug directory: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return "", fmt.Errorf("writing debug artifact: %w", err)
+	}
+	return path, nil
+}
+
+func readLocalDebugFile(key string) ([]byte, string, bool, error) {
+	path, err := debugLocalPath(key)
+	if err != nil {
+		return nil, "", false, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, path, false, nil
+		}
+		return nil, path, false, fmt.Errorf("reading debug artifact: %w", err)
+	}
+	return data, path, true, nil
+}
+
+func listLocalDebugKeys() ([]string, string, error) {
+	root, err := debugRootDir()
+	if err != nil {
+		return nil, "", err
+	}
+	if _, err := os.Stat(root); err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, root, nil
+		}
+		return nil, root, fmt.Errorf("stat debug directory: %w", err)
+	}
+
+	var keys []string
+	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		keys = append(keys, debugRemoteKey(filepath.ToSlash(rel)))
+		return nil
+	}); err != nil {
+		return nil, root, fmt.Errorf("listing debug directory: %w", err)
+	}
+	sort.Strings(keys)
+	return keys, root, nil
+}
+
+func mergeDebugKeys(primary, secondary []string) []string {
+	seen := make(map[string]bool, len(primary)+len(secondary))
+	keys := make([]string, 0, len(primary)+len(secondary))
+	for _, key := range append(primary, secondary...) {
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func (s *FSHandler) rpcDebugDump(ctx context.Context) (interface{}, error) {
@@ -107,36 +233,43 @@ func (s *FSHandler) rpcDebugDump(ctx context.Context) (interface{}, error) {
 	}
 	dump["drives"] = driveDumps
 
-	// S3 calls with short timeouts — each one independent
-	s3ctx, s3cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer s3cancel()
+	dump["remote_storage_configured"] = s.store.backend != nil
+	if s.store.backend != nil {
+		// S3 calls with short timeouts — each one independent
+		s3ctx, s3cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer s3cancel()
 
-	if keys, err := s.store.backend.List(s3ctx, "ops/"); err == nil {
-		dump["remote_ops_count"] = len(keys)
-		if len(keys) > 20 {
-			keys = keys[len(keys)-20:]
+		if keys, err := s.store.backend.List(s3ctx, "ops/"); err == nil {
+			dump["remote_ops_count"] = len(keys)
+			if len(keys) > 20 {
+				keys = keys[len(keys)-20:]
+			}
+			dump["remote_ops_recent"] = keys
+		} else {
+			dump["remote_ops_error"] = err.Error()
 		}
-		dump["remote_ops_recent"] = keys
+
+		s3ctx2, s3cancel2 := context.WithTimeout(ctx, 5*time.Second)
+		defer s3cancel2()
+
+		if devices, err := ListDevices(s3ctx2, s.store.backend); err == nil {
+			dump["devices"] = devices
+		} else {
+			dump["devices_error"] = err.Error()
+		}
+
+		s3ctx3, s3cancel3 := context.WithTimeout(ctx, 5*time.Second)
+		defer s3cancel3()
+
+		if keys, err := s.store.backend.List(s3ctx3, "keys/namespaces/"); err == nil {
+			dump["namespace_keys"] = keys
+		} else {
+			dump["namespace_keys_error"] = err.Error()
+		}
 	} else {
-		dump["remote_ops_error"] = err.Error()
-	}
-
-	s3ctx2, s3cancel2 := context.WithTimeout(ctx, 5*time.Second)
-	defer s3cancel2()
-
-	if devices, err := ListDevices(s3ctx2, s.store.backend); err == nil {
-		dump["devices"] = devices
-	} else {
-		dump["devices_error"] = err.Error()
-	}
-
-	s3ctx3, s3cancel3 := context.WithTimeout(ctx, 5*time.Second)
-	defer s3cancel3()
-
-	if keys, err := s.store.backend.List(s3ctx3, "keys/namespaces/"); err == nil {
-		dump["namespace_keys"] = keys
-	} else {
-		dump["namespace_keys_error"] = err.Error()
+		dump["remote_ops_error"] = "S3 storage is not configured"
+		dump["devices_error"] = "S3 storage is not configured"
+		dump["namespace_keys_error"] = "S3 storage is not configured"
 	}
 
 	// Logs — recent in-memory ring buffer used by skyfs.logs.
@@ -144,27 +277,40 @@ func (s *FSHandler) rpcDebugDump(ctx context.Context) (interface{}, error) {
 	dump["logs"] = logLines
 	dump["logs_raw"] = strings.Join(logLines, "\n")
 
-	// Upload to S3 — no wall-clock timeout. The HTTP client has its own
-	// idle/read timeouts for dead connections. A fixed deadline kills
-	// active uploads that are streaming bytes but happen to be large.
 	data, err := json.MarshalIndent(dump, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("marshaling debug dump: %w", err)
 	}
 
-	key := fmt.Sprintf("debug/%s/%s.json", deviceID, ts)
-	r := strings.NewReader(string(data))
-	if err := s.store.backend.Put(ctx, key, r, int64(len(data))); err != nil {
-		return nil, fmt.Errorf("uploading debug dump: %w", err)
+	key := debugRemoteKey(fmt.Sprintf("%s/%s.json", deviceID, ts))
+	localPath, err := writeLocalDebugFile(key, data)
+	if err != nil {
+		return nil, err
 	}
 
-	s.logger.Info("debug dump uploaded", "key", key, "size", len(data))
+	result := map[string]interface{}{
+		"status":     "saved",
+		"key":        key,
+		"local_path": localPath,
+		"size":       len(data),
+		"s3_synced":  false,
+	}
 
-	return map[string]interface{}{
-		"status": "uploaded",
-		"key":    key,
-		"size":   len(data),
-	}, nil
+	if s.store.backend != nil {
+		// Mirror to S3 when available. Local debug capture remains the source
+		// of truth so a remote upload hiccup does not lose the artifact.
+		if err := s.store.backend.Put(ctx, key, bytes.NewReader(data), int64(len(data))); err != nil {
+			result["s3_error"] = err.Error()
+			s.logger.Warn("debug dump S3 sync failed", "key", key, "error", err)
+		} else {
+			result["s3_synced"] = true
+			s.logger.Info("debug dump synced to S3", "key", key, "size", len(data))
+		}
+	}
+
+	s.logger.Info("debug dump saved", "key", key, "local_path", localPath, "size", len(data))
+
+	return result, nil
 }
 
 func (s *FSHandler) rpcDebugScreenshot(ctx context.Context, params json.RawMessage) (interface{}, error) {
@@ -216,30 +362,38 @@ func (s *FSHandler) rpcDebugScreenshot(ctx context.Context, params json.RawMessa
 	deviceID := shortPubkeyID(deviceAddr)
 	filename := sanitizeDebugScreenshotFilename(p.Filename, capturedAt)
 	keyTS := capturedAt.Format("2006-01-02T15-04-05.000000000Z")
-	baseKey := fmt.Sprintf("debug/%s/%s-ui-screenshot", deviceID, keyTS)
+	baseKey := debugRemoteKey(fmt.Sprintf("%s/%s-ui-screenshot", deviceID, keyTS))
 	imageKey := baseKey + ".png"
 	metadataKey := baseKey + ".json"
 
-	if err := s.store.backend.Put(ctx, imageKey, bytes.NewReader(imageData), int64(len(imageData))); err != nil {
-		return nil, fmt.Errorf("uploading debug screenshot image: %w", err)
+	localImagePath, err := writeLocalDebugFile(imageKey, imageData)
+	if err != nil {
+		return nil, err
+	}
+	localMetadataPath, err := debugLocalPath(metadataKey)
+	if err != nil {
+		return nil, err
 	}
 
 	sum := sha256.Sum256(imageData)
 	sha := fmt.Sprintf("%x", sum[:])
 	metadata := map[string]interface{}{
-		"type":         "ui_screenshot",
-		"timestamp":    capturedAt.Format(time.RFC3339Nano),
-		"device":       hostname,
-		"device_id":    deviceID,
-		"pubkey":       deviceAddr,
-		"version":      s.version,
-		"image_key":    imageKey,
-		"metadata_key": metadataKey,
+		"type":                "ui_screenshot",
+		"timestamp":           capturedAt.Format(time.RFC3339Nano),
+		"device":              hostname,
+		"device_id":           deviceID,
+		"pubkey":              deviceAddr,
+		"version":             s.version,
+		"image_key":           imageKey,
+		"metadata_key":        metadataKey,
+		"local_image_path":    localImagePath,
+		"local_metadata_path": localMetadataPath,
 		"screenshot": map[string]interface{}{
 			"content_type": contentType,
 			"filename":     filename,
 			"height":       p.Height,
 			"key":          imageKey,
+			"local_path":   localImagePath,
 			"sha256":       sha,
 			"size_bytes":   len(imageData),
 			"width":        p.Width,
@@ -253,33 +407,70 @@ func (s *FSHandler) rpcDebugScreenshot(ctx context.Context, params json.RawMessa
 	if err != nil {
 		return nil, fmt.Errorf("marshaling debug screenshot metadata: %w", err)
 	}
-	if err := s.store.backend.Put(ctx, metadataKey, bytes.NewReader(metadataData), int64(len(metadataData))); err != nil {
-		return nil, fmt.Errorf("uploading debug screenshot metadata: %w", err)
+	localMetadataPath, err = writeLocalDebugFile(metadataKey, metadataData)
+	if err != nil {
+		return nil, err
 	}
 
-	s.logger.Info("debug screenshot uploaded", "key", metadataKey, "image_key", imageKey, "size", len(imageData))
+	s3Synced := false
+	var s3Err string
+	if s.store.backend != nil {
+		if err := s.store.backend.Put(ctx, imageKey, bytes.NewReader(imageData), int64(len(imageData))); err != nil {
+			s3Err = err.Error()
+		} else if err := s.store.backend.Put(ctx, metadataKey, bytes.NewReader(metadataData), int64(len(metadataData))); err != nil {
+			s3Err = err.Error()
+		} else {
+			s3Synced = true
+		}
+		if s3Err != "" {
+			s.logger.Warn("debug screenshot S3 sync failed", "key", metadataKey, "image_key", imageKey, "error", s3Err)
+		}
+	}
+
+	s.logger.Info("debug screenshot saved", "key", metadataKey, "image_key", imageKey, "local_path", localMetadataPath, "size", len(imageData))
 
 	return debugScreenshotResult{
-		Status:      "uploaded",
-		Key:         metadataKey,
-		MetadataKey: metadataKey,
-		ImageKey:    imageKey,
-		ContentType: contentType,
-		Height:      p.Height,
-		SHA256:      sha,
-		Size:        int64(len(imageData)),
-		Width:       p.Width,
+		Status:            "saved",
+		Key:               metadataKey,
+		MetadataKey:       metadataKey,
+		ImageKey:          imageKey,
+		LocalPath:         localMetadataPath,
+		LocalMetadataPath: localMetadataPath,
+		LocalImagePath:    localImagePath,
+		ContentType:       contentType,
+		Height:            p.Height,
+		S3Error:           s3Err,
+		S3Synced:          s3Synced,
+		SHA256:            sha,
+		Size:              int64(len(imageData)),
+		Width:             p.Width,
 	}, nil
 }
 
 func (s *FSHandler) rpcDebugList(ctx context.Context) (interface{}, error) {
-	listCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	keys, err := s.store.backend.List(listCtx, "debug/")
+	localKeys, localRoot, err := listLocalDebugKeys()
 	if err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{"keys": keys}, nil
+	remoteKeys := []string{}
+	result := map[string]interface{}{
+		"keys":       localKeys,
+		"local_keys": localKeys,
+		"local_root": localRoot,
+	}
+	if s.store.backend != nil {
+		listCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		keys, err := s.store.backend.List(listCtx, "debug/")
+		if err != nil {
+			result["s3_error"] = err.Error()
+		} else {
+			remoteKeys = keys
+			result["remote_keys"] = remoteKeys
+			result["keys"] = mergeDebugKeys(localKeys, remoteKeys)
+		}
+	}
+	return result, nil
 }
 
 func (s *FSHandler) rpcDebugGet(ctx context.Context, params json.RawMessage) (interface{}, error) {
@@ -289,27 +480,43 @@ func (s *FSHandler) rpcDebugGet(ctx context.Context, params json.RawMessage) (in
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
-	getCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	rc, err := s.store.backend.Get(getCtx, p.Key)
+	data, localPath, found, err := readLocalDebugFile(p.Key)
 	if err != nil {
 		return nil, err
 	}
-	defer rc.Close()
-	data, err := io.ReadAll(rc)
-	if err != nil {
-		return nil, err
+	source := "local"
+	if !found {
+		if s.store.backend == nil {
+			return nil, fmt.Errorf("debug artifact not found: %s", p.Key)
+		}
+		getCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		rc, err := s.store.backend.Get(getCtx, p.Key)
+		if err != nil {
+			return nil, err
+		}
+		defer rc.Close()
+		data, err = io.ReadAll(rc)
+		if err != nil {
+			return nil, err
+		}
+		source = "s3"
 	}
 	var parsed interface{}
 	if err := json.Unmarshal(data, &parsed); err == nil {
 		return parsed, nil
 	}
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"key":          p.Key,
 		"content_type": debugContentTypeForKey(p.Key),
 		"data_base64":  base64.StdEncoding.EncodeToString(data),
 		"size":         len(data),
-	}, nil
+		"source":       source,
+	}
+	if found {
+		result["local_path"] = localPath
+	}
+	return result, nil
 }
 
 func decodeDebugScreenshotData(value string) ([]byte, error) {

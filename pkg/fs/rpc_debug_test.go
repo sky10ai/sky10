@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 )
 
 func TestRPCDebugScreenshotUploadsImageAndContext(t *testing.T) {
+	t.Setenv("SKY10_HOME", t.TempDir())
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
@@ -47,14 +49,27 @@ func TestRPCDebugScreenshotUploadsImageAndContext(t *testing.T) {
 		t.Fatal("debugScreenshot handled = false, want true")
 	}
 	result := raw.(debugScreenshotResult)
-	if result.Status != "uploaded" {
-		t.Fatalf("status = %q, want uploaded", result.Status)
+	if result.Status != "saved" {
+		t.Fatalf("status = %q, want saved", result.Status)
 	}
 	if result.Key == "" || result.MetadataKey == "" || result.ImageKey == "" {
 		t.Fatalf("result missing keys: %#v", result)
 	}
+	if !result.S3Synced || result.S3Error != "" {
+		t.Fatalf("S3 sync = %t, error = %q; want synced without error", result.S3Synced, result.S3Error)
+	}
+	if result.LocalImagePath == "" || result.LocalMetadataPath == "" {
+		t.Fatalf("result missing local paths: %#v", result)
+	}
 	if result.Size != int64(len(image)) {
 		t.Fatalf("size = %d, want %d", result.Size, len(image))
+	}
+	localImage, err := os.ReadFile(result.LocalImagePath)
+	if err != nil {
+		t.Fatalf("read local screenshot image: %v", err)
+	}
+	if !bytes.Equal(localImage, image) {
+		t.Fatalf("local image = %v, want %v", localImage, image)
 	}
 
 	rc, err := backend.Get(context.Background(), result.ImageKey)
@@ -101,7 +116,116 @@ func TestRPCDebugScreenshotUploadsImageAndContext(t *testing.T) {
 	}
 }
 
+func TestRPCDebugScreenshotSavesLocallyWithoutStorage(t *testing.T) {
+	t.Setenv("SKY10_HOME", t.TempDir())
+	id, _ := GenerateDeviceKey()
+	store := New(nil, id)
+	server := skyrpc.NewServer(filepath.Join(t.TempDir(), "test.sock"), "test-version", nil)
+	handler := NewFSHandler(store, server, filepath.Join(t.TempDir(), "drives.json"), nil, nil)
+
+	image := []byte{0x89, 'P', 'N', 'G'}
+	params, err := json.Marshal(map[string]interface{}{
+		"captured_at":  "2026-05-09T12:00:00Z",
+		"content_type": "image/png",
+		"data_base64":  base64.StdEncoding.EncodeToString(image),
+		"filename":     "screen.png",
+		"height":       720,
+		"page_context": map[string]interface{}{"route": "/settings"},
+		"size_bytes":   len(image),
+		"width":        1280,
+	})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+
+	raw, err, handled := handler.Dispatch(context.Background(), "skyfs.debugScreenshot", params)
+	if err != nil {
+		t.Fatalf("debugScreenshot without storage: %v", err)
+	}
+	if !handled {
+		t.Fatal("debugScreenshot handled = false, want true")
+	}
+	result := raw.(debugScreenshotResult)
+	if result.S3Synced {
+		t.Fatal("S3Synced = true without storage, want false")
+	}
+	if result.LocalImagePath == "" {
+		t.Fatalf("missing local image path: %#v", result)
+	}
+
+	listRaw, err, handled := handler.Dispatch(context.Background(), "skyfs.debugList", nil)
+	if err != nil {
+		t.Fatalf("debugList without storage: %v", err)
+	}
+	if !handled {
+		t.Fatal("debugList handled = false, want true")
+	}
+	listed := listRaw.(map[string]interface{})
+	keys := listed["keys"].([]string)
+	if !containsString(keys, result.ImageKey) || !containsString(keys, result.MetadataKey) {
+		t.Fatalf("keys = %#v, want image %q and metadata %q", keys, result.ImageKey, result.MetadataKey)
+	}
+
+	getParams, err := json.Marshal(map[string]string{"key": result.ImageKey})
+	if err != nil {
+		t.Fatalf("marshal get params: %v", err)
+	}
+	getRaw, err, handled := handler.Dispatch(context.Background(), "skyfs.debugGet", getParams)
+	if err != nil {
+		t.Fatalf("debugGet local screenshot: %v", err)
+	}
+	if !handled {
+		t.Fatal("debugGet handled = false, want true")
+	}
+	got := getRaw.(map[string]interface{})
+	if got["source"] != "local" {
+		t.Fatalf("source = %v, want local", got["source"])
+	}
+	if got["data_base64"] != base64.StdEncoding.EncodeToString(image) {
+		t.Fatalf("data_base64 = %v, want encoded image", got["data_base64"])
+	}
+}
+
+func TestRPCDebugDumpSavesLocallyWithoutStorage(t *testing.T) {
+	t.Setenv("SKY10_HOME", t.TempDir())
+	id, _ := GenerateDeviceKey()
+	store := New(nil, id)
+	server := skyrpc.NewServer(filepath.Join(t.TempDir(), "test.sock"), "test-version", nil)
+	handler := NewFSHandler(store, server, filepath.Join(t.TempDir(), "drives.json"), nil, nil)
+
+	raw, err, handled := handler.Dispatch(context.Background(), "skyfs.debugDump", nil)
+	if err != nil {
+		t.Fatalf("debugDump without storage: %v", err)
+	}
+	if !handled {
+		t.Fatal("debugDump handled = false, want true")
+	}
+	result := raw.(map[string]interface{})
+	if result["status"] != "saved" {
+		t.Fatalf("status = %v, want saved", result["status"])
+	}
+	if result["s3_synced"] != false {
+		t.Fatalf("s3_synced = %v, want false", result["s3_synced"])
+	}
+	localPath, ok := result["local_path"].(string)
+	if !ok || localPath == "" {
+		t.Fatalf("local_path = %v, want non-empty string", result["local_path"])
+	}
+	data, err := os.ReadFile(localPath)
+	if err != nil {
+		t.Fatalf("read local debug dump: %v", err)
+	}
+	var dump map[string]interface{}
+	if err := json.Unmarshal(data, &dump); err != nil {
+		t.Fatalf("unmarshal local debug dump: %v", err)
+	}
+	if dump["remote_storage_configured"] != false {
+		t.Fatalf("remote_storage_configured = %v, want false", dump["remote_storage_configured"])
+	}
+}
+
 func TestRPCDebugGetReturnsBase64ForBinaryObjects(t *testing.T) {
+	t.Setenv("SKY10_HOME", t.TempDir())
 	backend := s3adapter.NewMemory()
 	id, _ := GenerateDeviceKey()
 	store := New(backend, id)
@@ -132,4 +256,16 @@ func TestRPCDebugGetReturnsBase64ForBinaryObjects(t *testing.T) {
 	if result["data_base64"] != base64.StdEncoding.EncodeToString(image) {
 		t.Fatalf("data_base64 = %v, want encoded image", result["data_base64"])
 	}
+	if result["source"] != "s3" {
+		t.Fatalf("source = %v, want s3", result["source"])
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
