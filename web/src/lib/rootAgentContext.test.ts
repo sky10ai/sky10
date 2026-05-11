@@ -10,12 +10,15 @@ import {
 function context(overrides: Partial<RootAgentPageContext> = {}): RootAgentPageContext {
   return {
     area: "agents",
+    browserState: "",
     capturedAt: "2026-05-09T00:00:00.000Z",
     controls: ["Create agent", "Ask AI"],
     heading: "Agents",
     headings: ["Agents", "Create an agent"],
+    html: "<main><h1>Agents</h1></main>",
     pageLabel: "Agents",
     route: "/agents",
+    routeParams: {},
     title: "sky10",
     viewport: "1440x900",
     visibleText: "Agents\nCreate an agent\nNo agents yet.",
@@ -50,6 +53,7 @@ describe("rootAgentContext", () => {
 
     expect(text).toContain("Page: Agents");
     expect(text).toContain("Selected text:\nSelected row");
+    expect(text).toContain("Rendered React HTML:");
     expect(text).toContain("Screenshot captured: sky10-context.png");
   });
 

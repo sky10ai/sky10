@@ -19,12 +19,15 @@ export type RootAgentPageArea =
 
 export interface RootAgentPageContext {
   area: RootAgentPageArea;
+  browserState: string;
   capturedAt: string;
   controls: string[];
   heading: string;
   headings: string[];
+  html: string;
   pageLabel: string;
   route: string;
+  routeParams: Record<string, string>;
   selection?: string;
   title: string;
   viewport: string;
@@ -92,6 +95,14 @@ function compactLines(value: string, maxChars: number) {
   return text.length > maxChars ? `${text.slice(0, maxChars).trim()}...` : text;
 }
 
+function compactHTML(value: string, maxChars: number) {
+  const text = value
+    .replace(/data:([a-z0-9.+/-]+);base64,[^"'\s>]+/gi, "data:$1;base64,[omitted]")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length > maxChars ? `${text.slice(0, maxChars).trim()}...` : text;
+}
+
 function elementText(element: Element) {
   if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
     return element.value || element.placeholder || element.getAttribute("aria-label") || "";
@@ -114,6 +125,43 @@ function routeDescriptor(pathname: string) {
   };
 }
 
+function routeParams(pathname: string): Record<string, string> {
+  const agentsMatch = pathname.match(/^\/agents\/([^/]+)$/);
+  if (agentsMatch) {
+    return { agentId: decodeURIComponent(agentsMatch[1] ?? "") };
+  }
+
+  const sandboxMatch = pathname.match(/^\/(?:settings\/)?sandboxes\/([^/]+)$/);
+  if (sandboxMatch) {
+    return { sandbox: decodeURIComponent(sandboxMatch[1] ?? "") };
+  }
+
+  const driveMatch = pathname.match(/^\/drives\/([^/]+)/);
+  if (driveMatch) {
+    return { drive: decodeURIComponent(driveMatch[1] ?? "") };
+  }
+
+  return {};
+}
+
+function routeBrowserState(pathname: string, params: Record<string, string>) {
+  if (!params.agentId || !/^\/agents\/[^/]+$/.test(pathname)) {
+    return "";
+  }
+
+  const entries: Record<string, string> = {};
+  try {
+    for (const key of [`sky10:chat:${params.agentId}`, `sky10:session:${params.agentId}`]) {
+      const value = localStorage.getItem(key);
+      if (value) entries[key] = value;
+    }
+  } catch {
+    return "";
+  }
+  if (Object.keys(entries).length === 0) return "";
+  return compactHTML(JSON.stringify(entries, null, 2), 24000);
+}
+
 export function describeRootAgentRoute(pathname: string) {
   const descriptor = routeDescriptor(pathname);
   return {
@@ -125,6 +173,7 @@ export function describeRootAgentRoute(pathname: string) {
 export function collectRootAgentPageContext(): RootAgentPageContext {
   const route = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   const descriptor = routeDescriptor(window.location.pathname);
+  const params = routeParams(window.location.pathname);
   const root = document.querySelector("main") ?? document.body;
   const headings = Array.from(root.querySelectorAll("h1, h2"))
     .map((element) => compactWhitespace(elementText(element)))
@@ -136,16 +185,20 @@ export function collectRootAgentPageContext(): RootAgentPageContext {
     .filter(Boolean)
     .slice(0, 18);
   const selectedText = compactLines(window.getSelection()?.toString() ?? "", 1200);
-  const visibleText = compactLines(root.innerText || root.textContent || "", 3600);
+  const visibleText = compactLines(root.innerText || root.textContent || "", 12000);
+  const html = compactHTML(root.outerHTML || "", 60000);
 
   return {
     area: descriptor.area,
+    browserState: routeBrowserState(window.location.pathname, params),
     capturedAt: new Date().toISOString(),
     controls,
     heading: headings[0] ?? descriptor.label,
     headings,
+    html,
     pageLabel: descriptor.label,
     route,
+    routeParams: params,
     selection: selectedText || undefined,
     title: document.title || "sky10",
     viewport: `${window.innerWidth}x${window.innerHeight}`,
@@ -198,7 +251,9 @@ export function rootAgentSuggestionsForContext(context: RootAgentPageContext) {
 export function formatRootAgentContextForPrompt(
   context: RootAgentPageContext,
   screenshot?: RootAgentScreenshotContext | null,
+  options: { includeHTML?: boolean } = {},
 ) {
+  const includeHTML = options.includeHTML ?? true;
   const lines = [
     "Current sky10 UI context:",
     `Page: ${context.pageLabel}`,
@@ -207,10 +262,15 @@ export function formatRootAgentContextForPrompt(
     `Viewport: ${context.viewport}`,
   ];
 
+  if (Object.keys(context.routeParams).length > 0) {
+    lines.push(`Route params:\n${JSON.stringify(context.routeParams, null, 2)}`);
+  }
+  if (context.browserState) lines.push(`Route browser state:\n${context.browserState}`);
   if (context.selection) lines.push(`Selected text:\n${context.selection}`);
   if (context.headings.length > 0) lines.push(`Visible headings:\n${context.headings.join("\n")}`);
   if (context.controls.length > 0) lines.push(`Visible controls:\n${context.controls.join(", ")}`);
   if (context.visibleText) lines.push(`Visible text sample:\n${context.visibleText}`);
+  if (includeHTML && context.html) lines.push(`Rendered React HTML:\n${context.html}`);
   if (screenshot) {
     lines.push(
       `Screenshot captured: ${screenshot.filename} (${screenshot.width}x${screenshot.height}, ${screenshot.sizeBytes} bytes)`,
@@ -257,6 +317,14 @@ export function buildRootAgentTroubleshootingDoc(
 
   if (context.visibleText) {
     lines.push("", "## Visible Page Text", "", context.visibleText);
+  }
+
+  if (context.browserState) {
+    lines.push("", "## Route Browser State", "", context.browserState);
+  }
+
+  if (context.html) {
+    lines.push("", "## Rendered React HTML", "", context.html);
   }
 
   return `${lines.join("\n")}\n`;

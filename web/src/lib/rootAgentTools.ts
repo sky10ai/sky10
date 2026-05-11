@@ -12,6 +12,7 @@ import {
   system,
   wallet,
   type AgentListResult,
+  type AgentJobListResult,
   type AgentSpec,
   type AgentSpecCompileResult,
   type AgentSpecListResult,
@@ -212,6 +213,18 @@ export const rootAgentTools = {
     description: "Read aggregate agent runtime and delivery policy status.",
     inputSchema: emptySchema,
     execute: () => agent.status(),
+  }),
+  agents_listJobs: tool({
+    description: "List recent agent jobs, including work state and delivery metadata.",
+    inputSchema: z.object({
+      agent: z.string().optional().describe("Optional agent ID, name, or seller address."),
+      limit: z.number().int().positive().max(100).optional().describe("Maximum number of jobs."),
+      payment_state: z.string().optional().describe("Optional payment state filter."),
+      role: z.enum(["buyer", "seller"]).optional().describe("Optional local role filter."),
+      tool: z.string().optional().describe("Optional tool or capability filter."),
+      work_state: z.string().optional().describe("Optional work state filter."),
+    }).strict(),
+    execute: (input) => agent.job.list(input),
   }),
   agents_createSpec: approvalRequiredTool({
     description: "Create a reviewable agent spec from a natural-language prompt. This does not provision a runtime or charge money.",
@@ -533,6 +546,7 @@ export const rootAgentToolMetadata = {
   secrets_sync: { policy: "approval_required", risk: "medium", rpcMethods: ["secrets.sync"], title: "Sync secrets" },
   agents_list: { policy: "read_only", risk: "low", rpcMethods: ["agent.list"], title: "List agents" },
   agents_status: { policy: "read_only", risk: "low", rpcMethods: ["agent.status"], title: "Read agent status" },
+  agents_listJobs: { policy: "read_only", risk: "low", rpcMethods: ["agent.job.list"], title: "List agent jobs" },
   agents_createSpec: { policy: "approval_required", risk: "low", rpcMethods: ["agent.spec.create"], title: "Create agent spec" },
   agents_listSpecs: { policy: "read_only", risk: "low", rpcMethods: ["agent.spec.list"], title: "List agent specs" },
   agents_getSpec: { policy: "read_only", risk: "low", rpcMethods: ["agent.spec.get"], title: "Read agent spec" },
@@ -619,6 +633,8 @@ export async function executeRootAgentTool<OUTPUT = unknown>(
 
 export const rootAgentToolRunners = {
   agents_list: () => executeRootAgentTool<AgentListResult>("agents_list", {}),
+  agents_listJobs: (input: { agent?: string; limit?: number; payment_state?: string; role?: "buyer" | "seller"; tool?: string; work_state?: string } = {}) =>
+    executeRootAgentTool<AgentJobListResult>("agents_listJobs", input),
   agents_getSpec: (id: string) =>
     executeRootAgentTool<AgentSpecResult>("agents_getSpec", { id }),
   agents_compileSpec: (id: string) =>

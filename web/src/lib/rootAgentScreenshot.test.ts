@@ -5,12 +5,15 @@ import type { RootAgentPageContext } from "./rootAgentContext";
 function context(overrides: Partial<RootAgentPageContext> = {}): RootAgentPageContext {
   return {
     area: "agents",
+    browserState: "",
     capturedAt: "2026-05-09T00:00:00.000Z",
     controls: ["Create agent"],
     heading: "Agents",
     headings: ["Agents"],
+    html: "<main><h1>Agents</h1></main>",
     pageLabel: "Agents",
     route: "/agents",
+    routeParams: {},
     title: "sky10",
     viewport: "1440x900",
     visibleText: "Agents",

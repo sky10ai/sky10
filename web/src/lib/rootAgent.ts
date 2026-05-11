@@ -6,6 +6,7 @@ import {
   type RootAgentResult,
   recordTool,
   streamParagraphs,
+  summarizeAgentJobs,
   summarizeAgents,
   summarizeDevices,
   summarizeHealth,
@@ -20,7 +21,12 @@ import {
   rootAgentToolRunners,
   type RootAgentToolName,
 } from "./rootAgentTools";
-import { codex } from "./rpc";
+import {
+  codex,
+  type AgentInfo,
+  type AgentJob,
+  type AgentJobListResult,
+} from "./rpc";
 import {
   runAgents,
   runDaemonVersion,
@@ -289,6 +295,154 @@ function splitAnswerParagraphs(text: string) {
   return paragraphs.length > 0 ? paragraphs : [text.trim()];
 }
 
+function activeAgentRouteID(pageContext?: RootAgentPageContext) {
+  const fromParams = pageContext?.routeParams.agentId?.trim();
+  if (fromParams) return fromParams;
+
+  const path = pageContext?.route.split(/[?#]/)[0] ?? "";
+  const match = path.match(/^\/agents\/([^/]+)$/);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1] ?? "");
+  } catch {
+    return match[1] ?? null;
+  }
+}
+
+function promptMentionsQueued(prompt: string) {
+  const value = prompt.toLowerCase();
+  return value.includes("queued") || value.includes("queue");
+}
+
+function shortJobID(jobID: string) {
+  if (jobID.length <= 12) return jobID;
+  return `${jobID.slice(0, 10)}...`;
+}
+
+function formatDelivery(job: AgentJob) {
+  const delivery = job.delivery;
+  if (!delivery) return "delivery: none";
+  const parts = [
+    `status=${delivery.status}`,
+    `policy=${delivery.policy}`,
+  ];
+  if (delivery.scope) parts.push(`scope=${delivery.scope}`);
+  if (delivery.live_transport) parts.push(`live=${delivery.live_transport}`);
+  if (delivery.durable_transport) parts.push(`durable=${delivery.durable_transport}`);
+  if (delivery.mailbox_state) parts.push(`mailbox=${delivery.mailbox_state}`);
+  if (delivery.last_event) parts.push(`last_event=${delivery.last_event}`);
+  if (delivery.last_error) parts.push(`last_error=${delivery.last_error}`);
+  return parts.join(", ");
+}
+
+function formatAgentJobsForPrompt(jobs: AgentJobListResult) {
+  if (jobs.jobs.length === 0) return "No recent jobs for this agent.";
+  return jobs.jobs
+    .slice(0, 10)
+    .map((job) => [
+      `- ${job.job_id}`,
+      `agent=${job.agent_id || job.agent_name || "unknown"}`,
+      `tool=${job.tool}`,
+      `work_state=${job.work_state}`,
+      `payment_state=${job.payment_state}`,
+      `created_at=${job.created_at}`,
+      `updated_at=${job.updated_at}`,
+      job.status_message ? `status_message=${job.status_message}` : "",
+      job.last_error ? `last_error=${job.last_error}` : "",
+      formatDelivery(job),
+    ].filter(Boolean).join("; "))
+    .join("\n");
+}
+
+function findQueuedJob(jobs?: AgentJobListResult) {
+  return jobs?.jobs.find((job) =>
+    job.delivery?.status === "queued" ||
+    job.delivery?.mailbox_state === "queued" ||
+    job.delivery?.mailbox_state === "failed" ||
+    job.delivery?.last_event === "delivery_failed"
+  );
+}
+
+function queuedJobExplanation(
+  prompt: string,
+  currentAgent: AgentInfo | undefined,
+  jobs: AgentJobListResult | undefined,
+) {
+  if (!promptMentionsQueued(prompt)) return null;
+  const job = findQueuedJob(jobs);
+  if (!job) return null;
+
+  const delivery = job.delivery;
+  const transport = delivery?.durable_transport || delivery?.live_transport || "delivery";
+  const reason = delivery?.last_error
+    ? `The recorded delivery failed with \`${delivery.last_error}\`.`
+    : "The recorded delivery fell back to durable delivery and has not been marked delivered.";
+  const currentStatus = currentAgent
+    ? `The agent currently reports \`${currentAgent.status}\` on ${currentAgent.device_name} (${currentAgent.device_id}).`
+    : "I do not see a matching live agent record for this route.";
+
+  return [
+    `The queued label is coming from an older agent job/message record, not from the current page chrome. Job \`${shortJobID(job.job_id)}\` is still \`${job.work_state}\` and its delivery status is \`${delivery?.status ?? "unknown"}\` via ${transport}.`,
+    `${reason} ${currentStatus}`,
+    "So the most likely explanation is stale durable-delivery state: the message was queued when the target device was unreachable, and the later reconnect did not update that existing job/message into a completed state. New messages should route live if the websocket/agent bridge is connected; this queued entry needs retry/reconciliation or clearer stale-state labeling.",
+  ];
+}
+
+async function runModelPageAnswer(
+  prompt: string,
+  hooks: RootAgentHooks,
+  pageContext: RootAgentPageContext | undefined,
+  screenshot: RootAgentScreenshotContext | null | undefined,
+  daemonLines: string[],
+): Promise<RootAgentResult | null> {
+  hooks.onStatus?.("Answering with page and daemon context.");
+  const context = pageContext
+    ? formatRootAgentContextForPrompt(pageContext, screenshot, { includeHTML: true })
+    : "No browser page context was captured.";
+
+  try {
+    const result = await codex.chat({
+      model: "gpt-5.5",
+      reasoning_effort: "low",
+      system_prompt: [
+        "You are RootAgent inside the sky10 web UI.",
+        "Answer the user's specific question using both rendered React page context and live daemon state.",
+        "Prefer concrete causes over generic UI descriptions.",
+        "If the page text and daemon state disagree, say which source each fact came from.",
+        "For agent chat pages, inspect job work_state and delivery metadata before explaining queued, accepted, sent, or completed labels.",
+        "Keep the response concise, direct, and actionable.",
+      ].join("\n"),
+      messages: [
+        {
+          role: "user",
+          content: [
+            `User message: ${prompt}`,
+            "",
+            context,
+            "",
+            "Live daemon state queried for this answer:",
+            daemonLines.join("\n"),
+          ].join("\n"),
+        },
+      ],
+    });
+    const text = result.text.trim();
+    if (!text) return null;
+    const answer = await streamParagraphs(hooks, splitAnswerParagraphs(text));
+    return {
+      answer,
+      followUps: [
+        "Tell me what needs attention here.",
+        "Show the recent agent job delivery records.",
+        "Make a troubleshooting note for this view.",
+      ],
+      status: "complete",
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function runGreetingPrompt(
   hooks: RootAgentHooks,
   pageContext?: RootAgentPageContext,
@@ -483,6 +637,7 @@ async function runNodeDiagnosis(hooks: RootAgentHooks): Promise<RootAgentResult>
 }
 
 async function runPageContextPrompt(
+  prompt: string,
   hooks: RootAgentHooks,
   pageContext?: RootAgentPageContext,
   screenshot?: RootAgentScreenshotContext | null,
@@ -499,6 +654,12 @@ async function runPageContextPrompt(
   );
 
   const routeTrace: string[] = [];
+  const daemonLines: string[] = [
+    `system.health: ${summarizeHealth(health)}`,
+  ];
+  let currentAgent: AgentInfo | undefined;
+  let agentJobs: AgentJobListResult | undefined;
+
   switch (pageContext?.area) {
     case "agents": {
       const agents = await recordTool(
@@ -511,6 +672,37 @@ async function runPageContextPrompt(
         summarizeAgents
       );
       routeTrace.push(`${agents.count} registered agent${agents.count === 1 ? "" : "s"}.`);
+      daemonLines.push(
+        `agent.list: ${agents.agents.map((agentInfo) =>
+          `${agentInfo.id} ${agentInfo.name} status=${agentInfo.status} device=${agentInfo.device_id} sandbox=${agentInfo.sandbox?.status ?? "none"}`
+        ).join("; ") || "no agents"}`
+      );
+
+      const agentRef = activeAgentRouteID(pageContext);
+      if (agentRef) {
+        currentAgent = agents.agents.find((agentInfo) =>
+          agentInfo.id === agentRef || agentInfo.name === agentRef
+        );
+        if (currentAgent) {
+          daemonLines.push(
+            `current agent: id=${currentAgent.id}; name=${currentAgent.name}; status=${currentAgent.status}; device=${currentAgent.device_id}; sandbox=${currentAgent.sandbox?.status ?? "none"}`
+          );
+        } else {
+          daemonLines.push(`current agent: no agent.list match for route ref ${agentRef}`);
+        }
+
+        agentJobs = await recordTool(
+          hooks,
+          "agents.listJobs",
+          "agent.job.list",
+          "List agent jobs",
+          "Reading recent jobs and delivery metadata for the active agent.",
+          () => rootAgentToolRunners.agents_listJobs({ agent: agentRef, limit: 10 }),
+          summarizeAgentJobs
+        );
+        routeTrace.push(`${agentJobs.jobs.length} recent job${agentJobs.jobs.length === 1 ? "" : "s"} for this agent.`);
+        daemonLines.push(`agent.job.list(${agentRef}):\n${formatAgentJobsForPrompt(agentJobs)}`);
+      }
       break;
     }
     case "drives":
@@ -567,6 +759,23 @@ async function runPageContextPrompt(
       break;
     }
   }
+
+  const queuedExplanation = queuedJobExplanation(prompt, currentAgent, agentJobs);
+  if (queuedExplanation) {
+    const answer = await streamParagraphs(hooks, queuedExplanation);
+    return {
+      answer,
+      followUps: [
+        "Show the recent agent job delivery records.",
+        "Tell me whether new messages should route live now.",
+        "Make a troubleshooting note for this view.",
+      ],
+      status: "complete",
+    };
+  }
+
+  const modelResult = await runModelPageAnswer(prompt, hooks, pageContext, screenshot, daemonLines);
+  if (modelResult) return modelResult;
 
   const lines: string[] = [
     pageContext
@@ -802,7 +1011,7 @@ export async function executeRootAgentPrompt(
   options: ExecuteOptions = {}
 ): Promise<RootAgentResult> {
   const contextPrompt = options.pageContext
-    ? formatRootAgentContextForPrompt(options.pageContext, options.screenshot)
+    ? formatRootAgentContextForPrompt(options.pageContext, options.screenshot, { includeHTML: false })
     : "";
   const planningPrompt = contextPrompt ? `${prompt}\n\n${contextPrompt}` : prompt;
   const contextIntent =
@@ -836,7 +1045,7 @@ export async function executeRootAgentPrompt(
     case "greeting":
       return runGreetingPrompt(hooks, options.pageContext);
     case "page_context":
-      return runPageContextPrompt(hooks, options.pageContext, options.screenshot);
+      return runPageContextPrompt(prompt, hooks, options.pageContext, options.screenshot);
     case "agent_create":
       return runAgentCreatePrompt(prompt, hooks, audience);
     case "configuration":

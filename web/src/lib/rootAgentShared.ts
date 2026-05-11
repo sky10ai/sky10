@@ -1,5 +1,6 @@
 import type {
   AgentListResult,
+  AgentJobListResult,
   DeviceListResult,
   HealthResult,
   LinkStatus,
@@ -203,6 +204,31 @@ export function summarizeDevices(result: DeviceListResult) {
 
 export function summarizeAgents(result: AgentListResult) {
   return `${result.count} registered agent${result.count === 1 ? "" : "s"}`;
+}
+
+export function summarizeAgentJobs(result: AgentJobListResult) {
+  if (result.jobs.length === 0) return "no recent jobs";
+
+  const workStates = new Map<string, number>();
+  const deliveryStates = new Map<string, number>();
+  for (const job of result.jobs) {
+    workStates.set(job.work_state, (workStates.get(job.work_state) ?? 0) + 1);
+    if (job.delivery?.status) {
+      deliveryStates.set(job.delivery.status, (deliveryStates.get(job.delivery.status) ?? 0) + 1);
+    }
+  }
+
+  const formatCounts = (counts: Map<string, number>) =>
+    Array.from(counts.entries())
+      .map(([state, count]) => `${count} ${state}`)
+      .join(" · ");
+
+  const notes = [`${result.jobs.length} recent job${result.jobs.length === 1 ? "" : "s"}`];
+  const work = formatCounts(workStates);
+  const delivery = formatCounts(deliveryStates);
+  if (work) notes.push(work);
+  if (delivery) notes.push(`delivery: ${delivery}`);
+  return notes.join(" · ");
 }
 
 export function summarizeSandboxes(result: SandboxListResult) {
