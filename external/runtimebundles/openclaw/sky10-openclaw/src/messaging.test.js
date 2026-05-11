@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   MessagingBridgeError,
+  addMessagingPromptContext,
   contentFromMessage,
+  contentMentionsMessaging,
   createMessagingClient,
   deriveMessagingWsUrl,
   formatMessagingPromptContext,
@@ -141,6 +143,41 @@ test("messaging prompt context advertises helper search/read commands", () => {
   assert.match(text, /search-messages/);
   assert.match(text, /messages/);
   assert.match(text, /attachment refs mounted as guest-local files/);
+});
+
+test("messaging prompt context is added to messaging-related user text", () => {
+  const text = addMessagingPromptContext(
+    "can you send me a telegram message",
+    formatMessagingPromptContext({ helperPath: "/tmp/sky10-messaging.mjs" }),
+  );
+
+  assert.match(text, /sky10\.messaging/);
+  assert.match(text, /node \/tmp\/sky10-messaging\.mjs connections/);
+  assert.match(text, /User message:\ncan you send me a telegram message/);
+});
+
+test("messaging prompt context is not added to unrelated text", () => {
+  assert.equal(addMessagingPromptContext("what is the weather?", "messaging helper"), "what is the weather?");
+  assert.equal(contentMentionsMessaging({ text: "summarize this invoice from my inbox" }), true);
+  assert.equal(contentMentionsMessaging({ text: "summarize this invoice PDF" }), false);
+});
+
+test("messaging prompt context preserves structured content parts", () => {
+  const enriched = addMessagingPromptContext(
+    {
+      parts: [
+        { type: "text", text: "read my email about invoices" },
+        { type: "file", source: { type: "file", path: "/tmp/invoice.pdf" } },
+      ],
+    },
+    "messaging helper",
+  );
+
+  assert.equal(enriched.parts.length, 3);
+  assert.equal(enriched.parts[0].type, "text");
+  assert.match(enriched.text, /messaging helper/);
+  assert.match(enriched.text, /User message:\nread my email about invoices/);
+  assert.equal(enriched.parts[2].source.path, "/tmp/invoice.pdf");
 });
 
 test("contentFromMessage maps telegram file refs to OpenClaw file sources", () => {

@@ -192,6 +192,66 @@ export function formatMessagingPromptContext(context = {}) {
   ].join("\n");
 }
 
+function extractPromptText(content) {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!content || typeof content !== "object") {
+    return "";
+  }
+  const chunks = [];
+  if (typeof content.text === "string") {
+    chunks.push(content.text);
+  }
+  if (Array.isArray(content.parts)) {
+    for (const part of content.parts) {
+      if (part && typeof part === "object" && typeof part.text === "string") {
+        chunks.push(part.text);
+      }
+    }
+  }
+  return chunks.join("\n").trim();
+}
+
+export function contentMentionsMessaging(content) {
+  const text = extractPromptText(content).toLowerCase();
+  const terms = [
+    "email",
+    "e-mail",
+    "inbox",
+    "mailbox",
+    "imap",
+    "smtp",
+    "slack",
+    "telegram",
+    "dm",
+    "direct message",
+    "chat",
+    "conversation",
+    "thread",
+    "voice note",
+  ];
+  return terms.some((term) => text.includes(term));
+}
+
+export function addMessagingPromptContext(content, messagingContext) {
+  const context = String(messagingContext || "").trim();
+  if (!context || !contentMentionsMessaging(content)) {
+    return content;
+  }
+  const prefix = `${context}\n\nUser message:\n`;
+  if (content && typeof content === "object" && !Array.isArray(content)) {
+    const enriched = { ...content };
+    const existingText = typeof content.text === "string" ? content.text : "";
+    enriched.text = prefix + (existingText || extractPromptText(content));
+    if (Array.isArray(content.parts)) {
+      enriched.parts = [{ type: "text", text: enriched.text }, ...content.parts];
+    }
+    return enriched;
+  }
+  return prefix + extractPromptText(content);
+}
+
 export function installMessagingHelper({
   helperPath = DEFAULT_HELPER_PATH,
   wsUrl = "",

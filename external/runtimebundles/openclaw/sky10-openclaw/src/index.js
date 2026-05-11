@@ -18,6 +18,7 @@ import { createChannelReplyPipeline } from "/usr/lib/node_modules/openclaw/dist/
 import { Sky10Client } from "./sky10.js";
 import { buildOutboundChatContent, extractInboundMediaContext } from "./media.js";
 import {
+  addMessagingPromptContext,
   contentFromMessage as messagingContentFromMessage,
   conversationLabel as messagingConversationLabel,
   createMessagingClient,
@@ -864,6 +865,7 @@ async function refreshX402RuntimeContext(log, account, opts = {}) {
 function resolveInboundRouteEnvelope(runtime, cfg, accountId, peer, conversationLabel, rawBody, timestamp, channel = {}) {
   const channelID = channel.id || CHANNEL_ID;
   const channelLabel = channel.label || CHANNEL_LABEL;
+  const bodyForAgent = typeof channel.bodyForAgent === "string" ? channel.bodyForAgent : rawBody;
   const route = runtime.channel.routing.resolveAgentRoute({
     cfg,
     channel: channelID,
@@ -882,7 +884,7 @@ function resolveInboundRouteEnvelope(runtime, cfg, accountId, peer, conversation
     timestamp,
     previousTimestamp,
     envelope,
-    body: rawBody,
+    body: bodyForAgent,
   });
   return { route, storePath, body };
 }
@@ -931,6 +933,9 @@ async function dispatchInbound(log, ctx, account, msg, inbound, handlers = {}, c
   const messageId = resolveMessageId(msg);
   const timestamp = resolveMessageTimestamp(msg);
   const rawBody = inbound.bodyText || "";
+  const bodyForAgent = addMessagingPromptContext(rawBody, formatMessagingPromptContext({
+    helperPath: account.messagingHelperPath || DEFAULT_MESSAGING_HELPER_PATH,
+  }));
   const { route, storePath, body } = resolveInboundRouteEnvelope(
     runtime,
     ctx.cfg,
@@ -939,13 +944,13 @@ async function dispatchInbound(log, ctx, account, msg, inbound, handlers = {}, c
     conversationLabel,
     rawBody,
     timestamp,
-    { id: channelID, label: channelLabel },
+    { id: channelID, label: channelLabel, bodyForAgent },
   );
   const ctxPayload = runtime.channel.reply.finalizeInboundContext({
     Body: body,
-    BodyForAgent: rawBody,
+    BodyForAgent: bodyForAgent,
     RawBody: rawBody,
-    CommandBody: rawBody,
+    CommandBody: bodyForAgent,
     From: `${channelID}:${msg.from}`,
     To: `${channelID}:${state.agentId ?? account.agentName}`,
     SessionKey: route.sessionKey,
