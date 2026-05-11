@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useLocation } from "react-router";
 import { CODEX_EVENT_TYPES, subscribe } from "../../lib/events";
 import { executeRootAgentPrompt } from "../../lib/rootAgent";
@@ -42,6 +42,129 @@ type PendingScreenshotRequest = {
   source?: string;
 };
 
+type RepairMode = "diagnose" | "fix" | "issue";
+type RepairSessionStatus = "blocked" | "ready" | "running";
+type RepairStageStatus = "blocked" | "complete" | "running" | "waiting";
+type RepairStageID =
+  | "context"
+  | "doctor"
+  | "checkout"
+  | "codex"
+  | "validation"
+  | "submit";
+
+interface RepairStage {
+  detail: string;
+  icon: string;
+  id: RepairStageID;
+  status: RepairStageStatus;
+  title: string;
+}
+
+interface RepairEvent {
+  at: string;
+  text: string;
+}
+
+interface RepairSession {
+  changedFiles: string[];
+  events: RepairEvent[];
+  id: string;
+  mode: RepairMode;
+  packetItems: string[];
+  prompt: string;
+  stages: RepairStage[];
+  status: RepairSessionStatus;
+  title: string;
+}
+
+const repairStageTemplates: RepairStage[] = [
+  {
+    detail: "Current screen, route, and attachments",
+    icon: "view_in_ar",
+    id: "context",
+    status: "waiting",
+    title: "Context",
+  },
+  {
+    detail: "Go, Bun, GitHub, and Codex readiness",
+    icon: "health_and_safety",
+    id: "doctor",
+    status: "waiting",
+    title: "Doctor",
+  },
+  {
+    detail: "Managed sky10 source checkout",
+    icon: "source",
+    id: "checkout",
+    status: "waiting",
+    title: "Checkout",
+  },
+  {
+    detail: "Codex coding harness handoff",
+    icon: "terminal",
+    id: "codex",
+    status: "waiting",
+    title: "Codex",
+  },
+  {
+    detail: "Focused checks and diff summary",
+    icon: "fact_check",
+    id: "validation",
+    status: "waiting",
+    title: "Validate",
+  },
+  {
+    detail: "Issue or PR draft for review",
+    icon: "merge_type",
+    id: "submit",
+    status: "waiting",
+    title: "Submit",
+  },
+];
+
+function makeRepairID() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `repair-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function createRepairStages() {
+  return repairStageTemplates.map((stage) => ({ ...stage }));
+}
+
+function repairModeTitle(mode: RepairMode) {
+  if (mode === "fix") return "Try fix";
+  if (mode === "issue") return "Issue draft";
+  return "Diagnose";
+}
+
+function repairStageTone(status: RepairStageStatus) {
+  if (status === "complete") return "live";
+  if (status === "blocked") return "warning";
+  if (status === "running") return "processing";
+  return "neutral";
+}
+
+function repairStatusTone(status: RepairSessionStatus) {
+  if (status === "ready") return "success";
+  if (status === "blocked") return "warning";
+  return "processing";
+}
+
+function repairEventTime() {
+  return new Date().toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+async function repairPause(ms: number) {
+  await new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 function parseScreenshotRequest(data: unknown): PendingScreenshotRequest {
   const payload =
     data && typeof data === "object" ? (data as Record<string, unknown>) : {};
@@ -80,6 +203,8 @@ export function RootAgentBubble() {
   const [captureBusy, setCaptureBusy] = useState(false);
   const [pendingScreenshotRequest, setPendingScreenshotRequest] =
     useState<PendingScreenshotRequest | null>(null);
+  const [repairSession, setRepairSession] = useState<RepairSession | null>(null);
+  const repairToken = useRef(0);
 
   function refreshContext() {
     const next = collectRootAgentPageContext();
@@ -114,6 +239,12 @@ export function RootAgentBubble() {
     });
   }, []);
 
+  useEffect(() => {
+    return () => {
+      repairToken.current += 1;
+    };
+  }, []);
+
   const aiLinked = Boolean(codexStatus?.linked);
   const pendingCodexLogin = Boolean(codexStatus?.pending_login);
   const authLabel = authLabelForStatus(
@@ -127,6 +258,163 @@ export function RootAgentBubble() {
     } catch {
       setStatus("History save failed.");
     }
+  }
+
+  function patchRepairSession(
+    updater: (current: RepairSession) => RepairSession,
+  ) {
+    setRepairSession((current) => (current ? updater(current) : current));
+  }
+
+  function setRepairStage(
+    id: RepairStageID,
+    stageStatus: RepairStageStatus,
+    detail?: string,
+  ) {
+    patchRepairSession((current) => ({
+      ...current,
+      stages: current.stages.map((stage) =>
+        stage.id === id
+          ? {
+              ...stage,
+              detail: detail ?? stage.detail,
+              status: stageStatus,
+            }
+          : stage,
+      ),
+    }));
+  }
+
+  function addRepairEvent(text: string) {
+    patchRepairSession((current) => ({
+      ...current,
+      events: [...current.events, { at: repairEventTime(), text }].slice(-6),
+    }));
+  }
+
+  async function startRepairPreview(mode: RepairMode) {
+    const token = repairToken.current + 1;
+    repairToken.current = token;
+    const context = refreshContext();
+    const repairPrompt =
+      prompt.trim() ||
+      `Investigate the current ${context.pageLabel.toLowerCase()} view.`;
+
+    const packetItems = [
+      context.pageLabel,
+      context.route || "current route",
+      screenshot ? "screenshot attached" : "no screenshot",
+      aiLinked ? `Codex linked via ${authLabel}` : "Codex link needed",
+    ];
+
+    setOpen(true);
+    setStatus("Preparing Codex handoff...");
+    setRepairSession({
+      changedFiles: [],
+      events: [{ at: repairEventTime(), text: "Repair packet opened." }],
+      id: makeRepairID(),
+      mode,
+      packetItems,
+      prompt: repairPrompt,
+      stages: createRepairStages(),
+      status: "running",
+      title: repairModeTitle(mode),
+    });
+
+    const stillCurrent = () => repairToken.current === token;
+    const runStage = async (
+      id: RepairStageID,
+      runningDetail: string,
+      completeDetail: string,
+      eventText: string,
+      delay = 520,
+    ) => {
+      if (!stillCurrent()) return false;
+      setRepairStage(id, "running", runningDetail);
+      setStatus(runningDetail);
+      await repairPause(delay);
+      if (!stillCurrent()) return false;
+      setRepairStage(id, "complete", completeDetail);
+      addRepairEvent(eventText);
+      return true;
+    };
+
+    if (
+      !(await runStage(
+        "context",
+        "Collecting page context...",
+        screenshot ? "Screen context and screenshot ready" : "Screen context ready",
+        screenshot ? "Attached screenshot to repair packet." : "Captured page context.",
+      ))
+    ) {
+      return;
+    }
+
+    if (
+      !(await runStage(
+        "doctor",
+        "Checking local dev readiness...",
+        aiLinked ? "Devkit and Codex checks queued" : "Codex link needs attention",
+        aiLinked ? "ChatGPT-backed Codex is available." : "ChatGPT link required before a real Codex run.",
+        620,
+      ))
+    ) {
+      return;
+    }
+
+    if (
+      !(await runStage(
+        "checkout",
+        "Preparing managed checkout...",
+        "~/.sky10/devkit/repos/sky10",
+        "Selected managed sky10 checkout.",
+        560,
+      ))
+    ) {
+      return;
+    }
+
+    if (
+      !(await runStage(
+        "codex",
+        "Handing off to Codex...",
+        mode === "diagnose" ? "Diagnosis prompt ready" : "Workspace-write prompt ready",
+        mode === "diagnose"
+          ? "Codex would inspect source and logs."
+          : "Codex would edit only the managed checkout.",
+        760,
+      ))
+    ) {
+      return;
+    }
+
+    if (!stillCurrent()) return;
+    setRepairStage("validation", "running", "Planning focused checks...");
+    setStatus("Planning focused checks...");
+    await repairPause(560);
+    if (!stillCurrent()) return;
+    setRepairStage("validation", "complete", "Diff and test summary ready");
+    addRepairEvent("Validation plan staged.");
+
+    if (!stillCurrent()) return;
+    setRepairStage("submit", "running", "Preparing review surface...");
+    await repairPause(420);
+    if (!stillCurrent()) return;
+    setRepairStage(
+      "submit",
+      aiLinked ? "complete" : "blocked",
+      aiLinked ? "Ready for user review" : "Connect ChatGPT to run Codex",
+    );
+    patchRepairSession((current) => ({
+      ...current,
+      changedFiles:
+        mode === "issue"
+          ? ["github issue draft"]
+          : ["pkg/dev/doctor.go", "web/src/components/assistant/RootAgentBubble.tsx"],
+      status: aiLinked ? "ready" : "blocked",
+    }));
+    addRepairEvent(aiLinked ? "Review gate ready." : "Waiting on Codex link.");
+    setStatus(aiLinked ? "Repair preview ready." : "Codex link required.");
   }
 
   async function submitPrompt(nextPrompt: string) {
@@ -288,7 +576,7 @@ export function RootAgentBubble() {
   return (
     <>
       {open && (
-        <aside className="fixed bottom-[5.75rem] left-4 right-4 z-[90] flex max-h-[calc(100vh-7rem)] flex-col overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container-lowest shadow-2xl sm:left-auto sm:right-6 sm:w-[28rem]">
+        <aside className="fixed bottom-[5.75rem] left-4 right-4 z-[90] flex max-h-[calc(100vh-7rem)] flex-col overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container-lowest shadow-2xl sm:left-auto sm:right-6 sm:w-[34rem]">
           <header className="flex items-start justify-between gap-3 border-b border-outline-variant/10 px-4 py-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
@@ -409,6 +697,170 @@ export function RootAgentBubble() {
                 </div>
               </div>
             )}
+
+            <section className="overflow-hidden rounded-xl border border-outline-variant/15 bg-surface">
+              <div className="flex items-start justify-between gap-3 border-b border-outline-variant/10 px-3 py-3">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
+                    <Icon name="build_circle" className="text-xl" />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-on-surface">Repair</p>
+                      <StatusBadge tone={repairSession ? repairStatusTone(repairSession.status) : "neutral"}>
+                        {repairSession ? repairSession.status : "ready"}
+                      </StatusBadge>
+                    </div>
+                    <p className="mt-1 truncate text-xs text-secondary">
+                      {repairSession?.prompt || "RootAgent hands source work to Codex"}
+                    </p>
+                  </div>
+                </div>
+                {repairSession && (
+                  <button
+                    aria-label="Clear repair session"
+                    className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-secondary transition-colors hover:bg-surface-container hover:text-on-surface"
+                    onClick={() => {
+                      repairToken.current += 1;
+                      setRepairSession(null);
+                      setStatus("");
+                    }}
+                    type="button"
+                  >
+                    <Icon name="close" className="text-base" />
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-3 px-3 py-3">
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    ["diagnose", "Diagnose", "troubleshoot"],
+                    ["fix", "Try fix", "terminal"],
+                    ["issue", "Issue", "bug_report"],
+                  ] as const).map(([mode, label, icon]) => (
+                    <button
+                      className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border border-outline-variant/15 px-2 py-2 text-center text-xs font-semibold text-on-surface transition-colors hover:border-primary/30 hover:bg-primary/5 disabled:opacity-60"
+                      disabled={repairSession?.status === "running"}
+                      key={mode}
+                      onClick={() => void startRepairPreview(mode)}
+                      type="button"
+                    >
+                      <Icon name={icon} className="text-lg text-primary" />
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {repairSession && (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {repairSession.stages.map((stage) => (
+                        <div
+                          className="min-h-[5.75rem] rounded-xl border border-outline-variant/10 bg-surface-container-low px-2.5 py-2"
+                          key={stage.id}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <Icon
+                              name={stage.status === "running" ? "progress_activity" : stage.icon}
+                              className={`text-base text-primary ${stage.status === "running" ? "animate-spin" : ""}`}
+                            />
+                            <StatusBadge tone={repairStageTone(stage.status)}>
+                              {stage.status}
+                            </StatusBadge>
+                          </div>
+                          <p className="mt-2 truncate text-xs font-semibold text-on-surface">
+                            {stage.title}
+                          </p>
+                          <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-secondary">
+                            {stage.detail}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5">
+                      {repairSession.packetItems.map((item) => (
+                        <span
+                          className="rounded-full bg-surface-container-high px-2.5 py-1 text-[11px] font-medium text-secondary"
+                          key={item}
+                        >
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+
+                    <div className="rounded-xl border border-outline-variant/10 px-3 py-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs font-semibold text-on-surface">
+                          {repairSession.title}
+                        </p>
+                        <span className="text-[11px] text-secondary">
+                          {repairSession.events[repairSession.events.length - 1]?.at}
+                        </span>
+                      </div>
+                      <div className="mt-2 space-y-1.5">
+                        {repairSession.events.map((event) => (
+                          <div
+                            className="flex items-start gap-2 text-xs leading-5 text-secondary"
+                            key={`${event.at}-${event.text}`}
+                          >
+                            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                            <span>{event.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {repairSession.changedFiles.length > 0 && (
+                      <div className="rounded-xl bg-surface-container-low px-3 py-2">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-secondary">
+                          Review
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {repairSession.changedFiles.map((file) => (
+                            <span
+                              className="rounded-full border border-outline-variant/15 px-2.5 py-1 font-mono text-[11px] text-on-surface"
+                              key={file}
+                            >
+                              {file}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-2 text-xs font-semibold text-on-primary transition-colors hover:bg-primary/90 disabled:opacity-50"
+                        disabled={repairSession.status !== "ready"}
+                        type="button"
+                      >
+                        <Icon name="difference" className="text-sm" />
+                        Diff
+                      </button>
+                      <button
+                        className="inline-flex items-center gap-1.5 rounded-full border border-outline-variant/20 px-3 py-2 text-xs font-semibold text-on-surface transition-colors hover:bg-surface-container disabled:opacity-50"
+                        disabled={repairSession.status !== "ready"}
+                        type="button"
+                      >
+                        <Icon name="draft" className="text-sm" />
+                        Draft
+                      </button>
+                      {!aiLinked && (
+                        <Link
+                          className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 px-3 py-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/5"
+                          to="/settings/codex"
+                        >
+                          <Icon name="link" className="text-sm" />
+                          Connect
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
 
             {screenshot && (
               <div className="relative overflow-hidden rounded-xl border border-outline-variant/10 bg-surface">
