@@ -172,13 +172,17 @@ func (m *Manager) appendLog(slug, stream, line string) {
 
 func (m *Manager) updateStatus(name, status, lastErr string) error {
 	rec, err := m.mutateStoredRecord(name, func(rec *Record) (bool, error) {
+		changed := rec.Status != status || rec.LastError != lastErr
 		rec.Status = status
 		rec.LastError = lastErr
 		if status == "ready" || status == "stopped" {
+			if rec.Progress != nil {
+				changed = true
+			}
 			rec.Progress = nil
 			delete(m.progress, name)
 		}
-		return true, nil
+		return changed, nil
 	})
 	if err != nil {
 		return err
@@ -191,6 +195,9 @@ func (m *Manager) updateStatus(name, status, lastErr string) error {
 
 func (m *Manager) updateVMStatus(name, vmStatus string) error {
 	rec, err := m.mutateStoredRecord(name, func(rec *Record) (bool, error) {
+		if rec.VMStatus == vmStatus {
+			return false, nil
+		}
 		rec.VMStatus = vmStatus
 		return true, nil
 	})

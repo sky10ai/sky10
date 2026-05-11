@@ -270,7 +270,7 @@ func TestSandboxAgentSourceListsManifestToolsBeforeGuestAgentIsReady(t *testing.
 	}
 }
 
-func TestSandboxAgentSourceKeepsLiveRouteWhenListFallsBackToManifest(t *testing.T) {
+func TestSandboxAgentSourceKeepsLiveAgentWhenListFallsBackToManifest(t *testing.T) {
 	failGuestList := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if failGuestList {
@@ -336,11 +336,11 @@ func TestSandboxAgentSourceKeepsLiveRouteWhenListFallsBackToManifest(t *testing.
 	if len(agents) != 1 {
 		t.Fatalf("agents length after fallback = %d, want 1", len(agents))
 	}
-	if agents[0].ID != "aspec_media" {
-		t.Fatalf("agent ID after fallback = %q, want manifest ID aspec_media", agents[0].ID)
+	if agents[0].ID != "A-live" {
+		t.Fatalf("agent ID after fallback = %q, want cached live ID A-live", agents[0].ID)
 	}
-	if len(agents[0].Skills) != 2 {
-		t.Fatalf("skills after fallback = %#v, want manifest-derived two-skill diagnostic", agents[0].Skills)
+	if agents[0].Status != "connected" {
+		t.Fatalf("agent status after fallback = %q, want connected", agents[0].Status)
 	}
 
 	target, ok := source.Resolve(context.Background(), "A-live")

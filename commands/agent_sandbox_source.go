@@ -307,7 +307,13 @@ func (s *sandboxAgentSource) queryAgents(ctx context.Context) ([]skyagent.AgentI
 		launched++
 		go func(rec skysandbox.Record, baseURL string, manifestTargets, routeOnlyTargets []sandboxAgentTarget) {
 			targets, err := s.querySandboxAgents(ctx, rec, baseURL)
-			if err != nil && len(manifestTargets) > 0 {
+			if err != nil && len(routeOnlyTargets) > 0 {
+				targets = routeOnlyTargets
+				if len(manifestTargets) > 0 {
+					targets = enrichSandboxTargetsWithManifest(targets, manifestTargets[0].Agent)
+				}
+				err = nil
+			} else if err != nil && len(manifestTargets) > 0 {
 				targets = manifestTargets
 				err = nil
 			} else if err == nil && len(manifestTargets) > 0 {

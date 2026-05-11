@@ -759,6 +759,48 @@ func TestRunManagedReconnectLoopRetriesAfterLaterGuestRecovery(t *testing.T) {
 	}
 }
 
+func TestSandboxStatusUpdatesSkipUnchangedStateEvents(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	var events []string
+	m, err := NewManager(func(event string, _ interface{}) {
+		events = append(events, event)
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.records["custom-agent"] = Record{
+		Name:      "custom-agent",
+		Slug:      "custom-agent",
+		Provider:  providerLima,
+		Template:  templateOpenClawDocker,
+		Status:    "ready",
+		VMStatus:  "Running",
+		SharedDir: filepath.Join(t.TempDir(), "custom-agent"),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	if err := m.updateVMStatus("custom-agent", "Running"); err != nil {
+		t.Fatalf("updateVMStatus() error: %v", err)
+	}
+	if err := m.updateStatus("custom-agent", "ready", ""); err != nil {
+		t.Fatalf("updateStatus() error: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("events after unchanged status updates = %v, want none", events)
+	}
+
+	if err := m.updateVMStatus("custom-agent", "Stopped"); err != nil {
+		t.Fatalf("updateVMStatus changed() error: %v", err)
+	}
+	if len(events) != 1 || events[0] != "sandbox:state" {
+		t.Fatalf("events after changed status update = %v, want one sandbox:state", events)
+	}
+}
+
 func TestReconnectRunningOpenClawSandboxesDoesNotBlockBehindSlowGuest(t *testing.T) {
 	t.Setenv(config.EnvHome, t.TempDir())
 
