@@ -12,8 +12,8 @@ import (
 
 	messengerbundles "github.com/sky10/sky10/external/messengers"
 	agentmailbox "github.com/sky10/sky10/pkg/agent/mailbox"
-	skyapps "github.com/sky10/sky10/pkg/apps"
 	skyconfig "github.com/sky10/sky10/pkg/config"
+	skydevkit "github.com/sky10/sky10/pkg/devkit"
 	"github.com/sky10/sky10/pkg/kv"
 	"github.com/sky10/sky10/pkg/logging"
 	"github.com/sky10/sky10/pkg/messaging"
@@ -219,7 +219,7 @@ func defaultMessagingRuntimePolicy(policyID messaging.PolicyID) messaging.Policy
 }
 
 func messagingBunPath() string {
-	status, err := skyapps.StatusFor(skyapps.AppBun)
+	status, err := skydevkit.StatusFor(skydevkit.ToolBun)
 	if err == nil && status != nil && strings.TrimSpace(status.ActivePath) != "" {
 		return status.ActivePath
 	}

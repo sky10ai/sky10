@@ -22,8 +22,8 @@ func TestRPCHandler_ListDispatch(t *testing.T) {
 	h := NewRPCHandler(nil)
 	h.list = func() []AppInfo {
 		return []AppInfo{
-			{ID: AppBun, Name: "Bun"},
 			{ID: AppLima, Name: "Lima"},
+			{ID: AppOWS, Name: "Open Wallet Standard"},
 		}
 	}
 
@@ -42,8 +42,8 @@ func TestRPCHandler_ListDispatch(t *testing.T) {
 	if !ok {
 		t.Fatalf("apps.list payload[\"apps\"] has unexpected type %T", payload["apps"])
 	}
-	if len(apps) != 2 || apps[0].ID != AppBun || apps[1].ID != AppLima {
-		t.Fatalf("apps.list apps = %#v, want [bun, lima]", apps)
+	if len(apps) != 2 || apps[0].ID != AppLima || apps[1].ID != AppOWS {
+		t.Fatalf("apps.list apps = %#v, want [lima, ows]", apps)
 	}
 }
 

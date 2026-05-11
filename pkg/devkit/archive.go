@@ -1,4 +1,4 @@
-package apps
+package devkit
 
 import (
 	"archive/tar"
@@ -6,101 +6,10 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 )
-
-func installArchiveRelease(s spec, version string, info *ReleaseInfo, onProgress ProgressFunc) error {
-	dest, err := versionBinaryPath(s, version)
-	if err != nil {
-		return err
-	}
-	versionRoot := filepath.Dir(dest)
-	for filepath.Base(versionRoot) != normalizeVersion(version) {
-		parent := filepath.Dir(versionRoot)
-		if parent == versionRoot {
-			return fmt.Errorf("resolving version directory for %s", s.ID)
-		}
-		versionRoot = parent
-	}
-
-	if err := os.RemoveAll(versionRoot); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("resetting %s version directory: %w", s.ID, err)
-	}
-	if err := os.MkdirAll(versionRoot, 0o755); err != nil {
-		return fmt.Errorf("creating %s version directory: %w", s.ID, err)
-	}
-
-	assetURLs := append([]string{info.AssetURL}, info.ExtraAssetURLs...)
-	for i, assetURL := range assetURLs {
-		if strings.TrimSpace(assetURL) == "" {
-			return fmt.Errorf("missing %s archive URL", s.ID)
-		}
-		progress := onProgress
-		if i > 0 {
-			progress = nil
-		}
-		if err := downloadAndExtractArchive(assetURL, versionRoot, string(s.ID)+"-archive-*", "downloading "+string(s.ID), progress); err != nil {
-			return err
-		}
-	}
-
-	if _, err := os.Stat(dest); err != nil {
-		return fmt.Errorf("%s archive did not produce %q: %w", s.ID, dest, err)
-	}
-	return nil
-}
-
-func downloadAndExtractArchive(url, destDir, pattern, action string, onProgress ProgressFunc) error {
-	resp, err := http.Get(url)
-	if err != nil {
-		return fmt.Errorf("%s: %w", action, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s: returned %d", action, resp.StatusCode)
-	}
-
-	src := io.Reader(resp.Body)
-	if onProgress != nil {
-		src = &progressReader{
-			r:     resp.Body,
-			total: resp.ContentLength,
-			fn:    onProgress,
-		}
-	}
-
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return fmt.Errorf("creating archive destination: %w", err)
-	}
-
-	tmp, err := os.CreateTemp(destDir, pattern)
-	if err != nil {
-		return fmt.Errorf("creating archive temp file: %w", err)
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-
-	if _, err := io.Copy(tmp, src); err != nil {
-		tmp.Close()
-		return fmt.Errorf("writing archive: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("closing archive temp file: %w", err)
-	}
-
-	switch {
-	case strings.HasSuffix(url, ".tar.gz"):
-		return extractTarGz(tmpPath, destDir)
-	case strings.HasSuffix(url, ".zip"):
-		return extractZip(tmpPath, destDir)
-	default:
-		return fmt.Errorf("unsupported archive format for %q", url)
-	}
-}
 
 func extractTarGz(path, destDir string) error {
 	file, err := os.Open(path)
@@ -233,51 +142,4 @@ func secureArchiveTarget(destDir, name string) (string, error) {
 		return "", fmt.Errorf("archive entry %q escapes destination", name)
 	}
 	return target, nil
-}
-
-func limaReleasePlatform(goos, goarch string) (osName, archName, archiveExt string) {
-	switch strings.ToLower(strings.TrimSpace(goos)) {
-	case "darwin":
-		osName = "Darwin"
-		archiveExt = "tar.gz"
-	case "linux":
-		osName = "Linux"
-		archiveExt = "tar.gz"
-	default:
-		return "", "", ""
-	}
-
-	switch strings.ToLower(strings.TrimSpace(goarch)) {
-	case "arm64":
-		if osName == "Linux" {
-			archName = "aarch64"
-		} else {
-			archName = "arm64"
-		}
-	case "amd64":
-		archName = "x86_64"
-	default:
-		return "", "", ""
-	}
-	return osName, archName, archiveExt
-}
-
-func zeroboxReleaseAsset(goos, goarch string) string {
-	switch strings.ToLower(strings.TrimSpace(goos)) {
-	case "darwin":
-		switch strings.ToLower(strings.TrimSpace(goarch)) {
-		case "arm64":
-			return "zerobox-aarch64-apple-darwin.tar.gz"
-		case "amd64":
-			return "zerobox-x86_64-apple-darwin.tar.gz"
-		}
-	case "linux":
-		switch strings.ToLower(strings.TrimSpace(goarch)) {
-		case "arm64":
-			return "zerobox-aarch64-unknown-linux-gnu.tar.gz"
-		case "amd64":
-			return "zerobox-x86_64-unknown-linux-gnu.tar.gz"
-		}
-	}
-	return ""
 }

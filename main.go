@@ -49,6 +49,7 @@ func main() {
 	root.AddCommand(commands.IdCmd())
 	root.AddCommand(commands.UiCmd())
 	root.AddCommand(commands.AppsCmd())
+	root.AddCommand(commands.DevkitCmd())
 	root.AddCommand(commands.UpdateCmd())
 	root.AddCommand(commands.DaemonCmd())
 	root.AddCommand(commands.MessagingCmd())

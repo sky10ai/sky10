@@ -26,8 +26,6 @@ import (
 type ID string
 
 const (
-	// AppBun is the Bun JavaScript runtime used for bundled JS adapters.
-	AppBun ID = "bun"
 	// AppOWS is the Open Wallet Standard CLI.
 	AppOWS ID = "ows"
 	// AppLima is the Lima VM runtime bundle.
@@ -110,25 +108,6 @@ type managedState struct {
 }
 
 var registry = map[ID]spec{
-	AppBun: {
-		ID:              AppBun,
-		Name:            "Bun",
-		Repo:            "oven-sh/bun",
-		Executable:      "bun",
-		EntrySubpathFor: bunEntrySubpath,
-		VersionArgs:     []string{"--version"},
-		InstallKind:     installKindArchive,
-		ReleaseAssets: func(version, goos, goarch string) []releaseAsset {
-			assetBase, _ := bunReleasePlatform(goos, goarch)
-			tag := "bun-" + normalizeVersion(version)
-			if assetBase == "" || tag == "bun-" {
-				return nil
-			}
-			return []releaseAsset{{
-				URL: fmt.Sprintf("https://github.com/oven-sh/bun/releases/download/%s/%s.zip", tag, assetBase),
-			}}
-		},
-	},
 	AppOWS: {
 		ID:          AppOWS,
 		Name:        "Open Wallet Standard",

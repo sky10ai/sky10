@@ -22,6 +22,7 @@ import (
 	skycodex "github.com/sky10/sky10/pkg/codex"
 	"github.com/sky10/sky10/pkg/config"
 	skydevice "github.com/sky10/sky10/pkg/device"
+	skydevkit "github.com/sky10/sky10/pkg/devkit"
 	skyfs "github.com/sky10/sky10/pkg/fs"
 	skyid "github.com/sky10/sky10/pkg/id"
 	skyjoin "github.com/sky10/sky10/pkg/join"
@@ -592,6 +593,7 @@ func ServeCmd() *cobra.Command {
 			// go skyagent.NewHealthChecker(agentRegistry, server.Emit, nil).Run(ctx)
 
 			server.RegisterHandler(skyapps.NewRPCHandler(server.Emit))
+			server.RegisterHandler(skydevkit.NewRPCHandler(server.Emit))
 
 			// Wallet handler — opt-in, only active when ows is installed.
 			walletClient := skywallet.NewClient()
