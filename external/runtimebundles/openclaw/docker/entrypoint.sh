@@ -187,6 +187,14 @@ browser["headless"] = False
 browser["noSandbox"] = True
 browser["ssrfPolicy"] = {"dangerouslyAllowPrivateNetwork": True}
 
+message_tool = config.setdefault("tools", {}).setdefault("message", {})
+message_cross_context = message_tool.setdefault("crossContext", {})
+message_cross_context["allowAcrossProviders"] = True
+message_cross_context["marker"] = {
+    "enabled": True,
+    "prefix": "[from {channel}] ",
+}
+
 plugins = config.setdefault("plugins", {})
 plugins["allow"] = ["sky10", "anthropic", "browser"]
 plugins.setdefault("slots", {})["memory"] = "none"

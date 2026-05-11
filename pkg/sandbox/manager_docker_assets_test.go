@@ -304,6 +304,10 @@ func TestLoadSandboxAssetsLoadsOpenClawRuntimeBundle(t *testing.T) {
 	if !strings.Contains(string(entrypointBody), `plugins.setdefault("slots", {})["memory"] = "none"`) {
 		t.Fatalf("runtime bundle entrypoint should disable bundled memory plugin in managed runtime: %q", string(entrypointBody))
 	}
+	if !strings.Contains(string(entrypointBody), `message_cross_context["allowAcrossProviders"] = True`) ||
+		!strings.Contains(string(entrypointBody), `"prefix": "[from {channel}] "`) {
+		t.Fatalf("runtime bundle entrypoint missing shared message context config: %q", string(entrypointBody))
+	}
 	if !strings.Contains(string(entrypointBody), `OPENCLAW_BUNDLED_PLUGINS_DIR`) {
 		t.Fatalf("runtime bundle entrypoint should use managed bundled OpenClaw plugin tree: %q", string(entrypointBody))
 	}

@@ -953,6 +953,10 @@ func TestBundledOpenClawUserScriptLoadsOpenClawEnvFile(t *testing.T) {
 	if !strings.Contains(string(body), `defaults["workspace"] = "/shared/workspace"`) {
 		t.Fatalf("bundled user script missing shared workspace config: %q", string(body))
 	}
+	if !strings.Contains(string(body), `message_cross_context["allowAcrossProviders"] = True`) ||
+		!strings.Contains(string(body), `"prefix": "[from {channel}] "`) {
+		t.Fatalf("bundled user script missing shared message context config: %q", string(body))
+	}
 	if !strings.Contains(string(body), `sky10_channel["defaultAccount"] = "default"`) {
 		t.Fatalf("bundled user script missing sky10 default account config: %q", string(body))
 	}
