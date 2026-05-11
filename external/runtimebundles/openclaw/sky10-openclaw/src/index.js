@@ -23,6 +23,7 @@ import {
   conversationLabel as messagingConversationLabel,
   createMessagingClient,
   deriveMessagingWsUrl,
+  formatMessagingConversationHistory,
   formatMessagingPromptContext,
   installMessagingHelper,
   messagingPartsFromReplyContent,
@@ -478,6 +479,110 @@ function resolveSky10Account({ cfg, accountId }) {
   };
 }
 
+function normalizeSky10Target(raw) {
+  const value = stringValue(raw);
+  if (!value) {
+    return "";
+  }
+  if (/^sky10:/i.test(value)) {
+    return value.replace(/^sky10:/i, "").trim();
+  }
+  return value;
+}
+
+function isSky10DefaultTarget(raw) {
+  const value = stringValue(raw).toLowerCase();
+  if (!value) {
+    return false;
+  }
+  return ["me", "self", "owner", "default", "local", "sky10:me", "sky10:self", "sky10:owner"].includes(value)
+    || value.startsWith("telegram:")
+    || value.startsWith("slack:")
+    || value.startsWith("imap-smtp:");
+}
+
+function looksLikeSky10TargetID(raw, normalized) {
+  const value = stringValue(normalized || raw);
+  if (!value) {
+    return false;
+  }
+  return isSky10DefaultTarget(raw)
+    || /^D-[a-z0-9]+$/i.test(value)
+    || /^A-[a-z0-9]+$/i.test(value)
+    || /^sky10:/i.test(stringValue(raw));
+}
+
+async function resolveSky10AgentInfo(account) {
+  const client = new Sky10Client(account.rpcUrl);
+  const result = await client.listAgents();
+  const agents = Array.isArray(result?.agents) ? result.agents : [];
+  return agents.find((agent) => stringValue(agent?.name) === account.agentName)
+    ?? agents.find((agent) => stringValue(agent?.id))
+    ?? null;
+}
+
+async function resolveDefaultSky10Target(account) {
+  const agent = await resolveSky10AgentInfo(account);
+  const deviceID = stringValue(agent?.device_id);
+  if (deviceID) {
+    return deviceID;
+  }
+  const agentID = stringValue(agent?.id);
+  if (agentID) {
+    return agentID;
+  }
+  throw new Error("Sky10 default target is unavailable; no local agent device was found");
+}
+
+async function resolveSky10MessagingTarget({ cfg, accountId, input, normalized }) {
+  const account = resolveSky10Account({ cfg, accountId });
+  const raw = stringValue(input);
+  let target = normalizeSky10Target(normalized || raw);
+  if (isSky10DefaultTarget(raw) || isSky10DefaultTarget(target)) {
+    target = await resolveDefaultSky10Target(account);
+  }
+  if (!target) {
+    return null;
+  }
+  if (/^A-/i.test(target)) {
+    const agent = await resolveSky10AgentInfo(account);
+    if (stringValue(agent?.id) === target) {
+      target = await resolveDefaultSky10Target(account);
+    }
+  }
+  return {
+    to: target,
+    kind: "user",
+    display: /^D-/i.test(target) ? "Sky10" : target,
+    source: "normalized",
+  };
+}
+
+function sky10DeviceIDForTarget(target) {
+  const value = stringValue(target);
+  return /^D-[a-z0-9]+$/i.test(value) ? value : "";
+}
+
+async function sendSky10OutboundText({ cfg, accountId, to, text, threadId }) {
+  const account = resolveSky10Account({ cfg, accountId });
+  const target = isSky10DefaultTarget(to) ? await resolveDefaultSky10Target(account) : normalizeSky10Target(to);
+  if (!target) {
+    throw new Error("Sky10 outbound requires a target");
+  }
+  const sessionID = stringValue(threadId) || "main";
+  const client = new Sky10Client(account.rpcUrl);
+  const result = await client.sendContent(
+    target,
+    sessionID,
+    { text },
+    sky10DeviceIDForTarget(target),
+    "text",
+  );
+  return {
+    messageId: stringValue(result?.id) || `${target}:${sessionID}:${Date.now()}`,
+  };
+}
+
 function resolveMessagingAccount({ cfg, accountId, channelID }) {
   const section = resolveMessagingChannelSection(cfg, channelID);
   const resolvedAccountId = normalizeAccountId(accountId);
@@ -889,6 +994,21 @@ function resolveInboundRouteEnvelope(runtime, cfg, accountId, peer, conversation
   return { route, storePath, body };
 }
 
+function prependAgentPromptContext(body, context) {
+  const normalizedContext = stringValue(context);
+  if (!normalizedContext) {
+    return body;
+  }
+  return `${normalizedContext}\n\nCurrent user message:\n${body}`;
+}
+
+function messagingAgentPromptContext(historyContext) {
+  return [
+    historyContext,
+    "If the user asks you to message them on Sky10 from this conversation, use the OpenClaw message tool with channel \"sky10\" and target \"me\".",
+  ].map(stringValue).filter(Boolean).join("\n\n");
+}
+
 function startHeartbeat(log, account, setStatus, abortSignal) {
   const tick = async () => {
     const state = getBridgeState();
@@ -933,9 +1053,9 @@ async function dispatchInbound(log, ctx, account, msg, inbound, handlers = {}, c
   const messageId = resolveMessageId(msg);
   const timestamp = resolveMessageTimestamp(msg);
   const rawBody = inbound.bodyText || "";
-  const bodyForAgent = addMessagingPromptContext(rawBody, formatMessagingPromptContext({
+  const bodyForAgent = prependAgentPromptContext(addMessagingPromptContext(rawBody, formatMessagingPromptContext({
     helperPath: account.messagingHelperPath || DEFAULT_MESSAGING_HELPER_PATH,
-  }));
+  })), channel.promptContext);
   const { route, storePath, body } = resolveInboundRouteEnvelope(
     runtime,
     ctx.cfg,
@@ -1421,6 +1541,11 @@ async function dispatchMessagingEvent(log, ctx, account, client, connection, eve
   const content = messagingContentFromMessage(message);
   const sessionID = messagingSessionID(connectionID, conversationID);
   const inbound = extractInboundMediaContext(content, sessionID);
+  const promptContext = messagingAgentPromptContext(formatMessagingConversationHistory({
+    messages: messagesResult?.messages,
+    currentMessageID: messageID,
+    channelLabel: channelDef.label,
+  }));
   const sender = messagingSenderLabel(message);
   const conversationTitle = messagingConversationLabel(conversation, message);
   const label = sender && sender !== conversationTitle
@@ -1480,7 +1605,7 @@ async function dispatchMessagingEvent(log, ctx, account, client, connection, eve
       }
       log.info(`${channelDef.id}: reply sent (${draftID})`);
     },
-  }, { id: channelDef.id, label: channelDef.label });
+  }, { id: channelDef.id, label: channelDef.label, promptContext });
 }
 
 async function pollMessagingConnection(log, ctx, account, client, connection, cursors, conversationCache, channelDef) {
@@ -1607,6 +1732,16 @@ const sky10ChannelPlugin = createChatChannelPlugin({
     capabilities: {
       chatTypes: ["direct"],
     },
+    messaging: {
+      targetPrefixes: ["sky10"],
+      normalizeTarget: normalizeSky10Target,
+      targetResolver: {
+        looksLikeId: looksLikeSky10TargetID,
+        hint: "<me|device id|agent id>",
+        resolveTarget: resolveSky10MessagingTarget,
+      },
+      formatTargetDisplay: ({ target, display }) => display || target,
+    },
     reload: {
       configPrefixes: ["channels.sky10", "plugins.entries.sky10"],
     },
@@ -1624,6 +1759,17 @@ const sky10ChannelPlugin = createChatChannelPlugin({
       startAccount: async (ctx) => {
         await startSky10GatewayAccount(ctx);
       },
+    },
+  },
+  outbound: {
+    base: {
+      deliveryMode: "direct",
+      chunker: null,
+      textChunkLimit: 12_000,
+    },
+    attachedResults: {
+      channel: CHANNEL_ID,
+      sendText: sendSky10OutboundText,
     },
   },
 });

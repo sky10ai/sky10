@@ -40,6 +40,10 @@ export class Sky10Client {
     });
   }
 
+  async listAgents() {
+    return this.rpc("agent.list", {});
+  }
+
   async sendDelta(to, sessionId, text, deviceId, streamId, clientRequestID = "") {
     if (!text) {
       return;

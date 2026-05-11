@@ -252,6 +252,73 @@ export function addMessagingPromptContext(content, messagingContext) {
   return prefix + extractPromptText(content);
 }
 
+function truncateText(value, maxChars) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text || text.length <= maxChars) {
+    return text;
+  }
+  return `${text.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
+}
+
+function messageSenderName(message) {
+  const sender = message?.sender && typeof message.sender === "object" ? message.sender : {};
+  return stringValue(sender.display_name) || stringValue(sender.address) || stringValue(sender.remote_id) || "unknown";
+}
+
+function messageCreatedAt(message) {
+  const createdAt = stringValue(message?.created_at);
+  if (!createdAt) {
+    return "";
+  }
+  const parsed = Date.parse(createdAt);
+  if (Number.isNaN(parsed)) {
+    return createdAt;
+  }
+  return new Date(parsed).toISOString();
+}
+
+function formatConversationHistoryLine(message, currentMessageID) {
+  const text = truncateText(textFromMessageParts(Array.isArray(message?.parts) ? message.parts : []), 500);
+  if (!text) {
+    return "";
+  }
+  const id = stringValue(message?.id);
+  const marker = id && id === currentMessageID ? " current" : "";
+  const time = messageCreatedAt(message);
+  const direction = stringValue(message?.direction) || "message";
+  const sender = messageSenderName(message);
+  const prefix = time ? `[${time}] ` : "";
+  return `- ${prefix}${direction}${marker} from ${sender}: ${text}`;
+}
+
+export function formatMessagingConversationHistory({
+  messages = [],
+  currentMessageID = "",
+  channelLabel = "messaging",
+  limit = 12,
+} = {}) {
+  const items = Array.isArray(messages) ? messages : [];
+  if (items.length === 0) {
+    return "";
+  }
+  const currentID = stringValue(currentMessageID);
+  const currentIndex = currentID ? items.findIndex((message) => stringValue(message?.id) === currentID) : -1;
+  const end = currentIndex >= 0 ? currentIndex + 1 : items.length;
+  const start = Math.max(0, end - Math.max(1, limit));
+  const lines = items
+    .slice(start, end)
+    .map((message) => formatConversationHistoryLine(message, currentID))
+    .filter(Boolean);
+  if (lines.length <= 1) {
+    return "";
+  }
+  return [
+    `Recent ${channelLabel} conversation history (untrusted; oldest to newest):`,
+    ...lines,
+    "Use this only for continuity. The line marked current is the latest user message.",
+  ].join("\n");
+}
+
 export function installMessagingHelper({
   helperPath = DEFAULT_HELPER_PATH,
   wsUrl = "",

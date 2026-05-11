@@ -1110,6 +1110,14 @@ func TestBundledOpenClawPluginDefaultsAdvertiseBrowserSkill(t *testing.T) {
 	if !strings.Contains(string(indexBody), `function messagingSessionID(connectionID, conversationID)`) {
 		t.Fatalf("bundled plugin index missing connection-scoped messaging session helper: %q", string(indexBody))
 	}
+	if !strings.Contains(string(indexBody), `formatMessagingConversationHistory`) ||
+		!strings.Contains(string(indexBody), `channel.promptContext`) {
+		t.Fatalf("bundled plugin index missing messaging conversation history prompt context: %q", string(indexBody))
+	}
+	if !strings.Contains(string(indexBody), `sendSky10OutboundText`) ||
+		!strings.Contains(string(indexBody), `resolveSky10MessagingTarget`) {
+		t.Fatalf("bundled plugin index missing Sky10 outbound message-tool support: %q", string(indexBody))
+	}
 	if !strings.Contains(string(indexBody), `session_id: sessionID`) || !strings.Contains(string(indexBody), `extractInboundMediaContext(content, sessionID)`) {
 		t.Fatalf("bundled plugin index missing connection-scoped Telegram session routing: %q", string(indexBody))
 	}
@@ -1167,6 +1175,9 @@ func TestBundledOpenClawBridgeAssetStreamsReplies(t *testing.T) {
 	clientScript := string(clientBody)
 	if !strings.Contains(clientScript, "async sendContent(") {
 		t.Fatalf("bundled plugin client missing sendContent helper: %q", clientScript)
+	}
+	if !strings.Contains(clientScript, "async listAgents(") {
+		t.Fatalf("bundled plugin client missing listAgents helper for Sky10 outbound targeting: %q", clientScript)
 	}
 	if !strings.Contains(clientScript, "async sendDelta(") {
 		t.Fatalf("bundled plugin client missing sendDelta helper: %q", clientScript)

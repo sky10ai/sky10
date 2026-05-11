@@ -8,6 +8,7 @@ import {
   contentMentionsMessaging,
   createMessagingClient,
   deriveMessagingWsUrl,
+  formatMessagingConversationHistory,
   formatMessagingPromptContext,
   messagingPartsFromReplyContent,
 } from "./messaging.js";
@@ -178,6 +179,50 @@ test("messaging prompt context preserves structured content parts", () => {
   assert.match(enriched.text, /messaging helper/);
   assert.match(enriched.text, /User message:\nread my email about invoices/);
   assert.equal(enriched.parts[2].source.path, "/tmp/invoice.pdf");
+});
+
+test("messaging conversation history formats recent turns around the current message", () => {
+  const history = formatMessagingConversationHistory({
+    channelLabel: "Telegram",
+    currentMessageID: "msg/3",
+    messages: [
+      {
+        id: "msg/1",
+        direction: "inbound",
+        sender: { display_name: "JP" },
+        parts: [{ kind: "text", text: "Can you send this to Sky10?" }],
+        created_at: "2026-05-11T04:55:00Z",
+      },
+      {
+        id: "msg/2",
+        direction: "outbound",
+        sender: { display_name: "Bot" },
+        parts: [{ kind: "text", text: "Want me to dig into enabling Sky10 outbound?" }],
+        created_at: "2026-05-11T04:56:00Z",
+      },
+      {
+        id: "msg/3",
+        direction: "inbound",
+        sender: { display_name: "JP" },
+        parts: [{ kind: "text", text: "Yes" }],
+        created_at: "2026-05-11T04:57:00Z",
+      },
+    ],
+  });
+
+  assert.match(history, /Recent Telegram conversation history/);
+  assert.match(history, /Want me to dig into enabling Sky10 outbound/);
+  assert.match(history, /inbound current from JP: Yes/);
+});
+
+test("messaging conversation history is omitted for single-message conversations", () => {
+  assert.equal(
+    formatMessagingConversationHistory({
+      currentMessageID: "msg/1",
+      messages: [{ id: "msg/1", direction: "inbound", parts: [{ kind: "text", text: "Hi" }] }],
+    }),
+    "",
+  );
 });
 
 test("contentFromMessage maps telegram file refs to OpenClaw file sources", () => {
