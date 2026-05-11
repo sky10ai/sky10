@@ -195,7 +195,10 @@ func TestBundledOpenClawDockerfileSupportsSpecPackageLayer(t *testing.T) {
 		`ARG SKY10_OPENCLAW_RUNTIME_IMAGE=ghcr.io/sky10ai/sky10-openclaw-runtime:2026.5.7-ubuntu24.04`,
 		`FROM ${SKY10_OPENCLAW_RUNTIME_IMAGE}`,
 		`ARG SKY10_AGENT_PACKAGES=""`,
+		`ARG SKY10_VERSION=latest`,
 		`apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 install -y ${SKY10_AGENT_PACKAGES}`,
+		`https://github.com/sky10ai/sky10/releases/latest/download/sky10-linux-${arch}`,
+		`https://github.com/sky10ai/sky10/releases/download/${SKY10_VERSION}/sky10-linux-${arch}`,
 	} {
 		if !strings.Contains(dockerfile, want) {
 			t.Fatalf("bundled OpenClaw Dockerfile missing %q: %q", want, dockerfile)
@@ -215,6 +218,9 @@ func TestBundledHermesDockerfileUsesGHCRRuntimeImage(t *testing.T) {
 	for _, want := range []string{
 		`ARG SKY10_HERMES_RUNTIME_IMAGE=ghcr.io/sky10ai/sky10-hermes-runtime:v2026.5.7-ubuntu24.04`,
 		`FROM ${SKY10_HERMES_RUNTIME_IMAGE}`,
+		`ARG SKY10_VERSION=latest`,
+		`https://github.com/sky10ai/sky10/releases/latest/download/sky10-linux-${arch}`,
+		`https://github.com/sky10ai/sky10/releases/download/${SKY10_VERSION}/sky10-linux-${arch}`,
 	} {
 		if !strings.Contains(dockerfile, want) {
 			t.Fatalf("bundled Hermes Dockerfile missing %q: %q", want, dockerfile)
@@ -318,6 +324,15 @@ func TestLoadSandboxAssetsLoadsOpenClawRuntimeBundle(t *testing.T) {
 	}
 	if !strings.Contains(string(entrypointBody), `cat /tmp/xvfb.log >&2`) {
 		t.Fatalf("runtime bundle entrypoint should surface Xvfb startup failures: %q", string(entrypointBody))
+	}
+	if strings.Contains(string(entrypointBody), `[o]penclaw-gateway`) {
+		t.Fatalf("runtime bundle entrypoint should not probe stale OpenClaw gateway process names: %q", string(entrypointBody))
+	}
+	if !strings.Contains(string(entrypointBody), `http://127.0.0.1:18789/health`) {
+		t.Fatalf("runtime bundle entrypoint should wait for OpenClaw gateway health endpoint: %q", string(entrypointBody))
+	}
+	if !strings.Contains(string(entrypointBody), `kill -0 "${openclaw_pid}"`) {
+		t.Fatalf("runtime bundle entrypoint should monitor the OpenClaw child process: %q", string(entrypointBody))
 	}
 }
 

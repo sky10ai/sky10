@@ -524,6 +524,15 @@ func TestLoadLimaSharedAssetsLoadsOpenClawRuntimeBundle(t *testing.T) {
 	if !strings.Contains(string(entrypointBody), `cat /tmp/xvfb.log >&2`) {
 		t.Fatalf("runtime bundle entrypoint should surface Xvfb startup failures: %q", string(entrypointBody))
 	}
+	if strings.Contains(string(entrypointBody), `[o]penclaw-gateway`) {
+		t.Fatalf("runtime bundle entrypoint should not probe stale OpenClaw gateway process names: %q", string(entrypointBody))
+	}
+	if !strings.Contains(string(entrypointBody), `http://127.0.0.1:18789/health`) {
+		t.Fatalf("runtime bundle entrypoint should wait for OpenClaw gateway health endpoint: %q", string(entrypointBody))
+	}
+	if !strings.Contains(string(entrypointBody), `kill -0 "${openclaw_pid}"`) {
+		t.Fatalf("runtime bundle entrypoint should monitor the OpenClaw child process: %q", string(entrypointBody))
+	}
 }
 
 func TestLoadLimaSharedAssetsLoadsHermesRuntimeBundle(t *testing.T) {

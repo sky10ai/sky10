@@ -38,7 +38,7 @@ wait_for_openclaw_agent() {
 }
 
 wait_for_openclaw_gateway() {
-  timeout 120s bash -lc 'until pgrep -f "[o]penclaw-gateway" >/dev/null 2>&1; do sleep 2; done'
+  timeout 120s bash -lc 'until curl -fsS http://127.0.0.1:18789/health >/dev/null 2>&1; do sleep 2; done'
 }
 
 start_xvfb() {
@@ -265,8 +265,12 @@ while true; do
     echo >&2 "Xvfb exited unexpectedly"
     exit 1
   fi
-  if ! pgrep -f "[o]penclaw-gateway" >/dev/null 2>&1; then
-    echo >&2 "OpenClaw gateway process is not running"
+  if ! kill -0 "${openclaw_pid}" >/dev/null 2>&1; then
+    echo >&2 "OpenClaw gateway process exited"
+    exit 1
+  fi
+  if ! curl -fsS http://127.0.0.1:18789/health >/dev/null 2>&1; then
+    echo >&2 "OpenClaw gateway is not healthy"
     exit 1
   fi
   sleep 2
