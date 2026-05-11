@@ -1,4 +1,11 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { Link, useLocation } from "react-router";
 import { CODEX_EVENT_TYPES, subscribe } from "../../lib/events";
 import { executeRootAgentPrompt } from "../../lib/rootAgent";
@@ -17,10 +24,12 @@ import {
   safeTimestamp,
   type CapturedScreenshot,
 } from "../../lib/rootAgentScreenshot";
+import { useRootAgentHelperHidden } from "../../lib/rootAgentPreferences";
 import { codex, debug, rootAgent } from "../../lib/rpc";
 import { formatBytes, useRPC } from "../../lib/useRPC";
 import { Icon } from "../Icon";
 import { StatusBadge } from "../StatusBadge";
+import { RootAgentMarkdown } from "./RootAgentMarkdown";
 import {
   createWorkspaceRun,
   runTone,
@@ -42,6 +51,20 @@ type PendingScreenshotRequest = {
   source?: string;
 };
 
+type RootAgentPanelSize = {
+  height: number;
+  width: number;
+};
+
+type RootAgentResizeEdge = "corner" | "left" | "top";
+
+const PANEL_SIZE_STORAGE_KEY = "sky10:rootAgent:panelSize";
+const DEFAULT_PANEL_SIZE: RootAgentPanelSize = { height: 620, width: 448 };
+const MIN_PANEL_HEIGHT = 360;
+const MIN_PANEL_WIDTH = 352;
+const VIEWPORT_MARGIN = 32;
+const PANEL_BOTTOM_OFFSET = 112;
+
 function parseScreenshotRequest(data: unknown): PendingScreenshotRequest {
   const payload =
     data && typeof data === "object" ? (data as Record<string, unknown>) : {};
@@ -57,6 +80,57 @@ function parseScreenshotRequest(data: unknown): PendingScreenshotRequest {
     requestedAt,
     source: typeof payload.source === "string" ? payload.source : undefined,
   };
+}
+
+function clampValue(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
+function clampPanelSize(size: RootAgentPanelSize): RootAgentPanelSize {
+  if (typeof window === "undefined") return size;
+  return {
+    height: clampValue(
+      Math.round(size.height),
+      MIN_PANEL_HEIGHT,
+      window.innerHeight - PANEL_BOTTOM_OFFSET,
+    ),
+    width: clampValue(
+      Math.round(size.width),
+      MIN_PANEL_WIDTH,
+      window.innerWidth - VIEWPORT_MARGIN,
+    ),
+  };
+}
+
+function loadPanelSize(): RootAgentPanelSize {
+  if (typeof window === "undefined") return DEFAULT_PANEL_SIZE;
+
+  try {
+    const raw = window.localStorage.getItem(PANEL_SIZE_STORAGE_KEY);
+    if (!raw) return clampPanelSize(DEFAULT_PANEL_SIZE);
+    const parsed = JSON.parse(raw) as Partial<RootAgentPanelSize>;
+    const width =
+      typeof parsed.width === "number" ? parsed.width : DEFAULT_PANEL_SIZE.width;
+    const height =
+      typeof parsed.height === "number" ? parsed.height : DEFAULT_PANEL_SIZE.height;
+    return clampPanelSize({ height, width });
+  } catch {
+    return clampPanelSize(DEFAULT_PANEL_SIZE);
+  }
+}
+
+function savePanelSize(size: RootAgentPanelSize) {
+  try {
+    window.localStorage.setItem(PANEL_SIZE_STORAGE_KEY, JSON.stringify(size));
+  } catch {
+    // Ignore localStorage write failures; resize still works for this session.
+  }
+}
+
+function resizeCursor(edge: RootAgentResizeEdge) {
+  if (edge === "left") return "ew-resize";
+  if (edge === "top") return "ns-resize";
+  return "nwse-resize";
 }
 
 export function RootAgentBubble() {
@@ -80,6 +154,13 @@ export function RootAgentBubble() {
   const [captureBusy, setCaptureBusy] = useState(false);
   const [pendingScreenshotRequest, setPendingScreenshotRequest] =
     useState<PendingScreenshotRequest | null>(null);
+  const [helperHidden] = useRootAgentHelperHidden();
+  const [panelSize, setPanelSize] = useState<RootAgentPanelSize>(loadPanelSize);
+  const panelSizeRef = useRef(panelSize);
+
+  useEffect(() => {
+    panelSizeRef.current = panelSize;
+  }, [panelSize]);
 
   function refreshContext() {
     const next = collectRootAgentPageContext();
@@ -94,6 +175,14 @@ export function RootAgentBubble() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [location.hash, location.pathname, location.search, open]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setPanelSize((current) => clampPanelSize(current));
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -246,6 +335,52 @@ export function RootAgentBubble() {
     }
   }
 
+  function startResize(
+    edge: RootAgentResizeEdge,
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startSize = panelSizeRef.current;
+    let latestSize = startSize;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = resizeCursor(edge);
+    document.body.style.userSelect = "none";
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const deltaY = moveEvent.clientY - startY;
+      latestSize = clampPanelSize({
+        height:
+          edge === "top" || edge === "corner"
+            ? startSize.height - deltaY
+            : startSize.height,
+        width:
+          edge === "left" || edge === "corner"
+            ? startSize.width - deltaX
+            : startSize.width,
+      });
+      setPanelSize(latestSize);
+    };
+
+    const handlePointerUp = () => {
+      savePanelSize(latestSize);
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+  }
+
   function removeScreenshot() {
     setScreenshot((current) => {
       if (current?.url) URL.revokeObjectURL(current.url);
@@ -284,11 +419,43 @@ export function RootAgentBubble() {
   }
 
   const contextLabel = pageContext?.pageLabel ?? "Current page";
+  const helperVisible = !helperHidden || open || Boolean(pendingScreenshotRequest);
+  const panelStyle = {
+    "--root-agent-panel-height": `${panelSize.height}px`,
+    "--root-agent-panel-width": `${panelSize.width}px`,
+  } as CSSProperties;
+
+  if (!helperVisible) return null;
 
   return (
     <>
       {open && (
-        <aside className="fixed bottom-[5.75rem] left-4 right-4 z-[90] flex max-h-[calc(100vh-7rem)] flex-col overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container-lowest shadow-2xl sm:left-auto sm:right-6 sm:w-[28rem]">
+        <aside
+          className="fixed bottom-[5.75rem] left-4 right-4 z-[90] flex max-h-[calc(100vh-7rem)] flex-col overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container-lowest shadow-2xl sm:left-auto sm:right-6 sm:h-[var(--root-agent-panel-height)] sm:w-[var(--root-agent-panel-width)]"
+          style={panelStyle}
+        >
+          <div
+            aria-label="Resize RootAgent panel"
+            className="absolute -left-1 -top-1 z-10 hidden h-5 w-5 cursor-nwse-resize rounded-br-lg border-b border-r border-outline-variant/20 bg-surface-container-lowest/90 sm:block"
+            onPointerDown={(event) => startResize("corner", event)}
+            role="separator"
+          />
+          <div
+            aria-label="Resize RootAgent height"
+            className="absolute left-6 right-6 top-0 z-10 hidden h-2 cursor-ns-resize sm:block"
+            onPointerDown={(event) => startResize("top", event)}
+            role="separator"
+          >
+            <span className="mx-auto mt-1 block h-0.5 w-10 rounded-full bg-outline-variant/50" />
+          </div>
+          <div
+            aria-label="Resize RootAgent width"
+            className="absolute bottom-6 left-0 top-6 z-10 hidden w-2 cursor-ew-resize sm:block"
+            onPointerDown={(event) => startResize("left", event)}
+            role="separator"
+          >
+            <span className="mx-auto block h-full w-0.5 rounded-full bg-outline-variant/30" />
+          </div>
           <header className="flex items-start justify-between gap-3 border-b border-outline-variant/10 px-4 py-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
@@ -314,12 +481,12 @@ export function RootAgentBubble() {
                 <Icon name="refresh" className="text-lg" />
               </button>
               <button
-                aria-label="Close RootAgent"
+                aria-label="Minimize RootAgent"
                 className="grid h-8 w-8 place-items-center rounded-full text-secondary transition-colors hover:bg-surface-container hover:text-on-surface"
                 onClick={() => setOpen(false)}
                 type="button"
               >
-                <Icon name="close" className="text-lg" />
+                <Icon name="remove" className="text-lg" />
               </button>
             </div>
           </header>
@@ -448,9 +615,11 @@ export function RootAgentBubble() {
                   </div>
                   <StatusBadge tone={runTone(run.status)}>{run.status}</StatusBadge>
                 </div>
-                <div className="max-h-60 overflow-y-auto whitespace-pre-wrap rounded-xl bg-surface px-3 py-3 text-sm leading-6 text-on-surface">
-                  {run.answer || "..."}
-                </div>
+                <RootAgentMarkdown
+                  className="rounded-xl bg-surface px-3 py-3"
+                  fallback="..."
+                  text={run.answer}
+                />
                 {run.followUps && run.followUps.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {run.followUps.map((item) => (
@@ -559,19 +728,25 @@ export function RootAgentBubble() {
         </aside>
       )}
 
-      <button
-        aria-label="Open RootAgent"
-        className="root-agent-bubble-attention fixed bottom-5 right-5 z-[80] inline-flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-primary text-on-primary shadow-xl ring-1 ring-primary/20 transition-transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-primary/25 sm:bottom-6 sm:right-6"
-        onClick={() => {
-          setOpen((current) => !current);
-          window.requestAnimationFrame(() => {
-            refreshContext();
-          });
-        }}
-        type="button"
-      >
-        <Icon name={open ? "close" : "support_agent"} className="relative z-10 text-2xl" filled={!open} />
-      </button>
+      {!helperHidden && (
+        <button
+          aria-label={open ? "Minimize RootAgent" : "Open RootAgent"}
+          className="root-agent-bubble-attention fixed bottom-5 right-5 z-[80] inline-flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-primary text-on-primary shadow-xl ring-1 ring-primary/20 transition-transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-primary/25 sm:bottom-6 sm:right-6"
+          onClick={() => {
+            setOpen((current) => !current);
+            window.requestAnimationFrame(() => {
+              refreshContext();
+            });
+          }}
+          type="button"
+        >
+          <Icon
+            name={open ? "remove" : "support_agent"}
+            className="relative z-10 text-2xl"
+            filled={!open}
+          />
+        </button>
+      )}
     </>
   );
 }

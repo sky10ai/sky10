@@ -1,5 +1,6 @@
 import { StatusBadge } from "../StatusBadge";
 import { timeAgo } from "../../lib/useRPC";
+import { RootAgentMarkdown } from "./RootAgentMarkdown";
 import { runTone, toolTone, type WorkspaceRun } from "./workspaceTypes";
 
 interface RunCardProps {
@@ -28,9 +29,11 @@ export function RunCard({ onPromptSelect, run }: RunCardProps) {
       </div>
 
       <div className="mt-5 border-t border-outline-variant/10 pt-5">
-        <div className="whitespace-pre-wrap text-sm leading-7 text-on-surface">
-          {run.answer || "..."}
-        </div>
+        <RootAgentMarkdown
+          className="leading-7"
+          fallback="..."
+          text={run.answer}
+        />
         {run.followUps && run.followUps.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-2">
             {run.followUps.map((item) => (

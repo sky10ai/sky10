@@ -2,6 +2,7 @@ import { Icon } from "../components/Icon";
 import { SettingsPage } from "../components/SettingsPage";
 import { ThemeControl } from "../components/ThemeControl";
 import { useTheme, type ThemePreference } from "../components/ThemeProvider";
+import { useRootAgentHelperHidden } from "../lib/rootAgentPreferences";
 
 function preferenceSummary(preference: ThemePreference) {
   if (preference === "system") {
@@ -13,11 +14,14 @@ function preferenceSummary(preference: ThemePreference) {
 
 export default function SettingsVisuals() {
   const { preference, resolvedTheme } = useTheme();
+  const [rootAgentHelperHidden, setRootAgentHelperHidden] =
+    useRootAgentHelperHidden();
+  const rootAgentHelperShown = !rootAgentHelperHidden;
 
   return (
     <SettingsPage
       backHref="/settings"
-      description="Choose how sky10 follows system, light, or dark mode."
+      description="Choose how sky10 looks and which workspace helpers stay visible."
       title="Visuals"
     >
       <section className="grid gap-6 xl:grid-cols-[minmax(0,2.2fr)_minmax(20rem,1fr)]">
@@ -36,6 +40,42 @@ export default function SettingsVisuals() {
           </div>
 
           <ThemeControl />
+
+          <div className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-on-surface">
+                  RootAgent helper
+                </p>
+                <p className="mt-1 text-sm text-secondary">
+                  Show the floating RootAgent button in the workspace.
+                </p>
+              </div>
+              <button
+                aria-checked={rootAgentHelperShown}
+                aria-label="Show RootAgent helper"
+                className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full border transition-colors ${
+                  rootAgentHelperShown
+                    ? "border-primary/30 bg-primary"
+                    : "border-outline-variant/20 bg-surface-container-high"
+                }`}
+                onClick={() => setRootAgentHelperHidden(!rootAgentHelperHidden)}
+                role="switch"
+                type="button"
+              >
+                <span
+                  className={`grid h-6 w-6 place-items-center rounded-full bg-white text-[10px] text-primary shadow-sm transition-transform ${
+                    rootAgentHelperShown ? "translate-x-7" : "translate-x-1"
+                  }`}
+                >
+                  <Icon
+                    className="text-base"
+                    name={rootAgentHelperShown ? "visibility" : "visibility_off"}
+                  />
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <aside className="space-y-6 rounded-[2rem] border border-outline-variant/10 bg-surface-container-lowest p-8 shadow-sm">
